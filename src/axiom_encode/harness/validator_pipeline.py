@@ -84,8 +84,13 @@ from axiom_encode.corpus_resolver import (
     InvalidCorpusCitationError,
     LocalCorpusRelease,
     UnsafeCorpusPathError,
+    local_corpus_row_is_repealed,
     require_canonical_corpus_citation_path,
     resolve_local_corpus_source,
+)
+from axiom_encode.editorial_source_ancestry import (
+    BIBLIOGRAPHIC_NOTICE,
+    confirms_bibliographic_editorial_scope,
 )
 from axiom_encode.encode_timing import (
     PHASE_REVIEW_MODEL_CALL,
@@ -103,6 +108,11 @@ from axiom_encode.engine_binding import (
     load_declared_engine_pin,
     require_engine_ref_sha,
     resolve_pinned_engine_binary,
+)
+from axiom_encode.harness.coverage_exemptions import (
+    CoverageDemand,
+    filter_coverage_demands,
+    has_reviewed_repeal,
 )
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.repo_routing import (
@@ -1225,6 +1235,19 @@ _STRUCTURAL_SOURCE_PREFIX_PATTERN = re.compile(
     r"\d+\s+(?=[A-Z][A-Za-z].*:)|\([0-9A-Za-zivxlcdm]+\)\s+)",
     re.IGNORECASE,
 )
+_STRUCTURAL_SOURCE_QUOTE_CHARS = "\"'`“”‘’"
+# Page syntax cannot prove that a leading integer is nonoperative. The
+# completeness mask authenticates complete manual context before erasing
+# genuine locators; generic cleanup must preserve candidates that remain,
+# including integers split onto their own line and composed child headers.
+_MANUAL_PAGE_CANDIDATE_LINE_PATTERN = re.compile(
+    # Use the same line boundaries as splitlines(), including PDF separators.
+    r"(?:\A|(?<=[\r\n\v\f\x1c-\x1e\x85\u2028\u2029]))"
+    r"""(?:[^\S\r\n\v\f\x1c-\x1e\x85\u2028\u2029]|["'`“”‘’])*(?P<value>\d{1,4})"""
+    rf"[{re.escape(_STRUCTURAL_SOURCE_QUOTE_CHARS)}]*"
+    r"(?=\s+(?:\((?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\)|Chapter\b))",
+    re.IGNORECASE,
+)
 _STRUCTURAL_SOURCE_MANUAL_NUMBER_PATTERN = re.compile(
     r"\b(?:(?:Policy|Procedure|Operations)\s+)?"
     r"(?:[A-Z][A-Za-z&/-]*\s+){0,4}?"
@@ -1345,7 +1368,6 @@ _STRUCTURAL_SOURCE_SECTION_PATTERN = re.compile(
     r"(?=$|[\s,.;:])",
     re.IGNORECASE,
 )
-_STRUCTURAL_SOURCE_QUOTE_CHARS = "\"'`“”‘’"
 _SYNTHETIC_MODELING_INSTRUCTION_PATTERN = re.compile(
     r"^\s*model\s+`[^`]+`\s+as\b",
     re.IGNORECASE,
@@ -12369,12 +12391,20 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
         )
 
     preserve_split_schedule_value = False
+    page_candidate_offsets = {
+        match.start("value")
+        for match in _MANUAL_PAGE_CANDIDATE_LINE_PATTERN.finditer(text)
+    }
     line_offset = 0
     for line_with_ending in text.splitlines(keepends=True):
         line = line_with_ending.rstrip("\r\n")
         line_span = (line_offset, line_offset + len(line))
         stripped = line.strip()
         structural_stripped = stripped.strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
+        page_candidate = bool(page_candidate_offsets) and any(
+            offset in page_candidate_offsets
+            for offset in range(line_offset, line_offset + len(line))
+        )
         if preserve_split_schedule_value and _SCHEDULE_SPLIT_VALUE_PATTERN.fullmatch(
             structural_stripped
         ):
@@ -12387,9 +12417,12 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             line_offset += len(line_with_ending)
             continue
         if (
-            _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped)
+            not page_candidate
+            and (
+                _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped)
+                or _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped)
+            )
             or _STRUCTURAL_SOURCE_HEADING_PATTERN.match(structural_stripped)
-            or _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped)
             or _TABLE_HEADING_PATTERN.match(structural_stripped)
             or _SYNTHETIC_MODELING_INSTRUCTION_PATTERN.match(structural_stripped)
             or _SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN.match(
@@ -12451,7 +12484,11 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             )
             for match in _TABLE_ROW_LABEL_PATTERN.finditer(normalized_line)
         )
-        structural_prefix = _STRUCTURAL_SOURCE_PREFIX_PATTERN.match(normalized_line)
+        structural_prefix = (
+            None
+            if page_candidate
+            else _STRUCTURAL_SOURCE_PREFIX_PATTERN.match(normalized_line)
+        )
         if structural_prefix is not None:
             prefix_span = (
                 line_offset + normalized_start + structural_prefix.start(),
@@ -12957,6 +12994,10 @@ def _clean_source_text_for_numeric_extraction_tracked(
     )
     cleaned_lines: list[_TrackedText] = []
     preserve_split_schedule_value = False
+    page_candidate_offsets = {
+        tracked.offsets[match.start("value")]
+        for match in _MANUAL_PAGE_CANDIDATE_LINE_PATTERN.finditer(tracked.text)
+    }
     for tracked_line in tracked.lines():
         ending = tracked_line.text[len(tracked_line.text.rstrip("\n")) :]
         content = _TrackedText(
@@ -12967,6 +13008,9 @@ def _clean_source_text_for_numeric_extraction_tracked(
         line = content.text
         stripped = line.strip()
         structural_stripped = stripped.strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
+        page_candidate = bool(page_candidate_offsets) and any(
+            offset in page_candidate_offsets for offset in content.offsets
+        )
         if _TABLE_HEADING_PATTERN.match(
             structural_stripped
         ) and _INLINE_TABLE_VALUE_PATTERN.search(structural_stripped):
@@ -12990,7 +13034,9 @@ def _clean_source_text_for_numeric_extraction_tracked(
             cleaned_lines.append(_TrackedText.concat([content, terminator]))
             preserve_split_schedule_value = True
             continue
-        if _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped):
+        if not page_candidate and _STRUCTURAL_SOURCE_LINE_PATTERN.match(
+            structural_stripped
+        ):
             cleaned_lines.append(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
@@ -13000,7 +13046,9 @@ def _clean_source_text_for_numeric_extraction_tracked(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
             continue
-        if _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped):
+        if not page_candidate and _STRUCTURAL_SOURCE_CITATION_PATTERN.match(
+            structural_stripped
+        ):
             cleaned_lines.append(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
@@ -13052,7 +13100,8 @@ def _clean_source_text_for_numeric_extraction_tracked(
         normalized = normalized.sub(
             _TABLE_ROW_LABEL_PATTERN, lambda m: "size".ljust(len(m.group(0)))
         )
-        normalized = normalized.sub(_STRUCTURAL_SOURCE_PREFIX_PATTERN, _blank_match)
+        if not page_candidate:
+            normalized = normalized.sub(_STRUCTURAL_SOURCE_PREFIX_PATTERN, _blank_match)
         cleaned_lines.append(_TrackedText.concat([normalized, terminator]))
 
     tracked = _TrackedText.concat(cleaned_lines)
@@ -16846,6 +16895,10 @@ def _tokenize_numeric_occurrences_from_text(
             ):
                 continue
             grouped_value = _parse_belgian_numeric_phrase(match.group(1))
+            source_span = cleaned_view.source_span(span)
+            # Prefer a grouped reading only when this same source token
+            # supplied it. An unrelated integer (such as a retained page
+            # number) cannot disambiguate an operative decimal amount.
             if (
                 grouped_value is not None
                 and not math.isclose(
@@ -16855,7 +16908,8 @@ def _tokenize_numeric_occurrences_from_text(
                     abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
                 )
                 and any(
-                    math.isclose(
+                    occurrence.span == source_span
+                    and math.isclose(
                         grouped_value,
                         occurrence.value,
                         rel_tol=0,
@@ -24508,36 +24562,44 @@ def find_source_subparagraph_coverage_issues(
     ) or extract_embedded_source_text(content)
     if not source_text:
         return []
+    # The requested source takes precedence over the output file's location,
+    # which can collapse to the parent under corpus fallback (see issue #71).
+    # Preserve its literal identity for the registry and corpus authentication;
+    # only the existing outline scanner uses a case-folded scope.
+    requested_scope = _scope_prefix_from_requested_source(
+        citation_path, requested_source, preserve_case=True
+    ) or _source_subparagraph_coverage_scope_prefix(
+        citation_path, rules_file=rules_file, preserve_case=True
+    )
+    coverage_scope_prefix = tuple(part.lower() for part in requested_scope)
     if _empty_deferred_editorial_source_slice(
         payload, content
     ) and _authoritative_deferred_editorial_source_slice(
         source_text,
         extract_embedded_source_text(content),
-        _scope_prefix_from_requested_source(citation_path, requested_source)
-        or _source_subparagraph_coverage_scope_prefix(
-            citation_path, rules_file=rules_file
+        coverage_scope_prefix,
+        citation_path=citation_path,
+        requested_scope=requested_scope,
+        requested_citation_path=_requested_corpus_citation_path(
+            citation_path, requested_source, rules_file=rules_file
         ),
     ):
         return []
 
-    source_children = _high_signal_top_level_subparagraphs(source_text)
-    # The requested-source scope takes precedence over the rules_file-derived
-    # one because it captures encoder intent precisely; the rules_file path
-    # only tells us where the artifact landed (which can collapse to the
-    # parent under corpus fallback, see issue #71).
-    coverage_scope_prefix = _scope_prefix_from_requested_source(
-        citation_path, requested_source
-    ) or _source_subparagraph_coverage_scope_prefix(
-        citation_path,
-        rules_file=rules_file,
-    )
+    source_children = _high_signal_top_level_coverage_demands(source_text)
     if coverage_scope_prefix:
         coverage_scope_top_level = _top_level_subparagraph_path(coverage_scope_prefix)
         source_children = [
-            (label, text)
-            for label, text in source_children
-            if (label,) == coverage_scope_top_level
+            demand
+            for demand in source_children
+            if (demand.label,) == coverage_scope_top_level
         ]
+    source_children = filter_coverage_demands(
+        source_children,
+        citation_path=citation_path,
+        requested_scope=requested_scope or None,
+        source_text=source_text,
+    )
     if not source_children:
         return []
 
@@ -24552,7 +24614,8 @@ def find_source_subparagraph_coverage_issues(
     )
 
     issues: list[str] = []
-    for label, text in source_children:
+    for demand in source_children:
+        label, text = demand.label, demand.body
         if (label,) in covered_children:
             continue
         citation = _format_source_subparagraph_citation(citation_path, label)
@@ -24659,6 +24722,23 @@ def _high_signal_top_level_subparagraphs(source_text: str) -> list[tuple[str, st
     ]
 
 
+def _high_signal_top_level_coverage_demands(source_text: str) -> list[CoverageDemand]:
+    """Attach each main demand's original physical marker, including duplicates."""
+    # Compute main's complete spans first. Match origins must never be recovered
+    # with a label/body search: identical repeated headings have distinct keys.
+    demands = _high_signal_top_level_subparagraphs(source_text)
+    segments = _top_level_source_subparagraph_segments(source_text)
+    origins = _TOP_LEVEL_SOURCE_SUBPARAGRAPH_PATTERN.finditer(source_text)
+    positions: dict[tuple[str, str], list[int]] = defaultdict(list)
+    for segment, match in zip(segments, origins, strict=True):
+        positions[segment].append(match.start())
+    position_iters = {segment: iter(starts) for segment, starts in positions.items()}
+    return [
+        CoverageDemand(label, text, next(position_iters[(label, text)]))
+        for label, text in demands
+    ]
+
+
 def _top_level_source_subparagraph_segments(
     source_text: str,
 ) -> list[tuple[str, str]]:
@@ -24676,20 +24756,50 @@ def _top_level_source_subparagraph_segments(
 
 
 def _authoritative_deferred_editorial_source_slice(
-    source_text: str, summary: str, scope: tuple[str, ...]
+    source_text: str,
+    summary: str,
+    scope: tuple[str, ...],
+    *,
+    citation_path: str | None = None,
+    requested_scope: tuple[str, ...] | None = None,
+    requested_citation_path: str | None = None,
 ) -> bool:
     """Add authoritative-source evidence to the existing summary waiver."""
     if len(scope) <= 1:
         return False
+    if requested_scope is None:
+        requested_scope = scope
     notice_label = re.search(
         r"\(([A-Za-z0-9]+)\)", _normalized_editorial_source_presentation(summary)
     )
     return bool(
         notice_label
         and notice_label[1].lower() == scope[-1]
-        and _authoritative_source_slice_is_editorial_omission(summary)
+        and (
+            _authoritative_source_slice_is_editorial_omission(summary)
+            or _bibliographic_editorial_notice(summary)
+        )
         and _source_scope_is_editorial_omission(source_text, scope)
+        and citation_path is not None
+        and (
+            has_reviewed_repeal(
+                citation_path=citation_path,
+                requested_scope=requested_scope,
+                source_text=source_text,
+            )
+            or _requested_corpus_row_is_repealed(requested_citation_path)
+        )
     )
+
+
+def _requested_corpus_row_is_repealed(
+    requested_citation_path: str | None,
+) -> bool:
+    """Authenticate the literal requested row, preserving corpus label case."""
+    release = _AUTHORITATIVE_CORPUS_RELEASE.get()
+    if release is None or requested_citation_path is None:
+        return False
+    return local_corpus_row_is_repealed(requested_citation_path, release)
 
 
 def _normalized_editorial_source_presentation(source_text: str) -> str:
@@ -24708,6 +24818,10 @@ def _source_scope_is_editorial_omission(
     source_text: str, scope: tuple[str, ...]
 ) -> bool:
     """Authenticate one exact requested tombstone in a proven source outline."""
+    # The finite certificate uses raw presentation and a complete sequential
+    # ancestry proof. Refusal leaves the original conservative route intact.
+    if confirms_bibliographic_editorial_scope(source_text, scope):
+        return True
     # Preserve digits inside authoritative headings before removing notice
     # footnotes. A superscript label is still a label, not an annotation.
     heading_text = re.sub(
@@ -24780,6 +24894,11 @@ def _source_scope_is_editorial_omission(
     return _authoritative_source_slice_is_editorial_omission(
         normalized[marker.start : end]
     )
+
+
+def _bibliographic_editorial_notice(source_text: str) -> bool:
+    normalized = _normalized_editorial_source_presentation(source_text).strip()
+    return BIBLIOGRAPHIC_NOTICE.fullmatch(normalized) is not None
 
 
 def _authoritative_source_slice_is_editorial_omission(source_text: str) -> bool:
@@ -25122,8 +25241,11 @@ def _source_subparagraph_coverage_scope_prefix(
     citation_path: str,
     *,
     rules_file: Path | None,
+    preserve_case: bool = False,
 ) -> tuple[str, ...]:
-    return _rulespec_file_subparagraph_scope(citation_path, rules_file)
+    return _rulespec_file_subparagraph_scope(
+        citation_path, rules_file, preserve_case=preserve_case
+    )
 
 
 def _normalize_requested_source_to_corpus_path(requested_source: str) -> str:
@@ -25160,7 +25282,10 @@ def _normalize_requested_source_to_corpus_path(requested_source: str) -> str:
 
 
 def _scope_prefix_from_requested_source(
-    citation_path: str, requested_source: str | None
+    citation_path: str,
+    requested_source: str | None,
+    *,
+    preserve_case: bool = False,
 ) -> tuple[str, ...]:
     """Derive a subparagraph scope from a requested source vs the resolved
     citation_path. When the corpus serves a parent-fallback slice, the
@@ -25171,6 +25296,8 @@ def _scope_prefix_from_requested_source(
     (``us/statute/7/2014/e/2/B``) or the human USC form (``7 USC 2014(e)(2)(B)``)
     — the eval workspace stores it as the raw caller input, which is usually
     human form. Normalize both to corpus paths before comparing.
+    ``preserve_case`` retains the literal labels for exact row authentication
+    and registry keys; the default retains the scanner's folded scope.
 
     Examples (citation_path → requested_source → scope):
       us/statute/7/2014 → us/statute/7/2014/e/2/B → ('e', '2', 'b')
@@ -25189,12 +25316,45 @@ def _scope_prefix_from_requested_source(
         return ()
     if requested_parts[: len(citation_parts)] != citation_parts:
         return ()
-    return tuple(part.lower() for part in requested_parts[len(citation_parts) :])
+    scope = requested_parts[len(citation_parts) :]
+    return scope if preserve_case else tuple(part.lower() for part in scope)
+
+
+def _requested_corpus_citation_path(
+    citation_path: str,
+    requested_source: str | None,
+    *,
+    rules_file: Path | None,
+) -> str | None:
+    """Keep exact corpus identity separate from the outline scanner's scope."""
+    citation_parts = tuple(part for part in citation_path.strip("/").split("/") if part)
+    if requested_source:
+        normalized = _normalize_requested_source_to_corpus_path(requested_source)
+        requested_parts = tuple(
+            part for part in normalized.strip("/").split("/") if part
+        )
+        if citation_parts and requested_parts[: len(citation_parts)] == citation_parts:
+            return "/".join(requested_parts)
+
+    base_parts = _rulespec_base_parts_for_corpus_path(citation_path)
+    file_scope = _rulespec_file_subparagraph_scope(
+        citation_path, rules_file, preserve_case=True
+    )
+    if not base_parts or not file_scope:
+        return None
+    # A RuleSpec base drops the jurisdiction and pluralizes the document kind.
+    # Its suffix starts at the section even when the resolved row is a child.
+    requested_parts = (*citation_parts[: len(base_parts) + 1], *file_scope)
+    if requested_parts[: len(citation_parts)] != citation_parts:
+        return None
+    return "/".join(requested_parts)
 
 
 def _rulespec_file_subparagraph_scope(
     citation_path: str,
     rules_file: Path | None,
+    *,
+    preserve_case: bool = False,
 ) -> tuple[str, ...]:
     if rules_file is None:
         return ()
@@ -25206,9 +25366,8 @@ def _rulespec_file_subparagraph_scope(
     for index in range(0, len(file_parts) - len(base_parts) + 1):
         if tuple(file_parts[index : index + len(base_parts)]) != base_parts:
             continue
-        return tuple(
-            part.lower() for part in file_parts[index + len(base_parts) :] if part
-        )
+        scope = tuple(part for part in file_parts[index + len(base_parts) :] if part)
+        return scope if preserve_case else tuple(part.lower() for part in scope)
     return ()
 
 
@@ -31695,18 +31854,73 @@ def _resolve_rulespec_import_file_static(
             return resolved
         return None
 
-    candidate = policy_repo_path / f"{normalized}.yaml"
-    if resolved := validated_existing(candidate):
-        return resolved
+    for candidate_index, candidate in enumerate(
+        _rulespec_import_file_candidates_static(
+            import_path,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+    ):
+        if candidate_index == 0:
+            if resolved := validated_existing(candidate):
+                return resolved
+        else:
+            # Preserve the existing relative fallback's exception behavior:
+            # an invalid secondary candidate is unresolved, while the direct
+            # candidate remains fail closed. Candidate construction stays lazy.
+            with contextlib.suppress(ValueError):
+                if resolved := validated_existing(candidate):
+                    return resolved
+    return None
 
+
+def _rulespec_import_file_candidates_static(
+    import_path: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
+) -> Iterator[Path]:
+    """Return the resolver's ordered candidates, including absent targets.
+
+    Dependency selection needs the lexical paths that validation would read
+    if they existed. Keeping candidate construction here also catches deleted
+    targets and newly added higher-priority targets without a second resolver.
+    Existing candidates still require the normal resolver's safety checks.
+    """
+
+    normalized = _normalize_rulespec_import_path_static(import_path)
+    if not normalized:
+        return
+    normalized_path = Path(normalized)
+    if normalized_path.is_absolute() or any(
+        part in {"", ".", ".."} for part in normalized_path.parts
+    ):
+        raise UnsafeRulespecContextPath(
+            f"RuleSpec import target is outside the active policy root: {import_path}"
+        )
+    if (
+        not normalized_path.parts
+        or normalized_path.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS
+    ):
+        return
+    if _rulespec_import_prefix_static(import_path):
+        target_ref = _parse_rulespec_target(import_path)
+        if target_ref is None:
+            return
+        yield from _rulespec_target_file_candidates(
+            target_ref,
+            policy_repo_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+        return
+    yield policy_repo_path / f"{normalized}.yaml"
     with contextlib.suppress(ValueError):
         relative_parent = rules_file.parent.resolve().relative_to(
             policy_repo_path.resolve()
         )
-        candidate = policy_repo_path / relative_parent / f"{normalized}.yaml"
-        if resolved := validated_existing(candidate):
-            return resolved
-    return None
+        yield policy_repo_path / relative_parent / f"{normalized}.yaml"
 
 
 def _rulespec_import_prefix_static(import_path: str) -> str | None:
@@ -34378,12 +34592,12 @@ def _resolve_rulespec_target_file(
             )
             return cached.target_file
         cache.target_files.pop(cache_key, None)
-    for root in _candidate_rulespec_repo_roots(
-        target_ref.repo_name,
+    for target_file in _rulespec_target_file_candidates(
+        target_ref,
         policy_repo_path,
-        prefix=target_ref.prefix,
         rulespec_dependency_roots=dependency_roots,
     ):
+        root = target_file.parents[len(target_ref.relative_path.parts) - 1]
         if not root.is_dir():
             continue
         root = _validate_explicit_rulespec_directory(
@@ -34413,6 +34627,25 @@ def _resolve_rulespec_target_file(
                 )
         return resolved
     return None
+
+
+def _rulespec_target_file_candidates(
+    target_ref: _RuleSpecTargetRef,
+    policy_repo_path: Path | None,
+    *,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
+) -> tuple[Path, ...]:
+    """Return canonical target candidates even when a target has been deleted."""
+
+    return tuple(
+        root / target_ref.relative_path
+        for root in _candidate_rulespec_repo_roots(
+            target_ref.repo_name,
+            policy_repo_path,
+            prefix=target_ref.prefix,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+    )
 
 
 def _candidate_rulespec_repo_roots(

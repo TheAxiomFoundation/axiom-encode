@@ -150,6 +150,12 @@ REVIEWED_RULESPEC_REFS = frozenset(
             "us",
             "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
         ),
+        # rulespec-us#1778: independently reviewed signed FY2026 SNAP metadata
+        # migration; its remaining income dependency requires a protected PR.
+        (
+            "us",
+            "87c766a7ecc76d7d36272c648f6daf87b4669317",
+        ),
         # rulespec-us#1183: reviewed FL SNAP BBCE candidate promotion.
         (
             "us",
@@ -158,11 +164,6 @@ REVIEWED_RULESPEC_REFS = frozenset(
         (
             "ca",
             "f60f7a84c30e38c7d4961d70647eb0457e7d76c2",
-        ),
-        # rulespec-nz: reviewed Winter Energy Payment s75 candidate promotion.
-        (
-            "nz",
-            "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97",
         ),
     }
 )
@@ -203,17 +204,17 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
             "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
             "codex/az-nested-engine-pin",
         ),
+        # rulespec-us#1778: admit only its exact reviewed, signed branch tip.
+        (
+            "us",
+            "87c766a7ecc76d7d36272c648f6daf87b4669317",
+            "axiom/signed-backfill-us-38756101655-1",
+        ),
         # rulespec-us#1183: reviewed FL SNAP BBCE candidate promotion.
         (
             "us",
             "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
             "fl-snap-bbce-page5",
-        ),
-        # rulespec-nz: reviewed Winter Energy Payment s75 candidate promotion.
-        (
-            "nz",
-            "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97",
-            "nzhub/wep-s75e",
         ),
     }
 )

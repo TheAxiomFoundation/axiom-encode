@@ -1,10 +1,20 @@
 import json
+import os
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
-from scripts.provision_verification_supervisor import _signing_trust_roots_payload
+import pytest
+from hypothesis import given
+from hypothesis import strategies as st
+
+from scripts.provision_verification_supervisor import (
+    _load_retired_apply_inventory,
+    _signing_trust_roots_payload,
+)
 
 
 def test_provision_replaces_base_runtime_site_packages(tmp_path: Path) -> None:
@@ -129,3 +139,138 @@ def test_provision_writes_v3_corpus_release_keyring() -> None:
             "retired-two",
         ],
     }
+
+
+def _owner_frozen_inventory() -> dict[str, object]:
+    return {
+        "schema": "axiom-encode/retired-apply-inventory/v1",
+        "repositories": [
+            {
+                "repository": "TheAxiomFoundation/rulespec-us",
+                "cutoff_commit": "a" * 40,
+                "artifacts": [
+                    {
+                        "path": ".axiom/encoding-manifests/frozen.json",
+                        "sha256": "b" * 64,
+                        "covered_files": [
+                            {"path": "statute/frozen.yaml", "sha256": "c" * 64}
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize("corpus_retired", [(), ("old-corpus",)])
+def test_provision_writes_v4_only_with_paired_retired_apply_trust(
+    corpus_retired: tuple[str, ...],
+) -> None:
+    inventory = _owner_frozen_inventory()
+    payload = _signing_trust_roots_payload(
+        "apply",
+        "eval",
+        "corpus",
+        corpus_retired,
+        ("synthetic-retired",),
+        inventory,
+    )
+    assert payload["schema"] == "axiom-encode/signing-trust-roots/v4"
+    assert payload["apply_ed25519_public_key"] == "apply"
+    assert payload["retired_apply_ed25519_public_keys"] == ["synthetic-retired"]
+    assert payload["retired_apply_inventory"] == inventory
+    if corpus_retired:
+        assert payload["corpus_release_ed25519_public_keys"] == ["corpus", "old-corpus"]
+    else:
+        assert payload["corpus_release_ed25519_public_key"] == "corpus"
+
+
+@pytest.mark.parametrize(
+    "roots,inventory", [((), _owner_frozen_inventory()), (("old",), None)]
+)
+def test_provision_rejects_unpaired_retired_apply_trust(roots, inventory) -> None:
+    with pytest.raises(SystemExit, match="supplied together"):
+        _signing_trust_roots_payload("apply", "eval", "corpus", (), roots, inventory)
+
+
+@given(
+    st.text(alphabet=st.characters(min_codepoint=32, max_codepoint=126), min_size=1),
+    st.text(alphabet=st.characters(min_codepoint=32, max_codepoint=126), min_size=1),
+    st.text(alphabet=st.characters(min_codepoint=32, max_codepoint=126), min_size=1),
+    st.lists(
+        st.text(
+            alphabet=st.characters(min_codepoint=32, max_codepoint=126), min_size=1
+        ),
+        max_size=3,
+    ),
+)
+def test_provision_without_retired_apply_preserves_exact_legacy_json(
+    apply, evaluation, corpus, retired_corpus
+) -> None:
+    baseline = {
+        "schema": "axiom-encode/signing-trust-roots/v2",
+        "apply_ed25519_public_key": apply,
+        "eval_ed25519_public_key": evaluation,
+        "corpus_release_ed25519_public_key": corpus,
+    }
+    if retired_corpus:
+        baseline["schema"] = "axiom-encode/signing-trust-roots/v3"
+        baseline.pop("corpus_release_ed25519_public_key")
+        baseline["corpus_release_ed25519_public_keys"] = [corpus, *retired_corpus]
+    actual = _signing_trust_roots_payload(
+        apply, evaluation, corpus, tuple(retired_corpus)
+    )
+    assert (
+        json.dumps(actual, sort_keys=True) + "\n"
+        == json.dumps(baseline, sort_keys=True) + "\n"
+    )
+
+
+@pytest.mark.parametrize("mutation", ["unowned", "writable", "symlink"])
+def test_inventory_loader_refuses_unprotected_owner_source(
+    tmp_path: Path, monkeypatch, mutation: str
+) -> None:
+    inventory = tmp_path / "inventory.json"
+    inventory.write_text(json.dumps(_owner_frozen_inventory()))
+    original_lstat = Path.lstat
+
+    def lstat(path):
+        metadata = original_lstat(path)
+        mode = stat.S_IFREG | 0o644 if path == inventory else stat.S_IFDIR | 0o755
+        uid = 0
+        if path == inventory:
+            if mutation == "unowned":
+                uid = os.getuid() or 12345
+            elif mutation == "writable":
+                mode |= 0o020
+            else:
+                mode = stat.S_IFLNK | 0o777
+        return SimpleNamespace(st_mode=mode, st_uid=uid, st_size=metadata.st_size)
+
+    monkeypatch.setattr(Path, "lstat", lstat)
+    with pytest.raises(SystemExit, match="root-owned"):
+        _load_retired_apply_inventory(inventory)
+
+
+def test_inventory_loader_reads_only_valid_owner_frozen_bytes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    inventory = tmp_path / "inventory.json"
+    expected = _owner_frozen_inventory()
+    inventory.write_text(json.dumps(expected))
+    monkeypatch.setattr(
+        Path,
+        "lstat",
+        lambda path: SimpleNamespace(
+            st_uid=0,
+            st_mode=(stat.S_IFREG | 0o644)
+            if path == inventory
+            else (stat.S_IFDIR | 0o755),
+        ),
+    )
+    assert _load_retired_apply_inventory(inventory) == expected
+    inventory.write_text(
+        '{"schema":"axiom-encode/retired-apply-inventory/v1","schema":"duplicate","repositories":[]}'
+    )
+    with pytest.raises(SystemExit, match="duplicate JSON key"):
+        _load_retired_apply_inventory(inventory)

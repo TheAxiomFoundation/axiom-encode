@@ -1,0 +1,538 @@
+@functools.lru_cache(maxsize=4096)
+def _audit_legacy_tokenization_and_guard_divergence(text: str, *, profile: str='legacy') -> _NumericTokenization:
+    """Tokenize once into typed grounding and source-inventory emission streams."""
+    _audit_guard_diverged = False
+    if profile not in _NUMERIC_EXTRACTION_PROFILES:
+        raise ValueError(f'Unsupported numeric profile: {profile}')
+    if profile != 'legacy':
+        return _tokenize_profiled_numeric_occurrences(text, profile=profile)
+    collector = _LegacyNumericCollector(text)
+    source_view = _NumericTextView.identity(text)
+    implied_cents_matches = _iter_form_implied_cents_matches(text)
+    raw_tracked = _bind_hebrew_source_text_tracked(_TrackedText.identity(text).sub(_FORM_IMPLIED_CENTS_PATTERN, lambda match: ' ' * len(match.group(0))))
+    raw_text = raw_tracked.text
+    raw_view = _NumericTextView.tracked(text, raw_tracked)
+    two_line_table_matches = _iter_two_line_table_value_occurrences(text)
+    cleaned_tracked = _clean_source_text_for_numeric_extraction_tracked(raw_text)
+    cleaned_tracked = _TrackedText(cleaned_tracked.text, [None if offset is None else raw_tracked.offsets[offset] for offset in cleaned_tracked.offsets])
+    cleaned_before_schedule = cleaned_tracked.text
+    cleaned_before_schedule_view = _NumericTextView.tracked(text, cleaned_tracked)
+    schedule_matches, cleaned = _iter_collapsed_schedule_row_occurrences(cleaned_before_schedule)
+    cleaned_view = _NumericTextView(text, cleaned, tuple(cleaned_tracked.offsets))
+
+    def add_both(view: _NumericTextView, span: tuple[int, int], value: float, **kwargs: Any) -> None:
+        collector.add_grounding(view, span, value, **kwargs)
+        collector.add_inventory(view, span, value, **kwargs)
+
+    def unique_matches(matches: Iterable[tuple[tuple[int, int], float]]) -> list[tuple[tuple[int, int], float]]:
+        first_span_by_value: dict[float, tuple[int, int]] = {}
+        values: set[float] = set()
+        for span, value in matches:
+            values.add(value)
+            first_span_by_value.setdefault(value, span)
+        return [(first_span_by_value[value], value) for value in values]
+    for span, value in two_line_table_matches:
+        add_both(source_view, span, value)
+    for span, value in schedule_matches:
+        add_both(cleaned_before_schedule_view, span, value)
+    for span, value in implied_cents_matches:
+        add_both(source_view, span, value)
+    for span, value in _iter_inline_form_implied_cents_matches(text):
+        collector.add_grounding(source_view, span, value)
+    grounding_spans: list[tuple[int, int]] = _SpanList()
+    inventory_spans: list[tuple[int, int]] = _SpanList()
+    range_matches = _iter_belgian_numeric_range_endpoint_matches(cleaned)
+    for span, value in range_matches:
+        add_both(cleaned_view, span, value)
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+    for match in re.finditer('\\b(?:age|aged)\\s+(\\d{1,3})(?=\\b)', raw_text, re.IGNORECASE):
+        with contextlib.suppress(ValueError):
+            collector.add_grounding(raw_view, match.span(1), float(match.group(1)))
+    raw_money_matches = _iter_raw_european_money_value_matches(raw_text)
+    for span, value in raw_money_matches:
+        collector.add_grounding(raw_view, span, value)
+    cleaned_money_values: list[float] = []
+    for span, value in _iter_raw_european_money_value_matches(cleaned):
+        collector.add_grounding(cleaned_view, span, value)
+        grounding_spans.append(span)
+        if _span_overlaps(span, inventory_spans):
+            continue
+        collector.add_inventory(cleaned_view, span, value)
+        cleaned_money_values.append(value)
+        inventory_spans.append(span)
+    for span, value in raw_money_matches:
+        if any((math.isclose(value, cleaned_value, rel_tol=0, abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE) for cleaned_value in cleaned_money_values)):
+            continue
+        collector.add_inventory(raw_view, span, value)
+    fraction_raw_spans = [match.span() for match in _FRACTION_SLASH_PATTERN.finditer(raw_text)]
+    direct_percentage_rate_matches = [(span, value) for span, value in _iter_direct_percentage_rate_matches(raw_text) if not _span_overlaps(span, fraction_raw_spans)]
+    for span, value in direct_percentage_rate_matches:
+        collector.add_grounding(raw_view, span, value, source_value=value * 100, force_rate_context=True, requires_rate_context=True)
+    for span, value in unique_matches(direct_percentage_rate_matches):
+        collector.add_inventory(raw_view, span, value, source_value=value * 100, force_rate_context=True, requires_rate_context=True)
+    week_matches: list[tuple[tuple[int, int], float]] = []
+    for match in _WEEK_DURATION_PATTERN.finditer(raw_text):
+        value = _parse_belgian_numeric_phrase(match.group('number'))
+        if value is not None:
+            week_matches.append((match.span(), value * 7))
+    for match in _ORDINAL_WEEK_DURATION_PATTERN.finditer(raw_text):
+        normalized = re.sub('\\s+', ' ', match.group('number').strip().lower())
+        value = _FRENCH_ORDINAL_PHRASE_VALUES.get(normalized)
+        if value is not None:
+            week_matches.append((match.span(), value * 7))
+    for span, value in unique_matches(week_matches):
+        add_both(raw_view, span, value)
+    year_matches: list[tuple[tuple[int, int], float]] = []
+    for match in _YEAR_DURATION_PATTERN.finditer(raw_text):
+        value = _parse_belgian_numeric_phrase(match.group('number'))
+        if value is not None:
+            year_matches.append((match.span(), value * 12))
+    for span, value in unique_matches(year_matches):
+        add_both(raw_view, span, value)
+    centime_match = _CENTIME_UNIT_PATTERN.search(raw_text)
+    if centime_match:
+        add_both(raw_view, centime_match.span(), 100.0)
+    annual_match = _ANNUAL_CONTEXT_PATTERN.search(raw_text)
+    if annual_match:
+        collector.add_grounding(raw_view, annual_match.span(), 12.0)
+    form_fraction_spans: list[tuple[int, int]] = _SpanList()
+    for match in (*_FORM_ARITHMETIC_FRACTION_PATTERN.finditer(raw_text), *_STANDALONE_FORM_FRACTION_PATTERN.finditer(raw_text)):
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            denominator = float(match.group('denominator'))
+            add_both(raw_view, match.span(), float(match.group('numerator')) / denominator)
+            form_fraction_spans.append(match.span())
+    for match in _FORM_ARITHMETIC_OPERAND_PATTERN.finditer(raw_text):
+        if _span_overlaps(match.span(), form_fraction_spans):
+            continue
+        with contextlib.suppress(ValueError):
+            source_value = float(match.group('number').replace(',', ''))
+            is_rate = bool(match.group('percent'))
+            value = source_value / 100 if is_rate else source_value
+            add_both(raw_view, match.span(), value, source_value=source_value, force_rate_context=is_rate, requires_rate_context=is_rate)
+    for match in _CONTEXTUAL_ASCII_FRACTION_PATTERN.finditer(raw_text):
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            whole = float((match.group('whole') or '0').replace(',', ''))
+            numerator = float(match.group('numerator'))
+            denominator = float(match.group('denominator'))
+            add_both(raw_view, match.span(), whole + numerator / denominator)
+    fraction_cleaned_spans = [match.span() for match in _FRACTION_SLASH_PATTERN.finditer(cleaned)]
+    for span, rate in _iter_hebrew_percent_phrase_matches(cleaned):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(span, inventory_spans):
+            continue
+        add_both(cleaned_view, span, rate, source_value=rate * 100, force_rate_context=True, requires_rate_context=True)
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+    for span, rate in _iter_hebrew_percent_range_lower_matches(cleaned, _structural_numeric_component_spans(cleaned)):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(span, inventory_spans):
+            continue
+        add_both(cleaned_view, span, rate, source_value=rate * 100, force_rate_context=True, requires_rate_context=True)
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+    for span, value, is_rate in _iter_hebrew_shared_scale_range_matches(cleaned, _structural_numeric_component_spans(cleaned)):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(span, inventory_spans):
+            continue
+        if is_rate:
+            add_both(cleaned_view, span, value, source_value=value * 100, force_rate_context=True, requires_rate_context=True)
+        else:
+            add_both(cleaned_view, span, value)
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+    for span, value, is_rate in _iter_hebrew_printed_scale_matches(cleaned):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(span, inventory_spans):
+            continue
+        if is_rate:
+            add_both(cleaned_view, span, value, source_value=value * 100, force_rate_context=True, requires_rate_context=True)
+        else:
+            add_both(cleaned_view, span, value)
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+    for span, value, is_rate in _iter_hebrew_printed_mixed_number_matches(cleaned):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(span, inventory_spans):
+            continue
+        if is_rate:
+            add_both(cleaned_view, span, value / 100, source_value=value, force_rate_context=True, requires_rate_context=True)
+        else:
+            add_both(cleaned_view, span, value)
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+    for match in _HEBREW_DIGIT_PERCENT_PATTERN.finditer(cleaned):
+        if _span_overlaps(match.span('number'), fraction_cleaned_spans):
+            continue
+        if _span_overlaps(match.span(), inventory_spans):
+            continue
+        if _search_before(_ASCII_SLASH_BEFORE_NUMBER_PATTERN, cleaned, match.start('number')):
+            continue
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            value = float(match.group('number').replace(',', ''))
+            if match.group('denominator'):
+                value = value / float(match.group('denominator'))
+                if match.group('whole'):
+                    value += float(match.group('whole').replace(',', ''))
+            span = match.span()
+            tail = _HEBREW_PERCENT_TAIL_AFTER_PATTERN.match(cleaned, match.end())
+            if tail is not None and (not _HEBREW_UNIT_AFTER_PATTERN.match(cleaned, tail.end())):
+                if tail.group('tail'):
+                    value += _HEBREW_MIXED_FRACTION_VALUES[tail.group('tail')]
+                else:
+                    value += _HEBREW_FRACTION_COUNT_VALUES[tail.group('tail_count')] * _HEBREW_COUNTED_FRACTION_VALUES[tail.group('tail_fraction')]
+                span = (match.start(), tail.end())
+            if match.group('sign'):
+                value = -value
+            add_both(cleaned_view, span, value / 100, source_value=value, force_rate_context=True, requires_rate_context=True)
+            grounding_spans.append(span)
+            inventory_spans.append(span)
+    hebrew_text = re.search('[\u0590-\u05ff]', cleaned) is not None
+    hebrew_ascii_mixed = list(_HEBREW_ASCII_MIXED_FRACTION_PATTERN.finditer(cleaned)) if hebrew_text else []
+    counted_figure_spans: list[tuple[int, int]] = []
+    if hebrew_text:
+        for pattern in (_HEBREW_GLYPH_NUMBER_PATTERN, _HEBREW_ASCII_MIXED_FRACTION_PATTERN, _FRACTION_SLASH_PATTERN):
+            for match in pattern.finditer(cleaned):
+                if _HEBREW_COUNTED_FRACTION_AFTER_PATTERN.match(cleaned, match.end()):
+                    counted_figure_spans.append(match.span())
+    if hebrew_text:
+        for match in _HEBREW_GLYPH_NUMBER_PATTERN.finditer(cleaned):
+            if _span_overlaps(match.span(), inventory_spans) or _span_overlaps(match.span(), grounding_spans):
+                continue
+            if _span_overlaps(match.span(), counted_figure_spans):
+                continue
+            value = unicodedata.numeric(match.group('glyph')) + float((match.group('whole') or '0').replace(',', ''))
+            if match.group('sign'):
+                value = -value
+            span = match.span()
+            marker = _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN.match(cleaned, match.end()) or _HEBREW_PERCENT_WORD_PATTERN.match(cleaned, match.end())
+            if marker is not None:
+                end = marker.end()
+                tail = _hebrew_percent_tail_after(cleaned, end)
+                if tail is not None:
+                    tail_value, end = tail
+                    value += -tail_value if match.group('sign') else tail_value
+                span = (match.start(), end)
+                collector.add_grounding(cleaned_view, span, value)
+                add_both(cleaned_view, span, value / 100, source_value=value, force_rate_context=True, requires_rate_context=True)
+            else:
+                add_both(cleaned_view, span, value)
+            grounding_spans.append(span)
+            inventory_spans.append(span)
+    for match in (*hebrew_ascii_mixed, *_FRACTION_SLASH_PATTERN.finditer(cleaned)):
+        if _span_overlaps(match.span(), counted_figure_spans):
+            continue
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            whole = float((match.group('whole') or '0').replace(',', ''))
+            numerator = float(match.group('numerator'))
+            denominator = float(match.group('denominator'))
+            value = whole + numerator / denominator
+            if match.group('sign'):
+                value = -value
+            if _span_overlaps(match.span(), inventory_spans):
+                collector.add_grounding(cleaned_view, match.span(), value)
+                collector.add_grounding(cleaned_view, match.span('numerator'), numerator)
+                collector.add_grounding(cleaned_view, match.span('denominator'), denominator)
+                grounding_spans.append(match.span())
+                continue
+            if _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN.match(cleaned, match.end()) or _LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN.match(cleaned, match.end()) or _HEBREW_PERCENT_WORD_PATTERN.match(cleaned, match.end()):
+                span = match.span()
+                marker = _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN.match(cleaned, match.end()) or _HEBREW_PERCENT_WORD_PATTERN.match(cleaned, match.end())
+                if marker is not None:
+                    tail = _hebrew_percent_tail_after(cleaned, marker.end())
+                    if tail is not None:
+                        tail_value, end = tail
+                        value += -tail_value if match.group('sign') else tail_value
+                        span = (match.start(), end)
+                collector.add_grounding(cleaned_view, span, value)
+                add_both(cleaned_view, span, value / 100, source_value=value, force_rate_context=True, requires_rate_context=True)
+                grounding_spans.append(span)
+                inventory_spans.append(span)
+            else:
+                add_both(cleaned_view, match.span(), value)
+            collector.add_grounding(cleaned_view, match.span('numerator'), numerator)
+            collector.add_grounding(cleaned_view, match.span('denominator'), denominator)
+            grounding_spans.append(match.span())
+            inventory_spans.append(match.span())
+    month_range_matches: list[tuple[tuple[int, int], float]] = []
+    for match in _SMALL_MONTH_RANGE_PATTERN.finditer(raw_text):
+        start = int(match.group('start'))
+        end = int(match.group('end'))
+        preceding_context = raw_text[max(0, match.start() - 500):match.start()]
+        row_context = raw_text[match.start():match.end() + 80]
+        if 0 <= start <= end <= 24 and re.search('\\bmonthly\\s+proration\\s+table\\b', preceding_context, re.IGNORECASE) and re.search('\\bline\\s+[A-E]\\b', row_context, re.IGNORECASE):
+            month_range_matches.extend(((match.span(), float(value)) for value in range(start, end + 1)))
+    for span, value in month_range_matches:
+        add_both(raw_view, span, value)
+    vehicle_matches: list[tuple[tuple[int, int], float]] = []
+    lowered_raw_text = raw_text.lower()
+    for match in _VEHICLE_TAX_FISCAL_POWER_TABLE_CELL_PATTERN.finditer(raw_text):
+        context = lowered_raw_text[max(0, match.start() - 2000):match.start()]
+        if not re.search('\\b(?:chevaux\\s+fiscaux|fiscale\\s+paardenkracht|aantal\\s+pk|cv)\\b', context):
+            continue
+        with contextlib.suppress(ValueError):
+            vehicle_matches.append((match.span('cv'), float(match.group('cv'))))
+    for span, value in unique_matches(vehicle_matches):
+        collector.add_grounding(raw_view, span, value)
+    for match in GLUED_UNIT_NUMBER_PATTERN.finditer(cleaned):
+        with contextlib.suppress(ValueError):
+            collector.add_grounding(cleaned_view, match.span(), float(match.group('number').replace(',', '')))
+            grounding_spans.append(match.span())
+    for match in CENTS_VALUE_NUMBER_PATTERN.finditer(cleaned):
+        span = match.span()
+        if _span_overlaps(span, grounding_spans):
+            continue
+        with contextlib.suppress(ValueError):
+            value = float(match.group('number').replace(',', ''))
+            collector.add_grounding(cleaned_view, span, value)
+            collector.add_grounding(cleaned_view, span, value / 100)
+            grounding_spans.append(span)
+    special_matches = list(_iter_normalized_special_numeric_matches(cleaned))
+    rate_marker_pattern = re.compile('(?:%|\\bp\\.?[ \\t]*c\\.?\\b|\\bpercent\\b|\\bper[ \\t-]+cent(?:um)?\\b|\\bProzent\\b|\\bvom[ \\t]+Hundert\\b)', re.IGNORECASE)
+    for span, value in special_matches:
+        if _span_overlaps(span, counted_figure_spans):
+            continue
+        raw = cleaned[span[0]:span[1]]
+        is_rate = bool(rate_marker_pattern.search(raw))
+        kwargs = {'source_value': value * 100 if is_rate else value, 'force_rate_context': is_rate, 'requires_rate_context': is_rate}
+        if not _span_overlaps(span, grounding_spans):
+            collector.add_grounding(cleaned_view, span, value, **kwargs)
+            grounding_spans.append(span)
+        if not _span_overlaps(span, inventory_spans):
+            collector.add_inventory(cleaned_view, span, value, **kwargs)
+            inventory_spans.append(span)
+    for match in re.finditer('(-?[\\d,]+)\\s+(\\d+)\\s*/\\s*(\\d+)(?:\\s+|-)(?:percent|per\\s*cent(?:um)?)', cleaned, re.IGNORECASE):
+        for group_index in (1, 2, 3):
+            with contextlib.suppress(ValueError):
+                collector.add_grounding(cleaned_view, match.span(group_index), float(match.group(group_index).replace(',', '')))
+    percentage_number = '-?(?:\\d{1,3}(?:[.\\u00a0\\u202f ]\\d{3})+|\\d+)(?:,\\d{1,4})?'
+    range_separator = '(?:and|to|through|thru|et|\\u00e0|a|tot|bis|en|[-\\u2010-\\u2015])'
+    for match in re.finditer(f'\\b({percentage_number})\\s+{range_separator}\\s+({percentage_number})\\s*(?:%|\\bp\\.?\\s*c\\.?\\b|\\b(?:percent|per\\s*cent(?:um)?)\\b)', cleaned, re.IGNORECASE):
+        for group_index in (1, 2):
+            raw = _normalize_european_decimal_number(match.group(group_index))
+            with contextlib.suppress(ValueError):
+                source_value = float(raw)
+                collector.add_grounding(cleaned_view, match.span(group_index), source_value / 100, source_value=source_value, force_rate_context=True, requires_rate_context=True)
+    for match in re.finditer('(?:^|(?<=[\\s(\\[+\\-−*/\\"\'`“”‘’])|(?<=(?<!\\d),))(-?(?:\\d{1,3}(?:[.\\u00a0\\u202f ]\\d{3})+|\\d+),\\d{1,4})\\s*(?:%|\\bp\\.?\\s*c\\.?\\b|\\b(?:percent|per\\s*cent(?:um)?)\\b)', cleaned, re.IGNORECASE):
+        raw = _normalize_european_decimal_number(match.group(1))
+        with contextlib.suppress(ValueError):
+            source_value = float(raw)
+            collector.add_grounding(cleaned_view, match.span(1), source_value / 100, source_value=source_value, force_rate_context=True, requires_rate_context=True)
+            collector.add_grounding(cleaned_view, match.span(1), source_value, force_rate_context=True)
+    percentage_context_number_matches = list(SOURCE_TEXT_NUMBER_PATTERN.finditer(cleaned))
+    for match in percentage_context_number_matches:
+        raw = match.group(1).replace(',', '')
+        with contextlib.suppress(ValueError):
+            source_value = float(raw)
+            if source_value <= 1:
+                continue
+            source_span = cleaned_view.source_span(match.span(1))
+            if any((money_start <= source_span[0] and source_span[1] <= money_end for money_start, money_end in collector.money_spans)) or _currency_marker_before_number(cleaned, match.start(1), profile=profile, boundaries=collector.context_boundaries) or _currency_marker_after_number(cleaned, match.end(1), profile=profile, boundaries=collector.context_boundaries):
+                continue
+            context = cleaned[max(0, match.start() - 500):match.end() + 80].lower()
+            if not re.search('\\bpercent(?:age|ages)?\\b', context):
+                continue
+            collector.add_grounding(cleaned_view, match.span(1), source_value / 100, source_value=source_value, requires_rate_context=True)
+            if source_value >= 100 and re.search('\\b(?:percent\\s+of\\s+(?:the\\s+)?poverty\\s+line|percent\\s+of\\s+(?:the\\s+)?federal\\s+poverty\\s+(?:line|level)|fpl|income\\s+tier)\\b', context):
+                collector.add_grounding(cleaned_view, match.span(1), source_value)
+    word_quantity_matches = list(_iter_word_quantity_fraction_matches(cleaned))
+    for span, value in word_quantity_matches:
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
+        grounding_spans.append(span)
+    standalone_fraction_matches = list(_iter_standalone_fraction_word_matches(cleaned))
+    for span, value in standalone_fraction_matches:
+        if not _span_overlaps(span, grounding_spans):
+            collector.add_grounding(cleaned_view, span, value)
+            grounding_spans.append(span)
+        if not _span_overlaps(span, inventory_spans):
+            collector.add_inventory(cleaned_view, span, value)
+            inventory_spans.append(span)
+    for span, primary, alternative in _iter_hebrew_ambiguous_ordinal_fraction_matches(cleaned):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(span, inventory_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, primary, alternative_values=(alternative,))
+        collector.add_grounding(cleaned_view, span, alternative, alternative_values=(primary,))
+        collector.add_inventory(cleaned_view, span, primary, alternative_values=(alternative,))
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+    hebrew_word_matches = _iter_hebrew_number_word_matches(cleaned)
+    for span, value in hebrew_word_matches:
+        raw_word = cleaned[span[0]:span[1]]
+        bare_word = _strip_hebrew_number_prefix(raw_word, _HEBREW_ORDINAL_WORDS)
+        definite_ordinal = bare_word is not None and _hebrew_definite_ordinal(raw_word, bare_word)
+        percent = None if definite_ordinal else _HEBREW_PERCENT_WORD_PATTERN.match(cleaned, span[1]) or _HEBREW_PERCENT_SIGN_AFTER_PATTERN.match(cleaned, span[1])
+        negative = _hebrew_unary_sign_at(cleaned, span[0] - 1)
+        noun_before = None
+        if percent is None and (not definite_ordinal) and (not raw_word.startswith('ו')):
+            noun_before = _search_before(_HEBREW_PERCENT_NOUN_BEFORE_PATTERN, cleaned, span[0])
+            if noun_before is not None and _span_overlaps(noun_before.span(), inventory_spans):
+                noun_before = None
+        if percent is not None or noun_before is not None:
+            if percent is not None:
+                unit = _hebrew_percent_unit_after(cleaned, span[1])
+                if unit is not None:
+                    span = (span[0], unit[0])
+                    value += unit[1]
+                else:
+                    span = (span[0], percent.end())
+                if negative:
+                    value = -value
+                    span = (span[0] - 1, span[1])
+            else:
+                span = (noun_before.start(), span[1])
+            if not _span_overlaps(span, grounding_spans):
+                collector.add_grounding(cleaned_view, span, value / 100, source_value=value, force_rate_context=True, requires_rate_context=True)
+                grounding_spans.append(span)
+            if not _span_overlaps(span, inventory_spans):
+                collector.add_inventory(cleaned_view, span, value / 100, source_value=value, force_rate_context=True, requires_rate_context=True)
+                inventory_spans.append(span)
+            continue
+        if negative:
+            value = -value
+            span = (span[0] - 1, span[1])
+        if not _span_overlaps(span, grounding_spans):
+            collector.add_grounding(cleaned_view, span, value)
+            grounding_spans.append(span)
+        if not _span_overlaps(span, inventory_spans):
+            collector.add_inventory(cleaned_view, span, value)
+            inventory_spans.append(span)
+    ordinal_word_matches = _iter_ordinal_word_number_matches(cleaned)
+    for span, value in ordinal_word_matches:
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
+        grounding_spans.append(span)
+    compound_cardinal_matches = _iter_cardinal_word_number_matches(cleaned, compound_only=True)
+    for span, value in compound_cardinal_matches:
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
+        grounding_spans.append(span)
+    digit_scale_matches = _iter_digit_scale_number_matches(cleaned)
+    for span, value, raw_value in digit_scale_matches:
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
+        collector.add_grounding(cleaned_view, span, raw_value)
+        grounding_spans.append(span)
+    french_cardinal_matches = _iter_french_cardinal_phrase_matches(cleaned)
+    for span, value in french_cardinal_matches:
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
+        grounding_spans.append(span)
+    dutch_cardinal_matches = _iter_dutch_cardinal_phrase_matches(cleaned)
+    for span, value in dutch_cardinal_matches:
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
+        grounding_spans.append(span)
+    cardinal_matches = _iter_cardinal_word_number_matches(cleaned)
+    for span, value in cardinal_matches:
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
+        grounding_spans.append(span)
+    for pattern, normalize, include_grounding, include_inventory in ((SPACED_EUROPEAN_DECIMAL_MONEY_PATTERN, _normalize_european_decimal_number, True, True), (EUROPEAN_DECIMAL_NUMBER_PATTERN, _normalize_european_decimal_number, True, True), (EUROPEAN_LEADING_ZERO_DECIMAL_NUMBER_PATTERN, _normalize_european_decimal_number, True, False)):
+        for match in pattern.finditer(cleaned):
+            span = match.span(1)
+            with contextlib.suppress(ValueError):
+                value = float(normalize(match.group(1)))
+                if include_grounding:
+                    collector.add_grounding(cleaned_view, span, value)
+                    grounding_spans.append(span)
+                if include_inventory and (not _span_overlaps(span, inventory_spans)):
+                    collector.add_inventory(cleaned_view, span, value)
+                    inventory_spans.append(span)
+    for match in EUROPEAN_THOUSANDS_NUMBER_PATTERN.finditer(cleaned):
+        span = match.span(1)
+        with contextlib.suppress(ValueError):
+            value = float(_normalize_grouped_thousands_number(match.group(1)))
+            if not _span_overlaps(span, grounding_spans):
+                collector.add_grounding(cleaned_view, span, value)
+                grounding_spans.append(span)
+            if not _span_overlaps(span, inventory_spans):
+                collector.add_inventory(cleaned_view, span, value)
+                inventory_spans.append(span)
+    for span, value, _ in digit_scale_matches:
+        if _span_overlaps(span, inventory_spans):
+            continue
+        if value not in GROUNDING_ALLOWED_VALUES:
+            collector.add_inventory(cleaned_view, span, value)
+        inventory_spans.append(span)
+    for match in EUROPEAN_DOT_THOUSANDS_NUMBER_PATTERN.finditer(cleaned):
+        span = match.span(1)
+        if _span_overlaps(span, grounding_spans):
+            continue
+        if _number_span_is_immediately_followed_by_percent_marker(cleaned, span):
+            grounding_spans.append(span)
+            continue
+        with contextlib.suppress(ValueError):
+            collector.add_grounding(cleaned_view, span, float(_normalize_grouped_thousands_number(match.group(1))))
+            grounding_spans.append(span)
+        if re.fullmatch('-?[1-9]\\d{0,2}\\.\\d{3}', match.group(1)):
+            with contextlib.suppress(ValueError):
+                collector.add_grounding(cleaned_view, span, float(match.group(1)))
+    for match in percentage_context_number_matches:
+        span = match.span(1)
+        raw = match.group(1).replace(',', '')
+        with contextlib.suppress(ValueError):
+            value = float(raw)
+            if not _span_overlaps(span, grounding_spans):
+                if not _number_span_is_immediately_followed_by_percent_marker(cleaned, span) and (not _has_captured_percentage_rate(direct_percentage_rate_matches, value, span=span)):
+                    collector.add_grounding(cleaned_view, span, value)
+            if _span_overlaps(span, inventory_spans):
+                continue
+            if _number_span_is_immediately_followed_by_percent_marker(cleaned, span):
+                continue
+            if _has_captured_percentage_rate(direct_percentage_rate_matches, value, span=span):
+                continue
+            grouped_value = _parse_belgian_numeric_phrase(match.group(1))
+            source_span = cleaned_view.source_span(span)
+            _audit_old_skip = grouped_value is not None and (not math.isclose(grouped_value, value, rel_tol=0, abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE)) and any((math.isclose(grouped_value, occurrence.value, rel_tol=0, abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE) for occurrence in collector.inventory))
+            _audit_current_skip = grouped_value is not None and (not math.isclose(grouped_value, value, rel_tol=0, abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE)) and any((occurrence.span == source_span and math.isclose(grouped_value, occurrence.value, rel_tol=0, abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE) for occurrence in collector.inventory))
+            _audit_guard_diverged = _audit_guard_diverged or _audit_old_skip != _audit_current_skip
+            if grouped_value is not None and (not math.isclose(grouped_value, value, rel_tol=0, abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE)) and any((occurrence.span == source_span and math.isclose(grouped_value, occurrence.value, rel_tol=0, abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE) for occurrence in collector.inventory)):
+                continue
+            collector.add_inventory(cleaned_view, span, value)
+    for match in _ORDINAL_NUMBER_PATTERN.finditer(cleaned):
+        with contextlib.suppress(ValueError):
+            value = float(match.group(1))
+            collector.add_grounding(cleaned_view, match.span(1), value)
+            if _ordinal_is_calendar_day_reference(cleaned, match.end(), value):
+                continue
+            collector.add_inventory(cleaned_view, match.span(1), value)
+    for span, value in ordinal_word_matches:
+        if _span_overlaps(span, inventory_spans):
+            continue
+        if value not in GROUNDING_ALLOWED_VALUES:
+            collector.add_inventory(cleaned_view, span, value)
+        inventory_spans.append(span)
+    for glyph, value in _UNICODE_FRACTION_VALUES.items():
+        for match in re.finditer(re.escape(glyph), cleaned):
+            collector.add_grounding(cleaned_view, match.span(), value)
+            if _span_overlaps(match.span(), inventory_spans):
+                continue
+            collector.add_inventory(cleaned_view, match.span(), value)
+            inventory_spans.append(match.span())
+    for span, value in compound_cardinal_matches:
+        if _span_overlaps(span, inventory_spans):
+            continue
+        if value not in GROUNDING_ALLOWED_VALUES:
+            collector.add_inventory(cleaned_view, span, value)
+        inventory_spans.append(span)
+    for matches in (french_cardinal_matches, dutch_cardinal_matches, cardinal_matches):
+        for span, value in matches:
+            if _span_overlaps(span, inventory_spans):
+                continue
+            if value not in GROUNDING_ALLOWED_VALUES:
+                collector.add_inventory(cleaned_view, span, value)
+            inventory_spans.append(span)
+    text_lower = cleaned.lower()
+    for match in _CARDINAL_WORD_PATTERN.finditer(text_lower):
+        if _span_overlaps(match.span(1), grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, match.span(1), _CARDINAL_WORD_VALUES[match.group(1)])
+        grounding_spans.append(match.span(1))
+    collector.grounding = list(_complete_typed_year_occurrences(collector, collector.grounding))
+    collector.inventory = list(_complete_typed_year_occurrences(collector, collector.inventory))
+    inventory_occurrences = tuple(collector.inventory)
+    normalized_inventory = _scalar_recall_numeric_inventory((occurrence for occurrence in inventory_occurrences if not _is_same_evidence_scaled_inventory_duplicate(occurrence, inventory_occurrences)))
+    return (_NumericTokenization(grounding=tuple(collector.grounding), inventory=normalized_inventory), _audit_guard_diverged)

@@ -8,7 +8,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import textwrap
 from decimal import Decimal
 from pathlib import Path
@@ -1967,25 +1966,38 @@ def test_rulespec_target_resolution_rejects_workspace_dependency_root(tmp_path):
 
 
 def test_rulespec_target_resolution_accepts_macos_system_path_alias(tmp_path):
-    if not Path("/var").is_symlink():
-        pytest.skip("macOS /var system alias is unavailable")
-    with tempfile.TemporaryDirectory(dir="/var/tmp") as raw_tmpdir:
-        checkout = Path(raw_tmpdir) / "rulespec-us"
-        target = checkout / "us" / "statutes/1/target.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text("format: rulespec/v1\nrules: []\n")
-        policy_repo = _canonical_rulespec_content_root(tmp_path, "uk")
-        target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
+    resolved_tmp = tmp_path.resolve()
+    for alias_root, physical_root in (
+        (Path("/var"), Path("/private/var")),
+        (Path("/tmp"), Path("/private/tmp")),
+    ):
+        if (
+            resolved_tmp.is_relative_to(physical_root)
+            and alias_root.is_symlink()
+            and alias_root.resolve() == physical_root
+        ):
+            aliased_tmp = alias_root / resolved_tmp.relative_to(physical_root)
+            break
+    else:
+        pytest.skip("temporary directory has no macOS system path alias")
+    assert aliased_tmp != resolved_tmp
+    assert aliased_tmp.resolve() == resolved_tmp
+    checkout = aliased_tmp / "rulespec-us"
+    target = checkout / "us" / "statutes/1/target.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text("format: rulespec/v1\nrules: []\n")
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "uk")
+    target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
 
-        assert target_ref is not None
-        assert (
-            validator_pipeline._resolve_rulespec_target_file(
-                target_ref,
-                policy_repo,
-                rulespec_dependency_roots=(checkout,),
-            )
-            == target.resolve()
+    assert target_ref is not None
+    assert (
+        validator_pipeline._resolve_rulespec_target_file(
+            target_ref,
+            policy_repo,
+            rulespec_dependency_roots=(checkout,),
         )
+        == target.resolve()
+    )
 
 
 def test_rulespec_target_resolution_rejects_explicit_checkout_symlink(tmp_path):
@@ -5399,8 +5411,9 @@ def test_policyengine_registry_is_legal_id_keyed():
         "us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#snap_gross_income_limit_130_percent_fpl_48_states_dc",
         country="us",
     )
-    assert gross_income_limit_mapping.policyengine_variable == "snap_fpg"
-    assert gross_income_limit_mapping.result_multiplier == 1.3
+    assert gross_income_limit_mapping.mapping_type == "not_comparable"
+    assert gross_income_limit_mapping.candidate_priority == "P4"
+    assert gross_income_limit_mapping.policyengine_variable is None
     colorado_ccap_smi_limit_mapping = registry.mapping_for_legal_id(
         "us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#monthly_state_median_income_85_limit",
         country="us",
@@ -6457,7 +6470,7 @@ def test_packaged_alabama_2026_schedule_registry_and_fallback_are_synchronized()
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6568,7 +6581,7 @@ def test_packaged_connecticut_2026_ordinary_tax_registry_is_exactly_synchronized
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6652,7 +6665,7 @@ def test_packaged_georgia_2026_annual_tax_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6747,7 +6760,7 @@ def test_packaged_mississippi_2026_schedule_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6908,7 +6921,7 @@ def test_packaged_kansas_2026_k40es_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -7013,7 +7026,7 @@ def test_packaged_dc_2026_section_47_1806_03_has_exact_bounded_slice():
 def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     import axiom_oracles.bridges.registry as runtime_registry_module
 
-    durable_oracle_merge = "d3419010d9c8de6a790220bf47912d85aadc2588"
+    durable_oracle_merge = "9434ce833bacbc60bc1572ea0245913ff4e48501"
     root = Path(__file__).parents[1]
     bundled_path = root / "src/axiom_encode/oracles/policyengine/mappings/us.yaml"
     runtime_path = (
@@ -7090,7 +7103,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2196"')
+        .startswith('__version__ = "0.2.2213"')
     )
 
 
@@ -7216,7 +7229,7 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
 
     import axiom_oracles.bridges.registry as runtime_registry_module
 
-    durable_oracle_merge = "d3419010d9c8de6a790220bf47912d85aadc2588"
+    durable_oracle_merge = "9434ce833bacbc60bc1572ea0245913ff4e48501"
     root = Path(__file__).parents[1]
     bundled_path = root / "src/axiom_encode/oracles/policyengine/mappings/us.yaml"
     runtime_path = (
@@ -7322,13 +7335,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2196"
+    assert encoder_package["version"] == "0.2.2213"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2196"
+    assert project["project"]["version"] == "0.2.2213"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2196"')
+        .startswith('__version__ = "0.2.2213"')
     )
 
 
@@ -7492,7 +7505,7 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
 
     import axiom_oracles.bridges.registry as runtime_registry_module
 
-    durable_oracle_merge = "d3419010d9c8de6a790220bf47912d85aadc2588"
+    durable_oracle_merge = "9434ce833bacbc60bc1572ea0245913ff4e48501"
     root = Path(__file__).parents[1]
     bundled_path = root / "src/axiom_encode/oracles/policyengine/mappings/us.yaml"
     runtime_path = (
@@ -7590,13 +7603,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2196"
+    assert encoder_package["version"] == "0.2.2213"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2196"
+    assert project["project"]["version"] == "0.2.2213"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2196"')
+        .startswith('__version__ = "0.2.2213"')
     )
 
 
@@ -7843,7 +7856,7 @@ def test_packaged_utah_2026_before_credit_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -27046,9 +27059,18 @@ def test_rulespec_proof_parent_resolution_is_bounded_for_repeated_lists():
     def resolve_repeated_lists(count: int) -> tuple[tuple[str, str] | None, float]:
         source_text = " ".join("a. (1) Items: (a) Item." for _ in range(count))
         numeric_start = source_text.rfind("(1)")
-        started = monotonic()
-        result = _source_top_level_marker_for_numeric_parent(source_text, numeric_start)
-        return result, monotonic() - started
+        results, timings = set(), []
+        # Best of three, each after a collection, so heap debt left by preceding
+        # tests or a one-off runner stall is not charged to the resolver.
+        for _ in range(3):
+            gc.collect()
+            started = monotonic()
+            results.add(
+                _source_top_level_marker_for_numeric_parent(source_text, numeric_start)
+            )
+            timings.append(monotonic() - started)
+        assert len(results) == 1
+        return results.pop(), min(timings)
 
     small_result, small_elapsed = resolve_repeated_lists(192)
     large_result, large_elapsed = resolve_repeated_lists(768)
@@ -44915,7 +44937,9 @@ rules: []
     )
 
 
-def test_source_subparagraph_coverage_allows_repealed_empty_slice(tmp_path):
+def test_source_subparagraph_coverage_requires_reviewed_evidence_for_repealed_empty_slice(
+    tmp_path,
+):
     source_text = """Wages
 (a) Wages means all remuneration for employment.
 """
@@ -44938,16 +44962,16 @@ rules: []
     assert len(issues) == 1
     assert "26 USC 3121(a)" in issues[0]
 
-    # A generated repeal needs a matching source notice in a proven outline.
+    # Matching source text is still insufficient without a reviewed tombstone
+    # entry or the exact requested corpus row's authoritative repealed status.
     source_text += "(3) Repealed.\n(b) Employment details.\n"
-    assert (
-        find_source_subparagraph_coverage_issues(
-            content,
-            rules_file=rules_file,
-            source_texts={"us/statute/26/3121": source_text},
-        )
-        == []
+    issues = find_source_subparagraph_coverage_issues(
+        content,
+        rules_file=rules_file,
+        source_texts={"us/statute/26/3121": source_text},
     )
+    assert len(issues) == 1
+    assert "26 USC 3121(a)" in issues[0]
 
 
 def test_source_subparagraph_coverage_allows_rule_citing_child():

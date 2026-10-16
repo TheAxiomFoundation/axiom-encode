@@ -558,8 +558,18 @@ def _install_trusted_git_wrapper(
         "            '--name-only', '--no-renames', '--diff-filter=ACDMRT', '-z'\n"
         "        ]\n"
         "        if options[:4] == changed_prefix:\n"
-        "            return len(options[4:]) in {1, 2} and all(\n"
-        "                safe_ref(value) for value in options[4:]\n"
+        "            revisions = options[4:]\n"
+        "            if revisions[:1] == ['--end-of-options']:\n"
+        "                return (\n"
+        "                    len(revisions) in {3, 4}\n"
+        "                    and revisions[-1] == '--'\n"
+        "                    and all(\n"
+        "                        safe_ref(value)\n"
+        "                        for value in revisions[1:-1]\n"
+        "                    )\n"
+        "                )\n"
+        "            return len(revisions) in {1, 2} and all(\n"
+        "                safe_ref(value) for value in revisions\n"
         "            )\n"
         "        return (\n"
         "            options[:2] == ['--name-only', '--diff-filter=ACMRT']\n"
@@ -586,6 +596,16 @@ def _install_trusted_git_wrapper(
         "            and options[option_cursor + 1] == '--'\n"
         "        )\n"
         "    if command == 'log':\n"
+        "        historical_prefix = [\n"
+        "            '--full-history', '-m', '--format=%H', '--no-renames',\n"
+        "        ]\n"
+        "        if options[:4] == historical_prefix:\n"
+        "            return (\n"
+        "                len(options) > 6\n"
+        "                and re.fullmatch(r'[0-9a-f]{40}\\.\\.[0-9a-f]{40}', options[4]) is not None\n"
+        "                and options[5] == '--'\n"
+        "                and all(safe_path(value) for value in options[6:])\n"
+        "            )\n"
         "        return options == [\n"
         "            '--format=%H', '--', 'pyproject.toml',\n"
         "            'src/axiom_encode/__init__.py', 'uv.lock',\n"
@@ -601,6 +621,22 @@ def _install_trusted_git_wrapper(
         "            and all(safe_path(value) for value in options[4:])\n"
         "        )\n"
         "    if command == 'ls-tree':\n"
+        "        for prefix, path_count in (\n"
+        "            (['-z', '--full-tree'], 1),\n"
+        "            (['-r', '-l', '-z', '--full-tree'], 0),\n"
+        "            (['-z'], 1),\n"
+        "            (['-r', '-z'], 0),\n"
+        "        ):\n"
+        "            boundary = len(prefix)\n"
+        "            if options[:boundary + 1] != [*prefix, '--']:\n"
+        "                continue\n"
+        "            return (\n"
+        "                len(options) == boundary + 2 + path_count\n"
+        "                and re.fullmatch(\n"
+        "                    r'[0-9a-f]{40}', options[boundary + 1]\n"
+        "                ) is not None\n"
+        "                and all(safe_path(value) for value in options[boundary + 2:])\n"
+        "            )\n"
         "        return (\n"
         "            len(options) == 5\n"
         "            and options[:2] == ['-z', '--full-tree']\n"
@@ -611,6 +647,10 @@ def _install_trusted_git_wrapper(
         "            len(options) == 5\n"
         "            and options[:4] == ['-r', '-l', '-z', '--full-tree']\n"
         "            and safe_ref(options[4])\n"
+        "        ) or (\n"
+        "            len(options) == 6\n"
+        "            and options[:5] == ['-r', '-t', '-l', '-z', '--full-tree']\n"
+        "            and safe_ref(options[5])\n"
         "        ) or (\n"
         "            len(options) == 4\n"
         "            and options[0] == '-z'\n"
@@ -671,11 +711,26 @@ def _install_trusted_git_wrapper(
         "            len(options) == 2\n"
         "            and options[0] == '--verify'\n"
         "            and safe_ref(options[1])\n"
+        "        ) or (\n"
+        "            len(options) == 3\n"
+        "            and options[:2] == ['--verify', '--end-of-options']\n"
+        "            and (\n"
+        "                safe_ref(options[2])\n"
+        "                or re.fullmatch(r'[0-9a-f]{40}\\^\\{tree\\}', options[2]) is not None\n"
+        "            )\n"
         "        )\n"
         "    if command == 'show':\n"
-        "        if len(options) != 1 or ':' not in options[0]:\n"
+        "        if options[:1] == ['--end-of-options']:\n"
+        "            if len(options) != 3 or options[-1] != '--':\n"
+        "                return False\n"
+        "            revision = options[1]\n"
+        "        elif len(options) == 1:\n"
+        "            revision = options[0]\n"
+        "        else:\n"
         "            return False\n"
-        "        ref, path = options[0].split(':', 1)\n"
+        "        if ':' not in revision:\n"
+        "            return False\n"
+        "        ref, path = revision.split(':', 1)\n"
         "        return safe_ref(ref) and safe_path(path)\n"
         "    if command == 'status':\n"
         "        return options in (\n"
@@ -728,7 +783,14 @@ def _install_trusted_git_wrapper(
         "    prefix = [\n"
         "        '--name-only', '--no-renames', '--diff-filter=ACDMRT', '-z'\n"
         "    ]\n"
-        "    return options[:4] == prefix and len(options) == 5\n"
+        "    if options[:4] != prefix:\n"
+        "        return False\n"
+        "    revisions = options[4:]\n"
+        "    return len(revisions) == 1 or (\n"
+        "        len(revisions) == 3\n"
+        "        and revisions[0] == '--end-of-options'\n"
+        "        and revisions[-1] == '--'\n"
+        "    )\n"
         "def assert_safe_worktree_attributes():\n"
         "    repository = args[:cursor]\n"
         "    try:\n"
@@ -1566,6 +1628,8 @@ def _signing_trust_roots_payload(
     eval_root: str,
     corpus_release_root: str,
     retired_corpus_release_roots: tuple[str, ...] = (),
+    retired_apply_roots: tuple[str, ...] = (),
+    retired_apply_inventory: dict[str, object] | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "schema": "axiom-encode/signing-trust-roots/v2",
@@ -1580,7 +1644,60 @@ def _signing_trust_roots_payload(
             corpus_release_root,
             *retired_corpus_release_roots,
         ]
+    if bool(retired_apply_roots) != (retired_apply_inventory is not None):
+        raise SystemExit(
+            "retired apply roots and the frozen inventory must be supplied together"
+        )
+    if retired_apply_roots:
+        from axiom_encode.retired_apply import validate_retired_apply_inventory
+
+        try:
+            inventory = validate_retired_apply_inventory(retired_apply_inventory)
+        except ValueError as exc:
+            raise SystemExit(f"invalid retired apply frozen inventory: {exc}") from exc
+        if any(not root.strip() for root in retired_apply_roots):
+            raise SystemExit("retired apply roots must not be empty")
+        payload["schema"] = "axiom-encode/signing-trust-roots/v4"
+        payload["retired_apply_ed25519_public_keys"] = list(retired_apply_roots)
+        payload["retired_apply_inventory"] = inventory
     return payload
+
+
+def _load_retired_apply_inventory(path: Path) -> dict[str, object]:
+    """Read an owner-protected inventory only at supervisor provisioning time."""
+
+    if not path.is_absolute() or Path(os.path.abspath(path)) != path:
+        raise SystemExit("retired apply inventory path must be absolute and normalized")
+    for component in (path, *path.parents):
+        metadata = component.lstat()
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or metadata.st_uid != 0
+            or metadata.st_mode & 0o022
+        ):
+            raise SystemExit(
+                "retired apply inventory and its parents must be root-owned, non-writable, and free of symlinks"
+            )
+    if not path.is_file():
+        raise SystemExit("retired apply inventory must be a regular file")
+    if path.stat().st_size > 16 * 1024 * 1024:
+        raise SystemExit("retired apply inventory exceeds 16 MiB")
+
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON key {key!r}")
+            result[key] = value
+        return result
+
+    from axiom_encode.retired_apply import validate_retired_apply_inventory
+
+    try:
+        value = json.loads(path.read_bytes(), object_pairs_hook=unique_object)
+        return validate_retired_apply_inventory(value)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise SystemExit(f"invalid retired apply frozen inventory: {exc}") from exc
 
 
 def provision(
@@ -1600,11 +1717,26 @@ def provision(
     codex_cli_archive: Path | None = None,
     install_pinned_codex_cli: bool = False,
     retired_corpus_release_roots: tuple[str, ...] = (),
+    retired_apply_roots: tuple[str, ...] = (),
+    retired_apply_inventory_path: Path | None = None,
 ) -> None:
     if any(not root.strip() for root in retired_corpus_release_roots):
         raise SystemExit(
             "refusing to provision: retired corpus release roots must not be empty"
         )
+    retired_inventory = (
+        _load_retired_apply_inventory(retired_apply_inventory_path)
+        if retired_apply_inventory_path is not None
+        else None
+    )
+    trust_payload = _signing_trust_roots_payload(
+        apply_root,
+        eval_root,
+        corpus_release_root,
+        retired_corpus_release_roots,
+        retired_apply_roots,
+        retired_inventory,
+    )
     encoder_attestation_args = (
         encoder_origin_repository,
         encoder_commit,
@@ -1677,12 +1809,6 @@ def provision(
         )
         launcher.chmod(0o755)
         trust = destination / "signing-trust-roots.json"
-        trust_payload = _signing_trust_roots_payload(
-            apply_root,
-            eval_root,
-            corpus_release_root,
-            retired_corpus_release_roots,
-        )
         trust.write_text(json.dumps(trust_payload, sort_keys=True) + "\n")
         trust.chmod(0o644)
         if provision_encoder:
@@ -1718,6 +1844,18 @@ if __name__ == "__main__":
         action="append",
         default=[],
         help="Retired verification-only corpus release root; repeat for each key.",
+    )
+    parser.add_argument(
+        "--retired-apply-root",
+        action="append",
+        default=[],
+        help="Retired verification-only apply root (raw base64); requires frozen inventory.",
+    )
+    parser.add_argument(
+        "--retired-apply-inventory",
+        type=Path,
+        default=None,
+        help="Owner-reviewed root-protected frozen inventory; copied inline into protected trust.",
     )
     parser.add_argument(
         "--install-pinned-codex-cli",
@@ -1798,4 +1936,6 @@ if __name__ == "__main__":
         else None,
         args.install_pinned_codex_cli,
         tuple(args.retired_corpus_release_root),
+        tuple(args.retired_apply_root),
+        args.retired_apply_inventory,
     )

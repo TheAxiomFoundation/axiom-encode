@@ -1,0 +1,523 @@
+{
+  "all_99_baseline_git_blobs_identical": true,
+  "baseline_package_blobs": [
+    {
+      "git_blob_sha1": "91c0e7fc9b6ca4f6c1df810a158c008a5b6c8949",
+      "path": "src/axiom_encode/__init__.py",
+      "sha256": "d31847478a4d8ca061b634978e27ea0270658a060e5d834dd1b859d98451917b"
+    },
+    {
+      "git_blob_sha1": "7b18f9e05cbecb94128a60a8a4b07517f2f6388c",
+      "path": "src/axiom_encode/_trusted_signing_bootstrap.py",
+      "sha256": "4e75b543314fbd6f36ff07a5378978d6cf9f678e74104bd83fbce8e5c892f18d"
+    },
+    {
+      "git_blob_sha1": "e70935bb2899365dbad664f2970c0a2af1ef6294",
+      "path": "src/axiom_encode/ci_parity.py",
+      "sha256": "00a8279649b43905042546f21789b653221bb9bf235b4bc184e0cf7928ba4c62"
+    },
+    {
+      "git_blob_sha1": "6e901b9653dc05fdd8867143dba121b8fbe081bd",
+      "path": "src/axiom_encode/cli.py",
+      "sha256": "4d908eee9f893234faabc2f1275d0b33294247a8c912968b09339b3ae86541e2"
+    },
+    {
+      "git_blob_sha1": "efa0800573ca1543ec865d98d5e7c8f71acee6e1",
+      "path": "src/axiom_encode/codex_cli.py",
+      "sha256": "2e67e91113ea8d98dd137834239c1484c171c16ed6fbcd4c1d30ec26bf2ccdeb"
+    },
+    {
+      "git_blob_sha1": "010e840ce3490f2c0e8ee05f675bf43b9b479a18",
+      "path": "src/axiom_encode/companion_entities.py",
+      "sha256": "959043518c5e47685a8bbcf7b4167c244c0045bd84a41b04f0f2b8a70f25cb84"
+    },
+    {
+      "git_blob_sha1": "7a262d5ad26693c04aa53c1bb6283b2d9c8ba27d",
+      "path": "src/axiom_encode/companion_relations.py",
+      "sha256": "f179b6171505e910d349ca34042edfc003f09b0c6752227e163772f02ee6931b"
+    },
+    {
+      "git_blob_sha1": "fb1543e34c167422690826944a83b2193b8bf323",
+      "path": "src/axiom_encode/concepts/__init__.py",
+      "sha256": "6ad04b2830136054e1487f7b7f30c6624bc8183abcb38575e5537464b2bc18d3"
+    },
+    {
+      "git_blob_sha1": "12f3c02f428ec46a4875d748c43cf3ba801eb5e8",
+      "path": "src/axiom_encode/concepts/audit.py",
+      "sha256": "fe9ba6c9b0f70c087edcd3d701d99200de004a61fd0a710b9cddf5e360400d09"
+    },
+    {
+      "git_blob_sha1": "83c5aeb3e3a1c7d4a9cd4560bba67e4d724f379a",
+      "path": "src/axiom_encode/concepts/auto_repair.py",
+      "sha256": "7cecc66f6f4485163a1f679f618bcd7cf31bee1e59a3041ca9150bdb1f711a0c"
+    },
+    {
+      "git_blob_sha1": "8311cc993afd57ff34add6377560d5ad3d4d9e8c",
+      "path": "src/axiom_encode/concepts/data/snap.yaml",
+      "sha256": "cbf66c018a776d8c8cd241ee68190db0097144be0426689897a9d356123d0ade"
+    },
+    {
+      "git_blob_sha1": "1ea7629a34c1bad788a0f8c7df5b6566bfda797a",
+      "path": "src/axiom_encode/concepts/jurisdiction.py",
+      "sha256": "b303cc64adda4a3113f81c58ddbf703cf98288bf7ee28879601c3a083ae562b8"
+    },
+    {
+      "git_blob_sha1": "0e8778e3b6aca04b2c9bce2ac2e46b3a574a28b4",
+      "path": "src/axiom_encode/concepts/registry.py",
+      "sha256": "702ff5b472017443ef0ce12ce2284526e32d7fb65b95ecbfadeedd4049f4fb19"
+    },
+    {
+      "git_blob_sha1": "eef53ec1df25237256fef1d16792cee6b6d385c9",
+      "path": "src/axiom_encode/concepts/validator.py",
+      "sha256": "def29191c7861acf8378d48202c582a37aa335dcc154d823f446b035def6decd"
+    },
+    {
+      "git_blob_sha1": "5d6bce02382096c8ee3f348393aeb1ea52436b8a",
+      "path": "src/axiom_encode/constants.py",
+      "sha256": "9849bfbe2efd97f4d3ff3c9e5f1c2e6c24d0ae790ec3e991e4c8708bea42976b"
+    },
+    {
+      "git_blob_sha1": "9c3ccd1170765b131d4baedc6494301ac41a5724",
+      "path": "src/axiom_encode/core_export.py",
+      "sha256": "242eb5b3eefe1914726fe5731b6883ac14b7fdfcc78342688fdb24e0c8ef0b0f"
+    },
+    {
+      "git_blob_sha1": "ade6f6ef53a544012138a31f5085029ca0ae048b",
+      "path": "src/axiom_encode/corpus_materialize.py",
+      "sha256": "4c1670d984c9d3683e016f3f5021233997c9ef6d9f83e6ec1971c197d76bcf62"
+    },
+    {
+      "git_blob_sha1": "0e5698f6af43e2d91371c5a2550e1777b5bb91a0",
+      "path": "src/axiom_encode/corpus_release.py",
+      "sha256": "bd0922674f80497fd27fff7ae82e04af4983754b8b31e25562ef8545ea31556d"
+    },
+    {
+      "git_blob_sha1": "49f9b1c486343dd7a0e11360b697d289705a594d",
+      "path": "src/axiom_encode/corpus_resolver.py",
+      "sha256": "e64093dda4045e6869d56258ad7041f15465d413d429c7f2a757072bcb918056"
+    },
+    {
+      "git_blob_sha1": "dc06774fdd17fa2567e1fc171d7f20e88f8b0823",
+      "path": "src/axiom_encode/encode_timing.py",
+      "sha256": "c4ec2f4719422dfa51a8ed317e3374775473363bc773babdd91557f38fc38a8d"
+    },
+    {
+      "git_blob_sha1": "4935701023c398bcce40c49930e3e1db86c9360a",
+      "path": "src/axiom_encode/engine_binding.py",
+      "sha256": "ad883bad0487f4016fcb73ca05562f47aaac44698f48b237d5ba8d06581876aa"
+    },
+    {
+      "git_blob_sha1": "4b9d37dac7971914b67796b4a3184980f10af2a4",
+      "path": "src/axiom_encode/entrypoint.py",
+      "sha256": "effc2a1e22ef55d33b76dba35d11e914188ef051bc1ab75ab88be91fda8973dd"
+    },
+    {
+      "git_blob_sha1": "d26d04b124f57a74e35c56c52c9f1e867671385f",
+      "path": "src/axiom_encode/harness/__init__.py",
+      "sha256": "101a299f8265b497fc596ad647eede846bedf451ac366a7bcfb73ef30b734409"
+    },
+    {
+      "git_blob_sha1": "73980d1df29639a6a9cbf01773479d039f824c96",
+      "path": "src/axiom_encode/harness/backends.py",
+      "sha256": "c3f686e1b0f8cd6b4f1b3ab2e49ade3144a370cc6cfcbb29b3648dbcc6bc7b3b"
+    },
+    {
+      "git_blob_sha1": "9b8135cada4f7114ec88dc51cadd21c77db213fb",
+      "path": "src/axiom_encode/harness/coverage_index.py",
+      "sha256": "4d6d20405dad4bb4369e92df2993761d8791ca69459d5cc74e48b9af6cab7a1a"
+    },
+    {
+      "git_blob_sha1": "14690c1dd7c07219c0501ab19667225fec96ccb8",
+      "path": "src/axiom_encode/harness/dependency_stubs.py",
+      "sha256": "1c2caffb85a1bb9c815fbd9bc6705a514d8715900bf967e7c5c1d8a20973fa71"
+    },
+    {
+      "git_blob_sha1": "32a471dfa183ed1c40b5cf4db5168f5da5b5cc6d",
+      "path": "src/axiom_encode/harness/encoding_db.py",
+      "sha256": "4f6ff46ebd764d38f200284f26c7c26fe534bc1df9d44a5d59cfabed37781803"
+    },
+    {
+      "git_blob_sha1": "e0081e020bcf6432599d01b5d68227bdc0f7a055",
+      "path": "src/axiom_encode/harness/eval_board.py",
+      "sha256": "5cdc774ca580255b816edfd7606461c160182c0778556108ce828cd81ba8c81d"
+    },
+    {
+      "git_blob_sha1": "932eb3027a81d88f354b82709b92846cb5f43e0e",
+      "path": "src/axiom_encode/harness/eval_evidence.py",
+      "sha256": "c31f2d18b26c93519eedea3203fa6f3881786300d0d27dda1141383008b3787c"
+    },
+    {
+      "git_blob_sha1": "5af835c1db30cd8e334dcd2e4fa8a1f70d650def",
+      "path": "src/axiom_encode/harness/eval_prompt_surface.py",
+      "sha256": "8596a1a5d0cb6fc48ed1378e986cd78fe49c13a08f6937664629554055f8494c"
+    },
+    {
+      "git_blob_sha1": "384ee1374a93fa0edfbc8642375188e162a1b579",
+      "path": "src/axiom_encode/harness/evals.py",
+      "sha256": "44f9b72942db44ce9046d682996250913639db7d2023e104cc92ce9debbf98b8"
+    },
+    {
+      "git_blob_sha1": "4fe6e136c4d8a28e5f129d26154489c3900f904f",
+      "path": "src/axiom_encode/harness/metrics.py",
+      "sha256": "0c5a740c39b5e599ced055e0b09f479d53d89678f6f28dcc1db11a1c1f8ebbab"
+    },
+    {
+      "git_blob_sha1": "20d34b8f69f74c966e5bd4ab55d7bbfbee31b3cd",
+      "path": "src/axiom_encode/harness/observability.py",
+      "sha256": "8163846bf2007c41b22cd5046a96ccb7f468e5890f3a4caf5b8e6d662b6972d4"
+    },
+    {
+      "git_blob_sha1": "5fa8eed742630f5d60c77bc29c9f1364513adee9",
+      "path": "src/axiom_encode/harness/policyengine_runtime.py",
+      "sha256": "d05ff6f90eb85bae3e639633dbe8369d7ca0561f59e1dbbaf5fb0f4a02e4f43b"
+    },
+    {
+      "git_blob_sha1": "26f96ae85fac7608c7c7b0caee6486e508996d9d",
+      "path": "src/axiom_encode/harness/pricing.py",
+      "sha256": "b1a7e392fa4bdf9358547d0ed5658bbca6afbcdfc30642842283e878bb8e7421"
+    },
+    {
+      "git_blob_sha1": "75c1365be02b078262fe3d062e57b20846ce5291",
+      "path": "src/axiom_encode/harness/pricing_rates.toml",
+      "sha256": "200e625c88f87bfdb33b32ff4769d383dc2df58a8f427860cc98c2b12286e43f"
+    },
+    {
+      "git_blob_sha1": "2a0b3123520c913425fed735122a4d707bde2c33",
+      "path": "src/axiom_encode/harness/proof_validator.py",
+      "sha256": "68a716e3753f44194ff43130294b2124bed505ba3d5896cb063a88b06268c0e9"
+    },
+    {
+      "git_blob_sha1": "9806b87bb1821f45b267b6f0727ebb1b42d18367",
+      "path": "src/axiom_encode/harness/source_completeness.py",
+      "sha256": "875df7eb77efdaef6add1ca6756989f2881b5825dcf65dd6e66c0f30c43f3b62"
+    },
+    {
+      "git_blob_sha1": "a312bf603190bab0f4c2c1d5018d8482f4f71045",
+      "path": "src/axiom_encode/harness/source_path_evidence.py",
+      "sha256": "918702d232756db85506ab948fbb7fb23778a07c842aa9deb9e6d4f4c9b38f53"
+    },
+    {
+      "git_blob_sha1": "4d016b535abe5061553ca2f06d3f191512c9b857",
+      "path": "src/axiom_encode/harness/source_path_shadow.py",
+      "sha256": "2a653b8e34222249ccec3a29d862fca9321e05bbd666b572452c30a3352ecb06"
+    },
+    {
+      "git_blob_sha1": "f9be9e62d8f0ca3c7ee1f8b3bb8fc8348454f31a",
+      "path": "src/axiom_encode/harness/validator_pipeline.py",
+      "sha256": "e9fb139cc37ec9e72555524941b29edf66d33c6fc828986e82c97643ad51c922"
+    },
+    {
+      "git_blob_sha1": "a78fb68d43ef9a016e13442387a4627eef09af65",
+      "path": "src/axiom_encode/harness/worksheet_composition_evidence.py",
+      "sha256": "e79dd4ed03ff91ad253eb311959ee5e6bc727e141420fa5272a140aa510ca143"
+    },
+    {
+      "git_blob_sha1": "100ecd5c2a7974d6cb42f0254202a748984fa7c6",
+      "path": "src/axiom_encode/harness/worksheet_country_evidence.py",
+      "sha256": "78589047752afb93f89d7aec94d4e87a8d1b18296947f60b47422989935ef855"
+    },
+    {
+      "git_blob_sha1": "e18b76a734e3045cbf2c48dde831b1a32938805b",
+      "path": "src/axiom_encode/harness/worksheet_exception_evidence.py",
+      "sha256": "6054f1b74858261ff33f228f224069ecad78ae1c49c56f364e022c603f9273a0"
+    },
+    {
+      "git_blob_sha1": "278c7e313dd8c9424d328f0bfa06da8e34c4553f",
+      "path": "src/axiom_encode/harness/worksheet_operation_evidence.py",
+      "sha256": "4637feddfabd815bacea5ab2320db468ad1d4fe1dd1709d300e72ee360d6f540"
+    },
+    {
+      "git_blob_sha1": "505da0e61ee13e24cbc183af6b83b8a5d6326b8c",
+      "path": "src/axiom_encode/harness/worksheet_replacement_evidence.py",
+      "sha256": "fbf5ae2718dc6c4f7e8261b9f13d8a18e251cdab1d28fdecc3d803170dcaa8f2"
+    },
+    {
+      "git_blob_sha1": "d4118a8cd9c2ce8fbe0af112ed740cd6930c2ff3",
+      "path": "src/axiom_encode/harness/worksheet_transfer_evidence.py",
+      "sha256": "805b7a118aea973e378c88536354b57ef3c0e5dc34be7f64f747deee3eca653a"
+    },
+    {
+      "git_blob_sha1": "ad36355e5ca22a4a8df65d04c52639e40f2a7d2f",
+      "path": "src/axiom_encode/judges/__init__.py",
+      "sha256": "1920ac330e23d25ff35ec9e1fb07a088109a9c0cac9ef50161a2e18a45e2e4de"
+    },
+    {
+      "git_blob_sha1": "a9355504ad390f7ae5a94a7d45b59c7feab17605",
+      "path": "src/axiom_encode/judges/calibration.py",
+      "sha256": "8b48963f0345478a2db5902b2ad2f2fb46a519e728c449c2dee5fbc2d95892c4"
+    },
+    {
+      "git_blob_sha1": "8990989864fd9b923cf14141a892cfa93df96d19",
+      "path": "src/axiom_encode/judges/cli_commands.py",
+      "sha256": "105efa77b9d3a3d5c102120afcac792675bfb2b902aaaeddabbb63f4400f09fc"
+    },
+    {
+      "git_blob_sha1": "6e985b5b201d6b6a2b958445c3861e010731f8b4",
+      "path": "src/axiom_encode/judges/client.py",
+      "sha256": "6b5164abf2e088bd8f205176c6b2864a5db80d7ffacb2f2840a5606ac7dc522f"
+    },
+    {
+      "git_blob_sha1": "076d0ee147a21a9e6891de58f351ff093c9b122f",
+      "path": "src/axiom_encode/judges/disposition.py",
+      "sha256": "61155bd0c3a42effc1b65d4ff8580bb07112e898f15bedaeaa712ad7e6ad58ee"
+    },
+    {
+      "git_blob_sha1": "550c8fb8ee6971a31a7508f70ba6a04526e3b610",
+      "path": "src/axiom_encode/judges/drift.py",
+      "sha256": "bf89c2f196e7945d4caaf1889f04c5cca04035b4af19540724a1fdecdcf04f70"
+    },
+    {
+      "git_blob_sha1": "b4e3bd91d94389d858afeabd21b7c32feed04f1b",
+      "path": "src/axiom_encode/judges/grid_adequacy.py",
+      "sha256": "069025671a6de60fc355e954c777fc33de9d4efc8246b8ff180f519d1d914ade"
+    },
+    {
+      "git_blob_sha1": "207efb120ff27fb3d220ccf97e085727796a4474",
+      "path": "src/axiom_encode/judges/preclassifier.py",
+      "sha256": "de95e00443bef90c77d4ed2e1e52f83bd64456360677e9c8304c875dea65b8d7"
+    },
+    {
+      "git_blob_sha1": "50949cfca6f63ec7d78f1154d92c75f4e14284f2",
+      "path": "src/axiom_encode/judges/regeneration.py",
+      "sha256": "e87e9c1078ab12c05ed90ecbdb55b73371476e3d86a82760c74b904309eb76e6"
+    },
+    {
+      "git_blob_sha1": "5e33126b976b1a6f6412497d0dd5f7a07a53c41a",
+      "path": "src/axiom_encode/judges/run_log.py",
+      "sha256": "b21be82103a36e0efce2baa0f25edbf2cab525577a02d60b43d2dac26c10e90a"
+    },
+    {
+      "git_blob_sha1": "f2b5037eb42817016a3e858b423a85d68e4c439e",
+      "path": "src/axiom_encode/judges/statutory_fidelity.py",
+      "sha256": "78183ad8eeb725560674ba82af34d82549bbe574e0ebe5ae180d2bf26511a054"
+    },
+    {
+      "git_blob_sha1": "3e6b9db36bc292389529c4d472fc4e6c2cc702b6",
+      "path": "src/axiom_encode/judges/statutory_fidelity_screen.py",
+      "sha256": "17a8faf864ac18c2a39696e2efd7651e418efc685e5b5d5c43c3032738c96add"
+    },
+    {
+      "git_blob_sha1": "162da91d7ba2f810b2079384bb93030aa2e91540",
+      "path": "src/axiom_encode/judges/system_one.py",
+      "sha256": "de9d737b749ddb496f28a4c4a3badb1f56a5bf2a0aa0e62922d648aa1fa8964e"
+    },
+    {
+      "git_blob_sha1": "af24d8dfe6d1b0c23fe6b27500fcd582fad423dd",
+      "path": "src/axiom_encode/legacy_exact_dependent_concepts.py",
+      "sha256": "0b724aff9c20f6c7a2389aa9320df4ef4e7a2fa8696838b4b90d373b7ff4fccc"
+    },
+    {
+      "git_blob_sha1": "526b8b00714d31f2a994f047893b65c03ae2d5b0",
+      "path": "src/axiom_encode/legacy_external_parameters.py",
+      "sha256": "581a45fc933aabfe3dd3a93c69d083e8cbb9807474eda497da1726c50f8970ed"
+    },
+    {
+      "git_blob_sha1": "28d14086433b245a9b57133e1b127a69c77f2bd1",
+      "path": "src/axiom_encode/legacy_replacement.py",
+      "sha256": "eb5900208e7cbc11861c94541945d6dfb010aa88713299a108e45822e049505d"
+    },
+    {
+      "git_blob_sha1": "163686802451bb3d0dfb3e78f20a4b5a62a61cf1",
+      "path": "src/axiom_encode/legacy_replacement_overlay.py",
+      "sha256": "e04255e9ed59c2f18f5483c87e0f6deb534068cb96b479b3ddbaaffec8087c46"
+    },
+    {
+      "git_blob_sha1": "d65eb90d0f59336d2c351392942fda83b4041515",
+      "path": "src/axiom_encode/live_run_telemetry.py",
+      "sha256": "bdcd1d6b1abab51db6e0ef6dcd8c8b4843e4c41d34182437ec5bf63868bbe17a"
+    },
+    {
+      "git_blob_sha1": "4fb96463b3337d207419578e6ae17fe1ac399e32",
+      "path": "src/axiom_encode/new_jurisdiction.py",
+      "sha256": "ff803951da3e0fd877adea688b47123dd501e543e10803ef3db17984989eeed5"
+    },
+    {
+      "git_blob_sha1": "d4d5e787eb4564d4a1628dd430210ba331df5637",
+      "path": "src/axiom_encode/numeric_equality.py",
+      "sha256": "a9ed6a06b99c26ab694f4164ebfe85303e4f819f70ea0144dd9f0363eb11a3c4"
+    },
+    {
+      "git_blob_sha1": "76d992ac9fe3c121005f8ee9e1b6fc028be71a30",
+      "path": "src/axiom_encode/oracles/__init__.py",
+      "sha256": "ec9edc105c9b70a06435052e556d495f0eaed366ddf76237a47c84890a3eaae0"
+    },
+    {
+      "git_blob_sha1": "5ecdddd84d076f6db65872c221e36c30a5724d9a",
+      "path": "src/axiom_encode/oracles/policyengine/__init__.py",
+      "sha256": "c36a0e40c1bfaa25ce369805e56f56b7b468f1bd062a1aed678d7d17e9495c3a"
+    },
+    {
+      "git_blob_sha1": "a8fa0d644d81a6818183915c655e845334209e63",
+      "path": "src/axiom_encode/oracles/policyengine/classifier.py",
+      "sha256": "c32920190e6e0640851999b3f2f3ed334e962143b5ca6570d06c3a3aa5983bb8"
+    },
+    {
+      "git_blob_sha1": "d1c324ffc0c21aebabf44d7738b42d02125ca3db",
+      "path": "src/axiom_encode/oracles/policyengine/mappings/be.yaml",
+      "sha256": "c49da0914008903cba15c0072166c63bb86097c20fbd12eed7fdde7579617090"
+    },
+    {
+      "git_blob_sha1": "40e212fded47c97952962f459a45e3233d8161fe",
+      "path": "src/axiom_encode/oracles/policyengine/mappings/nz.yaml",
+      "sha256": "c8dbd5b276d1df255499f3cddc15272357d332e3658c07dde2dbf972816be3bb"
+    },
+    {
+      "git_blob_sha1": "fdffebd711f3d7bbd14404155ceeb5144f44925c",
+      "path": "src/axiom_encode/oracles/policyengine/mappings/uk.yaml",
+      "sha256": "40b166e1db9e3206ad820ae35f0ccf9d5e22901244591ae1d1ec93ac99a9caf4"
+    },
+    {
+      "git_blob_sha1": "f6ea1308fcb385427cfc6707670b572f71ba9cea",
+      "path": "src/axiom_encode/oracles/policyengine/mappings/us.yaml",
+      "sha256": "48dc2118a386dd1deac1b85a14637f5de8779d1835ef9651bf7e15960c75bce9"
+    },
+    {
+      "git_blob_sha1": "7ea9934233c6fe214e643d3008d357c13740d2ab",
+      "path": "src/axiom_encode/oracles/policyengine/pending.py",
+      "sha256": "7a2ac9997e66e560d2385fad8a6981e146f2fe2b8e00241a1c1d04b339d4cb28"
+    },
+    {
+      "git_blob_sha1": "12d3e4331a04f4c010019f35133113761ae6eb5e",
+      "path": "src/axiom_encode/oracles/policyengine/program_surfaces/us.yaml",
+      "sha256": "34fb8d905abfacc16c5942c4abf7291225ecbdd11dd6ddfa64519fff6f56be4f"
+    },
+    {
+      "git_blob_sha1": "c4d89d83a58fc90d5e4b42515d1b61107bb70eb9",
+      "path": "src/axiom_encode/oracles/policyengine/snap_readiness.py",
+      "sha256": "4bbbef5e33a8a317c88787b695194666910b1f415a1424aa6167269e23ee5868"
+    },
+    {
+      "git_blob_sha1": "22988402e9da6dde0e05772a56a7ec76594243ee",
+      "path": "src/axiom_encode/oracles/snapscreener.py",
+      "sha256": "fad005072680c07bb915a5e39c94135222be19fb6510f2e8320c613906da5b94"
+    },
+    {
+      "git_blob_sha1": "cd175e195881d92e5996e98eb3a8b5de5ba340ab",
+      "path": "src/axiom_encode/prepare_signed_backfill.py",
+      "sha256": "4080afe31fb016970f2af02efa5e97ede9957a73780598350e22fa078fcd908e"
+    },
+    {
+      "git_blob_sha1": "1b045e7a3940e144ebef6923f9518dfb56d30f7e",
+      "path": "src/axiom_encode/program_scope.py",
+      "sha256": "acd38f236f6fbb7f67207edc44fa73ae0003f9467e0f95820d24da9c63148843"
+    },
+    {
+      "git_blob_sha1": "68d128e0ee532293bef2a203551c028399be5765",
+      "path": "src/axiom_encode/prompts/__init__.py",
+      "sha256": "9bf8492cd9797f999b7bb5aae26e6a01b5cb931fea7ccdc98a9147b876df2687"
+    },
+    {
+      "git_blob_sha1": "9ffe68dfcb92f29d80f5fd8ab8c8223ff28c7c94",
+      "path": "src/axiom_encode/prompts/encoder.py",
+      "sha256": "a49c400c4e8596d39967fce2ee4dc701c905ab3cc21bb802356bf7aba6187efe"
+    },
+    {
+      "git_blob_sha1": "307aa2665785082035db1c75e0f2333354396de2",
+      "path": "src/axiom_encode/proof_hash_migration.py",
+      "sha256": "9988dfc11c6d64ef7b2dc26096a2129cad12b174e2b056198779e06578ebde62"
+    },
+    {
+      "git_blob_sha1": "4eea7c5793f28bc3d5868ed2ba49fe7d6d1b70ad",
+      "path": "src/axiom_encode/repair_candidate_contract.py",
+      "sha256": "c6674f94a32909c434aa475056433d88ea01b0232529e2b7ba5fdc3f0b858b86"
+    },
+    {
+      "git_blob_sha1": "092cac7f84a7949cedc73d5146a6aad73ce316c7",
+      "path": "src/axiom_encode/repo_routing.py",
+      "sha256": "9e721f2900eddae8de8775a548254065c9b8ca02e1b4125b27a1212a98ce0741"
+    },
+    {
+      "git_blob_sha1": "1d2d7c9e7f038334b9d2bc51304a9e728911d9f5",
+      "path": "src/axiom_encode/retired_source_evidence.py",
+      "sha256": "11f96c27d50cbfa9fe125ffab12d772298c12b781844bfe43c3917f0c9473da1"
+    },
+    {
+      "git_blob_sha1": "da326f4f9bf46a0e8ee70923dfeab25847c9a2fd",
+      "path": "src/axiom_encode/retired_source_metadata.py",
+      "sha256": "6ccefa52f2cdfefc6d81f7669cda16c238cd10555d9660b1d9a7517b50a16950"
+    },
+    {
+      "git_blob_sha1": "bc82c01349466a00546c8465abe603c0b71f11fc",
+      "path": "src/axiom_encode/retired_source_metadata_workflow.py",
+      "sha256": "222288f7caf48721d6c47fc275e5747793b0716b365d3b16d36bf369d0559f46"
+    },
+    {
+      "git_blob_sha1": "6693043a730a4247f122c1112530f6e13acab529",
+      "path": "src/axiom_encode/retry_feedback.py",
+      "sha256": "86007880d0933aada4ae27a52cfdbd69b2fdd887aef822be30da1ffd10f67cde"
+    },
+    {
+      "git_blob_sha1": "8c012e434b8e2cdb6ba80c0dd0822f56b3415be5",
+      "path": "src/axiom_encode/rules_engine_compat.py",
+      "sha256": "26d2dd75dfdd8ee316b64ffded5f2324203c2e8f2848fd6300c18cc41d957958"
+    },
+    {
+      "git_blob_sha1": "c0f6bc46ec42e177bbb540d1f0a51922a1b50652",
+      "path": "src/axiom_encode/rulespec_path_migration.py",
+      "sha256": "b7c2c3fc4b5df0c56ed1484d5e92e0a0b3ffb375cfe2d52ef1a7da1666d14f0b"
+    },
+    {
+      "git_blob_sha1": "1605c1359be1909825841097516c3a212bf8da7e",
+      "path": "src/axiom_encode/run_log.py",
+      "sha256": "9a7bc0e23c567cb3f1c8e3b477727b641056e7d64a4de8d7d9d4e7fc6f8403d8"
+    },
+    {
+      "git_blob_sha1": "28c23cee2e32f6da1e7e33fcd001c41ec2a4308d",
+      "path": "src/axiom_encode/run_log_export.py",
+      "sha256": "0ced40450f4aa7ee4550f8017705c3ea0f85e5c623cfb88c296272b0e27e8870"
+    },
+    {
+      "git_blob_sha1": "bb09a578435bea1fa20da544148db2e6acbb84bf",
+      "path": "src/axiom_encode/signing_broker.py",
+      "sha256": "3770314c343be1014c49f8ab71f9911ba5574e35088b67423a3cfd1980433790"
+    },
+    {
+      "git_blob_sha1": "e62b8e4010935b6c1e58180a758842aebe88fa63",
+      "path": "src/axiom_encode/source_hash.py",
+      "sha256": "c8d3f09e96ec257f4a907ea22089b278766e2f03a056afd22e7634125598bebc"
+    },
+    {
+      "git_blob_sha1": "9a87b3b2a00b0b9c3c75c41afba120bc02991075",
+      "path": "src/axiom_encode/statute.py",
+      "sha256": "c854968e3ac57345c2526fc9905464ca6ac7f6462d89898a569b148493bc36ea"
+    },
+    {
+      "git_blob_sha1": "9ad1a50bacb87e3c6492b5878a11906e1dc55c10",
+      "path": "src/axiom_encode/supabase_sync.py",
+      "sha256": "3793f845bc96b558aa8bac498e27136d7c60acc7dea548958919888837fbd901"
+    },
+    {
+      "git_blob_sha1": "a5c43bd7b0fc156caeef1edf8c3479d7d9d5cf8e",
+      "path": "src/axiom_encode/toolchain.py",
+      "sha256": "f7fa062f0ca81318eeba2f40d9203871900edfcda2df8791d5901b2b1f09e2e5"
+    },
+    {
+      "git_blob_sha1": "d1ee60d9634398cb693dbbefef7b4436fda8a4f2",
+      "path": "src/axiom_encode/validation_waivers.py",
+      "sha256": "8d5b2e4566cad307ca856aa992b682ca9784fa5fbf01b143880197b618859659"
+    }
+  ],
+  "baseline_package_tree_id": "93d509588b65207c063b7e47e22d241575d1106f",
+  "entire_python_package_tree_identical": true,
+  "execution_summary_policy": "The emitted summary retains its actual recorded baseline. Exact package and lock equality transfers numeric results to the later observed main without re-execution or relabeling.",
+  "later_main_package_tree_id": "93d509588b65207c063b7e47e22d241575d1106f",
+  "later_observed_main": "52c76d75849a628bbfd62b31795fd06e6bf9fdd1",
+  "locked_files": {
+    "pyproject.toml": {
+      "baseline_git_blob": "f8ace07da8fe14c96845cf585b47e7d49397b725",
+      "forward_git_blob": "f8ace07da8fe14c96845cf585b47e7d49397b725",
+      "identical_bytes": true,
+      "sha256": "7d98e6ab94a16a99b971d773109540884d538deb8766b8b72bf641a20d046fdd"
+    },
+    "uv.lock": {
+      "baseline_git_blob": "4ed9ec8ebe729dc53d47628d1f303fb1502946e6",
+      "forward_git_blob": "4ed9ec8ebe729dc53d47628d1f303fb1502946e6",
+      "identical_bytes": true,
+      "sha256": "59868f59f5af8b5132051465199737f5d92fa7290df956d7c1b396f5ea0d9193"
+    }
+  },
+  "origin_main_observed_when_report_created": "52c76d75849a628bbfd62b31795fd06e6bf9fdd1",
+  "recorded_baseline_proof_sha256": "3e61bb76b0d194f83e3a9ed6d76baa86fef2bdb0f3fc709d63884a446be822b9",
+  "recorded_execution_baseline": "4f3547461300bfa70569f57c83728b2ad25d9d0b",
+  "reproducer_sha256": "a00a9cc82d3188dbf536882c7c84ad0de1aec67b9deb56931e84cd15b41cb9f9"
+}

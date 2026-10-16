@@ -847,6 +847,31 @@ def test_finalize_repin_accepts_attempt_one_target_after_skipped_rerun(
         )
 
 
+@pytest.mark.parametrize("current_run_attempt", [1, 2])
+def test_finalization_plan_identifies_evidence_attempt(
+    tmp_path: Path, current_run_attempt: int
+) -> None:
+    payload, _, _, new_ref = _repin_fixture(tmp_path)
+    workflow_runs = _run_history(
+        "ut-0001", status="completed", conclusion="success", payload=payload
+    )
+    workflow_runs[0]["workflow_runs"][0]["run_attempt"] = current_run_attempt
+
+    plan = finalization_target_plan(
+        payload,
+        pull_requests=_pr_history(
+            "ut-0001",
+            state="closed",
+            merged=True,
+            merge_commit_sha=new_ref,
+            payload=payload,
+        ),
+        workflow_runs=workflow_runs,
+    )
+
+    assert plan["items"][0]["target_run_attempt"] == 1
+
+
 def test_finalization_plan_and_repin_require_exact_target_artifact(
     tmp_path: Path,
 ) -> None:
@@ -878,6 +903,7 @@ def test_finalization_plan_and_repin_require_exact_target_artifact(
             "target_run_url": (
                 "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/1"
             ),
+            "target_run_attempt": 1,
         }
     ]
 

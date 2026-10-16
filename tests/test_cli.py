@@ -31,6 +31,8 @@ from axiom_oracles.bridges.snap_populace import (
     project_income_resource_inputs,
     project_jurisdiction_household_inputs,
 )
+from hypothesis import HealthCheck, example, given, settings
+from hypothesis import strategies as st
 
 from axiom_encode import __version__ as AXIOM_ENCODE_TEST_VERSION
 from axiom_encode.cli import (
@@ -58,6 +60,7 @@ from axiom_encode.cli import (
     _applied_encoding_manifest_signature_issue,
     _applied_encoding_manifest_verifier,
     _applied_manifest_paths_for_files,
+    _applied_manifest_snapshot_exists,
     _applied_manifest_source_attestation_issues,
     _apply_encoder_execution_identity,
     _apply_generated_encoding_result,
@@ -108,6 +111,7 @@ from axiom_encode.cli import (
     _insert_false_input_default,
     _install_apply_transaction,
     _install_eval_suite_revalidation_transaction,
+    _is_unambiguously_absent_repo_path,
     _latest_axiom_encode_version_commit,
     _legacy_replacement_pending_paths,
     _load_verified_applied_encoding_manifest_payload,
@@ -232,6 +236,7 @@ from axiom_encode.cli import (
     _try_repair_generated_computed_output_test_inputs_for_apply,
     _try_repair_generated_conditional_vacuity_tests_for_apply,
     _try_repair_generated_day_period_test_shorthands_for_apply,
+    _try_repair_generated_deferred_canonical_citations_for_apply,
     _try_repair_generated_delegated_policy_settings_for_apply,
     _try_repair_generated_embedded_scalar_literals_for_apply,
     _try_repair_generated_empty_test_outputs_for_apply,
@@ -2747,6 +2752,27 @@ def _init_test_git_repo(repo: Path) -> None:
     _git(repo, "init")
     _git(repo, "config", "user.email", "test@example.com")
     _git(repo, "config", "user.name", "Test User")
+
+
+@pytest.mark.parametrize("ancestor_kind", ["symlink", "regularfile"])
+def test_manifest_base_snapshot_refuses_ambiguous_deleted_ancestor(
+    tmp_path, ancestor_kind
+):
+    repo = tmp_path / "rulespec-us"
+    _init_test_git_repo(repo)
+    ancestor = repo / "us/statutes/deleted"
+    ancestor.parent.mkdir(parents=True)
+    if ancestor_kind == "symlink":
+        ancestor.symlink_to("missing-directory", target_is_directory=True)
+    else:
+        ancestor.write_text("this is not a directory\n")
+    deleted = ancestor / "example.yaml"
+    assert not _is_unambiguously_absent_repo_path(repo, deleted.relative_to(repo))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "ambiguous deleted ancestor")
+    base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    assert _applied_manifest_snapshot_exists(repo, deleted, base_commit=base)
 
 
 def _init_encoder_identity_checkout(
@@ -17646,6 +17672,12 @@ rules:
         from axiom_encode.cli import _resolve_legacy_replacement_contract
         from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
+        # The identity fixture advertises this synthetic engine as a Git checkout.
+        engine = tmp_path / "axiom-rules-engine"
+        _git(engine, "init")
+        _git(engine, "config", "user.email", "test@example.com")
+        _git(engine, "config", "user.name", "Test User")
+        _git(engine, "commit", "--allow-empty", "-m", "synthetic engine HEAD")
         output_root = tmp_path / "out"
         checkout = tmp_path / "rulespec-us"
         content_root = checkout / "us-la"
@@ -21864,6 +21896,195 @@ module:
 
         assert repaired == ["module.source_verification.values"]
         assert rules_file.read_text() == prefix
+
+    def test_deferred_citation_repair_uses_exact_diagnostic_and_source_root(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: us:regulations/7-cfr/273/10/a/1#application_month
+      reason: >-
+        7 CFR 273.10(a)(1) requires the application date and certification
+        history; neither input is available in this calculation.
+rules: []
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(runner="codex-test-model", output_file=str(rules_file))
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "identifies source branch (a) (`a/1`) but its deferral does not "
+            "name an exact missing dependency, input, or runtime capability. "
+            "For this rejected current-source branch, the literal canonical "
+            "citation required in `reason` is `us/regulation/7/273/10(a)(1)`"
+        )
+
+        assert _try_repair_generated_deferred_canonical_citations_for_apply(
+            result, output_root=output_root, issues=[issue]
+        ) == ["module.deferred_outputs[0].reason"]
+        assert rules_file.read_text() == original.replace(
+            "7 CFR 273.10(a)(1)", "us/regulation/7/273/10(a)(1)"
+        )
+        assert (
+            _try_repair_generated_deferred_canonical_citations_for_apply(
+                result, output_root=output_root, issues=[issue]
+            )
+            == []
+        )
+
+    @pytest.mark.parametrize(
+        "citation,output",
+        [
+            (
+                "us/regulation/7/273/11(a)(1)",
+                "us:regulations/7-cfr/273/10/a/1#application_month",
+            ),
+            (
+                "us/regulation/7/273/10(a)(1)",
+                "us:regulations/7-cfr/273/10/c#application_month",
+            ),
+        ],
+    )
+    def test_deferred_citation_repair_refuses_other_source_or_branch(
+        self, tmp_path, citation, output
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: {output}
+      reason: 7 CFR 273.10(a)(1) requires application facts.
+rules: []
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(runner="codex-test-model", output_file=str(rules_file))
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "literal canonical citation required in `reason` is "
+            f"`{citation}`"
+        )
+
+        assert (
+            _try_repair_generated_deferred_canonical_citations_for_apply(
+                result, output_root=output_root, issues=[issue]
+            )
+            == []
+        )
+        assert rules_file.read_text() == original
+
+    @pytest.mark.parametrize(
+        "reason,expected_reason,repaired",
+        [
+            (
+                "17 CFR 273.10(a)(1) requires application facts.",
+                "17 CFR 273.10(a)(1) requires application facts.",
+                False,
+            ),
+            (
+                "17 CFR 273.10(a)(1) differs; 7 CFR 273.10(a)(1) "
+                "requires application facts.",
+                "17 CFR 273.10(a)(1) differs; "
+                "us/regulation/7/273/10(a)(1) requires application facts.",
+                True,
+            ),
+        ],
+    )
+    def test_deferred_citation_repair_preserves_other_cfr_titles(
+        self, tmp_path, reason, expected_reason, repaired
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: us:regulations/7-cfr/273/10/a/1#application_month
+      reason: {reason}
+rules: []
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(runner="codex-test-model", output_file=str(rules_file))
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "literal canonical citation required in `reason` is "
+            "`us/regulation/7/273/10(a)(1)`"
+        )
+
+        result_paths = _try_repair_generated_deferred_canonical_citations_for_apply(
+            result, output_root=output_root, issues=[issue]
+        )
+
+        assert result_paths == (
+            ["module.deferred_outputs[0].reason"] if repaired else []
+        )
+        assert rules_file.read_text() == original.replace(reason, expected_reason)
+
+    def test_encode_apply_revalidates_after_deferred_citation_repair(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        rules_file = (
+            tmp_path / "out" / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: us:regulations/7-cfr/273/10/a/1#application_month
+      reason: 7 CFR 273.10(a)(1) requires the application date.
+rules: []
+"""
+        )
+        result.output_file = str(rules_file)
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "literal canonical citation required in `reason` is "
+            "`us/regulation/7/273/10(a)(1)`"
+        )
+        applied_file = args.policy_repo_path / "regulations/7-cfr/273/10.yaml"
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[(False, [issue], {}), (True, [], {})],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        assert "us/regulation/7/273/10(a)(1) requires" in rules_file.read_text()
+        assert "apply=auto_repaired_deferred_canonical_citations:" in (
+            capsys.readouterr().out
+        )
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_deferred_canonical_citations"] == [
+            "module.deferred_outputs[0].reason"
+        ]
 
     def test_encode_apply_removes_empty_deferred_source_values(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)
@@ -42575,6 +42796,10 @@ class TestGuardGenerated:
 
     @pytest.fixture(autouse=True)
     def _rulespec_toolchain(self, monkeypatch, tmp_path):
+        _git(tmp_path, "init")
+        _git(tmp_path, "config", "user.email", "test@example.com")
+        _git(tmp_path, "config", "user.name", "Test User")
+        _git(tmp_path, "commit", "--allow-empty", "-m", "guard checkout HEAD")
         release = _bind_test_corpus_release(
             tmp_path,
             tmp_path / "axiom-corpus",
@@ -43090,6 +43315,95 @@ class TestGuardGenerated:
         assert "us/statutes/26/1.yaml" not in forged_coverage
         assert "us/policies/example.yaml" not in forged_coverage
 
+    @pytest.mark.parametrize(
+        "live_change",
+        ["delete_receipt", "edit_receipt", "delete_postimage", "restore_source"],
+    )
+    def test_path_migration_owner_verifies_at_base_despite_live_evidence_changes(
+        self, tmp_path, monkeypatch, live_change
+    ):
+        repo, plan, _head = self._path_migration_repo(tmp_path)
+        self._enable_path_migration(monkeypatch)
+        cmd_migrate_rulespec_paths(
+            SimpleNamespace(
+                policy_repo_path=repo, corpus_path=self.corpus_path, plan=plan
+            )
+        )
+        manifest_path = ".axiom/encoding-manifests/us/statutes/26/1.json"
+        manifest = json.loads((repo / manifest_path).read_text())
+        receipt = repo / manifest["migration"]["receipt_path"]
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "commit signed path migration")
+        base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        if live_change == "delete_receipt":
+            receipt.unlink()
+        elif live_change == "edit_receipt":
+            receipt.write_text("{}\n")
+        elif live_change == "delete_postimage":
+            (repo / "us/statutes/26/1.yaml").unlink()
+        else:
+            (repo / "us/statutes/26:1.yaml").write_text("unowned live file\n")
+        proof_cache = {}
+        verified, _root, _digest, issues = (
+            _load_verified_applied_encoding_manifest_payload(
+                repo,
+                manifest_path,
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                expected_waiver_set_sha256=TEST_VALIDATION_WAIVER_SHA256,
+                local_corpus_release=self.corpus_release,
+                expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
+                path_migration_receipt_proof_cache=proof_cache,
+                base_commit=base,
+            )
+        )
+        assert issues == []
+        assert verified == manifest
+        _payload, _root, _digest, live_issues = (
+            _load_verified_applied_encoding_manifest_payload(
+                repo,
+                manifest_path,
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                expected_waiver_set_sha256=TEST_VALIDATION_WAIVER_SHA256,
+                local_corpus_release=self.corpus_release,
+                expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
+                path_migration_receipt_proof_cache=proof_cache,
+            )
+        )
+        assert live_issues
+
+    def test_path_migration_owner_refuses_receipt_supplied_only_by_live_checkout(
+        self, tmp_path, monkeypatch
+    ):
+        repo, plan, _head = self._path_migration_repo(tmp_path)
+        self._enable_path_migration(monkeypatch)
+        cmd_migrate_rulespec_paths(
+            SimpleNamespace(
+                policy_repo_path=repo, corpus_path=self.corpus_path, plan=plan
+            )
+        )
+        manifest_path = ".axiom/encoding-manifests/us/statutes/26/1.json"
+        manifest = json.loads((repo / manifest_path).read_text())
+        receipt = repo / manifest["migration"]["receipt_path"]
+        receipt_raw = receipt.read_bytes()
+        receipt.unlink()
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "commit owner without its receipt")
+        base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        receipt.write_bytes(receipt_raw)
+        verified, _root, _digest, issues = (
+            _load_verified_applied_encoding_manifest_payload(
+                repo,
+                manifest_path,
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                expected_waiver_set_sha256=TEST_VALIDATION_WAIVER_SHA256,
+                local_corpus_release=self.corpus_release,
+                expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
+                base_commit=base,
+            )
+        )
+        assert verified is None
+        assert any("cannot be read safely" in issue for issue in issues)
+
     def test_path_migration_recomputes_signed_dependent_rewrite_from_base(
         self,
         tmp_path,
@@ -43514,6 +43828,390 @@ class TestGuardGenerated:
 
         assert len(issues) == 1
         assert "RuleSpec corpus/toolchain binding is invalid" in issues[0]
+
+    def _receipt_only_manifest(
+        self,
+        repo: Path,
+        *,
+        fault: str = "valid",
+        stem: str = "example",
+        manifest_relative: str | None = None,
+    ) -> tuple[str, str]:
+        relative = f"us/regulations/{stem}.yaml"
+        rule = repo / relative
+        self._source_backed_rule(rule)
+        payload = self._model_manifest(
+            [{"path": relative, "sha256": _sha256_file(rule)}]
+        )
+        if fault == "unsigned":
+            payload.pop("signature")
+        elif fault == "schema":
+            payload["legacy_compatibility"] = True
+            _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        elif fault == "tampered":
+            payload["model"] = "changed after signing"
+        elif fault == "stale":
+            payload["applied_files"][0]["sha256"] = "f" * 64
+            _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        elif fault == "provenance":
+            payload["source_attestation"]["corpus_release_content_sha256"] = "f" * 64
+            _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        else:
+            assert fault == "valid"
+        manifest_relative = manifest_relative or (
+            f".axiom/encoding-manifests/us/regulations/{stem}.json"
+        )
+        manifest = repo / manifest_relative
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(json.dumps(payload) + "\n")
+        return relative, manifest_relative
+
+    @pytest.mark.parametrize(
+        "manifest_relative",
+        [
+            ".axiom/encoding-manifests/example.json",
+            ".axiom/encoding-manifests/us/regulations/example.json",
+            ".axiom/encoding-manifests/uk/policies/example.json",
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("fault", "expected_issue"),
+        [
+            ("unsigned", "missing an encoder apply manifest signature"),
+            ("schema", "exact model"),
+            ("tampered", "invalid encoder apply manifest signature"),
+            ("stale", "stale sha256"),
+            ("provenance", "source_attestation.corpus_release_content_sha256"),
+        ],
+    )
+    def test_receipt_only_addition_is_verified(
+        self, tmp_path, manifest_relative, fault, expected_issue
+    ):
+        self._receipt_only_manifest(
+            tmp_path, fault=fault, manifest_relative=manifest_relative
+        )
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[manifest_relative],
+        )
+
+        assert any(expected_issue in issue for issue in issues), issues
+
+    def test_receipt_only_minimal_unsigned_addition_is_rejected(self, tmp_path):
+        relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        (tmp_path / manifest_relative).write_text(
+            json.dumps(
+                {
+                    "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                    "applied_files": [
+                        {"path": relative, "sha256": _sha256_file(tmp_path / relative)}
+                    ],
+                }
+            )
+        )
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[manifest_relative],
+        )
+
+        assert any("missing an encoder apply manifest signature" in i for i in issues)
+
+    def test_receipt_only_existing_signature_cannot_authorize_changed_bytes(
+        self, tmp_path
+    ):
+        _relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        assert (
+            guard_generated_change_issues(
+                tmp_path,
+                corpus_path=self.corpus_path,
+                changed_files=[manifest_relative],
+            )
+            == []
+        )
+        _git(tmp_path, "init")
+        _git(tmp_path, "config", "user.email", "test@example.com")
+        _git(tmp_path, "config", "user.name", "Test User")
+        _git(tmp_path, "add", ".")
+        _git(tmp_path, "commit", "-m", "initialize signed receipt")
+        manifest = tmp_path / manifest_relative
+        payload = json.loads(manifest.read_text())
+        payload["model"] = "changed after signing"
+        manifest.write_text(json.dumps(payload) + "\n")
+
+        issues = guard_generated_change_issues(
+            tmp_path, corpus_path=self.corpus_path, base_ref="HEAD"
+        )
+
+        assert any("invalid encoder apply manifest signature" in i for i in issues)
+
+    def test_receipt_only_retirement_verifies_nested_signature(self, tmp_path):
+        relative = "us/regulations/retired.yaml"
+        manifest_relative = ".axiom/encoding-manifests/us/regulations/retired.json"
+        payload = self._retirement_manifest([relative])
+        payload["retired_manifest"]["model"] = "changed after signing"
+        _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        manifest = tmp_path / manifest_relative
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(json.dumps(payload) + "\n")
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[manifest_relative],
+        )
+
+        assert any("retired_manifest has an invalid" in issue for issue in issues)
+
+    @pytest.mark.parametrize("symlink_kind", ["manifest", "ancestor"])
+    def test_receipt_only_dangling_symlink_is_verified(self, tmp_path, symlink_kind):
+        _relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        manifest = tmp_path / manifest_relative
+        manifest.unlink()
+        if symlink_kind == "manifest":
+            manifest.symlink_to(tmp_path / "missing.json")
+        else:
+            manifest.parent.rmdir()
+            manifest.parent.symlink_to(tmp_path / "missing-directory")
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[manifest_relative],
+        )
+
+        assert any("cannot be read safely" in issue for issue in issues), issues
+
+    @pytest.mark.parametrize(
+        "symlink_kind", ["manifest", "ancestor", "existing_target"]
+    )
+    def test_mixed_change_verifies_unsafe_receipt(self, tmp_path, symlink_kind):
+        relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        unsafe_relative = ".axiom/encoding-manifests/unsafe/example.json"
+        unsafe_manifest = tmp_path / unsafe_relative
+        unsafe_manifest.parent.parent.mkdir(parents=True, exist_ok=True)
+        if symlink_kind == "ancestor":
+            unsafe_manifest.parent.symlink_to(tmp_path / "missing-directory")
+        else:
+            unsafe_manifest.parent.mkdir()
+            target = (
+                tmp_path / manifest_relative
+                if symlink_kind == "existing_target"
+                else tmp_path / "missing.json"
+            )
+            unsafe_manifest.symlink_to(target)
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[relative, manifest_relative, unsafe_relative],
+        )
+
+        assert any("cannot be read safely" in issue for issue in issues), issues
+
+    @pytest.mark.parametrize("all_files", [False, True])
+    def test_git_discovered_mixed_change_verifies_dangling_receipt(
+        self, tmp_path, all_files
+    ):
+        _git(tmp_path, "init")
+        _git(tmp_path, "config", "user.email", "test@example.com")
+        _git(tmp_path, "config", "user.name", "Test User")
+        _git(tmp_path, "add", ".")
+        _git(tmp_path, "commit", "-m", "initialize guard checkout")
+        self._receipt_only_manifest(tmp_path)
+        unsafe_manifest = tmp_path / ".axiom/encoding-manifests/dangling.json"
+        unsafe_manifest.symlink_to(tmp_path / "missing.json")
+        _git(tmp_path, "add", ".")
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            base_ref="HEAD",
+            all_files=all_files,
+        )
+
+        assert any("cannot be read safely" in issue for issue in issues), issues
+
+    def test_receipt_only_deletion_requires_an_inspectable_base(
+        self, tmp_path, monkeypatch
+    ):
+        _relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        (tmp_path / manifest_relative).unlink()
+        # The shared fixture initialises Git without a commit; this case is the
+        # Git-less checkout, whose base receipt cannot be inspected.
+        shutil.rmtree(tmp_path / ".git", ignore_errors=True)
+
+        def unexpected_verification(*_args, **_kwargs):
+            pytest.fail("an uninspectable base must fail before manifest verification")
+
+        monkeypatch.setattr(
+            "axiom_encode.cli._read_only_guard_encoder_execution_identity",
+            unexpected_verification,
+        )
+        monkeypatch.setattr(
+            "axiom_encode.cli._applied_encoding_manifest_verifier",
+            unexpected_verification,
+        )
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[manifest_relative],
+        )
+        assert any("cannot inspect its immutable base receipt" in i for i in issues)
+
+    @settings(
+        max_examples=40,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    @example(changes=[("manifest", "unsigned")])
+    @example(changes=[("manifest", "valid")])
+    @example(changes=[("both_dangling", "valid")])
+    @example(changes=[("deleted", "valid")])
+    @example(changes=[("rename", "valid")])
+    @example(changes=[("aux_migration", "tampered")])
+    @example(changes=[("aux_legacy", "unsigned")])
+    @example(
+        changes=[
+            ("manifest", "valid"),
+            ("both", "tampered"),
+            ("other", "schema"),
+            ("deleted", "stale"),
+        ]
+    )
+    @given(
+        changes=st.lists(
+            st.tuples(
+                st.sampled_from(
+                    [
+                        "module",
+                        "manifest",
+                        "both",
+                        "other",
+                        "deleted",
+                        "rename",
+                        "symlink",
+                        "dangling",
+                        "ancestor",
+                        "both_dangling",
+                        "aux_migration",
+                        "aux_legacy",
+                        "aux_deleted",
+                    ]
+                ),
+                st.sampled_from(
+                    ["valid", "unsigned", "schema", "tampered", "stale", "provenance"]
+                ),
+            ),
+            max_size=5,
+        )
+    )
+    def test_changed_manifest_verification_invariant(self, tmp_path, changes):
+        """Changed receipts are verified and base ownership cannot disappear."""
+        # Hypothesis shares the fixture between examples. Give each example
+        # an isolated Git base so deletions and renames have real base claims.
+        with tempfile.TemporaryDirectory(dir=tmp_path.parent) as temporary:
+            repo = Path(temporary) / "rulespec-us"
+            shutil.copytree(tmp_path / ".axiom", repo / ".axiom")
+            shutil.copyfile(
+                tmp_path / "known-validation-gaps.yaml",
+                repo / "known-validation-gaps.yaml",
+            )
+            self._check_changed_receipt_invariant(repo, changes)
+
+    def _check_changed_receipt_invariant(self, repo, changes):
+        changed: list[str] = []
+        expected_manifests: set[str] = set()
+        expected_rejection = False
+        base_pairs = [
+            self._receipt_only_manifest(repo, stem=f"property_{index}")
+            for index in range(len(changes))
+        ]
+        _git(repo, "init")
+        _git(repo, "config", "user.email", "test@example.com")
+        _git(repo, "config", "user.name", "Test User")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "--allow-empty", "-m", "initialize provenance base")
+        for index, (kind, fault) in enumerate(changes):
+            relative, base_manifest_relative = base_pairs[index]
+            manifest_relative = base_manifest_relative
+            if kind == "rename":
+                manifest_relative = f".axiom/encoding-manifests/renamed_{index}.json"
+                (repo / base_manifest_relative).unlink()
+                changed.append(base_manifest_relative)
+            relative, manifest_relative = self._receipt_only_manifest(
+                repo,
+                stem=f"property_{index}",
+                fault=fault,
+                manifest_relative=manifest_relative,
+            )
+            if kind in {"module", "both", "both_dangling"}:
+                changed.append(relative)
+            if kind in {"manifest", "both", "rename"}:
+                changed.append(manifest_relative)
+                expected_manifests.add(manifest_relative)
+                expected_rejection |= fault != "valid"
+            elif kind == "deleted":
+                (repo / manifest_relative).unlink()
+                changed.append(manifest_relative)
+                expected_rejection = True
+            elif kind in {"symlink", "dangling", "ancestor", "both_dangling"}:
+                unsafe_relative = (
+                    f".axiom/encoding-manifests/unsafe_{index}/receipt.json"
+                )
+                unsafe = repo / unsafe_relative
+                if kind == "ancestor":
+                    unsafe.parent.symlink_to(repo / "missing-directory")
+                else:
+                    unsafe.parent.mkdir()
+                    unsafe.symlink_to(
+                        repo / manifest_relative
+                        if kind == "symlink"
+                        else repo / "missing.json"
+                    )
+                changed.append(unsafe_relative)
+                expected_manifests.add(unsafe_relative)
+                if kind == "both_dangling":
+                    changed.append(manifest_relative)
+                    expected_manifests.add(manifest_relative)
+                expected_rejection = True
+            elif kind in {"aux_migration", "aux_legacy", "aux_deleted"}:
+                tree = (
+                    "legacy-replacements" if kind == "aux_legacy" else "path-migrations"
+                )
+                auxiliary_relative = f".axiom/{tree}/property_{index}.json"
+                auxiliary = repo / auxiliary_relative
+                auxiliary.parent.mkdir(parents=True, exist_ok=True)
+                auxiliary.write_text("{}\n")
+                if kind == "aux_deleted":
+                    _git(repo, "add", auxiliary_relative)
+                    _git(repo, "commit", "-m", "add auxiliary base receipt")
+                    auxiliary.unlink()
+                changed.append(auxiliary_relative)
+                expected_rejection = True
+            elif kind == "other":
+                changed.append(f"docs/property_{index}.md")
+            expected_rejection |= kind == "module"
+
+        with patch(
+            "axiom_encode.cli._load_verified_applied_encoding_manifest_payload",
+            wraps=_load_verified_applied_encoding_manifest_payload,
+        ) as loader:
+            issues = guard_generated_change_issues(
+                repo,
+                corpus_path=self.corpus_path,
+                base_ref="HEAD",
+                changed_files=changed,
+            )
+
+        assert bool(issues) == expected_rejection, issues
+        # Base preservation and auxiliary checks may also load unchanged
+        # owners. Every changed surviving manifest must still reach the loader.
+        assert expected_manifests <= {call.args[1] for call in loader.call_args_list}
 
     def test_base_guard_includes_committed_and_worktree_changes(self, tmp_path):
         repo = self._canonical_guard_repo(tmp_path)
@@ -45119,6 +45817,12 @@ rules: []
         ]
 
     def test_tolerates_manifest_deleted_in_same_change(self, tmp_path):
+        # Establish that the omitted stale receipt had no base ownership.
+        _git(tmp_path, "init")
+        _git(tmp_path, "config", "user.email", "test@example.com")
+        _git(tmp_path, "config", "user.name", "Test User")
+        _git(tmp_path, "add", ".")
+        _git(tmp_path, "commit", "-m", "initialize provenance base")
         manifest = tmp_path / ".axiom/encoding-manifests/us/regulations/removal.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = self._retirement_manifest(["us/regulations/example.yaml"])
@@ -45131,6 +45835,7 @@ rules: []
             issues = guard_generated_change_issues(
                 tmp_path,
                 corpus_path=self.corpus_path,
+                base_ref="HEAD",
                 changed_files=[
                     "us/regulations/example.yaml",
                     ".axiom/encoding-manifests/us/regulations/removal.json",
@@ -45403,7 +46108,7 @@ rules: []
     def test_guard_generated_command_exits_nonzero_for_manual_change(
         self, capsys, tmp_path
     ):
-        repo = tmp_path / "rulespec-us"
+        repo = tmp_path
         release = _bind_test_corpus_release(
             repo,
             tmp_path / "canonical-axiom-corpus",
@@ -52052,9 +52757,13 @@ class TestCmdCalibrationEdgeCases:
 class TestProgramsRootExcludedFromAtomicGuard:
     """Declarative ProgramSpecs never enter encoder manifest/signing surfaces."""
 
+    def _init_guard_checkout(self, checkout):
+        _init_test_git_repo(checkout)
+        _git(checkout, "commit", "--allow-empty", "-m", "guard checkout HEAD")
+
     def test_canonical_program_file_is_not_an_atomic_guard_target(self, tmp_path):
         checkout = tmp_path / "rulespec-uk"
-        checkout.mkdir()
+        self._init_guard_checkout(checkout)
         corpus_path = _bind_test_corpus_release(
             checkout,
             tmp_path / "axiom-corpus",
@@ -52073,7 +52782,7 @@ class TestProgramsRootExcludedFromAtomicGuard:
 
     def test_program_file_cannot_be_forced_into_atomic_guard_roots(self, tmp_path):
         checkout = tmp_path / "rulespec-us"
-        checkout.mkdir()
+        self._init_guard_checkout(checkout)
         corpus_path = _bind_test_corpus_release(
             checkout,
             tmp_path / "axiom-corpus",
@@ -52093,6 +52802,7 @@ class TestProgramsRootExcludedFromAtomicGuard:
 
     def test_guard_command_ignores_repository_root_programs(self, capsys, tmp_path):
         checkout = tmp_path / "rulespec-us"
+        self._init_guard_checkout(checkout)
         release = _bind_test_corpus_release(
             checkout,
             tmp_path / "axiom-corpus",

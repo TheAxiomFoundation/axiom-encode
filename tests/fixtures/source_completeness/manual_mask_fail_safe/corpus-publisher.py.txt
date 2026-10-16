@@ -1,0 +1,103 @@
+"""Publish compact, complete, reproducible corpus evidence without source prose."""
+from __future__ import annotations
+import argparse
+import gzip
+import hashlib
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+CORPUS=ROOT/'.hub-scratch/r6/corpus'
+DEST=ROOT/'tests/fixtures/source_completeness/manual_mask_fail_safe'
+
+
+def digest(path):
+    value=hashlib.sha256()
+    with path.open('rb') as stream:
+        while blob:=stream.read(1024*1024):value.update(blob)
+    return value.hexdigest()
+
+
+def main():
+    parser=argparse.ArgumentParser();parser.add_argument('--output',required=True,type=Path);args=parser.parse_args();run=args.output
+    summary=json.loads((run/'summary.json').read_text());verification=json.loads((run/'verified-completion.json').read_text())
+    assert summary['complete'] and summary['full_corpus'] and summary['rows']==68848
+    assert verification['complete'] and verification['zero_removed_demands_occurrences_or_typed_entries']
+    assert verification['summary_sha256']==digest(run/'summary.json')
+    frozen=HERE/'frozen-execution-scripts';binding=json.loads((frozen/'manifest.json').read_text())
+    for name,entry in binding['files'].items():
+        snapshot=frozen/(name+'.txt' if name.endswith('.py') else name)
+        assert digest(snapshot)==entry['sha256']
+        assert digest(ROOT/entry['source'])==entry['sha256']
+    assert binding['files']['final_differential.py']['sha256']==summary['runner_sha256']
+    copies={
+        'corpus-summary.json':run/'summary.json',
+        'corpus-deltas.jsonl':run/'deltas.jsonl',
+        'corpus-pipeline-proof.json':run/'pipeline-proof.json',
+        'corpus-observer-smoke.json':run/'observer-smoke.json',
+        'corpus-verification.json':run/'verified-completion.json',
+        'corpus-runner.py.txt':frozen/'final_differential.py.txt',
+        'corpus-ast-graph.py.txt':frozen/'baseline_ast_proof.py.txt',
+        'corpus-guard-utility.py.txt':frozen/'guard_observer.py.txt',
+        'corpus-probe-generator.py.txt':frozen/'differential_guard_observer_final.py.txt',
+        'corpus-differential-utility.py.txt':frozen/'differential.py.txt',
+        'corpus-generated-probe.py.txt':frozen/'candidate-probe.py.txt',
+        'corpus-generated-observer.py.txt':frozen/'guard-observer.py.txt',
+        'corpus-verifier.py.txt':HERE/'verify_final_differential.py',
+        'corpus-publisher.py.txt':Path(__file__),
+        'corpus-independent-proof.json':HERE/'review-corpus-proof.json',
+        'corpus-independent-proof.md':HERE/'review-corpus-proof.md',
+        'corpus-independent-proof-check.py.txt':HERE/'review-corpus-proof-check.py',
+        'corpus-independent-observer-smoke.py.txt':HERE/'review-observer-smoke.py',
+        'corpus-independent-completion-check.py.txt':HERE/'review-corpus-completion-check.py',
+        'corpus-reproduction.md':HERE/'corpus-reproduction.md',
+        'corpus-main-forward-equivalence.json':HERE/'corpus-main-forward-equivalence.json',
+        'corpus-main-forward-equivalence.py.txt':HERE/'corpus_main_forward_equivalence.py',
+    }
+    independent_completion=HERE/'review-corpus-completion.json'
+    if independent_completion.exists():
+        independent=json.loads(independent_completion.read_text())
+        assert independent['verdict']=='VERIFIED_COMPLETE'
+        assert independent['summary_sha256']==digest(run/'summary.json')
+        copies['corpus-independent-completion.json']=independent_completion
+        independent_markdown=HERE/'review-corpus-completion.md'
+        if independent_markdown.exists():copies['corpus-independent-completion.md']=independent_markdown
+    assert digest(HERE/'review-corpus-proof.json')=='3e61bb76b0d194f83e3a9ed6d76baa86fef2bdb0f3fc709d63884a446be822b9'
+    DEST.mkdir(exist_ok=True)
+    for target,source in copies.items():shutil.copyfile(source,DEST/target)
+    with (run/'rows.jsonl').open('rb') as source,(DEST/'corpus-rows.jsonl.gz').open('wb') as target:
+        with gzip.GzipFile(filename='',mode='wb',fileobj=target,mtime=0) as compressed:
+            shutil.copyfileobj(source,compressed,1024*1024)
+    addresses={item['file']:item for item in map(json.loads,(CORPUS/'fetch-results.jsonl').read_text().splitlines())}
+    manifest=json.loads((CORPUS/'corpus-manifest.json').read_text())
+    tree=json.loads((ROOT/'.hub-scratch/r5/corpus/remote-tree.json').read_text())
+    blobs={item['path']:item for item in tree['tree'] if item['type']=='blob'}
+    public=[]
+    for entry in manifest:
+        address=addresses[entry['file']];blob=blobs[entry['file']]
+        assert entry['sha256']==address['sha256'] and entry['rows']==address['rows'] and blob['size']==address['size_bytes']
+        public.append(dict(entry,url=address['url'],size_bytes=address['size_bytes'],git_blob_sha1=blob['sha']))
+    (DEST/'corpus-input-manifest.json').write_text(json.dumps({'corpus_commit':summary['corpus_commit'],'files':public},indent=2,sort_keys=True)+'\n')
+    archive=subprocess.check_output(['git','archive',summary['baseline_commit'],'src/axiom_encode'],cwd=ROOT)
+    provenance={'baseline_commit':summary['baseline_commit'],'git_archive_sha256':hashlib.sha256(archive).hexdigest(),
+        'git_archive_bytes':len(archive),'archive_arguments':['git','archive',summary['baseline_commit'],'src/axiom_encode'],
+        'whole_python_package_sha256':summary['baseline_package_sha256'],
+        'executed_scripts_sha256':{name:entry['sha256'] for name,entry in binding['files'].items()},
+        'capture_note':binding['binding_note'],'original_row_ledger_sha256':digest(run/'rows.jsonl'),
+        'within_run_memoization':'All-row fresh comparison with bounded within-run memoization. Pure wrappers cache at most 256 input keys, alongside the existing tokenizer cache. Cache hits resolve the same deterministic call rather than executing it again; no previous-run or incomplete-run rows/inventories are reused.',
+        'published_gzip_decompresses_to_original_row_ledger':True,'no_prior_row_or_inventory_records_read':True}
+    (DEST/'corpus-provenance.json').write_text(json.dumps(provenance,indent=2,sort_keys=True)+'\n')
+    published={path.name:{'sha256':digest(path),'bytes':path.stat().st_size} for path in sorted(DEST.glob('corpus-*')) if path.name!='corpus-artifacts.json'}
+    artifacts={'schema_version':1,'all_published_artifacts':published,'raw_rows':summary['rows'],'raw_input_files':summary['input_files'],
+        'comparisons':summary['comparisons'],'source_sha256':summary['source_sha256'],'validator_sha256':summary['validator_sha256'],
+        'metadata_sha256':summary['metadata_sha256'],'baseline_commit':summary['baseline_commit'],'previous_records_read':0,
+        'compressed_row_ledger':{'file':'corpus-rows.jsonl.gz','rows':summary['rows'],'decompressed_sha256':digest(run/'rows.jsonl')}}
+    (DEST/'corpus-artifacts.json').write_text(json.dumps(artifacts,indent=2,sort_keys=True)+'\n')
+    assert sum(path.stat().st_size for path in DEST.glob('corpus-*'))<1_000_000_000
+    print(json.dumps({'published':True,'artifacts':len(published)+1,'rows':summary['rows'],'comparisons':summary['comparisons'],'artifact_manifest_sha256':digest(DEST/'corpus-artifacts.json')},indent=2,sort_keys=True))
+
+
+if __name__=='__main__':main()

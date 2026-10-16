@@ -341,8 +341,9 @@ def is_retired_source_metadata_plan(source_bundle_json: str) -> bool:
         payload = json.loads(source_bundle_json)
     except (ValueError, RecursionError):
         return False
-    return isinstance(payload, dict) and payload.get("schema_version") == (
-        "axiom-encode/retired-source-metadata-migration-plan/v1"
+    return isinstance(payload, dict) and payload.get("schema_version") in (
+        "axiom-encode/retired-source-metadata-migration-plan/v1",
+        "axiom-encode/retired-source-metadata-migration-plan/v2",
     )
 
 
