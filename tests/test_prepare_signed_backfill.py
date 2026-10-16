@@ -4327,6 +4327,7 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
+        ("us", "953974517465e51c9f25c4f5fd21dc4d306af174"),
     ],
 )
 def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
@@ -4361,6 +4362,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
             ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
+            ("us", "953974517465e51c9f25c4f5fd21dc4d306af174"),
         }
     )
     assert REVIEWED_RULESPEC_PR_BASES == frozenset(
