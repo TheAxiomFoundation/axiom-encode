@@ -163,6 +163,7 @@ from .proof_validator import (
     collapse_evidence_whitespace,
     find_plural_corpus_citation_path_issues,
     find_rulespec_proof_issues,
+    source_contains_typographic_proof_evidence,
     validate_rulespec_proofs,
 )
 from .source_completeness import (
@@ -9980,9 +9981,16 @@ def _source_evidence_fragment_is_body_bound(
         return True
     # The proof check reads "ל־ 1⁄2" and "ל־1⁄2" as one text; numeric evidence
     # is bound the same way, across wrap space and never a paragraph gap.
-    return "\u05be" in source_text and _bounded_source_evidence_match(
+    if "\u05be" in source_text and _bounded_source_evidence_match(
         collapse_evidence_whitespace(bind_maqaf_space(evidence_text)).casefold(),
         collapse_evidence_whitespace(bind_maqaf_space(source_text)).casefold(),
+    ):
+        return True
+    # The proof check also reads typographic spellings ("$ 4,000", "twenty-
+    # ﬁve", curly quotes) as the printed text; bind numeric evidence alike.
+    return source_contains_typographic_proof_evidence(
+        source_text=source_text,
+        evidence_text=evidence_text,
     )
 
 
@@ -10036,6 +10044,10 @@ def _rule_verified_source_excerpt_pairs_by_path(
                 normalized_excerpt in normalized_source
                 or collapse_evidence_whitespace(bind_maqaf_space(excerpt)).lower()
                 in maqaf_source
+                or source_contains_typographic_proof_evidence(
+                    source_text=resolved_text,
+                    evidence_text=excerpt,
+                )
             ):
                 by_path.setdefault(path, []).append((excerpt, resolved_text))
     return {path: tuple(pairs) for path, pairs in by_path.items()}

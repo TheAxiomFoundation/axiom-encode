@@ -7,6 +7,9 @@
 ## 0.2.2193
 
 - Keep US bibliographic locators out of complete-source numeric recall: Federal Register volume/page citations, `Pub. L.` public-law numbers, the public-law and Statutes at Large numbers of complete U.S. Code repeal, omission and transfer notes, and years in act titles. The recall text is not rewritten; an occurrence is dropped only when it lies wholly inside a locator's numbers, the citation's context is bibliographic, and a re-read with those numbers blanked agrees on every other occurrence. Otherwise the inventory stays unchanged.
+## 0.2.2198
+
+- Read proof excerpts that differ from the cited source only typographically (ligatures, quotation-mark and in-word dash variants, wrapped compound and line-end hyphens, a space after a currency or section sign, a space before a comma, enclosing quotation marks, a recased first letter) as the printed source text, recognize the Code's "($X in the case of a joint return)" parenthetical as prose, and scope fused "(1)(a)" markers; ellipsis, paraphrase, stitched table text and sign changes stay rejected. State the contiguous-verbatim excerpt contract in the encoder prompts, and drop the bare `imports:` header when unused-import pruning removes every import.
 
 ## 0.2.2183
 

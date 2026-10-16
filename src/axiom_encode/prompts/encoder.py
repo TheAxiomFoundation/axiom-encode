@@ -217,6 +217,13 @@ Hard requirements:
   Add `source.excerpt` only for numeric amounts, rates, dates, or necessary
   disambiguation; keep excerpts short and do not quote long definitions or
   institutional descriptions.
+- `source.excerpt` must be one contiguous span copied character for character
+  from the cited source text. Do not join separate passages with `...`, do not
+  wrap the excerpt in quotation marks, and do not insert, drop, reorder, or
+  reword words. For a table value, quote the printed cell or row exactly as
+  the source prints it (for example the amount `$298`) and name its position
+  under `source.table` (`header`, `row`, `column`); never assemble a header,
+  row label, and cell into a phrase the source does not print.
 - For imported proof support, put `import:` at the proof atom top level
   (for example `kind: import` plus `import.target: us:statutes/...#symbol`);
   do not put imported RuleSpec targets under `source:`. Import proof atoms must
