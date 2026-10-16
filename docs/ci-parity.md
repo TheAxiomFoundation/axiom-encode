@@ -448,14 +448,16 @@ named:
 
 - **"RuleSpec module is not inside a canonical country checkout" or
   "validation requires the country-monorepo layout" on a heavily loaded
-  machine.** The encoder's checkout routing probes Git (`git rev-parse
-  --show-toplevel`, `git remote get-url origin`) with a two-second timeout, and
-  a timed-out probe resolves the checkout as not canonical: in the first probe
-  pair with the first message, in the jurisdiction lookup with the second. The
-  check runs for each file a gate validates, with up to four probes, so on a
-  loaded machine one file in thousands can fail, a different one each run,
-  where CI's runner passes. Rerun with fewer `--jobs`, or when the machine is
-  less loaded.
+  machine.** At the pinned encoders (`06b01708`, `f856cfcb`), checkout routing
+  probes Git (`git rev-parse --show-toplevel`, `git remote get-url origin`)
+  with a two-second timeout and no retry, and a timed-out probe resolves the
+  checkout as not canonical: in the first probe pair with the first message, in
+  the jurisdiction lookup with the second. Encoders from #1777 on wait ten
+  seconds and retry once. The check runs for the files a gate validates, so on
+  a loaded machine one file in thousands can fail, a different one each run,
+  where CI's runner passes. Rerun when the machine is less loaded; a smaller
+  `--jobs` lowers only `ci`'s own worker fan-out, not other load on the
+  machine.
 - **`repository-test-environment` mismatch.** `ci` could not build the
   repository-test venv (no network under `--offline` with an empty uv cache,
   or no interpreter for the caller's `python-version`). Install that Python
