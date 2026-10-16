@@ -158,6 +158,26 @@ class _OutlineMarker:
 
 
 @dataclass(frozen=True)
+class CompanionTestObligation:
+    """One unmet companion-test demand in structured form.
+
+    ``rule_names`` are the local principal outputs that could witness it;
+    ``values`` are source-derived values (a boundary, or a negative clamp
+    input) for the numeric ``input_names``, which a covering formula compares
+    directly with that source value (or which the demand names). ``label`` is
+    the validator's display key for the demand. Expected values are never
+    carried here. Only boundary demands are synthesized, and synthesis must
+    execute every proposed case.
+    """
+
+    kind: str
+    rule_names: tuple[str, ...]
+    values: tuple[float, ...] = ()
+    input_names: tuple[str, ...] = ()
+    label: str = ""
+
+
+@dataclass(frozen=True)
 class CompleteSourceUnitAnalysis:
     """Deterministic completeness results for one RuleSpec/source pair."""
 
@@ -166,6 +186,7 @@ class CompleteSourceUnitAnalysis:
     source_numeric_occurrence_count: int
     covered_source_numeric_occurrence_count: int
     missing_source_numeric_occurrence_count: int
+    companion_test_obligations: tuple[CompanionTestObligation, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -6093,6 +6114,9 @@ def _analyze_rulespec_payload(
     # is reported on its own again as soon as the deferral is removed, and
     # it is covered once the deferral is precise.
     branches_behind_imprecise_deferral: dict[int, dict[str, SourceStructureBranch]] = {}
+    # Branches reported here as wholly unencoded cannot yet own companion
+    # boundary evidence; their boundary demands return once they are encoded.
+    structure_reported_paths: set[tuple[str, ...]] = set()
     for branch in branches:
         if _path_covered(
             branch.path,
@@ -6151,6 +6175,10 @@ def _analyze_rulespec_payload(
                     "atom on the affected principal formula when applicable), or "
                     "precisely defer the parent; do not invent a dummy output."
                 )
+        # Listed in its own finding or inside an imprecise deferral's finding,
+        # the branch is wholly unencoded either way (see
+        # `structure_reported_paths`).
+        structure_reported_paths.add(branch.path)
         structure_issue = (
             "[complete-source-unit:structure] "
             f"Source branch {branch.label} at "
@@ -6226,6 +6254,9 @@ def _analyze_rulespec_payload(
     source_has_computation = source_states_explicit_computation(
         source_text, corpus_citation_path=corpus_citation_path
     )
+    # A computation with no bound principal output is reported once, here.
+    # Companion-test evidence for it is demanded after an output exists.
+    formula_output_issue_index: dict[SourceStructureBranch, int] = {}
     if source_has_computation:
         if formula_branches:
             missing_formula_branches = tuple(
@@ -6244,6 +6275,7 @@ def _analyze_rulespec_payload(
             for branch in formula_branches:
                 if principal_formula_clause_rules[branch]:
                     continue
+                formula_output_issue_index[branch] = len(issues)
                 issues.append(
                     "[complete-source-unit:formula-output] "
                     f"Explicit source computation {branch.label} in "
@@ -6290,6 +6322,8 @@ def _analyze_rulespec_payload(
         certified_operations.annual_spans
     )
     companion_issues: list[str] = []
+    companion_obligations: list[CompanionTestObligation] = []
+    formula_output_binding_details: dict[SourceStructureBranch, str] = {}
     if principal_rules:
         imported_parameters = _resolved_imported_parameter_rules(
             payload, imported_symbol_contents=imported_symbol_contents
@@ -6332,6 +6366,10 @@ def _analyze_rulespec_payload(
                 principal_rule_paths=principal_rule_paths,
                 principal_formula_clause_rules=principal_formula_clause_rules,
                 formula_branches=formula_branches,
+                formula_output_reported_branches=frozenset(formula_output_issue_index),
+                formula_output_binding_details=formula_output_binding_details,
+                structure_reported_paths=frozenset(structure_reported_paths),
+                obligation_sink=companion_obligations,
                 branches=branches,
                 source_text=source_text,
                 raw_source_text=raw_source_text,
@@ -6362,6 +6400,12 @@ def _analyze_rulespec_payload(
                 },
             )
         )
+        # Keep the named-rule binding hint that the folded tests finding used
+        # to carry: it tells the model which existing outputs to bind.
+        for branch, detail in formula_output_binding_details.items():
+            index = formula_output_issue_index.get(branch)
+            if index is not None:
+                issues[index] += detail
 
     numeric_recall_text = authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path
@@ -6465,6 +6509,7 @@ def _analyze_rulespec_payload(
         len(source_occurrences),
         covered_source_values,
         len(missing_source_values),
+        tuple(dict.fromkeys(companion_obligations)),
     )
 
 
@@ -21004,6 +21049,53 @@ def _selected_formula_structural_source_branches(
     )
 
 
+def _case_execution_may_reach_direct_clamp(
+    rule: dict[str, Any],
+    case: dict[str, Any],
+    *,
+    input_name: str,
+    principal_rules: dict[str, dict[str, Any]],
+    formula_environment: dict[str, Any],
+    dependency_environment: dict[str, Any],
+) -> bool:
+    """Whether the owner's selected formula path for a case holds the clamp.
+
+    The path is resolved from the case's asserted dependency values, then from
+    dependencies computed from its inputs. A resolved path without
+    ``max(0, input)``, or a path that cannot be resolved, never witnesses that
+    clamp (fail closed).
+    """
+
+    environments = [dependency_environment]
+    computed = _case_dependency_environment(
+        principal_rules,
+        case,
+        formula_environment=formula_environment,
+        require_asserted_value=False,
+    )
+    if computed:
+        environments.append({**computed, **dependency_environment})
+    for environment in environments:
+        execution = _case_formula_execution(
+            rule,
+            case,
+            formula_environment=formula_environment,
+            dependency_environment=environment,
+        )
+        if execution is None:
+            continue
+        texts = (
+            execution.leaf,
+            *(selector for step in execution.trace for selector in step.selectors),
+        )
+        return any(
+            match.group("input") == input_name
+            for text in texts
+            for match in _DIRECT_LOCAL_INPUT_NONNEGATIVE_CLAMP.finditer(text)
+        )
+    return False
+
+
 def _negative_local_input_clamp_test_issues(
     principal_rules: dict[str, dict[str, Any]],
     *,
@@ -21016,6 +21108,7 @@ def _negative_local_input_clamp_test_issues(
     corpus_citation_path: str,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     numeric_value_is_grounded: NumericGroundingPredicate,
+    obligation_sink: list[CompanionTestObligation] | None = None,
 ) -> list[str]:
     """Require negative evidence for direct max(0, local_input) clamps."""
 
@@ -21492,6 +21585,17 @@ def _negative_local_input_clamp_test_issues(
                 dependency_environment = asserted_dependencies_by_case[case_key]
                 if owner not in dependency_environment:
                     continue
+                if not _case_execution_may_reach_direct_clamp(
+                    rule,
+                    case,
+                    input_name=input_name,
+                    principal_rules=principal_rules,
+                    formula_environment=formula_environment,
+                    dependency_environment=dependency_environment,
+                ):
+                    # A negative input on a path the owner never takes (for
+                    # example its `else: 0` branch) does not exercise the clamp.
+                    continue
                 for principal_output in sorted(outputs & principal_outputs):
                     if principal_output == owner:
                         witnessed_contexts.add(context_key)
@@ -21565,6 +21669,17 @@ def _negative_local_input_clamp_test_issues(
     if not missing_clamps:
         return []
     ordered_clamps = sorted(missing_clamps)
+    if obligation_sink is not None:
+        obligation_sink.extend(
+            CompanionTestObligation(
+                "clamp",
+                (owner,),
+                values=(-1.0,),
+                input_names=(input_name,),
+                label=f"`max(0, {input_name})` in `{owner}`",
+            )
+            for owner, input_name in ordered_clamps
+        )
     shown_clamps = ordered_clamps[:_NEGATIVE_LOCAL_INPUT_CLAMP_DIAGNOSTIC_LIMIT]
     rendered_clamps = ", ".join(
         f"`max(0, {input_name})` in `{owner}`" for owner, input_name in shown_clamps
@@ -21603,6 +21718,355 @@ def _formula_rule_depends_on(
     return False
 
 
+MISSING_BOUNDARY_DETAIL_MARKER = " Boundary details:"
+_MISSING_BOUNDARY_DETAIL_LIMIT = 12
+_MISSING_BOUNDARY_NAME_LIMIT = 4
+
+
+def _boundary_source_context(
+    branch: SourceStructureBranch,
+    boundary: NumericOccurrenceLike,
+) -> str | None:
+    """Return a short verbatim source window around one boundary occurrence."""
+
+    text = branch.text
+    start, end = int(boundary.start), int(boundary.end)
+    if not (0 <= start < end <= len(text)) or not text[start:end].strip():
+        return None
+    window_start = max(0, start - 90)
+    window_end = min(len(text), end + 50)
+    while window_start > 0 and not text[window_start - 1].isspace():
+        window_start += 1
+        if window_start >= start:
+            window_start = start
+            break
+    while window_end < len(text) and not text[window_end].isspace():
+        window_end -= 1
+        if window_end <= end:
+            window_end = end
+            break
+    context = _collapse_text(text[window_start:window_end])
+    if not context:
+        return None
+    prefix = "..." if window_start > 0 else ""
+    suffix = "..." if window_end < len(text) else ""
+    return f"{prefix}{context}{suffix}".replace("`", "'")
+
+
+_NON_NUMERIC_INPUT_DTYPES = frozenset(
+    {"bool", "boolean", "judgment", "date", "string", "text", "enum", "category"}
+)
+
+
+def _boundary_selector_input_names(
+    rule_names: Sequence[str],
+    *,
+    principal_rules: dict[str, dict[str, Any]],
+    numeric_input_names: set[str],
+) -> tuple[str, ...]:
+    """Return declared numeric inputs that covering formulas select on."""
+
+    return tuple(
+        sorted(
+            {
+                name
+                for rule_name in _principal_rule_closure(
+                    rule_names, principal_rules=principal_rules
+                )
+                for name in _rule_numeric_selector_names(principal_rules[rule_name])
+            }
+            & numeric_input_names
+        )
+    )
+
+
+def _missing_boundary_repair_detail(
+    missing_boundaries: Sequence[tuple[SourceStructureBranch, NumericOccurrenceLike]],
+    *,
+    direct_boundary_inputs: Mapping[int, tuple[str, ...]],
+    principal_rules: dict[str, dict[str, Any]],
+    principal_rule_paths: dict[str, set[tuple[str, ...]]],
+    numeric_input_names: set[str],
+    corpus_citation_path: str,
+) -> str:
+    """Explain, per missing boundary, the source text and the case to add.
+
+    ``direct_boundary_inputs`` holds, by position, the inputs a covering
+    formula compares directly with that boundary (the ones synthesis sets).
+    """
+
+    def bounded(names: Sequence[str]) -> str:
+        shown = ", ".join(f"`{name}`" for name in names[:_MISSING_BOUNDARY_NAME_LIMIT])
+        omitted = len(names) - _MISSING_BOUNDARY_NAME_LIMIT
+        return shown + (f" (+{omitted} more)" if omitted > 0 else "")
+
+    details: list[str] = []
+    for index, (branch, boundary) in enumerate(
+        missing_boundaries[:_MISSING_BOUNDARY_DETAIL_LIMIT]
+    ):
+        value = f"{boundary.value:g}"
+        context = _boundary_source_context(branch, boundary)
+        parts = [
+            f"{branch.label}={value} at "
+            f"{_branch_citation(corpus_citation_path, branch)}"
+        ]
+        if context:
+            parts.append(f"source `{context}`")
+        covering = sorted(_rules_covering_branch(branch, principal_rule_paths))
+        if covering:
+            parts.append(f"covering principal output(s) {bounded(covering)}")
+            direct_inputs = direct_boundary_inputs.get(index, ())
+            if direct_inputs:
+                parts.append(
+                    f"input(s) compared directly with {value} {bounded(direct_inputs)}"
+                )
+            else:
+                selector_inputs = _boundary_selector_input_names(
+                    covering,
+                    principal_rules=principal_rules,
+                    numeric_input_names=numeric_input_names,
+                )
+                parts.append(
+                    f"no input is compared directly with {value}"
+                    + (
+                        "; numeric input(s) the covering formulas select on "
+                        f"{bounded(selector_inputs)}"
+                        if selector_inputs
+                        else ""
+                    )
+                )
+        else:
+            parts.append(
+                "no principal derived output cites this source branch, so no "
+                "case can witness it yet"
+            )
+        details.append("; ".join(parts))
+    omitted = len(missing_boundaries) - len(details)
+    if omitted > 0:
+        details.append(f"{omitted} more boundary obligation(s) omitted")
+    return (
+        f"{MISSING_BOUNDARY_DETAIL_MARKER} "
+        + " | ".join(details)
+        + ". For each listed boundary, copy an existing case that asserts a "
+        "covering principal output, set the numeric input that its formula "
+        "compares with this source value to exactly the listed value, keep the "
+        "period and every other input, and assert the covering principal output "
+        "with the value the source requires at that boundary (whether the "
+        "source includes or excludes the value itself). When no principal "
+        "output covers the branch, "
+        "first encode the source comparison in a principal derived rule whose "
+        "`versions[N].formula` proof excerpt quotes that branch, with the "
+        "threshold as a source-bound parameter or formula constant."
+    )
+
+
+_SYNTHESIS_CLOSURE_LIMIT = 32
+_SYNTHESIS_EXPRESSION_LIMIT = 256
+_BOOLEAN_INPUT_DTYPES = frozenset({"bool", "boolean", "judgment"})
+
+
+def _principal_rule_closure(
+    rule_names: Iterable[str],
+    *,
+    principal_rules: dict[str, dict[str, Any]],
+) -> tuple[str, ...]:
+    """Return bounded local principal dependencies reached from rule names."""
+
+    closure: list[str] = []
+    pending = sorted(set(rule_names), reverse=True)
+    while pending and len(closure) < _SYNTHESIS_CLOSURE_LIMIT:
+        name = pending.pop()
+        if name in closure or name not in principal_rules:
+            continue
+        closure.append(name)
+        pending.extend(
+            sorted(
+                set(
+                    _FORMULA_IDENTIFIER.findall(
+                        _rule_formula_text(principal_rules[name])
+                    )
+                )
+                & set(principal_rules),
+                reverse=True,
+            )
+        )
+    return tuple(closure)
+
+
+@functools.lru_cache(maxsize=4096)
+def _formula_expression_texts(formula_text: str) -> tuple[str, ...]:
+    """Return the selector and leaf expressions of one RuleSpec formula."""
+
+    texts: list[str] = []
+
+    def visit(text: str, depth: int) -> None:
+        text = textwrap.dedent(text).strip()
+        if not text or depth > 32 or len(texts) >= _SYNTHESIS_EXPRESSION_LIMIT:
+            return
+        node = _first_formula_branch_node(text)
+        if node is None:
+            texts.append(text)
+            return
+        texts.extend(node.selectors)
+        for choice in node.choices:
+            visit(choice, depth + 1)
+        remainder = text[: node.start] + text[node.end :]
+        if remainder.strip():
+            visit(remainder, depth + 1)
+
+    visit(formula_text, 0)
+    return tuple(texts)
+
+
+@functools.lru_cache(maxsize=4096)
+def _parsed_formula_expressions(formula_text: str) -> tuple[ast.expr, ...]:
+    """Parse each selector and leaf once; callers only read the trees."""
+
+    return tuple(
+        expression
+        for text in _formula_expression_texts(formula_text)
+        if (expression := _parse_formula_expression(text)) is not None
+    )
+
+
+def _rule_parsed_expressions(rule: dict[str, Any]) -> tuple[ast.expr, ...]:
+    return tuple(
+        expression
+        for version in rule.get("versions") or ()
+        if isinstance(version, dict) and version.get("formula") is not None
+        for expression in _parsed_formula_expressions(str(version["formula"]))
+    )
+
+
+def _constant_node_values(
+    node: ast.AST,
+    *,
+    formula_environment: Mapping[str, Any],
+) -> set[Decimal]:
+    """Return the literal or parameter values one formula operand may take."""
+
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return {
+            -value
+            for value in _constant_node_values(
+                node.operand, formula_environment=formula_environment
+            )
+        }
+    if isinstance(node, ast.Constant):
+        number = _rulespec_runtime_decimal(node.value)
+        return {number} if number is not None else set()
+    if isinstance(node, ast.Name) and node.id in formula_environment:
+        value = formula_environment[node.id]
+        candidates = (
+            [candidate for _start, _end, candidate in value.versions]
+            if isinstance(value, _TemporalFormulaValue)
+            else [value]
+        )
+        return {
+            number
+            for candidate in candidates
+            if (number := _rulespec_runtime_decimal(candidate)) is not None
+        }
+    return set()
+
+
+def _direct_threshold_input_names(
+    rule_names: Iterable[str],
+    *,
+    principal_rules: dict[str, dict[str, Any]],
+    formula_environment: Mapping[str, Any],
+    numeric_input_names: set[str],
+    values: Iterable[float],
+) -> tuple[str, ...]:
+    """Return numeric inputs compared directly with one of the source values.
+
+    Only a bare declared input on one side of a comparison, ``min`` or ``max``
+    and a literal or parameter equal to the source value on the other side
+    qualifies. Setting such an input to that value is the source boundary
+    itself, never a coincidental number placed in an unrelated input.
+    """
+
+    targets = {
+        number
+        for value in values
+        if (number := _rulespec_runtime_decimal(float(value))) is not None
+    }
+    found: set[str] = set()
+    for name in _principal_rule_closure(rule_names, principal_rules=principal_rules):
+        for expression in _rule_parsed_expressions(principal_rules[name]):
+            for node in ast.walk(expression):
+                pairs: list[tuple[ast.expr, ast.expr]] = []
+                if isinstance(node, ast.Compare):
+                    operands = [node.left, *node.comparators]
+                    pairs = list(zip(operands, operands[1:]))
+                elif (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in {"min", "max"}
+                    and not node.keywords
+                ):
+                    pairs = [
+                        (first, second)
+                        for first in node.args
+                        for second in node.args
+                        if first is not second
+                    ]
+                for left, right in pairs:
+                    for operand, threshold in ((left, right), (right, left)):
+                        if (
+                            isinstance(operand, ast.Name)
+                            and operand.id in numeric_input_names
+                            and _constant_node_values(
+                                threshold,
+                                formula_environment=formula_environment,
+                            )
+                            & targets
+                        ):
+                            found.add(operand.id)
+    return tuple(sorted(found))
+
+
+_INTEGRAL_INPUT_DTYPES = frozenset({"integer", "int", "count"})
+
+
+def _values_for_synthesis_inputs(
+    values: Iterable[float],
+    input_names: Sequence[str],
+    input_declarations: Mapping[str, dict[str, Any]],
+) -> tuple[float, ...]:
+    """Drop fractional selector values for inputs declared as integers."""
+
+    integral_only = bool(input_names) and all(
+        str((input_declarations.get(name) or {}).get("dtype") or "").strip().lower()
+        in _INTEGRAL_INPUT_DTYPES
+        for name in input_names
+    )
+    return tuple(
+        float(value)
+        for value in values
+        if not integral_only or float(value).is_integer()
+    )
+
+
+def _companion_case_input_classes(
+    input_declarations: Mapping[str, dict[str, Any]],
+    declared_input_names: set[str],
+) -> tuple[set[str], set[str]]:
+    """Split declared inputs into numeric and boolean names by declared dtype."""
+
+    numeric: set[str] = set()
+    boolean: set[str] = set()
+    for name in declared_input_names:
+        dtype = (
+            str((input_declarations.get(name) or {}).get("dtype") or "").strip().lower()
+        )
+        if dtype in _BOOLEAN_INPUT_DTYPES:
+            boolean.add(name)
+        elif dtype and dtype not in _NON_NUMERIC_INPUT_DTYPES:
+            numeric.add(name)
+    return numeric, boolean
+
+
 def _companion_test_issues(
     principal_rules: dict[str, dict[str, Any]],
     *,
@@ -21630,8 +22094,19 @@ def _companion_test_issues(
     certified_replacement: BoundWorksheetReplacement | None = None,
     certified_composition: BoundWorksheetComposition | None = None,
     raw_source_text: str | None = None,
+    formula_output_reported_branches: frozenset[SourceStructureBranch] = frozenset(),
+    formula_output_binding_details: dict[SourceStructureBranch, str] | None = None,
+    structure_reported_paths: frozenset[tuple[str, ...]] = frozenset(),
+    obligation_sink: list[CompanionTestObligation] | None = None,
 ) -> list[str]:
     issues: list[str] = []
+    obligations: list[CompanionTestObligation] = (
+        obligation_sink if obligation_sink is not None else []
+    )
+    numeric_input_names, _boolean_input_names = _companion_case_input_classes(
+        input_declarations or {},
+        declared_input_names,
+    )
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
     if not cases:
         return [
@@ -21678,6 +22153,7 @@ def _companion_test_issues(
             corpus_citation_path=corpus_citation_path,
             extract_numeric_occurrences=extract_numeric_occurrences,
             numeric_value_is_grounded=numeric_value_is_grounded,
+            obligation_sink=obligations,
         )
     )
     for name, asserted_cases in asserted_by_rule.items():
@@ -21685,6 +22161,9 @@ def _companion_test_issues(
             certified_transfers is not None
             and certified_transfers.owns_output(name, principal_rules[name])
         ):
+            obligations.append(
+                CompanionTestObligation("principal-output", (name,), label=name)
+            )
             issues.append(
                 "[complete-source-unit:tests] Principal output "
                 f"`{name}` is never asserted by a companion test."
@@ -21720,8 +22199,6 @@ def _companion_test_issues(
         execution_cache=formula_execution_cache,
     )
     for branch in missing_formula_branches:
-        source_excerpt = _bounded_source_feedback_excerpt(branch.text)
-        source_location = f"characters {branch.start}:{branch.end}"
         unbound_diagnostic = _unbound_matching_formula_rules(
             branch,
             corpus_citation_path=corpus_citation_path,
@@ -21738,6 +22215,19 @@ def _companion_test_issues(
             unbound_diagnostic,
             corpus_citation_path=corpus_citation_path,
         )
+        if (
+            branch in formula_output_reported_branches
+            and not principal_formula_clause_rules[branch]
+        ):
+            # The formula-output finding already rejects this unbound
+            # computation; a second tests finding would only crowd retry
+            # feedback. The tests demand applies again once an output binds.
+            # The caller moves any named-rule binding hint onto that finding.
+            if source_binding_detail and formula_output_binding_details is not None:
+                formula_output_binding_details[branch] = source_binding_detail
+            continue
+        source_excerpt = _bounded_source_feedback_excerpt(branch.text)
+        source_location = f"characters {branch.start}:{branch.end}"
         dependency_diagnostic = _uncorroborated_formula_dependency_diagnostic(
             branch,
             principal_rules=principal_rules,
@@ -21833,7 +22323,16 @@ def _companion_test_issues(
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
     missing_boundaries: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
+    direct_boundary_inputs: dict[int, tuple[str, ...]] = {}
     for branch, boundary in boundary_obligations:
+        if not _rules_covering_branch(branch, principal_rule_paths) and (
+            branch.path in structure_reported_paths
+            or branch in formula_output_reported_branches
+        ):
+            # No principal output can witness a boundary in a branch that the
+            # structure or formula-output finding already reports as
+            # unencoded. The boundary demand returns once an output covers it.
+            continue
         if _branch_boundary_test_witnesses(
             branch,
             boundary,
@@ -21847,6 +22346,36 @@ def _companion_test_issues(
         ):
             continue
         missing_boundaries.append((branch, boundary))
+        covering_rule_names = tuple(
+            sorted(_rules_covering_branch(branch, principal_rule_paths))
+        )
+        boundary_input_names = (
+            _direct_threshold_input_names(
+                covering_rule_names,
+                principal_rules=principal_rules,
+                formula_environment=formula_environment,
+                numeric_input_names=numeric_input_names,
+                values=(float(boundary.value),),
+            )
+            if covering_rule_names
+            else ()
+        )
+        direct_boundary_inputs[len(missing_boundaries) - 1] = boundary_input_names
+        boundary_values = _values_for_synthesis_inputs(
+            (float(boundary.value),),
+            boundary_input_names,
+            input_declarations or {},
+        )
+        if boundary_input_names and boundary_values:
+            obligations.append(
+                CompanionTestObligation(
+                    "boundary",
+                    covering_rule_names,
+                    values=boundary_values,
+                    input_names=boundary_input_names,
+                    label=f"{branch.label}={boundary.value:g}",
+                )
+            )
     if missing_boundaries:
         rendered = ", ".join(
             f"{branch.label}={occurrence.value:g}"
@@ -21855,6 +22384,14 @@ def _companion_test_issues(
         issues.append(
             "[complete-source-unit:tests] Companion tests do not exercise every "
             f"source-stated boundary input; missing: {rendered}."
+            + _missing_boundary_repair_detail(
+                missing_boundaries,
+                direct_boundary_inputs=direct_boundary_inputs,
+                principal_rules=principal_rules,
+                principal_rule_paths=principal_rule_paths,
+                numeric_input_names=numeric_input_names,
+                corpus_citation_path=corpus_citation_path,
+            )
         )
 
     exception_branches = _source_exception_branches(

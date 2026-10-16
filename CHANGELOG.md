@@ -40,6 +40,11 @@
 ## 0.2.2210
 
 - In federal US statutes, regulations and guidance, stop counting administrative condition sentences (a notice, verification, Federal Register publication or agency workflow step as the main verb of the main clause, a definitions lead-in, and the guidance-portal disclaimer) as complete-source-unit controls or paired-case conditions. Sentences with a numeric limit, a computation, an outcome after their leading condition or after a `;`, notice content with its own outcome, a trailing exception, or a second predicate after the administrative verb stay controls; administrative sentences still compete for case pairs; federal forms, policies, rulemaking, `/manual/` paths, state and non-US sources are unchanged.
+## 0.2.2211
+
+- Report an unbound computation or an unencoded branch once (formula-output or structure) instead of repeating it as a companion-test demand, keep the named-rule binding hint on the formula-output finding, and give each missing boundary its source text, covering outputs and directly compared inputs.
+- Count a negative-input case as `max(0, x)` evidence only when the clamp is on the owner's executed formula path, and fail closed when that path cannot be resolved.
+- Let the eval repair loop clone an existing model-written case toward an unmet source boundary, with every expected value taken from executing the module. Keep an `auto_source_boundary_*` case only when every output its source case asserts agrees with the engine and the analysis removes exactly the targeted boundary demand. Clamp, formula-branch, unasserted-output and paired exception demands are never synthesized.
 
 ## 0.2.2183
 

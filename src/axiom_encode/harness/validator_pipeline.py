@@ -41,6 +41,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable, Iterable, Iterator, Mapping, Optional, Sequence
 
 import yaml
@@ -135,6 +136,11 @@ from axiom_encode.statute import (
     parse_usc_citation,
 )
 
+from .companion_case_synthesis import (
+    expected_value_from_engine_output,
+    propose_companion_cases,
+    synthesize_companion_cases,
+)
 from .dependency_stubs import (
     UnsafeRulespecContextPath,
     has_corpus_provision_for_import_target,
@@ -168,6 +174,7 @@ from .proof_validator import (
 )
 from .source_completeness import (
     _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
+    CompleteSourceUnitAnalysis,
     _nested_outline_marker_spans,
     _qualified_parenthesized_legal_outline_markers,
     _us_manual_prose_scope,
@@ -35821,8 +35828,28 @@ class ValidatorPipeline:
     ) -> list[str]:
         """Apply opt-in completeness checks to the resolver-owned corpus body."""
 
+        completeness = self._complete_source_unit_analysis(
+            content,
+            validation_source_texts=validation_source_texts,
+            test_cases=test_cases,
+            rules_file=rules_file,
+            proof_source_texts=proof_source_texts,
+        )
+        return list(completeness.issues) if completeness is not None else []
+
+    def _complete_source_unit_analysis(
+        self,
+        content: str,
+        *,
+        validation_source_texts: Mapping[str, str] | None,
+        test_cases: Sequence[object] | None,
+        rules_file: Path | None = None,
+        proof_source_texts: Mapping[str, str | None] | None = None,
+    ) -> CompleteSourceUnitAnalysis | None:
+        """Run the opt-in completeness analysis, or return None when disabled."""
+
         if not self.require_complete_source_unit:
-            return []
+            return None
         source_texts = (
             dict(validation_source_texts)
             if validation_source_texts is not None
@@ -35895,7 +35922,7 @@ class ValidatorPipeline:
                 _authenticated_same_act_aliases_from_metadata(self.source_metadata)
             ),
         )
-        return list(completeness.issues)
+        return completeness
 
     def _complete_source_unit_deferred_outputs(
         self,
@@ -38040,6 +38067,263 @@ class ValidatorPipeline:
 
         return issues
 
+    def _companion_test_payload_issues(
+        self,
+        content: str,
+        payload: list[Any],
+        *,
+        rules_file: Path,
+        strict_layout_checks: bool,
+    ) -> list[str]:
+        """Static companion-case checks that gate executing the test file."""
+
+        issues: list[str] = []
+        if strict_layout_checks:
+            issues.extend(
+                find_missing_derived_companion_output_issues(
+                    content,
+                    payload,
+                    rules_file=rules_file,
+                    policy_repo_path=self.policy_repo_path,
+                )
+            )
+            issues.extend(
+                find_judgment_positive_companion_output_issues(
+                    content,
+                    payload,
+                    rules_file=rules_file,
+                    policy_repo_path=self.policy_repo_path,
+                )
+            )
+        issues.extend(find_test_input_assignment_issues(content, payload))
+        issues.extend(find_tax_filing_status_test_input_issues(payload))
+        issues.extend(find_exception_test_coverage_issues(content, payload))
+        issues.extend(find_zero_branch_test_coverage_issues(content, payload))
+        return issues
+
+    def _rulespec_case_engine_outputs(
+        self,
+        *,
+        rules_file: Path,
+        compiled_path: Path,
+        compiled_payload: dict[str, Any],
+        case: dict[str, Any],
+        output_keys: Sequence[str],
+    ) -> dict[str, Any] | None:
+        """Execute one case and render engine values as expected outputs.
+
+        Only single-entity derived outputs on flat or relation inputs are
+        supported; anything else returns None so no value is ever guessed.
+        """
+
+        if not output_keys or "period" not in case or "tables" in case:
+            return None
+        try:
+            period = self._coerce_rulespec_period(case["period"])
+        except ValueError:
+            return None
+        derived_by_key, parameter_by_key = self._rulespec_program_maps(compiled_payload)
+        if any(
+            key in derived_by_key or key in parameter_by_key
+            for key in _test_case_assignment_keys(case)
+        ):
+            return None
+        output_runtime_keys: dict[str, str] = {}
+        derived_outputs: list[str] = []
+        for output_key in map(str, output_keys):
+            runtime_key = output_key
+            if (
+                _RULESPEC_ABSOLUTE_REFERENCE.match(output_key)
+                and output_key not in derived_by_key
+            ):
+                local_key = _rulespec_runtime_name_from_absolute_test_reference(
+                    output_key
+                )
+                if local_key in derived_by_key:
+                    runtime_key = local_key
+            if runtime_key not in derived_by_key:
+                return None
+            runtime_key = (
+                _rulespec_public_item_key(derived_by_key[runtime_key]) or runtime_key
+            )
+            output_runtime_keys[output_key] = runtime_key
+            derived_outputs.append(runtime_key)
+        if (
+            len(
+                {
+                    str(derived_by_key[name].get("entity") or "Case")
+                    for name in derived_outputs
+                }
+            )
+            != 1
+        ):
+            return None
+        try:
+            input_entities = self._rulespec_companion_input_entities(
+                rules_file, case.get("input", {})
+            )
+        except (OSError, ValueError, yaml.YAMLError):
+            return None
+        response_outputs, execution_issues = self._run_rulespec_derived_test_case(
+            binary=self._axiom_rules_binary(),
+            compiled_path=compiled_path,
+            case=case,
+            case_name=str(case.get("name") or "synthesized"),
+            case_index=1,
+            period=period,
+            output_names=derived_outputs,
+            output_runtime_keys=output_runtime_keys,
+            derived_by_key=derived_by_key,
+            require_legal_input_keys=_rulespec_program_has_legal_ids(compiled_payload),
+            legal_ids_by_friendly_name=(
+                self._rulespec_legal_ids_by_friendly_output_name(compiled_payload)
+            ),
+            module_target=_rulespec_module_target(compiled_payload),
+            declared_relation_names=_rulespec_declared_relation_names(compiled_payload),
+            declared_relation_slots=_rulespec_declared_relation_slots(compiled_payload),
+            compiled_relations=compiled_payload.get("program", {}).get("relations", []),
+            input_entities=input_entities,
+        )
+        if execution_issues or response_outputs is None:
+            return None
+        values: dict[str, Any] = {}
+        for output_key, runtime_key in output_runtime_keys.items():
+            expected = expected_value_from_engine_output(
+                response_outputs.get(output_key) or response_outputs.get(runtime_key)
+            )
+            if expected is None:
+                return None
+            values[output_key] = expected
+        return values
+
+    def synthesize_complete_source_companion_cases(
+        self,
+        rules_file: Path,
+        *,
+        max_analyses: int = 32,
+        time_budget_seconds: float = 120.0,
+    ) -> list[dict[str, Any]]:
+        """Propose engine-executed companion cases for complete-source gaps.
+
+        Each returned case clones an existing companion case whose asserted
+        values the engine reproduces, sets the one input that a covering
+        formula compares directly with a missing source boundary to that
+        boundary, asserts only the covering rule and what it reads with values
+        the rules engine computed, closes exactly that boundary demand in the
+        complete-source analysis, and passes the companion test runner. Formula
+        branches, clamps, unasserted outputs and paired exception evidence are
+        never synthesized: those demands exist so the model states the value.
+        Nothing is written; the caller decides whether to append.
+        """
+
+        if not self.require_complete_source_unit:
+            return []
+        # The budget covers the baseline analysis and every trial; only the
+        # one compile and the final runner screen fall outside it.
+        deadline = time.monotonic() + time_budget_seconds
+        test_path = self._rulespec_test_path(rules_file)
+        if not rules_file.exists() or not test_path.exists():
+            return []
+        try:
+            content = rules_file.read_text()
+            rules_payload = _safe_load_unique_keys(content)
+            test_cases = _safe_load_unique_keys(test_path.read_text())
+        except (OSError, ValueError, yaml.YAMLError):
+            return []
+        if isinstance(test_cases, dict) and isinstance(test_cases.get("cases"), list):
+            test_cases = test_cases["cases"]
+        if not isinstance(rules_payload, dict) or not isinstance(test_cases, list):
+            return []
+        validation_source_texts = self._source_texts_for_rulespec_content(content)
+        proof_source_texts = self._proof_source_texts_for_rulespec_content(
+            content,
+            source_texts=validation_source_texts,
+        )
+        strict_layout_checks = (
+            _strict_rules_repo_layout_checks_enabled(
+                policy_repo_path=self.policy_repo_path,
+                rules_file=rules_file,
+            )
+            and self.enforce_repository_layout
+        )
+
+        def analyze_cases(cases: list[dict[str, Any]]) -> SimpleNamespace | None:
+            # Credit only against the same findings CI raises for the file:
+            # the complete-source analysis plus the static companion checks.
+            analysis = self._complete_source_unit_analysis(
+                content,
+                validation_source_texts=validation_source_texts,
+                proof_source_texts=proof_source_texts,
+                test_cases=cases,
+                rules_file=rules_file,
+            )
+            if analysis is None:
+                return None
+            return SimpleNamespace(
+                issues=[
+                    *self._companion_test_payload_issues(
+                        content,
+                        cases,
+                        rules_file=rules_file,
+                        strict_layout_checks=strict_layout_checks,
+                    ),
+                    *analysis.issues,
+                ],
+                companion_test_obligations=analysis.companion_test_obligations,
+            )
+
+        baseline = analyze_cases(test_cases)
+        if baseline is None or not baseline.companion_test_obligations:
+            return []
+        analysis = baseline
+        proposals = propose_companion_cases(
+            analysis.companion_test_obligations,
+            rules_payload=rules_payload,
+            test_cases=test_cases,
+        )
+        if not proposals:
+            return []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._register_validation_temporary_root(Path(tmpdir))
+            compiled_path = Path(tmpdir) / "compiled.json"
+            try:
+                compile_result, compiled_payload = self._compile_rulespec_to_artifact(
+                    rules_file, compiled_path
+                )
+            except Exception:
+                return []
+            if compile_result.returncode != 0 or not isinstance(compiled_payload, dict):
+                return []
+
+            def evaluate_case(
+                case: dict[str, Any], output_keys: tuple[str, ...]
+            ) -> dict[str, Any] | None:
+                return self._rulespec_case_engine_outputs(
+                    rules_file=rules_file,
+                    compiled_path=compiled_path,
+                    compiled_payload=compiled_payload,
+                    case=case,
+                    output_keys=output_keys,
+                )
+
+            accepted = synthesize_companion_cases(
+                test_cases=test_cases,
+                proposals=proposals,
+                evaluate_case=evaluate_case,
+                analyze_cases=analyze_cases,
+                baseline=baseline,
+                max_analyses=max_analyses,
+                time_budget_seconds=max(0.0, deadline - time.monotonic()),
+            )
+            if accepted and self._run_rulespec_test_cases(
+                rules_file=rules_file,
+                compiled_path=compiled_path,
+                compiled_payload=compiled_payload,
+                cases=accepted,
+            ):
+                return []
+        return accepted
+
     def _rulespec_companion_input_entities(
         self,
         rules_file: Path,
@@ -38373,28 +38657,13 @@ class ValidatorPipeline:
                     complete_source_unit_test_cases = payload
                 if isinstance(payload, list) and compiled_payload and compiled_path:
                     pre_test_issue_count = len(issues)
-                    if strict_layout_checks:
-                        issues.extend(
-                            find_missing_derived_companion_output_issues(
-                                content,
-                                payload,
-                                rules_file=rules_file,
-                                policy_repo_path=self.policy_repo_path,
-                            )
-                        )
-                        issues.extend(
-                            find_judgment_positive_companion_output_issues(
-                                content,
-                                payload,
-                                rules_file=rules_file,
-                                policy_repo_path=self.policy_repo_path,
-                            )
-                        )
-                    issues.extend(find_test_input_assignment_issues(content, payload))
-                    issues.extend(find_tax_filing_status_test_input_issues(payload))
-                    issues.extend(find_exception_test_coverage_issues(content, payload))
                     issues.extend(
-                        find_zero_branch_test_coverage_issues(content, payload)
+                        self._companion_test_payload_issues(
+                            content,
+                            payload,
+                            rules_file=rules_file,
+                            strict_layout_checks=strict_layout_checks,
+                        )
                     )
                     if len(issues) == pre_test_issue_count:
                         issues.extend(

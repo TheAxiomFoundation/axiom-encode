@@ -1001,6 +1001,8 @@ def _complete_source_obligations(module, complete_source_module, outline):
     payload["issues"] = tuple(
         rendered_branch.sub(_branch_path, issue) for issue in payload["issues"]
     )
+    # Companion-case synthesis hints are not findings and postdate the baseline.
+    payload.pop("companion_test_obligations", None)
     return payload
 
 
