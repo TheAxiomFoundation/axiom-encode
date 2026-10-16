@@ -1,3 +1,7 @@
+## 0.2.2217
+
+- Locate every missing numeric-recall value in the first complete-source numeric-recall diagnostic (source span, bounded excerpt, grouped by branch, locator-shaped values listed apart, capped) so retry feedback shows the full set. Demands and issue counts are unchanged.
+
 ## 0.2.2183
 
 - Repair source-verification metadata emitted for generated overlay targets during protected apply while preserving source-bound validation.
