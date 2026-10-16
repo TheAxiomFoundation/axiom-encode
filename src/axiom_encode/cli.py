@@ -23325,7 +23325,8 @@ def _guard_base_manifest_claims(
         head_ref=historical_head_ref,
         retrospective=retrospective,
     )
-    signature_issue = _historical_nested_signature_issue(payload, verifier)
+    # The verifier is already nested-only, so one signature check suffices.
+    signature_issue = _applied_encoding_manifest_signature_issue(payload, verifier)
     if signature_issue:
         issues.append(f"{label} {signature_issue}")
     root_prefix = _applied_encoding_manifest_root_prefix(

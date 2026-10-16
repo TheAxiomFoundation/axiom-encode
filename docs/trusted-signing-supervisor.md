@@ -537,6 +537,13 @@ an already frozen commit must explicitly use `guard-generated --retrospective`;
 its actual checkout head must equal or precede the trusted cutoff, and its
 `--head-ref` must be `HEAD` or that exact SHA.
 
+A retired-root manifest at the base of a guard range is admitted only as the
+exact frozen payload (or evidence nested in it), because the inventory holds one
+frozen payload per path. An older retired-signed payload of the same manifest,
+from before a pre-cutoff re-encode, has no trust anchor and is refused, fail
+closed. So a `--retrospective` audit, or a `--base-ref` diff, must start at or
+after the last pre-cutoff payload change of every manifest it changes.
+
 Nested retirement, migration, legacy replacement, and retained successor
 evidence uses the same protected inventory. Each retired signature must identify
 the exact embedded historical payload preserved by a frozen inventoried

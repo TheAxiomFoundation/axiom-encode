@@ -15,6 +15,7 @@ from scripts.provision_verification_supervisor import _install_trusted_git_wrapp
 from tests.test_cli import TEST_APPLY_SIGNING_BROKER, TEST_PINNED_ENCODER_IDENTITY
 from tests.test_cli import TestGuardGenerated as _GuardFixtures
 from tests.test_retired_apply_paths import (
+    FROZEN_PRODUCER_IDENTITY,
     _commit,
     _freeze_artifacts,
     _git,
@@ -262,3 +263,70 @@ def test_retired_receipt_controls_still_refuse_untrusted_changes(
 
     issues = _guard(fixture, monkeypatch, base_ref=base_ref)
     assert any(message in issue for message in expected for issue in issues), issues
+
+
+def _reencode_before_cutoff(fixture, monkeypatch):
+    """Re-encode the frozen module with the retired root, then freeze that v2."""
+
+    v1_commit = fixture.cutoff
+    fixture.rule.write_bytes(fixture.rule.read_bytes() + b"# retired re-encode\n")
+    payload = json.loads(fixture.manifest_bytes)
+    payload["applied_files"][0]["sha256"] = hashlib.sha256(
+        fixture.rule.read_bytes()
+    ).hexdigest()
+    payload["generated_at"] = "2026-08-01T00:00:00+00:00"
+    _set_producer_identity(payload, FROZEN_PRODUCER_IDENTITY)
+    cli._sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+    fixture.manifest.write_text(json.dumps(payload) + "\n")
+    cutoff2 = _commit(fixture.repo, "retired-root re-encode before cutoff")
+    broker = _RotatedBroker(_freeze_artifacts(fixture.repo, cutoff2, v1_commit))
+    monkeypatch.setattr(cli, "_applied_encoding_manifest_verifier", lambda: broker)
+    monkeypatch.setattr(cli, "get_signing_broker", lambda **_kwargs: broker)
+    return v1_commit, cutoff2, payload, broker
+
+
+_NOT_FROZEN = "is not frozen historical apply evidence"
+
+
+def test_retrospective_audit_from_before_a_pre_cutoff_reencode_is_refused(
+    frozen_repo, monkeypatch
+):
+    """Documented limit: an older retired payload at the base has no anchor."""
+
+    fixture = frozen_repo
+    v1_commit, cutoff2, _payload, _broker = _reencode_before_cutoff(
+        fixture, monkeypatch
+    )
+    issues = _guard(
+        fixture, monkeypatch, base_ref=v1_commit, head_ref=cutoff2, retrospective=True
+    )
+    assert any(_NOT_FROZEN in issue for issue in issues), issues
+    # From a base before the module existed, the same frozen head is admitted.
+    assert (
+        _guard(
+            fixture,
+            monkeypatch,
+            base_ref=fixture.base,
+            head_ref=cutoff2,
+            retrospective=True,
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize("all_files", (False, True), ids=("diff", "all-with-base"))
+def test_refresh_checked_from_before_a_pre_cutoff_reencode_is_refused(
+    frozen_repo, monkeypatch, all_files
+):
+    """Documented limit: diff and --all base refs must follow the last re-encode."""
+
+    fixture = frozen_repo
+    v1_commit, cutoff2, payload, broker = _reencode_before_cutoff(fixture, monkeypatch)
+    _set_producer_identity(payload, dict(TEST_PINNED_ENCODER_IDENTITY))
+    cli._sign_applied_encoding_manifest(payload, broker)
+    fixture.manifest.write_text(json.dumps(payload) + "\n")
+    _commit(fixture.repo, "active-root refresh")
+    issues = _guard(fixture, monkeypatch, base_ref=v1_commit, all_files=all_files)
+    assert any(_NOT_FROZEN in issue for issue in issues), issues
+    # From the frozen v2 itself, the same refresh is admitted.
+    assert _guard(fixture, monkeypatch, base_ref=cutoff2, all_files=all_files) == []
