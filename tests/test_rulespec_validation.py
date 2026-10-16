@@ -27059,9 +27059,18 @@ def test_rulespec_proof_parent_resolution_is_bounded_for_repeated_lists():
     def resolve_repeated_lists(count: int) -> tuple[tuple[str, str] | None, float]:
         source_text = " ".join("a. (1) Items: (a) Item." for _ in range(count))
         numeric_start = source_text.rfind("(1)")
-        started = monotonic()
-        result = _source_top_level_marker_for_numeric_parent(source_text, numeric_start)
-        return result, monotonic() - started
+        results, timings = set(), []
+        # Best of three, each after a collection, so heap debt left by preceding
+        # tests or a one-off runner stall is not charged to the resolver.
+        for _ in range(3):
+            gc.collect()
+            started = monotonic()
+            results.add(
+                _source_top_level_marker_for_numeric_parent(source_text, numeric_start)
+            )
+            timings.append(monotonic() - started)
+        assert len(results) == 1
+        return results.pop(), min(timings)
 
     small_result, small_elapsed = resolve_repeated_lists(192)
     large_result, large_elapsed = resolve_repeated_lists(768)
