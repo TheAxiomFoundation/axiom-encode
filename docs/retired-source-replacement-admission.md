@@ -8,4 +8,14 @@ A separate `retired-source-external-parameters/v1` input contract admits an exte
 
 The entire externally proved legacy rule must remain unchanged, including its formula, dates, unit and proof. The apply overlay checks that obligation both before normal validation and after all automatic repairs, immediately before recording the successful validation snapshot. The signed output bytes therefore include the preserved proof and parameter. This does not authorize arbitrary external derived rules, imported replacements, or changes to those parameters.
 
+The separate `retired-source-external-preserved-rules/v1` contract also admits a
+single-version derived rule when every external proof atom is a source-grounded
+`condition` or `effective_period` at `versions[0].formula`. The external source
+must resolve exactly in the same verified release and jurisdiction, and every
+excerpt must occur in a verified evidence segment. Every such derived rule is
+required to survive generation unchanged, including its formula, effective
+period and all proof atoms. This is an input admission for preserving existing
+source-backed rules, not permission to generate new externally proved logic or
+to relax ordinary proof and compilation validation.
+
 `retired-source-admission.json` retains the original YAML hash, every resolver attestation and unchanged-rule obligations. Workflow packaging checksums the report for review. This diagnostic report does not replace signed provenance or output validation. Unsupported legacy source combinations remain blocked for a separate migration design.
