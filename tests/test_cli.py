@@ -232,6 +232,7 @@ from axiom_encode.cli import (
     _try_repair_generated_computed_output_test_inputs_for_apply,
     _try_repair_generated_conditional_vacuity_tests_for_apply,
     _try_repair_generated_day_period_test_shorthands_for_apply,
+    _try_repair_generated_deferred_canonical_citations_for_apply,
     _try_repair_generated_delegated_policy_settings_for_apply,
     _try_repair_generated_embedded_scalar_literals_for_apply,
     _try_repair_generated_empty_test_outputs_for_apply,
@@ -7374,30 +7375,6 @@ class TestCmdValidate:
 
 
 class TestCmdCompile:
-    def _require_axiom_rules_path(self) -> Path:
-        candidates = (
-            Path(
-                "/Users/maxghenis/TheAxiomFoundation/_worktrees/"
-                "axiom-rules-engine-canonical-loader-hard-cut"
-            ),
-            Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine"),
-        )
-        for axiom_rules_path in candidates:
-            binary = axiom_rules_path / "target" / "debug" / "axiom-rules-engine"
-            probe = (
-                subprocess.run(
-                    [str(binary), "compile", "--help"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                if binary.exists()
-                else None
-            )
-            if probe is not None and "--rulespec-root" in (probe.stdout + probe.stderr):
-                return axiom_rules_path
-        pytest.skip("local explicit-root axiom-rules-engine binary is not built")
-
     def _rulespec_file(self, tmp_path: Path, content: str | None = None) -> Path:
         checkout = tmp_path / "rulespec-us"
         rules_file = checkout / "us/statutes/1/test.yaml"
@@ -7420,12 +7397,14 @@ rules:
         )
         return rules_file
 
-    def _compile_args(self, rules_file: Path, *, json_output: bool):
+    def _compile_args(
+        self, rules_file: Path, *, json_output: bool, axiom_rules_path: Path
+    ):
         args = MagicMock()
         args.file = rules_file
         args.json = json_output
         args.as_of = None
-        args.axiom_rules_path = self._require_axiom_rules_path()
+        args.axiom_rules_path = axiom_rules_path
         args.axiom_rules_engine_ref = None
         args.rulespec_dependency_root = []
         return args
@@ -7439,8 +7418,12 @@ rules:
             cmd_compile(args)
         assert exc_info.value.code == 1
 
-    def test_compile_success_text(self, capsys, tmp_path):
-        args = self._compile_args(self._rulespec_file(tmp_path), json_output=False)
+    def test_compile_success_text(self, real_engine, capsys, tmp_path):
+        args = self._compile_args(
+            self._rulespec_file(tmp_path),
+            json_output=False,
+            axiom_rules_path=real_engine.root,
+        )
 
         with pytest.raises(SystemExit) as exc_info:
             cmd_compile(args)
@@ -7449,8 +7432,12 @@ rules:
         assert "Compiled" in captured.out
         assert "test_rule" in captured.out
 
-    def test_compile_success_json(self, capsys, tmp_path):
-        args = self._compile_args(self._rulespec_file(tmp_path), json_output=True)
+    def test_compile_success_json(self, real_engine, capsys, tmp_path):
+        args = self._compile_args(
+            self._rulespec_file(tmp_path),
+            json_output=True,
+            axiom_rules_path=real_engine.root,
+        )
         args.as_of = "2024-01-01"
 
         with pytest.raises(SystemExit) as exc_info:
@@ -7462,10 +7449,11 @@ rules:
         assert output["rule_count"] == 1
         assert output["rules"] == ["test_rule"]
 
-    def test_compile_failure_text(self, capsys, tmp_path):
+    def test_compile_failure_text(self, real_engine, capsys, tmp_path):
         args = self._compile_args(
             self._rulespec_file(tmp_path, "format: rulespec/v1\nrules: ["),
             json_output=False,
+            axiom_rules_path=real_engine.root,
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -7474,10 +7462,11 @@ rules:
         captured = capsys.readouterr()
         assert "Compilation failed" in captured.out
 
-    def test_compile_failure_json(self, capsys, tmp_path):
+    def test_compile_failure_json(self, real_engine, capsys, tmp_path):
         args = self._compile_args(
             self._rulespec_file(tmp_path, "format: rulespec/v1\nrules: ["),
             json_output=True,
+            axiom_rules_path=real_engine.root,
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -7512,30 +7501,6 @@ rules:
 
 
 class TestCmdTest:
-    def _require_axiom_rules_path(self) -> Path:
-        candidates = (
-            Path(
-                "/Users/maxghenis/TheAxiomFoundation/_worktrees/"
-                "axiom-rules-engine-canonical-loader-hard-cut"
-            ),
-            Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine"),
-        )
-        for axiom_rules_path in candidates:
-            binary = axiom_rules_path / "target" / "debug" / "axiom-rules-engine"
-            probe = (
-                subprocess.run(
-                    [str(binary), "compile", "--help"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                if binary.exists()
-                else None
-            )
-            if probe is not None and "--rulespec-root" in (probe.stdout + probe.stderr):
-                return axiom_rules_path
-        pytest.skip("local explicit-root axiom-rules-engine binary is not built")
-
     def _write_rulespec_with_test(
         self,
         tmp_path: Path,
@@ -7580,13 +7545,13 @@ rules:
         )
         return repo
 
-    def _args(self, repo: Path, *, json_output: bool):
+    def _args(self, repo: Path, *, json_output: bool, axiom_rules_path: Path):
         _write_test_rulespec_toolchain(repo)
         args = MagicMock()
         args.root = repo / "us"
         args.paths = []
         args.json = json_output
-        args.axiom_rules_path = self._require_axiom_rules_path()
+        args.axiom_rules_path = axiom_rules_path
         args.rulespec_dependency_root = []
         return args
 
@@ -8200,11 +8165,13 @@ rules:
         )
         assert proof_import["hash"] == f"sha256:{_sha256_file(child_a2)}"
 
-    def test_executes_companion_tests_success_json(self, capsys, tmp_path):
+    def test_executes_companion_tests_success_json(self, real_engine, capsys, tmp_path):
         repo = self._write_rulespec_with_test(tmp_path, expected_benefit=15)
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 0
         output = json.loads(capsys.readouterr().out)
@@ -8213,7 +8180,9 @@ rules:
         assert output["cases"] == 1
         assert output["failures"] == []
 
-    def test_executes_companion_tests_with_custom_period_name(self, capsys, tmp_path):
+    def test_executes_companion_tests_with_custom_period_name(
+        self, real_engine, capsys, tmp_path
+    ):
         repo = tmp_path / "rulespec-us"
         target = repo / "us/policies/ssa/base.yaml"
         target.parent.mkdir(parents=True)
@@ -8243,12 +8212,16 @@ rules:
         )
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
 
-    def test_executes_companion_tests_with_table_rows(self, capsys, tmp_path):
+    def test_executes_companion_tests_with_table_rows(
+        self, real_engine, capsys, tmp_path
+    ):
         repo = tmp_path / "rulespec-us"
         target = repo / "us/statutes/1/payment.yaml"
         target.parent.mkdir(parents=True)
@@ -8286,13 +8259,15 @@ rules:
         )
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
 
     def test_executes_companion_tests_with_absolute_relation_inputs(
-        self, capsys, tmp_path
+        self, real_engine, capsys, tmp_path
     ):
         repo = tmp_path / "rulespec-us"
         target = repo / "us/statutes/1/relation.yaml"
@@ -8328,16 +8303,20 @@ rules:
         )
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
 
-    def test_executes_companion_tests_failure_json(self, capsys, tmp_path):
+    def test_executes_companion_tests_failure_json(self, real_engine, capsys, tmp_path):
         repo = self._write_rulespec_with_test(tmp_path, expected_benefit=16)
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 1
         output = json.loads(capsys.readouterr().out)
@@ -8345,7 +8324,7 @@ rules:
         assert "expected 16" in output["failures"][0]["message"]
 
     def test_executes_companion_tests_prefers_current_repo_over_env_root(
-        self, capsys, monkeypatch, tmp_path
+        self, real_engine, capsys, monkeypatch, tmp_path
     ):
         stale_repo = tmp_path / "canonical" / "rulespec-us"
         stale_child = stale_repo / "us/statutes/1/child.yaml"
@@ -8411,7 +8390,9 @@ rules:
         monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_repo))
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 0
         output = json.loads(capsys.readouterr().out)
@@ -9191,6 +9172,63 @@ $533 with 2 children
     )
 
     assert repaired == "$533 with 2 children"
+
+
+def test_closest_exact_source_excerpt_keeps_parenthesized_numeric_heading():
+    source_text = (
+        Path(__file__).parent
+        / "fixtures/source_completeness/fns_snap_fy2026_cola_memo_page_3.txt"
+    ).read_text()
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired == "(165 Percent of Poverty Level)"
+
+
+def test_closest_exact_source_excerpt_retains_governing_parenthetical_condition():
+    source_text = (
+        "(a) If the household has an elderly member, use the higher limit "
+        "(165 Percent of Poverty Level)."
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired == source_text
+
+
+def test_closest_exact_source_excerpt_rejects_long_governing_condition():
+    source_text = (
+        "(a) If the household has an elderly member and "
+        + "the household meets the additional eligibility requirements and " * 8
+        + "has qualifying income, use the higher limit "
+        "(165 Percent of Poverty Level)."
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_does_not_wrap_partial_parenthetical():
+    repaired = _closest_exact_source_excerpt(
+        source_text="(165 Percent of Poverty Level for Guam)",
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired == "(165 Percent of Poverty Level for Guam)"
 
 
 def test_closest_exact_source_excerpt_rejects_unrelated_numeric_text():
@@ -21677,6 +21715,87 @@ rules: []
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_repairs_source_verification_values_reported_by_overlay(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.metrics = SimpleNamespace(
+            compile_pass=False,
+            compile_issues=[],
+            ci_pass=False,
+            ci_issues=[],
+            grounded_numeric_count=0,
+            ungrounded_numeric_count=0,
+            embedded_source_present=True,
+            grounding=[],
+            numeric_occurrence_issues=[],
+            generalist_review_pass=None,
+            generalist_review_score=None,
+            generalist_review_issues=[],
+            policyengine_pass=None,
+            policyengine_score=None,
+            policyengine_issues=[],
+        )
+        result.error = "Generated RuleSpec failed compile validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+    source_sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    values:
+      earned_income_deduction_rate: 0.2
+  summary: SNAP earned income deduction.
+rules: []
+"""
+        )
+        result.output_file = str(output_file)
+        issue = (
+            "regulations/7-cfr/273/10.yaml: compile: Axiom rules engine compile "
+            "failed: yaml parse error: module.source_verification: unknown field "
+            "`values`, expected one of `corpus_citation_path`, `source_sha256`, "
+            "`upstream_source_check` at line 21 column 5"
+        )
+        applied_file = args.policy_repo_path / "regulations/7-cfr/273/10.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[(False, [issue], {}), (True, [], {})],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        assert (
+            "values"
+            not in yaml.safe_load(output_file.read_text())["module"][
+                "source_verification"
+            ]
+        )
+        assert (
+            "apply=auto_repaired_invalid_source_verification_values:"
+            "module.source_verification.values" in capsys.readouterr().out
+        )
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_source_verification_values_repair_requires_exact_engine_schema_error(
         self, tmp_path
     ):
@@ -21746,6 +21865,195 @@ module:
 
         assert repaired == ["module.source_verification.values"]
         assert rules_file.read_text() == prefix
+
+    def test_deferred_citation_repair_uses_exact_diagnostic_and_source_root(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: us:regulations/7-cfr/273/10/a/1#application_month
+      reason: >-
+        7 CFR 273.10(a)(1) requires the application date and certification
+        history; neither input is available in this calculation.
+rules: []
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(runner="codex-test-model", output_file=str(rules_file))
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "identifies source branch (a) (`a/1`) but its deferral does not "
+            "name an exact missing dependency, input, or runtime capability. "
+            "For this rejected current-source branch, the literal canonical "
+            "citation required in `reason` is `us/regulation/7/273/10(a)(1)`"
+        )
+
+        assert _try_repair_generated_deferred_canonical_citations_for_apply(
+            result, output_root=output_root, issues=[issue]
+        ) == ["module.deferred_outputs[0].reason"]
+        assert rules_file.read_text() == original.replace(
+            "7 CFR 273.10(a)(1)", "us/regulation/7/273/10(a)(1)"
+        )
+        assert (
+            _try_repair_generated_deferred_canonical_citations_for_apply(
+                result, output_root=output_root, issues=[issue]
+            )
+            == []
+        )
+
+    @pytest.mark.parametrize(
+        "citation,output",
+        [
+            (
+                "us/regulation/7/273/11(a)(1)",
+                "us:regulations/7-cfr/273/10/a/1#application_month",
+            ),
+            (
+                "us/regulation/7/273/10(a)(1)",
+                "us:regulations/7-cfr/273/10/c#application_month",
+            ),
+        ],
+    )
+    def test_deferred_citation_repair_refuses_other_source_or_branch(
+        self, tmp_path, citation, output
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: {output}
+      reason: 7 CFR 273.10(a)(1) requires application facts.
+rules: []
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(runner="codex-test-model", output_file=str(rules_file))
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "literal canonical citation required in `reason` is "
+            f"`{citation}`"
+        )
+
+        assert (
+            _try_repair_generated_deferred_canonical_citations_for_apply(
+                result, output_root=output_root, issues=[issue]
+            )
+            == []
+        )
+        assert rules_file.read_text() == original
+
+    @pytest.mark.parametrize(
+        "reason,expected_reason,repaired",
+        [
+            (
+                "17 CFR 273.10(a)(1) requires application facts.",
+                "17 CFR 273.10(a)(1) requires application facts.",
+                False,
+            ),
+            (
+                "17 CFR 273.10(a)(1) differs; 7 CFR 273.10(a)(1) "
+                "requires application facts.",
+                "17 CFR 273.10(a)(1) differs; "
+                "us/regulation/7/273/10(a)(1) requires application facts.",
+                True,
+            ),
+        ],
+    )
+    def test_deferred_citation_repair_preserves_other_cfr_titles(
+        self, tmp_path, reason, expected_reason, repaired
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: us:regulations/7-cfr/273/10/a/1#application_month
+      reason: {reason}
+rules: []
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(runner="codex-test-model", output_file=str(rules_file))
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "literal canonical citation required in `reason` is "
+            "`us/regulation/7/273/10(a)(1)`"
+        )
+
+        result_paths = _try_repair_generated_deferred_canonical_citations_for_apply(
+            result, output_root=output_root, issues=[issue]
+        )
+
+        assert result_paths == (
+            ["module.deferred_outputs[0].reason"] if repaired else []
+        )
+        assert rules_file.read_text() == original.replace(reason, expected_reason)
+
+    def test_encode_apply_revalidates_after_deferred_citation_repair(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        rules_file = (
+            tmp_path / "out" / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: us:regulations/7-cfr/273/10/a/1#application_month
+      reason: 7 CFR 273.10(a)(1) requires the application date.
+rules: []
+"""
+        )
+        result.output_file = str(rules_file)
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "literal canonical citation required in `reason` is "
+            "`us/regulation/7/273/10(a)(1)`"
+        )
+        applied_file = args.policy_repo_path / "regulations/7-cfr/273/10.yaml"
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[(False, [issue], {}), (True, [], {})],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        assert "us/regulation/7/273/10(a)(1) requires" in rules_file.read_text()
+        assert "apply=auto_repaired_deferred_canonical_citations:" in (
+            capsys.readouterr().out
+        )
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_deferred_canonical_citations"] == [
+            "module.deferred_outputs[0].reason"
+        ]
 
     def test_encode_apply_removes_empty_deferred_source_values(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)
@@ -37859,7 +38167,7 @@ rules: []
         ]
         assert payload["rules"] == []
 
-    def test_mixed_missing_deferred_output_repair_keeps_encoded_rules(self, tmp_path):
+    def test_mixed_missing_deferred_output_repair_requires_source(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = (
             output_root / "codex-gpt-5.5" / "regulations/388/388-450/388-450-0162.yaml"
@@ -37907,24 +38215,8 @@ rules:
         )
 
         payload = yaml.safe_load(rules_file.read_text())
-        assert repaired == [
-            "us-wa:regulations/388/388-450/388-450-0162/a#basic_food_income_eligible"
-        ]
-        assert payload["module"]["deferred_outputs"] == [
-            {
-                "output": (
-                    "us-wa:regulations/388/388-450/388-450-0162/a"
-                    "#basic_food_income_eligible"
-                ),
-                "reason": (
-                    "Generated module encodes the supported rules from this "
-                    "source, but this source subparagraph depends on policy "
-                    "surfaces or entities that are not available in the current "
-                    "RuleSpec context. It is deferred instead of being modeled "
-                    "as a caller-supplied input or an unsupported local entity."
-                ),
-            }
-        ]
+        assert repaired == []
+        assert "deferred_outputs" not in payload["module"]
         assert [rule["name"] for rule in payload["rules"]] == [
             "cash_assistance_income_requirement_satisfied"
         ]
@@ -42716,6 +43008,8 @@ class TestGuardGenerated:
         base_waiver_text: str,
         head_waiver_text: str = TEST_VALIDATION_WAIVER_TEXT,
         delete_rule: bool = False,
+        unchanged_importer: str | None = None,
+        importer_ref: str = "us:regulations/example",
     ) -> tuple[Path, str]:
         repo = self._canonical_guard_repo(tmp_path)
         _git(repo, "init")
@@ -42725,6 +43019,12 @@ class TestGuardGenerated:
         rule = repo / relative
         self._source_backed_rule(rule)
         rule.write_text(rule.read_text() + "# protected-base version\n")
+        if unchanged_importer is not None:
+            importer = repo / unchanged_importer
+            self._source_backed_rule(importer)
+            importer.write_text(
+                importer.read_text() + f"imports:\n  - {importer_ref}\n"
+            )
         waiver = repo / "known-validation-gaps.yaml"
         waiver.write_text(base_waiver_text)
         _write_test_rulespec_toolchain(
@@ -43754,6 +44054,45 @@ class TestGuardGenerated:
         )
 
         assert issues == []
+
+    def test_accepts_post_apply_retirement_of_unchanged_direct_importer(self, tmp_path):
+        importer = "us-co/regulations/example.yaml"
+        repo, base_ref = self._waiver_retirement_repo(
+            tmp_path,
+            base_waiver_text=(
+                "validate_failures:\n" + self._waiver_entry_text(importer)
+            ),
+            unchanged_importer=importer,
+        )
+
+        issues = guard_generated_change_issues(
+            repo,
+            corpus_path=self.corpus_path,
+            base_ref=base_ref,
+            head_ref="HEAD",
+        )
+
+        assert issues == []
+
+    def test_rejects_retirement_of_unchanged_unrelated_importer(self, tmp_path):
+        importer = "us-co/regulations/example.yaml"
+        repo, base_ref = self._waiver_retirement_repo(
+            tmp_path,
+            base_waiver_text=(
+                "validate_failures:\n" + self._waiver_entry_text(importer)
+            ),
+            unchanged_importer=importer,
+            importer_ref="us:regulations/other",
+        )
+
+        issues = guard_generated_change_issues(
+            repo,
+            corpus_path=self.corpus_path,
+            base_ref=base_ref,
+            head_ref="HEAD",
+        )
+
+        assert any("unchanged direct importers" in issue for issue in issues)
 
     def test_accepts_pending_waiver_retirement_with_matching_deletion(self, tmp_path):
         relative = "us/regulations/example.yaml"

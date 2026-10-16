@@ -381,25 +381,37 @@ execution path are unchanged.
 
 ### Workflow deployment and secrets discipline
 
-The signed-apply leg runs the same provisioning as the verification supervisor
-(`scripts/provision_verification_supervisor.py`, a root-owned tree), then invokes
-`axiom-encode-apply-signer run …` in place of a bare supervisor call. The private
-key reaches the job only as a secret bound to that one step's `env:`; the launcher
-consumes and clears it.
+Production signed re-encodes run centrally through
+[`targeted-signed-reencode.yml`](../.github/workflows/targeted-signed-reencode.yml)
+in `TheAxiomFoundation/axiom-encode`. Its signing job requires approval through
+the `production-signing` environment. The apply private key belongs only in that
+protected environment; do not configure ungated repository or organization
+copies or pass signing keys from jurisdiction repositories.
 
-**The signing leg must run only on `workflow_dispatch` or `schedule` from the
-main-branch workflow definition, never on `pull_request`.** GitHub does not expose
-repository/organization secrets to workflows triggered by a fork PR, and a PR that
-edits the workflow text runs with the PR's own definition — so fork- or
-PR-modified workflow text can never see the secret. The signer's own event-name
-binding (refusing `pull_request*` beneath the allowlist) and workflow-ref
-allowlist (pinned to `@refs/heads/main`) enforce this a second time, independently
-of the YAML.
+The ungated apply-signing and caller App keys were removed during the October
+2026 key rotation. The one-time `migrate-apply-signing-key.yml` export lane and its
+`signing-key-migration` environment are retired, as is
+`signed-apply-reusable.yml`, which previously accepted caller-provided keys.
+Route signed re-encodes through the central targeted workflow.
+
+The central signed-apply leg runs the same provisioning as the verification
+supervisor (`scripts/provision_verification_supervisor.py`, a root-owned tree), then invokes
+`axiom-encode-apply-signer run …` in place of a bare supervisor call. The private
+key reaches the signing step only as a protected environment secret bound to
+that step's `env:`; the launcher consumes and clears it.
+
+**The signing leg runs only on `workflow_dispatch` from the main-branch
+workflow definition, never on `pull_request`.** The workflow requires
+`refs/heads/main` before entering the protected environment. The signer's own
+event-name binding (refusing `pull_request*` beneath the allowlist) and
+workflow-ref allowlist (pinned to `@refs/heads/main`) enforce this a second time,
+independently of the YAML.
 
 ### Threat model
 
-- **Who can trigger it.** Only an actor who can dispatch (or schedule) the
-  main-branch workflow — i.e. a repository collaborator. A fork contributor
+- **Who can trigger it.** Only an actor who can dispatch the main-branch
+  workflow — i.e. a repository collaborator — can request signing, which still
+  requires the protected environment approval. A fork contributor
   cannot: their PR neither receives the secret nor matches the pinned workflow
   ref / permitted event.
 - **What the context binding is (and is not).** The `GITHUB_*` values and the
@@ -407,11 +419,11 @@ of the YAML.
   **defense-in-depth against misconfiguration** (an accidental `pull_request`
   trigger, or invoking the signer from the wrong workflow), not a cryptographic
   authentication of the runner. The primary boundary is external to this code:
-  GitHub does not expose repository/organization secrets to fork-PR-triggered
-  runs, and the workflow is restricted to `workflow_dispatch`/`schedule`. An
+  the private key is held in the approval-gated `production-signing` environment,
+  and the workflow is restricted to `workflow_dispatch` on main. An
   actor who could actually forge `GITHUB_*` would have to be able to edit the
   main-branch workflow — a trusted collaborator who can already dispatch it and
-  obtain signatures legitimately. The binding therefore never widens who can
+  request signing approval. The binding therefore never widens who can
   sign; it only narrows it further.
 - **A compromised or malicious PR** can change the module content a future
   generation session encodes, but it cannot exfiltrate the key: the signing leg
@@ -432,11 +444,119 @@ of the YAML.
 
 ### Key rotation
 
-Rotating the apply key means generating a new Ed25519 keypair, publishing the new
-public half to the `AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY` Actions variable (which
-the verification and signing supervisors load as a trust root), and placing the
-new private seed into the signing secret. Because the trust root and the signer's
-key are checked against each other at the broker challenge, a mismatched pair
-fails closed at startup rather than producing an unverifiable manifest. Old
-manifests remain verifiable only while the corresponding public root is still
-published, so rotate the variable and re-verify historical manifests together.
+The apply signing identity remains singular. A signer must answer its startup
+challenge with the active `apply_ed25519_public_key`; retired roots cannot answer
+that challenge or authorize a new apply, refresh, migration, or retirement
+signature. Changing the active public root and private signer independently
+fails closed at startup.
+
+Before rotating the root, the owner freezes protected main for each affected
+repository, records its exact commit SHA, and builds and reviews an inventory of
+the historical attestations that remain in use. Provision that inventory with
+the retired **public** roots into the protected runner trust file:
+
+```bash
+scripts/provision_verification_supervisor.py \
+  --retired-apply-root "$RETIRED_APPLY_PUBLIC_ROOT" \
+  --retired-apply-inventory "$OWNER_FROZEN_APPLY_INVENTORY" \
+  ...
+```
+
+Repeat `--retired-apply-root` for additional retired public roots. Neither
+argument is a verification-command input. Provisioning copies the reviewed
+inventory inline into the root-owned trust configuration, and the compiled
+supervisor passes it to Python over the authenticated broker. Repository files,
+environment variables, moving branches, manifest timestamps, and CLI callers
+cannot supply historical authority. Existing v2/v3 configurations continue to
+read as before; without retired apply trust, provisioning keeps their existing
+format. The provisioner's inventory input must itself be a root-owned,
+non-writable regular file under protected parents, with no symlink components.
+The v4 trust file is bounded to 16 MiB; existing v2/v3 files retain their 64 KiB
+bound. Retired apply trust uses v4 with the active apply and evaluation roots,
+the corpus release ring, and these additional fields:
+
+```json
+{
+  "schema": "axiom-encode/signing-trust-roots/v4",
+  "apply_ed25519_public_key": "ACTIVE_BASE64_RAW_32_BYTES",
+  "eval_ed25519_public_key": "DISTINCT_BASE64_RAW_32_BYTES",
+  "corpus_release_ed25519_public_keys": ["THIRD_BASE64_RAW_32_BYTES"],
+  "retired_apply_ed25519_public_keys": ["RETIRED_BASE64_RAW_32_BYTES"],
+  "retired_apply_inventory": {
+    "schema": "axiom-encode/retired-apply-inventory/v1",
+    "repositories": [{
+      "repository": "TheAxiomFoundation/rulespec-us",
+      "cutoff_commit": "0123456789abcdef0123456789abcdef01234567",
+      "artifacts": [{
+        "path": ".axiom/encoding-manifests/us/statutes/26/1.json",
+        "sha256": "EXACT_ARTIFACT_BYTES_SHA256_HEX",
+        "covered_files": [{
+          "path": "us/statutes/26/1.yaml",
+          "sha256": "EXACT_GENERATED_BYTES_SHA256_HEX"
+        }]
+      }]
+    }]
+  }
+}
+```
+
+All paths are canonical checkout-relative paths. Digests are 64 lowercase
+hexadecimal characters and bind the exact serialized manifest or receipt bytes,
+including whitespace, and the exact covered generated-file bytes. The repository
+identity must match the canonical GitHub origin, and the immutable cutoff must
+be available locally with complete Git history and no graft or replacement
+metadata. Shallow checkouts fail closed. Inventory entries grant no authority to a relocated,
+newly introduced, changed, or replayed attestation. A committed post-cutoff
+replacement or removal prevents direct admission on descendant heads, even if
+the original bytes are later restored. Explicit retrospective verification can
+still admit frozen evidence at pre-cutoff heads.
+
+Inventory every signed container that the historical readers consume, including
+standalone migration and legacy replacement receipts, and include the file hashes
+from all recursively embedded `applied_files` evidence. A covered file normally
+binds its live bytes and the cutoff blob. If a retirement deleted it, or migration
+changed its path or contents before the cutoff, its `covered_files` entry may also
+contain `"source_commit": "FULL_LOWERCASE_SHA"`. That immutable source commit must
+be an ancestor of the cutoff and provide the exact original file bytes. It grants
+only historical evidence verification; it does not authorize restoring those
+bytes in the live checkout. Distinct historical versions of the same path need
+separate entries with their respective source commits and byte digests.
+
+Persisted artifact readers explicitly request historical verification:
+`guard-generated --all`, golden regeneration admission, signed import inventory,
+manifest census, and the input admission for `refresh-applied-manifest`. They
+still enforce their existing source, toolchain, path, byte, and structural
+checks. After successful retired-root signature and frozen-byte admission,
+producer checks bind the frozen signed encoder identity; deploying a newer
+verifier does not turn that historical producer into a fresh one. Its internal
+provenance and execution evidence must still agree. Active-root manifests retain
+the existing producer-pin checks. A successful refresh signs its replacement
+with the active root. Ordinary
+`guard-generated` diffs require the active root. A scheduled or manual audit of
+an already frozen commit must explicitly use `guard-generated --retrospective`;
+its actual checkout head must equal or precede the trusted cutoff, and its
+`--head-ref` must be `HEAD` or that exact SHA.
+
+Nested retirement, migration, legacy replacement, and retained successor
+evidence uses the same protected inventory. Each retired signature must identify
+the exact embedded historical payload preserved by a frozen inventoried
+container at its original repository and path. Wrapping a new old-key payload in
+an active-root outer attestation cannot admit it. Active-root signatures continue
+to verify without historical inventory.
+
+After deploying the reviewed verifier and trust configuration, the owner changes
+the active public root and the central private signer while entrypoints remain
+frozen. Prove both a new-root artifact and the frozen historical readers before
+resuming. The shared verification workflow must separately provision the retired
+roots and owner inventory and select restricted retrospective mode for historical
+scheduled guards; callers must deploy the corresponding reviewed verifier pins.
+The shared-workflow follow-up must source the inventory from owner-reviewed
+protected configuration at an immutable revision, provision it into protected
+runner paths, and keep pull-request inputs and repository artifacts out of that
+trust source. Deploy the reviewed shared-workflow and encoder pins before the
+owner changes either active signing identity.
+
+The active public root is published as the `AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY`
+Actions variable, which the workflows provision into the supervisors' root-owned
+trust file. The active private seed is the `production-signing` environment's
+signing secret.

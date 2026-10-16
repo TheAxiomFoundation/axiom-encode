@@ -62,6 +62,13 @@ from axiom_encode.codex_cli import (
     resolve_codex_cli,
     with_codex_model_availability_hint,
 )
+from axiom_encode.companion_entities import (
+    assign_generated_fixture_ids,
+    cross_entity_input_findings,
+    declared_input_entities,
+    flat_input_entity_id,
+    require_distinct_entity_ids,
+)
 from axiom_encode.companion_relations import executable_relation_directions
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.constants import (
@@ -78,8 +85,13 @@ from axiom_encode.corpus_resolver import (
     InvalidCorpusCitationError,
     LocalCorpusRelease,
     UnsafeCorpusPathError,
+    local_corpus_row_is_repealed,
     require_canonical_corpus_citation_path,
     resolve_local_corpus_source,
+)
+from axiom_encode.editorial_source_ancestry import (
+    BIBLIOGRAPHIC_NOTICE,
+    confirms_bibliographic_editorial_scope,
 )
 from axiom_encode.encode_timing import (
     PHASE_REVIEW_MODEL_CALL,
@@ -97,6 +109,11 @@ from axiom_encode.engine_binding import (
     load_declared_engine_pin,
     require_engine_ref_sha,
     resolve_pinned_engine_binary,
+)
+from axiom_encode.harness.coverage_exemptions import (
+    CoverageDemand,
+    filter_coverage_demands,
+    has_reviewed_repeal,
 )
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.repo_routing import (
@@ -151,6 +168,9 @@ from .proof_validator import (
 )
 from .source_completeness import (
     _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
+    _nested_outline_marker_spans,
+    _qualified_parenthesized_legal_outline_markers,
+    _us_manual_prose_scope,
     analyze_complete_source_unit,
     collect_artifact_numeric_bindings,
     source_states_stated_conversion_result,
@@ -1217,6 +1237,19 @@ _STRUCTURAL_SOURCE_PREFIX_PATTERN = re.compile(
     r"\d+\s+(?=[A-Z][A-Za-z].*:)|\([0-9A-Za-zivxlcdm]+\)\s+)",
     re.IGNORECASE,
 )
+_STRUCTURAL_SOURCE_QUOTE_CHARS = "\"'`“”‘’"
+# Page syntax cannot prove that a leading integer is nonoperative. The
+# completeness mask authenticates complete manual context before erasing
+# genuine locators; generic cleanup must preserve candidates that remain,
+# including integers split onto their own line and composed child headers.
+_MANUAL_PAGE_CANDIDATE_LINE_PATTERN = re.compile(
+    # Use the same line boundaries as splitlines(), including PDF separators.
+    r"(?:\A|(?<=[\r\n\v\f\x1c-\x1e\x85\u2028\u2029]))"
+    r"""(?:[^\S\r\n\v\f\x1c-\x1e\x85\u2028\u2029]|["'`“”‘’])*(?P<value>\d{1,4})"""
+    rf"[{re.escape(_STRUCTURAL_SOURCE_QUOTE_CHARS)}]*"
+    r"(?=\s+(?:\((?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\)|Chapter\b))",
+    re.IGNORECASE,
+)
 _STRUCTURAL_SOURCE_MANUAL_NUMBER_PATTERN = re.compile(
     r"\b(?:(?:Policy|Procedure|Operations)\s+)?"
     r"(?:[A-Z][A-Za-z&/-]*\s+){0,4}?"
@@ -1337,7 +1370,6 @@ _STRUCTURAL_SOURCE_SECTION_PATTERN = re.compile(
     r"(?=$|[\s,.;:])",
     re.IGNORECASE,
 )
-_STRUCTURAL_SOURCE_QUOTE_CHARS = "\"'`“”‘’"
 _SYNTHETIC_MODELING_INSTRUCTION_PATTERN = re.compile(
     r"^\s*model\s+`[^`]+`\s+as\b",
     re.IGNORECASE,
@@ -1417,6 +1449,22 @@ _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
 )
 _TABLE_HEADING_PATTERN = re.compile(
     r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE
+)
+_TABLE_HEADING_PREFIX_PATTERN = re.compile(
+    r"^\s*table\s+\d+[A-Za-z]?(?=\s*:)", re.IGNORECASE
+)
+_INLINE_TABLE_VALUE_PATTERN = re.compile(
+    r"[$£€]\s*\d|\b(?:(?:household|unit)\s+)?size\s+\d{1,3}(?:\s+|:)-?[\d,]+",
+    re.IGNORECASE,
+)
+_COLLAPSED_CURRENCY_TABLE_ROW_BOUNDARY_PATTERN = re.compile(
+    r"(?P<amount>[$£€]\s*\d[\d,.]*)"
+    r"(?P<separator>[ \t]+)(?P<row>\d{1,2})(?=[ \t]+[$£€]\s*\d)"
+)
+_COLLAPSED_SIZE_TABLE_ROW_PATTERN = re.compile(
+    r"(?P<label>\b(?:(?:household|unit)[ \t]+)?size[ \t]+\d{1,3})"
+    r"(?P<separator>[ \t]+)(?=-?[\d,]+)",
+    re.IGNORECASE,
 )
 _ORDINAL_NUMBER_PATTERN = re.compile(r"\b(\d+)(?:st|nd|rd|th)\b", re.IGNORECASE)
 _ORDINAL_WORD_VALUES = {
@@ -12348,12 +12396,20 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
         )
 
     preserve_split_schedule_value = False
+    page_candidate_offsets = {
+        match.start("value")
+        for match in _MANUAL_PAGE_CANDIDATE_LINE_PATTERN.finditer(text)
+    }
     line_offset = 0
     for line_with_ending in text.splitlines(keepends=True):
         line = line_with_ending.rstrip("\r\n")
         line_span = (line_offset, line_offset + len(line))
         stripped = line.strip()
         structural_stripped = stripped.strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
+        page_candidate = bool(page_candidate_offsets) and any(
+            offset in page_candidate_offsets
+            for offset in range(line_offset, line_offset + len(line))
+        )
         if preserve_split_schedule_value and _SCHEDULE_SPLIT_VALUE_PATTERN.fullmatch(
             structural_stripped
         ):
@@ -12366,9 +12422,12 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             line_offset += len(line_with_ending)
             continue
         if (
-            _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped)
+            not page_candidate
+            and (
+                _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped)
+                or _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped)
+            )
             or _STRUCTURAL_SOURCE_HEADING_PATTERN.match(structural_stripped)
-            or _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped)
             or _TABLE_HEADING_PATTERN.match(structural_stripped)
             or _SYNTHETIC_MODELING_INSTRUCTION_PATTERN.match(structural_stripped)
             or _SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN.match(
@@ -12430,7 +12489,11 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             )
             for match in _TABLE_ROW_LABEL_PATTERN.finditer(normalized_line)
         )
-        structural_prefix = _STRUCTURAL_SOURCE_PREFIX_PATTERN.match(normalized_line)
+        structural_prefix = (
+            None
+            if page_candidate
+            else _STRUCTURAL_SOURCE_PREFIX_PATTERN.match(normalized_line)
+        )
         if structural_prefix is not None:
             prefix_span = (
                 line_offset + normalized_start + structural_prefix.start(),
@@ -12924,8 +12987,24 @@ def _clean_source_text_for_numeric_extraction_tracked(
     tracked = tracked.sub(
         re.compile("\u05be(?=[\\d\u00bc-\u00be\u2150-\u215e]|\\.\\d)"), " "
     )
+    # OCR can concatenate successive currency-table rows into one line:
+    # "$2,474 2 $2,909". Keep a row boundary so the strict locale parser
+    # does not reserve "2,474 2" as one malformed numeric envelope.
+    tracked = tracked.sub(
+        _COLLAPSED_CURRENCY_TABLE_ROW_BOUNDARY_PATTERN,
+        lambda match: (
+            match.group("amount")
+            + "\n"
+            + match.group("separator")[1:]
+            + match.group("row")
+        ),
+    )
     cleaned_lines: list[_TrackedText] = []
     preserve_split_schedule_value = False
+    page_candidate_offsets = {
+        tracked.offsets[match.start("value")]
+        for match in _MANUAL_PAGE_CANDIDATE_LINE_PATTERN.finditer(tracked.text)
+    }
     for tracked_line in tracked.lines():
         ending = tracked_line.text[len(tracked_line.text.rstrip("\n")) :]
         content = _TrackedText(
@@ -12936,6 +13015,21 @@ def _clean_source_text_for_numeric_extraction_tracked(
         line = content.text
         stripped = line.strip()
         structural_stripped = stripped.strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
+        page_candidate = bool(page_candidate_offsets) and any(
+            offset in page_candidate_offsets for offset in content.offsets
+        )
+        if _TABLE_HEADING_PATTERN.match(
+            structural_stripped
+        ) and _INLINE_TABLE_VALUE_PATTERN.search(structural_stripped):
+            # Only on an identified table line, separate explicit "size N V"
+            # cells. Applying this to prose would reinterpret "size 1 100"
+            # as an amount, although strict locale parsing rejects it there.
+            content = content.sub(
+                _COLLAPSED_SIZE_TABLE_ROW_PATTERN,
+                lambda match: match.group("label") + ":" + match.group("separator")[1:],
+            )
+            line = content.text
+            structural_stripped = line.strip().strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
         if preserve_split_schedule_value and _SCHEDULE_SPLIT_VALUE_PATTERN.fullmatch(
             structural_stripped
         ):
@@ -12947,7 +13041,9 @@ def _clean_source_text_for_numeric_extraction_tracked(
             cleaned_lines.append(_TrackedText.concat([content, terminator]))
             preserve_split_schedule_value = True
             continue
-        if _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped):
+        if not page_candidate and _STRUCTURAL_SOURCE_LINE_PATTERN.match(
+            structural_stripped
+        ):
             cleaned_lines.append(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
@@ -12957,12 +13053,16 @@ def _clean_source_text_for_numeric_extraction_tracked(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
             continue
-        if _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped):
+        if not page_candidate and _STRUCTURAL_SOURCE_CITATION_PATTERN.match(
+            structural_stripped
+        ):
             cleaned_lines.append(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
             continue
-        if _TABLE_HEADING_PATTERN.match(structural_stripped):
+        if _TABLE_HEADING_PATTERN.match(
+            structural_stripped
+        ) and not _INLINE_TABLE_VALUE_PATTERN.search(structural_stripped):
             cleaned_lines.append(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
@@ -12983,6 +13083,14 @@ def _clean_source_text_for_numeric_extraction_tracked(
         normalized = content.blank(
             0, len(line) - len(line.lstrip(_STRUCTURAL_SOURCE_QUOTE_CHARS))
         )
+        # PDF extraction may flatten a table title with currency cells or
+        # explicit "size N V" rows. In those recognized cases only the table
+        # number is structural; bare numeric grids remain ambiguous and fail
+        # closed rather than inventing a row/value interpretation.
+        if _INLINE_TABLE_VALUE_PATTERN.search(normalized.text):
+            normalized = normalized.sub(
+                _TABLE_HEADING_PREFIX_PATTERN, _blank_match, count=1
+            )
         normalized = normalized.sub(
             _STRUCTURAL_SOURCE_CITATION_PREFIX_PATTERN, _blank_match, count=1
         )
@@ -12999,7 +13107,8 @@ def _clean_source_text_for_numeric_extraction_tracked(
         normalized = normalized.sub(
             _TABLE_ROW_LABEL_PATTERN, lambda m: "size".ljust(len(m.group(0)))
         )
-        normalized = normalized.sub(_STRUCTURAL_SOURCE_PREFIX_PATTERN, _blank_match)
+        if not page_candidate:
+            normalized = normalized.sub(_STRUCTURAL_SOURCE_PREFIX_PATTERN, _blank_match)
         cleaned_lines.append(_TrackedText.concat([normalized, terminator]))
 
     tracked = _TrackedText.concat(cleaned_lines)
@@ -16794,6 +16903,9 @@ def _tokenize_numeric_occurrences_from_text(
                 continue
             grouped_value = _parse_belgian_numeric_phrase(match.group(1))
             source_span = cleaned_view.source_span(span)
+            # Prefer a grouped reading only when this same source token
+            # supplied it. An unrelated integer (such as a retained page
+            # number) cannot disambiguate an operative decimal amount.
             if (
                 grouped_value is not None
                 and not math.isclose(
@@ -16803,9 +16915,6 @@ def _tokenize_numeric_occurrences_from_text(
                     abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
                 )
                 and any(
-                    # An alternate decimal reading only replaces the same
-                    # printed number. A separate count of 2 cannot hide a
-                    # grouped amount of 2,000 elsewhere in the source.
                     occurrence.span == source_span
                     and math.isclose(
                         grouped_value,
@@ -17390,7 +17499,6 @@ def _stated_conversion_ungrounded_literal_hint(
     if (
         not require_complete_source_unit
         or value not in _STATED_CONVERSION_CALENDAR_CONSTANTS
-        or not source_states_stated_conversion_result(source_text)
     ):
         return ""
     try:
@@ -17407,6 +17515,10 @@ def _stated_conversion_ungrounded_literal_hint(
         and citation_path.strip() != source_citation_path.strip()
     ):
         return ""
+    # Read the source with the scope the complete-source-unit analysis uses.
+    with _us_manual_prose_scope(citation_path.strip()):
+        if not source_states_stated_conversion_result(source_text):
+            return ""
     return f" {_STATED_CONVERSION_UNGROUNDED_HINT}"
 
 
@@ -24457,27 +24569,44 @@ def find_source_subparagraph_coverage_issues(
     ) or extract_embedded_source_text(content)
     if not source_text:
         return []
-    if _empty_deferred_editorial_source_slice(payload, content):
+    # The requested source takes precedence over the output file's location,
+    # which can collapse to the parent under corpus fallback (see issue #71).
+    # Preserve its literal identity for the registry and corpus authentication;
+    # only the existing outline scanner uses a case-folded scope.
+    requested_scope = _scope_prefix_from_requested_source(
+        citation_path, requested_source, preserve_case=True
+    ) or _source_subparagraph_coverage_scope_prefix(
+        citation_path, rules_file=rules_file, preserve_case=True
+    )
+    coverage_scope_prefix = tuple(part.lower() for part in requested_scope)
+    if _empty_deferred_editorial_source_slice(
+        payload, content
+    ) and _authoritative_deferred_editorial_source_slice(
+        source_text,
+        extract_embedded_source_text(content),
+        coverage_scope_prefix,
+        citation_path=citation_path,
+        requested_scope=requested_scope,
+        requested_citation_path=_requested_corpus_citation_path(
+            citation_path, requested_source, rules_file=rules_file
+        ),
+    ):
         return []
 
-    source_children = _high_signal_top_level_subparagraphs(source_text)
-    # The requested-source scope takes precedence over the rules_file-derived
-    # one because it captures encoder intent precisely; the rules_file path
-    # only tells us where the artifact landed (which can collapse to the
-    # parent under corpus fallback, see issue #71).
-    coverage_scope_prefix = _scope_prefix_from_requested_source(
-        citation_path, requested_source
-    ) or _source_subparagraph_coverage_scope_prefix(
-        citation_path,
-        rules_file=rules_file,
-    )
+    source_children = _high_signal_top_level_coverage_demands(source_text)
     if coverage_scope_prefix:
         coverage_scope_top_level = _top_level_subparagraph_path(coverage_scope_prefix)
         source_children = [
-            (label, text)
-            for label, text in source_children
-            if (label,) == coverage_scope_top_level
+            demand
+            for demand in source_children
+            if (demand.label,) == coverage_scope_top_level
         ]
+    source_children = filter_coverage_demands(
+        source_children,
+        citation_path=citation_path,
+        requested_scope=requested_scope or None,
+        source_text=source_text,
+    )
     if not source_children:
         return []
 
@@ -24492,7 +24621,8 @@ def find_source_subparagraph_coverage_issues(
     )
 
     issues: list[str] = []
-    for label, text in source_children:
+    for demand in source_children:
+        label, text = demand.label, demand.body
         if (label,) in covered_children:
             continue
         citation = _format_source_subparagraph_citation(citation_path, label)
@@ -24599,6 +24729,23 @@ def _high_signal_top_level_subparagraphs(source_text: str) -> list[tuple[str, st
     ]
 
 
+def _high_signal_top_level_coverage_demands(source_text: str) -> list[CoverageDemand]:
+    """Attach each main demand's original physical marker, including duplicates."""
+    # Compute main's complete spans first. Match origins must never be recovered
+    # with a label/body search: identical repeated headings have distinct keys.
+    demands = _high_signal_top_level_subparagraphs(source_text)
+    segments = _top_level_source_subparagraph_segments(source_text)
+    origins = _TOP_LEVEL_SOURCE_SUBPARAGRAPH_PATTERN.finditer(source_text)
+    positions: dict[tuple[str, str], list[int]] = defaultdict(list)
+    for segment, match in zip(segments, origins, strict=True):
+        positions[segment].append(match.start())
+    position_iters = {segment: iter(starts) for segment, starts in positions.items()}
+    return [
+        CoverageDemand(label, text, next(position_iters[(label, text)]))
+        for label, text in demands
+    ]
+
+
 def _top_level_source_subparagraph_segments(
     source_text: str,
 ) -> list[tuple[str, str]]:
@@ -24613,6 +24760,355 @@ def _top_level_source_subparagraph_segments(
         text = source_text[start:end].strip()
         children.append((label, text))
     return children
+
+
+def _authoritative_deferred_editorial_source_slice(
+    source_text: str,
+    summary: str,
+    scope: tuple[str, ...],
+    *,
+    citation_path: str | None = None,
+    requested_scope: tuple[str, ...] | None = None,
+    requested_citation_path: str | None = None,
+) -> bool:
+    """Add authoritative-source evidence to the existing summary waiver."""
+    if len(scope) <= 1:
+        return False
+    if requested_scope is None:
+        requested_scope = scope
+    notice_label = re.search(
+        r"\(([A-Za-z0-9]+)\)", _normalized_editorial_source_presentation(summary)
+    )
+    return bool(
+        notice_label
+        and notice_label[1].lower() == scope[-1]
+        and (
+            _authoritative_source_slice_is_editorial_omission(summary)
+            or _bibliographic_editorial_notice(summary)
+        )
+        and _source_scope_is_editorial_omission(source_text, scope)
+        and citation_path is not None
+        and (
+            has_reviewed_repeal(
+                citation_path=citation_path,
+                requested_scope=requested_scope,
+                source_text=source_text,
+            )
+            or _requested_corpus_row_is_repealed(requested_citation_path)
+        )
+    )
+
+
+def _requested_corpus_row_is_repealed(
+    requested_citation_path: str | None,
+) -> bool:
+    """Authenticate the literal requested row, preserving corpus label case."""
+    release = _AUTHORITATIVE_CORPUS_RELEASE.get()
+    if release is None or requested_citation_path is None:
+        return False
+    return local_corpus_row_is_repealed(requested_citation_path, release)
+
+
+def _normalized_editorial_source_presentation(source_text: str) -> str:
+    """Normalize notice typography while preserving physical line breaks."""
+    normalized = re.sub(r"<sup>\s*\d+\s*</sup>|[⁰¹²³⁴⁵⁶⁷⁸⁹]+", "", source_text)
+    normalized = unicodedata.normalize("NFKC", normalized)
+    normalized = "".join(
+        char for char in normalized if unicodedata.category(char) != "Cf"
+    )
+    normalized = re.sub(r"</?(?:i|em|b|strong)>", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"[\[\]*_]", "", normalized)
+    return normalized
+
+
+def _source_scope_is_editorial_omission(
+    source_text: str, scope: tuple[str, ...]
+) -> bool:
+    """Authenticate one exact requested tombstone in a proven source outline."""
+    # The finite certificate uses raw presentation and a complete sequential
+    # ancestry proof. Refusal leaves the original conservative route intact.
+    if confirms_bibliographic_editorial_scope(source_text, scope):
+        return True
+    # Preserve digits inside authoritative headings before removing notice
+    # footnotes. A superscript label is still a label, not an annotation.
+    heading_text = re.sub(
+        r"\([^()\r\n]*\)",
+        lambda match: unicodedata.normalize(
+            "NFKC",
+            re.sub(r"</?(?:i|em|b|strong|sup)>", "", match[0], flags=re.IGNORECASE),
+        ),
+        source_text,
+    )
+    normalized = _normalized_editorial_source_presentation(heading_text)
+    # Repeated labels, including references, cannot establish unique identity.
+    # Compare after presentation normalization so formatted operative headings
+    # cannot disappear from the proof or conflict with an apparent tombstone.
+    candidates = list(
+        re.finditer(rf"\({re.escape(scope[-1])}\)", normalized, flags=re.IGNORECASE)
+    )
+    if len(candidates) != 1:
+        return False
+    markers = _qualified_parenthesized_legal_outline_markers(normalized)
+    matching = [
+        (marker, end)
+        for marker, end in _nested_outline_marker_spans(
+            markers, outer_end=len(normalized)
+        )
+        if marker.path == scope and marker.start == candidates[0].start()
+    ]
+    if len(matching) != 1:
+        return False
+    marker, end = matching[0]
+    ancestor_starts = []
+    for depth in range(1, len(scope)):
+        start = max(
+            (
+                item.start
+                for item in markers
+                if item.start <= marker.start and item.path == scope[:depth]
+            ),
+            default=-1,
+        )
+        if start < 0:
+            return False
+        ancestor_starts.append(start)
+    # Notice normalization can erase footnotes or turn symbols into letters.
+    # Prove continuity from the original presentation, then align its physical
+    # offsets with the normalized outline used for exact heading identity.
+    normalized_positions = {}
+
+    def normalized_position(position: int) -> int:
+        if position not in normalized_positions:
+            normalized_positions[position] = len(
+                _normalized_editorial_source_presentation(heading_text[:position])
+            )
+        return normalized_positions[position]
+
+    marker_starts = {item.start for item in markers}
+    original_marker_starts = {
+        opening.start()
+        for opening in re.finditer(r"\(", heading_text)
+        if normalized_position(opening.start()) in marker_starts
+    }
+    possible_boundaries = _coverage_unproven_prose_starts(
+        heading_text, recognized_marker_starts=original_marker_starts
+    )
+    if any(
+        min(ancestor_starts) < normalized_position(start) <= marker.start
+        for start in possible_boundaries
+    ):
+        return False
+    return _authoritative_source_slice_is_editorial_omission(
+        normalized[marker.start : end]
+    )
+
+
+def _bibliographic_editorial_notice(source_text: str) -> bool:
+    normalized = _normalized_editorial_source_presentation(source_text).strip()
+    return BIBLIOGRAPHIC_NOTICE.fullmatch(normalized) is not None
+
+
+def _authoritative_source_slice_is_editorial_omission(source_text: str) -> bool:
+    # Authenticate the whole slice, not a repeal prefix that could swallow a
+    # different following label. Formatting and editorial dates do not change
+    # the notice's identity; unfamiliar trailing prose remains mandatory.
+    normalized = _normalized_editorial_source_presentation(source_text)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if not normalized:
+        return False
+    if re.fullmatch(
+        r"\([A-Za-z0-9]+\)\s*(?:Repealed|Omitted)\.?"
+        r"(?:\s*[.—–-]?\s*(?:Effective|Eff\.)\s+"
+        r"(?:[A-Za-z]+\s+)?\d{1,4}(?:[\s,/-]+\d{1,4})*\.?)?"
+        r"(?:\s+Pub\.\s*L\.\s*\d+-\d+,\s*title\s+[IVXLCDM\d]+,\s*"
+        r"section\s+\d+(?:\([A-Za-z0-9]+\))*\.?)?",
+        normalized,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    if re.fullmatch(r"\(?[A-Za-z0-9]+\)?\s*(?:\[?\s*)?\.{3,}(?:\s*\]?)?", normalized):
+        return True
+    return False
+
+
+def _coverage_unproven_prose_starts(
+    source_text: str,
+    *,
+    recognized_marker_starts: set[int],
+    numeric_outline: bool = False,
+) -> set[int]:
+    """Require positive prose evidence between authenticated physical markers.
+
+    A recognizer's silence cannot prove continuity. Classify each presentation
+    token as ordinary prose or an already authenticated marker; everything else
+    interrupts ancestry. Positions remain physical so uncertainty after a cue
+    cannot invalidate that cue's earlier owner.
+    """
+    starts: set[int] = set()
+    prose_punctuation = frozenset(".,;:!?\"'“”‘’%/\\—–-")
+    label_delimiters = frozenset(".):—–-")
+    ordinary_clause = re.compile(
+        r"[^\W\d_]+(?:\s+[^\W\d_]+){0,12}[\"'”’]?\s+"
+        r"(?:means|is|are|was|were|has|have|must|shall|will|can|may|does|do|did|"
+        r"continues|provides|follows|applies|contains|includes|requires|specifies)\s+\S",
+        flags=re.IGNORECASE,
+    )
+    for line in re.finditer(r"(?m)^.*$", source_text):
+        characters: list[str] = []
+        offsets: list[int] = []
+        emphasis_positions: set[int] = set()
+        for emphasis in re.finditer(r"(\*{1,2}|_|`)(?=\S).*?\S\1", line[0]):
+            emphasis_positions.update(range(emphasis.start(), emphasis.end(1)))
+            emphasis_positions.update(
+                range(emphasis.end() - len(emphasis[1]), emphasis.end())
+            )
+        for token in re.finditer(
+            r"</?(?:i|em|b|strong|sup)>|.", line[0], flags=re.IGNORECASE
+        ):
+            if token[0].startswith("<") and token[0].endswith(">"):
+                continue
+            if token.start() in emphasis_positions:
+                continue
+            if token[0].isspace() and not _is_horizontal_space(token[0]):
+                if token[0] != "\r" or token.end() != len(line[0]):
+                    starts.add(line.start() + token.start())
+            # Compatibility normalization can turn an unfamiliar symbol into
+            # ordinary letters. Its original presentation still lacks prose
+            # proof (e.g. a square unit symbol flattened into a word).
+            if unicodedata.category(token[0]).startswith("S"):
+                starts.add(line.start() + token.start())
+            for char in unicodedata.normalize("NFKC", token[0]):
+                if unicodedata.category(char) == "Cf":
+                    continue
+                characters.append(char)
+                offsets.append(line.start() + token.start())
+        presentation = "".join(characters)
+        authenticated: set[int] = set()
+        raw_physical = re.match(r"[^\S\r\n]*((?:\([A-Za-z0-9]+\)[ \t]*)+)", line[0])
+        if raw_physical and (
+            line.start() in recognized_marker_starts
+            or line.start() + raw_physical.start(1) in recognized_marker_starts
+        ):
+            authenticated.update(
+                range(
+                    line.start() + raw_physical.start(1),
+                    line.start() + raw_physical.end(1),
+                )
+            )
+        physical = re.match(r"[^\S\r\n]*((?:\([A-Za-z0-9]+\)[ \t]*)+)", presentation)
+        if physical:
+            # Stripping a wrapper must not attach an unknown inline marker to
+            # a recognized prefix. Formatted markers need their own identity.
+            for marker in re.finditer(r"\([A-Za-z0-9]+\)", physical[1]):
+                start = physical.start(1) + marker.start()
+                end = physical.start(1) + marker.end()
+                if offsets[start] in recognized_marker_starts:
+                    authenticated.update(offsets[start:end])
+        if numeric_outline:
+            # This exception is positive whole-notice proof, not a guessed
+            # heading shape. It preserves established numbered-outline behavior.
+            for opening in re.finditer(r"\(", presentation):
+                remainder = presentation[opening.start() :]
+                if re.match(
+                    r"\([a-z]\)", remainder
+                ) and _authoritative_source_slice_is_editorial_omission(remainder):
+                    authenticated.update(
+                        offsets[index]
+                        for index in range(opening.start(), len(offsets))
+                        if presentation[index] not in "[]"
+                    )
+                    bracket_stack: list[int] = []
+                    for index, char in enumerate(presentation):
+                        if char == "[":
+                            bracket_stack.append(index)
+                        elif char == "]" and bracket_stack:
+                            bracket_start = bracket_stack.pop()
+                            content = presentation[bracket_start + 1 : index].strip()
+                            notice_wrapper = (
+                                _authoritative_source_slice_is_editorial_omission(
+                                    content
+                                )
+                            )
+                            date_wrapper = re.match(
+                                r"(?:Effective|Eff\.)\s", content, flags=re.IGNORECASE
+                            ) and _authoritative_source_slice_is_editorial_omission(
+                                "(b) Repealed. " + content
+                            )
+                            if notice_wrapper or date_wrapper:
+                                authenticated.update(
+                                    (offsets[bracket_start], offsets[index])
+                                )
+                    break
+        leading = len(presentation) - len(presentation.lstrip())
+        label_leading = re.match(r"[\s\"'“”‘’]*", presentation).end()
+        if leading < len(presentation) and offsets[leading] not in authenticated:
+            # A punctuated title is still uncertain. A plain continuation
+            # needs an ordinary subject/predicate clause and its sentence end.
+            clause = ordinary_clause.match(presentation, label_leading)
+            sentence_end = (
+                re.search(r"[.!?](?=[\s\"'”’]|$)", presentation[clause.end() :])
+                if clause
+                else None
+            )
+            if not sentence_end:
+                starts.add(offsets[leading])
+            else:
+                end = clause.end() + sentence_end.end()
+                remainder = presentation[end:].strip(" \t\"'“”‘’")
+                if remainder:
+                    # A later fragment cannot invalidate an earlier cue.
+                    starts.add(offsets[end])
+        for token in re.finditer(r"\w+|[^\w\s]", presentation):
+            position = offsets[token.start()]
+            if position in authenticated:
+                continue
+            word = token[0]
+            if word.isalnum():
+                following = presentation[token.end() :].lstrip()
+                original_word = line[0][
+                    offsets[token.start()] - line.start() : offsets[token.end() - 1]
+                    - line.start()
+                    + 1
+                ]
+                section_word = word.lower().startswith("sec")
+                line_leading = token.start() == label_leading
+                label_word = (
+                    len(word) == 1
+                    or len(original_word) == 1
+                    or any(char.isdigit() for char in word)
+                    or word.isupper()
+                    or all(char.upper() in "IVXLCDM" for char in word)
+                )
+                if (
+                    section_word
+                    or (following and following[0] == ")")
+                    or (
+                        (label_word or line_leading)
+                        and (
+                            (label_word and line_leading)
+                            or (following and following[0] in label_delimiters)
+                        )
+                    )
+                ):
+                    starts.add(position)
+                # Other alphabetic words and undelimited inline numbers are
+                # ordinary prose. Nonalphabetic/nondecimal word tokens have no
+                # positive prose interpretation (e.g. unusual numeric symbols).
+                elif not (word.isalpha() or word.isdecimal()):
+                    starts.add(position)
+            elif word in prose_punctuation:
+                if word in "—–-" and not (
+                    token.start() > leading
+                    and presentation[token.start() - 1].isalpha()
+                    and token.end() < len(presentation)
+                    and presentation[token.end()].isalpha()
+                ):
+                    starts.add(position)
+            else:
+                # Opening delimiters, section signs, bullets, and unfamiliar
+                # symbols are not affirmative ordinary-prose evidence.
+                starts.add(position)
+    return starts
 
 
 def _rule_source_covered_subparagraphs(
@@ -24752,8 +25248,11 @@ def _source_subparagraph_coverage_scope_prefix(
     citation_path: str,
     *,
     rules_file: Path | None,
+    preserve_case: bool = False,
 ) -> tuple[str, ...]:
-    return _rulespec_file_subparagraph_scope(citation_path, rules_file)
+    return _rulespec_file_subparagraph_scope(
+        citation_path, rules_file, preserve_case=preserve_case
+    )
 
 
 def _normalize_requested_source_to_corpus_path(requested_source: str) -> str:
@@ -24790,7 +25289,10 @@ def _normalize_requested_source_to_corpus_path(requested_source: str) -> str:
 
 
 def _scope_prefix_from_requested_source(
-    citation_path: str, requested_source: str | None
+    citation_path: str,
+    requested_source: str | None,
+    *,
+    preserve_case: bool = False,
 ) -> tuple[str, ...]:
     """Derive a subparagraph scope from a requested source vs the resolved
     citation_path. When the corpus serves a parent-fallback slice, the
@@ -24801,6 +25303,8 @@ def _scope_prefix_from_requested_source(
     (``us/statute/7/2014/e/2/B``) or the human USC form (``7 USC 2014(e)(2)(B)``)
     — the eval workspace stores it as the raw caller input, which is usually
     human form. Normalize both to corpus paths before comparing.
+    ``preserve_case`` retains the literal labels for exact row authentication
+    and registry keys; the default retains the scanner's folded scope.
 
     Examples (citation_path → requested_source → scope):
       us/statute/7/2014 → us/statute/7/2014/e/2/B → ('e', '2', 'b')
@@ -24819,12 +25323,45 @@ def _scope_prefix_from_requested_source(
         return ()
     if requested_parts[: len(citation_parts)] != citation_parts:
         return ()
-    return tuple(part.lower() for part in requested_parts[len(citation_parts) :])
+    scope = requested_parts[len(citation_parts) :]
+    return scope if preserve_case else tuple(part.lower() for part in scope)
+
+
+def _requested_corpus_citation_path(
+    citation_path: str,
+    requested_source: str | None,
+    *,
+    rules_file: Path | None,
+) -> str | None:
+    """Keep exact corpus identity separate from the outline scanner's scope."""
+    citation_parts = tuple(part for part in citation_path.strip("/").split("/") if part)
+    if requested_source:
+        normalized = _normalize_requested_source_to_corpus_path(requested_source)
+        requested_parts = tuple(
+            part for part in normalized.strip("/").split("/") if part
+        )
+        if citation_parts and requested_parts[: len(citation_parts)] == citation_parts:
+            return "/".join(requested_parts)
+
+    base_parts = _rulespec_base_parts_for_corpus_path(citation_path)
+    file_scope = _rulespec_file_subparagraph_scope(
+        citation_path, rules_file, preserve_case=True
+    )
+    if not base_parts or not file_scope:
+        return None
+    # A RuleSpec base drops the jurisdiction and pluralizes the document kind.
+    # Its suffix starts at the section even when the resolved row is a child.
+    requested_parts = (*citation_parts[: len(base_parts) + 1], *file_scope)
+    if requested_parts[: len(citation_parts)] != citation_parts:
+        return None
+    return "/".join(requested_parts)
 
 
 def _rulespec_file_subparagraph_scope(
     citation_path: str,
     rules_file: Path | None,
+    *,
+    preserve_case: bool = False,
 ) -> tuple[str, ...]:
     if rules_file is None:
         return ()
@@ -24836,9 +25373,8 @@ def _rulespec_file_subparagraph_scope(
     for index in range(0, len(file_parts) - len(base_parts) + 1):
         if tuple(file_parts[index : index + len(base_parts)]) != base_parts:
             continue
-        return tuple(
-            part.lower() for part in file_parts[index + len(base_parts) :] if part
-        )
+        scope = tuple(part for part in file_parts[index + len(base_parts) :] if part)
+        return scope if preserve_case else tuple(part.lower() for part in scope)
     return ()
 
 
@@ -31325,18 +31861,73 @@ def _resolve_rulespec_import_file_static(
             return resolved
         return None
 
-    candidate = policy_repo_path / f"{normalized}.yaml"
-    if resolved := validated_existing(candidate):
-        return resolved
+    for candidate_index, candidate in enumerate(
+        _rulespec_import_file_candidates_static(
+            import_path,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+    ):
+        if candidate_index == 0:
+            if resolved := validated_existing(candidate):
+                return resolved
+        else:
+            # Preserve the existing relative fallback's exception behavior:
+            # an invalid secondary candidate is unresolved, while the direct
+            # candidate remains fail closed. Candidate construction stays lazy.
+            with contextlib.suppress(ValueError):
+                if resolved := validated_existing(candidate):
+                    return resolved
+    return None
 
+
+def _rulespec_import_file_candidates_static(
+    import_path: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
+) -> Iterator[Path]:
+    """Return the resolver's ordered candidates, including absent targets.
+
+    Dependency selection needs the lexical paths that validation would read
+    if they existed. Keeping candidate construction here also catches deleted
+    targets and newly added higher-priority targets without a second resolver.
+    Existing candidates still require the normal resolver's safety checks.
+    """
+
+    normalized = _normalize_rulespec_import_path_static(import_path)
+    if not normalized:
+        return
+    normalized_path = Path(normalized)
+    if normalized_path.is_absolute() or any(
+        part in {"", ".", ".."} for part in normalized_path.parts
+    ):
+        raise UnsafeRulespecContextPath(
+            f"RuleSpec import target is outside the active policy root: {import_path}"
+        )
+    if (
+        not normalized_path.parts
+        or normalized_path.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS
+    ):
+        return
+    if _rulespec_import_prefix_static(import_path):
+        target_ref = _parse_rulespec_target(import_path)
+        if target_ref is None:
+            return
+        yield from _rulespec_target_file_candidates(
+            target_ref,
+            policy_repo_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+        return
+    yield policy_repo_path / f"{normalized}.yaml"
     with contextlib.suppress(ValueError):
         relative_parent = rules_file.parent.resolve().relative_to(
             policy_repo_path.resolve()
         )
-        candidate = policy_repo_path / relative_parent / f"{normalized}.yaml"
-        if resolved := validated_existing(candidate):
-            return resolved
-    return None
+        yield policy_repo_path / relative_parent / f"{normalized}.yaml"
 
 
 def _rulespec_import_prefix_static(import_path: str) -> str | None:
@@ -34008,12 +34599,12 @@ def _resolve_rulespec_target_file(
             )
             return cached.target_file
         cache.target_files.pop(cache_key, None)
-    for root in _candidate_rulespec_repo_roots(
-        target_ref.repo_name,
+    for target_file in _rulespec_target_file_candidates(
+        target_ref,
         policy_repo_path,
-        prefix=target_ref.prefix,
         rulespec_dependency_roots=dependency_roots,
     ):
+        root = target_file.parents[len(target_ref.relative_path.parts) - 1]
         if not root.is_dir():
             continue
         root = _validate_explicit_rulespec_directory(
@@ -34043,6 +34634,25 @@ def _resolve_rulespec_target_file(
                 )
         return resolved
     return None
+
+
+def _rulespec_target_file_candidates(
+    target_ref: _RuleSpecTargetRef,
+    policy_repo_path: Path | None,
+    *,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
+) -> tuple[Path, ...]:
+    """Return canonical target candidates even when a target has been deleted."""
+
+    return tuple(
+        root / target_ref.relative_path
+        for root in _candidate_rulespec_repo_roots(
+            target_ref.repo_name,
+            policy_repo_path,
+            prefix=target_ref.prefix,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+    )
 
 
 def _candidate_rulespec_repo_roots(
@@ -36313,6 +36923,8 @@ class ValidatorPipeline:
         declared_relation_names: set[str] | None = None,
         declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
         executable_directions: dict[str, tuple[int, str | None]] | None = None,
+        input_entities: dict[str, str] | None = None,
+        table_entity_ids: dict[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Build an Axiom rules engine dataset from compact RuleSpec test inputs."""
         if case_input in (None, ""):
@@ -36323,10 +36935,20 @@ class ValidatorPipeline:
         interval = {"start": period["start"], "end": period["end"]}
         inputs: list[dict[str, Any]] = []
         relations: list[dict[str, Any]] = []
+        flat_input_records: list[dict[str, Any]] = []
+        generated_relation_rows: list[
+            tuple[str, list[str], int, list[dict[str, Any]]]
+        ] = []
+        generated_table_rows: list[
+            tuple[str, list[str], int, list[dict[str, Any]]]
+        ] = []
+        table_id_containers: dict[str, list[list[str]]] = {}
+        occupied_entity_ids = {query_entity_id: {query_entity}}
         legal_ids_by_friendly_name = legal_ids_by_friendly_name or {}
         declared_relation_names = declared_relation_names or set()
         declared_relation_slots = declared_relation_slots or {}
         executable_directions = executable_directions or {}
+        input_entities = input_entities or {}
 
         for name, value in case_input.items():
             input_key = str(name)
@@ -36397,11 +37019,14 @@ class ValidatorPipeline:
                         raise ValueError(
                             f"relation `{name}` item #{item_index} must be a mapping"
                         )
+                    explicit_id = item.get("id") or item.get("entity_id")
                     related_id = str(
-                        item.get("id")
-                        or item.get("entity_id")
-                        or f"{query_entity_id}-{name}-{item_index}"
+                        explicit_id or f"{query_entity_id}-{name}-{item_index}"
                     )
+                    if explicit_id:
+                        occupied_entity_ids.setdefault(related_id, set()).add(
+                            related_entity
+                        )
                     relation_tuple = [related_id, query_entity_id]
                     if current_slot == 0:
                         relation_tuple.reverse()
@@ -36413,6 +37038,7 @@ class ValidatorPipeline:
                                 "interval": interval,
                             }
                         )
+                    input_start = len(inputs)
                     for child_name, child_value in item.items():
                         if child_name in {"id", "entity_id"}:
                             continue
@@ -36447,6 +37073,15 @@ class ValidatorPipeline:
                                 "value": self._rulespec_scalar_value(child_value),
                             }
                         )
+                    if not explicit_id:
+                        generated_relation_rows.append(
+                            (
+                                related_entity,
+                                relation_tuple,
+                                1 if current_slot == 0 else 0,
+                                inputs[input_start:],
+                            )
+                        )
                 continue
 
             if isinstance(value, dict):
@@ -36469,15 +37104,16 @@ class ValidatorPipeline:
                 require_legal_input_keys=require_legal_input_keys,
                 policy_repo_path=self.policy_repo_path,
             )
-            inputs.append(
-                {
-                    "name": input_request_name,
-                    "entity": query_entity,
-                    "entity_id": query_entity_id,
-                    "interval": interval,
-                    "value": self._rulespec_scalar_value(value),
-                }
-            )
+            input_entity = input_entities.get(input_key, query_entity)
+            record = {
+                "name": input_request_name,
+                "entity": input_entity,
+                "entity_id": query_entity_id,
+                "interval": interval,
+                "value": self._rulespec_scalar_value(value),
+            }
+            inputs.append(record)
+            flat_input_records.append(record)
 
         if case_tables not in (None, ""):
             if not isinstance(case_tables, dict):
@@ -36503,6 +37139,12 @@ class ValidatorPipeline:
                         row,
                         row_index,
                     )
+                    row_ids = [row_id]
+                    table_id_containers.setdefault(table_entity, []).append(row_ids)
+                    explicit_id = any(key in row for key in row_id_keys)
+                    if explicit_id:
+                        occupied_entity_ids.setdefault(row_id, set()).add(table_entity)
+                    input_start = len(inputs)
                     for child_name, child_value in row.items():
                         child_key = str(child_name)
                         if child_key in row_id_keys:
@@ -36537,6 +37179,38 @@ class ValidatorPipeline:
                                 "value": self._rulespec_scalar_value(child_value),
                             }
                         )
+                    if not explicit_id:
+                        generated_table_rows.append(
+                            (table_entity, row_ids, 0, inputs[input_start:])
+                        )
+
+        require_distinct_entity_ids(occupied_entity_ids)
+        assign_generated_fixture_ids(generated_table_rows, occupied_entity_ids)
+        assign_generated_fixture_ids(generated_relation_rows, occupied_entity_ids)
+        if table_entity_ids is not None:
+            table_entity_ids.update(
+                {
+                    entity: [row_ids[0] for row_ids in containers]
+                    for entity, containers in table_id_containers.items()
+                }
+            )
+        flat_entity_ids: dict[str, str] = {}
+        for record in flat_input_records:
+            input_entity = record["entity"]
+            if input_entity not in flat_entity_ids:
+                entity_id = flat_input_entity_id(
+                    input_entity,
+                    query_entity,
+                    query_entity_id,
+                    reserved_entity_ids=(
+                        entity_id
+                        for entity_id, entities in occupied_entity_ids.items()
+                        if entities - {input_entity}
+                    ),
+                )
+                flat_entity_ids[input_entity] = entity_id
+                occupied_entity_ids.setdefault(entity_id, set()).add(input_entity)
+            record["entity_id"] = flat_entity_ids[input_entity]
 
         return {"inputs": inputs, "relations": relations}
 
@@ -36880,12 +37554,14 @@ class ValidatorPipeline:
         declared_relation_names: set[str],
         declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
         compiled_relations: list[dict] | None = None,
+        input_entities: dict[str, str] | None = None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
         """Execute one compact RuleSpec test case through `run-compiled`."""
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
         query_entity_id = self._rulespec_case_query_entity_id(
             case, query_entity, case_index
         )
+        table_entity_ids: dict[str, list[str]] = {}
         try:
             executable_directions = executable_relation_directions(
                 derived_by_key,
@@ -36907,6 +37583,8 @@ class ValidatorPipeline:
                 declared_relation_names=declared_relation_names,
                 declared_relation_slots=declared_relation_slots,
                 executable_directions=executable_directions,
+                input_entities=input_entities,
+                table_entity_ids=table_entity_ids,
             )
         except ValueError as exc:
             return None, [f"Test case `{case_name}` input invalid: {exc}"]
@@ -36953,7 +37631,9 @@ class ValidatorPipeline:
                         f"{len(expected_value)} row value(s), but "
                         f"`tables.{query_entity}` has {expected_row_count} row(s)."
                     ]
-            query_entity_ids = [row_id for row_id, _row in table_rows]
+            query_entity_ids = table_entity_ids.get(query_entity) or [
+                row_id for row_id, _row in table_rows
+            ]
 
         request = {
             "mode": "explain",
@@ -37001,7 +37681,23 @@ class ValidatorPipeline:
                 compiled_path.parent,
                 placeholder=_VALIDATION_TEMP_ROOT_PLACEHOLDER,
             )
-            return None, [f"Test case `{case_name}` execution failed: {detail}"]
+            output_entities = {
+                str(output): str(derived_by_key[runtime_key].get("entity") or "Case")
+                for output in output_map
+                if (runtime_key := output_runtime_keys.get(str(output), str(output)))
+                in output_names
+            }
+            findings = cross_entity_input_findings(
+                detail,
+                case.get("input") or {},
+                input_entities or {},
+                output_entities,
+                declared_relation_slots or {},
+            )
+            return None, [
+                f"Test case `{case_name}` execution failed: {detail}",
+                *(f"Test case `{case_name}` {finding}" for finding in findings),
+            ]
 
         def unique_response_object(pairs):
             result = {}
@@ -37261,6 +37957,13 @@ class ValidatorPipeline:
                         "test cases."
                     )
                     continue
+                try:
+                    input_entities = self._rulespec_companion_input_entities(
+                        rules_file, case.get("input", {})
+                    )
+                except (OSError, ValueError, yaml.YAMLError) as exc:
+                    issues.append(f"Test case `{case_name}` input invalid: {exc}")
+                    continue
                 if binary is None:
                     binary = self._axiom_rules_binary()
                 response_outputs, execution_issues = (
@@ -37282,6 +37985,7 @@ class ValidatorPipeline:
                         compiled_relations=compiled_payload.get("program", {}).get(
                             "relations", []
                         ),
+                        input_entities=input_entities,
                     )
                 )
                 issues.extend(execution_issues)
@@ -37330,6 +38034,52 @@ class ValidatorPipeline:
                     issues.append(mismatch)
 
         return issues
+
+    def _rulespec_companion_input_entities(
+        self,
+        rules_file: Path,
+        case_input: Any,
+    ) -> dict[str, str]:
+        """Bind flat facts to declarations through the authorized source roots."""
+        if not isinstance(case_input, dict) or not case_input:
+            return {}
+        # Direct compiled-artifact callers may omit source files; production
+        # validation always supplies the original module alongside its artifact.
+        if not rules_file.exists() and not rules_file.is_symlink():
+            return {}
+        source_root = self._validation_source_root(rules_file)
+
+        def resolve_reference(reference: str) -> Path | None:
+            target = _parse_rulespec_target(reference)
+            if target is None:
+                return None
+            return _resolve_rulespec_target_file(
+                target,
+                source_root,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
+            )
+
+        return declared_input_entities(
+            rules_file,
+            (
+                str(key)
+                for key, value in case_input.items()
+                if not isinstance(value, (dict, list))
+            ),
+            resolve_reference=resolve_reference,
+            resolve_import=lambda imported, current: (
+                _resolve_rulespec_import_file_static(
+                    imported,
+                    rules_file=current,
+                    policy_repo_path=(
+                        source_root
+                        if _rulespec_import_prefix_static(imported)
+                        else find_policy_repo_root(current) or source_root
+                    ),
+                    rulespec_dependency_roots=self.rulespec_dependency_roots,
+                )
+            ),
+        )
 
     def _run_rulespec_ci(self, rules_file: Path) -> ValidationResult:
         """Run RuleSpec compile, executable tests, and source-grounding checks."""
