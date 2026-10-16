@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2026-07-01",
+    "generation_input_sha256": "a8790de8fc383e8c5af5391b89982aeef50a1f549bf5337eb842708a5020123f",
+    "provision_file": "data/corpus/provisions/us-wv/manual/2026-07-21-wv-income-maintenance-manual.jsonl",
+    "provision_file_sha256": "6deddfc0b8b6f3b48de93be6982fb1707481c9653369a779d8f3d35e57747bee",
+    "requested_corpus_citation_path": "us-wv/manual/bfa/income-maintenance-manual/page-3",
+    "resolved_corpus_citation_path": "us-wv/manual/bfa/income-maintenance-manual/page-3",
+    "resolved_text_sha256": "a8790de8fc383e8c5af5391b89982aeef50a1f549bf5337eb842708a5020123f",
+    "row": {
+      "body_sha256": "a8790de8fc383e8c5af5391b89982aeef50a1f549bf5337eb842708a5020123f",
+      "citation_path": "us-wv/manual/bfa/income-maintenance-manual/page-3",
+      "document_class": "manual",
+      "expression_date": "2026-07-01",
+      "jurisdiction": "us-wv",
+      "line_number": 4,
+      "provision_file": "data/corpus/provisions/us-wv/manual/2026-07-21-wv-income-maintenance-manual.jsonl",
+      "provision_file_sha256": "6deddfc0b8b6f3b48de93be6982fb1707481c9653369a779d8f3d35e57747bee",
+      "record_id": "8135d1a0-6be3-56cc-8438-685beea0ae60",
+      "source_as_of": "2026-07-21",
+      "source_path": "sources/us-wv/manual/2026-07-21-wv-income-maintenance-manual/official-documents/wv-bfa-income-maintenance-manual-2026-07-01.pdf",
+      "version": "2026-07-21-wv-income-maintenance-manual"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us-wv",
+    "source_as_of": "2026-07-21",
+    "source_sha256": "a8790de8fc383e8c5af5391b89982aeef50a1f549bf5337eb842708a5020123f"
+  }
+}

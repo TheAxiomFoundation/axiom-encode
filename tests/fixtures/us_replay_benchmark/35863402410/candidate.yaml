@@ -1,0 +1,559 @@
+format: rulespec/v1
+imports: null
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+    source_sha256: a6f556f7c314ad5fa09e243656441b641471d825fcd12a7a2abecfe3f91d7a5f
+  summary: 'For tax year 2026, page 4 states the section 25B limits for heads of
+
+    household and all other taxpayers; increases the section 219 deductible
+
+    contribution limit from $7,000 to $7,500 and the age-50 additional amount
+
+    from $1,000 to $1,100; and states the section 219 applicable amounts and
+
+    traditional-IRA deduction phase-out ranges.'
+  deferred_outputs:
+  - output: us:policies/irs/notice-2025-67/page-4#active_participant_single_or_head_of_household_ira_deduction_phaseout_applies
+    reason: 'IRS Notice 2025-67 page 4, the branch for single individuals and heads
+
+      of household who are active participants with adjusted gross income
+
+      between $81,000 and $91,000, cannot be computed until source-backed
+
+      shared US filing-status classifications for single and head-of-household
+
+      returns are supplied.'
+    source_values:
+    - us:policies/irs/notice-2025-67/page-4#other_active_participant_agi_limit
+    - us:policies/irs/notice-2025-67/page-4#active_participant_single_or_head_of_household_phaseout_upper_limit
+    - us:policies/irs/notice-2025-67/page-4#age_50_additional_ira_contribution_deduction_limit
+    - us:policies/irs/notice-2025-67/page-4#ira_contribution_deduction_limit
+  - output: us:policies/irs/notice-2025-67/page-4#joint_active_participant_ira_deduction_phaseout_applies
+    reason: 'IRS Notice 2025-67 page 4, the branch for married couples filing jointly
+
+      when the contributing spouse is an active participant and income is
+
+      between $129,000 and $149,000, cannot be computed until a source-backed
+
+      shared US filing-status classification for a joint return is supplied.'
+    source_values:
+    - us:policies/irs/notice-2025-67/page-4#joint_or_qualifying_widow_active_participant_agi_limit
+    - us:policies/irs/notice-2025-67/page-4#joint_active_participant_phaseout_upper_limit
+    - us:policies/irs/notice-2025-67/page-4#age_50_additional_ira_contribution_deduction_limit
+    - us:policies/irs/notice-2025-67/page-4#ira_contribution_deduction_limit
+  - output: us:policies/irs/notice-2025-67/page-4#inactive_contributor_active_spouse_ira_deduction_phaseout_applies
+    reason: 'IRS Notice 2025-67 page 4, the branch for an IRA contributor who is not
+
+      an active participant and is married to an active participant, with
+
+      couple income between $242,000 and $252,000, cannot be computed until
+
+      the source-backed shared US filing-status classification for the
+
+      contributor''s married return is supplied.'
+    source_values:
+    - us:policies/irs/notice-2025-67/page-4#inactive_contributor_active_spouse_agi_limit
+    - us:policies/irs/notice-2025-67/page-4#inactive_contributor_active_spouse_phaseout_upper_limit
+    - us:policies/irs/notice-2025-67/page-4#age_50_additional_ira_contribution_deduction_limit
+    - us:policies/irs/notice-2025-67/page-4#ira_contribution_deduction_limit
+  - output: us:policies/irs/notice-2025-67/page-4#separate_active_participant_ira_deduction_phaseout_applies
+    reason: 'IRS Notice 2025-67 page 4, the branch for a married individual filing
+      a
+
+      separate return who is an active participant, with a phase-out range of
+
+      $0 to $10,000, cannot be computed until a source-backed shared US
+
+      filing-status classification for a married-separate return is supplied.'
+    source_values:
+    - us:policies/irs/notice-2025-67/page-4#separate_active_participant_phaseout_lower_limit
+    - us:policies/irs/notice-2025-67/page-4#separate_active_participant_phaseout_upper_limit
+    - us:policies/irs/notice-2025-67/page-4#age_50_additional_ira_contribution_deduction_limit
+    - us:policies/irs/notice-2025-67/page-4#ira_contribution_deduction_limit
+  - output: us:policies/irs/notice-2025-67/page-4#married_taxpayer_roth_ira_contribution_agi_limit
+    reason: 'IRS Notice 2025-67 page 4, the section 408A(c)(3)(B)(ii)(I) branch
+
+      ending “for married taxpayers filing a” cannot be computed because this
+
+      source unit omits the completed filing category and the adjusted-gross-
+
+      income limitation stated on the following page.'
+    source_values:
+    - us:policies/irs/notice-2025-67/page-4#age_50_additional_ira_contribution_deduction_limit
+    - us:policies/irs/notice-2025-67/page-4#ira_contribution_deduction_limit
+  - output: us:policies/irs/notice-2025-67/page-4#deductible_qualified_retirement_contributions
+    reason: Generated rule ignored a source-stated substitution, modification, or
+      limitation parameter. This output is deferred until the upstream cross-referenced
+      mechanics can be imported or composed without stranding the modifier.
+    source_values:
+    - us:policies/irs/notice-2025-67/page-4#prior_active_participant_single_or_head_of_household_phaseout_upper_limit
+    - us:policies/irs/notice-2025-67/page-4#prior_age_50_additional_ira_contribution_deduction_limit
+    - us:policies/irs/notice-2025-67/page-4#prior_all_other_10_percent_agi_limit
+    - us:policies/irs/notice-2025-67/page-4#prior_all_other_20_percent_agi_limit
+    - us:policies/irs/notice-2025-67/page-4#prior_all_other_50_percent_agi_limit
+    - us:policies/irs/notice-2025-67/page-4#prior_head_of_household_10_percent_agi_limit
+    - us:policies/irs/notice-2025-67/page-4#prior_head_of_household_20_percent_agi_limit
+    - us:policies/irs/notice-2025-67/page-4#prior_head_of_household_50_percent_agi_limit
+    - us:policies/irs/notice-2025-67/page-4#prior_inactive_contributor_active_spouse_agi_limit
+    - us:policies/irs/notice-2025-67/page-4#prior_inactive_contributor_active_spouse_phaseout_upper_limit
+    - us:policies/irs/notice-2025-67/page-4#prior_ira_contribution_deduction_limit
+    - us:policies/irs/notice-2025-67/page-4#prior_joint_active_participant_phaseout_upper_limit
+    - us:policies/irs/notice-2025-67/page-4#prior_joint_or_qualifying_widow_active_participant_agi_limit
+    - us:policies/irs/notice-2025-67/page-4#prior_other_active_participant_agi_limit
+    - us:policies/irs/notice-2025-67/page-4#age_50_additional_ira_contribution_deduction_limit
+    - us:policies/irs/notice-2025-67/page-4#ira_contribution_deduction_limit
+inputs:
+- name: qualified_retirement_contributions
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: USD
+- name: age_before_close_of_taxable_year
+  entity: Person
+  dtype: Integer
+  period: Year
+rules:
+- name: prior_head_of_household_50_percent_agi_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 25B(b)(1)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $35,625 to $36,375
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '35625'
+- name: prior_head_of_household_20_percent_agi_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 25B(b)(1)(B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $38,250 to $39,375
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '38250'
+- name: prior_head_of_household_10_percent_agi_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, sections 25B(b)(1)(C) and (D)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $59,250 to $60,375
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '59250'
+- name: prior_all_other_50_percent_agi_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 25B(b)(1)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $23,750 to $24,250
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '23750'
+- name: prior_all_other_20_percent_agi_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 25B(b)(1)(B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $25,500 to $26,250
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '25500'
+- name: prior_all_other_10_percent_agi_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, sections 25B(b)(1)(C) and (D)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $39,500 to $40,250
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '39500'
+- name: ira_contribution_deduction_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(b)(5)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $7,000 to $7,500
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '7500'
+- name: prior_ira_contribution_deduction_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(b)(5)(A), prior amount
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $7,000 to $7,500
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '7000'
+- name: age_50_additional_ira_contribution_deduction_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(b)(5)(B)(ii)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $1,000 to $1,100
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '1100'
+- name: prior_age_50_additional_ira_contribution_deduction_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(b)(5)(B)(ii), prior amount
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $1,000 to $1,100
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '1000'
+- name: additional_deduction_age_threshold
+  kind: parameter
+  dtype: Integer
+  source: IRS Notice 2025-67, page 4, section 219(b)(5)(B)(ii)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: attained age 50 before the close of the taxable year
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '50'
+- name: joint_or_qualifying_widow_active_participant_agi_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(g)(3)(B)(i)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $126,000 to $129,000
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '129000'
+- name: prior_joint_or_qualifying_widow_active_participant_agi_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(g)(3)(B)(i), prior amount
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $126,000 to $129,000
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '126000'
+- name: other_active_participant_agi_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(g)(3)(B)(ii)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $79,000 to $81,000
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '81000'
+- name: prior_other_active_participant_agi_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(g)(3)(B)(ii), prior amount
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $79,000 to $81,000
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '79000'
+- name: separate_active_participant_applicable_amount
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(g)(3)(B)(iii)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: remains $0
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '0'
+- name: inactive_contributor_active_spouse_agi_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(g)(7)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $236,000 to $242,000
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '242000'
+- name: prior_inactive_contributor_active_spouse_agi_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(g)(7)(A), prior amount
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from $236,000 to $242,000
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '236000'
+- name: active_participant_single_or_head_of_household_phaseout_upper_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(g)(2)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: between $81,000 and $91,000
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '91000'
+- name: prior_active_participant_single_or_head_of_household_phaseout_upper_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(g)(2)(A), prior upper limit
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from between $79,000 and $89,000
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '89000'
+- name: joint_active_participant_phaseout_upper_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(g)(2)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: between $129,000 and $149,000
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '149000'
+- name: prior_joint_active_participant_phaseout_upper_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(g)(2)(A), prior upper limit
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from between $126,000 and $146,000
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '146000'
+- name: inactive_contributor_active_spouse_phaseout_upper_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(g)(2)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: between $242,000 and $252,000
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '252000'
+- name: prior_inactive_contributor_active_spouse_phaseout_upper_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(g)(2)(A), prior upper limit
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: increased from between $236,000 and $246,000
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '246000'
+- name: separate_active_participant_phaseout_lower_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(g)(2)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: remains $0 to $10,000
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '0'
+- name: separate_active_participant_phaseout_upper_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: IRS Notice 2025-67, page 4, section 219(g)(2)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/notice-2025-67/page-4
+          excerpt: remains $0 to $10,000
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '10000'

@@ -1,0 +1,446 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+    source_sha256: 383fb23991e51f62a2a649ee5970254c06cea7091e7b63ebb17530d838880148
+  summary: 'Table 2: Standard Deductions. Table 3: Maximum Excess Shelter
+
+    Deductions. Table 4: Homeless Shelter Deduction. Table 5:
+
+    Maximum Asset Limits.'
+rules:
+- name: snap_standard_deduction_48_states_dc
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  source: Table 2, Standard Deductions, 48 States & District of Columbia
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: 'Table 2: Standard Deductions'
+  versions:
+  - effective_from: '2025-10-01'
+    formula: snap_standard_deduction_48_states_dc_table[min(household_size, 6)]
+- name: snap_standard_deduction
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  source: Table 2, Standard Deductions, 48 States & District of Columbia
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: 'Table 2: Standard Deductions'
+  versions:
+  - effective_from: '2025-10-01'
+    formula: snap_standard_deduction_48_states_dc
+- name: snap_standard_deduction_alaska
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  source: Table 2, Standard Deductions, Alaska
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: 'Table 2: Standard Deductions'
+  versions:
+  - effective_from: '2025-10-01'
+    formula: snap_standard_deduction_alaska_table[min(household_size, 6)]
+- name: snap_standard_deduction_guam
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  source: Table 2, Standard Deductions, Guam
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: 'Table 2: Standard Deductions'
+  versions:
+  - effective_from: '2025-10-01'
+    formula: snap_standard_deduction_guam_table[min(household_size, 6)]
+- name: snap_maximum_excess_shelter_deduction_48_states_dc
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Table 3, Maximum Excess Shelter Deductions, 48 States & District of Columbia
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: $744
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '744'
+- name: snap_maximum_excess_shelter_deduction_alaska
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Table 3, Maximum Excess Shelter Deductions, Alaska
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: $1,189
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '1189'
+- name: snap_maximum_excess_shelter_deduction_guam
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Table 3, Maximum Excess Shelter Deductions, Guam
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: $873
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '873'
+- name: snap_maximum_excess_shelter_deduction_hawaii
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Table 3, Maximum Excess Shelter Deductions, Hawaii
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: $1,003
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '1003'
+- name: snap_asset_limit_elderly_or_disabled_member
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Table 5, Maximum Asset Limits, household with at least 1 member age 60+
+    or disabled
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: $4,500
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '4500'
+- name: snap_asset_age_threshold
+  kind: parameter
+  dtype: Integer
+  unit: years
+  source: Table 5, “age 60+”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: age 60+
+  versions:
+  - effective_from: '2025-10-01'
+    formula: '60'
+- name: snap_standard_deduction_48_states_dc_table
+  kind: parameter
+  dtype: Money
+  unit: USD
+  indexed_by: household_size
+  source: Table 2, Standard Deductions, 48 States & District of Columbia
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: parameter_table
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          table:
+            header: Standard Deductions
+            row_key: household_size
+            column_key: 48_states_dc
+  versions:
+  - effective_from: '2025-10-01'
+    values:
+      1: 209
+      2: 209
+      3: 209
+      4: 223
+      5: 261
+      6: 299
+- name: snap_standard_deduction_alaska_table
+  kind: parameter
+  dtype: Money
+  unit: USD
+  indexed_by: household_size
+  source: Table 2, Standard Deductions, Alaska
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: parameter_table
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          table:
+            header: Standard Deductions
+            row_key: household_size
+            column_key: alaska
+  versions:
+  - effective_from: '2025-10-01'
+    values:
+      1: 358
+      2: 358
+      3: 358
+      4: 358
+      5: 358
+      6: 374
+- name: snap_standard_deduction_guam_table
+  kind: parameter
+  dtype: Money
+  unit: USD
+  indexed_by: household_size
+  source: Table 2, Standard Deductions, Guam
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: parameter_table
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          table:
+            header: Standard Deductions
+            row_key: household_size
+            column_key: guam
+  versions:
+  - effective_from: '2025-10-01'
+    values:
+      1: 420
+      2: 420
+      3: 420
+      4: 445
+      5: 522
+      6: 598
+- name: snap_standard_deduction_hawaii_table
+  kind: parameter
+  dtype: Money
+  unit: USD
+  indexed_by: household_size
+  source: Table 2, Standard Deductions, Hawaii
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: parameter_table
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          table:
+            header: Standard Deductions
+            row_key: household_size
+            column_key: hawaii
+  versions:
+  - effective_from: '2025-10-01'
+    values:
+      1: 295
+      2: 295
+      3: 295
+      4: 295
+      5: 300
+      6: 344
+- name: snap_standard_deduction_hawaii
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  source: Table 2, Standard Deductions, Hawaii
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: Hawaii $295 $295 $295 $295 $300 $344
+  versions:
+  - effective_from: '2025-10-01'
+    formula: snap_standard_deduction_hawaii_table[min(household_size, 6)]
+- name: snap_standard_deduction_virgin_islands_table
+  kind: parameter
+  dtype: Money
+  unit: USD
+  indexed_by: household_size
+  source: Table 2, Standard Deductions, Virgin Islands
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: parameter_table
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          table:
+            header: Standard Deductions
+            row_key: household_size
+            column_key: virgin_islands
+  versions:
+  - effective_from: '2025-10-01'
+    values:
+      1: 184
+      2: 184
+      3: 185
+      4: 223
+      5: 261
+      6: 299
+- name: snap_standard_deduction_virgin_islands
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  source: Table 2, Standard Deductions, Virgin Islands
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: Virgin Islands $184 $184 $185 $223 $261 $299
+  versions:
+  - effective_from: '2025-10-01'
+    formula: snap_standard_deduction_virgin_islands_table[min(household_size, 6)]
+- name: snap_maximum_excess_shelter_deduction_virgin_islands
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Table 3, Maximum Excess Shelter Deductions, Virgin Islands
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: $586
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 586
+- name: snap_homeless_shelter_deduction
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Table 4, Homeless Shelter Deduction
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: $198.99
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 198.99
+- name: snap_asset_limit_other_households
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Table 5, Maximum Asset Limits, all other households
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: $3,000
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 3000
+- name: snap_asset_limit
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  source: Table 5, Maximum Asset Limits
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: $4,500 $3,000
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member
+          output: snap_household_has_elderly_or_disabled_member
+          hash: sha256:008f221da22fd95306625126232ca22ff7a4c8b622216bc7e8c092532e4e1bb9
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 'if snap_household_has_elderly_or_disabled_member: snap_asset_limit_elderly_or_disabled_member
+      else: snap_asset_limit_other_households'
+- name: snap_homeless_shelter_deduction_amount
+  kind: derived
+  entity: Household
+  dtype: Money
+  period: Month
+  unit: USD
+  source: Table 4, Homeless Shelter Deduction
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+          excerpt: $198.99
+  versions:
+  - effective_from: '2025-10-01'
+    formula: snap_homeless_shelter_deduction
+imports:
+- us:statutes/7/2012/j
+inputs:
+- name: household_size
+  entity: Household
+  dtype: Integer
+  period: Month

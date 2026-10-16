@@ -1,0 +1,100 @@
+- name: qualifying_applicant_is_entitled
+  period: 2026-01
+  input:
+    us:statutes/42/402/a#input.individual_is_fully_insured: true
+    us:statutes/42/402/a#input.age: 62
+    us:statutes/42/402/a#input.individual_has_filed_application_for_old_age_insurance_benefits: true
+    ? us:statutes/42/402/a#input.individual_was_entitled_to_disability_insurance_benefits_for_month_before_attaining_retirement_age
+    : false
+    us:statutes/42/402/a#input.individual_is_alive_for_month: true
+  output:
+    us:statutes/42/402/a#filing_or_disability_conversion_requirement_met: holds
+    us:statutes/42/402/a#individual_is_entitled_to_old_age_insurance_benefit: holds
+- name: not_fully_insured_applicant_is_not_entitled
+  period: 2026-01
+  input:
+    us:statutes/42/402/a#input.individual_is_fully_insured: false
+    us:statutes/42/402/a#input.age: 62
+    us:statutes/42/402/a#input.individual_has_filed_application_for_old_age_insurance_benefits: true
+    ? us:statutes/42/402/a#input.individual_was_entitled_to_disability_insurance_benefits_for_month_before_attaining_retirement_age
+    : false
+    us:statutes/42/402/a#input.individual_is_alive_for_month: true
+  output:
+    us:statutes/42/402/a#filing_or_disability_conversion_requirement_met: holds
+    us:statutes/42/402/a#individual_is_entitled_to_old_age_insurance_benefit: not_holds
+- name: below_minimum_age_applicant_is_not_entitled
+  period: 2026-01
+  input:
+    us:statutes/42/402/a#input.individual_is_fully_insured: true
+    us:statutes/42/402/a#input.age: 61
+    us:statutes/42/402/a#input.individual_has_filed_application_for_old_age_insurance_benefits: true
+    ? us:statutes/42/402/a#input.individual_was_entitled_to_disability_insurance_benefits_for_month_before_attaining_retirement_age
+    : false
+    us:statutes/42/402/a#input.individual_is_alive_for_month: true
+  output:
+    us:statutes/42/402/a#filing_or_disability_conversion_requirement_met: holds
+    us:statutes/42/402/a#individual_is_entitled_to_old_age_insurance_benefit: not_holds
+- name: no_application_or_disability_conversion_is_not_entitled
+  period: 2026-01
+  input:
+    us:statutes/42/402/a#input.individual_is_fully_insured: true
+    us:statutes/42/402/a#input.age: 62
+    us:statutes/42/402/a#input.individual_has_filed_application_for_old_age_insurance_benefits: false
+    ? us:statutes/42/402/a#input.individual_was_entitled_to_disability_insurance_benefits_for_month_before_attaining_retirement_age
+    : false
+    us:statutes/42/402/a#input.individual_is_alive_for_month: true
+  output:
+    us:statutes/42/402/a#filing_or_disability_conversion_requirement_met: not_holds
+    us:statutes/42/402/a#individual_is_entitled_to_old_age_insurance_benefit: not_holds
+- name: disability_conversion_without_application_is_entitled
+  period: 2026-01
+  input:
+    us:statutes/42/402/a#input.individual_is_fully_insured: true
+    us:statutes/42/402/a#input.age: 62
+    us:statutes/42/402/a#input.individual_has_filed_application_for_old_age_insurance_benefits: false
+    ? us:statutes/42/402/a#input.individual_was_entitled_to_disability_insurance_benefits_for_month_before_attaining_retirement_age
+    : true
+    us:statutes/42/402/a#input.individual_is_alive_for_month: true
+  output:
+    us:statutes/42/402/a#filing_or_disability_conversion_requirement_met: holds
+    us:statutes/42/402/a#individual_is_entitled_to_old_age_insurance_benefit: holds
+- name: month_of_death_is_not_an_entitlement_month
+  period: 2026-01
+  input:
+    us:statutes/42/402/a#input.individual_is_fully_insured: true
+    us:statutes/42/402/a#input.age: 62
+    us:statutes/42/402/a#input.individual_has_filed_application_for_old_age_insurance_benefits: true
+    ? us:statutes/42/402/a#input.individual_was_entitled_to_disability_insurance_benefits_for_month_before_attaining_retirement_age
+    : false
+    us:statutes/42/402/a#input.individual_is_alive_for_month: false
+  output:
+    us:statutes/42/402/a#filing_or_disability_conversion_requirement_met: holds
+    us:statutes/42/402/a#individual_is_entitled_to_old_age_insurance_benefit: not_holds
+- name: retirement_age_entitlement_begins_when_all_criteria_first_met
+  period: 2026-01
+  input:
+    us:statutes/42/416/l#input.year_of_birth: 1960
+    us:statutes/42/402/a#input.age: 67
+    us:statutes/42/402/a#input.age_total_months: 804
+    us:statutes/42/402/a#input.individual_is_fully_insured: true
+    us:statutes/42/402/a#input.individual_has_filed_application_for_old_age_insurance_benefits: true
+    ? us:statutes/42/402/a#input.individual_was_entitled_to_disability_insurance_benefits_for_month_before_attaining_retirement_age
+    : false
+    us:statutes/42/402/a#input.month_is_first_month_individual_meets_all_entitlement_criteria: true
+  output:
+    us:statutes/42/402/a#filing_or_disability_conversion_requirement_met: holds
+    us:statutes/42/402/a#retirement_age_entitlement_begins: holds
+- name: early_retirement_age_entitlement_begins_when_criteria_hold_throughout_month
+  period: 2026-01
+  input:
+    us:statutes/42/416/l#input.year_of_birth: 1960
+    us:statutes/42/402/a#input.age: 62
+    us:statutes/42/402/a#input.age_total_months: 744
+    us:statutes/42/402/a#input.individual_is_fully_insured: true
+    us:statutes/42/402/a#input.individual_has_filed_application_for_old_age_insurance_benefits: true
+    ? us:statutes/42/402/a#input.individual_was_entitled_to_disability_insurance_benefits_for_month_before_attaining_retirement_age
+    : false
+    us:statutes/42/402/a#input.month_is_first_month_throughout_which_individual_meets_insurance_and_age_criteria: true
+  output:
+    us:statutes/42/402/a#filing_or_disability_conversion_requirement_met: holds
+    us:statutes/42/402/a#early_retirement_age_entitlement_begins: holds

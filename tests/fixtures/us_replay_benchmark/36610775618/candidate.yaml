@@ -1,0 +1,201 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-md/guidance/dhs/fia/snap-manual-214/page-5
+    source_sha256: a5ef1766f3edd9b8f82191b8cfbef6cb1da36f8e8eb7501531da63380e4a3c96
+  summary: “When two or more households live in separate housing units ... and share
+    one utility meter, each household gets a full allowance.” “Give the household
+    the full allowance regardless of the amount paid on the bill or if the bill is
+    shared among several households.”
+  deferred_outputs:
+  - output: us-md:policies/dhs/fia/snap-manual-214/page-5#telephone_allowance_amount
+    reason: SNAP Manual 214.3.A–B requires the flat telephone-allowance rate referenced
+      in section 600.3, which is not supplied in the available source or context.
+  - output: us-md:policies/dhs/fia/snap-manual-214/page-5#shared_meter_sua_amount
+    reason: SNAP Manual 214.2.E requires the monetary value of the full standard utility
+      allowance, which is not supplied in the available source or context.
+inputs:
+- name: household_pays_its_portion_of_shared_utility_expense
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: portion_paid_directly_to_utility_company
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: portion_paid_to_landlord
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: portion_paid_to_household_sharing_utility_expenses
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: separate_housing_units_share_one_utility_meter
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: household_incurred_telephone_cost
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: household_eligible_for_utility_allowance
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: household_has_other_nonheating_noncooling_utility_expense
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: household_pays_electric_bill
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: household_pays_phone_bill
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: heat_and_air_conditioning_not_billed_to_household
+  entity: Household
+  dtype: Boolean
+  period: Month
+rules:
+- name: shared_utility_payment_destination_permitted
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: SNAP Manual 214.2.D
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-md/guidance/dhs/fia/snap-manual-214/page-5
+          excerpt: The household may pay its portion of the utility expense directly
+            to the utility company, to the landlord, or to the household with which
+            it shares utility expenses.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'household_pays_its_portion_of_shared_utility_expense
+
+      and (portion_paid_directly_to_utility_company
+
+      or portion_paid_to_landlord
+
+      or portion_paid_to_household_sharing_utility_expenses)'
+- name: shared_meter_sua_applies
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: SNAP Manual 214.2.E
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-md/guidance/dhs/fia/snap-manual-214/page-5
+          excerpt: When two or more households live in separate housing units (such
+            as apartments, trailers, houses, etc.) and share one utility meter, each
+            household gets a full allowance.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: separate_housing_units_share_one_utility_meter
+- name: telephone_allowance_applies
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: SNAP Manual 214.3.A–C
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-md/guidance/dhs/fia/snap-manual-214/page-5
+          excerpt: The telephone allowance is a flat rate (see section 600.3) for
+            those households that incur a telephone cost. This includes a cell phone.
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: us-md/guidance/dhs/fia/snap-manual-214/page-5
+          excerpt: Do not give the telephone allowance if the household is eligible
+            for a utility allowance.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'household_incurred_telephone_cost
+
+      and not household_eligible_for_utility_allowance'
+- name: full_telephone_allowance_applies_regardless_of_bill_payment_or_sharing
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: SNAP Manual 214.3.B
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-md/guidance/dhs/fia/snap-manual-214/page-5
+          excerpt: Give the household the full allowance regardless of the amount
+            paid on the bill or if the bill is shared among several households.
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: us-md/guidance/dhs/fia/snap-manual-214/page-5
+          excerpt: Do not give the telephone allowance if the household is eligible
+            for a utility allowance.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: telephone_allowance_applies
+- name: telephone_and_other_utility_expense_lua_only
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: SNAP Manual 214.3.C
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-md/guidance/dhs/fia/snap-manual-214/page-5
+          excerpt: If a household has a telephone expense and any other utility expense
+            that is not for heating or cooling, the household is eligible for the
+            LUA only and not the telephone allowance.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'household_incurred_telephone_cost
+
+      and household_has_other_nonheating_noncooling_utility_expense'
+- name: separately_metered_electric_and_phone_tenant_lua_applies
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: SNAP Manual 214.4, tenant example
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-md/guidance/dhs/fia/snap-manual-214/page-5
+          excerpt: LUA - Neither heat nor air conditioning is included in the billing
+            to the SNAP household and the household pays an electric and phone bill.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'heat_and_air_conditioning_not_billed_to_household
+
+      and household_pays_electric_bill
+
+      and household_pays_phone_bill'
