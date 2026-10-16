@@ -3,8 +3,8 @@
 The [reproduction helper](../../scripts/reproduce_subdivision_recall_audit.py)
 runs the repository's independent span audit against a fixed signed corpus
 release and the pinned audit baseline `0206ce3d540762c1337a6afd85c02a740c9ee3bf`.
-This is main's side of merge `e33cb2965` and the current checkout's merge base
-with `origin/main`. Its production module has SHA-256
+This is main's side of merge `e33cb2965` and was the checkout's merge base
+with `origin/main` at the time of this audit. Its production module has SHA-256
 `322ebbb3dbf6a8c339b943d911322c36ee0caef11937be3cd52e4922fe657a04`.
 Round 5 rebases the baseline to include main's unrelated changes, including
 paired-case evidence and manual cleanup. This retains the strict AST identity
@@ -71,18 +71,27 @@ and row bounds and every total unchanged from the committed round-4 evidence.
 All 22 changed-row records are byte-identical to their historical records.
 The complete row ledger has a new hash because it now records recall under
 main's inherited cleanup; the changed-row ledger and all removal proofs are
-unchanged. The hashes below bind the final tested working-tree bytes.
+unchanged. The hashes below bind the bytes tested in that round-5 execution.
 
 One initial attempt at artifacts 50–59 hit its 480-second timeout after writing
 13,627 partial row records. Those outputs have no completion receipt and were
 excluded. The same bounded command passed on retry in 285.567 seconds. The
 slowest completed shard took 462.101 seconds; no command exceeded ten minutes.
 
-The pinned-baseline/current-source integration regression passes. Negative
-controls alter the reachable `_mask_numeric_spans` helper, the inherited recall
-prelude, or the recall suffix; each raises `ValueError`. The audit test file
+In round 5, the pinned-baseline/current-source integration regression passed.
+Negative controls altered the reachable `_mask_numeric_spans` helper, the inherited
+recall prelude, or the recall suffix; each raised `ValueError`. The audit test file
 passed 111 tests, and the four focused production regression files passed
 199 tests (310 total). Ruff lint, changed-file formatting and compilation passed.
+
+Round 6 strengthens the audit's binding guard and adds fixed-input negative
+controls. The live-source integration test now runs only when the production
+module matches the summary's `current_module_sha256`; otherwise its skip
+message identifies both hashes and treats the evidence as historical. The
+fixed-input guard tests continue running after production changes. Production
+bytes and the pinned baseline are unchanged, so the corpus audit was not rerun.
+The audit-script hash below identifies the round-5 execution, before these
+guard changes.
 
 | Audited content | SHA-256 |
 | --- | --- |
@@ -102,7 +111,7 @@ passed 111 tests, and the four focused production regression files passed
 | Release object SHA-256 | `8d0fd2993fa667b13205947b71b91aafbb56be73351e9acebbd03255e233190a` |
 | Release object bytes | `7150325` |
 | Corpus revision | `e79781bddeaba4d3697c5375c7371b2a038f0f74` |
-| Pinned audit baseline revision and current merge base with `origin/main` | `0206ce3d540762c1337a6afd85c02a740c9ee3bf` |
+| Pinned audit baseline revision and merge base with `origin/main` at the time of this audit | `0206ce3d540762c1337a6afd85c02a740c9ee3bf` |
 | Baseline module SHA-256 | `322ebbb3dbf6a8c339b943d911322c36ee0caef11937be3cd52e4922fe657a04` |
 
 Earlier identities are historical, not the current checkout:

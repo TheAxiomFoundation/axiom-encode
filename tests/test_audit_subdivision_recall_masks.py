@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -25,6 +26,22 @@ from scripts.audit_subdivision_recall_masks import (
 
 
 @pytest.fixture
+def audited_live_source():
+    source = Path(completeness.__file__).read_bytes()
+    actual = hashlib.sha256(source).hexdigest()
+    summary = Path(__file__).resolve().parents[1] / (
+        "docs/evidence/subdivision-recall-audit-summary.json"
+    )
+    expected = json.loads(summary.read_text())["current_module_sha256"]
+    if actual != expected:
+        pytest.skip(
+            f"Evidence is historical for the current module: live SHA-256 {actual}; "
+            f"evidence current_module_sha256 {expected}"
+        )
+    return source
+
+
+@pytest.fixture
 def pinned_baseline(tmp_path):
     source = subprocess.run(
         ["git", "show", f"{reproduce.BASELINE_COMMIT}:{reproduce.SOURCE.as_posix()}"],
@@ -39,7 +56,61 @@ def pinned_baseline(tmp_path):
     return baseline
 
 
-def test_pinned_baseline_isolates_current_entry_masks(pinned_baseline):
+@pytest.fixture
+def fixed_current_source(pinned_baseline, tmp_path, monkeypatch):
+    """Construct the permitted delta from frozen inputs, independent of live code."""
+    tree = ast.parse(pinned_baseline.read_text())
+    marker = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == "_GLUED_SENTENCE_MARKER"
+    )
+    before, after = marker.value.args[0].value.split("(?=[A-ZÄÖÜ]", 1)
+    marker.value.args[0] = ast.JoinedStr(
+        values=[
+            ast.Constant(value=before + "(?!"),
+            ast.FormattedValue(
+                value=ast.Name(id="_RECALL_UNIT_WORD", ctx=ast.Load()),
+                conversion=-1,
+            ),
+            ast.Constant(
+                value=r"\b|(?i:per[ \t\u00a0\u202f]+cent)\b)(?=[A-ZÄÖÜ]" + after
+            ),
+        ]
+    )
+    function = next(
+        node
+        for node in tree.body
+        if getattr(node, "name", None) == "authoritative_numeric_recall_text"
+    )
+    function.body[2:2] = ast.parse(
+        "source_text = _mask_numeric_spans("
+        "source_text, _english_subdivision_numeric_recall_spans(source_text))\n"
+        "source_text = _mask_numeric_spans("
+        "source_text, _contiguous_states_numeric_recall_spans(source_text))\n"
+    ).body
+    fixed = tmp_path / "fixed_current.py"
+    fixed.write_bytes(pinned_baseline.read_bytes())
+    _replace_top_level_nodes(fixed, [marker, function])
+    monkeypatch.setattr(completeness, "__file__", str(fixed))
+    return fixed
+
+
+def _replace_top_level_nodes(path, nodes):
+    # Unparse only the edited definitions; preserve all other pinned bytes.
+    lines = path.read_text().splitlines(keepends=True)
+    for node in sorted(nodes, key=lambda item: item.lineno, reverse=True):
+        lines[node.lineno - 1 : node.end_lineno] = [
+            ast.unparse(ast.fix_missing_locations(node)) + "\n"
+        ]
+    path.write_text("".join(lines))
+
+
+def test_pinned_baseline_isolates_current_entry_masks(
+    audited_live_source, pinned_baseline
+):
     masks, statements = audit.isolate_entry_masks(pinned_baseline)
     source = (
         "Under subdivision 2 of this section, the credit is $300. "
@@ -52,17 +123,30 @@ def test_pinned_baseline_isolates_current_entry_masks(pinned_baseline):
     assert all("_without_us_manual_locators" not in item for item in statements)
 
 
-@pytest.mark.parametrize("change", ("helper", "prelude", "suffix"))
-def test_pinned_baseline_rejects_unexplained_recall_changes(
-    pinned_baseline, tmp_path, monkeypatch, change
+def test_pinned_baseline_isolates_fixed_entry_masks(
+    pinned_baseline, fixed_current_source
 ):
-    tree = ast.parse(Path(completeness.__file__).read_text())
+    _, statements = audit.isolate_entry_masks(pinned_baseline)
+    assert len(statements) == 2
+    assert "_english_subdivision_numeric_recall_spans" in statements[0]
+    assert "_contiguous_states_numeric_recall_spans" in statements[1]
+
+
+@pytest.mark.parametrize(
+    "change",
+    ("helper", "prelude", "suffix", "marker", "signature", "docstring", "insertions"),
+)
+def test_pinned_baseline_rejects_unexplained_recall_changes(
+    pinned_baseline, fixed_current_source, change
+):
+    tree = ast.parse(fixed_current_source.read_text())
     name = (
         "_mask_numeric_spans"
         if change == "helper"
         else "authoritative_numeric_recall_text"
     )
     function = next(node for node in tree.body if getattr(node, "name", None) == name)
+    changed_node = function
     if change == "helper":
         # Both the inherited cleanup and the new entry masks reach this helper.
         function.body.insert(0, ast.Return(value=ast.Name(id="text", ctx=ast.Load())))
@@ -70,14 +154,116 @@ def test_pinned_baseline_rejects_unexplained_recall_changes(
     elif change == "prelude":
         function.body[1].value.args[0] = ast.Constant(value="")
         expected = "Baseline recall cleanup"
-    else:
+    elif change == "suffix":
         function.body[-1] = ast.Return(value=ast.Constant(value=""))
         expected = "Baseline recall cleanup"
-    mutated = tmp_path / "mutated_current.py"
-    mutated.write_text(ast.unparse(ast.fix_missing_locations(tree)))
-    monkeypatch.setattr(completeness, "__file__", str(mutated))
+    elif change == "marker":
+        marker = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == "_GLUED_SENTENCE_MARKER"
+        )
+        marker.value.args[0].values[-1].value += "|unpermitted"
+        changed_node = marker
+        expected = "Glued quantity guard is not the exact permitted extension"
+    elif change == "signature":
+        function.args.kw_defaults[0] = ast.Constant(value="changed")
+        expected = "Baseline recall cleanup signature or docstring changed"
+    elif change == "docstring":
+        function.body[0].value = ast.Constant(value="Changed docstring")
+        expected = "Baseline recall cleanup signature or docstring changed"
+    else:
+        function.body[2].value.args[1].func.id = "_unpermitted_masks"
+        expected = "Entry masks are not the exact permitted insertions"
+    _replace_top_level_nodes(fixed_current_source, [changed_node])
     with pytest.raises(ValueError, match=expected):
         audit.isolate_entry_masks(pinned_baseline)
+
+
+@pytest.mark.parametrize(
+    "shadow",
+    (
+        "def _mask_numeric_spans(text, spans):\n    return text\n",
+        "_without_us_manual_locators = lambda text, **kwargs: text\n",
+        "_GLUED_SECTION_SENTENCE_MARKER = re.compile('never-match')\n",
+        "_original_recall = authoritative_numeric_recall_text\n"
+        "def authoritative_numeric_recall_text(*args, **kwargs):\n"
+        "    return _original_recall(*args, **kwargs)\n",
+        "class _AuditShadow:\n"
+        "    global _mask_numeric_spans\n"
+        "    _mask_numeric_spans = lambda text, spans: text\n",
+    ),
+    ids=(
+        "helper-redefinition",
+        "prelude-rebinding",
+        "regex-rebinding",
+        "recall-wrapper",
+        "class-global-rebinding",
+    ),
+)
+def test_pinned_baseline_rejects_shadowed_bindings(
+    pinned_baseline, fixed_current_source, shadow
+):
+    with fixed_current_source.open("a") as stream:
+        stream.write("\n" + shadow)
+    with pytest.raises(ValueError, match="baseline binding"):
+        audit.isolate_entry_masks(pinned_baseline)
+
+
+@pytest.mark.parametrize(
+    "name", ("_mask_numeric_spans", "authoritative_numeric_recall_text")
+)
+def test_pinned_baseline_rejects_duplicate_inherited_definitions(
+    pinned_baseline, fixed_current_source, name
+):
+    tree = ast.parse(pinned_baseline.read_text())
+    function = next(node for node in tree.body if getattr(node, "name", None) == name)
+    with fixed_current_source.open("a") as stream:
+        stream.write("\n" + ast.unparse(function) + "\n")
+    with pytest.raises(ValueError, match="baseline binding"):
+        audit.isolate_entry_masks(pinned_baseline)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        ("x = y = 1\nx, (y, z) = values", {"x", "y", "z"}),
+        ("x: int = 1\ny += 1", {"x", "y"}),
+        (
+            "import os.path\nimport re as regex\nfrom pathlib import Path as P",
+            {"os", "regex", "P"},
+        ),
+        ("from somewhere import *", {"*"}),
+        ("def f(local=(outer := 1)):\n    inner = local", {"f", "outer"}),
+        ("async def f(local):\n    inner = local", {"f"}),
+        ("class C(Base):\n    inner = 1", {"C"}),
+        ("class C:\n    global outer\n    outer = 1", {"C", "outer"}),
+        ("class C:\n    def f(self):\n        global inner\n        inner = 1", {"C"}),
+        ("f = lambda local=(outer := 1): (inner := local)", {"f", "outer"}),
+        (
+            "[(outer := local) for local in values if (condition := local)]",
+            {"outer", "condition"},
+        ),
+        (
+            "for item in values:\n    if item:\n        result = item",
+            {"item", "result"},
+        ),
+        ("with context() as item:\n    result = item", {"item", "result"}),
+        (
+            "try:\n    pass\nexcept Exception as error:\n    result = error",
+            {"error", "result"},
+        ),
+        ("match value:\n    case [first, *rest]:\n        pass", {"first", "rest"}),
+        (
+            "match value:\n    case {'key': item, **rest}:\n        pass",
+            {"item", "rest"},
+        ),
+    ),
+)
+def test_module_binding_collection_respects_python_scopes(source, expected):
+    assert audit.module_bound_names(ast.parse(source)) == expected
 
 
 @pytest.mark.parametrize(
