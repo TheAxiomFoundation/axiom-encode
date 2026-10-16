@@ -1,4 +1,4 @@
-"""Parity tests for validate-rulespec 92ccb0f2, rulespec-us's pin since 4c9aeadd.
+"""Parity tests for validate-rulespec 92ccb0f2, rulespec-us's pin from 4c9aeadd to 172bf04e.
 
 92ccb0f2 differs from 6f11be26 in four ways ci reproduces: the caller's
 resolver also reads axiom_compose_ref; the pre-check shape-checks ProgramSpecs
@@ -1105,6 +1105,11 @@ def test_composer_build_runs_the_steps_uv_commands_in_order(
         name="axiom-encode",
     )
     pin = gates._git(encode, "rev-parse", "HEAD")
+    # An uncommitted edit in the encoder worktree must not reach the build: CI
+    # runs the script as the pin commits it.
+    (encode / "scripts" / "provision_axiom_compose_runtime.py").write_text(
+        "raise SystemExit('worktree copy ran')\n"
+    )
     calls: list[tuple[list[str], dict[str, str]]] = []
     cwds: list[tuple[list[str], Path]] = []
     real_run = ci_parity._run_build_command

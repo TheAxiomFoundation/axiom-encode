@@ -17,7 +17,7 @@ pins:
 | `615c1df9b9ace7deea84da65efd137f46f8bad2b` | reimplemented gates | money-atom scan excludes `programs/` |
 | `0effa6a5b05e7fac53902df7d523e909bd7fc48a` | the workflow's own scripts | used by rulespec-us at `cf03a179` |
 | `6f11be2655f79dd0a3b582db46525f58332ca120` | the workflow's own scripts | adds the unmanifested-RuleSpec pre-check |
-| `92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3` | the workflow's own scripts | used by rulespec-us since `4c9aeadd`; isolated dependency layout, pinned composer, ProgramSpec pre-check |
+| `92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3` | the workflow's own scripts | used by rulespec-us from `4c9aeadd` until `172bf04e` repinned to `30e94293`; isolated dependency layout, pinned composer, ProgramSpec pre-check |
 
 A caller pinned to another workflow revision is rejected until the pinned
 workflow, gate registry, and implementation are updated together. The pinned
@@ -680,18 +680,18 @@ named:
 
 ## Troubleshooting
 
-- **"RuleSpec module is not inside a canonical country checkout" or
-  "validation requires the country-monorepo layout" on a heavily loaded
-  machine.** At the pinned encoders (`06b01708`, `f856cfcb`), checkout routing
-  probes Git (`git rev-parse --show-toplevel`, `git remote get-url origin`)
-  with a two-second timeout and no retry, and a timed-out probe resolves the
-  checkout as not canonical: in the first probe pair with the first message, in
-  the jurisdiction lookup with the second. Encoders from #1777 on wait ten
-  seconds and retry once. The check runs for the files a gate validates, so on
-  a loaded machine one file in thousands can fail, a different one each run,
-  where CI's runner passes. Rerun when the machine is less loaded; a smaller
-  `--jobs` lowers only `ci`'s own worker fan-out, not other load on the
-  machine.
+- **"RuleSpec module is not inside a canonical country checkout" or "validation
+  requires the country-monorepo layout" on a heavily loaded machine.** At the
+  pinned encoders (`06b01708` and `f856cfcb`, and `3bf5a2af` for 92ccb0f2),
+  checkout routing probes Git (`git rev-parse --show-toplevel`, `git remote
+  get-url origin`) with a two-second timeout and no retry, and a timed-out
+  probe resolves the checkout as not canonical: in the first probe pair with
+  the first message, in the jurisdiction lookup with the second. Encoders from
+  #1777 on wait ten seconds and retry once. The check runs for the files a gate
+  validates, so on a loaded machine one file in thousands can fail, a different
+  one each run, where CI's runner passes. Rerun when the machine is less
+  loaded; a smaller `--jobs` lowers only `ci`'s own worker fan-out, not other
+  load on the machine.
 - **`repository-test-environment` mismatch.** `ci` could not build the
   repository-test venv (no network under `--offline` with an empty uv cache,
   or no interpreter for the caller's `python-version`). Install that Python
