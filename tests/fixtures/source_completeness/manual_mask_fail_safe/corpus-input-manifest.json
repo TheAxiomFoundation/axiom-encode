@@ -1,0 +1,1853 @@
+{
+  "corpus_commit": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "files": [
+    {
+      "file": "data/corpus/provisions/us-ak/manual/2026-07-16-ak-snap-manual.jsonl",
+      "git_blob_sha1": "ea30a13c4d3e18f09b223428123fc248fc769cdd",
+      "rows": 478,
+      "sha256": "01b43cfbdfb219c5d89114cef469eaa2043855e12e33d790cd68986808f8cabb",
+      "size_bytes": 1772069,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ak/manual/2026-07-16-ak-snap-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-al/manual/2026-05-27-al-snap-poe-manual-r2026-07-15-self-contained.jsonl",
+      "git_blob_sha1": "d2e844895c6f8aa9721ba49f0152faaceb73d5ee",
+      "rows": 149,
+      "sha256": "d3c43bffac6cf187ba640170984db471382fbb1ca507e7882275e96a727b773c",
+      "size_bytes": 801359,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-al/manual/2026-05-27-al-snap-poe-manual-r2026-07-15-self-contained.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-al/manual/2026-07-13-recovery.jsonl",
+      "git_blob_sha1": "a194b7ada0e011610a4101197196676e15ec5fa5",
+      "rows": 12,
+      "sha256": "149b7b203d432c2719ea454baa65979a5fb7da8dee3eacb325575f7695dc5ce1",
+      "size_bytes": 44830,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-al/manual/2026-07-13-recovery.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-ar/manual/2026-07-16-ar-snap-manual.jsonl",
+      "git_blob_sha1": "eeff5312143ea579f75b3a892c9337ef3266d54c",
+      "rows": 810,
+      "sha256": "0469f6a6d2dbd91e7861e5bfa260da95a2ebcfe486fba54f51da2f838829693e",
+      "size_bytes": 2777793,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ar/manual/2026-07-16-ar-snap-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-az/manual/2025-10-30-az-des-faa5-manual-r2026-07-15-self-contained.jsonl",
+      "git_blob_sha1": "854a9ccd2e7ad7deece516db06404a7effb02b49",
+      "rows": 7,
+      "sha256": "35965089f0f21979670bda683f2b9c392d3c79efe787887518ad5d141fd08504",
+      "size_bytes": 31471,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-az/manual/2025-10-30-az-des-faa5-manual-r2026-07-15-self-contained.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-az/manual/2026-06-25-az-ccap.jsonl",
+      "git_blob_sha1": "adebe99602d1b11db15b98a0c056f64545958cb0",
+      "rows": 82,
+      "sha256": "d83b08cbdf3d084112585529daeeb2aea3cdd92bc40a7ffe5d9651d7e045ae00",
+      "size_bytes": 320305,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-az/manual/2026-06-25-az-ccap.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-az/manual/2026-07-12-az-des-faa6-utility-amounts.jsonl",
+      "git_blob_sha1": "876f8b7fd87b1f33d80a04daec1485a433c24541",
+      "rows": 2,
+      "sha256": "858d2cdcbe913367bc28b5a1812509610bd6ebb18cde5f9360dc2245ed997167",
+      "size_bytes": 4321,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-az/manual/2026-07-12-az-des-faa6-utility-amounts.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-az/manual/2026-07-17-faa5-recovery.jsonl",
+      "git_blob_sha1": "dba3ec4de05fa5ddcea793ab757b2da4dfe00f7d",
+      "rows": 143,
+      "sha256": "8175940d284808c43222bc1a90328344f39fcb42f38b29581c162994535fc932",
+      "size_bytes": 361899,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-az/manual/2026-07-17-faa5-recovery.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-ct/manual/2026-07-17-ct-snap-manual.jsonl",
+      "git_blob_sha1": "9d30ee1c00bd9c3b4f1ac82088a8a6a745e464dd",
+      "rows": 1275,
+      "sha256": "ab7776f91ca4422b76ef969e8b1c547342fe447c5aee0fc17d1ca5abfe5bc254",
+      "size_bytes": 2784635,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ct/manual/2026-07-17-ct-snap-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-dc/manual/2026-07-17-dc-snap-manual.jsonl",
+      "git_blob_sha1": "4b2db5f52f7695224b942a0f9164769b45546762",
+      "rows": 350,
+      "sha256": "25ba11fb0fd9229df5b76e4b5441383214d80694ecfc9966f2c704e641bd63da",
+      "size_bytes": 1407834,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-dc/manual/2026-07-17-dc-snap-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-dc/manual/2026-07-19-dc-child-care-subsidy.jsonl",
+      "git_blob_sha1": "a08505708407efaf293fdc94718ec62ffb357da4",
+      "rows": 88,
+      "sha256": "771983245d98c9e32fd0c5250c5ca1e22e175def73851bc974e72ede5ccb236a",
+      "size_bytes": 231370,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-dc/manual/2026-07-19-dc-child-care-subsidy.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-fl/manual/2026-05-27-fl-ess-manual-r2026-07-15-self-contained.jsonl",
+      "git_blob_sha1": "9508ee069feee711df6249bce7f01aaec61f0d1c",
+      "rows": 1107,
+      "sha256": "df6457c68714d84da88e01d24e43f7b008b65cd0be61d1a1410ccc2ffe667b1b",
+      "size_bytes": 5055872,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-fl/manual/2026-05-27-fl-ess-manual-r2026-07-15-self-contained.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-fl/manual/2026-07-13-recovery.jsonl",
+      "git_blob_sha1": "cefd57789cb52b0d5b67ce161bdf460b450de32f",
+      "rows": 4,
+      "sha256": "dc436075d980ef75f7827bfd59ddc81a3e97661fa83d1aefff738f4446ae87cf",
+      "size_bytes": 7586,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-fl/manual/2026-07-13-recovery.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-ga/manual/2026-05-27-ga-snap-manual-r2026-07-15-self-contained.jsonl",
+      "git_blob_sha1": "5c713c204c50b275860cb7cba297124eaa3366b0",
+      "rows": 1214,
+      "sha256": "94851857003b1d678be9513cc0ae9306434c7f73e93e078fb2fc01344a616eb1",
+      "size_bytes": 3500128,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ga/manual/2026-05-27-ga-snap-manual-r2026-07-15-self-contained.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-ga/manual/2026-06-24-ga-ssp.jsonl",
+      "git_blob_sha1": "c6178dc1e715af55f230f6e8685c4f191720a9f8",
+      "rows": 15,
+      "sha256": "6b9e4da7323b5363eb0a1878cf922fbb680b0dabf9bb3db104b0162771ebb0e8",
+      "size_bytes": 32391,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ga/manual/2026-06-24-ga-ssp.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-ga/manual/2026-06-25-ga-caps.jsonl",
+      "git_blob_sha1": "42a428c1cf04706547cc090d91081fd30a263814",
+      "rows": 506,
+      "sha256": "e5143513d0f11570afd7f0784df5d8b94899e72d6edc268e6483ea85d7bdab74",
+      "size_bytes": 2220690,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ga/manual/2026-06-25-ga-caps.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-ga/manual/2026-06-25-ga-tanf.jsonl",
+      "git_blob_sha1": "d3d1b01f8e16e7e232b02f77b01a8bd828d5bb29",
+      "rows": 47,
+      "sha256": "969301c7abced68f013cba41306b34bebc2793ce6a39059376c4e6c2dc9c136b",
+      "size_bytes": 85793,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ga/manual/2026-06-25-ga-tanf.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-ga/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+      "git_blob_sha1": "a932dbc539312a9792646a2ea35b75dcdd81198a",
+      "rows": 13,
+      "sha256": "b5168dc6d8999cff9242d14ad7a789fb3794e1274cd1458d15b894e7f8c7465e",
+      "size_bytes": 31274,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ga/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-ia/manual/2026-07-17-ia-snap-manual.jsonl",
+      "git_blob_sha1": "987d790171b036510b32e2b3e6aaad9c5a121248",
+      "rows": 443,
+      "sha256": "7e28b901322e220afc90ad3c8a3340190126cf2128c80631ddbd6ecce7cf4a18",
+      "size_bytes": 1572905,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ia/manual/2026-07-17-ia-snap-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-il/manual/2026-05-27-il-cash-snap-medical-manual-r2026-07-15-self-contained.jsonl",
+      "git_blob_sha1": "c83a30d4035c91010ebec5851476a84652086614",
+      "rows": 12450,
+      "sha256": "0ee5bcae1dfd3a609445d3cd1266f924f2bfd110d3083e044fae127b2c9141e4",
+      "size_bytes": 29101704,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-il/manual/2026-05-27-il-cash-snap-medical-manual-r2026-07-15-self-contained.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-il/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+      "git_blob_sha1": "4ac37ebed247adeb3ae52b03e067157d323a4583",
+      "rows": 5,
+      "sha256": "799280cd6bd43b37d2a03fe4e2994fdb519df268a6141927364b28101fa1e47b",
+      "size_bytes": 9060,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-il/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-in/manual/2026-05-27-in-snap-manual-r2026-07-15-self-contained.jsonl",
+      "git_blob_sha1": "dbbcefc15021c0077ffae72d4155a9a940bb4882",
+      "rows": 484,
+      "sha256": "ff153fa0bc1631949c52a75cbd6b55cfc536dcd78ad757c1462c7a6bf705195e",
+      "size_bytes": 1919360,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-in/manual/2026-05-27-in-snap-manual-r2026-07-15-self-contained.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-in/manual/2026-07-04-in-ssp-sapn.jsonl",
+      "git_blob_sha1": "227373cef541e0b55570be698f3533bfefbe089e",
+      "rows": 8,
+      "sha256": "158143a279d27c5f2e07231690b9ae5deb30aa1ab4651522cf4d1924663726b4",
+      "size_bytes": 18825,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-in/manual/2026-07-04-in-ssp-sapn.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-in/manual/2026-07-13-recovery.jsonl",
+      "git_blob_sha1": "ae663ee7fb648f7ac3cba6e2f2c4ad52117164c1",
+      "rows": 2,
+      "sha256": "29f8ac30f87c475e8749afb7a7e2c525aac323afb2b50d42025cbdc43a40a1cf",
+      "size_bytes": 4530,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-in/manual/2026-07-13-recovery.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-ks/manual/2026-05-27-ks-keesm-r2026-07-15-self-contained.jsonl",
+      "git_blob_sha1": "abfe46cbcc912a582976d7c854114b04c7cdb59a",
+      "rows": 510,
+      "sha256": "a5314b07ab3b8171c6979d9f0583df87bd1f562b0a4cfd5d39df4ccd3cd8349f",
+      "size_bytes": 2219205,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ks/manual/2026-05-27-ks-keesm-r2026-07-15-self-contained.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-ks/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+      "git_blob_sha1": "a946842bf741aae4efc4c22e6a226cf40b35df8e",
+      "rows": 2,
+      "sha256": "64023aa77ea152a90499a91b335351a7006b3db939cedde22dae8b3edcfbc165",
+      "size_bytes": 10486,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ks/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-ky/manual/2026-07-17-ky-snap-manual.jsonl",
+      "git_blob_sha1": "c7423d7c393efeec2f310a5a540a4a9cb8c69b88",
+      "rows": 400,
+      "sha256": "61e1b246213b0ca2a9f9721f5e608287758afc26567d8d5ae60b37250d19eb15",
+      "size_bytes": 1346531,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ky/manual/2026-07-17-ky-snap-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-la/manual/2026-07-13-recovery.jsonl",
+      "git_blob_sha1": "2fa6571bd891bb943766dc62d36fc3424bf0a361",
+      "rows": 4,
+      "sha256": "427c6b6b2f2bf4247b9c419a8e505666e2614794bb8f229a6d5a0209cc4745f8",
+      "size_bytes": 8284,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-la/manual/2026-07-13-recovery.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-la/manual/2026-07-17-la-snap-manual.jsonl",
+      "git_blob_sha1": "51679316a7f0a374b65b2629c6012300cb609dec",
+      "rows": 1483,
+      "sha256": "a8c7d1b761c24a1e05f79f7ea50f22970a71c5f679cf4d2ddac40efc6aff0313",
+      "size_bytes": 4750029,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-la/manual/2026-07-17-la-snap-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-md/manual/2026-07-17-md-snap-manual.jsonl",
+      "git_blob_sha1": "c3b162fb2b27c547cf3d3f19020f119499c96bf3",
+      "rows": 379,
+      "sha256": "d94019390c8bb1349cc976802aee53aaeaea2821fd1f535545dafc423eb990a3",
+      "size_bytes": 1519525,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-md/manual/2026-07-17-md-snap-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-mi/manual/2026-06-27-mi-mdhhs-rft-248.jsonl",
+      "git_blob_sha1": "4cec7af8f4b82d3ee6e2d199cb37d203d7856a5e",
+      "rows": 4,
+      "sha256": "279d25fec96756a6f3f1d1cb4607318a2cb393e0052d71d3d9d40841c3eb8f8d",
+      "size_bytes": 10093,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-mi/manual/2026-06-27-mi-mdhhs-rft-248.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-mi/manual/2026-07-13-recovery.jsonl",
+      "git_blob_sha1": "6625a4d6f5df18ccbd864d094a46b64e4fd47e74",
+      "rows": 9,
+      "sha256": "89d4327f6141bb707ceafb88a47d27192353ed451d818beb5444f6be8a918ad6",
+      "size_bytes": 18680,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-mi/manual/2026-07-13-recovery.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-mi/manual/2026-07-17-mi-bridges-manual.jsonl",
+      "git_blob_sha1": "1f0e1614fe6d73905688ffe936202e94ce509624",
+      "rows": 2310,
+      "sha256": "4ee408c8a2a0fe24b52606f2a85b103baa13f72610baee5ea660ed62684f94e0",
+      "size_bytes": 7384487,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-mi/manual/2026-07-17-mi-bridges-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-mn/manual/2026-05-27-mn-combined-manual-r2026-07-15-self-contained.jsonl",
+      "git_blob_sha1": "4c6249853c9bf984636a1054a11bc818b4a1cddc",
+      "rows": 1354,
+      "sha256": "a24ccdcfa49952661f02a86f9d5753fcaa311c17c0989c0099cff1bbc6af92a5",
+      "size_bytes": 4208312,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-mn/manual/2026-05-27-mn-combined-manual-r2026-07-15-self-contained.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-mn/manual/2026-06-27-mn-dhs-msa-revised-sections-2026-01.jsonl",
+      "git_blob_sha1": "3f043dcd63fed5f2ff73108947142ae0260c416f",
+      "rows": 9,
+      "sha256": "f8bdc86cb2ca94407121a6f2c7ca417ad7d373d578d355df8a7189061f93b6a3",
+      "size_bytes": 28930,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-mn/manual/2026-06-27-mn-dhs-msa-revised-sections-2026-01.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-mn/manual/2026-07-13-recovery.jsonl",
+      "git_blob_sha1": "555b3274406929c61b499bed3830741f697e7b16",
+      "rows": 2708,
+      "sha256": "3d10ac0bc34d600bc75975b7c91fdbb23967ebcc11761f6a4ba9f06e9f3e3d0a",
+      "size_bytes": 6928506,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-mn/manual/2026-07-13-recovery.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-mo/manual/2026-05-27-mo-snap-manual-r2026-07-15-self-contained.jsonl",
+      "git_blob_sha1": "491793970034f1f79ff0aaaaf48385b6d817b94a",
+      "rows": 1054,
+      "sha256": "802e015a0d2d9175d9e3fe0eb3e8f01aa633f5bbf90353f8063fcc6c1e3791cc",
+      "size_bytes": 3033518,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-mo/manual/2026-05-27-mo-snap-manual-r2026-07-15-self-contained.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-mo/manual/2026-07-13-recovery.jsonl",
+      "git_blob_sha1": "341e6ab04bccb23379a0e9c56ec08d3b45c25120",
+      "rows": 2,
+      "sha256": "ae2f3a6667c27bc7f07342df931ff9ddd6f75b74926949ae46d0af324a1ba4d2",
+      "size_bytes": 4453,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-mo/manual/2026-07-13-recovery.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-ms/manual/2026-07-17-ms-snap-policy-manual.jsonl",
+      "git_blob_sha1": "62537213db498b83c2a697c8429729b0ee0dda0a",
+      "rows": 385,
+      "sha256": "e6d4fca111c2eb6663e2b3194c17e6511f55af499189efb861c99eb4f6531572",
+      "size_bytes": 1017612,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ms/manual/2026-07-17-ms-snap-policy-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-mt/manual/2026-07-17-mt-snap-policy-manual.jsonl",
+      "git_blob_sha1": "401d36f3ab9e28e9e7c09c2ccf0b7eaa14bc9016",
+      "rows": 435,
+      "sha256": "fd5294d31a900e1095b14acf3967dac7d8350e927cf34fd8b8a166d96f2400bf",
+      "size_bytes": 1493347,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-mt/manual/2026-07-17-mt-snap-policy-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-nc/manual/2026-05-27-nc-fns-manuals-r2026-07-15-self-contained.jsonl",
+      "git_blob_sha1": "5f2e7c79b0e46d64629a3e7ee89e9c1e32be017f",
+      "rows": 723,
+      "sha256": "4d654db161545388e2f355ec19950d528812bc75c8b143b6d245280d3c316fc1",
+      "size_bytes": 2567587,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-nc/manual/2026-05-27-nc-fns-manuals-r2026-07-15-self-contained.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-nc/manual/2026-07-03-nc-work-first-manual.jsonl",
+      "git_blob_sha1": "3637f45548403cb1f97f0f70bdf2ce8d79d01372",
+      "rows": 18,
+      "sha256": "587284e4503f25a0284ab4c8183359ef26cc8e74720c869ad847a52d62ae4017",
+      "size_bytes": 109179,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-nc/manual/2026-07-03-nc-work-first-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-nc/manual/2026-07-13-recovery.jsonl",
+      "git_blob_sha1": "70627e8312e2ca146b035e4f4f81d5150ac02ffa",
+      "rows": 3,
+      "sha256": "d16ae1b8fb05cd8e7edec7a644c24a0e7799cba3d2644aa6c421ffe5cc77c855",
+      "size_bytes": 7388,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-nc/manual/2026-07-13-recovery.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-nd/manual/2026-05-27-nd-snap-manual.jsonl",
+      "git_blob_sha1": "461e574f0c7f28e6df300c5386c9f3b13a9c61b3",
+      "rows": 158,
+      "sha256": "0a97cb9054aa5cbe79e4d502aa441aa8004cc3d4124170cb766bfe31f7229fd2",
+      "size_bytes": 1032250,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-nd/manual/2026-05-27-nd-snap-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-nd/manual/2026-07-21-nd-snap-manual.jsonl",
+      "git_blob_sha1": "d1185a312e347d93a8deb8542a082ebd99fc44b8",
+      "rows": 167,
+      "sha256": "faeb5569e773a5fe963461a14510fd7ca0c5b607973252fae5cb929d6f05b703",
+      "size_bytes": 1058602,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-nd/manual/2026-07-21-nd-snap-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-nv/manual/2026-05-27-nv-eligibility-payments-manual-r2026-07-15-self-contained.jsonl",
+      "git_blob_sha1": "ae88438fd7d0310aaf15bfdf5395baf2e432ee31",
+      "rows": 821,
+      "sha256": "ee9b83aac58ac83d0f04f7c9cade97bc44e0b3d9459d044ac872407402a4e0de",
+      "size_bytes": 3011614,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-nv/manual/2026-05-27-nv-eligibility-payments-manual-r2026-07-15-self-contained.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-nv/manual/2026-07-13-recovery.jsonl",
+      "git_blob_sha1": "2ca06e39e7e3ffaeaa3607602650fcbf5bc3b24e",
+      "rows": 28,
+      "sha256": "abd08a7c01a636277e6eb62fa8d13d1546ea5b048a797960139d8858d30913ee",
+      "size_bytes": 103078,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-nv/manual/2026-07-13-recovery.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-ny/manual/2026-07-17-ny-snap-manuals.jsonl",
+      "git_blob_sha1": "6594f7273e9da19c00df0e912eb72aa12db6919f",
+      "rows": 340,
+      "sha256": "a7e1d31a0ece8e0e64a883513fbedfad81c1a847b3e627d7a2eb38a46d93af9d",
+      "size_bytes": 2651897,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ny/manual/2026-07-17-ny-snap-manuals.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-or/manual/2026-07-16-or-programs-eligibility-notebook.jsonl",
+      "git_blob_sha1": "3e8e17c803e72bf4418ffc5aa0a3eaaf27776f13",
+      "rows": 1323,
+      "sha256": "f0ce2f26eea4d11e8cc9f9aef0096f5274935d1950c1397663e9a8265e807e7b",
+      "size_bytes": 5125748,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-or/manual/2026-07-16-or-programs-eligibility-notebook.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-pa/manual/2026-07-21-pa-snap-handbook.jsonl",
+      "git_blob_sha1": "f9a1ea8db37822495ceb5e6e4f1a558d179d940b",
+      "rows": 1055,
+      "sha256": "23ab0a15f6a9f075b41720b34314a4edcc03c7284f7d430d1c7a58faf8598819",
+      "size_bytes": 3039141,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-pa/manual/2026-07-21-pa-snap-handbook.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-sc/manual/2026-05-27-sc-snap-manual.jsonl",
+      "git_blob_sha1": "2bdfbd73fc5ee1ac64459f5e01dd3e89d4f1cb21",
+      "rows": 460,
+      "sha256": "c21539d472ea105695da5e007b24839b5f4e8cea9f4e6066a933e6d3817a8e13",
+      "size_bytes": 1765816,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-sc/manual/2026-05-27-sc-snap-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-sc/manual/2026-07-13-recovery.jsonl",
+      "git_blob_sha1": "d8274e06eaf1d3b80894ddb330343e36c2e018f8",
+      "rows": 5,
+      "sha256": "54b8c4494ee7292c830ceee33804312b081117493589ece3aec9321166ac3074",
+      "size_bytes": 8786,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-sc/manual/2026-07-13-recovery.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-sd/manual/2026-05-27-sd-snap-manual.jsonl",
+      "git_blob_sha1": "7f9a953d77d9ec9754c68cace4e6586031411628",
+      "rows": 339,
+      "sha256": "b9b0ceb150d674f547e5638075c454ba468bb6b95276398c78b720faa0592fd4",
+      "size_bytes": 1432267,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-sd/manual/2026-05-27-sd-snap-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-sd/manual/2026-07-21-sd-snap-manual.jsonl",
+      "git_blob_sha1": "fbe61543e4de4207389d3d437db3abca42fac007",
+      "rows": 340,
+      "sha256": "6e655a296b8333c7d80b3deb7d536e5eea9fde65cbe615db373905656c9dc9ed",
+      "size_bytes": 1449919,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-sd/manual/2026-07-21-sd-snap-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-tn/manual/2026-05-27-tn-snap-policies-r2026-07-15-self-contained.jsonl",
+      "git_blob_sha1": "f29f6960cf3bd8dc3627e378af8069946fdaa54f",
+      "rows": 233,
+      "sha256": "3bd08c8f293e4ee743b07e43bdb3e3ace40485f28add397d5851d77eaab38b3c",
+      "size_bytes": 868150,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-tn/manual/2026-05-27-tn-snap-policies-r2026-07-15-self-contained.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-tn/manual/2026-07-13-recovery.jsonl",
+      "git_blob_sha1": "cf8d2a55f13a14ccdb5911354e61a4e08bb4644b",
+      "rows": 10,
+      "sha256": "064377b8ee2b0bb279c22078b0feb6f8fff78ab44df809f1866245711fdc0827",
+      "size_bytes": 32960,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-tn/manual/2026-07-13-recovery.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-tx/manual/2026-05-27-tx-manuals-r2026-07-15-self-contained.jsonl",
+      "git_blob_sha1": "56b2ea44fc1323785bc25aed7801196d90745327",
+      "rows": 550,
+      "sha256": "215d6ae9b3edf164b6436ce3bec2c6796b4f251a826aac474a9ae38585ddb8a9",
+      "size_bytes": 1079473,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-tx/manual/2026-05-27-tx-manuals-r2026-07-15-self-contained.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-tx/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+      "git_blob_sha1": "851826032960470efffbd12e238ab0349e8a1a38",
+      "rows": 22,
+      "sha256": "08379645df34931cbd55f6dc66a5d18c20e0e489805bfd68eb61ace31a8f39f1",
+      "size_bytes": 38304,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-tx/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-tx/manual/2026-07-13-tx-twh-c120.jsonl",
+      "git_blob_sha1": "06ec51eeddd76301faccf6ce38f607c3055a7227",
+      "rows": 12,
+      "sha256": "8ff9d0373da4d71fe1302b3658c5c72b44c5ca90448c5aa34c631db31d7c5d52",
+      "size_bytes": 30311,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-tx/manual/2026-07-13-tx-twh-c120.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-ut/manual/2026-05-27-ut-manuals-r2026-07-15-self-contained.jsonl",
+      "git_blob_sha1": "43ebbdd42c39a7f30d48d165c7dd4788534bc06b",
+      "rows": 2398,
+      "sha256": "9930f612a350dbd0ce6bfa636a32e2d7c6af2c498522927864e4f2cba74f1fce",
+      "size_bytes": 6093290,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ut/manual/2026-05-27-ut-manuals-r2026-07-15-self-contained.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-ut/manual/2026-07-13-recovery.jsonl",
+      "git_blob_sha1": "9493b9345cbebf676d6dd3cbf8209f6a56aadc3a",
+      "rows": 7,
+      "sha256": "edaf362364218f45666c63c75c930ee1e7ebb5c2621a73f97b27b9f47b08a8bb",
+      "size_bytes": 14605,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-ut/manual/2026-07-13-recovery.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-va/manual/2026-05-27-va-snap-manual.jsonl",
+      "git_blob_sha1": "4c44f2da93f719888ef017ac90e8fb38e1cc10ea",
+      "rows": 676,
+      "sha256": "00b5747b1d5898294ee3083efe3616c4bff654f7b983279548d04952f6dce257",
+      "size_bytes": 2505469,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-va/manual/2026-05-27-va-snap-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-va/manual/2026-07-21-va-snap-manual.jsonl",
+      "git_blob_sha1": "a47c2194e8f3c935df469b3f115c6710dd1779b7",
+      "rows": 678,
+      "sha256": "8d451aa6ed4bad4e531443b999d66eef225c7b85280f460930ec055fd279db3c",
+      "size_bytes": 2663973,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-va/manual/2026-07-21-va-snap-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-vt/manual/2026-05-27-vt-3squaresvt-manual.jsonl",
+      "git_blob_sha1": "25cec8e5c813cfef57c844ff48be266e167479fe",
+      "rows": 919,
+      "sha256": "a8f37dc440dece6b92d5f405709e24aebe623f7f92d9b16720b789f470c0f02a",
+      "size_bytes": 2016035,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-vt/manual/2026-05-27-vt-3squaresvt-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-vt/manual/2026-07-21-vt-3squaresvt-manual.jsonl",
+      "git_blob_sha1": "aaeea3bceac3b21a75bca7041ca34cd01f61722e",
+      "rows": 911,
+      "sha256": "03befc8c1fa53c732c7c0d692f0e82b5553160982077825f0df1761c8bdfdafb",
+      "size_bytes": 2003872,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-vt/manual/2026-07-21-vt-3squaresvt-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-wa/manual/2026-07-21-wa-eaz-manual.jsonl",
+      "git_blob_sha1": "3028ca0ce856d4afe15f0575591cefd785914695",
+      "rows": 1265,
+      "sha256": "7dfd6337e8e9c5ca8c3ca129b34b6d378e06045ed95334126e0378fc7aa5a51b",
+      "size_bytes": 3454062,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-wa/manual/2026-07-21-wa-eaz-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-wi/manual/2026-05-27-wi-foodshare-manual.jsonl",
+      "git_blob_sha1": "01e02d629f6380d64882520426dcfb89dc878158",
+      "rows": 373,
+      "sha256": "2afb6e711ca9b918324b646e14a61f9a865556193fb2547379fdd93c18a5c4da",
+      "size_bytes": 1363313,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-wi/manual/2026-05-27-wi-foodshare-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-wi/manual/2026-07-21-wi-foodshare-manual.jsonl",
+      "git_blob_sha1": "dade075f46184a1e95bc7fea93a4cd05fa15c956",
+      "rows": 373,
+      "sha256": "1cf8c375721412519e44814b52657ad90f3376786175cef3a302fda5241f13d5",
+      "size_bytes": 1445373,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-wi/manual/2026-07-21-wi-foodshare-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-wv/manual/2026-07-21-wv-income-maintenance-manual.jsonl",
+      "git_blob_sha1": "22ca65e3b56e15e4faf44bc0ed7d91f1b327c0e1",
+      "rows": 2276,
+      "sha256": "6deddfc0b8b6f3b48de93be6982fb1707481c9653369a779d8f3d35e57747bee",
+      "size_bytes": 8097805,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-wv/manual/2026-07-21-wv-income-maintenance-manual.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-wv/manual/2026-07-21-wv-snap-healthy-choices-overlay.jsonl",
+      "git_blob_sha1": "23c06b057603faabd96f0571c8f06893dd172e26",
+      "rows": 2,
+      "sha256": "f85a78468afbd4cd5ba3193c763d53296665f3b137928c74b01c369b529e8823",
+      "size_bytes": 5929,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-wv/manual/2026-07-21-wv-snap-healthy-choices-overlay.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-wy/manual/2026-05-27-wy-manuals-r2026-07-15-self-contained.jsonl",
+      "git_blob_sha1": "dbbccd5a4f4ac5ecb06013aec865abd52d0d2dec",
+      "rows": 9,
+      "sha256": "ec5a969633326f080a5f51388f3cd42e0e43f3d303a82e73d776e9b32faef228",
+      "size_bytes": 193152,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-wy/manual/2026-05-27-wy-manuals-r2026-07-15-self-contained.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/us-wy/manual/2026-07-13-recovery.jsonl",
+      "git_blob_sha1": "dd53e44e1076a507bfaa43cf122af048df9ecd99",
+      "rows": 2,
+      "sha256": "e3da9e1632cb78df23630a325e4d5b3d78483a879cfb16841a089ae5f4ff60e3",
+      "size_bytes": 506578,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/us-wy/manual/2026-07-13-recovery.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-adur/manual/2026-09-05-adur-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "41c526c391ecd190a97af7afdd5833666cfe4d03",
+      "rows": 152,
+      "sha256": "a418d620ec2269c540ab5fb603f5623808e0b3acb19185a9384a020d86722c81",
+      "size_bytes": 642739,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-adur/manual/2026-09-05-adur-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-amber-valley/manual/2026-09-05-amber-valley-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "b5b33e8cd033cafc010f85cb1c6dd60fa024066b",
+      "rows": 180,
+      "sha256": "a6899d475e27500a4d7e0825639de2995babd8c72f506d821e221585763bb2e1",
+      "size_bytes": 839025,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-amber-valley/manual/2026-09-05-amber-valley-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-arun/manual/2026-09-05-arun-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "63c9517dd8db6941810f9412ccbfaf48de83d1a8",
+      "rows": 112,
+      "sha256": "d01b7bab62192b2d4e01f7a16510985eb111470a5320860b6a5bbcf4960ef73f",
+      "size_bytes": 516152,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-arun/manual/2026-09-05-arun-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-ashford/manual/2026-08-02-ashford-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "8251065cb2a4d8d1c6ec9be92c9bb672086258ce",
+      "rows": 127,
+      "sha256": "afb1148253a7efe01abd7fe333e8899ab23dd915085378db9e429fb586e6342d",
+      "size_bytes": 527192,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-ashford/manual/2026-08-02-ashford-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-babergh/manual/2026-08-03-babergh-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "ee8b7ea5cd6fa4dd1be95dfafb531bd7572168d7",
+      "rows": 153,
+      "sha256": "f389c2cbefde1d9fc4eb16458d503c754125c63c55d736f1f3ee889f7bde2117",
+      "size_bytes": 608021,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-babergh/manual/2026-08-03-babergh-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-barking-and-dagenham/manual/2026-09-05-barking-and-dagenham-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "d684460f7d4623a7a01b444a9044c24905adeb10",
+      "rows": 65,
+      "sha256": "c35a8d5abffd7b42f39535bd7f30fcb20ef488adc10b9670be9a783ddf79fe63",
+      "size_bytes": 244750,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-barking-and-dagenham/manual/2026-09-05-barking-and-dagenham-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-barnsley/manual/2026-08-03-barnsley-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "9b8483890be51518c16a24ad279cba625d72c9d0",
+      "rows": 65,
+      "sha256": "7fb496a9c0e917ce8e5b4c2dfd10362f270768587fcee70dea8100b88fc6dabf",
+      "size_bytes": 247194,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-barnsley/manual/2026-08-03-barnsley-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-bassetlaw/manual/2026-08-03-bassetlaw-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "1e0fe1165f178e6bf949a45b7aeb2806399799e4",
+      "rows": 93,
+      "sha256": "523b9a7ee87c37291e0ce5cecf25c48507966624044c3ea8a383d926d7a26b87",
+      "size_bytes": 507469,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-bassetlaw/manual/2026-08-03-bassetlaw-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-bath-and-north-east-somerset/manual/2026-07-25-bath-and-north-east-somerset-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "d1425215dd4eed3d6c3553705ded838109f4c1c4",
+      "rows": 182,
+      "sha256": "90c119a897b4d54b272a2a939aa0fc154f3f6248d55df0203ea00ef2f019086c",
+      "size_bytes": 719142,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-bath-and-north-east-somerset/manual/2026-07-25-bath-and-north-east-somerset-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-bedford/manual/2026-09-05-bedford-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "77598f5c185f36b563bf35f899f3b6f1ef25f5cb",
+      "rows": 16,
+      "sha256": "133b165377181463818106e586e5aaa08bcb63f62e2604fe0002988e2bb8b076",
+      "size_bytes": 52671,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-bedford/manual/2026-09-05-bedford-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-blackpool/manual/2026-07-25-blackpool-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "121aa68a95967536346fd5e9ebcd6e38797d6516",
+      "rows": 138,
+      "sha256": "83721ee5d768fe6891a6d5cc2e019306957d1612e1b9c678343232c7cd170854",
+      "size_bytes": 606444,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-blackpool/manual/2026-07-25-blackpool-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-bournemouth-christchurch-and-poole/manual/2026-09-05-bournemouth-christchurch-and-poole-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "12c3edaeee4fbff2a4e200e258b6a62b77e0659f",
+      "rows": 187,
+      "sha256": "f2f65580769ea7f697aa42e37fa9821211317c5c74f447e4acaf0ea57320204c",
+      "size_bytes": 765425,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-bournemouth-christchurch-and-poole/manual/2026-09-05-bournemouth-christchurch-and-poole-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-bracknell-forest/manual/2026-09-05-bracknell-forest-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "241d152d316aa623ee40a7fcbfc61450fa428578",
+      "rows": 115,
+      "sha256": "afa15300a624c5a35f42e29ed6860b54ee0ecb8fc7a134b56418f1b3b42a57b8",
+      "size_bytes": 588536,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-bracknell-forest/manual/2026-09-05-bracknell-forest-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-braintree/manual/2026-08-05-braintree-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "6b042584bfe205525f2d14a2a15736350f0d9be6",
+      "rows": 86,
+      "sha256": "3057f2f47c26d78a429de10af818d43975a7a29c7249cd10ab18052fcb565de5",
+      "size_bytes": 417465,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-braintree/manual/2026-08-05-braintree-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-breckland/manual/2026-09-05-breckland-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "80a23feffd83bbdc9bf26168ca6be41680dfe739",
+      "rows": 211,
+      "sha256": "0fe14b697427e5c88279c561603dd2dfecb4e388c52f9210b28ebd88b6e4e9ca",
+      "size_bytes": 971317,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-breckland/manual/2026-09-05-breckland-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-brentwood/manual/2026-08-02-brentwood-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "d4b8050e9f8c1ac27cd3d1c34b65318651763ff3",
+      "rows": 78,
+      "sha256": "0f10a4a543d87b980ed3011b4d773b8c8cb5a1b05771d46b84e0f152c25ba50f",
+      "size_bytes": 368351,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-brentwood/manual/2026-08-02-brentwood-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-bristol-city-of/manual/2026-07-19-bristol-city-of-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "f9b00b159f19881ec28d5697becac725ec91810d",
+      "rows": 55,
+      "sha256": "128dcd20b0abb5cc6e784764da217a8a8fad0f930944df4eba60b29ecffe1909",
+      "size_bytes": 219900,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-bristol-city-of/manual/2026-07-19-bristol-city-of-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-broadland/manual/2026-08-02-broadland-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "c12e3ba96c22a86705c917a0893f7ce0363ac739",
+      "rows": 59,
+      "sha256": "e65beb555d20affea2277acc12f36af6474ae18678a29fc8982ea5cfcc5dafef",
+      "size_bytes": 232729,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-broadland/manual/2026-08-02-broadland-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-bromsgrove/manual/2026-08-03-bromsgrove-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "c645a1593008f687a498ba90fddbefb4dd21093d",
+      "rows": 87,
+      "sha256": "83785b665410a0e7bc4e39306e9f5966056aae69d5397c19bd494b0da0adbba2",
+      "size_bytes": 417332,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-bromsgrove/manual/2026-08-03-bromsgrove-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-broxbourne/manual/2026-08-02-broxbourne-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "3ec25adcd12a88d0af214d0b160810b44c170991",
+      "rows": 138,
+      "sha256": "c3965239a925ec3807c9279ca1b0c7e9c01bc0e03239aa9c24fa389bc1e70c9a",
+      "size_bytes": 594388,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-broxbourne/manual/2026-08-02-broxbourne-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-broxtowe/manual/2026-09-05-broxtowe-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "93f1a263abb4844750aa411870f7edfc461efbc2",
+      "rows": 254,
+      "sha256": "1fb6a5eb6d1c7331d86bc2f42215241b6c603d23481cfeb3be946e4025d3c996",
+      "size_bytes": 910503,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-broxtowe/manual/2026-09-05-broxtowe-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-burnley/manual/2026-09-05-burnley-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "09cfe385bd935c6d3a2ce6070e7211ca96314676",
+      "rows": 152,
+      "sha256": "03142e7ba54c8545d21dc2823c9a728dc60882d337bafc956f0d8eb769c45bec",
+      "size_bytes": 649141,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-burnley/manual/2026-09-05-burnley-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-bury/manual/2026-08-08-bury-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "4447e8c926b04d80a873227fef7884979d0e61c2",
+      "rows": 60,
+      "sha256": "c447819d85dff196450b835b2e7c8182236edc23427c09853b33367b08e0b9c6",
+      "size_bytes": 226097,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-bury/manual/2026-08-08-bury-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-cambridge/manual/2026-08-05-cambridge-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "07ef40ff3ecd1383d46f1c6f05f6a0fc648ab9a9",
+      "rows": 222,
+      "sha256": "baaef436076d616a2ac8dcf64ce19db63188787e649128f544076ce0c02d5b7e",
+      "size_bytes": 970649,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-cambridge/manual/2026-08-05-cambridge-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-cannock-chase/manual/2026-09-05-cannock-chase-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "5f461af3cb5c3275cd4a015b0e9a3eb55d7382c8",
+      "rows": 124,
+      "sha256": "f651143b170d90640cc322b759d8016a679feb636a834e5f7ab01ae563b2c950",
+      "size_bytes": 538872,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-cannock-chase/manual/2026-09-05-cannock-chase-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-canterbury/manual/2026-09-05-canterbury-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "776b52ab2ccc4ec28fb51b5a501faca407305c71",
+      "rows": 98,
+      "sha256": "0ef8d99d9b15e5410f07ae2da3faee687e5f2ca4c6b78124904d1fa931ce6738",
+      "size_bytes": 408924,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-canterbury/manual/2026-09-05-canterbury-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-castle-point/manual/2026-08-02-castle-point-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "4123514d95756bf21e5886bc59944a474afd81df",
+      "rows": 74,
+      "sha256": "84289375b2257ed8f366e8484e72eac86a87cba742bdf852013fdb2513732c1a",
+      "size_bytes": 354681,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-castle-point/manual/2026-08-02-castle-point-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-charnwood/manual/2026-09-05-charnwood-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "b8c0fe8ba4cf5d406d7c48120ca2c65f5927faba",
+      "rows": 210,
+      "sha256": "6f6dc29659c733fb493ddd17f931c99fc4e0c2fc037f4572c60c29fc36d18c70",
+      "size_bytes": 910267,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-charnwood/manual/2026-09-05-charnwood-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-chelmsford/manual/2026-09-05-chelmsford-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "660c16b2913c639d33a4a93ef153dfd9bcc509ca",
+      "rows": 144,
+      "sha256": "519a08809ecac38917c875e84a4fffc5a60b85d75dbf71581fc4dc7bbe3107b2",
+      "size_bytes": 643762,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-chelmsford/manual/2026-09-05-chelmsford-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-cherwell/manual/2026-09-05-cherwell-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "ac2a82b984e80bbd88cc60413be5d02604aa3d14",
+      "rows": 150,
+      "sha256": "bcab46f338b7b3cca91890180e467e77457535e72671360349712d8f60c26d43",
+      "size_bytes": 816872,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-cherwell/manual/2026-09-05-cherwell-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-cheshire-east/manual/2026-07-25-cheshire-east-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "a6905862f5e1efc1646f4002dca25dafbb2285bb",
+      "rows": 128,
+      "sha256": "6db26f066b84f118ce4fd319ab28f04e47b1b83acbe19bdeeba57cb13734e2fd",
+      "size_bytes": 551013,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-cheshire-east/manual/2026-07-25-cheshire-east-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-cheshire-west-and-chester/manual/2026-07-25-cheshire-west-and-chester-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "27c1711f1e0a1ee82d49dad10cb4ef2faf8c2401",
+      "rows": 299,
+      "sha256": "f4363b0ff56a0d3c1ba3369a5b6c9a4064487c45dbc492051dddbfeeed27f10e",
+      "size_bytes": 1105756,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-cheshire-west-and-chester/manual/2026-07-25-cheshire-west-and-chester-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-chorley/manual/2026-08-02-chorley-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "38686216c85898f3ca0a3df5dce528d637e76a33",
+      "rows": 146,
+      "sha256": "bd929d246d45daed84f303721d7c9b2eb058b56b27fec22d8db687f291c01ab1",
+      "size_bytes": 610129,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-chorley/manual/2026-08-02-chorley-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-cotswold/manual/2026-08-02-cotswold-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "87cac1dd4c8aebaa4cf155c5bbe015a5122d6c15",
+      "rows": 167,
+      "sha256": "ec1ea900f95f9bc40d909fc7ae6fe6b581cacdd2b9fc2c8ca82c73912e403055",
+      "size_bytes": 554944,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-cotswold/manual/2026-08-02-cotswold-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-county-durham/manual/2026-08-10-county-durham-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "fbabd6a76def8b1fd27396378670ea00fb7043e8",
+      "rows": 41,
+      "sha256": "e6c4098a80d47fc6fc45a73d66d18c0165d606f9d9a0395cdc27cbeb4b5cc44a",
+      "size_bytes": 153115,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-county-durham/manual/2026-08-10-county-durham-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-coventry/manual/2026-07-21-coventry-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "ed41f2a660bf508a2fae58093f763429b2280f41",
+      "rows": 142,
+      "sha256": "a50b5c019aaa8246a44c2c811655fe9ce0ec39dc57da70e1b0024f04af993c04",
+      "size_bytes": 603146,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-coventry/manual/2026-07-21-coventry-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-crawley/manual/2026-09-05-crawley-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "268dadac4e05d3ee1e7bbfb7e9d072c845cb6f65",
+      "rows": 133,
+      "sha256": "bf721aba018cc75712289c0cff5b54ea85e47f488ca427b6738599ce75b04e8e",
+      "size_bytes": 575056,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-crawley/manual/2026-09-05-crawley-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-cumberland/manual/2026-09-05-cumberland-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "154f2f22c9397b459e24c2b19a6777a123b25816",
+      "rows": 145,
+      "sha256": "50a65c20730ef7b46c8fff9eecced0583854d0e865ae893dd3d34c5f0f3f0319",
+      "size_bytes": 643535,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-cumberland/manual/2026-09-05-cumberland-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-darlington/manual/2026-08-06-darlington-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "8a777f3eac2d8883c631d2ce22bd5a447b08fc5e",
+      "rows": 50,
+      "sha256": "e1b490c04498cb4fab5b9002cd50eff614d8c562ed5ca9c8ae8e63f3b34b86af",
+      "size_bytes": 165199,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-darlington/manual/2026-08-06-darlington-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-dartford/manual/2026-08-02-dartford-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "aa95dcf6a1b70f8a56cbf50ae27068912757c0bf",
+      "rows": 89,
+      "sha256": "309bfed58bc57ca30fb5e5ab0befd2a7fff146ac1309e259627ae5c377a80ab7",
+      "size_bytes": 357611,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-dartford/manual/2026-08-02-dartford-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-derby/manual/2026-07-21-derby-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "d9764b602103c76884d52e45c893ac856b8d3659",
+      "rows": 11,
+      "sha256": "4119551ee2f2b94e5b1dc05ed88713ba1cf28d5b83fff99588563680cbfdd035",
+      "size_bytes": 35241,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-derby/manual/2026-07-21-derby-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-dover/manual/2026-08-02-dover-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "7e81b44ecf59e5814e1b8d4253b31795ca0ff1cc",
+      "rows": 98,
+      "sha256": "f426a2da88deefa4d393eb0141feb98999a1e735d71125547655345c9438dfc5",
+      "size_bytes": 387049,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-dover/manual/2026-08-02-dover-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-dudley/manual/2026-08-06-dudley-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "eb9e416a2332d24d0884679765b8387dd8b79734",
+      "rows": 151,
+      "sha256": "bb8921450b954bb95ca3c6cf0c2f9c62c81fd76b13502a17954b911cee6ae0b4",
+      "size_bytes": 786428,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-dudley/manual/2026-08-06-dudley-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-ealing/manual/2026-08-03-ealing-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "57fccf1c9266fd3c380b379be0f33c953bd1c927",
+      "rows": 18,
+      "sha256": "6efe62938db26dd47893e5fbef5e8aa6ef2d9dcc14b8856584967a09995a33bc",
+      "size_bytes": 52995,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-ealing/manual/2026-08-03-ealing-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-east-cambridgeshire/manual/2026-09-05-east-cambridgeshire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "c13720f2eb3a5703dcc228b4e5fa687bb2c16075",
+      "rows": 211,
+      "sha256": "6b61c3956c742930cd9eda0f3dc4c97e21c6e68a75b7ec605189332f521b3269",
+      "size_bytes": 993894,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-east-cambridgeshire/manual/2026-09-05-east-cambridgeshire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-east-hampshire/manual/2026-08-02-east-hampshire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "a938116214fca600058635ad1d0771804481ccf0",
+      "rows": 186,
+      "sha256": "b906baf9488bae2fff28b3a6d44311d53be5074f2feada2cf8ba177551f1fb32",
+      "size_bytes": 859472,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-east-hampshire/manual/2026-08-02-east-hampshire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-east-hertfordshire/manual/2026-08-14-east-hertfordshire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "aa635a011f57c4c020d69f2d83147500c765b4a3",
+      "rows": 161,
+      "sha256": "60cd0071c5961fee22b048f3d19aa937c188588076abf5e323a7128d2f9a2445",
+      "size_bytes": 707355,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-east-hertfordshire/manual/2026-08-14-east-hertfordshire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-east-riding-of-yorkshire/manual/2026-09-05-east-riding-of-yorkshire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "0f88a80ee8cc59590fe05cee3eea419ad6c2339b",
+      "rows": 77,
+      "sha256": "3f584940dde39ae466b43f131268a738fd750ebafa5f5481d5d8b5935285284e",
+      "size_bytes": 382476,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-east-riding-of-yorkshire/manual/2026-09-05-east-riding-of-yorkshire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-east-suffolk/manual/2026-09-05-east-suffolk-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "d990a04d486b35ff55abc26b54adb6f9b5548b06",
+      "rows": 196,
+      "sha256": "20a0a4abfe7db7c277422d8bdb9621f119c11d02911dce51db5b06281e54e908",
+      "size_bytes": 941099,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-east-suffolk/manual/2026-09-05-east-suffolk-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-eastleigh/manual/2026-09-05-eastleigh-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "8d94c120235ddc38e6c7dd1b1d9fcea7e0e33329",
+      "rows": 144,
+      "sha256": "84129acf4a9c41b6ca618f109b5e1bac0085810267072959c00092955a60bc57",
+      "size_bytes": 613833,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-eastleigh/manual/2026-09-05-eastleigh-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-elmbridge/manual/2026-08-03-elmbridge-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "4ab2f759ec841f6532ccf1ad24c5fd51b0170088",
+      "rows": 297,
+      "sha256": "e1ef44311c724cc1267d20eca658e53c4b5153144a2497f2feba8680f937e37e",
+      "size_bytes": 1023646,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-elmbridge/manual/2026-08-03-elmbridge-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-epsom-and-ewell/manual/2026-09-05-epsom-and-ewell-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "48bf492fd78cb57586df6c7295b1f61b0a69906e",
+      "rows": 107,
+      "sha256": "f4453fc7a6efed2d7f76f3ff2e1a033a8b1c9612634b38b1479683eebf392c07",
+      "size_bytes": 433803,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-epsom-and-ewell/manual/2026-09-05-epsom-and-ewell-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-fareham/manual/2026-09-05-fareham-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "0a78d5dc17375998125493b8b1eefc0f1fb782fa",
+      "rows": 88,
+      "sha256": "6d597de0f8822c8ab55a81406d2af26fe8c5a35b368a7625c9cbb770ba555114",
+      "size_bytes": 405962,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-fareham/manual/2026-09-05-fareham-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-fenland/manual/2026-09-05-fenland-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "7100f581c39f29f85928e045a1a5703c67a7f959",
+      "rows": 195,
+      "sha256": "d15824e2987710c6db87d67b4fb5ced87a363fe387b5d51ee1bdd76f2dd057a7",
+      "size_bytes": 926587,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-fenland/manual/2026-09-05-fenland-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-folkestone-and-hythe/manual/2026-08-02-folkestone-and-hythe-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "edded3ff7d52aa3460be6c8359aa3057710bde62",
+      "rows": 68,
+      "sha256": "b1175470fe0f7a7963c156d32e22e4c1612cec0bd90650775a20662214f08316",
+      "size_bytes": 337475,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-folkestone-and-hythe/manual/2026-08-02-folkestone-and-hythe-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-forest-of-dean/manual/2026-08-02-forest-of-dean-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "2468da51ad019eff96de8075404d913f81e0aa96",
+      "rows": 143,
+      "sha256": "d5818b9e1620da2ba4dd66ce4c86a998cfcfc96cc264af8f356602cd74122b00",
+      "size_bytes": 593137,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-forest-of-dean/manual/2026-08-02-forest-of-dean-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-fylde/manual/2026-09-05-fylde-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "39bede465088ec4f99a2a48a6b579d58824e7eaa",
+      "rows": 140,
+      "sha256": "4cf84b77aa1fa48c94b4fcd180efed9489e21608458854ebab5f74fa36575472",
+      "size_bytes": 597180,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-fylde/manual/2026-09-05-fylde-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-gloucester/manual/2026-08-02-gloucester-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "3c313b1f0219d102bd4c49de9e44fcfc7d90f558",
+      "rows": 177,
+      "sha256": "ed301d6e1288d192f8b80ce8308a946724111b3aa2e2b286084bb78b1d235466",
+      "size_bytes": 753555,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-gloucester/manual/2026-08-02-gloucester-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-gravesham/manual/2026-09-05-gravesham-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "3c4eceaef0eb7e6f25f210c00d23dc2f7c1d1f04",
+      "rows": 90,
+      "sha256": "eeec658aafadd41fd11e7ee860082a4dac84483a97f99da8201cb63fbd6db0e2",
+      "size_bytes": 433494,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-gravesham/manual/2026-09-05-gravesham-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-guildford/manual/2026-08-03-guildford-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "6df80ec5661dd01a3b822e125f0a1c10781ac0c5",
+      "rows": 141,
+      "sha256": "689eccdd0cec595e79bf39bf7987cf9c88b712b2ad39cf959b5e6e8c8158ca04",
+      "size_bytes": 655757,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-guildford/manual/2026-08-03-guildford-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-haringey/manual/2026-09-05-haringey-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "a4036b2f77b9dad30c8f588a7483e56efa3f5495",
+      "rows": 222,
+      "sha256": "a8f4ba1cf0adead264874f0a69d8df79759f043fbe0af99f9b933b697154279a",
+      "size_bytes": 964394,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-haringey/manual/2026-09-05-haringey-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-harlow/manual/2026-08-02-harlow-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "4f215262fc0bf47543aed465c8f73d022f4364ec",
+      "rows": 147,
+      "sha256": "cd02d3e28e6b2929341b59628faedf33b14f536766d95b0be8b1bf00ab325884",
+      "size_bytes": 632712,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-harlow/manual/2026-08-02-harlow-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-harrow/manual/2026-08-03-harrow-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "b8c4665d0edca156a3e3073af1605af63cfc1da5",
+      "rows": 197,
+      "sha256": "e8513726dc4e54b8fc0ef3beb0b7f62b50686500bb6b359831351f766f9fbcce",
+      "size_bytes": 807706,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-harrow/manual/2026-08-03-harrow-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-hart/manual/2026-09-05-hart-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "fdec26ed802d62ece7bece889fb30b1e17135abb",
+      "rows": 149,
+      "sha256": "60872ab899d2858e4d012e9554720f6fe7ec120c1ded7e5dd68cf2872fea149c",
+      "size_bytes": 797301,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-hart/manual/2026-09-05-hart-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-hartlepool/manual/2026-08-05-hartlepool-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "331422fc20c2d206aa3f1730a1f7f86ce6661161",
+      "rows": 91,
+      "sha256": "4f72ea0e0cf51dad193da630e1f51c26794e1b366f09401d876e96b799345720",
+      "size_bytes": 436107,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-hartlepool/manual/2026-08-05-hartlepool-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-hastings/manual/2026-08-02-hastings-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "59c4608516ffce2b310c7009b5040ebdaa5cc71e",
+      "rows": 134,
+      "sha256": "f003eae63e8db7a23de52db07557d58f1462ee9170c12b1773f82bed3b090a39",
+      "size_bytes": 580190,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-hastings/manual/2026-08-02-hastings-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-havant/manual/2026-08-02-havant-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "87699ad9d3fe57e666633a7015b414d7d2f1d714",
+      "rows": 188,
+      "sha256": "42681705b54e4622fdb9c81eda31e44967ef423358a18bba5ee5faa2ff267346",
+      "size_bytes": 861202,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-havant/manual/2026-08-02-havant-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-herefordshire/manual/2026-08-10-herefordshire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "75db55213474d9885b217fa3a6947695b34adc4f",
+      "rows": 154,
+      "sha256": "b0867a00f8d7ebeb89bcd1a46531ec50ba259e5663cb5ea28da15884124ae99e",
+      "size_bytes": 656958,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-herefordshire/manual/2026-08-10-herefordshire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-hertsmere/manual/2026-08-02-hertsmere-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "90cb6282c6aa67bdeb34da24ec9101872136d7ce",
+      "rows": 150,
+      "sha256": "764f65611be876897da2bfd97be189e91fd3f458bed51432306adbe8e701e80a",
+      "size_bytes": 629492,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-hertsmere/manual/2026-08-02-hertsmere-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-hillingdon/manual/2026-08-03-hillingdon-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "e7eddac3a9512acacb71f4c310b865752e0e3ded",
+      "rows": 135,
+      "sha256": "0f41fc73a483f8e2fe024c9d4f8eaee820ed7113c6f894d56529fc56128d1599",
+      "size_bytes": 545378,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-hillingdon/manual/2026-08-03-hillingdon-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-ipswich/manual/2026-08-03-ipswich-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "52dea6fb0daec24e09dbd79707a66b6ed6f15c4c",
+      "rows": 153,
+      "sha256": "bdd621feeb4770007bb6f1ac7eb53d0508b436f79daaa7d55e05291211b1ce9c",
+      "size_bytes": 612311,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-ipswich/manual/2026-08-03-ipswich-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-isle-of-wight/manual/2026-08-14-isle-of-wight-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "6e414fe46f06c549722d04af787abe6ee01af1e0",
+      "rows": 107,
+      "sha256": "b6d5aa8ae1e132ef2467259190f1ab8f78c152599890b0f2e9a8ecfdb3919b8c",
+      "size_bytes": 579875,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-isle-of-wight/manual/2026-08-14-isle-of-wight-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-isles-of-scilly/manual/2026-09-05-isles-of-scilly-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "da14e773b02190a1db19cd642a510b78802d6645",
+      "rows": 144,
+      "sha256": "de637e9b1a73684a22a29dbe518a25b57cc6d55046fe31f9386e9c2a5f1d4da8",
+      "size_bytes": 644436,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-isles-of-scilly/manual/2026-09-05-isles-of-scilly-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-kensington-and-chelsea/manual/2026-08-03-kensington-and-chelsea-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "84edaf080649bbe0c78f7f3a7d4a9ae9b405f6a9",
+      "rows": 221,
+      "sha256": "db938de476ab19f0858e55007bf366de33ba89ae87485fc43184aee839ff1d84",
+      "size_bytes": 915877,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-kensington-and-chelsea/manual/2026-08-03-kensington-and-chelsea-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-kingston-upon-thames/manual/2026-06-07-kingston-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "5331088c55cbb79980ea804148c5132162a0144a",
+      "rows": 162,
+      "sha256": "58a0a016539a0b3bcdda27b84f325c1d98b009db7a02ad6598eaebb6dfecbc83",
+      "size_bytes": 863984,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-kingston-upon-thames/manual/2026-06-07-kingston-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-knowsley/manual/2026-08-03-knowsley-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "a6a69668197d10b092253680afbbd7c3cf2a9f89",
+      "rows": 63,
+      "sha256": "981c3d534a66b8d0ad8bc46ed0f88457ce4b855f1c4442685f312924cd20fe99",
+      "size_bytes": 237507,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-knowsley/manual/2026-08-03-knowsley-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-lancaster/manual/2026-08-02-lancaster-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "90e230aaf10eb4eae55bc1d3f348cda3d9fde20b",
+      "rows": 142,
+      "sha256": "6c89ee68cfa329c1546518fb8aafd29fc41d9daac9fa1ad456f1435a9036b4fd",
+      "size_bytes": 610996,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-lancaster/manual/2026-08-02-lancaster-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-leeds/manual/2026-08-08-leeds-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "60a96c2c49dc6089243e7f3fe538f60ccf976e0e",
+      "rows": 77,
+      "sha256": "8058b8995dd1af92864fff1a2b9c828e87751c50df9d16cd31467562d4131efb",
+      "size_bytes": 182620,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-leeds/manual/2026-08-08-leeds-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-lichfield/manual/2026-09-05-lichfield-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "cfbd1bd8ab3c88a995908472705fe774b5cfd1e8",
+      "rows": 83,
+      "sha256": "2209efa047dc040a9c76d8314011edc408c83211175a26c0ecaa649542927e61",
+      "size_bytes": 402386,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-lichfield/manual/2026-09-05-lichfield-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-maldon/manual/2026-08-02-maldon-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "92261c553904e3638b2d74b8c745369cee48b0cb",
+      "rows": 149,
+      "sha256": "50e83a92b7440286d06562a8a7a8408efb5a0a9a2ab4311284c9092178462149",
+      "size_bytes": 623419,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-maldon/manual/2026-08-02-maldon-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-malvern-hills/manual/2026-09-05-malvern-hills-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "005e26bac9170863297949726a603fe85adaf1ab",
+      "rows": 136,
+      "sha256": "93b35404720725e5bccbd3b557034c755b0b107ef28e35aed602e71f5fc43fa3",
+      "size_bytes": 644761,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-malvern-hills/manual/2026-09-05-malvern-hills-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-mansfield/manual/2026-08-03-mansfield-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "2b27db35c7d6f40aa1b01948867a88577f3a87d5",
+      "rows": 147,
+      "sha256": "13a155db9a38ecbc6f798e5ef6b0648da36cedf5e5a8e92d3ddd36fe4925659f",
+      "size_bytes": 632090,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-mansfield/manual/2026-08-03-mansfield-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-medway/manual/2026-07-25-medway-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "dc3a4a6f46462a31b1137b2f46ab8e1489621550",
+      "rows": 88,
+      "sha256": "8baee3b42db5cd11323459edf7e8596ad579bb79754e30b58d2ba9f098004ee0",
+      "size_bytes": 417277,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-medway/manual/2026-07-25-medway-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-merton/manual/2026-07-19-merton-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "06f689b03007ea59c8c0a38b27ab429e933fb1c0",
+      "rows": 256,
+      "sha256": "c1b75c632894195c17031b12d87eaa32573f13b2541ba420a3662fa520a5899c",
+      "size_bytes": 1054352,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-merton/manual/2026-07-19-merton-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-mid-suffolk/manual/2026-09-05-mid-suffolk-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "f08c6dbe03644d5259a5cfe3cf4cc33a7b7f3817",
+      "rows": 153,
+      "sha256": "8ae60e8dc93ae361d0b075b2880d695d45e1c7cd9ac7e0f1ebf4544fea766920",
+      "size_bytes": 626414,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-mid-suffolk/manual/2026-09-05-mid-suffolk-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-middlesbrough/manual/2026-08-14-middlesbrough-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "a2f3b3531612419b5fa0b1a68b96dd355a11cd35",
+      "rows": 107,
+      "sha256": "e128dd311425cb4ae906ac5d5d8fc2ad7de16da4fac865b85935ab06865720c0",
+      "size_bytes": 523977,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-middlesbrough/manual/2026-08-14-middlesbrough-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-milton-keynes/manual/2026-07-25-milton-keynes-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "178e0bf46a534f5b24e99bf4369ba053471dae6f",
+      "rows": 323,
+      "sha256": "d44d1a567c56cccb2292c0f413533c97f43d2b7e77cba462063503dcdc11ab28",
+      "size_bytes": 1233288,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-milton-keynes/manual/2026-07-25-milton-keynes-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-newark-and-sherwood/manual/2026-09-05-newark-and-sherwood-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "cff22d2d98cb37c6388c8a32502c622237261311",
+      "rows": 249,
+      "sha256": "a8bf95d2c86589672ca670713b1676062e9461a2619c4495ac1e8f7216ed0b2b",
+      "size_bytes": 977238,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-newark-and-sherwood/manual/2026-09-05-newark-and-sherwood-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-newcastle-upon-tyne/manual/2026-08-03-newcastle-upon-tyne-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "9237b6ee0a605c42dd7d32b4aa8f3717c24f600c",
+      "rows": 172,
+      "sha256": "0b67432ea1e565d417dbfed32b834cf3707df6d8e59b5cf0675cccbc91bce9c4",
+      "size_bytes": 789530,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-newcastle-upon-tyne/manual/2026-08-03-newcastle-upon-tyne-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-newham/manual/2026-07-19-newham-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "60fd9826b87387045a346009f79fa01ae65d1591",
+      "rows": 341,
+      "sha256": "27f33b520818e0fbbe1840f03537a8942ef9837c00e506c0a7768943206492a1",
+      "size_bytes": 1136175,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-newham/manual/2026-07-19-newham-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-north-east-lincolnshire/manual/2026-07-25-north-east-lincolnshire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "cde9e7c6d9e9c7f4fc0565c650dad7e03cc60d5a",
+      "rows": 85,
+      "sha256": "2e5ca9051cef7e877aa059fda77044c10ec5781a58d22da3ed30a33d974184a0",
+      "size_bytes": 416479,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-north-east-lincolnshire/manual/2026-07-25-north-east-lincolnshire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-north-hertfordshire/manual/2026-08-02-north-hertfordshire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "00e75dfbe5326d0cf50fd6a1119bfea55de67052",
+      "rows": 83,
+      "sha256": "0565a6f9f09532d3902206e634f88782e72b0ef724909eaf36623551213e7391",
+      "size_bytes": 407823,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-north-hertfordshire/manual/2026-08-02-north-hertfordshire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-north-kesteven/manual/2026-08-02-north-kesteven-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "3f5fce2680a414efe0b03f34ba9bbf68bf2d1501",
+      "rows": 194,
+      "sha256": "653134bc71b8977ce8b0056b182d0031afcc512f3e67a9a6b21aa555db9bee38",
+      "size_bytes": 872912,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-north-kesteven/manual/2026-08-02-north-kesteven-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-north-lincolnshire/manual/2026-07-25-north-lincolnshire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "530621c5cb38aac32c3abc34ed6fa8024db0d5bf",
+      "rows": 85,
+      "sha256": "a3c4b77e0f364f68866d3a13c9c88c110987bb4d54aabc6e27f7e3a90017bdbe",
+      "size_bytes": 411602,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-north-lincolnshire/manual/2026-07-25-north-lincolnshire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-north-norfolk/manual/2026-09-05-north-norfolk-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "7ec06ba21a56d53efa5f02afc75f92da1b1bb154",
+      "rows": 143,
+      "sha256": "0a4b8d87f9c55ca11c6cf692515a413786c2e1b18cd721cb9b83e366beb97f1a",
+      "size_bytes": 630213,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-north-norfolk/manual/2026-09-05-north-norfolk-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-north-somerset/manual/2026-09-05-north-somerset-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "ac5e67804523e1b8a8dfca57dfa751d755d3c2b1",
+      "rows": 61,
+      "sha256": "b488c576e739c645fb4ece241b86e34d9ff4a7e2c8fc130ea0ef4b4c7284a726",
+      "size_bytes": 241871,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-north-somerset/manual/2026-09-05-north-somerset-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-north-warwickshire/manual/2026-08-03-north-warwickshire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "996125e10e9251b385f2288bdae883348c8c54c6",
+      "rows": 138,
+      "sha256": "fa45473d76cb62b5400763fd0fde7e8125ddeab6ed399f9da514b7127d4e4374",
+      "size_bytes": 610754,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-north-warwickshire/manual/2026-08-03-north-warwickshire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-north-west-leicestershire/manual/2026-09-05-north-west-leicestershire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "04428731a3728251882276f903e976531c0ce84f",
+      "rows": 221,
+      "sha256": "46f5e8b709ec6e62caceba381ec81cfe39bf5ac98725e616cbe751d423a46c99",
+      "size_bytes": 935225,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-north-west-leicestershire/manual/2026-09-05-north-west-leicestershire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-north-yorkshire/manual/2026-07-25-north-yorkshire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "e303fdf3679ca6b1fca226e87300ca4617769613",
+      "rows": 82,
+      "sha256": "f5266c7e15473deb0a7c9b3ff8c23c8e2ebafc84931f491af53342cc3789de13",
+      "size_bytes": 402671,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-north-yorkshire/manual/2026-07-25-north-yorkshire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-northumberland/manual/2026-07-25-northumberland-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "e4f7f441ccf16b5afc049182057c24a14dba557f",
+      "rows": 86,
+      "sha256": "64adae8565f7aa42849f52fc731a887c3fae0d2399df99c6578d321ccdcc21e6",
+      "size_bytes": 413309,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-northumberland/manual/2026-07-25-northumberland-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-nottingham/manual/2026-09-05-nottingham-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "42313c41403990b324f18b4f7b223cecce7fa76c",
+      "rows": 186,
+      "sha256": "13e40e6b3935ef91af01e279f9b67af09ba721767dc78347020493b406d97d64",
+      "size_bytes": 854336,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-nottingham/manual/2026-09-05-nottingham-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-nuneaton-and-bedworth/manual/2026-08-03-nuneaton-and-bedworth-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "a65975fe9ec7ea908a8d8ae81a011aedce875d0d",
+      "rows": 136,
+      "sha256": "c36c53518a2c9cfd67e4134cc9b0850e4083b27a7ce8da33ec0970ab11c06c77",
+      "size_bytes": 617385,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-nuneaton-and-bedworth/manual/2026-08-03-nuneaton-and-bedworth-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-oldham/manual/2026-08-08-oldham-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "b1fe7ebe34da44750996e8831698ea2dd0739357",
+      "rows": 190,
+      "sha256": "853d0d8cf72eea6442375dbae7f01eb3bf99bbfe7dfe7fb00918f1e60ce94b87",
+      "size_bytes": 1021918,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-oldham/manual/2026-08-08-oldham-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-peterborough/manual/2026-07-25-peterborough-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "03c0503e7cc1aed440e52930b72ed7cd612b737d",
+      "rows": 156,
+      "sha256": "12fca1d5740d9f1e15394e8fd5c203892d2dd3a6ce56ccf648c97a7521fd16d8",
+      "size_bytes": 836966,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-peterborough/manual/2026-07-25-peterborough-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-plymouth/manual/2026-07-25-plymouth-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "88ec6fed322d132562d8d8261f9cb0880e140996",
+      "rows": 131,
+      "sha256": "6a42a49dc3e434a057e6ad600ee4e36ff10614527a5bf0adc64e2ac6bac7e751",
+      "size_bytes": 561079,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-plymouth/manual/2026-07-25-plymouth-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-portsmouth/manual/2026-09-05-portsmouth-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "93b1603e0347c75e883ac6857b5d1f0c6ca6547b",
+      "rows": 88,
+      "sha256": "3755eb14a3eff2c4a0ab03f74a2843f5af1a5156a45e1ee4f6921ab5c5b50945",
+      "size_bytes": 428717,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-portsmouth/manual/2026-09-05-portsmouth-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-reading/manual/2026-09-05-reading-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "00a580ae987ea3d9c7a962dd9123efd8239bf0f2",
+      "rows": 152,
+      "sha256": "d47d79e5bb7671fa72552ccbd4db59ac1c876bc633d0bf86f42118baf732600e",
+      "size_bytes": 799300,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-reading/manual/2026-09-05-reading-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-redbridge/manual/2026-08-03-redbridge-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "24a7d62c8d63c85b443059467494684a0270c03c",
+      "rows": 159,
+      "sha256": "747758cb45f5257cfc75c3150c331aac9957e65688a9a359a0dd1e7dec9eeeec",
+      "size_bytes": 710114,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-redbridge/manual/2026-08-03-redbridge-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-redcar-and-cleveland/manual/2026-08-06-redcar-and-cleveland-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "bb01c3c68df79b48cf101df86388b5af6fa172e5",
+      "rows": 23,
+      "sha256": "d158d4c97f87a6d2494446e32a9cc6c109ec83121a8d7013ce8420afa9e074f1",
+      "size_bytes": 85402,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-redcar-and-cleveland/manual/2026-08-06-redcar-and-cleveland-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-redditch/manual/2026-09-05-redditch-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "224152c2e75a5bbfc6a6602a73fe5ef0f59fc75a",
+      "rows": 87,
+      "sha256": "72e4e789421118751e12d05213ede8f0d834efe318278f1e3713f347142db46f",
+      "size_bytes": 420287,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-redditch/manual/2026-09-05-redditch-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-ribble-valley/manual/2026-08-02-ribble-valley-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "2c561bf9150791f2d90822e65fcda38d1e44b007",
+      "rows": 146,
+      "sha256": "280ebfd8874792cfec3b4902872749ee744794777e4ffd3fa1d38e483d9d4080",
+      "size_bytes": 634844,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-ribble-valley/manual/2026-08-02-ribble-valley-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-rochford/manual/2026-08-08-rochford-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "19398c2dc073fe12aeaf69a5c9ac2d9cccb9d803",
+      "rows": 83,
+      "sha256": "1a82bda836fd60885f63845095d97c7e3c7d82b73285454be3dad12b48e36113",
+      "size_bytes": 398998,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-rochford/manual/2026-08-08-rochford-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-rossendale/manual/2026-09-05-rossendale-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "5d2c78e3ff62bc4cb8acbe7abbd5600b1fda3cdc",
+      "rows": 147,
+      "sha256": "8fc36c0016e9914a9f173ebc78f6b9af0ceaca6ddfa1ff5b765b07c48878f1a4",
+      "size_bytes": 635090,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-rossendale/manual/2026-09-05-rossendale-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-rother/manual/2026-09-05-rother-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "21001a0d147c589b726752bded2c0c456561ddc5",
+      "rows": 75,
+      "sha256": "fef2564530dc7791728502b124d51006f17767f891b596dd66e4fb51a9a90ee4",
+      "size_bytes": 367103,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-rother/manual/2026-09-05-rother-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-rotherham/manual/2026-09-05-rotherham-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "3d781a76a33d2c13bb393694ac76a58a293aaed0",
+      "rows": 157,
+      "sha256": "20184c6812d2e8c043b1d4ad91fea6873268dee4c7c3c6704471e6227f6c0c23",
+      "size_bytes": 824855,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-rotherham/manual/2026-09-05-rotherham-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-rugby/manual/2026-08-03-rugby-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "77b5e7f4dc3e082a9d045b461cab8334f5d1f43f",
+      "rows": 85,
+      "sha256": "ba6473aa3cc5021848806012de6287ac4e61e7e4fd7de9408031a38070e17c7a",
+      "size_bytes": 395904,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-rugby/manual/2026-08-03-rugby-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-runnymede/manual/2026-08-03-runnymede-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "cb15abccef495e2c82e484135f7e752aaea2c723",
+      "rows": 38,
+      "sha256": "0fd49f73de7ef31248095caec3e6c7ec34cc6559038c242b0a88e5df707976fa",
+      "size_bytes": 144123,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-runnymede/manual/2026-08-03-runnymede-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-rushcliffe/manual/2026-08-03-rushcliffe-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "fddae9a25434daa287b5990cdd62a0c5cfd6c18c",
+      "rows": 267,
+      "sha256": "5bf341237cb91bbe3f4df2af5ab70d798f694598026f09ebfdaa9e02e763ac67",
+      "size_bytes": 983488,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-rushcliffe/manual/2026-08-03-rushcliffe-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-rushmoor/manual/2026-09-05-rushmoor-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "00201f7aaf4056716bf75dfc71466a97994e9ebb",
+      "rows": 147,
+      "sha256": "83ab8d64add5d05d1a8158499a432a1ece4e56685e10c8a113d80320db9fad60",
+      "size_bytes": 635513,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-rushmoor/manual/2026-09-05-rushmoor-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-salford/manual/2026-08-03-salford-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "846af4a57f19d90cffd0808f217d3b01c3191d51",
+      "rows": 182,
+      "sha256": "be4f3c2c3dec3831096ac71c474eeb7198b4210d758c1acf2496ebbb23daf85c",
+      "size_bytes": 671104,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-salford/manual/2026-08-03-salford-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-sandwell/manual/2026-08-06-sandwell-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "760fa8ae7e30822840c2c73242e857c06a144bc1",
+      "rows": 133,
+      "sha256": "6b21aebfdad4dd2acaf9dfa26079e232cd10d30f1af9f30c0aa1f06398826f7c",
+      "size_bytes": 564278,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-sandwell/manual/2026-08-06-sandwell-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-sefton/manual/2026-08-03-sefton-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "7f8e8ed215889fefac4a16db7e5bab6cf593e102",
+      "rows": 196,
+      "sha256": "c7f7a872279e3d5232442391c10f9eb9c05332d63b214f76bc5122cba895d034",
+      "size_bytes": 861760,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-sefton/manual/2026-08-03-sefton-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-shropshire/manual/2026-07-25-shropshire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "169bc8e269665276df9470960609cad291c5893e",
+      "rows": 221,
+      "sha256": "6d5635a93a73c2b8409ea30ba42829fba2d3d7ba616e3074f997a11260a0c08e",
+      "size_bytes": 924631,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-shropshire/manual/2026-07-25-shropshire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-slough/manual/2026-07-25-slough-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "24ea64983425fda3c3d9562c481d6acffa16eb00",
+      "rows": 119,
+      "sha256": "452084bff97ebe9e42c1d1510077382b34c346de5d6f9e80be919016fb398d0e",
+      "size_bytes": 507992,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-slough/manual/2026-07-25-slough-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-solihull/manual/2026-08-03-solihull-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "9bdfc97aa4a26bd53bc1c5492bcfefd8e26860dc",
+      "rows": 85,
+      "sha256": "5ff898caf547b634e4921736b70beb854974fcba0784c0a6fc83b21bf406a92c",
+      "size_bytes": 402446,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-solihull/manual/2026-08-03-solihull-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-south-derbyshire/manual/2026-08-02-south-derbyshire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "89793c330433c97867c81c0f47058e7599e96a91",
+      "rows": 56,
+      "sha256": "0a93911c7e044f5661819e9a34c9d11d4aaec82255efa4250051dbbf6b7b5c7c",
+      "size_bytes": 228059,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-south-derbyshire/manual/2026-08-02-south-derbyshire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-south-kesteven/manual/2026-08-02-south-kesteven-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "c67437d6de9b03442f0f1b9acd6017be57214b0a",
+      "rows": 299,
+      "sha256": "d415e6ecebe47c0d0e7329818aba6abf4f3d87bd8f3f1512a38536653977092a",
+      "size_bytes": 1059407,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-south-kesteven/manual/2026-08-02-south-kesteven-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-south-norfolk/manual/2026-08-03-south-norfolk-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "980182150a6a39e44c149c5a847eca737c4e2566",
+      "rows": 59,
+      "sha256": "c659f7ced502bcd22354cd0cf29ccc39e1cc86529ddd128a19be3115f23fe24d",
+      "size_bytes": 235573,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-south-norfolk/manual/2026-08-03-south-norfolk-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-south-oxfordshire/manual/2026-09-05-south-oxfordshire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "02ad5ad8eb988ac4e6ea8392d880a75382616edc",
+      "rows": 157,
+      "sha256": "1de0212ba106615efe71221501a95dc03aaf8b47864cf46cf60fd2ce9cc76d5d",
+      "size_bytes": 637711,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-south-oxfordshire/manual/2026-09-05-south-oxfordshire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-southampton/manual/2026-07-21-southampton-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "b4927d09935aa0d3fc7452d1dffc17f8cccbaa4b",
+      "rows": 181,
+      "sha256": "ef1f977743357f9815c4f57f8918a684f9488aac209cb65682d55dee7ce9ed99",
+      "size_bytes": 865621,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-southampton/manual/2026-07-21-southampton-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-southend-on-sea/manual/2026-07-25-southend-on-sea-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "5a1aa2be26e82d1bab5ba1a1c542432fb14be7a9",
+      "rows": 86,
+      "sha256": "c25b9c453a018b6e6b5dba4d4fae1878248d69bec70e948daf3b2dc4a455ec86",
+      "size_bytes": 421216,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-southend-on-sea/manual/2026-07-25-southend-on-sea-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-spelthorne/manual/2026-08-03-spelthorne-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "553e598674bfed712d9b839ea758801b038fae9d",
+      "rows": 146,
+      "sha256": "253e8e26d028bc3983dc22ab602996e6f8a4d380d294ae492fe462d9718439ff",
+      "size_bytes": 635112,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-spelthorne/manual/2026-08-03-spelthorne-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-st-helens/manual/2026-08-03-st-helens-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "9615a638788767201e7d71f096d818d449d3fb90",
+      "rows": 59,
+      "sha256": "ad75ba1bc688aecf22db2ec934fb084016a0e9065152a45b70b6d13f5a7bc65f",
+      "size_bytes": 230658,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-st-helens/manual/2026-08-03-st-helens-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-stafford/manual/2026-09-05-stafford-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "c82fa92a690676738b55f6f466dc8a0a9bf91d16",
+      "rows": 124,
+      "sha256": "8ef47b38101c15e3f0c306fb95c1feedea2b1e9f3c5cccfb01cd2cf7b0f93575",
+      "size_bytes": 528944,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-stafford/manual/2026-09-05-stafford-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-stevenage/manual/2026-08-03-stevenage-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "41209c4209ba366257df3909679ed75b72ea9d67",
+      "rows": 142,
+      "sha256": "091536f50e16b288076f1190f6a1b7bd446af710f1cc922605810ed63603e2c8",
+      "size_bytes": 609665,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-stevenage/manual/2026-08-03-stevenage-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-stratford-on-avon/manual/2026-08-03-stratford-on-avon-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "2c772dc9e73e2ec2c290e32d29dae1233ce76c5d",
+      "rows": 147,
+      "sha256": "8c4466974a4bd8e1908f52a58fe6c8ef9ad65dd5f9c4518f17b611326220da61",
+      "size_bytes": 648244,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-stratford-on-avon/manual/2026-08-03-stratford-on-avon-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-tameside/manual/2026-08-08-tameside-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "41bb4db1af00dff666e3854c50c39cab1c9354f0",
+      "rows": 95,
+      "sha256": "31ed665d83fb2e72ea9b5c321953da1a8f83332cfea0826433600308ca5b5812",
+      "size_bytes": 459537,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-tameside/manual/2026-08-08-tameside-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-tamworth/manual/2026-08-03-tamworth-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "607ccbceb273eb7aeb994d662dfec433f7faae35",
+      "rows": 90,
+      "sha256": "b2d939f4c3410767c2e87c6cf55baaa2863e861d04f52d6f7e9ec547b8686feb",
+      "size_bytes": 418623,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-tamworth/manual/2026-08-03-tamworth-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-telford-and-wrekin/manual/2026-07-25-telford-and-wrekin-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "a84d037ab9f6764ce7c49e216cc6e991709e87c7",
+      "rows": 122,
+      "sha256": "bbd4942dbf6fb1bb70248aff610676450574cf8a84568618adea34e3d192f277",
+      "size_bytes": 531997,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-telford-and-wrekin/manual/2026-07-25-telford-and-wrekin-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-thanet/manual/2026-09-05-thanet-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "0e2122aeadb3872213929ae6acd98976c572f394",
+      "rows": 98,
+      "sha256": "43f8f28e21dd68a0cddd08be60d211e5dbe4b23b4e5dfc60caf26e4895e0e7a2",
+      "size_bytes": 398828,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-thanet/manual/2026-09-05-thanet-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-torbay/manual/2026-07-25-torbay-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "7195e5105e8062ac5b8cd0b2d9ec258730ca506d",
+      "rows": 91,
+      "sha256": "32b7e2be65d775a38cab127bee728066e7eb54f817eaeff23956d7e328131124",
+      "size_bytes": 436068,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-torbay/manual/2026-07-25-torbay-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-vale-of-white-horse/manual/2026-09-05-vale-of-white-horse-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "6b00c72a5dbdc2269e668f5beee5bcda5ec95eb1",
+      "rows": 158,
+      "sha256": "80b536319e98b7d07d11417ac11eef0011558406c7b344d9847833b8b980fbfc",
+      "size_bytes": 642389,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-vale-of-white-horse/manual/2026-09-05-vale-of-white-horse-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-wakefield/manual/2026-08-08-wakefield-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "050ab17b9e8ffb670c3f6841cb6f771c832d47e5",
+      "rows": 73,
+      "sha256": "e54e522fe86281e9320182bb246ac8e40d4c85ef572cb35ff37c1dc02a6782f4",
+      "size_bytes": 279876,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-wakefield/manual/2026-08-08-wakefield-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-warrington/manual/2026-07-25-warrington-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "eb994ec35d5de115a2e39c118eea930c66aa4659",
+      "rows": 140,
+      "sha256": "440bda1310563bfc55d2259d21575bb95fbad0bef5b7bfc5ef3479ced5348998",
+      "size_bytes": 612992,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-warrington/manual/2026-07-25-warrington-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-warwick/manual/2026-08-03-warwick-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "5cf78f74d742340fde400e867048da94cd368a47",
+      "rows": 156,
+      "sha256": "0a76d7323aacd0694a4efaa17efdc598ff186b34148a13d69ef9c68704b2a845",
+      "size_bytes": 827252,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-warwick/manual/2026-08-03-warwick-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-wealden/manual/2026-09-05-wealden-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "8118f031d68ee6e738348f0e20daba9908b45811",
+      "rows": 78,
+      "sha256": "f1a73a912dd5f36f9055c8f2b1eaa35aa925bdc7d0b94b89ba4ad68b7802dc08",
+      "size_bytes": 381450,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-wealden/manual/2026-09-05-wealden-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-west-lindsey/manual/2026-09-05-west-lindsey-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "5523e859616883153c08ca91109d47d696612b0f",
+      "rows": 245,
+      "sha256": "d0c90e2e36908ee20a65a71104d203a90219ca0fd00f93c007114f17061b8ab5",
+      "size_bytes": 1065292,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-west-lindsey/manual/2026-09-05-west-lindsey-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-west-northamptonshire/manual/2026-09-05-west-northamptonshire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "71ada8032766480e73e6f1ce7ca044e2066b681c",
+      "rows": 158,
+      "sha256": "86578485d1df9eae6659a7dd3fe553656ffc44c9cb842f93703a5b9e01da8609",
+      "size_bytes": 834954,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-west-northamptonshire/manual/2026-09-05-west-northamptonshire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-west-oxfordshire/manual/2026-09-05-west-oxfordshire-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "d3c2cec5f2a34753078ed1d7465bb5688c8fe720",
+      "rows": 97,
+      "sha256": "02c03f3681782cb95b9874d05d2fa822b2e8759be777ba265eaa5bb9dd4f7b96",
+      "size_bytes": 479400,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-west-oxfordshire/manual/2026-09-05-west-oxfordshire-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-west-suffolk/manual/2026-09-05-west-suffolk-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "20785d3b8ec1d869f67f81e63f35e9be727900dc",
+      "rows": 211,
+      "sha256": "65fc2e118359a0f9cbe8c190cae64ccb3893a7b7e2a5fa45a88ab2abeb1e0d69",
+      "size_bytes": 978662,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-west-suffolk/manual/2026-09-05-west-suffolk-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-westminster/manual/2026-07-19-westminster-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "7264f40dea5f408d59be2d6400d3571797bcc650",
+      "rows": 8,
+      "sha256": "df125710e86de80816d2a96f8d8035382e329c0020285078589e3c2a502705c7",
+      "size_bytes": 25636,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-westminster/manual/2026-07-19-westminster-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-westmorland-and-furness/manual/2026-09-05-westmorland-and-furness-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "892da7c853a187a83484e943635853657fa71e5a",
+      "rows": 145,
+      "sha256": "ceaff6d40e06aa035a2d1ec5cafc4bbfab71fbdbdc4757cf1dec4d6af08eb018",
+      "size_bytes": 844616,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-westmorland-and-furness/manual/2026-09-05-westmorland-and-furness-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-wigan/manual/2026-08-03-wigan-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "4fb94d7168a6db12aa4e743a4c7a63f48a961ec9",
+      "rows": 212,
+      "sha256": "aa1bce79562296ba3498ab6467ba72ca94692dbc1a8db7c0a9e35d3cae275a13",
+      "size_bytes": 701287,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-wigan/manual/2026-08-03-wigan-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-winchester/manual/2026-08-02-winchester-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "715246f0360c4ba84893f46a1726150132b0eff6",
+      "rows": 84,
+      "sha256": "725c357e484c8beb360c6100a08def4cc88ca812adf63a8fa76a8a8c96473ca2",
+      "size_bytes": 399027,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-winchester/manual/2026-08-02-winchester-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-wirral/manual/2026-08-03-wirral-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "3154cfb9f0cd11187de3ff03841a05530d865ab3",
+      "rows": 88,
+      "sha256": "a4f47eb353e4ffdf4866b83cd846c3a843a235359a7cadc2c248467a04456b96",
+      "size_bytes": 414504,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-wirral/manual/2026-08-03-wirral-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-wolverhampton/manual/2026-08-03-wolverhampton-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "dc837c3e7d0a31a2aa6aef370c507bc561b09632",
+      "rows": 142,
+      "sha256": "cddb5448b7dbd4e9fee7d6e7d92481a76785230fe9acc987708f5509cb7baa3f",
+      "size_bytes": 615791,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-wolverhampton/manual/2026-08-03-wolverhampton-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-worcester/manual/2026-09-05-worcester-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "eb817ee968eec557a468bab18a7edc825934d556",
+      "rows": 135,
+      "sha256": "03f54e3cf83e0c82bced193d8756e1e77d06233b37205a036411f1c1d713c3f5",
+      "size_bytes": 625514,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-worcester/manual/2026-09-05-worcester-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-worthing/manual/2026-08-03-worthing-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "dfa664bf9fc00472a2b6b485b58a4596febcec51",
+      "rows": 151,
+      "sha256": "2aaaedc1464c1c0cacbf1e393d3a3d4e2ced288de826bebde36aa8bac83c9abc",
+      "size_bytes": 646127,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-worthing/manual/2026-08-03-worthing-council-tax-reduction-2026-2027.jsonl"
+    },
+    {
+      "file": "data/corpus/provisions/uk-wyre/manual/2026-08-02-wyre-council-tax-reduction-2026-2027.jsonl",
+      "git_blob_sha1": "e419e41c59c8e0f46e7b530450c59ee32d619cba",
+      "rows": 144,
+      "sha256": "80e2d52e1235f3247a54b732b1375d534e79898a841face9ada4827e2740b311",
+      "size_bytes": 602321,
+      "url": "https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/8f7d60aaced28ee4252b9237f9d6e02360dc34bc/data/corpus/provisions/uk-wyre/manual/2026-08-02-wyre-council-tax-reduction-2026-2027.jsonl"
+    }
+  ]
+}

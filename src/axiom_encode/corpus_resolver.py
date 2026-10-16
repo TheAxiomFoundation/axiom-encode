@@ -592,6 +592,42 @@ class _IndexedDelimiterStack(list[_DelimiterFrame]):
         raise AssertionError("Delimiter replay stack must not be scanned")
 
 
+def local_corpus_row_is_repealed(identifier: str, release: LocalCorpusRelease) -> bool:
+    """Read exact release-bound row status, with no parent or alias fallback."""
+    citation_path = require_canonical_corpus_citation_path(identifier)
+    if not isinstance(release, LocalCorpusRelease):
+        raise TypeError("release must be a validated LocalCorpusRelease")
+    jurisdiction, document_class = citation_path.split("/")[:2]
+    scopes = tuple(
+        scope
+        for scope in release.scopes
+        if scope.jurisdiction == jurisdiction and scope.document_class == document_class
+    )
+    records = []
+    files = _candidate_provision_files(
+        release=release,
+        jurisdiction=jurisdiction,
+        document_class=document_class,
+        scopes=scopes,
+    )
+    for artifact in _read_corpus_artifacts(
+        files, release=release, budget=_LocalCorpusReadBudget()
+    ):
+        records.extend(
+            _read_matching_records(
+                artifact,
+                citation_path=citation_path,
+                active_scopes=frozenset(scopes),
+                provisions_root=release.provisions_root,
+            )
+        )
+    if len(records) > 1:
+        raise AmbiguousCorpusSourceError(
+            citation_path, tuple(record.row for record in records)
+        )
+    return len(records) == 1 and records[0].status == "repealed"
+
+
 def resolve_local_corpus_source(
     identifier: str,
     release: LocalCorpusRelease,
