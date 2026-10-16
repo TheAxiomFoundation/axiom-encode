@@ -4489,12 +4489,49 @@ jobs:
         if: ${{ inputs.open_pr && steps.retired_source_metadata_request.outputs.enabled != 'true' }}
         env:
           COUNTRY: ${{ inputs.country }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
           set -euo pipefail
           workflow_python=(/opt/axiom-verification/python/bin/python -I)
           if [ ! -x "${workflow_python[0]}" ]; then
             workflow_python=("${AXIOM_TEST_PYTHON:-python}")
           fi
+          # The provision -> rules reverse index is derived metadata that no
+          # signed apply writes. Regenerate it with axiom-encode's byte-exact
+          # replica of the tree's own generator (never by running checkout
+          # code here) and append it as one unsigned commit, so rulespec CI's
+          # freshness check passes. A refresh problem never costs the signed
+          # PR: the lane is then published exactly as before.
+          lane_head="$(git -C "$RULESPEC_CHECKOUT" rev-parse HEAD)"
+          provisions_index="$RUNNER_TEMP/targeted-reencode/provisions-index.json"
+          # Bounded: a pathological YAML tree must not hold the step to the
+          # job timeout; a timeout takes the same error path.
+          if ! timeout "${AXIOM_INDEX_REFRESH_TIMEOUT:-900}" "${workflow_python[@]}" \
+            axiom-encode/scripts/prepare_signed_backfill.py \
+            refresh-provisions-index "$RULESPEC_CHECKOUT" "$RULESPEC_REF" \
+            > "$provisions_index"; then
+            echo "warning: reverse index refresh failed; publishing the signed lane without it" >&2
+            # A failure after the refresh moved the branch or checkout must
+            # never block the lane: restore the signed lane head exactly.
+            git -C "$RULESPEC_CHECKOUT" reset -q --hard "$lane_head"
+            test "$(git -C "$RULESPEC_CHECKOUT" rev-parse HEAD)" = "$lane_head"
+            test -z "$(git -C "$RULESPEC_CHECKOUT" status --porcelain --untracked-files=all)"
+            jq -n --arg head "$lane_head" '{
+              schema: "axiom-encode/provisions-index-refresh/v1",
+              mode: "error",
+              head_before: $head,
+              head_after: $head
+            }' > "$provisions_index"
+          fi
+          test "$(git -C "$RULESPEC_CHECKOUT" rev-parse HEAD)" = \
+            "$(jq -er '.head_after' "$provisions_index")"
+          index_mode="$(jq -er '.mode' "$provisions_index")"
+          case "$index_mode" in
+            current|refreshed|skipped-absent|skipped-signed|skipped-receipt|skipped-unsupported|error) ;;
+            *) echo "unexpected reverse index refresh mode: $index_mode" >&2; exit 1 ;;
+          esac
+          echo "index_mode=$index_mode" >> "$GITHUB_OUTPUT"
           branch="$("${workflow_python[@]}" \
             axiom-encode/scripts/prepare_signed_backfill.py branch-name \
             "$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")"
@@ -4522,12 +4559,15 @@ jobs:
           REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
           PREPARED_BRANCH: ${{ steps.reviewed_lane_pull_request_branch.outputs.branch }}
+          INDEX_MODE: ${{ steps.reviewed_lane_pull_request_branch.outputs.index_mode }}
         run: |
           set -euo pipefail
           test "$PRIOR_STATUS" = success
           test -n "$GH_TOKEN"
           repo="TheAxiomFoundation/rulespec-${COUNTRY}"
           branch="$PREPARED_BRANCH"
+          index_mode="$INDEX_MODE"
+          test -n "$index_mode"
           source_bundle="$(tr -d '\n' < "$RUNNER_TEMP/source-bundle.json")"
           canonical_refresh_bundle="$(tr -d '\n' \
             < "$RUNNER_TEMP/canonical-refresh-bundle.json")"
@@ -4548,6 +4588,7 @@ jobs:
             "Repair candidate run: \`${REPAIR_RUN_ID:-n/a}\`" \
             "Base commit: \`${RULESPEC_REF}\`" \
             "Base branch: \`${PR_BASE_BRANCH}\`" \
+            "Reverse index: \`${index_mode}\` (unsigned derived commit when refreshed)" \
             "Queue item: \`${QUEUE_ID:-ad-hoc}/${QUEUE_ITEM_ID:-ad-hoc}\`" \
             "Queue generation SHA-256: \`${QUEUE_ITEM_GENERATION_SHA256:-n/a}\`" \
             "Queue manifest SHA-256: \`${QUEUE_MANIFEST_SHA256:-n/a}\`" \

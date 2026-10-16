@@ -1,6 +1,9 @@
 ## 0.2.2197
 
 - Publish signed targeted re-encodes onto a rulespec main tip that advanced from the recorded base only through repository plumbing. The lane is replayed onto that tip by object identity, and every signed byte is proven unchanged for each replayed commit. Receipt-bound or deleting lanes, file/directory conflicts, and any other advance still fail closed. The SNAP dispatcher keeps unfinished runs on such an advance instead of cancelling them.
+## 0.2.2214
+
+- Regenerate rulespec's derived provision-to-rules reverse index at publish, as one unsigned commit from a byte-exact replica of the tree's own generator, so signed PRs that add a citation pass the reverse-index check.
 
 ## 0.2.2183
 
