@@ -14,11 +14,15 @@ from axiom_encode.retired_source_evidence import (
 )
 
 
-def test_report_survives_success_packaging_with_exact_checksum(tmp_path):
+@pytest.mark.parametrize(
+    "contract",
+    ["retired-source-containment/v1", "retired-source-external-preserved-rules/v1"],
+)
+def test_report_survives_success_packaging_with_exact_checksum(tmp_path, contract):
     generated = tmp_path / "generated"
     artifact = tmp_path / "artifact"
     evidence = {
-        "contract": "retired-source-containment/v1",
+        "contract": contract,
         "sources": [{"row": "child"}],
     }
     write_retired_source_evidence(generated / "target", evidence)
