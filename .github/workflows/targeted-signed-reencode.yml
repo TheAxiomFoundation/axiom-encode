@@ -2552,6 +2552,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: &apply_prepared_signature |
           set -euo pipefail
+          [ ! -L "$RUNNER_TEMP/signed-encode/arguments" ]
+          [ -f "$RUNNER_TEMP/signed-encode/arguments" ]
           args=()
           while IFS= read -r -d '' argument; do
             args+=("$argument")

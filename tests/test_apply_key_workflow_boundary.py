@@ -17,12 +17,18 @@ WORKFLOW = ".github/workflows/targeted-signed-reencode.yml"
 KEY_ENV = "AXIOM_ENCODE_APPLY_SIGNING_KEY"
 SIGNER = "/opt/axiom-verification/axiom-encode-apply-signer"
 SECRET_REFERENCE = re.compile(
-    r"secrets\s*(?:\.\s*AXIOM_ENCODE_APPLY_SIGNING_KEY\b"
-    r"|\[\s*['\"]AXIOM_ENCODE_APPLY_SIGNING_KEY['\"]\s*\])"
+    # Only a static reference to a different named secret is known not to
+    # include the key. Whole-context, wildcard and dynamic access may expose it.
+    r"\bsecrets\b(?!\s*(?:"
+    r"\.\s*(?!AXIOM_ENCODE_APPLY_SIGNING_KEY\b)[A-Za-z_][A-Za-z0-9_]*\b"
+    r"|\[\s*'(?!AXIOM_ENCODE_APPLY_SIGNING_KEY')[A-Za-z_][A-Za-z0-9_]*'\s*\]"
+    r'|\[\s*"(?!AXIOM_ENCODE_APPLY_SIGNING_KEY")[A-Za-z_][A-Za-z0-9_]*"\s*\]'
+    r"))",
+    re.IGNORECASE,
 )
 # Keep this deliberately narrower than the full Bash builtin/coreutils sets:
 # eval, source, command, env, and arbitrary shell launchers can execute helpers.
-ALLOWED_BUILTINS = frozenset({":", "set", "test", "mapfile"})
+ALLOWED_BUILTINS = frozenset({":", "set", "test", "[", "mapfile"})
 # Current launchers need no external utility to read their prepared arguments.
 ALLOWED_COREUTILS: frozenset[str] = frozenset()
 
@@ -132,6 +138,11 @@ def _assert_minimal_key_script(script: str) -> None:
             assert command[5] == "<", "mapfile must read a prepared argv file"
         elif executable == "set":
             assert command == ["set", "-euo", "pipefail"]
+        elif executable == "[":
+            assert (len(command) == 5 and command[1:3] == ["!", "-L"]) or (
+                len(command) == 4 and command[1] == "-f"
+            )
+            assert command[-1] == "]"
     assert signer_count == 1, "each key-bearing step must launch exactly one signer"
 
 
@@ -155,6 +166,82 @@ def assert_apply_key_step_scripts_are_minimal(workflow: dict) -> None:
 
 def test_apply_key_steps_run_only_signer_builtins_and_allowlisted_coreutils() -> None:
     assert_apply_key_step_scripts_are_minimal(_workflow())
+
+
+def _assert_prepared_arguments_checked_before_read(script: str) -> None:
+    commands = _simple_shell_commands(script)
+    readers = [
+        index for index, command in enumerate(commands) if command[0] == "mapfile"
+    ]
+    assert readers, "prepared signer must read its arguments"
+    assert commands[0] == ["set", "-euo", "pipefail"]
+    for index in readers:
+        path = commands[index][-1]
+        assert commands[index - 2 : index] == [
+            ["[", "!", "-L", path, "]"],
+            ["[", "-f", path, "]"],
+        ], "arguments must be checked as a regular, non-symlink file before read"
+
+
+def test_key_bearing_argument_readers_refuse_redirected_files_before_read() -> None:
+    steps = list(_key_steps(_workflow()))
+    assert len(steps) == 20
+    for _, _, step in steps:
+        if step.get("id") == "retired_source_metadata_migration":
+            # This launcher passes inline arguments and reads no prepared argv.
+            assert not any(
+                command[0] == "mapfile"
+                for command in _simple_shell_commands(step["run"])
+            )
+        else:
+            _assert_prepared_arguments_checked_before_read(step["run"])
+
+
+@pytest.mark.parametrize("removed", ["symlink", "regular", "both"])
+def test_arguments_boundary_rejects_missing_file_checks(removed: str) -> None:
+    script = _MINIMAL_SIGNER_SCRIPT
+    for check, line in (
+        ("symlink", '[ ! -L "$RUNNER_TEMP/apply-args" ]\n'),
+        ("regular", '[ -f "$RUNNER_TEMP/apply-args" ]\n'),
+    ):
+        if removed in (check, "both"):
+            script = script.replace(line, "")
+    with pytest.raises(AssertionError, match="before read"):
+        _assert_prepared_arguments_checked_before_read(script)
+
+
+@pytest.mark.parametrize(
+    "kind", ["symlink", "dangling_symlink", "directory", "missing"]
+)
+def test_key_launcher_refuses_redirected_arguments_without_output(
+    kind: str, tmp_path: Path
+) -> None:
+    signer = next(
+        step
+        for _, _, step in _key_steps(_workflow())
+        if step.get("id") == "apply_signing_01"
+    )
+    arguments = tmp_path / "signed-encode" / "arguments"
+    arguments.parent.mkdir()
+    if kind in ("symlink", "dangling_symlink"):
+        target = tmp_path / "dummy-environment"
+        if kind == "symlink":
+            target.write_bytes(f"{KEY_ENV}=dummy-key-material\0".encode())
+        arguments.symlink_to(target)
+    elif kind == "directory":
+        arguments.mkdir()
+    bash = shutil.which("bash")
+    assert bash is not None
+    completed = subprocess.run(
+        [bash, *shlex.split(signer["shell"])[1:-1], "-c", signer["run"]],
+        env={"RUNNER_TEMP": str(tmp_path), KEY_ENV: "dummy-key-material"},
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert completed.returncode == 1
+    assert completed.stdout == completed.stderr == ""
 
 
 def test_apply_secret_is_referenced_only_by_targeted_encode_signer_step_env() -> None:
@@ -216,6 +303,8 @@ def test_helper_preparation_steps_precede_each_key_bearing_encode_step() -> None
 
 
 _MINIMAL_SIGNER_SCRIPT = f"""set -euo pipefail
+[ ! -L "$RUNNER_TEMP/apply-args" ]
+[ -f "$RUNNER_TEMP/apply-args" ]
 mapfile -d '' -t args < "$RUNNER_TEMP/apply-args"
 test "${{#args[@]}}" -gt 0
 exec {SIGNER} run --key-env {KEY_ENV} -- "${{args[@]}}"
@@ -302,9 +391,31 @@ def test_minimal_script_parser_rejects_hidden_or_unapproved_execution(
         "${{ secrets . AXIOM_ENCODE_APPLY_SIGNING_KEY }}",
         "${{ secrets['AXIOM_ENCODE_APPLY_SIGNING_KEY'] }}",
         '${{ secrets["AXIOM_ENCODE_APPLY_SIGNING_KEY"] }}',
+        "${{ SECRETS.axiom_encode_apply_signing_key }}",
+        "${{ toJSON(secrets) }}",
+        "${{ secrets }}",
+        "${{ secrets[env.SECRET_NAME] }}",
+        "${{ secrets[format('AXIOM_{0}', 'ENCODE_APPLY_SIGNING_KEY')] }}",
+        "${{ secrets.* }}",
+        "${{ join(secrets.*, ',') }}",
     ],
 )
 def test_secret_inventory_recognizes_equivalent_expression_spellings(
     reference: str,
 ) -> None:
     assert list(_secret_references({"env": {KEY_ENV: reference}})) == [("env", KEY_ENV)]
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "${{ secrets.GITHUB_TOKEN }}",
+        "${{ secrets . AXIOM_REPO_TOKEN }}",
+        "${{ secrets['AXIOM_REPO_TOKEN'] }}",
+        '${{ secrets["AXIOM_REPO_TOKEN"] }}',
+    ],
+)
+def test_secret_inventory_excludes_static_references_to_other_secrets(
+    reference: str,
+) -> None:
+    assert not list(_secret_references({"env": {"TOKEN": reference}}))

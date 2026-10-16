@@ -1,10 +1,143 @@
+import re
 import subprocess
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# These are the complete external-command and builtin sets used by the token
+# steps today. Keep additions explicit: installed CLI entrypoints also execute
+# repository Python and must not run with the publication token.
+REPO_TOKEN_EXTERNAL_COMMANDS = {"cp", "gh", "git", "jq", "tr"}
+REPO_TOKEN_BUILTINS = {"[", "echo", "exit", "printf", "set", "test"}
+REPO_TOKEN_COMMANDS = REPO_TOKEN_EXTERNAL_COMMANDS | REPO_TOKEN_BUILTINS
+
+
+class _ShellToken(NamedTuple):
+    value: str
+    plain: bool = True
+    assignment: bool = False
+
+
+def _repo_token_commands(script: str) -> set[str]:
+    """Inspect the limited shell grammar used here without executing the script.
+
+    Inspect substitutions recursively, preserve quoted data, and reject shell
+    syntax outside this grammar rather than guessing where a command starts.
+    In particular, command names cannot come from expansion or quoted data.
+    """
+    commands: set[str] = set()
+    offset = 0
+
+    def check_tokens(tokens: list[_ShellToken]) -> None:
+        command_start = True
+        redirect_target = False
+        for token in tokens:
+            if token.plain and token.value in {"\n", ";", "&&", "||", "|"}:
+                command_start = True
+            elif token.plain and token.value in {"<", ">", ">>", ">&"}:
+                redirect_target = True
+            elif redirect_target:
+                redirect_target = False
+            elif command_start:
+                if token.plain and token.value in {"if", "then", "else", "fi", "!"}:
+                    continue
+                if token.assignment:
+                    continue
+                assert token.plain and token.value in REPO_TOKEN_COMMANDS, (
+                    f"command is not allowed with the repository token: {token.value!r}"
+                )
+                commands.add(token.value)
+                command_start = False
+        assert not redirect_target, "missing redirection target"
+
+    def word() -> _ShellToken:
+        nonlocal offset
+        assignment = re.match(r"[A-Za-z_][A-Za-z_0-9]*=", script[offset:]) is not None
+        value = ""
+        plain = True
+        quote = ""
+        while offset < len(script):
+            char = script[offset]
+            if not quote and (char.isspace() or char in ";&|<>()"):
+                break
+            offset += 1
+            if char == quote:
+                quote = ""
+            elif quote == "'":
+                value += char
+            elif char in {"'", '"'} and not quote:
+                quote = char
+                plain = False
+            elif char == "\\":
+                assert offset < len(script), "unfinished shell escape"
+                escaped = script[offset]
+                offset += 1
+                if escaped != "\n":
+                    value += escaped
+                    plain = False
+            elif char == "`":
+                raise AssertionError(
+                    "backtick execution is outside the allowed grammar"
+                )
+            elif char == "$":
+                plain = False
+                if script.startswith("(", offset):
+                    offset += 1
+                    check_tokens(tokens(substitution=True))
+                else:
+                    # Only simple variable references and literal defaults occur
+                    # in these scripts. Refuse complex parameter expressions,
+                    # including substitutions hidden in a default value.
+                    variable = re.match(
+                        r"(?:[A-Za-z_][A-Za-z_0-9]*|"
+                        r"\{[A-Za-z_][A-Za-z_0-9]*(?::-(?:n/a|\[\]|ad-hoc))?\})",
+                        script[offset:],
+                    )
+                    assert variable is not None, "unsupported shell expansion"
+                    offset += len(variable[0])
+                value += "$EXPANSION"
+            else:
+                value += char
+        assert not quote, "unfinished shell quote"
+        return _ShellToken(value, plain, assignment)
+
+    def tokens(*, substitution: bool = False) -> list[_ShellToken]:
+        nonlocal offset
+        result: list[_ShellToken] = []
+        while offset < len(script):
+            char = script[offset]
+            if char in " \t\r":
+                offset += 1
+            elif script.startswith("\\\n", offset):
+                offset += 2
+            elif char == "#":
+                while offset < len(script) and script[offset] != "\n":
+                    offset += 1
+            elif char == ")" and substitution:
+                offset += 1
+                return result
+            elif char in "()`":
+                raise AssertionError(f"unsupported shell execution syntax: {char!r}")
+            elif char in "\n;&|<>":
+                operator = re.match(r"(?:&&|\|\||>>|>&|[\n;|<>])", script[offset:])
+                assert operator is not None, "unsupported shell operator"
+                value = operator[0]
+                offset += len(value)
+                # Here-documents, process substitution, and other redirects need
+                # their own parser rules before they can enter this allowlist.
+                assert not (value == "<" and script[offset : offset + 1] in {"<", "("})
+                result.append(_ShellToken(value))
+            else:
+                result.append(word())
+        assert not substitution, "unfinished command substitution"
+        return result
+
+    check_tokens(tokens())
+    return commands
 
 
 def _steps() -> list[dict]:
@@ -15,15 +148,103 @@ def _steps() -> list[dict]:
 
 
 def test_repo_token_steps_never_invoke_python_helpers() -> None:
+    observed = set()
     for step in _steps():
         if not any(
-            "AXIOM_REPO_TOKEN" in str(value) for value in step.get("env", {}).values()
+            "AXIOM_REPO_TOKEN" in str(value).upper()
+            for value in step.get("env", {}).values()
         ):
             continue
-        command = step.get("run", "")
-        assert "python" not in command, step["name"]
-        assert "scripts/" not in command, step["name"]
-        assert "uv " not in command, step["name"]
+        try:
+            observed.update(_repo_token_commands(step.get("run", "")))
+        except AssertionError as error:
+            raise AssertionError(f"{step['name']}: {error}") from error
+    assert observed == REPO_TOKEN_COMMANDS
+
+
+@pytest.mark.parametrize(
+    "secret_reference",
+    [
+        "${{ secrets.AXIOM_REPO_TOKEN }}",
+        "${{ secrets.axiom_repo_token }}",
+        "${{ SeCrEtS.AxIoM_RePo_ToKeN }}",
+        "${{ secrets['AXIOM_REPO_TOKEN'] }}",
+        "${{ secrets['axiom_repo_token'] }}",
+        "${{ SeCrEtS['AxIoM_RePo_ToKeN'] }}",
+    ],
+)
+def test_repo_token_detection_is_case_insensitive(
+    monkeypatch: pytest.MonkeyPatch, secret_reference: str
+) -> None:
+    step = {
+        "name": "Regression publication",
+        "env": {"GH_TOKEN": secret_reference},
+        "run": "/opt/axiom-verification/axiom-encode guard-generated --repo .",
+    }
+    monkeypatch.setattr(f"{__name__}._steps", lambda: [step])
+    with pytest.raises(
+        AssertionError,
+        match="Regression publication: command is not allowed with the repository token",
+    ):
+        test_repo_token_steps_never_invoke_python_helpers()
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "/opt/axiom-verification/axiom-encode guard-generated --repo .",
+        "python -c pass",
+        "uv run axiom-encode guard-generated",
+        "ruby -e 'puts ENV'",
+        "git status; /opt/axiom-verification/axiom-encode guard-generated --repo .",
+        'test -n "$(/opt/axiom-verification/axiom-encode guard-generated)"',
+        'result="$(git status; /opt/axiom-verification/axiom-encode guard-generated)"',
+        "git status | /opt/axiom-verification/axiom-encode guard-generated",
+        'printf "%s" "${VALUE:-$(python -c pass)}"',
+        'printf "%s" "${VALUE:-n/a}"; /opt/axiom-verification/axiom-encode guard-generated; printf "%s" "${OTHER:-n/a}"',
+        'printf "%s" `python -c pass`',
+        "git status > >(python -c pass)",
+        '"$HELPER" guard-generated',
+        "command /opt/axiom-verification/axiom-encode guard-generated",
+        "env /opt/axiom-verification/axiom-encode guard-generated",
+        'eval "$HELPER"',
+        'source "$HELPER"',
+        "git() { python -c pass; }; git",
+        '"if" python -c pass',
+        '"IGNORED"=value python -c pass',
+    ],
+)
+def test_repo_token_command_allowlist_rejects_other_execution(script: str) -> None:
+    with pytest.raises(AssertionError):
+        _repo_token_commands(script)
+
+
+@pytest.mark.parametrize(
+    ("script", "commands"),
+    [
+        ('set -euo pipefail\ntest -n "$GH_TOKEN"', {"set", "test"}),
+        ('branch="$PREPARED_BRANCH"\ngit push "$branch"', {"git"}),
+        ('test "$(git rev-parse HEAD)" = "$RULESPEC_REF"', {"test", "git"}),
+        ("body=\"$(printf '%s\\n' 'python; uv run; `data`')\"", {"printf"}),
+        (
+            'if [ -z "$REF" ]; then\n echo "disabled" >&2\n exit 0\nfi',
+            {"[", "echo", "exit"},
+        ),
+        (
+            "if ! jq -e '(.value | length) > 0' \"$FILE\"; then\n gh api repo || echo failed\nfi",
+            {"jq", "gh", "echo"},
+        ),
+        (
+            '# python ignored\nvalue="$(tr -d \'\\n\' < "$FILE")"\ncp "$FILE" "$DEST"',
+            {"tr", "cp"},
+        ),
+        ('git -C "$REPO" \\\n status > "$FILE"', {"git"}),
+    ],
+)
+def test_repo_token_command_allowlist_accepts_used_shell_grammar(
+    script: str, commands: set[str]
+) -> None:
+    assert _repo_token_commands(script) == commands
 
 
 @pytest.mark.parametrize(
