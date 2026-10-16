@@ -35,6 +35,13 @@ pipeline produces. The chartered admission model — where generation runs,
 what gets signed, and what CI is allowed to do — is
 [axiom-encode#1192](https://github.com/TheAxiomFoundation/axiom-encode/issues/1192).
 
+Signed re-encodes run centrally through this repository's
+[`targeted-signed-reencode.yml`](.github/workflows/targeted-signed-reencode.yml),
+behind the `production-signing` environment approval. The former key-migration
+and reusable caller-signing lanes were retired on 2026-10-14; jurisdiction
+repositories do not receive signing keys. See
+[signing deployment and secrets discipline](docs/trusted-signing-supervisor.md#workflow-deployment-and-secrets-discipline).
+
 If you are not running the supervised pipeline, you generally do not need
 this repo:
 
