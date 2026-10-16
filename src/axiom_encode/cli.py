@@ -455,6 +455,7 @@ from .repo_routing import (
     jurisdiction_subdir_names,
     monorepo_checkout_name,
 )
+from .retired_apply import retired_apply_operation
 from .retired_source_metadata import (
     MIGRATION_TOOL as RETIRED_SOURCE_METADATA_TOOL,
 )
@@ -22862,6 +22863,7 @@ def cmd_retire(args):
         print(f"signed {manifest.relative_to(repo_path).as_posix()}")
 
 
+@retired_apply_operation()
 def guard_generated_change_issues(
     repo_path: Path,
     *,
