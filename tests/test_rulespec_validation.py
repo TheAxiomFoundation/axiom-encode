@@ -4940,6 +4940,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -4997,6 +4998,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -5051,6 +5053,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -7103,7 +7106,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2214"')
+        .startswith('__version__ = "0.2.2215"')
     )
 
 
@@ -7335,13 +7338,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2214"
+    assert encoder_package["version"] == "0.2.2215"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2214"
+    assert project["project"]["version"] == "0.2.2215"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2214"')
+        .startswith('__version__ = "0.2.2215"')
     )
 
 
@@ -7603,13 +7606,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2214"
+    assert encoder_package["version"] == "0.2.2215"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2214"
+    assert project["project"]["version"] == "0.2.2215"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2214"')
+        .startswith('__version__ = "0.2.2215"')
     )
 
 
@@ -37865,6 +37868,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: household_size
     kind: derived
     entity: Household
