@@ -22922,6 +22922,9 @@ def guard_generated_change_issues(
             for path in protected
         ]
 
+    # Snapshot the immutable base inventory once for all receipt lookups in
+    # this guard call, including absent manifests and deleted auxiliaries.
+    base_tree_cache: dict[str, _GuardBaseReceiptTree] = {}
     # Only genuinely absent paths can be omitted from head verification.
     # Symlinks and other unsafe paths must reach the trusted bounded reader.
     surviving_manifest_paths = [
@@ -22946,7 +22949,10 @@ def guard_generated_change_issues(
         has_base_receipt = False
         for path in missing_manifest_paths:
             raw, read_issues = _guard_base_receipt_bytes(
-                repo_path, base_ref or head_ref, Path(path)
+                repo_path,
+                base_ref or head_ref,
+                Path(path),
+                base_tree_cache=base_tree_cache,
             )
             base_issues.extend(read_issues)
             has_base_receipt |= raw is not None
@@ -22985,6 +22991,10 @@ def guard_generated_change_issues(
             base_ref=base_ref,
             head_ref=head_ref,
             all_files=all_files,
+            historical_verification=all_files or retrospective,
+            historical_head_ref=head_ref,
+            retrospective=retrospective,
+            base_tree_cache=base_tree_cache,
             roots=roots,
             local_corpus_release=local_corpus_release,
             expected_encoder_identity=expected_encoder_identity,
@@ -22998,6 +23008,10 @@ def guard_generated_change_issues(
             repo_path,
             changed_receipt_paths=auxiliary_receipt_paths,
             base_ref=base_ref or head_ref,
+            historical_verification=all_files or retrospective,
+            historical_head_ref=head_ref,
+            retrospective=retrospective,
+            base_tree_cache=base_tree_cache,
             roots=roots,
             local_corpus_release=local_corpus_release,
             expected_encoder_identity=expected_encoder_identity,
@@ -23064,18 +23078,15 @@ def guard_generated_change_issues(
     return issues
 
 
-def _guard_base_receipt_bytes(
-    repo_path: Path,
-    base_ref: str,
-    relative: Path,
-) -> tuple[bytes | None, list[str]]:
-    """Read a bounded, exact regular Git blob without following base symlinks."""
+@dataclass(frozen=True)
+class _GuardBaseReceiptTree:
+    records: dict[bytes, list[bytes]]
+    issue: str | None = None
 
-    label = relative.as_posix()
-    if relative.is_absolute() or any(
-        part in {"", ".", ".."} for part in relative.parts
-    ):
-        return None, [f"{label} is not a safe base receipt path"]
+
+def _guard_base_receipt_tree(repo_path: Path, base_ref: str) -> _GuardBaseReceiptTree:
+    """Index exact raw paths once without interpreting any Git pathspecs."""
+
     try:
         listing = subprocess.run(
             [
@@ -23094,20 +23105,46 @@ def _guard_base_receipt_bytes(
             check=False,
         )
     except OSError:
-        return None, [f"{label} cannot inspect its immutable base receipt"]
+        return _GuardBaseReceiptTree({}, "cannot inspect its immutable base receipt")
     if listing.returncode:
-        return None, [f"{label} cannot inspect its immutable base receipt"]
+        return _GuardBaseReceiptTree({}, "cannot inspect its immutable base receipt")
+    records: dict[bytes, list[bytes]] = defaultdict(list)
+    try:
+        for record in listing.stdout.split(b"\0"):
+            if record:
+                _metadata, encoded_path = record.split(b"\t", 1)
+                records[encoded_path].append(record)
+    except ValueError:
+        return _GuardBaseReceiptTree({}, "is not an exact bounded regular base receipt")
+    return _GuardBaseReceiptTree(dict(records))
+
+
+def _guard_base_receipt_bytes(
+    repo_path: Path,
+    base_ref: str,
+    relative: Path,
+    *,
+    base_tree_cache: dict[str, _GuardBaseReceiptTree] | None = None,
+) -> tuple[bytes | None, list[str]]:
+    """Read a bounded, exact regular Git blob without following base symlinks."""
+
+    label = relative.as_posix()
+    if relative.is_absolute() or any(
+        part in {"", ".", ".."} for part in relative.parts
+    ):
+        return None, [f"{label} is not a safe base receipt path"]
+    if base_tree_cache is None:
+        base_tree_cache = {}
+    if base_ref not in base_tree_cache:
+        base_tree_cache[base_ref] = _guard_base_receipt_tree(repo_path, base_ref)
+    tree = base_tree_cache[base_ref]
+    if tree.issue:
+        return None, [f"{label} {tree.issue}"]
     try:
         # Compare raw paths, so metacharacters never become Git pathspecs. The
         # tree entries (-t) distinguish even empty directories from absence.
         encoded_label = os.fsencode(label)
-        records = []
-        for record in listing.stdout.split(b"\0"):
-            if not record:
-                continue
-            _metadata, encoded_path = record.split(b"\t", 1)
-            if encoded_path == encoded_label:
-                records.append(record)
+        records = tree.records.get(encoded_label, [])
         if not records:
             return None, []
         if len(records) != 1:
@@ -23138,7 +23175,10 @@ def _guard_base_receipt_bytes(
 def _guard_base_manifest_claims(
     raw: bytes,
     *,
+    repo_path: Path,
     manifest_path: str,
+    historical_head_ref: str,
+    retrospective: bool,
     roots: tuple[str, ...],
     signing_broker: SigningBroker | Ed25519PublicKey,
 ) -> tuple[set[str], list[str]]:
@@ -23176,9 +23216,19 @@ def _guard_base_manifest_claims(
         issues = _applied_manifest_exact_schema_issues(payload, manifest_label=label)
     except (TypeError, ValueError):
         return set(), [f"{label} does not match an exact encoder receipt schema"]
-    signature_issue = _applied_encoding_manifest_signature_issue(
-        payload, signing_broker
+    # An immutable predecessor proves obligations only. The distinct empty
+    # payload forces nested frozen-evidence admission, never live authority.
+    verifier = _historical_apply_verifier(
+        signing_broker,
+        repo_path,
+        manifest_path,
+        raw,
+        {},
+        allow_retired_artifact=False,
+        head_ref=historical_head_ref,
+        retrospective=retrospective,
     )
+    signature_issue = _historical_nested_signature_issue(payload, verifier)
     if signature_issue:
         issues.append(f"{label} {signature_issue}")
     root_prefix = _applied_encoding_manifest_root_prefix(
@@ -23219,6 +23269,10 @@ def _guard_changed_manifest_coverage_issues(
     base_ref: str | None,
     head_ref: str,
     all_files: bool,
+    historical_verification: bool,
+    historical_head_ref: str,
+    retrospective: bool,
+    base_tree_cache: dict[str, _GuardBaseReceiptTree],
     roots: tuple[str, ...],
     local_corpus_release: LocalCorpusRelease,
     expected_encoder_identity: Mapping[str, str],
@@ -23249,7 +23303,10 @@ def _guard_changed_manifest_coverage_issues(
     issues: list[str] = []
     for manifest_path in manifest_paths:
         raw, read_issues = _guard_base_receipt_bytes(
-            repo_path, base_ref or head_ref, Path(manifest_path)
+            repo_path,
+            base_ref or head_ref,
+            Path(manifest_path),
+            base_tree_cache=base_tree_cache,
         )
         issues.extend(read_issues)
         if raw is not None:
@@ -23267,7 +23324,10 @@ def _guard_changed_manifest_coverage_issues(
     for manifest_path, raw in base_blobs.items():
         receipt_claims, receipt_issues = _guard_base_manifest_claims(
             raw,
+            repo_path=repo_path,
             manifest_path=manifest_path,
+            historical_head_ref=historical_head_ref,
+            retrospective=retrospective,
             roots=roots,
             signing_broker=signing_broker,
         )
@@ -23353,6 +23413,9 @@ def _guard_changed_manifest_coverage_issues(
                 _load_verified_applied_encoding_manifest_payload(
                     repo_path,
                     manifest_path,
+                    historical_verification=historical_verification,
+                    historical_head_ref=historical_head_ref,
+                    retrospective=retrospective,
                     roots=roots,
                     signing_broker=signing_broker,
                     local_corpus_release=local_corpus_release,
@@ -23377,6 +23440,9 @@ def _guard_changed_manifest_coverage_issues(
     head_entries, verification_issues = _load_applied_encoding_manifest_entries(
         repo_path,
         claimants,
+        historical_verification=historical_verification,
+        historical_head_ref=historical_head_ref,
+        retrospective=retrospective,
         roots=roots,
         local_corpus_release=local_corpus_release,
         expected_encoder_identity=expected_encoder_identity,
@@ -23408,6 +23474,9 @@ def _guard_changed_manifest_coverage_issues(
     issues.extend(
         _generated_provenance_gate_issues(
             repo_path,
+            historical_verification=historical_verification,
+            historical_head_ref=historical_head_ref,
+            retrospective=retrospective,
             protected=live_claims,
             surviving_manifest_paths=claimants,
             roots=roots,
@@ -23600,6 +23669,8 @@ def _guard_provenance_inventory_git_issues(
             if listing.returncode:
                 # An unborn default HEAD has no tree, but its index still has
                 # to pass admission. Explicit invalid refs fail closed.
+                # This fallback applies only outside the trusted runtime:
+                # its Git wrapper refuses these symbolic/show-ref forms.
                 if location == "head" and head_ref == "HEAD" and base_ref is None:
                     symbolic = subprocess.run(
                         ["git", "-C", str(repo_path), "symbolic-ref", "-q", "HEAD"],
@@ -23809,6 +23880,10 @@ def _guard_auxiliary_provenance_issues(
     *,
     changed_receipt_paths: list[str],
     base_ref: str,
+    historical_verification: bool,
+    historical_head_ref: str,
+    retrospective: bool,
+    base_tree_cache: dict[str, _GuardBaseReceiptTree],
     roots: tuple[str, ...],
     local_corpus_release: LocalCorpusRelease,
     expected_encoder_identity: Mapping[str, str],
@@ -23851,8 +23926,22 @@ def _guard_auxiliary_provenance_issues(
 
     for receipt_path in sorted(dependencies):
         relative = Path(receipt_path)
+        # Carry the audit context into separately persisted receipt loaders.
+        # For deleted base receipts the empty payload permits evidence only.
+        receipt_verifier = _historical_apply_verifier(
+            signing_broker,
+            repo_path,
+            receipt_path,
+            b"",
+            {},
+            allow_retired_artifact=False,
+            head_ref=historical_head_ref,
+            retrospective=retrospective,
+        )
         if _is_unambiguously_absent_repo_path(repo_path, relative):
-            raw, base_issues = _guard_base_receipt_bytes(repo_path, base_ref, relative)
+            raw, base_issues = _guard_base_receipt_bytes(
+                repo_path, base_ref, relative, base_tree_cache=base_tree_cache
+            )
             issues.extend(base_issues)
             if raw is None:
                 if not base_issues:
@@ -23869,14 +23958,14 @@ def _guard_auxiliary_provenance_issues(
                 _guard_auxiliary_receipt_authentication_issues(
                     payload,
                     receipt_path=receipt_path,
-                    signing_broker=signing_broker,
+                    signing_broker=receipt_verifier,
                 )
             )
         elif relative.parent == APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR:
             _, _, receipt_issues = _load_verified_path_migration_receipt(
                 repo_path,
                 receipt_path,
-                signing_broker=signing_broker,
+                signing_broker=receipt_verifier,
                 expected_waiver_set_sha256=expected_waiver_set_sha256,
                 local_corpus_release=local_corpus_release,
                 proof_cache=path_migration_receipt_proof_cache,
@@ -23898,11 +23987,21 @@ def _guard_auxiliary_provenance_issues(
             except (OSError, UnicodeError, json.JSONDecodeError, RecursionError):
                 issues.append(f"{receipt_path} is not valid JSON")
                 continue
+            receipt_verifier = _historical_apply_verifier(
+                signing_broker,
+                repo_path,
+                receipt_path,
+                raw,
+                payload,
+                allow_retired_artifact=historical_verification,
+                head_ref=historical_head_ref,
+                retrospective=retrospective,
+            )
             issues.extend(
                 _guard_auxiliary_receipt_authentication_issues(
                     payload,
                     receipt_path=receipt_path,
-                    signing_broker=signing_broker,
+                    signing_broker=receipt_verifier,
                 )
             )
             if not dependencies[receipt_path]:
@@ -23917,6 +24016,9 @@ def _guard_auxiliary_provenance_issues(
         _, _, _, manifest_issues = _load_verified_applied_encoding_manifest_payload(
             repo_path,
             manifest_path,
+            historical_verification=historical_verification,
+            historical_head_ref=historical_head_ref,
+            retrospective=retrospective,
             roots=roots,
             signing_broker=signing_broker,
             local_corpus_release=local_corpus_release,
