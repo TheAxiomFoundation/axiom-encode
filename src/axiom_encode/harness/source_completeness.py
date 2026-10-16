@@ -6343,6 +6343,7 @@ def _analyze_rulespec_payload(
         )
     )
     unrepresented_occurrences = source_occurrences
+    unrepresented_recall_text = numeric_recall_text
     if represented_annual_spans:
         unrepresented_occurrences = tuple(
             occurrence
@@ -6367,6 +6368,7 @@ def _analyze_rulespec_payload(
     )
     covered_source_values = len(source_occurrences) - len(unrepresented_occurrences)
     missing_source_values: list[float] = []
+    missing_occurrences: list[NumericOccurrenceLike] = []
     for occurrence in unrepresented_occurrences:
         if any(
             numeric_value_is_grounded(named_value, (occurrence,))
@@ -6375,11 +6377,25 @@ def _analyze_rulespec_payload(
             covered_source_values += 1
         else:
             missing_source_values.append(float(occurrence.value))
-    for value in sorted(set(missing_source_values)):
+            missing_occurrences.append(occurrence)
+    missing_values = sorted(set(missing_source_values))
+    repair_context = _numeric_recall_repair_context(
+        missing_occurrences,
+        recall_text=unrepresented_recall_text,
+        source_text=source_text,
+        branches=branches,
+        corpus_citation_path=corpus_citation_path,
+        extract_numeric_occurrences=extract_numeric_occurrences,
+    )
+    for index, value in enumerate(missing_values):
+        # One issue per value keeps obligation counts and issue identity; only
+        # the first carries the located, branch-grouped repair context, which
+        # retry feedback (one diagnostic per category) always shows.
         issues.append(
             "[complete-source-unit:numeric-recall] Authoritative corpus numeric "
             f"value {value:g} has no named scalar representation. "
             "`module.summary` is not consulted."
+            + (repair_context if index == 0 else "")
         )
 
     issues.extend(companion_issues)
@@ -6391,6 +6407,331 @@ def _analyze_rulespec_payload(
         covered_source_values,
         len(missing_source_values),
     )
+
+
+_NUMERIC_RECALL_EXCERPT_RADIUS = 60
+_NUMERIC_RECALL_WORD_WIDENING = 20
+# Presentation only: a value whose first location reads like a citation or
+# section locator is listed in its own group so the repair context does not
+# steer the model into inventing scalars (or deferring real rules) for it.
+# Which values are demanded never depends on this.
+_NUMERIC_RECALL_LOCATOR_BEFORE = re.compile(
+    r"(?:\b(?:subdivisions?|sections?|subsections?|paragraphs?|title|chapter|"
+    r"Attachment|Stat\.|c\.|No\.)|§{1,2}|sub-§§?|Pub\.\s*L\.(?:\s*No\.)?)"
+    r"[ \t]*(?:[A-Za-z0-9().-]+[ \t]*(?:,|or|and)[ \t]*){0,4}"
+    r"(?:[A-Z][ \t]+)?$",
+    flags=re.IGNORECASE,
+)
+_NUMERIC_RECALL_LOCATOR_AFTER = re.compile(
+    r"^(?:-[A-Z]\b|[ \t]+(?:FR|Fed\.[ \t]*Reg\.|Stat\.|M\.R\.S\.)[ \t]|"
+    r"[ \t]+For guidance\b|[ \t]+or[ \t]*$)"
+)
+_NUMERIC_RECALL_CLUSTER_MAX_CHARS = 260
+_NUMERIC_RECALL_CONTEXT_MAX_CHARS = 6_000
+_NUMERIC_RECALL_UNLISTED_MAX_CHARS = 600
+_NUMERIC_RECALL_CONTEXT_PROBE_CHARS = 14
+
+
+def _numeric_recall_excerpt(source_text: str, start: int, end: int) -> str:
+    """A bounded, whitespace-normalized locator around `start:end` on its line."""
+
+    line_start = source_text.rfind("\n", 0, start) + 1
+    line_end = source_text.find("\n", end)
+    if line_end < 0:
+        line_end = len(source_text)
+    window_start = max(line_start, start - _NUMERIC_RECALL_EXCERPT_RADIUS)
+    window_end = min(line_end, end + _NUMERIC_RECALL_EXCERPT_RADIUS)
+    # Avoid cutting a word: widen to the nearest space inside the line, but by
+    # at most `_NUMERIC_RECALL_WORD_WIDENING` characters per side.
+    floor = max(line_start, window_start - _NUMERIC_RECALL_WORD_WIDENING)
+    ceiling = min(line_end, window_end + _NUMERIC_RECALL_WORD_WIDENING)
+    while window_start > floor and not source_text[window_start - 1].isspace():
+        window_start -= 1
+    while window_end < ceiling and not source_text[window_end].isspace():
+        window_end += 1
+    excerpt = " ".join(source_text[window_start:window_end].split())
+    return (
+        ("... " if window_start > line_start else "")
+        + excerpt
+        + (" ..." if window_end < line_end else "")
+    )
+
+
+def _numeric_recall_looks_like_locator(source_text: str, start: int, end: int) -> bool:
+    """Whether a located value reads like a citation, caption or label."""
+
+    line_start = source_text.rfind("\n", 0, start) + 1
+    line_end = source_text.find("\n", end)
+    if line_end < 0:
+        line_end = len(source_text)
+    before = source_text[max(line_start, start - 40) : start]
+    after = source_text[end:line_end]
+    if re.fullmatch(r"\s*(?:[0-9]+[-.:])?", source_text[:start]):
+        return True  # the unit's own caption, e.g. `43-1072 - Earned credit`
+    if re.fullmatch(r"[0-9]{1,2}", source_text[start:end]) and (
+        re.match(r"\.[ \t]+\(1\)", after)
+        or (
+            re.search(r"(?:^|[.;:][ \t]+)$", source_text[line_start:start])
+            and re.match(r"\.[ \t]+(?:\(|[A-Z])", after)
+        )
+    ):
+        return True  # an inline subsection label such as `5. Beginning`
+    if (
+        not source_text[line_start:start].strip()
+        and re.fullmatch(r"[0-9]+(?:\.[0-9]+)+", source_text[start:end])
+        and re.match(r"[ \t]+[A-Z][a-z]", after)
+    ):
+        return True  # a dotted section heading such as `214.2 Shared Utility`
+    if re.search(r";[ \t]*$", before) and re.match(r"[ \t]+or[ \t]*$", after):
+        return True  # a footnote reference such as `battered; 2 or`
+    if (
+        re.fullmatch(r"[0-9]{1,2}", source_text[start:end])
+        and re.search(r"[a-z]\.[ \t]+$", before)
+        and re.match(r"[ \t]+[A-Z][a-z]", after)
+    ):
+        return True  # a footnote reference such as `batterer. 3 After`
+    return bool(
+        _NUMERIC_RECALL_LOCATOR_BEFORE.search(before)
+        or _NUMERIC_RECALL_LOCATOR_AFTER.match(after)
+    )
+
+
+def _numeric_recall_context_key(text: str) -> str:
+    return "".join(text.split()).casefold()
+
+
+def _numeric_recall_source_locations(
+    missing_occurrences: Sequence[NumericOccurrenceLike],
+    *,
+    recall_text: str,
+    source_text: str,
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> dict[float, tuple[int, int]]:
+    """Map each missing value to a source span, preferring its recall context.
+
+    The recall view drops or blanks locators, so its coordinates are not
+    source coordinates. A source occurrence of the same value is preferred when
+    the text just before or after it matches the text around a missing recall
+    occurrence; otherwise the value's first source occurrence is used. Values
+    the extractor does not find in the raw source are left unlocated.
+    """
+
+    probe = _NUMERIC_RECALL_CONTEXT_PROBE_CHARS
+    wanted: dict[float, list[tuple[str, str]]] = {}
+    for occurrence in missing_occurrences:
+        value = float(occurrence.value)
+        before = _numeric_recall_context_key(
+            recall_text[max(0, occurrence.start - 3 * probe) : occurrence.start]
+        )[-probe:]
+        after = _numeric_recall_context_key(
+            recall_text[occurrence.end : occurrence.end + 3 * probe]
+        )[:probe]
+        wanted.setdefault(value, []).append((before, after))
+
+    def same_value(candidate: NumericOccurrenceLike, value: float) -> bool:
+        values = (
+            float(candidate.value),
+            *(
+                float(item)
+                for item in getattr(candidate, "alternative_values", ()) or ()
+            ),
+        )
+        return any(
+            math.isclose(item, value, rel_tol=1e-9, abs_tol=1e-9) for item in values
+        )
+
+    source_occurrences = tuple(extract_numeric_occurrences(source_text))
+    locations: dict[float, tuple[int, int]] = {}
+    for value, contexts in wanted.items():
+        matches = [item for item in source_occurrences if same_value(item, value)]
+        if not matches:
+            continue
+        chosen = matches[0]
+        for candidate in matches:
+            before = _numeric_recall_context_key(
+                source_text[max(0, candidate.start - 3 * probe) : candidate.start]
+            )
+            after = _numeric_recall_context_key(
+                source_text[candidate.end : candidate.end + 3 * probe]
+            )
+            if any(
+                (wanted_before and before.endswith(wanted_before))
+                or (wanted_after and after.startswith(wanted_after))
+                for wanted_before, wanted_after in contexts
+            ):
+                chosen = candidate
+                break
+        locations[value] = (chosen.start, chosen.end)
+    return locations
+
+
+def _numeric_recall_repair_context(
+    missing_occurrences: Sequence[NumericOccurrenceLike],
+    *,
+    recall_text: str,
+    source_text: str,
+    branches: Sequence[SourceStructureBranch],
+    corpus_citation_path: str,
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> str:
+    """Locate every missing value in the source and group them by branch.
+
+    This only describes demands already made; it never adds, removes or
+    changes one. Each value is located in the authoritative text, nearby
+    values on one line share a bounded excerpt, and excerpts are grouped under
+    the deepest recognized branch. The context is capped at
+    `_NUMERIC_RECALL_CONTEXT_MAX_CHARS`; values beyond the cap are still listed.
+    """
+
+    missing_values = sorted({float(item.value) for item in missing_occurrences})
+    if not missing_values:
+        return ""
+    locations = _numeric_recall_source_locations(
+        missing_occurrences,
+        recall_text=recall_text,
+        source_text=source_text,
+        extract_numeric_occurrences=extract_numeric_occurrences,
+    )
+
+    def branch_label(position: int) -> str:
+        containing = [
+            branch for branch in branches if branch.start <= position < branch.end
+        ]
+        branch = max(
+            containing,
+            key=lambda item: (len(item.path), -(item.end - item.start)),
+            default=None,
+        )
+        if branch is None:
+            return f"{corpus_citation_path} [source unit]"
+        return _branch_citation(corpus_citation_path, branch)
+
+    located = sorted(
+        (span, value, branch_label(span[0])) for value, span in locations.items()
+    )
+    # Cluster values on one line whose excerpts would overlap, so a table row
+    # or a run-on sentence is shown once with all of its missing values.
+    clusters: list[tuple[str, list[float], int, int]] = []
+    for (start, end), value, label in located:
+        if clusters:
+            previous_label, values, cluster_start, cluster_end = clusters[-1]
+            if (
+                previous_label == label
+                and "\n" not in source_text[cluster_end:start]
+                and start - cluster_end <= 2 * _NUMERIC_RECALL_EXCERPT_RADIUS
+                and end - cluster_start <= _NUMERIC_RECALL_CLUSTER_MAX_CHARS
+            ):
+                values.append(value)
+                clusters[-1] = (label, values, cluster_start, max(cluster_end, end))
+                continue
+        clusters.append((label, [value], start, end))
+
+    locator_values = {
+        value
+        for value, (start, end) in locations.items()
+        if _numeric_recall_looks_like_locator(source_text, start, end)
+    }
+    # The first location names a value that reads like a policy value when
+    # one exists, so the shown example is never a citation or caption.
+    first_value = next(
+        (
+            value
+            for value in missing_values
+            if value in locations and value not in locator_values
+        ),
+        next((value for value in missing_values if value in locations), None),
+    )
+    parts: list[str] = []
+    budget = _NUMERIC_RECALL_CONTEXT_MAX_CHARS
+    if first_value is not None:
+        start, end = locations[first_value]
+        first = (
+            f" First source location of {first_value:g}: character (code point) "
+            f"offsets {start}:{end} in source.txt, {branch_label(start)}: "
+            f"`{_numeric_recall_excerpt(source_text, start, end)}`."
+        )
+        parts.append(first)
+        budget -= len(first)
+    if len(missing_values) == 1:
+        if parts:
+            parts.append(
+                " The displayed text is only a bounded locator; copy any proof "
+                "excerpt verbatim from `source.txt`."
+            )
+        return "".join(parts)
+
+    operative_count = len(missing_values) - len(locator_values)
+    header = (
+        f" All {len(missing_values)} values of this source without a named "
+        "scalar, grouped by source branch, with character (code point) offsets "
+        f"in source.txt. Represent each of the {operative_count} listed first "
+        "in this attempt with a named scalar whose proof excerpt is copied "
+        "verbatim from `source.txt`, or precisely defer the branch that states "
+        "it. Displayed text is only a bounded locator."
+    )
+    budget -= len(header)
+    body: list[str] = []
+    listed: set[float] = set()
+
+    def render(groups, opening: str = "") -> list[str]:
+        nonlocal budget
+        entries: list[str] = []
+        current_label: str | None = None
+        for label, values, start, end in groups:
+            rendered_values = ", ".join(f"{value:g}" for value in values)
+            entry = (
+                f" {rendered_values} at {start}:{end}: "
+                f"`{_numeric_recall_excerpt(source_text, start, end)}`;"
+            )
+            if label != current_label:
+                entry = f" In {label}:" + entry
+            if not entries and opening:
+                entry = opening + entry
+            if len(entry) > budget:
+                break
+            budget -= len(entry)
+            entries.append(entry)
+            listed.update(values)
+            current_label = label
+        return entries
+
+    def split(keep_locators: bool):
+        groups = []
+        for label, values, start, end in clusters:
+            chosen = [
+                value for value in values if (value in locator_values) == keep_locators
+            ]
+            if chosen:
+                spans = [locations[value] for value in chosen]
+                groups.append(
+                    (
+                        label,
+                        chosen,
+                        min(span[0] for span in spans),
+                        max(span[1] for span in spans),
+                    )
+                )
+        return groups
+
+    body.extend(render(split(False)))
+    body.extend(
+        render(
+            split(True),
+            opening=(
+                " These values appear to be citation, caption or section "
+                "locators; do not invent scalars or defer real rules for them:"
+            ),
+        )
+    )
+    remaining = [value for value in missing_values if value not in listed]
+    tail = ""
+    if remaining:
+        rendered = ", ".join(f"{value:g}" for value in remaining)
+        if len(rendered) > _NUMERIC_RECALL_UNLISTED_MAX_CHARS:
+            rendered = rendered[:_NUMERIC_RECALL_UNLISTED_MAX_CHARS].rsplit(",", 1)[0]
+            rendered += ", ..."
+        tail = f" Not located above ({len(remaining)}): {rendered}."
+    return "".join(parts) + header + "".join(body) + tail
 
 
 def _rule_coverage(
