@@ -537,6 +537,24 @@ an already frozen commit must explicitly use `guard-generated --retrospective`;
 its actual checkout head must equal or precede the trusted cutoff, and its
 `--head-ref` must be `HEAD` or that exact SHA.
 
+The broker validates and detaches the inventory once at attachment, exposing a
+read-only index by repository and artifact path. Its hash tables and nested data
+are stored in native tuples, with no mutable backing dictionaries. Its instance
+attributes cannot be set or deleted, and reassigning its `__class__` fails closed:
+admission accepts only the exact broker index type or a raw `dict`.
+Reinitialization is a no-op; state restoration and pickling are rejected, and
+shallow/deep copies return the same view. These are protections
+for the exposed values, not an isolation boundary against arbitrary Python code
+that replaces classes or changes the verifier. Each guard invocation
+owns fresh repository-history and covered-source caches, including retrospective
+preflight. Successful repository checks (identity, complete history,
+graft/replacement exclusion and cutoff ancestry) are snapshots
+for that operation and resolved HEAD only. Each admission rereads HEAD. Direct
+admission checks its own frozen blobs, live bytes, coverage and supersession
+history. Nested guards have independent caches; return or exception discards
+the operation's caches.
+Calls outside an operation do not share history caches.
+
 Nested retirement, migration, legacy replacement, and retained successor
 evidence uses the same protected inventory. Each retired signature must identify
 the exact embedded historical payload preserved by a frozen inventoried
