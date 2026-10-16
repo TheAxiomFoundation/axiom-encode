@@ -273,6 +273,7 @@ from .harness.source_completeness import (
     _deferred_coverage,
     _rulespec_target_base,
     recognize_source_structure,
+    split_imprecise_deferral_branches,
 )
 from .harness.validator_pipeline import (
     _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS,
@@ -30986,10 +30987,18 @@ def _best_validation_retry_attempt(
         # message count so a candidate that closes six of nine missing branches
         # is not discarded merely because another validator adds one message.
         # On an exact deterministic tie, keep forward progress by using newer.
+        # Branches listed inside a rejected deferral finding were separate
+        # structure messages before they were folded; count them as such so
+        # the message-count tie-break is unchanged by the folding.
+        folded_branch_count = sum(
+            len(split_imprecise_deferral_branches(issue)[1])
+            for issue in residual_issues
+            if isinstance(issue, str)
+        )
         return (
             int(unsafe_candidate),
             residual_obligation_count,
-            attempt.validation_issue_count,
+            attempt.validation_issue_count + folded_branch_count,
             -index,
         )
 
@@ -31038,6 +31047,10 @@ def _validation_residual_obligation_count(issues: Sequence[str]) -> int:
                 1,
                 len(re.findall(r"`[^`]+`\s+versions\[", issue)),
             )
+        elif pending_branches := split_imprecise_deferral_branches(issue)[1]:
+            # The deferral plus each branch it leaves open; those branches
+            # have no structure finding of their own while it is rejected.
+            obligation_count = 1 + len(pending_branches)
         total += obligation_count
     return total
 
@@ -63334,12 +63347,20 @@ def _failed_validation_issue_counts(
                 placeholder=_DEPENDENT_VALIDATION_ROOT_PLACEHOLDER,
             )
 
-        diagnostics = Counter(
-            normalize(issue) for issue in (getattr(result, "issues", []) or [])
-        )
+        diagnostics: Counter[str] = Counter()
+        for issue in getattr(result, "issues", []) or []:
+            # A rejected deferral lists the branches it leaves open instead
+            # of one structure finding each; count those branches one by one
+            # so that closing one of them is not mistaken for a new failure.
+            own_text, pending_branches = split_imprecise_deferral_branches(
+                normalize(issue)
+            )
+            diagnostics[own_text] += 1
+            for branch_path in pending_branches:
+                diagnostics[f"{own_text}\npending source branch `{branch_path}`"] += 1
         error = getattr(result, "error", None)
         if error:
-            diagnostics[normalize(error)] += 1
+            diagnostics[split_imprecise_deferral_branches(normalize(error))[0]] += 1
         failures[str(name)] = diagnostics
     return failures
 

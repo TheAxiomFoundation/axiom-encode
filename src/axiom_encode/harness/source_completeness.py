@@ -2075,12 +2075,19 @@ _SOURCE_BOUND_RUNTIME_GAP_STOPWORDS = frozenset(
         "until",
     }
 )
+_IMPRECISE_DEFERRAL_RETRY_EXAMPLE = """\
+    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax
+      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded."""
+# U.S. encodes get a U.S. example: 26 U.S.C. 24(c)(1) defines a qualifying
+# child by reference to section 152(c).
+_US_IMPRECISE_DEFERRAL_RETRY_EXAMPLE = """\
+    - output: us:statutes/26/24/c/1#ctc_qualifying_child
+      reason: Cannot be computed until the qualifying child definition cited in 26 U.S.C. 152(c) is encoded."""
 _IMPRECISE_DEFERRAL_RETRY_SHAPE = """\
 Required shape (adapt the output and cited dependency to the omitted branch):
 module:
   deferred_outputs:
-    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax
-      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.
+{example}
 `output` and `reason` are required; `blocked_by` is optional and, when present, \
 must list exact absolute upstream RuleSpec outputs. When no external legal dependency \
 exists, cite the exact current source branch and name its concrete source-stated missing \
@@ -2153,7 +2160,13 @@ def _imprecise_deferral_retry_shape(
                 "source-stated input); a reason naming an exact external missing "
                 "dependency need not cite it."
             )
-    return f"{_IMPRECISE_DEFERRAL_RETRY_SHAPE}{branch_hint}"
+    example = (
+        _US_IMPRECISE_DEFERRAL_RETRY_EXAMPLE
+        if _US_CORPUS_CITATION_PATH.match(corpus_citation_path)
+        else _IMPRECISE_DEFERRAL_RETRY_EXAMPLE
+    )
+    shape = _IMPRECISE_DEFERRAL_RETRY_SHAPE.replace("{example}", example)
+    return f"{shape}{branch_hint}"
 
 
 _ABSATZ_REFERENCE = re.compile(
@@ -5902,6 +5915,7 @@ def _analyze_rulespec_payload(
     test_cases = _typed_numeric_expected_cases(test_cases, named_rules)
     test_cases = _typed_date_cases(test_cases, payload)
     deferred_clauses: list[SourceStructureBranch] = []
+    imprecise_deferral_paths: list[tuple[int, tuple[str, ...]]] = []
     deferred_paths, imprecise_deferrals = _deferred_coverage(
         payload,
         corpus_citation_path=corpus_citation_path,
@@ -5910,6 +5924,7 @@ def _analyze_rulespec_payload(
         authenticated_same_act_aliases=authenticated_same_act_aliases,
         resolved_dependency_outputs=resolved_dependency_outputs,
         deferred_clauses=deferred_clauses,
+        imprecise_paths=imprecise_deferral_paths,
     )
     # Like a source-bound proof excerpt, a precise clause accounts for its
     # structural owner. It does not defer that owner's other obligations.
@@ -5950,6 +5965,7 @@ def _analyze_rulespec_payload(
         )
     )
     issues: list[str] = []
+    imprecise_deferral_issue_offset = len(issues)
     issues.extend(imprecise_deferrals)
     from axiom_encode.harness.worksheet_country_evidence import (
         certify_worksheet_country,
@@ -6016,6 +6032,11 @@ def _analyze_rulespec_payload(
         else None
     )
 
+    # A branch that only an imprecise deferral would cover repeats that
+    # deferral's finding. Report it inside the deferral finding instead; it
+    # is reported on its own again as soon as the deferral is removed, and
+    # it is covered once the deferral is precise.
+    branches_behind_imprecise_deferral: dict[int, dict[str, SourceStructureBranch]] = {}
     for branch in branches:
         if _path_covered(
             branch.path,
@@ -6074,12 +6095,33 @@ def _analyze_rulespec_payload(
                     "atom on the affected principal formula when applicable), or "
                     "precisely defer the parent; do not invent a dummy output."
                 )
-        issues.append(
+        structure_issue = (
             "[complete-source-unit:structure] "
             f"Source branch {branch.label} at "
             f"{_branch_citation(corpus_citation_path, branch)} is neither "
             "encoded nor precisely deferred."
             f"{covered_descendant_detail}"
+        )
+        pending_deferral = max(
+            (
+                (len(deferral_path), finding_index)
+                for finding_index, deferral_path in imprecise_deferral_paths
+                if _path_is_deferred(branch.path, {deferral_path})
+            ),
+            default=None,
+        )
+        if pending_deferral is None:
+            issues.append(structure_issue)
+            continue
+        # An identical finding text is one finding, as the final
+        # de-duplication of the issue list makes it.
+        branches_behind_imprecise_deferral.setdefault(pending_deferral[1], {})[
+            structure_issue
+        ] = branch
+    for finding_index, pending_branches in branches_behind_imprecise_deferral.items():
+        issue_index = imprecise_deferral_issue_offset + finding_index
+        issues[issue_index] = _with_branches_behind_imprecise_deferral(
+            issues[issue_index], tuple(pending_branches.values())
         )
 
     active_branches = tuple(
@@ -7154,6 +7196,60 @@ def _deferral_anchor_bases(corpus_citation_path: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys((base, module_root)))
 
 
+IMPRECISE_DEFERRAL_PENDING_BRANCHES = re.compile(
+    r" Until it is precise, (?P<count>\d+) source branch(?:es)? that it would "
+    r"cover (?:is|are) neither encoded nor precisely deferred and (?:is|are) "
+    r"not reported separately; encode each one or cover it with a deferral that "
+    r"names its own exact missing dependency: "
+    r"(?P<paths>`[^`\n]*`(?:, `[^`\n]*`)*)\."
+)
+
+
+def _with_branches_behind_imprecise_deferral(
+    issue: str,
+    branches: Sequence[SourceStructureBranch],
+) -> str:
+    """Name, inside an imprecise-deferral finding, the branches it leaves open.
+
+    These branches get no separate structure finding while the deferral is
+    rejected. Every one is listed, and the sentence stays parseable
+    (`IMPRECISE_DEFERRAL_PENDING_BRANCHES`, `split_imprecise_deferral_branches`)
+    so that retry ranking and dependent-regression checks still count each
+    open branch as its own obligation.
+    """
+
+    count = len(branches)
+    if not count:
+        return issue
+    paths = ", ".join(
+        f"`{'/'.join(branch.path) or '<source-unit>'}`" for branch in branches
+    )
+    plural = count != 1
+    sentence = (
+        f" Until it is precise, {count} source branch{'es' if plural else ''} "
+        f"that it would cover {'are' if plural else 'is'} neither encoded nor "
+        f"precisely deferred and {'are' if plural else 'is'} not reported "
+        "separately; encode each one or cover it with a deferral that names its "
+        f"own exact missing dependency: {paths}."
+    )
+    head, separator, tail = issue.partition("\n")
+    return f"{head}{sentence}{separator}{tail}"
+
+
+def split_imprecise_deferral_branches(issue: str) -> tuple[str, tuple[str, ...]]:
+    """Split a deferral finding into its own text and the branches it holds.
+
+    Returns the finding without the pending-branch sentence and the listed
+    branch paths; a finding without that sentence is returned unchanged.
+    """
+
+    match = IMPRECISE_DEFERRAL_PENDING_BRANCHES.search(issue)
+    if match is None or "[complete-source-unit:deferral]" not in issue:
+        return issue, ()
+    paths = tuple(re.findall(r"`([^`\n]*)`", match.group("paths")))
+    return issue[: match.start()] + issue[match.end() :], paths
+
+
 def _deferred_coverage(
     payload: dict[str, Any],
     *,
@@ -7163,7 +7259,15 @@ def _deferred_coverage(
     authenticated_same_act_aliases: Sequence[str] = (),
     resolved_dependency_outputs: Sequence[str] = (),
     deferred_clauses: list[SourceStructureBranch] | None = None,
+    imprecise_paths: list[tuple[int, tuple[str, ...]]] | None = None,
 ) -> tuple[set[tuple[str, ...]], list[str]]:
+    """Return precisely deferred paths and the deferral findings.
+
+    ``imprecise_paths`` receives ``(finding index, path)`` for each deferral
+    rejected only because its reason is imprecise: the path it would cover
+    once the reason names an exact missing dependency.
+    """
+
     module = payload.get("module")
     records = module.get("deferred_outputs") if isinstance(module, dict) else None
     if not isinstance(records, list):
@@ -7460,6 +7564,8 @@ def _deferred_coverage(
                 "name an exact missing dependency, input, or runtime capability.\n"
                 f"{retry_shape}"
             )
+            if imprecise_paths is not None:
+                imprecise_paths.append((len(issues) - 1, path))
     return covered, issues
 
 

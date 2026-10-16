@@ -14,6 +14,10 @@
 
 - Label U.S. and other non-German complete-source branches in English with their full designation (`us/regulation/7/273/4(a)(4) [paragraph (a)(4)]`); German labels are unchanged.
 - Stop reading German sentence markers in U.S. sources (`K-40ES`, `42CFR`, `22VAC40` were "Satz" branches), and let a principal output citing a U.S. list or range such as `7 CFR 273.4(a)(3)-(5)` cover each named branch. A list counts only when nothing after it qualifies it (`in 7 CFR 273.9`, `of section 152`), and an out-of-order roman (`(a)(1)(ii), (i)`) never reaches a top-level letter.
+## 0.2.2215
+
+- List the branches that only a rejected (imprecise) deferral would cover inside that deferral's `[complete-source-unit:deferral]` finding instead of repeating one `[complete-source-unit:structure]` finding per branch; they are reported on their own again when the deferral is removed, and retry ranking and the dependent-regression check still count each one.
+- Show U.S. encodes a U.S. example (26 U.S.C. 24(c)(1) citing 152(c)) in the deferral retry shape instead of the EStG example.
 
 ## 0.2.2183
 
