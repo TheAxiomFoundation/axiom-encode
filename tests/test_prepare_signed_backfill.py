@@ -4280,13 +4280,29 @@ def test_validate_rulespec_base_rejects_non_main_pr_for_main_ancestor(
         )
 
 
+def test_validate_rulespec_base_admits_plumbing_only_main_advance(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    recorded_base = _add_origin_main(repo)
+    (repo / "README.md").write_text("advanced\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "advance main")
+    _git(
+        repo, "update-ref", "refs/remotes/origin/main", _git(repo, "rev-parse", "HEAD")
+    )
+    _git(repo, "checkout", "--detach", recorded_base)
+
+    assert validate_rulespec_base(repo, "us", recorded_base, open_pr=True) == "main"
+
+
 def test_validate_rulespec_base_rejects_stale_main_pr_base(
     tmp_path: Path,
 ) -> None:
     repo = _repo(tmp_path)
     stale_base = _add_origin_main(repo)
-    (repo / "README.md").write_text("advanced\n", encoding="utf-8")
-    _git(repo, "add", "README.md")
+    (repo / "known-validation-gaps.yaml").write_text("waivers: []\n", encoding="utf-8")
+    _git(repo, "add", "known-validation-gaps.yaml")
     _git(repo, "commit", "-m", "advance main")
     advanced_base = _git(repo, "rev-parse", "HEAD")
     _git(

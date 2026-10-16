@@ -15,6 +15,7 @@ import re
 import stat
 import subprocess
 import tokenize
+from collections.abc import Iterable
 from datetime import date
 from pathlib import Path, PurePosixPath
 
@@ -218,6 +219,50 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
         ),
     }
 )
+# A main publication may land on a newer main tip than the commit it was
+# encoded, validated, and signed against, but only when every path main
+# changed in between is repository plumbing that no signed manifest or the
+# generated-provenance guard binds and that an ordinary apply lane never
+# reads: CI definitions, repository tests and tools, bulk drain helpers, and
+# prose. Jurisdiction RuleSpec trees, programs/, every .axiom/ binding
+# (toolchain and corpus pin, waivers, fingerprints, manifests, receipts, the
+# reverse index), the root waiver and debt ledgers, and Git attribute or
+# ignore files keep the exact-tip demand.
+#
+# Receipt-bound lanes (legacy replacements, path migrations) and any lane
+# that deletes a base path also keep the exact-tip demand: their receipts
+# prove a whole-tree reference inventory (``git grep`` over every path,
+# plumbing included) at the recorded base, and the guard re-proves it only at
+# that base, so a reference main added elsewhere would go unchecked.
+PUBLICATION_BASE_ADVANCE_PREFIXES = (
+    ".claude/",
+    ".github/",
+    "bulk/",
+    "tests/",
+    "tools/",
+)
+PUBLICATION_BASE_ADVANCE_FILES = frozenset(
+    {"CLAUDE.md", "LICENSE", "LICENSE-CODE", "NOTICE", "README.md"}
+)
+WORKFLOW_TOOLCHAIN_PATH = PurePosixPath(".axiom/workflow-toolchain.toml")
+# Workflow pins that only non-encode jobs consume: the program-artifacts
+# build engine and the report-only source-staleness encoder. The encode run
+# (axiom_compose_ref), its dispatcher (corpus and engine refs), and the
+# generated-provenance guard (encoder ref and version) read none of them.
+WORKFLOW_TOOLCHAIN_NONBINDING_KEYS = frozenset(
+    {"axiom_artifact_rules_engine_ref", "source_staleness_axiom_encode_ref"}
+)
+EXACT_TIP_LANE_ROOTS = (
+    LEGACY_REPLACEMENT_RECEIPT_ROOT,
+    PurePosixPath(".axiom/path-migrations"),
+)
+MAX_PUBLICATION_BASE_ADVANCE_COMMITS = 500
+MAX_PUBLICATION_LANE_COMMITS = 32
+PUBLICATION_LANE_BRANCH_PREFIX = "refs/heads/axiom/signed-backfill-"
+PUBLICATION_BASE_SCHEMA = "axiom-encode/rulespec-publication-base/v1"
+STALE_PUBLICATION_BASE_ERROR = (
+    "rulespec ref is not the exact pull request base branch tip"
+)
 
 
 def _load_unambiguous_json(raw: str, *, label: str) -> object:
@@ -316,8 +361,16 @@ def validate_rulespec_base(
     *,
     open_pr: bool,
     pr_base_branch: str = "main",
+    require_exact_tip: bool = False,
 ) -> str:
-    """Admit main ancestry or an exact independently reviewed protected head."""
+    """Admit main ancestry or an exact independently reviewed protected head.
+
+    A main pull request base may trail the main tip only through paths
+    :func:`publication_base_advance_paths` proves cannot affect the run; the
+    publish step re-proves that against the tip it finally lands on. Runs
+    whose lane will be receipt-bound (legacy replacements) pass
+    ``require_exact_tip`` and keep the exact-tip demand from the start.
+    """
 
     validate_country(country)
     if COMMIT_PATTERN.fullmatch(requested_ref) is None:
@@ -344,7 +397,14 @@ def validate_rulespec_base(
         if open_pr:
             if pr_base_branch != "main":
                 raise ValueError("main-ancestor pull requests must target main")
-            _require_remote_branch_tip(repo, pr_base_branch, requested_ref)
+            if require_exact_tip:
+                _require_remote_branch_tip(repo, pr_base_branch, requested_ref)
+            else:
+                publication_base_advance_paths(
+                    repo,
+                    requested_ref,
+                    _remote_branch_ref(repo, pr_base_branch),
+                )
         return "main"
     if (country, requested_ref) not in REVIEWED_RULESPEC_REFS:
         raise ValueError(
@@ -361,19 +421,582 @@ def validate_rulespec_base(
     return "reviewed-head-artifact"
 
 
-def _require_remote_branch_tip(
-    repo: Path,
-    branch: str,
-    requested_ref: str,
-) -> None:
+def _remote_branch_ref(repo: Path, branch: str) -> str:
     try:
         branch_ref = (
             _git(repo, "rev-parse", f"refs/remotes/origin/{branch}").decode().strip()
         )
     except subprocess.CalledProcessError as exc:
         raise ValueError(f"pull request base branch is unavailable: {branch}") from exc
-    if branch_ref != requested_ref:
-        raise ValueError("rulespec ref is not the exact pull request base branch tip")
+    if COMMIT_PATTERN.fullmatch(branch_ref) is None:
+        raise ValueError(f"pull request base branch is unavailable: {branch}")
+    return branch_ref
+
+
+def _require_remote_branch_tip(
+    repo: Path,
+    branch: str,
+    requested_ref: str,
+) -> None:
+    if _remote_branch_ref(repo, branch) != requested_ref:
+        raise ValueError(STALE_PUBLICATION_BASE_ERROR)
+
+
+def _publication_git(
+    repo: Path,
+    *args: str,
+    stdin: bytes | None = None,
+    env: dict[str, str] | None = None,
+) -> bytes:
+    """Run Git on object identities only: no replace refs, hooks, or globs."""
+
+    return subprocess.run(
+        [
+            "git",
+            "--no-replace-objects",
+            "--literal-pathspecs",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-C",
+            str(repo),
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+        input=stdin,
+        env=env,
+    ).stdout
+
+
+def _publication_commit(repo: Path, revision: str, *, label: str) -> str:
+    try:
+        commit = (
+            _publication_git(repo, "rev-parse", "--verify", f"{revision}^{{commit}}")
+            .decode("ascii")
+            .strip()
+        )
+    except (subprocess.CalledProcessError, UnicodeDecodeError) as exc:
+        raise ValueError(f"{label} is not an available commit") from exc
+    if COMMIT_PATTERN.fullmatch(commit) is None:
+        raise ValueError(f"{label} is not an available commit")
+    return commit
+
+
+def _publication_diff_paths(repo: Path, old: str, new: str) -> set[PurePosixPath]:
+    """Return every tree path whose entry differs between two commits."""
+
+    output = _publication_git(
+        repo,
+        "diff-tree",
+        "-r",
+        "-z",
+        "--no-renames",
+        "--name-only",
+        old,
+        new,
+    )
+    paths: set[PurePosixPath] = set()
+    for raw in output.split(b"\0"):
+        if not raw:
+            continue
+        path = _safe_relative_path(raw.decode("utf-8"), label="changed tree path")
+        paths.add(path)
+    return paths
+
+
+def _regular_blob_at(repo: Path, commit: str, path: PurePosixPath) -> bytes | None:
+    listing = _publication_git(
+        repo, "ls-tree", "-z", "--full-tree", commit, "--", path.as_posix()
+    )
+    records = [record for record in listing.split(b"\0") if record]
+    if len(records) != 1:
+        return None
+    metadata, _separator, listed_path = records[0].partition(b"\t")
+    fields = metadata.split(b" ")
+    if (
+        len(fields) != 3
+        or fields[0] != b"100644"
+        or fields[1] != b"blob"
+        or listed_path != path.as_posix().encode("utf-8")
+    ):
+        return None
+    return _publication_git(repo, "cat-file", "blob", fields[2].decode("ascii"))
+
+
+def _workflow_toolchains_equivalent(before: bytes | None, after: bytes | None) -> bool:
+    """Admit a workflow-toolchain change only to pins no encode input uses."""
+
+    import tomllib
+
+    documents = []
+    for raw in (before, after):
+        if raw is None:
+            return False
+        try:
+            document = tomllib.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+            return False
+        table = document.get("workflow_toolchain")
+        if not isinstance(table, dict):
+            return False
+        document["workflow_toolchain"] = {
+            key: value
+            for key, value in table.items()
+            if key not in WORKFLOW_TOOLCHAIN_NONBINDING_KEYS
+        }
+        documents.append(document)
+    return documents[0] == documents[1]
+
+
+def base_advance_binding_paths(
+    changed_paths: Iterable[str],
+    *,
+    workflow_toolchain_before: bytes | None = None,
+    workflow_toolchain_after: bytes | None = None,
+) -> list[str]:
+    """Return the changed paths that a base advance may not cross (pure).
+
+    ``changed_paths`` are the tree paths that differ between the recorded
+    base and the tip. When ``.axiom/workflow-toolchain.toml`` is among them,
+    the caller passes its exact bytes at both commits (``None`` if absent or
+    not a regular file). An empty result admits the path half of the rule;
+    the caller still proves first-parent ancestry.
+    """
+
+    binding: set[str] = set()
+    for text in changed_paths:
+        if not isinstance(text, str):
+            binding.add(repr(text))
+            continue
+        path = PurePosixPath(text)
+        if (
+            path.is_absolute()
+            or path.as_posix() != text
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or path in LEGACY_REPLACEMENT_METADATA_PATHS
+        ):
+            binding.add(str(text))
+        elif text in PUBLICATION_BASE_ADVANCE_FILES or text.startswith(
+            PUBLICATION_BASE_ADVANCE_PREFIXES
+        ):
+            continue
+        elif path == WORKFLOW_TOOLCHAIN_PATH and _workflow_toolchains_equivalent(
+            workflow_toolchain_before, workflow_toolchain_after
+        ):
+            continue
+        else:
+            binding.add(text)
+    return sorted(binding)
+
+
+def publication_base_advance_paths(
+    repo: Path,
+    recorded_base: str,
+    tip: str,
+) -> tuple[PurePosixPath, ...]:
+    """Prove a main tip advanced from ``recorded_base`` only through plumbing.
+
+    The recorded base must be a first-parent ancestor of the tip, so it was
+    itself a main tip, and every tree path that differs between the two must
+    be repository plumbing the signed run neither read nor bound. Returns the
+    sorted differing paths (empty for the exact tip); raises otherwise.
+    """
+
+    for label, value in (
+        ("rulespec ref", recorded_base),
+        ("pull request base tip", tip),
+    ):
+        if COMMIT_PATTERN.fullmatch(value) is None:
+            raise ValueError(f"{label} must be a full lowercase commit SHA")
+    if tip == recorded_base:
+        return ()
+    _publication_commit(repo, recorded_base, label="rulespec ref")
+    _publication_commit(repo, tip, label="pull request base tip")
+    first_parent = (
+        _publication_git(
+            repo,
+            "rev-list",
+            "--first-parent",
+            "--topo-order",
+            f"--max-count={MAX_PUBLICATION_BASE_ADVANCE_COMMITS + 1}",
+            f"{recorded_base}..{tip}",
+        )
+        .decode("ascii")
+        .split()
+    )
+    if not first_parent:
+        raise ValueError(
+            f"{STALE_PUBLICATION_BASE_ERROR}, and the tip does not descend from it"
+        )
+    if len(first_parent) > MAX_PUBLICATION_BASE_ADVANCE_COMMITS:
+        raise ValueError(
+            f"{STALE_PUBLICATION_BASE_ERROR}, and main advanced through more "
+            f"than {MAX_PUBLICATION_BASE_ADVANCE_COMMITS} commits"
+        )
+    oldest_parents = (
+        _publication_git(repo, "rev-list", "--parents", "-n", "1", first_parent[-1])
+        .decode("ascii")
+        .split()
+    )
+    if len(oldest_parents) < 2 or oldest_parents[1] != recorded_base:
+        raise ValueError(
+            f"{STALE_PUBLICATION_BASE_ERROR}, and it is not a first-parent "
+            "ancestor of that tip"
+        )
+    changed = _publication_diff_paths(repo, recorded_base, tip)
+    toolchains = (
+        (
+            _regular_blob_at(repo, recorded_base, WORKFLOW_TOOLCHAIN_PATH),
+            _regular_blob_at(repo, tip, WORKFLOW_TOOLCHAIN_PATH),
+        )
+        if WORKFLOW_TOOLCHAIN_PATH in changed
+        else (None, None)
+    )
+    binding = base_advance_binding_paths(
+        (path.as_posix() for path in changed),
+        workflow_toolchain_before=toolchains[0],
+        workflow_toolchain_after=toolchains[1],
+    )
+    if binding:
+        shown = ", ".join(binding[:20])
+        more = f" (+{len(binding) - 20} more)" if len(binding) > 20 else ""
+        raise ValueError(
+            f"{STALE_PUBLICATION_BASE_ERROR}, and main advanced through paths "
+            f"the signed run reads or binds: {shown}{more}"
+        )
+    return tuple(sorted(changed))
+
+
+def _lane_commit_identity(
+    repo: Path,
+    commit: str,
+    *,
+    expected_parent: str,
+) -> tuple[dict[str, str], bytes]:
+    """Return the author/committer environment and exact message of one commit."""
+
+    raw = _publication_git(repo, "cat-file", "commit", commit)
+    header, separator, message = raw.partition(b"\n\n")
+    if not separator:
+        raise ValueError("signed publication lane commit is malformed")
+    fields: dict[bytes, list[bytes]] = {}
+    for line in header.split(b"\n"):
+        name, _space, value = line.partition(b" ")
+        fields.setdefault(name, []).append(value)
+    if (
+        set(fields) != {b"tree", b"parent", b"author", b"committer"}
+        or any(len(values) != 1 for values in fields.values())
+        or fields[b"parent"][0].decode("ascii") != expected_parent
+    ):
+        raise ValueError(
+            "signed publication lane must be a linear chain of plain commits "
+            "on the recorded RuleSpec base"
+        )
+    environment: dict[str, str] = {}
+    for role, prefix in ((b"author", "GIT_AUTHOR"), (b"committer", "GIT_COMMITTER")):
+        match = re.fullmatch(
+            rb"([^<>\n]*) <([^<>\n]*)> ([0-9]+) ([+-][0-9]{4})",
+            fields[role][0],
+        )
+        if match is None:
+            raise ValueError("signed publication lane commit identity is malformed")
+        environment[f"{prefix}_NAME"] = match.group(1).decode("utf-8")
+        environment[f"{prefix}_EMAIL"] = match.group(2).decode("utf-8")
+        if role == b"author":
+            environment["GIT_AUTHOR_DATE"] = (
+                f"@{match.group(3).decode('ascii')} {match.group(4).decode('ascii')}"
+            )
+    return environment, message
+
+
+def _replay_lane_commits(
+    repo: Path,
+    *,
+    recorded_base: str,
+    tip: str,
+    lane_commits: list[str],
+    deltas: dict[str, list[tuple[bytes, bytes, bytes, bytes]]],
+) -> list[str]:
+    """Replay each lane commit's exact tree delta from the base onto the tip.
+
+    Commit ``i`` becomes ``tip`` with every path that differs between the
+    recorded base and the original commit ``i`` set to that commit's exact
+    entry (or removed). No merge machinery, hooks, or working-tree bytes are
+    involved, so signed blobs are carried by object identity. Returns the
+    replayed commits in lane order.
+    """
+
+    import tempfile
+
+    parent = tip
+    replayed: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="axiom-publication-index-") as scratch:
+        index_environment = {
+            **os.environ,
+            "GIT_INDEX_FILE": str(Path(scratch) / "index"),
+        }
+        previous = recorded_base
+        for commit in lane_commits:
+            identity, message = _lane_commit_identity(
+                repo, commit, expected_parent=previous
+            )
+            records: list[bytes] = []
+            for status, new_mode, new_object, raw_path in deltas[commit]:
+                if status == b"D":
+                    records.append(b"0 " + b"0" * 40 + b"\t" + raw_path)
+                else:
+                    records.append(new_mode + b" " + new_object + b"\t" + raw_path)
+            _publication_git(repo, "read-tree", tip, env=index_environment)
+            if records:
+                _publication_git(
+                    repo,
+                    "update-index",
+                    "-z",
+                    "--index-info",
+                    stdin=b"\0".join(records) + b"\0",
+                    env=index_environment,
+                )
+            tree = (
+                _publication_git(repo, "write-tree", env=index_environment)
+                .decode("ascii")
+                .strip()
+            )
+            parent = (
+                _publication_git(
+                    repo,
+                    "commit-tree",
+                    tree,
+                    "-p",
+                    parent,
+                    "-F",
+                    "-",
+                    stdin=message,
+                    env={**os.environ, **identity},
+                )
+                .decode("ascii")
+                .strip()
+            )
+            replayed.append(
+                _publication_commit(repo, parent, label="replayed publication commit")
+            )
+            previous = commit
+    return replayed
+
+
+def _lane_delta(
+    repo: Path,
+    recorded_base: str,
+    commit: str,
+) -> list[tuple[bytes, bytes, bytes, bytes]]:
+    """Return (status, new mode, new object, path) for every base..commit change."""
+
+    output = _publication_git(
+        repo,
+        "diff-tree",
+        "-r",
+        "-z",
+        "--no-renames",
+        "--raw",
+        recorded_base,
+        commit,
+    ).split(b"\0")
+    if len(output) % 2 != 1 or output[-1]:
+        raise ValueError("signed publication lane delta is malformed")
+    delta: list[tuple[bytes, bytes, bytes, bytes]] = []
+    for position in range(0, len(output) - 1, 2):
+        metadata, raw_path = output[position], output[position + 1]
+        fields = metadata.removeprefix(b":").split(b" ")
+        if (
+            not metadata.startswith(b":")
+            or len(fields) != 5
+            or fields[4] not in {b"A", b"D", b"M", b"T"}
+        ):
+            raise ValueError("signed publication lane delta is malformed")
+        _safe_relative_path(raw_path.decode("utf-8"), label="lane delta path")
+        delta.append((fields[4], fields[1], fields[3], raw_path))
+    return delta
+
+
+def _directory_prefixes(paths: set[PurePosixPath]) -> set[PurePosixPath]:
+    return {
+        PurePosixPath(*path.parts[:length])
+        for path in paths
+        for length in range(1, len(path.parts))
+    }
+
+
+def advance_publication_base(
+    repo: Path,
+    recorded_base: str,
+    *,
+    pr_base_branch: str = "main",
+) -> dict[str, object]:
+    """Publish an exact-tip lane unchanged, or replay it onto an advanced tip.
+
+    The lane (recorded base .. HEAD) is replayed onto the freshly fetched
+    ``origin/<pr_base_branch>`` tip only for main publications, only when
+    :func:`publication_base_advance_paths` admits the advance, and only when
+    the lane and the advance touch disjoint paths. The replayed head is then
+    proven to differ from the tip on exactly the lane paths and from the
+    original head on exactly the advance paths, so every signed byte is
+    unchanged and nothing else moved.
+    """
+
+    if COMMIT_PATTERN.fullmatch(recorded_base) is None:
+        raise ValueError("rulespec ref must be a full lowercase commit SHA")
+    tip = _remote_branch_ref(repo, pr_base_branch)
+    head = _publication_commit(repo, "HEAD", label="signed publication HEAD")
+    evidence: dict[str, object] = {
+        "schema": PUBLICATION_BASE_SCHEMA,
+        "pr_base_branch": pr_base_branch,
+        "recorded_base": recorded_base,
+        "published_base": tip,
+        "lane_head": head,
+        "published_head": head,
+        "mode": "exact",
+        "base_advance_paths": [],
+        "lane_paths": [],
+    }
+    if tip == recorded_base:
+        return evidence
+    if pr_base_branch != "main":
+        raise ValueError(STALE_PUBLICATION_BASE_ERROR)
+    advance_paths = set(publication_base_advance_paths(repo, recorded_base, tip))
+
+    try:
+        branch = (
+            _publication_git(repo, "symbolic-ref", "-q", "HEAD").decode("utf-8").strip()
+        )
+    except (subprocess.CalledProcessError, UnicodeDecodeError) as exc:
+        raise ValueError("signed publication HEAD is not a lane branch") from exc
+    if not branch.startswith(PUBLICATION_LANE_BRANCH_PREFIX):
+        raise ValueError("signed publication HEAD is not a lane branch")
+    if _publication_git(
+        repo, "status", "--porcelain=v1", "-z", "--untracked-files=all"
+    ):
+        raise ValueError("signed publication checkout is not clean")
+    lane_commits = (
+        _publication_git(
+            repo,
+            "rev-list",
+            "--reverse",
+            "--topo-order",
+            f"--max-count={MAX_PUBLICATION_LANE_COMMITS + 1}",
+            f"{recorded_base}..{head}",
+        )
+        .decode("ascii")
+        .split()
+    )
+    if not lane_commits:
+        raise ValueError("signed publication has no lane commits")
+    if len(lane_commits) > MAX_PUBLICATION_LANE_COMMITS:
+        raise ValueError("signed publication lane has too many commits")
+    if lane_commits[-1] != head:
+        raise ValueError("signed publication lane does not end at HEAD")
+    deltas = {
+        commit: _lane_delta(repo, recorded_base, commit) for commit in lane_commits
+    }
+    lane_paths = {
+        PurePosixPath(raw_path.decode("utf-8"))
+        for delta in deltas.values()
+        for _status, _mode, _object, raw_path in delta
+    }
+    net_lane_paths = _publication_diff_paths(repo, recorded_base, head)
+    if not net_lane_paths:
+        raise ValueError("signed publication lane changes nothing")
+    exact_tip_paths = sorted(
+        {
+            raw_path.decode("utf-8")
+            for delta in deltas.values()
+            for status, _mode, _object, raw_path in delta
+            if status == b"D"
+        }
+        | {
+            path.as_posix()
+            for path in lane_paths
+            if any(path.is_relative_to(root) for root in EXACT_TIP_LANE_ROOTS)
+        }
+    )
+    if exact_tip_paths:
+        raise ValueError(
+            f"{STALE_PUBLICATION_BASE_ERROR}, and the signed lane deletes base "
+            "paths or carries receipts proven only at the recorded base: "
+            + ", ".join(exact_tip_paths[:20])
+        )
+    # A file on one side and a directory on the other is a conflict too: the
+    # index replay would silently replace one with the other.
+    overlap = sorted(
+        path.as_posix()
+        for path in (lane_paths & advance_paths)
+        | (lane_paths & _directory_prefixes(advance_paths))
+        | (advance_paths & _directory_prefixes(lane_paths))
+    )
+    if overlap:
+        raise ValueError(
+            f"{STALE_PUBLICATION_BASE_ERROR}, and main advanced through paths "
+            "the signed run changed: " + ", ".join(overlap)
+        )
+
+    replayed_commits = _replay_lane_commits(
+        repo,
+        recorded_base=recorded_base,
+        tip=tip,
+        lane_commits=lane_commits,
+        deltas=deltas,
+    )
+    if len(replayed_commits) != len(lane_commits):
+        raise ValueError("replayed publication does not preserve the lane commits")
+    for original, replayed_commit in zip(lane_commits, replayed_commits, strict=True):
+        if _publication_diff_paths(
+            repo, tip, replayed_commit
+        ) != _publication_diff_paths(repo, recorded_base, original) or (
+            _publication_diff_paths(repo, original, replayed_commit) != advance_paths
+        ):
+            raise ValueError("replayed publication commit differs from its lane commit")
+    published_head = replayed_commits[-1]
+    if _publication_diff_paths(repo, tip, published_head) != net_lane_paths:
+        raise ValueError("replayed publication changes paths outside the signed lane")
+    if _publication_diff_paths(repo, head, published_head) != advance_paths:
+        raise ValueError("replayed publication altered signed lane content")
+    replayed = (
+        _publication_git(
+            repo,
+            "rev-list",
+            "--reverse",
+            "--topo-order",
+            f"{tip}..{published_head}",
+        )
+        .decode("ascii")
+        .split()
+    )
+    if len(replayed) != len(lane_commits):
+        raise ValueError("replayed publication does not preserve the lane commits")
+
+    _publication_git(repo, "read-tree", "-m", "-u", head, published_head)
+    _publication_git(
+        repo,
+        "update-ref",
+        "-m",
+        "advance signed publication onto the pull request base tip",
+        branch,
+        published_head,
+        head,
+    )
+    if _publication_commit(
+        repo, "HEAD", label="signed publication HEAD"
+    ) != published_head or _publication_git(
+        repo, "status", "--porcelain=v1", "-z", "--untracked-files=all"
+    ):
+        raise ValueError("signed publication checkout did not move to the replay")
+    evidence.update(
+        {
+            "mode": "advanced",
+            "published_head": published_head,
+            "base_advance_paths": sorted(path.as_posix() for path in advance_paths),
+            "lane_paths": sorted(path.as_posix() for path in net_lane_paths),
+        }
+    )
+    return evidence
 
 
 def _citation_rulespec_path(citation: str) -> tuple[str, PurePosixPath]:
@@ -4627,6 +5250,21 @@ def main() -> None:
     base_parser.add_argument("requested_ref")
     base_parser.add_argument("open_pr", choices=("true", "false"))
     base_parser.add_argument("pr_base_branch", nargs="?", default="main")
+    base_parser.add_argument(
+        "--require-exact-tip",
+        action="store_true",
+        help="keep the exact main-tip demand for receipt-bound legacy lanes",
+    )
+    advance_parser = subparsers.add_parser(
+        "advance-publication-base",
+        help=(
+            "keep an exact-tip lane, or replay it onto a main tip that advanced "
+            "only through non-binding plumbing, and emit publication evidence"
+        ),
+    )
+    advance_parser.add_argument("repo", type=Path)
+    advance_parser.add_argument("requested_ref")
+    advance_parser.add_argument("pr_base_branch", nargs="?", default="main")
     fresh_parser = subparsers.add_parser("validate-fresh-primary-test-target")
     fresh_parser.add_argument("repo", type=Path)
     fresh_parser.add_argument("citation")
@@ -4783,6 +5421,19 @@ def main() -> None:
                     args.requested_ref,
                     open_pr=args.open_pr == "true",
                     pr_base_branch=args.pr_base_branch,
+                    require_exact_tip=args.require_exact_tip,
+                )
+            )
+        elif args.command == "advance-publication-base":
+            print(
+                json.dumps(
+                    advance_publication_base(
+                        args.repo,
+                        args.requested_ref,
+                        pr_base_branch=args.pr_base_branch,
+                    ),
+                    indent=2,
+                    sort_keys=True,
                 )
             )
         elif args.command == "validate-fresh-primary-test-target":
