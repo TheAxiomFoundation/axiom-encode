@@ -7103,7 +7103,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2209"')
+        .startswith('__version__ = "0.2.2212"')
     )
 
 
@@ -7335,13 +7335,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2209"
+    assert encoder_package["version"] == "0.2.2212"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2209"
+    assert project["project"]["version"] == "0.2.2212"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2209"')
+        .startswith('__version__ = "0.2.2212"')
     )
 
 
@@ -7603,13 +7603,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2209"
+    assert encoder_package["version"] == "0.2.2212"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2209"
+    assert project["project"]["version"] == "0.2.2212"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2209"')
+        .startswith('__version__ = "0.2.2212"')
     )
 
 
@@ -27059,9 +27059,18 @@ def test_rulespec_proof_parent_resolution_is_bounded_for_repeated_lists():
     def resolve_repeated_lists(count: int) -> tuple[tuple[str, str] | None, float]:
         source_text = " ".join("a. (1) Items: (a) Item." for _ in range(count))
         numeric_start = source_text.rfind("(1)")
-        started = monotonic()
-        result = _source_top_level_marker_for_numeric_parent(source_text, numeric_start)
-        return result, monotonic() - started
+        results, timings = set(), []
+        # Best of three, each after a collection, so heap debt left by preceding
+        # tests or a one-off runner stall is not charged to the resolver.
+        for _ in range(3):
+            gc.collect()
+            started = monotonic()
+            results.add(
+                _source_top_level_marker_for_numeric_parent(source_text, numeric_start)
+            )
+            timings.append(monotonic() - started)
+        assert len(results) == 1
+        return results.pop(), min(timings)
 
     small_result, small_elapsed = resolve_repeated_lists(192)
     large_result, large_elapsed = resolve_repeated_lists(768)
