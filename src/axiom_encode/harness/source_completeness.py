@@ -31370,7 +31370,7 @@ def _exception_witnesses_for_branch(
             and (
                 witness.calendar_attainment_age is not None
                 or _source_exception_selector_is_relevant(
-                    condition_text,
+                    _source_exception_controlling_condition_text(condition_text),
                     witness.selector_name,
                     supporting_texts=tuple(
                         excerpt
@@ -31413,6 +31413,176 @@ def _exception_witnesses_for_branch(
             )
         }
     )
+
+
+# A consequence that states an outcome (eligibility, an entitlement, a count,
+# an exclusion, a deeming, a payment) is the exception's result, not a condition
+# a case pair can toggle. The outcome must be the consequence's own predicate:
+# its subject (no `that`/`which`/`if`/`whether` clause, parentheses removed)
+# followed by an outcome verb. A requirement consequence (`the claimant shall
+# file a joint return`, `the State agency must determine if eligibility exists`)
+# is itself the tested condition and stays, even when it names eligibility.
+_EXCEPTION_OUTCOME_PARTICIPLE = (
+    r"(?:(?:in)?eligible|entitled|qualified|disqualified|deemed|counted|excluded|"
+    r"included|disregarded|deducted|allowed|denied|terminated|reduced|increased|"
+    r"prorated|budgeted|treated|considered|issued|paid|restored|reinstated|"
+    r"expunged|suspended|exempt|reissued|recomputed|computed)"
+)
+_EXCEPTION_OUTCOME_CONSEQUENCE = re.compile(
+    r"\s*(?:then\b\s*,?\s*)?"
+    r"(?:(?!(?:that|which|who|whom|whose|if|whether|when|unless|because)\b)"
+    r"[\w'\u2019\u201c\u201d\"./-]+\s+){0,14}?"
+    r"(?:"
+    r"(?:(?:is|are|was|were|becomes?|remains?|shall|must|will|would|may|can)"
+    r"(?:\s+not)?(?:\s+(?:be|become|remain))?"
+    r"(?:\s+(?:totally|thereby|then|also|only|still|otherwise))?\s+)?"
+    + _EXCEPTION_OUTCOME_PARTICIPLE
+    + r"|(?:shall|must|will|would|may|can|does|do)(?:\s+not)?(?:\s+also)?\s+"
+    r"(?:deem|count|exclude|include|disregard|deduct|allow|deny|terminate|reduce|"
+    r"increase|prorate|budget|treat|consider|issue|pay|disqualify|restore|"
+    r"reinstate|suspend|qualify|receive|reissue|recompute|revert|compute)"
+    r"|(?:deems|counts|excludes|includes|disregards|pays|treats|qualif(?:y|ies)|"
+    r"deem|count|exclude|include|disregard|pay|treat)"
+    r")\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _exception_consequence_states_outcome(consequence: str) -> bool:
+    previous = None
+    while previous != consequence:
+        previous = consequence
+        consequence = re.sub(r"\([^()]*\)", " ", consequence)
+    return bool(_EXCEPTION_OUTCOME_CONSEQUENCE.match(consequence))
+
+
+def _source_exception_controlling_condition_text(condition_text: str) -> str:
+    """Return the condition an exception's own clause states, without its result.
+
+    ``_source_exception_condition_text`` runs from the condition cue to the end
+    of the clause, so it also holds the consequence (`If the same sponsor is
+    responsible for the entire household, the entire household is ineligible
+    until ... the needed sponsor information or verification`). A case pair
+    toggles a condition, so when the consequence states an outcome
+    (`_EXCEPTION_OUTCOME_CONSEQUENCE`), selector relevance is read from the
+    condition alone. The condition ends at its first comma outside parentheses
+    that is not followed by `and`/`but`/`or`/`nor` or by the rest of a list (`If
+    the household's income, resources, or household size change, ...`), or at a
+    `)` that closes a parenthesis opened before the cue (`(if he or she has
+    executed USCIS Form I-864 or I-864A) deemed as ...`). The whole clause is
+    kept when the condition has no such end, when the consequence is a
+    requirement rather than an outcome (`if the claimant is married, ..., the
+    claimant shall file a joint return`), or when the cue is a reservation such
+    as `subject to` or `notwithstanding` rather than `if`, `when`, `whenever`,
+    `unless`, `except` or `provided that`.
+    """
+
+    if not re.match(
+        r"\s*(?:if|when|whenever|unless|except|provided\s+that)\b",
+        condition_text,
+        flags=re.IGNORECASE,
+    ):
+        return condition_text
+    inserted = re.match(
+        r"\s*\w+(?:\s+that)?\s*,[^,;.()]{1,80},", condition_text, flags=re.IGNORECASE
+    )
+    inserted_phrase_end = inserted.end() - 1 if inserted is not None else None
+    end = None
+    skip_phrase_close = False
+    depth = 0
+    in_quote = False
+    for index, character in enumerate(condition_text):
+        if character in '\u201c\u201d"':
+            # A comma inside a quotation does not end the condition.
+            in_quote = character != "\u201d" and not in_quote
+            continue
+        if in_quote:
+            continue
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            if depth == 0:
+                end = index
+                break
+            depth -= 1
+        elif character == "," and depth == 0:
+            rest = condition_text[index + 1 :]
+            if re.match(r"\s*(?:and|but|or|nor)\b", rest, flags=re.IGNORECASE):
+                continue
+            if re.match(r"\s*then\b", rest, flags=re.IGNORECASE) and (
+                len(re.findall(r"\w+", condition_text[:index])) >= 3
+            ):
+                # `When ..., then ...`: the consequence starts here.
+                end = index
+                break
+            if index > 0 and condition_text[index - 1].isdigit() and rest[:1].isdigit():
+                # A thousands separator (`$1,500`).
+                continue
+            if re.match(r"\s*(?:and\s+|or\s+)?\(\w{1,4}\)", rest, flags=re.IGNORECASE):
+                # A list of paragraph references (`paragraphs (d), (e), and (f)`).
+                continue
+            if re.match(
+                r"\s*[^,;.()]{1,60},\s*(?:and|or)\b", rest, flags=re.IGNORECASE
+            ) or re.match(
+                # `lost, stolen or not received, ...`: a list without a serial comma.
+                r"\s*[^,;.()]{1,40}\s(?:and|or)\s[^,;.()]{1,40},",
+                rest,
+                flags=re.IGNORECASE,
+            ):
+                continue
+            if skip_phrase_close:
+                skip_phrase_close = False
+                continue
+            if re.match(
+                r"\s*(?:as\s+(?:defined|described|provided)|within\s+the\s+meaning"
+                r"|without)\b",
+                rest,
+                flags=re.IGNORECASE,
+            ):
+                # `..., as defined in paragraphs (h)(5) and (6), at the close of
+                # the taxable year is ...`: an inserted qualifier, not the end.
+                skip_phrase_close = True
+                continue
+            if re.match(r"\s*[^,;.()]{1,20},", rest):
+                # A short inserted phrase (`..., above, ...`, `..., in 1969, ...`)
+                # and the comma that closes it.
+                skip_phrase_close = True
+                continue
+            if re.search(
+                r"\b(?:is|are|was|were|be|that|the|a|an|of|to|by|with|and|but|or|then|"
+                r"because|since|if)\s*$",
+                condition_text[:index],
+                flags=re.IGNORECASE,
+            ):
+                # `When one ... is, on the information of ...`: the clause
+                # continues after an inserted phrase, and the comma that closes
+                # it.
+                skip_phrase_close = True
+                continue
+            if re.match(
+                r"\s*\w+(?:\s+that)?\s+(?:at|in|on|upon|during|after|before|for|"
+                r"within|under)\s+(?:\S+\s+){0,4}\S+$",
+                condition_text[:index],
+                flags=re.IGNORECASE,
+            ):
+                # `If at the time of re-determination, the parent fee remains
+                # unpaid ...`: a short introductory phrase, not the condition.
+                continue
+            if (
+                inserted_phrase_end is not None and index <= inserted_phrase_end
+            ) or len(re.findall(r"\w+", condition_text[:index])) < 3:
+                # `If, in a taxable year, ...`: an inserted phrase, not the end.
+                continue
+            end = index
+            break
+    if (
+        end is None
+        # `if so`, `if applicable`: an anaphoric condition needs its context.
+        or len(re.findall(r"\w+", condition_text[:end])) < 4
+        or not _exception_consequence_states_outcome(condition_text[end + 1 :])
+    ):
+        return condition_text
+    return condition_text[:end]
 
 
 def _selector_targets_numeric_condition(
