@@ -3779,6 +3779,29 @@ def _deterministic_tree_identity(
     }
 
 
+def _read_only_git_environment() -> dict[str, str]:
+    """Keep private child isolation and use only the checkout's real Git graph."""
+
+    environment = {
+        key: value
+        for key, value in scrub_attestation_signing_keys().items()
+        if not key.startswith("GIT_")
+    }
+    environment.update(
+        GIT_GRAFT_FILE=os.devnull,
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_NO_LAZY_FETCH="1",
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_COUNT="1",
+        GIT_CONFIG_KEY_0="core.commitGraph",
+        GIT_CONFIG_VALUE_0="false",
+        GIT_TERMINAL_PROMPT="0",
+    )
+    return environment
+
+
 def _git_command_bytes(checkout: Path, *args: str) -> bytes | None:
     """Return git stdout for one read-only identity query, if available."""
 
@@ -3790,9 +3813,10 @@ def _git_command_bytes(checkout: Path, *args: str) -> bytes | None:
             [git_executable, "-C", str(checkout), *args],
             check=False,
             capture_output=True,
-            env=scrub_attestation_signing_keys(),
+            env=_read_only_git_environment(),
+            timeout=30,
         )
-    except OSError:
+    except (OSError, subprocess.SubprocessError):
         return None
     if completed.returncode != 0:
         return None
@@ -10320,6 +10344,11 @@ companion test file required by the task and deterministic validation.
             "it as an input. A same-named derived or parameter rule is not an "
             "input reference, but companion `#input.<name>` assignments must "
             "still be replaced with factual inputs. "
+            "To remove an obsolete deferred output, emit an exact YAML item "
+            "containing only `output: <existing output>` and "
+            "`repair_remove: true`. Other deferred-output records may contain "
+            "only `output`, `reason`, `blocked_by`, and `source_values`. "
+            "Source completeness still applies after removal. "
             "The encoder removes accepted markers before validation. Never emit "
             "prose or patch syntax.\n"
         )
@@ -11015,6 +11044,11 @@ Complete-source-unit mode is enabled for this request:
   every subsection marker represented by the output branch, and name a
   concrete source-stated missing input or runtime capability. The output path
   is not a source citation.
+  For a U.S. regulation branch, use the resolver-attested canonical citation
+  in `reason`, such as `us/regulation/7/273/10(a)(1)` for that exact branch;
+  display-style `7 CFR 273.10(a)(1)` alone does not identify it to the
+  completeness validator. Follow the citation with the concrete missing input
+  or runtime capability; do not infer a citation beyond the supplied source.
   Never guess a blocker target.
 - A child-branch `source:` citation does not cover a distinct parent chapeau.
   When a parent chapeau states applicability, temporal scope, or a shared
@@ -11386,7 +11420,7 @@ RuleSpec requirements:
 - If an upstream output is already executable, do not replace it with a local
   placeholder fact or compatibility alias.
 - Do not encode simple unary factual inputs as `kind: data_relation` rules. If a formula needs a local true/false fact, reference a descriptive bare fact name in the formula, declare that fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`) with its `entity`, `dtype`, and `period`, and put that fact in tests as `{target_ref_prefix + "#input.<fact>" if target_ref_prefix else "<jurisdiction>:<path>#input.<fact>"}`.
-- Use `kind: data_relation` only for structural runtime predicates with explicit `data_relation.predicate`, `data_relation.arity`, and `data_relation.arguments`.
+- Use `kind: data_relation` only for structural runtime predicates with explicit `data_relation.predicate`, `data_relation.arity`, and `data_relation.arguments`. The arguments list must declare one entity kind per tuple slot in tuple order; for person-to-household membership, use `arguments: [Person, Household]`. The engine rejects an executed relation that declares only `arity`.
 - If the requested source text includes a limitation, cap, exception, or
   cross-referenced subparagraph that changes the final exported amount, the
   final exported amount must apply that limitation. If a copied sibling/context
@@ -17711,7 +17745,9 @@ def _overlay_validation_retry_candidate(
 
     generated_module = generated.get("module")
     preserved_module = preserved.get("module")
-    if isinstance(generated_module, dict) and isinstance(preserved_module, dict):
+    if isinstance(generated_module, dict):
+        if not isinstance(preserved_module, dict):
+            preserved_module = {}
         preserved_source_verification = preserved_module.get("source_verification")
         corpus_citation_path = (
             preserved_source_verification.get("corpus_citation_path")
@@ -17744,6 +17780,8 @@ def _overlay_validation_retry_candidate(
         ):
             raise ValueError("repair overlay deferred outputs must be lists")
         generated_outputs: set[str] = set()
+        removed_outputs: set[str] = set()
+        deferred: list[dict[str, object]] = []
         for item in generated_deferred:
             if not isinstance(item, dict) or not isinstance(item.get("output"), str):
                 raise ValueError("generated deferred outputs must name an output")
@@ -17753,11 +17791,26 @@ def _overlay_validation_retry_candidate(
                     f"generated deferred outputs contains duplicate output `{output}`"
                 )
             generated_outputs.add(output)
-        deferred = list(generated_deferred)
+            if "repair_remove" in item:
+                if (
+                    set(item) != {"output", "repair_remove"}
+                    or item.get("repair_remove") is not True
+                ):
+                    raise ValueError(
+                        f"generated deferred outputs removal marker for `{output}` "
+                        "must contain only output and repair_remove: true"
+                    )
+                removed_outputs.add(output)
+                continue
+            deferred.append(item)
+        preserved_outputs: set[str] = set()
         for item in preserved_deferred:
             if not isinstance(item, dict) or not isinstance(item.get("output"), str):
                 raise ValueError("preserved deferred outputs must name an output")
             output = item["output"]
+            preserved_outputs.add(output)
+            if output in removed_outputs:
+                continue
             output_name = output.rsplit("#", 1)[-1]
             if output_name in generated_rule_names:
                 repairs.append(f"resolved_deferred_output:{output}")
@@ -17766,8 +17819,31 @@ def _overlay_validation_retry_candidate(
                 deferred.append(item)
                 generated_outputs.add(output)
                 repairs.append(f"deferred_output:{output}")
+        unknown_removals = sorted(removed_outputs - preserved_outputs)
+        if unknown_removals:
+            raise ValueError(
+                "generated deferred outputs removal marker names no preserved item: "
+                + ", ".join(f"`{output}`" for output in unknown_removals)
+            )
+        for item in deferred:
+            unsupported_keys = set(item) - {
+                "output",
+                "reason",
+                "blocked_by",
+                "source_values",
+            }
+            if unsupported_keys:
+                raise ValueError(
+                    f"repair overlay deferred outputs for `{item['output']}` contains "
+                    "unsupported keys: " + ", ".join(sorted(map(str, unsupported_keys)))
+                )
+        repairs.extend(
+            f"removed_deferred_output:{output}" for output in sorted(removed_outputs)
+        )
         if deferred:
             generated_module["deferred_outputs"] = deferred
+        else:
+            generated_module.pop("deferred_outputs", None)
 
     test_file = _rulespec_test_path(rulespec_file)
     merged_test_payload: object | None = None

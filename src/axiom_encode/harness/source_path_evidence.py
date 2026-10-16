@@ -6,10 +6,11 @@ families/callers return empty evidence and retain existing validator behavior.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Mapping, Sequence
 
 import yaml
@@ -20,6 +21,61 @@ from axiom_encode.harness.proof_validator import validate_rulespec_proofs
 
 _LINE2 = "provincial_territorial_2025_t2036_federal_credit_line_2"
 _TAX = "provincial_or_territorial_tax_otherwise_payable"
+
+# Reviewed names for the same four source-defined AB428/AB428MJ coordinates.
+# These are direct factual inputs, never inferred from candidate arithmetic.
+_ALBERTA_INPUT_ALIASES = {
+    "ab428_line_63": "alberta_tax_line_63",
+    "ab428_line_68": "alberta_tax_line_68",
+    "ab428mj_line_20": "alberta_428mj_line_20",
+    "ab428mj_line_36": "alberta_428mj_line_36",
+}
+
+
+def _bind_alberta_input_names(payload, contract):
+    """Bind only unique direct-input spellings in the closed source contract."""
+    inputs = paths._index(payload.get("inputs"))
+    rules = paths._index(payload.get("rules"))
+    if inputs is None or rules is None:
+        return replace(contract, unresolved=("invalid alias declarations",))
+    selected = {}
+    for standard, alternate in _ALBERTA_INPUT_ALIASES.items():
+        if {standard, alternate} & rules.keys() and {
+            standard,
+            alternate,
+        } & inputs.keys():
+            return replace(contract, unresolved=("ambiguous Alberta input alias",))
+        if alternate not in inputs:
+            continue
+        if standard in inputs or standard in rules or alternate in rules:
+            return replace(contract, unresolved=("ambiguous Alberta input alias",))
+        selected[standard] = alternate
+    if not selected:
+        return contract
+    # Imported aliases cannot establish a unique local factual identity here.
+    if (payload.get("module") or {}).get("imports") or payload.get("imports"):
+        return replace(contract, unresolved=("imported Alberta alias unsupported",))
+    obligations = []
+    for obligation in contract.obligations:
+        expression = paths._expression(obligation.expected_expression)
+        if expression is None:
+            return replace(contract, unresolved=("unparsed alias source operation",))
+        for node in ast.walk(expression):
+            if isinstance(node, ast.Name) and node.id in selected:
+                node.id = selected[node.id]
+        obligations.append(
+            replace(
+                obligation,
+                expected_expression=ast.unparse(expression),
+                input_contracts=tuple(
+                    replace(item, name=selected.get(item.name, item.name))
+                    for item in obligation.input_contracts
+                ),
+            )
+        )
+    # Raw source spans, predicates, dates and ownership remain unchanged.
+    # The caller still validates types, selected proofs and actual executions.
+    return replace(contract, obligations=tuple(obligations))
 
 
 @dataclass(frozen=True)
@@ -235,6 +291,9 @@ def certify_worksheet_paths(
         line2_owner=_LINE2,
         tax_otherwise_owner=_TAX,
     )
+    if contract.unresolved:
+        return CertifiedPathCoverage(unresolved=contract.unresolved)
+    contract = _bind_alberta_input_names(payload, contract)
     if contract.unresolved:
         return CertifiedPathCoverage(unresolved=contract.unresolved)
     cases = [

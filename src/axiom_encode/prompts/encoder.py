@@ -8,7 +8,7 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
-__version__ = 1
+__version__ = 3
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -798,7 +798,11 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   Use `dtype: Judgment` for derived legal predicates, or leave simple local
   facts as factual `#input.<fact>` keys consumed by formulas and tests.
 - Use `kind: data_relation` for executable runtime predicates such as
-  `member_of_household`. Put arity under `data_relation.arity`.
+  `member_of_household`. Put arity under `data_relation.arity` and declare
+  `data_relation.arguments` with one entity kind per tuple slot, in tuple
+  order. For person-to-household membership use
+  `data_relation: {arity: 2, arguments: [Person, Household]}`. The engine
+  rejects an untyped relation when a derived rule executes it.
 - Do not encode simple unary factual inputs as `kind: data_relation` rules. If
   a formula needs a local true/false fact, reference a descriptive bare fact
   name in the formula, declare that fact in the RuleSpec document-root `inputs`
@@ -1680,6 +1684,11 @@ Complete-source-unit mode is enabled for this request:
   every subsection marker represented by the output branch, and name a
   concrete source-stated missing input or runtime capability. The output path
   is not a source citation.
+  For a U.S. regulation branch, use the resolver-attested canonical citation
+  in `reason`, such as `us/regulation/7/273/10(a)(1)` for that exact branch;
+  display-style `7 CFR 273.10(a)(1)` alone does not identify it to the
+  completeness validator. Follow the citation with the concrete missing input
+  or runtime capability; do not infer a citation beyond the supplied source.
   Never guess a blocker target.
 - Before returning YAML, inventory every top-level structural branch in the
   authoritative source and verify that each branch has either an executable

@@ -4644,6 +4644,100 @@ def test_validate_rulespec_base_rejects_stale_reviewed_protected_branch_tip(
         )
 
 
+def test_validate_rulespec_base_refuses_retired_nz_reviewed_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The s75e candidate merged as rulespec-nz#133; its reviewed ref is retired."""
+    repo = tmp_path / "rulespec-nz"
+    reviewed_ref = "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97"
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    for open_pr, branch in ((True, "nzhub/wep-s75e"), (False, None)):
+        with pytest.raises(
+            ValueError, match="neither on main nor an approved reviewed head"
+        ):
+            validate_rulespec_base(
+                repo,
+                "nz",
+                reviewed_ref,
+                open_pr=open_pr,
+                pr_base_branch=branch,
+            )
+
+
+@pytest.mark.parametrize(
+    ("country", "branch", "message"),
+    [
+        ("nz", "nzhub/wep-candidates", "neither on main nor an approved reviewed head"),
+        ("nz", "main", "neither on main nor an approved reviewed head"),
+        ("us", "nzhub/wep-s75e", "neither on main nor an approved reviewed head"),
+    ],
+)
+def test_validate_rulespec_base_rejects_nz_reviewed_candidate_other_pairs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    country: str,
+    branch: str,
+    message: str,
+) -> None:
+    repo = tmp_path / f"rulespec-{country}"
+    reviewed_ref = "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97"
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        validate_rulespec_base(
+            repo,
+            country,
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch=branch,
+        )
+
+
+def test_validate_rulespec_base_rejects_stale_reviewed_candidate_branch_tip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+    reviewed_ref = "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"
+    branch = "fl-snap-bbce-page5"
+
+    def fake_git(_repo: Path, *args: str) -> bytes:
+        if args[-1] == f"refs/remotes/origin/{branch}":
+            return f"{'f' * 40}\n".encode()
+        return f"{reviewed_ref}\n".encode()
+
+    monkeypatch.setattr("scripts.prepare_signed_backfill._git", fake_git)
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    with pytest.raises(ValueError, match="exact pull request base branch tip"):
+        validate_rulespec_base(
+            repo,
+            "us",
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch=branch,
+        )
+
+
 def test_validate_rulespec_base_rejects_unapproved_reviewed_pr_branch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

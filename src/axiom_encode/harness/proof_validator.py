@@ -668,6 +668,64 @@ def _source_contains_proof_evidence(
     return False
 
 
+def _source_proof_evidence_spans(
+    *, source_text: str, evidence_text: str
+) -> tuple[tuple[int, int], ...]:
+    """Locate bounded proof occurrences without losing source coordinates.
+
+    Paragraph gaps and source-record separators retain their ordinary proof
+    meaning. The optional maqaf normalization only deletes existing wrap
+    whitespace; its character map recovers the original source coordinates.
+    """
+    evidence = evidence_text.strip()
+    if not evidence:
+        return ()
+    spans: set[tuple[int, int]] = set()
+    base = 0
+    for segment in split_proof_evidence_text(source_text):
+        variants: list[tuple[str, str, list[int] | None]] = [(segment, evidence, None)]
+        if "\u05be" in segment:
+            removed = {
+                index
+                for match in HEBREW_MAQAF_WRAP_SPACE_PATTERN.finditer(segment)
+                for index in range(match.start(), match.end())
+                if segment[index].isspace()
+            }
+            coordinates = [i for i in range(len(segment)) if i not in removed]
+            variants.append(
+                (
+                    "".join(segment[i] for i in coordinates),
+                    bind_maqaf_space(evidence),
+                    coordinates,
+                )
+            )
+        for text, quote, coordinates in variants:
+            pattern = r"\s+".join(re.escape(part) for part in quote.split())
+            if not pattern:
+                continue
+            compiled = re.compile(pattern)
+            search_start = 0
+            while (match := compiled.search(text, search_start)) is not None:
+                # Overlapping full contexts are also ambiguous occurrences.
+                search_start = match.start() + 1
+                if collapse_evidence_whitespace(match.group()) != (
+                    collapse_evidence_whitespace(quote)
+                ):
+                    continue
+                if not _source_evidence_span_is_bounded(
+                    evidence_text=quote,
+                    source_text=text,
+                    start=match.start(),
+                    end=match.end(),
+                ):
+                    continue
+                start = coordinates[match.start()] if coordinates else match.start()
+                end = coordinates[match.end() - 1] + 1 if coordinates else match.end()
+                spans.add((base + start, base + end))
+        base += len(segment) + len(PROOF_EVIDENCE_SEGMENT_SEPARATOR)
+    return tuple(sorted(spans))
+
+
 def _bounded_source_evidence_match(evidence_text: str, source_text: str) -> bool:
     if not evidence_text:
         return False

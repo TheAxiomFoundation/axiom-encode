@@ -13,6 +13,7 @@ from axiom_encode.harness.proof_validator import find_plural_corpus_citation_pat
 
 ROOT = "us/statute/42/402/a"
 CHILD = ROOT + "/1"
+SIBLING = ROOT + "/2"
 
 
 @pytest.fixture
@@ -270,6 +271,122 @@ def test_exact_descendant_records_separate_attestations_and_containment(exact_wo
     assert find_plural_corpus_citation_path_issues(world.payload)
 
 
+@pytest.fixture
+def composed_world(world):
+    parent_row = replace(world.row, citation_path=ROOT)
+    first_row = replace(
+        parent_row,
+        citation_path=CHILD,
+        record_id="first-page",
+        line_number=2,
+        body_sha256="1" * 64,
+    )
+    second_row = replace(
+        parent_row,
+        citation_path=SIBLING,
+        record_id="second-page",
+        line_number=3,
+        body_sha256="2" * 64,
+    )
+    parent = replace(
+        world.resolved,
+        citation_path=ROOT,
+        row=parent_row,
+        body="(1) Fully insured.\n\n(2) Age 62.",
+        component_rows=(first_row, second_row),
+    )
+    first = replace(
+        parent,
+        requested=CHILD,
+        citation_path=CHILD,
+        body="(1) Fully insured.",
+        stored_body_sha256="1" * 64,
+        row=first_row,
+        component_rows=(),
+    )
+    second = replace(
+        parent,
+        requested=SIBLING,
+        citation_path=SIBLING,
+        body="(2) Age 62.",
+        stored_body_sha256="2" * 64,
+        row=second_row,
+        component_rows=(),
+    )
+    world.sources[ROOT] = world.unit(parent)
+    world.sources[CHILD] = world.unit(first)
+    world.sources[SIBLING] = world.unit(second)
+    verification = world.payload["module"]["source_verification"]
+    del verification["corpus_citation_path"]
+    verification["corpus_citation_paths"] = [CHILD, SIBLING]
+    world.write()
+    return world
+
+
+def test_plural_only_complete_composed_parent_admitted_without_rewriting_input(
+    composed_world,
+):
+    world = composed_world
+    original = world.target.read_bytes()
+    result = world.run()
+    evidence = result.retired_source_admission
+    assert result.context_paths == (world.target, world.companion)
+    assert [
+        item["attestation"]["row"]["citation_path"] for item in evidence["sources"]
+    ] == [
+        ROOT,
+        CHILD,
+        SIBLING,
+    ]
+    assert all(item["containment"] for item in evidence["sources"][1:])
+    assert world.target.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "missing_page",
+        "extra_page",
+        "wrong_row",
+        "not_composed",
+        "slice",
+        "outside_text",
+    ],
+)
+def test_plural_only_composed_parent_rejects_incomplete_or_unbound_evidence(
+    composed_world, change
+):
+    world = composed_world
+    parent = world.sources[ROOT].resolved_source
+    if change == "missing_page":
+        world.payload["module"]["source_verification"]["corpus_citation_paths"] = [
+            CHILD
+        ]
+        world.write()
+    elif change == "extra_page":
+        world.sources[ROOT] = world.unit(
+            replace(
+                parent,
+                component_rows=parent.component_rows
+                + (replace(parent.row, citation_path=ROOT + "/3"),),
+            )
+        )
+    elif change == "wrong_row":
+        first = world.sources[CHILD].resolved_source
+        world.sources[CHILD] = world.unit(
+            replace(first, row=replace(first.row, record_id="not-in-parent"))
+        )
+    elif change == "not_composed":
+        world.sources[ROOT] = world.unit(replace(parent, component_rows=()))
+    elif change == "slice":
+        world.sources[ROOT] = world.unit(replace(parent, slice_required=True))
+    elif change == "outside_text":
+        first = world.sources[CHILD].resolved_source
+        world.sources[CHILD] = world.unit(replace(first, body="unrelated source text"))
+    with pytest.raises(ValueError, match="complete composed parent|not fully covered"):
+        world.run()
+
+
 @pytest.mark.parametrize(
     "field,value",
     [
@@ -361,6 +478,57 @@ def test_actual_signed_release_resolves_distinct_contained_rows(tmp_path):
     assert child["row"]["record_id"] == "child"
     assert parent["source_sha256"] != child["source_sha256"]
     assert parent["provision_file_sha256"] == child["provision_file_sha256"]
+
+
+def test_actual_signed_release_admits_plural_only_complete_composed_parent(tmp_path):
+    from axiom_encode.cli import _admit_retired_replacement_source_verification
+    from axiom_encode.harness.evals import resolve_corpus_source_unit
+    from tests.test_corpus_resolver import (
+        _release,
+        _scope,
+        _write_rows,
+        _write_selector,
+    )
+
+    version = "test-composed-pages"
+    root = tmp_path / "corpus"
+    _write_selector(root, [_scope(version)])
+    _write_rows(
+        root,
+        version,
+        [
+            {"id": "parent", "citation_path": ROOT, "body": None},
+            {"id": "page-1", "citation_path": CHILD, "body": "Net limit 1,305."},
+            {"id": "page-2", "citation_path": SIBLING, "body": "Gross limit 1,696."},
+        ],
+    )
+    release = _release(root)
+    source = resolve_corpus_source_unit(ROOT, release)
+    assert [row.citation_path for row in source.resolved_source.component_rows] == [
+        CHILD,
+        SIBLING,
+    ]
+    content = yaml.safe_dump(
+        {
+            "module": {
+                "source_verification": {
+                    "corpus_citation_paths": [CHILD, SIBLING],
+                }
+            }
+        }
+    ).encode()
+    evidence = _admit_retired_replacement_source_verification(
+        content, source_unit=source, corpus_release=release
+    )
+    assert evidence["requested_attestation"]["row"]["citation_path"] == ROOT
+    assert [
+        item["attestation"]["row"]["citation_path"] for item in evidence["sources"]
+    ] == [
+        ROOT,
+        CHILD,
+        SIBLING,
+    ]
+    assert all(item["containment"] for item in evidence["sources"][1:])
 
 
 EXTERNAL = "us/guidance/example/conversion"

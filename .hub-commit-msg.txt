@@ -1,0 +1,11 @@
+Merge origin/main into hub/nz-bare-line-markers
+
+Integrate main at 6764105fdb06c5bb7da3d5ddf7f0a9b91b904629 while retaining
+authenticated New Zealand bare-line child slicing and complete-source gates.
+
+Bind masked child and inherited computation proof to unique physical source
+positions. Preserve precision-validated deferred spans, chart heading handling,
+published income-table classification, worksheet operation overrides, manual
+locator checks, and numeric grouped-reading provenance.
+
+Add merged-behavior regressions and rerun the pinned New Zealand differential.

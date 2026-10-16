@@ -2709,7 +2709,6 @@ def test_verification_tree_discovery_covers_every_known_provisioner():
     assert {
         "bulk-encode.yml",
         "golden-regeneration.yml",
-        "signed-apply-reusable.yml",
         "targeted-signed-reencode.yml",
     } <= discovered
 
@@ -3236,7 +3235,6 @@ def test_verification_tree_allows_exits_that_cannot_skip_the_checks(prefix):
     [
         pytest.param(("golden-regeneration.yml", "drift"), id="checks-last"),
         pytest.param(("targeted-signed-reencode.yml", "encode"), id="checks-mid-step"),
-        pytest.param(("signed-apply-reusable.yml", "encode"), id="checks-after-case"),
     ],
 )
 def test_verification_tree_hardening_must_run_at_top_level(wrap, job_key):

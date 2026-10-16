@@ -1,6 +1,54 @@
+## 0.2.2183
+
+- Repair source-verification metadata emitted for generated overlay targets during protected apply while preserving source-bound validation.
+
+## 0.2.2182
+
+- Clarify source-bound canonical CFR branch citations for complete-source deferrals and record this encoder behavior after the SNAP source-check parent merge.
+
+## 0.2.2181
+
+- Record the completed SNAP table source-check changes behind a fresh encoder version and align version-locked oracle tests with that provenance.
+
+## 0.2.2179
+
+- Match worksheet formula proofs to independently recognized chart headings without treating a printed chart identifier as a formula operand. Preserve exact source coordinates, unique excerpt ownership and numeric proof boundaries.
+
+## 0.2.2177
+
+- Bind formula proof excerpts to their unique authoritative source locations. Keep repeated worksheet instructions attached to their own context, preserve proof boundaries and raw coordinates, and reject ambiguous overlapping excerpts.
+
+## 0.2.2176
+
+- Integrate declared-entity companion inputs with source-bound worksheet evidence and binary arithmetic instructions. Keep package provenance and all current-version assertions aligned with the combined runtime.
+
+## 0.2.2175
+
+- Require formula coverage for explicit binary add, subtract, multiply and divide instructions with quantitative operands or source row references. Preserve operand order and raw source context; do not treat identifier numbers, quoted instructions or unsupported conditions as positive arithmetic instructions.
+
+## 0.2.2174
+
+- Record the finalized worksheet-evidence implementation after formatting so generated artifact provenance includes every encoder-affecting commit. No calculation or validation behavior changes.
+
+## 0.2.2173
+
+- Bind worksheet replacement operations, existing equality witnesses and the complete worksheet operation block to current source proofs, selected versions and independently executed companion cases. Preserve distinct-witness allocation and annual coverage accounting; reject stale private rounding context.
+
+## 0.2.2172
+
+- Recognize the source-owned foreign-country count and tax threshold only with exact typed facts, complete proofs, effective dates, and independently corroborated boundary cases. Preserve unrelated income-condition findings.
+
 # Changelog
 
 All notable changes to Axiom Encode will be documented here.
+
+- Recognize source-equivalent nested worksheet guards and directly owned
+  part-year income sums. Keep typed dependencies, selected proof ownership,
+  source arithmetic and executed companion witnesses mandatory.
+
+- Recognize four explicit Alberta form-line input spellings in T2036 worksheet
+  path evidence. Source coordinates, types, proof ownership and runtime witnesses
+  remain required; ambiguous declarations and imported aliases fail closed.
 
 - Keep US manual and form locators out of complete-source-unit numeric recall:
   `WAC` section citations, `policy NNN-N` cross-references, numbered manual
