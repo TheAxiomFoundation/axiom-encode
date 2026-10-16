@@ -1,0 +1,250 @@
+"""Fresh raw-corpus comparison against the observed current-main snapshot.
+
+Every row executes both actual recall functions and the candidate helper's
+length/idempotence checks. Equal recall bytes have identical en-US extraction.
+For legacy, a conservative exact-prelude probe and pure guard observer prove
+equality or trigger actual main extraction. Different recalls execute both
+actual extractors in both profiles. No previous row/inventory records are read.
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import collections
+import dataclasses
+import functools
+import hashlib
+import importlib.util
+import json
+import multiprocessing
+import os
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from baseline_ast_proof import Graph
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+CORPUS=ROOT/'.hub-scratch/r6/corpus'
+sys.path.insert(0,str(CORPUS))
+from guard_observer import make_observer
+
+MAIN='4f3547461300bfa70569f57c83728b2ad25d9d0b'
+SOURCE='harness/source_completeness.py'
+VALIDATOR='harness/validator_pipeline.py'
+METADATA='harness/manual_locator_metadata.py'
+
+
+def sha(data):return hashlib.sha256(data).hexdigest()
+
+
+def package_hashes(package):
+    return {str(path.relative_to(package)):sha(path.read_bytes()) for path in sorted(package.rglob('*.py'))}
+
+
+def load(name,path):
+    spec=importlib.util.spec_from_file_location(name,path)
+    module=importlib.util.module_from_spec(spec);sys.modules[name]=module;spec.loader.exec_module(module)
+    return module
+
+
+def normalize(inventory):
+    return tuple(dataclasses.asdict(x) for x in inventory)
+
+
+def semantics(inventory):
+    return collections.Counter(json.dumps({key:value for key,value in item.items() if key not in {'raw','start','end'}},sort_keys=True,separators=(',',':')) for item in inventory)
+
+
+def delta(before,after):
+    removed,added=semantics(before)-semantics(after),semantics(after)-semantics(before)
+    if not removed and not added:return None
+    old_values,new_values=(collections.Counter(item['value'] for item in xs) for xs in (before,after))
+    return {'added_typed':[{'item':json.loads(item),'count':count} for item,count in sorted(added.items())],
+        'removed_typed':[{'item':json.loads(item),'count':count} for item,count in sorted(removed.items())],
+        'new_demands':sorted(set(new_values)-set(old_values)),'removed_demands':sorted(set(old_values)-set(new_values)),
+        'added_occurrences':[{ 'value':value,'count':count} for value,count in sorted((new_values-old_values).items())],
+        'removed_occurrences':[{'value':value,'count':count} for value,count in sorted((old_values-new_values).items())]}
+
+
+def proof(output):
+    baseline=Graph(HERE/'current-main-package/src').walk('axiom_encode.harness.validator_pipeline','extract_typed_numeric_inventory_occurrences_from_text')
+    candidate=Graph(output/'candidate-package/src').walk('axiom_encode.harness.validator_pipeline','extract_typed_numeric_inventory_occurrences_from_text')
+    changed=sorted(key for key in baseline.keys()&candidate.keys() if baseline[key]!=candidate[key])
+    assert changed==['axiom_encode.harness.validator_pipeline:_tokenize_numeric_occurrences_from_text'],changed
+    assert baseline.keys()==candidate.keys()
+    old_bytes=(HERE/'current-main-package/src/axiom_encode'/VALIDATOR).read_bytes()
+    new_bytes=(output/'candidate-package/src/axiom_encode'/VALIDATOR).read_bytes()
+    observer,observer_proof=make_observer(old_bytes,new_bytes)
+    # Reuse the independently reviewed exact-prelude probe generator. Its
+    # old argument is an explicit candidate copy with the main guard restored;
+    # dependency-graph equality above binds that tokenizer to actual main.
+    from differential_guard_observer_final import numeric_proof
+    assignment=("            source_span = cleaned_view.source_span(span)\n"
+        "            # Prefer a grouped reading only when this same source token\n"
+        "            # supplied it. An unrelated integer (such as a retained page\n"
+        "            # number) cannot disambiguate an operative decimal amount.\n")
+    conjunct="                    occurrence.span == source_span\n                    and math.isclose(\n"
+    text=new_bytes.decode();assert text.count(assignment)==text.count(conjunct)==1
+    reverted=text.replace(assignment,'').replace(conjunct,'                    math.isclose(\n').encode()
+    probe_proof,probe=numeric_proof(reverted,new_bytes)
+    (output/'candidate-with-main-guard.py.txt').write_bytes(reverted)
+    (output/'guard-observer.py.txt').write_text(observer+'\n')
+    (output/'candidate-probe.py.txt').write_text(probe+'\n')
+    result={'baseline_commit':MAIN,'cross_package_dependency_graphs':{'baseline':baseline,'candidate':candidate},
+        'only_changed_reachable_declaration':changed,'observer':observer_proof,'probe':probe_proof,
+        'probe_old_argument_scope':'Candidate bytes with main guard restored; not relabeled as actual main source.',
+        'en_us_equality':'Both dispatch before the changed legacy body into the identical reachable profiled route.',
+        'source_sha256':{'main':sha((HERE/'current-main-package/src/axiom_encode'/SOURCE).read_bytes()),'candidate':sha((output/'candidate-package/src/axiom_encode'/SOURCE).read_bytes())},
+        'validator_sha256':{'main':sha(old_bytes),'candidate':sha(new_bytes)},
+        'metadata_sha256':sha((output/'candidate-package/src/axiom_encode'/METADATA).read_bytes())}
+    (output/'pipeline-proof.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+    return result
+
+
+def initialize(output):
+    global BASELINE,CANDIDATE,EXTRACT_MAIN,EXTRACT_CANDIDATE,HELPER,PROBE,OBSERVE
+    output=Path(output)
+    # The inert probe-generator dependency adds its historical repository
+    # source root to sys.path. Restore the authenticated baseline package
+    # before importing any executable baseline module.
+    sys.path.insert(0,str(HERE/'current-main-package/src'))
+    from axiom_encode.harness import source_completeness as baseline
+    from axiom_encode.harness import validator_pipeline as validator
+    expected_main=(HERE/'current-main-package/src/axiom_encode').resolve()
+    assert Path(baseline.__file__).resolve()==expected_main/SOURCE
+    assert Path(validator.__file__).resolve()==expected_main/VALIDATOR
+    BASELINE=functools.lru_cache(maxsize=256)(lambda body,citation:baseline.authoritative_numeric_recall_text(body,corpus_citation_path=citation))
+    package=output/'candidate-package/src/axiom_encode'
+    load('axiom_encode.harness.manual_locator_metadata',package/METADATA)
+    candidate=load('axiom_encode.harness.final_corpus_candidate_source',package/SOURCE)
+    original=candidate._without_us_manual_locators
+    @functools.lru_cache(maxsize=256)
+    def helper(body,citation):
+        masked=original(body,corpus_citation_path=citation)
+        assert len(masked)==len(body)
+        assert original(masked,corpus_citation_path=citation)==masked
+        return masked,sum(a.isdigit() and a!=b for a,b in zip(body,masked))
+    HELPER=helper
+    candidate._without_us_manual_locators=lambda body,*,corpus_citation_path:helper(body,corpus_citation_path)[0]
+    CANDIDATE=functools.lru_cache(maxsize=256)(lambda body,citation:candidate.authoritative_numeric_recall_text(body,corpus_citation_path=citation))
+    current=load('axiom_encode.harness.final_corpus_candidate_validator',package/VALIDATOR)
+    assert Path(current.__file__).resolve()==(package/VALIDATOR).resolve()
+    EXTRACT_MAIN=functools.lru_cache(maxsize=256)(lambda text,profile:normalize(validator.extract_typed_numeric_inventory_occurrences_from_text(text,profile=profile)))
+    EXTRACT_CANDIDATE=functools.lru_cache(maxsize=256)(lambda text,profile:normalize(current.extract_typed_numeric_inventory_occurrences_from_text(text,profile=profile)))
+    exec(compile((output/'candidate-probe.py.txt').read_text(),'<exact-prelude-probe>','exec'),vars(current))
+    PROBE=functools.lru_cache(maxsize=256)(current._audit_legacy_condition_has_candidate)
+    exec(compile((output/'guard-observer.py.txt').read_text(),'<pure-guard-observer>','exec'),vars(current))
+    @functools.lru_cache(maxsize=256)
+    def observe(text):
+        tokenization,diverged=current._audit_legacy_tokenization_and_guard_divergence(text)
+        return normalize(tokenization.inventory),diverged
+    OBSERVE=observe
+
+
+def observer_smoke(output):
+    initialize(str(output.resolve()))
+    cases=['12.25','1225 $12.25 per hour','1225\n$12.25 per hour',
+        'Fees in dollars (required)\n214.03 Application Process\n214.04 Retroactive Applications',
+        'The month shown below determines eligibility.\n032-03-0445-01 (07/2026)',
+        '1.250 dollars and 12.50 dollars','In 2026 amounts were $2,026 and $20.26.',
+        '12.25% applies to 1225 dollars','12.25 per hour and 1225 dollars',
+        'Table 1: $2,474 2 $2,909','Table 1: Household size 1 100 size 2 200']
+    results=[]
+    for source in cases:
+        observed,diverged=OBSERVE(source)
+        actual=EXTRACT_CANDIDATE(source,'legacy')
+        baseline=EXTRACT_MAIN(source,'legacy')
+        assert observed==actual
+        if not diverged:assert actual==baseline
+        results.append({'source_sha256':sha(source.encode()),'diverged':diverged,'matches_actual_candidate':True,
+            'matches_actual_main_when_no_divergence':not diverged})
+    assert any(row['diverged'] for row in results)
+    report={'cases':len(results),'all_assertions_passed':True,'runtime_package_bindings_verified':True,'results':results}
+    (output/'observer-smoke.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
+    print(json.dumps({'observer_smoke_cases':len(results),'all_assertions_passed':True}),flush=True)
+
+
+def evaluate(task):
+    file,number,raw=task;row=json.loads(raw);body=row.get('body') or '';citation=row['citation_path']
+    masked,digits=HELPER(body,citation)
+    if not citation.startswith('us'):assert masked==body
+    old=BASELINE(body,citation);new=CANDIDATE(body,citation)
+    result={'file':file,'line':number,'citation':citation,'row_sha256':sha(raw),
+        'helper_sha256':sha(masked.encode()),'helper_masked_digit_count':digits,'helper_length_and_idempotence':True,
+        'recall_sha256':{'main':sha(old.encode()),'candidate':sha(new.encode())},'changes':{}}
+    if old!=new:
+        result['proof']='different_recall_actual_both_profiles'
+        for profile in ('en-US','legacy'):
+            before,after=EXTRACT_MAIN(old,profile),EXTRACT_CANDIDATE(new,profile)
+            change=delta(before,after)
+            if change:result['changes'][profile]=change
+        return result
+    if not PROBE(new):
+        result['proof']='equal_recall_identical_en_us_and_no_legacy_guard_candidate'
+        return result
+    after,diverged=OBSERVE(new)
+    result['proof']='equal_recall_actual_current_legacy_no_guard_divergence'
+    if diverged:
+        result['proof']='equal_recall_guard_divergence_actual_both_legacy'
+        change=delta(EXTRACT_MAIN(old,'legacy'),after)
+        if change:result['changes']['legacy']=change
+    return result
+
+
+def main():
+    parser=argparse.ArgumentParser();parser.add_argument('--output',required=True,type=Path)
+    parser.add_argument('--workers',type=int,choices=(1,2,4),default=4);parser.add_argument('--limit',type=int,default=0)
+    args=parser.parse_args();output=args.output;output.mkdir(exist_ok=False)
+    package=output/'candidate-package/src/axiom_encode'
+    shutil.copytree(ROOT/'src/axiom_encode',package,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
+    assert subprocess.check_output(['git','rev-parse','origin/main'],cwd=ROOT,text=True).strip()==MAIN
+    started=time.monotonic();baseline_hashes=package_hashes(HERE/'current-main-package/src/axiom_encode')
+    print(json.dumps({'stage':'dependency_and_guard_proofs_started'}),flush=True)
+    pipeline=proof(output);observer_smoke(output)
+    manifest=json.loads((CORPUS/'corpus-manifest.json').read_text())
+    assert len(manifest)==231 and sum(info['rows'] for info in manifest)==68848
+    print(json.dumps({'stage':'fresh_rows_started','expected_rows':68848,'expected_files':231,'workers':args.workers}),flush=True)
+    expected=set();returned=set();proofs=collections.Counter();metrics={profile:collections.Counter() for profile in ('en-US','legacy')}
+    def tasks():
+        for info in manifest:
+            data=(CORPUS/'input'/info['file']).read_bytes();assert sha(data)==info['sha256']
+            rows=data.splitlines();assert len(rows)==info['rows']
+            for number,raw in enumerate(rows,1):
+                if not raw.strip():continue
+                if args.limit and len(expected)>=args.limit:return
+                key=info['file'],number;assert key not in expected;expected.add(key)
+                yield info['file'],number,raw
+    with (output/'rows.jsonl').open('w') as stream,(output/'deltas.jsonl').open('w') as deltas,multiprocessing.Pool(args.workers,initialize,(str(output.resolve()),)) as pool:
+        for row in pool.imap_unordered(evaluate,tasks(),chunksize=1):
+            key=row['file'],row['line'];assert key not in returned;returned.add(key);proofs[row['proof']]+=1
+            stream.write(json.dumps(row,separators=(',',':'))+'\n')
+            if row['changes']:deltas.write(json.dumps(row,separators=(',',':'))+'\n')
+            for profile,change in row['changes'].items():
+                count=metrics[profile];count['changed_rows']+=1
+                for kind in ('new_demands','removed_demands'):count[kind]+=len(change[kind])
+                for kind in ('added_occurrences','removed_occurrences'):count[kind]+=sum(x['count'] for x in change[kind])
+                for kind in ('added_typed','removed_typed'):count[kind]+=sum(x['count'] for x in change[kind])
+            if len(returned)%500==0:
+                stream.flush();deltas.flush();assert stream.tell()+deltas.tell()<1_000_000_000
+                print(json.dumps({'rows':len(returned),'proofs':dict(proofs),'comparisons':metrics,'seconds':round(time.monotonic()-started,2)}),flush=True)
+    assert expected==returned and len(returned)==(args.limit or 68848)
+    assert package_hashes(HERE/'current-main-package/src/axiom_encode')==baseline_hashes
+    for name in (SOURCE,VALIDATOR,METADATA):assert (ROOT/'src/axiom_encode'/name).read_bytes()==(package/name).read_bytes()
+    summary={'complete':True,'rows':len(returned),'input_files':len(manifest),'full_corpus':not args.limit,
+        'baseline_commit':MAIN,'corpus_commit':'8f7d60aaced28ee4252b9237f9d6e02360dc34bc','source_sha256':pipeline['source_sha256'],
+        'validator_sha256':pipeline['validator_sha256'],'metadata_sha256':pipeline['metadata_sha256'],
+        'comparisons':{profile:dict(count) for profile,count in metrics.items()},'proof_counts':dict(proofs),
+        'previous_records_read':0,'input_manifest_sha256':sha((CORPUS/'corpus-manifest.json').read_bytes()),
+        'baseline_package_sha256':baseline_hashes,'baseline_package_unchanged_at_completion':True,
+        'output_sha256':{name:sha((output/name).read_bytes()) for name in ('rows.jsonl','deltas.jsonl','pipeline-proof.json')},
+        'runner_sha256':sha(Path(__file__).read_bytes()),'workers':args.workers,'python':sys.version,
+        'threads':{key:os.environ.get(key) for key in ('OMP_NUM_THREADS','OPENBLAS_NUM_THREADS','MKL_NUM_THREADS','VECLIB_MAXIMUM_THREADS','NUMEXPR_NUM_THREADS','OMP_WAIT_POLICY')},
+        'seconds':time.monotonic()-started}
+    (output/'summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n');print(json.dumps(summary,indent=2,sort_keys=True),flush=True)
+
+
+if __name__=='__main__':main()

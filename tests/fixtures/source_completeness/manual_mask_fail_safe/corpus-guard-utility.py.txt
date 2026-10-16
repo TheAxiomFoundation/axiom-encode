@@ -1,0 +1,64 @@
+"""Pure observer for the exact reviewed old/current legacy skip decision."""
+from __future__ import annotations
+import ast
+import copy
+import hashlib
+
+
+def make_observer(old_bytes, current_bytes):
+    def tokenizer(content):
+        return next(n for n in ast.parse(content).body if isinstance(n, ast.FunctionDef) and n.name == '_tokenize_numeric_occurrences_from_text')
+    old, current = tokenizer(old_bytes), tokenizer(current_bytes)
+    def guard(function):
+        return next(n for n in ast.walk(function) if isinstance(n, ast.If) and isinstance(n.test, ast.BoolOp) and ast.unparse(n.test).startswith('grouped_value is not None and'))
+    old_guard, current_guard = guard(old), guard(current)
+    # Authenticate exactly the reviewed difference before adding the observer.
+    normalized = copy.deepcopy(current)
+    normalized_guard = guard(normalized)
+    normalized_guard.test = copy.deepcopy(old_guard.test)
+    assignment_count = 0
+    for n in ast.walk(normalized):
+        for field, value in ast.iter_fields(n):
+            if isinstance(value, list):
+                kept = []
+                for statement in value:
+                    if isinstance(statement, ast.Assign) and ast.unparse(statement) == 'source_span = cleaned_view.source_span(span)':
+                        assignment_count += 1
+                    else:
+                        kept.append(statement)
+                setattr(n, field, kept)
+    assert assignment_count == 1
+    assert ast.dump(normalized, include_attributes=False) == ast.dump(old, include_attributes=False)
+    observed = copy.deepcopy(current)
+    observed.name = '_audit_legacy_tokenization_and_guard_divergence'
+    observed.body.insert(1, ast.parse('_audit_guard_diverged = False').body[0])
+    observed_guard = guard(observed)
+    inserted = 0
+    for n in ast.walk(observed):
+        for field, value in ast.iter_fields(n):
+            if isinstance(value, list) and observed_guard in value:
+                index = value.index(observed_guard)
+                statements = [
+                    ast.Assign(targets=[ast.Name(id='_audit_old_skip', ctx=ast.Store())], value=copy.deepcopy(old_guard.test)),
+                    ast.Assign(targets=[ast.Name(id='_audit_current_skip', ctx=ast.Store())], value=copy.deepcopy(current_guard.test)),
+                    ast.parse('_audit_guard_diverged = _audit_guard_diverged or (_audit_old_skip != _audit_current_skip)').body[0],
+                ]
+                value[index:index] = statements
+                inserted += 1
+    assert inserted == 1
+    final_return = observed.body[-1]
+    assert isinstance(final_return, ast.Return)
+    final_return.value = ast.Tuple(elts=[final_return.value, ast.Name(id='_audit_guard_diverged', ctx=ast.Load())], ctx=ast.Load())
+    ast.fix_missing_locations(observed)
+    class RemoveObserver(ast.NodeTransformer):
+        def visit_Assign(self, node):
+            if any(isinstance(t, ast.Name) and t.id.startswith('_audit_') for t in node.targets):
+                return None
+            return self.generic_visit(node)
+    restored = RemoveObserver().visit(copy.deepcopy(observed))
+    restored.name = current.name
+    restored.body[-1].value = restored.body[-1].value.elts[0]
+    assert ast.dump(restored, include_attributes=False) == ast.dump(current, include_attributes=False)
+    generated = ast.unparse(ast.Module(body=[observed], type_ignores=[]))
+    proof = {'observer_sha256': hashlib.sha256(generated.encode()).hexdigest(), 'removing_only_local_pure_observer_recovers_exact_current_tokenizer_ast': True, 'old_and_current_tokenizer_ast_differ_only_by_reviewed_source_span_guard': True, 'old_current_decision_observer_uses_same_collector_state': True, 'no_divergence_proof': 'Before a first divergent skip decision both execution states are identical; if no decision diverges the final old/current tokenization is identical. Any divergence executes the original old tokenizer for the baseline.'}
+    return generated, proof

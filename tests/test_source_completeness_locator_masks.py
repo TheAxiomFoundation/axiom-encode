@@ -93,6 +93,69 @@ def test_manual_page_and_revision_masks_keep_operative_values():
     ) == {93, 2026}
 
 
+@pytest.mark.parametrize(
+    "body",
+    (
+        "is the qualifying application month.",
+        "The payment is $93 in the qualifying application month shown above.",
+        "The payment is $93 and $2026.\nThe month shown above determines eligibility.",
+    ),
+)
+def test_manual_header_like_body_date_keeps_operative_values(body):
+    source = f"93 (07/2026) Chapter 2: Eligibility\n{body}"
+    assert {7, 2026} <= _values(source, "us-or/manual/odhs/open/page-5")
+
+
+@pytest.mark.parametrize(
+    "citation, caption",
+    (
+        ("us-or/manual/odhs/open/page-5", "Chapter 2: Unknown Caption"),
+        ("us-az/manual/program/page-5", "Chapter 2: Eligibility"),
+    ),
+)
+def test_independent_amount_sentence_cannot_authenticate_unknown_manual_header(
+    citation, caption
+):
+    source = f"93 (07/2026) {caption}\nThe payment is $93 and $2026."
+    assert {7, 93, 2026} <= _values(source, citation)
+
+
+@pytest.mark.parametrize(
+    "citation", ("us-or/manual/odhs/open/page-5", "us-az/manual/program/page-5")
+)
+def test_spaced_header_without_independent_body_keeps_parent_date_demands(citation):
+    source = "93 (07/2026) Chapter 2: Eligibility"
+    assert {7, 2026} <= _values(source, citation)
+
+
+@given(
+    page=st.integers(min_value=1, max_value=9999),
+    month=st.integers(min_value=1, max_value=12),
+    year=st.integers(min_value=1900, max_value=2099),
+    subject=st.sampled_from(("payment", "amount", "limit")),
+    spacing=st.sampled_from(("", " ")),
+)
+@settings(max_examples=50, deadline=None)
+def test_authenticated_header_masks_only_its_metadata_occurrences(
+    page, month, year, subject, spacing
+):
+    stamp = f"({month:02d}/{year})"
+    body = f"The {subject} is ${page} and ${year}."
+    source = f"{page} {stamp} Chapter 2:{spacing}Eligibility\n{body}"
+    citation = "us-or/manual/odhs/open/page-5"
+    assert _values(source, citation) == {page, year}
+    masked = completeness._without_us_manual_locators(
+        source, corpus_citation_path=citation
+    )
+    assert stamp not in masked
+    assert masked.endswith(body)
+    assert len(masked) == len(source)
+    assert (
+        completeness._without_us_manual_locators(masked, corpus_citation_path=citation)
+        == masked
+    )
+
+
 @given(
     st.integers(min_value=1, max_value=999999),
     st.text(

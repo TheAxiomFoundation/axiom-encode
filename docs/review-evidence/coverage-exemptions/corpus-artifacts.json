@@ -1,0 +1,1782 @@
+{
+  "release": "us-rulespec-2026-08-08-obbb-alien-snap",
+  "release_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+  "artifacts": [
+    {
+      "artifact_class": "provisions",
+      "bytes": 4717,
+      "path": "data/corpus/provisions/us-ak/guidance/2026-06-30-ak-apa-standards-ak-dpa-apa-standards-2026.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/ef/efd900fd44033b1f64dff017ca78c51d68ee6b951ff07b98e29539fc84ec3ead",
+      "rows": 2,
+      "sha256": "efd900fd44033b1f64dff017ca78c51d68ee6b951ff07b98e29539fc84ec3ead"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 13956,
+      "path": "data/corpus/provisions/us-ak/guidance/2026-07-01-ak-atap-standards.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/13/1323f678568e926d1fd1be274666b20654e7c6cbaee72355848b8eb7fa62bd25",
+      "rows": 6,
+      "sha256": "1323f678568e926d1fd1be274666b20654e7c6cbaee72355848b8eb7fa62bd25"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1772069,
+      "path": "data/corpus/provisions/us-ak/manual/2026-07-16-ak-snap-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/01/01b43cfbdfb219c5d89114cef469eaa2043855e12e33d790cd68986808f8cabb",
+      "rows": 478,
+      "sha256": "01b43cfbdfb219c5d89114cef469eaa2043855e12e33d790cd68986808f8cabb"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 11709,
+      "path": "data/corpus/provisions/us-ak/statute/2026-07-24-ak-individual-income-tax.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/0e/0e6bdd058c729190fb5bbae2e19b86cb799aeb1337c1e7e36c9850d6adec2fc7",
+      "rows": 4,
+      "sha256": "0e6bdd058c729190fb5bbae2e19b86cb799aeb1337c1e7e36c9850d6adec2fc7"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 801359,
+      "path": "data/corpus/provisions/us-al/manual/2026-05-27-al-snap-poe-manual-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/d3/d3c43bffac6cf187ba640170984db471382fbb1ca507e7882275e96a727b773c",
+      "rows": 149,
+      "sha256": "d3c43bffac6cf187ba640170984db471382fbb1ca507e7882275e96a727b773c"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 44830,
+      "path": "data/corpus/provisions/us-al/manual/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/14/149b7b203d432c2719ea454baa65979a5fb7da8dee3eacb325575f7695dc5ce1",
+      "rows": 12,
+      "sha256": "149b7b203d432c2719ea454baa65979a5fb7da8dee3eacb325575f7695dc5ce1"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 34434,
+      "path": "data/corpus/provisions/us-al/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/39/391ab4e42d04e0f328c9780b8577b2120d602b72b10453ea6c80522d32506f07",
+      "rows": 3,
+      "sha256": "391ab4e42d04e0f328c9780b8577b2120d602b72b10453ea6c80522d32506f07"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 2777793,
+      "path": "data/corpus/provisions/us-ar/manual/2026-07-16-ar-snap-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/04/0469f6a6d2dbd91e7861e5bfa260da95a2ebcfe486fba54f51da2f838829693e",
+      "rows": 810,
+      "sha256": "0469f6a6d2dbd91e7861e5bfa260da95a2ebcfe486fba54f51da2f838829693e"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 19738,
+      "path": "data/corpus/provisions/us-ar/statute/2026-07-16-pit-east-us-ar-act-2.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/96/969439f4b5dd90ef0b9e83ebd82572030b5dda75c3005666a0ab86a788037e72",
+      "rows": 4,
+      "sha256": "969439f4b5dd90ef0b9e83ebd82572030b5dda75c3005666a0ab86a788037e72"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 31471,
+      "path": "data/corpus/provisions/us-az/manual/2025-10-30-az-des-faa5-manual-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/35/35965089f0f21979670bda683f2b9c392d3c79efe787887518ad5d141fd08504",
+      "rows": 7,
+      "sha256": "35965089f0f21979670bda683f2b9c392d3c79efe787887518ad5d141fd08504"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 320305,
+      "path": "data/corpus/provisions/us-az/manual/2026-06-25-az-ccap.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/d8/d83b08cbdf3d084112585529daeeb2aea3cdd92bc40a7ffe5d9651d7e045ae00",
+      "rows": 82,
+      "sha256": "d83b08cbdf3d084112585529daeeb2aea3cdd92bc40a7ffe5d9651d7e045ae00"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 4321,
+      "path": "data/corpus/provisions/us-az/manual/2026-07-12-az-des-faa6-utility-amounts.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/85/858d2cdcbe913367bc28b5a1812509610bd6ebb18cde5f9360dc2245ed997167",
+      "rows": 2,
+      "sha256": "858d2cdcbe913367bc28b5a1812509610bd6ebb18cde5f9360dc2245ed997167"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 361899,
+      "path": "data/corpus/provisions/us-az/manual/2026-07-17-faa5-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/81/8175940d284808c43222bc1a90328344f39fcb42f38b29581c162994535fc932",
+      "rows": 143,
+      "sha256": "8175940d284808c43222bc1a90328344f39fcb42f38b29581c162994535fc932"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 44057,
+      "path": "data/corpus/provisions/us-az/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/e2/e22c71da063975aab19f40c8b1c83dc409d6e46813aed5dbe4675fc1926cdd89",
+      "rows": 14,
+      "sha256": "e22c71da063975aab19f40c8b1c83dc409d6e46813aed5dbe4675fc1926cdd89"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 26595,
+      "path": "data/corpus/provisions/us-ca/guidance/2025-09-03-ca-cdss-acin.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/22/223bc0109bee37ef6bcca06fc8f86fd7f04e0eaf9c27a05868dd712a074b9f0d",
+      "rows": 9,
+      "sha256": "223bc0109bee37ef6bcca06fc8f86fd7f04e0eaf9c27a05868dd712a074b9f0d"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 66767,
+      "path": "data/corpus/provisions/us-ca/guidance/2026-06-24-ca-cdss-calworks-acl.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/d4/d4a34f1241e5d8e4af624d0d1f45806f5be53b997fdadd2960a977aef6bcdf00",
+      "rows": 23,
+      "sha256": "d4a34f1241e5d8e4af624d0d1f45806f5be53b997fdadd2960a977aef6bcdf00"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 40693,
+      "path": "data/corpus/provisions/us-ca/guidance/2026-06-27-ca-dor-ssi-ssp-newsletter.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/36/36fab8fd8ad5e4b2b81145839a943dcba88ea4b3f2e7e1f10125183695b094ff",
+      "rows": 19,
+      "sha256": "36fab8fd8ad5e4b2b81145839a943dcba88ea4b3f2e7e1f10125183695b094ff"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 26283,
+      "path": "data/corpus/provisions/us-ca/guidance/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/ae/ae4a13aa23b8b7ecaf4814e28e9f90be110848d3acfc93090dd11fb556b10262",
+      "rows": 9,
+      "sha256": "ae4a13aa23b8b7ecaf4814e28e9f90be110848d3acfc93090dd11fb556b10262"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 47500,
+      "path": "data/corpus/provisions/us-ca/statute/2026-06-25-ca-wic-calworks-us-ca-sections-wic-11450-wic-11450.12-wic-11451.5-wic-11452-wic-11452.018.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/3b/3bba15d966487b2bb2f501a524b195be7ea904a5eafdde9560736f37cf1d5898",
+      "rows": 5,
+      "sha256": "3bba15d966487b2bb2f501a524b195be7ea904a5eafdde9560736f37cf1d5898"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 4539,
+      "path": "data/corpus/provisions/us-ca/statute/2026-06-27-ca-ssi-ssp-wic-12200-us-ca-sections-wic-12200.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/f3/f36e4fd757cb67d3e49c0c7678e2ae488b423b369c42748b4315a0bf93d92d01",
+      "rows": 1,
+      "sha256": "f36e4fd757cb67d3e49c0c7678e2ae488b423b369c42748b4315a0bf93d92d01"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 47109,
+      "path": "data/corpus/provisions/us-ca/statute/2026-07-06-ca-rtc-pit-core-us-ca-sections-rtc-17041-rtc-17043-rtc-17045-rtc-17052-rtc-17054-rtc-17073.5.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/7f/7fb6848936f7e21f64e76ac68f94e26d8516e9e25ae50adccf08c3d196e4230e",
+      "rows": 6,
+      "sha256": "7fb6848936f7e21f64e76ac68f94e26d8516e9e25ae50adccf08c3d196e4230e"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 47693,
+      "path": "data/corpus/provisions/us-ca/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/52/523ef624634d8ab7c4739829276085e67e122e600b521e5153d382d03a071bd3",
+      "rows": 33,
+      "sha256": "523ef624634d8ab7c4739829276085e67e122e600b521e5153d382d03a071bd3"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 68236,
+      "path": "data/corpus/provisions/us-co/statute/2026-07-13-us-co-tax-credit-session-laws-r2026-07-19-expression-date.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/7c/7ce2821721e409e08783d932d1ac3a953573981d6d588c3aeb595a73c5553540",
+      "rows": 4,
+      "sha256": "7ce2821721e409e08783d932d1ac3a953573981d6d588c3aeb595a73c5553540"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 5299688,
+      "path": "data/corpus/provisions/us-co/statute/2026-07-19-rulespec-us-co-title-39-consolidated.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/87/875765f755cbcce71b206e9ac1051cc126c0f90cbacd40e26e6b9e5d12fa084f",
+      "rows": 1137,
+      "sha256": "875765f755cbcce71b206e9ac1051cc126c0f90cbacd40e26e6b9e5d12fa084f"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 2784635,
+      "path": "data/corpus/provisions/us-ct/manual/2026-07-17-ct-snap-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/ab/ab7776f91ca4422b76ef969e8b1c547342fe447c5aee0fc17d1ca5abfe5bc254",
+      "rows": 1275,
+      "sha256": "ab7776f91ca4422b76ef969e8b1c547342fe447c5aee0fc17d1ca5abfe5bc254"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 2106188,
+      "path": "data/corpus/provisions/us-ct/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/b5/b50cf5766e3db5d99cf0168e62470344563e97ec3f1c40f4287cb87f575d56df",
+      "rows": 15,
+      "sha256": "b50cf5766e3db5d99cf0168e62470344563e97ec3f1c40f4287cb87f575d56df"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 9229,
+      "path": "data/corpus/provisions/us-ct/statute/2026-07-24-ct-income-tax-supplement.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/ed/ed9b18d156338551059fe89c5255c4655c4661034f68590d1bb5e2d225bd72a2",
+      "rows": 2,
+      "sha256": "ed9b18d156338551059fe89c5255c4655c4661034f68590d1bb5e2d225bd72a2"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 16485,
+      "path": "data/corpus/provisions/us-ct/statute/2026-07-26-ct-12-700-a-10.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/00/005278ce7c4dcb7eb40e093fbfdeb1c8f55f639ce8d68fb91cfcc78204a8731d",
+      "rows": 2,
+      "sha256": "005278ce7c4dcb7eb40e093fbfdeb1c8f55f639ce8d68fb91cfcc78204a8731d"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1407834,
+      "path": "data/corpus/provisions/us-dc/manual/2026-07-17-dc-snap-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/25/25ba11fb0fd9229df5b76e4b5441383214d80694ecfc9966f2c704e641bd63da",
+      "rows": 350,
+      "sha256": "25ba11fb0fd9229df5b76e4b5441383214d80694ecfc9966f2c704e641bd63da"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1524723,
+      "path": "data/corpus/provisions/us-dc/statute/2026-05-19-title-4.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/47/477a418f55e515950194414c8d3cabe31b6635eb4e8cd2b38d3aa5c06ed4bcf7",
+      "rows": 732,
+      "sha256": "477a418f55e515950194414c8d3cabe31b6635eb4e8cd2b38d3aa5c06ed4bcf7"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 9563,
+      "path": "data/corpus/provisions/us-dc/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/4a/4a0b689f49fafc4318c02db01ddc39fc60004060953c471bcee4152f2913b851",
+      "rows": 2,
+      "sha256": "4a0b689f49fafc4318c02db01ddc39fc60004060953c471bcee4152f2913b851"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 5138636,
+      "path": "data/corpus/provisions/us-dc/statute/2026-07-16-pit-east-title-47.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/b3/b30b2f8bad51b1499e9368330d9ac9a2186ae6c0418590a4bcd0ca090d415c97",
+      "rows": 2019,
+      "sha256": "b30b2f8bad51b1499e9368330d9ac9a2186ae6c0418590a4bcd0ca090d415c97"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 9637,
+      "path": "data/corpus/provisions/us-de/guidance/2026-07-03-de-ssi-state-supplement-poms.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/7b/7b8a4e05aba19c441422df0d4d4af08b819312e6b31ab05cfcf1341506df6bc0",
+      "rows": 5,
+      "sha256": "7b8a4e05aba19c441422df0d4d4af08b819312e6b31ab05cfcf1341506df6bc0"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 22453,
+      "path": "data/corpus/provisions/us-de/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/ab/ab575c6995c1ddb4fef09dd5ef5d64e5c511dd641979721de137ed281ad64b8e",
+      "rows": 6,
+      "sha256": "ab575c6995c1ddb4fef09dd5ef5d64e5c511dd641979721de137ed281ad64b8e"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 5055872,
+      "path": "data/corpus/provisions/us-fl/manual/2026-05-27-fl-ess-manual-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/df/df6457c68714d84da88e01d24e43f7b008b65cd0be61d1a1410ccc2ffe667b1b",
+      "rows": 1107,
+      "sha256": "df6457c68714d84da88e01d24e43f7b008b65cd0be61d1a1410ccc2ffe667b1b"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 7586,
+      "path": "data/corpus/provisions/us-fl/manual/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/dc/dc436075d980ef75f7827bfd59ddc81a3e97661fa83d1aefff738f4446ae87cf",
+      "rows": 4,
+      "sha256": "dc436075d980ef75f7827bfd59ddc81a3e97661fa83d1aefff738f4446ae87cf"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 60843,
+      "path": "data/corpus/provisions/us-fl/statute/2026-07-24-fl-individual-income-tax-zero-liability.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/98/98781367ac03d6c3e72e0f32cc3ac55b26fd0c688b7cac58119bfdb7e39ec27e",
+      "rows": 8,
+      "sha256": "98781367ac03d6c3e72e0f32cc3ac55b26fd0c688b7cac58119bfdb7e39ec27e"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 9342,
+      "path": "data/corpus/provisions/us-ga/guidance/2026-06-25-ga-tanf.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/24/248b2c5c4eebcc4c0b4c59b58afa4cda3b9e78e4373f2cdfd4057d9f125750ee",
+      "rows": 4,
+      "sha256": "248b2c5c4eebcc4c0b4c59b58afa4cda3b9e78e4373f2cdfd4057d9f125750ee"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 3500128,
+      "path": "data/corpus/provisions/us-ga/manual/2026-05-27-ga-snap-manual-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/94/94851857003b1d678be9513cc0ae9306434c7f73e93e078fb2fc01344a616eb1",
+      "rows": 1214,
+      "sha256": "94851857003b1d678be9513cc0ae9306434c7f73e93e078fb2fc01344a616eb1"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 2220690,
+      "path": "data/corpus/provisions/us-ga/manual/2026-06-25-ga-caps.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/e5/e5143513d0f11570afd7f0784df5d8b94899e72d6edc268e6483ea85d7bdab74",
+      "rows": 506,
+      "sha256": "e5143513d0f11570afd7f0784df5d8b94899e72d6edc268e6483ea85d7bdab74"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 85793,
+      "path": "data/corpus/provisions/us-ga/manual/2026-06-25-ga-tanf.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/96/969301c7abced68f013cba41306b34bebc2793ce6a39059376c4e6c2dc9c136b",
+      "rows": 47,
+      "sha256": "969301c7abced68f013cba41306b34bebc2793ce6a39059376c4e6c2dc9c136b"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 31274,
+      "path": "data/corpus/provisions/us-ga/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/b5/b5168dc6d8999cff9242d14ad7a789fb3794e1274cd1458d15b894e7f8c7465e",
+      "rows": 13,
+      "sha256": "b5168dc6d8999cff9242d14ad7a789fb3794e1274cd1458d15b894e7f8c7465e"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 6816213,
+      "path": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-ocga-title-48-release86-us-ga-title-48.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/8a/8a56a7bda977c94135ef111f208f36c9984791f3c6a3a265dc4724b36486d4e0",
+      "rows": 1320,
+      "sha256": "8a56a7bda977c94135ef111f208f36c9984791f3c6a3a265dc4724b36486d4e0"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 96736,
+      "path": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-pit-session-laws.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/c6/c6b232170d7be1e7ef03ed431224cc466514c8638b3da30b583b6f083d0e21cd",
+      "rows": 8,
+      "sha256": "c6b232170d7be1e7ef03ed431224cc466514c8638b3da30b583b6f083d0e21cd"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 25080,
+      "path": "data/corpus/provisions/us-hi/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/b9/b94223ebe146b86dea243b60e188e06404380314a16a2ee51209a3ff81e3c628",
+      "rows": 4,
+      "sha256": "b94223ebe146b86dea243b60e188e06404380314a16a2ee51209a3ff81e3c628"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 574110,
+      "path": "data/corpus/provisions/us-hi/statute/2026-07-16-pit-east-us-hi-volume-04-chapter-235.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/dd/dde47cd1e6e5d988afda0544499740eca3b609235777629ba2d5b477af01a47b",
+      "rows": 156,
+      "sha256": "dde47cd1e6e5d988afda0544499740eca3b609235777629ba2d5b477af01a47b"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1572905,
+      "path": "data/corpus/provisions/us-ia/manual/2026-07-17-ia-snap-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/7e/7e28b901322e220afc90ad3c8a3340190126cf2128c80631ddbd6ecce7cf4a18",
+      "rows": 443,
+      "sha256": "7e28b901322e220afc90ad3c8a3340190126cf2128c80631ddbd6ecce7cf4a18"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 25836,
+      "path": "data/corpus/provisions/us-ia/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/fc/fcf92b8335e1478daaa18b1f8a2274c9c18551584a698cca45a51102132804f0",
+      "rows": 9,
+      "sha256": "fcf92b8335e1478daaa18b1f8a2274c9c18551584a698cca45a51102132804f0"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 636176,
+      "path": "data/corpus/provisions/us-ia/statute/2026-07-16-pit-east-us-ia-title-x-chapter-422-r2026-07-24-immutable.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/62/625ac3a9eb79208d3b6afbf4f87eed81ba7282f547a6a6dc35d2a009a3335ee0",
+      "rows": 121,
+      "sha256": "625ac3a9eb79208d3b6afbf4f87eed81ba7282f547a6a6dc35d2a009a3335ee0"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 11887,
+      "path": "data/corpus/provisions/us-il/guidance/2026-07-24-il-personal-exemption-guidance.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/00/004372d4c4d8037cb781085b5ed511ccc691d77d4a607eae46f690a1c929fceb",
+      "rows": 6,
+      "sha256": "004372d4c4d8037cb781085b5ed511ccc691d77d4a607eae46f690a1c929fceb"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 29101704,
+      "path": "data/corpus/provisions/us-il/manual/2026-05-27-il-cash-snap-medical-manual-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/0e/0ee5bcae1dfd3a609445d3cd1266f924f2bfd110d3083e044fae127b2c9141e4",
+      "rows": 12450,
+      "sha256": "0ee5bcae1dfd3a609445d3cd1266f924f2bfd110d3083e044fae127b2c9141e4"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 9060,
+      "path": "data/corpus/provisions/us-il/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/79/799280cd6bd43b37d2a03fe4e2994fdb519df268a6141927364b28101fa1e47b",
+      "rows": 5,
+      "sha256": "799280cd6bd43b37d2a03fe4e2994fdb519df268a6141927364b28101fa1e47b"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 25009,
+      "path": "data/corpus/provisions/us-il/statute/2026-06-26-ilcs-320-30-us-il-chapter-320-act-30-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/f7/f767aaf5c23ef6dfb9daa97e66f329a753b6249bc1ce7aacb6203d6243339ad9",
+      "rows": 10,
+      "sha256": "f767aaf5c23ef6dfb9daa97e66f329a753b6249bc1ce7aacb6203d6243339ad9"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 127859,
+      "path": "data/corpus/provisions/us-il/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/93/93a9150221ec9ff08ad72ad5ebec84a46cc04bc1bd96d916e86a58c6cf54c2f5",
+      "rows": 40,
+      "sha256": "93a9150221ec9ff08ad72ad5ebec84a46cc04bc1bd96d916e86a58c6cf54c2f5"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 5291515,
+      "path": "data/corpus/provisions/us-il/statute/2026-07-24-il-individual-income-tax-resident-core.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/07/078c74a849b4ca05b360e66cfa047615f3ad442f6c3316310206134ff9ce5bc2",
+      "rows": 1639,
+      "sha256": "078c74a849b4ca05b360e66cfa047615f3ad442f6c3316310206134ff9ce5bc2"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 15434,
+      "path": "data/corpus/provisions/us-in/guidance/2026-07-24-in-2026-individual-income-tax-source-hold.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/24/24f8fd07ae768af35d1e197db4d0be73fed9e5a2a1601c0464f8d4ada0ddf74d",
+      "rows": 4,
+      "sha256": "24f8fd07ae768af35d1e197db4d0be73fed9e5a2a1601c0464f8d4ada0ddf74d"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1919360,
+      "path": "data/corpus/provisions/us-in/manual/2026-05-27-in-snap-manual-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/ff/ff153fa0bc1631949c52a75cbd6b55cfc536dcd78ad757c1462c7a6bf705195e",
+      "rows": 484,
+      "sha256": "ff153fa0bc1631949c52a75cbd6b55cfc536dcd78ad757c1462c7a6bf705195e"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 18825,
+      "path": "data/corpus/provisions/us-in/manual/2026-07-04-in-ssp-sapn.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/15/158143a279d27c5f2e07231690b9ae5deb30aa1ab4651522cf4d1924663726b4",
+      "rows": 8,
+      "sha256": "158143a279d27c5f2e07231690b9ae5deb30aa1ab4651522cf4d1924663726b4"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 4530,
+      "path": "data/corpus/provisions/us-in/manual/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/29/29f8ac30f87c475e8749afb7a7e2c525aac323afb2b50d42025cbdc43a40a1cf",
+      "rows": 2,
+      "sha256": "29f8ac30f87c475e8749afb7a7e2c525aac323afb2b50d42025cbdc43a40a1cf"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 37494,
+      "path": "data/corpus/provisions/us-in/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/db/db8d6cfe72c0498cea697a485131ec2dddb78590418524f40e04d9f9001dc65b",
+      "rows": 10,
+      "sha256": "db8d6cfe72c0498cea697a485131ec2dddb78590418524f40e04d9f9001dc65b"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 12137298,
+      "path": "data/corpus/provisions/us-in/statute/2026-07-16-pit-east-us-in-title-6.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/05/051a62b1782e95b6adb9b7c6ec5782bee4d234220d2c30717b53c7409d3a9222",
+      "rows": 5530,
+      "sha256": "051a62b1782e95b6adb9b7c6ec5782bee4d234220d2c30717b53c7409d3a9222"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 20400,
+      "path": "data/corpus/provisions/us-ks/guidance/2026-07-04-ks-sspp-guidance.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/b4/b43fa062c35f08f5b0f00ed171e1a4aa2a63cecc992772c03ed69ef82cf04a52",
+      "rows": 5,
+      "sha256": "b43fa062c35f08f5b0f00ed171e1a4aa2a63cecc992772c03ed69ef82cf04a52"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 13229,
+      "path": "data/corpus/provisions/us-ks/guidance/2026-07-21-ks-k40es-2026.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/17/17d6e7c4fdfed6f3d28e173a08499d0ab75b4e7f159793e61fb494c4081a3bd0",
+      "rows": 2,
+      "sha256": "17d6e7c4fdfed6f3d28e173a08499d0ab75b4e7f159793e61fb494c4081a3bd0"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 8700,
+      "path": "data/corpus/provisions/us-ks/guidance/2026-07-24-ks-2026-income-tax-rate-determination.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/1a/1a7e6fd4896bb7784b725fff4284595c383b03b33cf20a770767cc6dd460c4fe",
+      "rows": 2,
+      "sha256": "1a7e6fd4896bb7784b725fff4284595c383b03b33cf20a770767cc6dd460c4fe"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 2219205,
+      "path": "data/corpus/provisions/us-ks/manual/2026-05-27-ks-keesm-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/a5/a5314b07ab3b8171c6979d9f0583df87bd1f562b0a4cfd5d39df4ccd3cd8349f",
+      "rows": 510,
+      "sha256": "a5314b07ab3b8171c6979d9f0583df87bd1f562b0a4cfd5d39df4ccd3cd8349f"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 10486,
+      "path": "data/corpus/provisions/us-ks/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/64/64023aa77ea152a90499a91b335351a7006b3db939cedde22dae8b3edcfbc165",
+      "rows": 2,
+      "sha256": "64023aa77ea152a90499a91b335351a7006b3db939cedde22dae8b3edcfbc165"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1223944,
+      "path": "data/corpus/provisions/us-ks/statute/2026-07-16-pit-west-us-ks-chapter-79-article-32.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/bd/bddcdcf9e80aa69e9470d6ad0a39ec322733a27285a87bc50b82af9f116c3efa",
+      "rows": 445,
+      "sha256": "bddcdcf9e80aa69e9470d6ad0a39ec322733a27285a87bc50b82af9f116c3efa"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 494328,
+      "path": "data/corpus/provisions/us-ks/statute/2026-07-24-ks-resident-income-tax-core.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/fe/fe0f9123d2a265d74bd62c845cd8f61310c7c7d53e590d2806ca524fb7a69a86",
+      "rows": 98,
+      "sha256": "fe0f9123d2a265d74bd62c845cd8f61310c7c7d53e590d2806ca524fb7a69a86"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1346531,
+      "path": "data/corpus/provisions/us-ky/manual/2026-07-17-ky-snap-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/61/61e1b246213b0ca2a9f9721f5e608287758afc26567d8d5ae60b37250d19eb15",
+      "rows": 400,
+      "sha256": "61e1b246213b0ca2a9f9721f5e608287758afc26567d8d5ae60b37250d19eb15"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 12133,
+      "path": "data/corpus/provisions/us-ky/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/01/01a98e7585e50b85285b59401f18923622b6c1b898dace0f74dda47549017732",
+      "rows": 10,
+      "sha256": "01a98e7585e50b85285b59401f18923622b6c1b898dace0f74dda47549017732"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 30821,
+      "path": "data/corpus/provisions/us-ky/statute/2026-07-22-individual-income-tax.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/c4/c4022520600e8b2b1467124e10973b4f5d05f4d1f623be7fb02588ede4cedf4f",
+      "rows": 4,
+      "sha256": "c4022520600e8b2b1467124e10973b4f5d05f4d1f623be7fb02588ede4cedf4f"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 4750029,
+      "path": "data/corpus/provisions/us-la/manual/2026-07-17-la-snap-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/a8/a8c7d1b761c24a1e05f79f7ea50f22970a71c5f679cf4d2ddac40efc6aff0313",
+      "rows": 1483,
+      "sha256": "a8c7d1b761c24a1e05f79f7ea50f22970a71c5f679cf4d2ddac40efc6aff0313"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 8687018,
+      "path": "data/corpus/provisions/us-la/statute/2026-07-22-la-title-47-official-current-us-la-title-47.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/57/5718e5920daf430b4529b156bbf88d6a00d00d1df510a91ea1654812989c1f15",
+      "rows": 2664,
+      "sha256": "5718e5920daf430b4529b156bbf88d6a00d00d1df510a91ea1654812989c1f15"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 9299,
+      "path": "data/corpus/provisions/us-ma/guidance/2026-07-22-ma-2026-surtax-guidance.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/d2/d2e7dc17a349dd1f8d305eb801295fadbd39b905cf1cdb13700d9c2f81a9a6dc",
+      "rows": 2,
+      "sha256": "d2e7dc17a349dd1f8d305eb801295fadbd39b905cf1cdb13700d9c2f81a9a6dc"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 190767,
+      "path": "data/corpus/provisions/us-ma/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/2c/2c3da0884fb6b67b7fdfad6b3fb397c5e24e566d7b7114671714026c3597cd7c",
+      "rows": 36,
+      "sha256": "2c3da0884fb6b67b7fdfad6b3fb397c5e24e566d7b7114671714026c3597cd7c"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 12039,
+      "path": "data/corpus/provisions/us-md/guidance/2026-07-05-md-tca-2026-guidance.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/67/67268c199dac651e8487162b1304e613dbd7f95411c43ad2e8864af8de88ca50",
+      "rows": 4,
+      "sha256": "67268c199dac651e8487162b1304e613dbd7f95411c43ad2e8864af8de88ca50"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 52471,
+      "path": "data/corpus/provisions/us-md/guidance/2026-07-12-md-fia-snap-fy2026.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/a3/a3b9d1e6d9f562c03fd4a9fda3d48d91bb286d9c1239673a1fa7c387492ceaf2",
+      "rows": 18,
+      "sha256": "a3b9d1e6d9f562c03fd4a9fda3d48d91bb286d9c1239673a1fa7c387492ceaf2"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1519525,
+      "path": "data/corpus/provisions/us-md/manual/2026-07-17-md-snap-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/d9/d94019390c8bb1349cc976802aee53aaeaea2821fd1f535545dafc423eb990a3",
+      "rows": 379,
+      "sha256": "d94019390c8bb1349cc976802aee53aaeaea2821fd1f535545dafc423eb990a3"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 14612,
+      "path": "data/corpus/provisions/us-md/statute/2026-07-13-recovery-r2026-07-24-immutable.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/7d/7dedf574e3349f12ee7514806189b97934300f2f381ba0defeb51273459dc530",
+      "rows": 4,
+      "sha256": "7dedf574e3349f12ee7514806189b97934300f2f381ba0defeb51273459dc530"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 9790,
+      "path": "data/corpus/provisions/us-me/guidance/2026-07-23-me-individual-income-tax-rates-2026.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/44/44d02f78209843db3c66029977038f3f5aee92e652a0a1520a3f3dba90bfb555",
+      "rows": 2,
+      "sha256": "44d02f78209843db3c66029977038f3f5aee92e652a0a1520a3f3dba90bfb555"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 18525,
+      "path": "data/corpus/provisions/us-me/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/ce/ce109b25160a221df011b6d76f6364cbcaf3ab55db48d5dbc7e8363885b99760",
+      "rows": 13,
+      "sha256": "ce109b25160a221df011b6d76f6364cbcaf3ab55db48d5dbc7e8363885b99760"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 5660,
+      "path": "data/corpus/provisions/us-mi/guidance/2026-07-21-mi-2026-income-tax-rate-notice.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/8b/8b215e0dd3ecf57cb186314450c9a78bab1f342282222d8fcf2e636f12d824c1",
+      "rows": 2,
+      "sha256": "8b215e0dd3ecf57cb186314450c9a78bab1f342282222d8fcf2e636f12d824c1"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 7384487,
+      "path": "data/corpus/provisions/us-mi/manual/2026-07-17-mi-bridges-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/4e/4ee408c8a2a0fe24b52606f2a85b103baa13f72610baee5ea660ed62684f94e0",
+      "rows": 2310,
+      "sha256": "4ee408c8a2a0fe24b52606f2a85b103baa13f72610baee5ea660ed62684f94e0"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 420593,
+      "path": "data/corpus/provisions/us-mi/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/fe/fe814ef6b1c2491bc86cbef085610626218dda7cb1fd822613e272a0f7215e7b",
+      "rows": 15,
+      "sha256": "fe814ef6b1c2491bc86cbef085610626218dda7cb1fd822613e272a0f7215e7b"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 14644,
+      "path": "data/corpus/provisions/us-mn/guidance/2026-07-22-mn-income-tax-inflation-adjusted-amounts-2026.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/be/bea6395688d0ebf45cd53f8b801913020ff89c7939d0e97d666526b00fe49557",
+      "rows": 5,
+      "sha256": "bea6395688d0ebf45cd53f8b801913020ff89c7939d0e97d666526b00fe49557"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 4208312,
+      "path": "data/corpus/provisions/us-mn/manual/2026-05-27-mn-combined-manual-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/a2/a24ccdcfa49952661f02a86f9d5753fcaa311c17c0989c0099cff1bbc6af92a5",
+      "rows": 1354,
+      "sha256": "a24ccdcfa49952661f02a86f9d5753fcaa311c17c0989c0099cff1bbc6af92a5"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 6928506,
+      "path": "data/corpus/provisions/us-mn/manual/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/3d/3d10ac0bc34d600bc75975b7c91fdbb23967ebcc11761f6a4ba9f06e9f3e3d0a",
+      "rows": 2708,
+      "sha256": "3d10ac0bc34d600bc75975b7c91fdbb23967ebcc11761f6a4ba9f06e9f3e3d0a"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 197100,
+      "path": "data/corpus/provisions/us-mn/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/85/85030972cd1ab0b3b910e928c178a65b9653ffe6c234cc9c625a480d5246e86e",
+      "rows": 125,
+      "sha256": "85030972cd1ab0b3b910e928c178a65b9653ffe6c234cc9c625a480d5246e86e"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 3033518,
+      "path": "data/corpus/provisions/us-mo/manual/2026-05-27-mo-snap-manual-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/80/802e015a0d2d9175d9e3fe0eb3e8f01aa633f5bbf90353f8063fcc6c1e3791cc",
+      "rows": 1054,
+      "sha256": "802e015a0d2d9175d9e3fe0eb3e8f01aa633f5bbf90353f8063fcc6c1e3791cc"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 4453,
+      "path": "data/corpus/provisions/us-mo/manual/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/ae/ae2f3a6667c27bc7f07342df931ff9ddd6f75b74926949ae46d0af324a1ba4d2",
+      "rows": 2,
+      "sha256": "ae2f3a6667c27bc7f07342df931ff9ddd6f75b74926949ae46d0af324a1ba4d2"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 707972,
+      "path": "data/corpus/provisions/us-mo/statute/2026-07-16-pit-central-us-mo-143.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/00/0063724a49551e64a2e224de645aa02559cfaf06f4392b3b4b738b811031fe84",
+      "rows": 170,
+      "sha256": "0063724a49551e64a2e224de645aa02559cfaf06f4392b3b4b738b811031fe84"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1017612,
+      "path": "data/corpus/provisions/us-ms/manual/2026-07-17-ms-snap-policy-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/e6/e6d4fca111c2eb6663e2b3194c17e6511f55af499189efb861c99eb4f6531572",
+      "rows": 385,
+      "sha256": "e6d4fca111c2eb6663e2b3194c17e6511f55af499189efb861c99eb4f6531572"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 14584,
+      "path": "data/corpus/provisions/us-ms/statute/2026-07-16-pit-central-us-ms-section-27-7-5.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/35/35a66295b98139d674b7e64fd5528204cea27d9c92da629f5dcd4f17b5bb5098",
+      "rows": 3,
+      "sha256": "35a66295b98139d674b7e64fd5528204cea27d9c92da629f5dcd4f17b5bb5098"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1493347,
+      "path": "data/corpus/provisions/us-mt/manual/2026-07-17-mt-snap-policy-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/fd/fd5294d31a900e1095b14acf3967dac7d8350e927cf34fd8b8a166d96f2400bf",
+      "rows": 435,
+      "sha256": "fd5294d31a900e1095b14acf3967dac7d8350e927cf34fd8b8a166d96f2400bf"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 4016,
+      "path": "data/corpus/provisions/us-mt/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/14/14b9fd5af12aa73bd4277829b185a05e075e0666ef5751153f7e35f9ab544002",
+      "rows": 2,
+      "sha256": "14b9fd5af12aa73bd4277829b185a05e075e0666ef5751153f7e35f9ab544002"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 4924130,
+      "path": "data/corpus/provisions/us-mt/statute/2026-07-16-pit-central-us-mt-title-15.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/c4/c464e5931eb7d9eb0ea0e703996c9f0a260c6cb661b6d3dca80629ac496a87f4",
+      "rows": 2392,
+      "sha256": "c464e5931eb7d9eb0ea0e703996c9f0a260c6cb661b6d3dca80629ac496a87f4"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 2567587,
+      "path": "data/corpus/provisions/us-nc/manual/2026-05-27-nc-fns-manuals-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/4d/4d654db161545388e2f355ec19950d528812bc75c8b143b6d245280d3c316fc1",
+      "rows": 723,
+      "sha256": "4d654db161545388e2f355ec19950d528812bc75c8b143b6d245280d3c316fc1"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 7388,
+      "path": "data/corpus/provisions/us-nc/manual/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/d1/d16ae1b8fb05cd8e7edec7a644c24a0e7799cba3d2644aa6c421ffe5cc77c855",
+      "rows": 3,
+      "sha256": "d16ae1b8fb05cd8e7edec7a644c24a0e7799cba3d2644aa6c421ffe5cc77c855"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1058602,
+      "path": "data/corpus/provisions/us-nd/manual/2026-07-21-nd-snap-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/fa/faeb5569e773a5fe963461a14510fd7ca0c5b607973252fae5cb929d6f05b703",
+      "rows": 167,
+      "sha256": "faeb5569e773a5fe963461a14510fd7ca0c5b607973252fae5cb929d6f05b703"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 330009,
+      "path": "data/corpus/provisions/us-nd/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/fc/fc938c5f2e2a5ce038033af349be1cee7e928faeda34e1f1343e4141bcb9428e",
+      "rows": 70,
+      "sha256": "fc938c5f2e2a5ce038033af349be1cee7e928faeda34e1f1343e4141bcb9428e"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 429257,
+      "path": "data/corpus/provisions/us-nd/statute/2026-07-16-pit-central-us-nd-title-57-38.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/84/843de7fa6d2341125b8ae6b9d4075ea7196ac411d537b2d55435d3795c5dde3a",
+      "rows": 154,
+      "sha256": "843de7fa6d2341125b8ae6b9d4075ea7196ac411d537b2d55435d3795c5dde3a"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 42862,
+      "path": "data/corpus/provisions/us-ne/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/a5/a5c0d9a727191b1a0712f15140ad6fccc6778079fbfcc1529fa75d381ee54d2b",
+      "rows": 13,
+      "sha256": "a5c0d9a727191b1a0712f15140ad6fccc6778079fbfcc1529fa75d381ee54d2b"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 4326,
+      "path": "data/corpus/provisions/us-nh/statute/2026-07-16-pit-central-us-nh-title-v-chapter-77.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/2c/2ca43f1a62a69eceeeb5cab0fce3a959f8b87e1cc49e2941fb5996e173b59990",
+      "rows": 2,
+      "sha256": "2ca43f1a62a69eceeeb5cab0fce3a959f8b87e1cc49e2941fb5996e173b59990"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 5860,
+      "path": "data/corpus/provisions/us-nj/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/cf/cf45274b5ddb9510cbc7734f6f7ab0646921f35fbdb3312c38fe54f3d00376fb",
+      "rows": 1,
+      "sha256": "cf45274b5ddb9510cbc7734f6f7ab0646921f35fbdb3312c38fe54f3d00376fb"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 847374,
+      "path": "data/corpus/provisions/us-nj/statute/2026-07-16-pit-central-us-nj-title-54a.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/93/9380644d3d7e5055241baff7188cfd8ff34d184019b3aac78ee4d9d9cb243570",
+      "rows": 256,
+      "sha256": "9380644d3d7e5055241baff7188cfd8ff34d184019b3aac78ee4d9d9cb243570"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 9961,
+      "path": "data/corpus/provisions/us-nm/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/1f/1f9c5595d97ad7cecb86d028a71c621f98b377c4cb99dde5a45c25728319dbc9",
+      "rows": 2,
+      "sha256": "1f9c5595d97ad7cecb86d028a71c621f98b377c4cb99dde5a45c25728319dbc9"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 4483640,
+      "path": "data/corpus/provisions/us-nm/statute/2026-07-16-pit-central.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/c9/c90ee21859962fabee9f721844dda6fe327dc2fb055fda9fce5a1450094fc8aa",
+      "rows": 1969,
+      "sha256": "c90ee21859962fabee9f721844dda6fe327dc2fb055fda9fce5a1450094fc8aa"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 3011614,
+      "path": "data/corpus/provisions/us-nv/manual/2026-05-27-nv-eligibility-payments-manual-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/ee/ee9b83aac58ac83d0f04f7c9cade97bc44e0b3d9459d044ac872407402a4e0de",
+      "rows": 821,
+      "sha256": "ee9b83aac58ac83d0f04f7c9cade97bc44e0b3d9459d044ac872407402a4e0de"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 103078,
+      "path": "data/corpus/provisions/us-nv/manual/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/ab/abd08a7c01a636277e6eb62fa8d13d1546ea5b048a797960139d8858d30913ee",
+      "rows": 28,
+      "sha256": "abd08a7c01a636277e6eb62fa8d13d1546ea5b048a797960139d8858d30913ee"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 10437,
+      "path": "data/corpus/provisions/us-nv/statute/2026-07-24-nv-individual-income-tax-zero-liability.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/a4/a4fe91aa28164cf3e13523326b05098bb07adf49593a74283dbd102ec107a7d8",
+      "rows": 4,
+      "sha256": "a4fe91aa28164cf3e13523326b05098bb07adf49593a74283dbd102ec107a7d8"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 2651897,
+      "path": "data/corpus/provisions/us-ny/manual/2026-07-17-ny-snap-manuals.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/a7/a7e1d31a0ece8e0e64a883513fbedfad81c1a847b3e627d7a2eb38a46d93af9d",
+      "rows": 340,
+      "sha256": "a7e1d31a0ece8e0e64a883513fbedfad81c1a847b3e627d7a2eb38a46d93af9d"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 61540,
+      "path": "data/corpus/provisions/us-ny/statute/2026-06-05-nyc-admin-code.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/bb/bb0c9f599429a8b8a5de3476a3b690624a80705f9caad94a4d664e9576ec7565",
+      "rows": 3,
+      "sha256": "bb0c9f599429a8b8a5de3476a3b690624a80705f9caad94a4d664e9576ec7565"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 584696,
+      "path": "data/corpus/provisions/us-ny/statute/2026-07-06-ny-tax-article22-core-us-ny-sections-tax-601-tax-606-tax-614-tax-615-tax-616.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/c9/c9513c936e31200b318b40fa5f3f73dfef6e805284668fd42b3848263e916247",
+      "rows": 5,
+      "sha256": "c9513c936e31200b318b40fa5f3f73dfef6e805284668fd42b3848263e916247"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 36310,
+      "path": "data/corpus/provisions/us-ny/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/4b/4b90a11358d29fbc7157d984d515e7b6c5643b11d6166cb1de58163c002151ba",
+      "rows": 11,
+      "sha256": "4b90a11358d29fbc7157d984d515e7b6c5643b11d6166cb1de58163c002151ba"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 147375,
+      "path": "data/corpus/provisions/us-oh/guidance/2026-07-21-oh-hb96-final-analysis.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/31/316e37feeb31b27013ad98fe8f1f4babc7a3cdae64ac342016a4b5f5d75af868",
+      "rows": 2,
+      "sha256": "316e37feeb31b27013ad98fe8f1f4babc7a3cdae64ac342016a4b5f5d75af868"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 32062,
+      "path": "data/corpus/provisions/us-oh/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/dc/dce7fec39e225d1564cb407358e24ade75dc37bd63c8ff4cfde7f09dd0189f42",
+      "rows": 12,
+      "sha256": "dce7fec39e225d1564cb407358e24ade75dc37bd63c8ff4cfde7f09dd0189f42"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 6944409,
+      "path": "data/corpus/provisions/us-ok/statute/2026-07-16-pit-central-us-ok-title-68-r2026-07-24-immutable.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/bd/bdb4ad4c112fcd5f5a48628ec06322e0f9cbd0788c3a4875ebabbe599c3727d7",
+      "rows": 1841,
+      "sha256": "bdb4ad4c112fcd5f5a48628ec06322e0f9cbd0788c3a4875ebabbe599c3727d7"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 5125748,
+      "path": "data/corpus/provisions/us-or/manual/2026-07-16-or-programs-eligibility-notebook.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/f0/f0ce2f26eea4d11e8cc9f9aef0096f5274935d1950c1397663e9a8265e807e7b",
+      "rows": 1323,
+      "sha256": "f0ce2f26eea4d11e8cc9f9aef0096f5274935d1950c1397663e9a8265e807e7b"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1047737,
+      "path": "data/corpus/provisions/us-or/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/90/90509954abf927591585b37eb681346aeab402ba82d0097c5bc38c602836f5fc",
+      "rows": 6,
+      "sha256": "90509954abf927591585b37eb681346aeab402ba82d0097c5bc38c602836f5fc"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 877228,
+      "path": "data/corpus/provisions/us-or/statute/2026-07-16-pit-west-us-or-chapter-316.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/f0/f0ee4bb148738276dcb9bcf4a7c3748fcb8c7184a17bf2d0c25787be7b5be613",
+      "rows": 502,
+      "sha256": "f0ee4bb148738276dcb9bcf4a7c3748fcb8c7184a17bf2d0c25787be7b5be613"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 274879,
+      "path": "data/corpus/provisions/us-or/statute/2026-07-24-or-pit-session-laws.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/c3/c379bf8623c2238e4fd6c8c31d0a9d39291155de51622da763b374ef2fc5548c",
+      "rows": 6,
+      "sha256": "c379bf8623c2238e4fd6c8c31d0a9d39291155de51622da763b374ef2fc5548c"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 3478,
+      "path": "data/corpus/provisions/us-pa/guidance/2026-07-21-pa-personal-income-tax-rates.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/cb/cbdd85b4ed23d8d4f9cdad594777a9662099ba9068ed68c0e541b1548d6142dc",
+      "rows": 2,
+      "sha256": "cbdd85b4ed23d8d4f9cdad594777a9662099ba9068ed68c0e541b1548d6142dc"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 3039141,
+      "path": "data/corpus/provisions/us-pa/manual/2026-07-21-pa-snap-handbook.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/23/23ab0a15f6a9f075b41720b34314a4edcc03c7284f7d430d1c7a58faf8598819",
+      "rows": 1055,
+      "sha256": "23ab0a15f6a9f075b41720b34314a4edcc03c7284f7d430d1c7a58faf8598819"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 397584,
+      "path": "data/corpus/provisions/us-pa/statute/2026-07-16-pit-west-us-pa-act-1971-2-article-3.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/21/21779a88e294a15cd7fb9d9d0915ea492cc665769727ca3eaebf0fe3bd24e93f",
+      "rows": 115,
+      "sha256": "21779a88e294a15cd7fb9d9d0915ea492cc665769727ca3eaebf0fe3bd24e93f"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 20775,
+      "path": "data/corpus/provisions/us-ri/guidance/2026-07-23-ri-pit-adv-2025-22.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/a1/a17f13201e4a0dcc4c174694897720fbf749405ecc2ac67151a70867c4654f59",
+      "rows": 5,
+      "sha256": "a17f13201e4a0dcc4c174694897720fbf749405ecc2ac67151a70867c4654f59"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 3440,
+      "path": "data/corpus/provisions/us-ri/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/99/99823e300e59eae5dc6d518919c8e067b787dfc6fe0030a8cfdeefc5fa342942",
+      "rows": 1,
+      "sha256": "99823e300e59eae5dc6d518919c8e067b787dfc6fe0030a8cfdeefc5fa342942"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 394770,
+      "path": "data/corpus/provisions/us-ri/statute/2026-07-16-pit-west-us-ri-chapter-44-30.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/ae/ae00a67a1f9dab9aeffd79e941a56f83ad420c439be1cca095fc73ae3014748c",
+      "rows": 100,
+      "sha256": "ae00a67a1f9dab9aeffd79e941a56f83ad420c439be1cca095fc73ae3014748c"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1765816,
+      "path": "data/corpus/provisions/us-sc/manual/2026-05-27-sc-snap-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/c2/c21539d472ea105695da5e007b24839b5f4e8cea9f4e6066a933e6d3817a8e13",
+      "rows": 460,
+      "sha256": "c21539d472ea105695da5e007b24839b5f4e8cea9f4e6066a933e6d3817a8e13"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 8786,
+      "path": "data/corpus/provisions/us-sc/manual/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/54/54b8c4494ee7292c830ceee33804312b081117493589ece3aec9321166ac3074",
+      "rows": 5,
+      "sha256": "54b8c4494ee7292c830ceee33804312b081117493589ece3aec9321166ac3074"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 5549,
+      "path": "data/corpus/provisions/us-sc/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/df/df2e40fcfb2cbc2fdef763349f367bcfb18cd41281e5bd7bc2c45fc9f65592c4",
+      "rows": 3,
+      "sha256": "df2e40fcfb2cbc2fdef763349f367bcfb18cd41281e5bd7bc2c45fc9f65592c4"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 712063,
+      "path": "data/corpus/provisions/us-sc/statute/2026-07-24-sc-act110-us-sc-title-12-chapter-6.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/14/142cc6e6a0638828bde1906c03e9255786c17cb84658c4a35bcd12920a791c4d",
+      "rows": 158,
+      "sha256": "142cc6e6a0638828bde1906c03e9255786c17cb84658c4a35bcd12920a791c4d"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 53323,
+      "path": "data/corpus/provisions/us-sd/guidance/2026-07-24-sd-personal-income-tax-zero-liability.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/a7/a7013957ce93f011230192149364a881d34eab2abc75fdfb80a7e01db4d02edc",
+      "rows": 2,
+      "sha256": "a7013957ce93f011230192149364a881d34eab2abc75fdfb80a7e01db4d02edc"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1449919,
+      "path": "data/corpus/provisions/us-sd/manual/2026-07-21-sd-snap-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/6e/6e655a296b8333c7d80b3deb7d536e5eea9fde65cbe615db373905656c9dc9ed",
+      "rows": 340,
+      "sha256": "6e655a296b8333c7d80b3deb7d536e5eea9fde65cbe615db373905656c9dc9ed"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 13455,
+      "path": "data/corpus/provisions/us-sd/statute/2026-07-24-sd-bank-income-tax-boundary.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/00/00c0ae2191170abe8a024f2b862741cdfbe0af0536b0c7c15cc871258bb170aa",
+      "rows": 4,
+      "sha256": "00c0ae2191170abe8a024f2b862741cdfbe0af0536b0c7c15cc871258bb170aa"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 8625,
+      "path": "data/corpus/provisions/us-tn/guidance/2026-07-24-tn-individual-income-tax-zero-liability-guidance.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/45/452796b29729cd556bde2092c79e9c9063c08c71b0f8255d351ca10c20d2e1ab",
+      "rows": 4,
+      "sha256": "452796b29729cd556bde2092c79e9c9063c08c71b0f8255d351ca10c20d2e1ab"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 868150,
+      "path": "data/corpus/provisions/us-tn/manual/2026-05-27-tn-snap-policies-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/3b/3bd08c8f293e4ee743b07e43bdb3e3ace40485f28add397d5851d77eaab38b3c",
+      "rows": 233,
+      "sha256": "3bd08c8f293e4ee743b07e43bdb3e3ace40485f28add397d5851d77eaab38b3c"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 32960,
+      "path": "data/corpus/provisions/us-tn/manual/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/06/064377b8ee2b0bb279c22078b0feb6f8fff78ab44df809f1866245711fdc0827",
+      "rows": 10,
+      "sha256": "064377b8ee2b0bb279c22078b0feb6f8fff78ab44df809f1866245711fdc0827"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 7261,
+      "path": "data/corpus/provisions/us-tn/statute/2026-07-24-tn-hall-income-tax-zero-rate-statute.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/12/12a2b4ca882efa72efa607d6c5520404f09637a59bebd80e2f73a3fa886db0f9",
+      "rows": 2,
+      "sha256": "12a2b4ca882efa72efa607d6c5520404f09637a59bebd80e2f73a3fa886db0f9"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1079473,
+      "path": "data/corpus/provisions/us-tx/manual/2026-05-27-tx-manuals-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/21/215d6ae9b3edf164b6436ce3bec2c6796b4f251a826aac474a9ae38585ddb8a9",
+      "rows": 550,
+      "sha256": "215d6ae9b3edf164b6436ce3bec2c6796b4f251a826aac474a9ae38585ddb8a9"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 38304,
+      "path": "data/corpus/provisions/us-tx/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/08/08379645df34931cbd55f6dc66a5d18c20e0e489805bfd68eb61ace31a8f39f1",
+      "rows": 22,
+      "sha256": "08379645df34931cbd55f6dc66a5d18c20e0e489805bfd68eb61ace31a8f39f1"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 6093290,
+      "path": "data/corpus/provisions/us-ut/manual/2026-05-27-ut-manuals-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/99/9930f612a350dbd0ce6bfa636a32e2d7c6af2c498522927864e4f2cba74f1fce",
+      "rows": 2398,
+      "sha256": "9930f612a350dbd0ce6bfa636a32e2d7c6af2c498522927864e4f2cba74f1fce"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 14605,
+      "path": "data/corpus/provisions/us-ut/manual/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/ed/edaf362364218f45666c63c75c930ee1e7ebb5c2621a73f97b27b9f47b08a8bb",
+      "rows": 7,
+      "sha256": "edaf362364218f45666c63c75c930ee1e7ebb5c2621a73f97b27b9f47b08a8bb"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 12212,
+      "path": "data/corpus/provisions/us-ut/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/32/3252bc2ef5530efc0930695068e0b22de1bc4586ad1cb5e7d838333837bbeb86",
+      "rows": 3,
+      "sha256": "3252bc2ef5530efc0930695068e0b22de1bc4586ad1cb5e7d838333837bbeb86"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 2663973,
+      "path": "data/corpus/provisions/us-va/manual/2026-07-21-va-snap-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/8d/8d451aa6ed4bad4e531443b999d66eef225c7b85280f460930ec055fd279db3c",
+      "rows": 678,
+      "sha256": "8d451aa6ed4bad4e531443b999d66eef225c7b85280f460930ec055fd279db3c"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 34113,
+      "path": "data/corpus/provisions/us-va/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/fd/fd8e4174e4eef71d1ab7e8e348640088f29919dfc80734a1c1d2a203df0ef047",
+      "rows": 8,
+      "sha256": "fd8e4174e4eef71d1ab7e8e348640088f29919dfc80734a1c1d2a203df0ef047"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 2003872,
+      "path": "data/corpus/provisions/us-vt/manual/2026-07-21-vt-3squaresvt-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/03/03befc8c1fa53c732c7c0d692f0e82b5553160982077825f0df1761c8bdfdafb",
+      "rows": 911,
+      "sha256": "03befc8c1fa53c732c7c0d692f0e82b5553160982077825f0df1761c8bdfdafb"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1021720,
+      "path": "data/corpus/provisions/us-vt/statute/2026-07-16-pit-central-us-vt-title-32-chapter-151.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/aa/aae919cdf9dda9e5791155453c8fc7d7491bfc88d4c39e695f9a3e0f0ec88877",
+      "rows": 179,
+      "sha256": "aae919cdf9dda9e5791155453c8fc7d7491bfc88d4c39e695f9a3e0f0ec88877"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 3454062,
+      "path": "data/corpus/provisions/us-wa/manual/2026-07-21-wa-eaz-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/7d/7dfd6337e8e9c5ca8c3ca129b34b6d378e06045ed95334126e0378fc7aa5a51b",
+      "rows": 1265,
+      "sha256": "7dfd6337e8e9c5ca8c3ca129b34b6d378e06045ed95334126e0378fc7aa5a51b"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 15604,
+      "path": "data/corpus/provisions/us-wa/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/7f/7f3e5add2d996a5e0186b954eface43ecbda3292f7c553ae964c36032ee73c86",
+      "rows": 6,
+      "sha256": "7f3e5add2d996a5e0186b954eface43ecbda3292f7c553ae964c36032ee73c86"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 61105,
+      "path": "data/corpus/provisions/us-wa/statute/2026-07-16-pit-central-us-wa-title-82.87.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/9a/9ac06dcecf683b8a5fc39abb150307e158f554d56b9b3edda93c4b336d16c1d5",
+      "rows": 16,
+      "sha256": "9ac06dcecf683b8a5fc39abb150307e158f554d56b9b3edda93c4b336d16c1d5"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1445373,
+      "path": "data/corpus/provisions/us-wi/manual/2026-07-21-wi-foodshare-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/1c/1cf8c375721412519e44814b52657ad90f3376786175cef3a302fda5241f13d5",
+      "rows": 373,
+      "sha256": "1cf8c375721412519e44814b52657ad90f3376786175cef3a302fda5241f13d5"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1568105,
+      "path": "data/corpus/provisions/us-wi/statute/2026-07-16-pit-west-chapter-71.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/af/af1b3afb17c7a3979e4a8ade6d0a56162c7490dfea1f2baeb28d149d52a55147",
+      "rows": 116,
+      "sha256": "af1b3afb17c7a3979e4a8ade6d0a56162c7490dfea1f2baeb28d149d52a55147"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 8097805,
+      "path": "data/corpus/provisions/us-wv/manual/2026-07-21-wv-income-maintenance-manual.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/6d/6deddfc0b8b6f3b48de93be6982fb1707481c9653369a779d8f3d35e57747bee",
+      "rows": 2276,
+      "sha256": "6deddfc0b8b6f3b48de93be6982fb1707481c9653369a779d8f3d35e57747bee"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 5929,
+      "path": "data/corpus/provisions/us-wv/manual/2026-07-21-wv-snap-healthy-choices-overlay.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/f8/f85a78468afbd4cd5ba3193c763d53296665f3b137928c74b01c369b529e8823",
+      "rows": 2,
+      "sha256": "f85a78468afbd4cd5ba3193c763d53296665f3b137928c74b01c369b529e8823"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 24859,
+      "path": "data/corpus/provisions/us-wv/statute/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/62/6285a27012d5f78d42ab5bab53831caa818c3ab640c348a559648321cd72934a",
+      "rows": 10,
+      "sha256": "6285a27012d5f78d42ab5bab53831caa818c3ab640c348a559648321cd72934a"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 498399,
+      "path": "data/corpus/provisions/us-wv/statute/2026-07-16-pit-west-us-wv-chapter-11-article-21.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/90/907577781a3ff4501bd72516cc0eab050672e2d80f452f2c800f81acd986b19c",
+      "rows": 142,
+      "sha256": "907577781a3ff4501bd72516cc0eab050672e2d80f452f2c800f81acd986b19c"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 193152,
+      "path": "data/corpus/provisions/us-wy/manual/2026-05-27-wy-manuals-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/ec/ec5a969633326f080a5f51388f3cd42e0e43f3d303a82e73d776e9b32faef228",
+      "rows": 9,
+      "sha256": "ec5a969633326f080a5f51388f3cd42e0e43f3d303a82e73d776e9b32faef228"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 506578,
+      "path": "data/corpus/provisions/us-wy/manual/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/e3/e3da9e1632cb78df23630a325e4d5b3d78483a879cfb16841a089ae5f4ff60e3",
+      "rows": 2,
+      "sha256": "e3da9e1632cb78df23630a325e4d5b3d78483a879cfb16841a089ae5f4ff60e3"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 65782,
+      "path": "data/corpus/provisions/us/guidance/2026-03-10-cms-original-medicare-part-a-b.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/2c/2c3795a63b60c7d7275a9bd791e19c3b0d3a38f8126c2e0d9e64e87450d2af4c",
+      "rows": 31,
+      "sha256": "2c3795a63b60c7d7275a9bd791e19c3b0d3a38f8126c2e0d9e64e87450d2af4c"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 5832,
+      "path": "data/corpus/provisions/us/guidance/2026-05-01-snap-fy2026-cola-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/83/83eb59832a53d979e0927327f49f99ccd95551335818af505077047033e1ebf3",
+      "rows": 3,
+      "sha256": "83eb59832a53d979e0927327f49f99ccd95551335818af505077047033e1ebf3"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 102166,
+      "path": "data/corpus/provisions/us/guidance/2026-05-02-irs-rev-proc-2025-32-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/5c/5c8d241ad0bf3e64787958b17c5a2124f9aa5d4fe8cd73c09fd202a84a70d184",
+      "rows": 37,
+      "sha256": "5c8d241ad0bf3e64787958b17c5a2124f9aa5d4fe8cd73c09fd202a84a70d184"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 6099,
+      "path": "data/corpus/provisions/us/guidance/2026-05-02-snap-fy2026-income-eligibility-standards-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/9b/9b69ba7e32160b0c85db6ac7d36b57ded16ae4f944a6fb81de4798a5b59a77c6",
+      "rows": 3,
+      "sha256": "9b69ba7e32160b0c85db6ac7d36b57ded16ae4f944a6fb81de4798a5b59a77c6"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 20061,
+      "path": "data/corpus/provisions/us/guidance/2026-05-17-ssa-automatic-determinations-2026.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/76/7664e9d4dfc53681f4cc9e8f04d908805f69472e1bd2fb5e854331beca93a142",
+      "rows": 10,
+      "sha256": "7664e9d4dfc53681f4cc9e8f04d908805f69472e1bd2fb5e854331beca93a142"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 2852,
+      "path": "data/corpus/provisions/us/guidance/2026-05-26-ssa-contribution-and-benefit-base-2024.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/6f/6f6eeac0d0c8090f32732588760bb78eee2018837e7672038a4fbcd84146f933",
+      "rows": 2,
+      "sha256": "6f6eeac0d0c8090f32732588760bb78eee2018837e7672038a4fbcd84146f933"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 215732,
+      "path": "data/corpus/provisions/us/guidance/2026-07-03-dc-ossp-ssa-poms.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/08/088a9073062b82374fb17be9023b723aa55ad1bf07d0b8ef29393636975d6947",
+      "rows": 72,
+      "sha256": "088a9073062b82374fb17be9023b723aa55ad1bf07d0b8ef29393636975d6947"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 49646,
+      "path": "data/corpus/provisions/us/guidance/2026-07-05-ssa-cola-2026.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/7e/7e66da7602050ec650a27877fb9dcf6229a29122498ea2274ae24229a062ada3",
+      "rows": 4,
+      "sha256": "7e66da7602050ec650a27877fb9dcf6229a29122498ea2274ae24229a062ada3"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 14224,
+      "path": "data/corpus/provisions/us/guidance/2026-07-08-snap-fy2024-cola.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/cf/cf95bd487adf1e2da2db4f94937031903ec0fa5f56afe5bc9c457d84c2639d47",
+      "rows": 6,
+      "sha256": "cf95bd487adf1e2da2db4f94937031903ec0fa5f56afe5bc9c457d84c2639d47"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 270889,
+      "path": "data/corpus/provisions/us/guidance/2026-07-13-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/bb/bbb5283dbefc08dfee6c705375ccb52987c368083978a6a11f8d3323a8f127e1",
+      "rows": 102,
+      "sha256": "bbb5283dbefc08dfee6c705375ccb52987c368083978a6a11f8d3323a8f127e1"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 22313,
+      "path": "data/corpus/provisions/us/guidance/2026-07-23-irs-notice-2025-67.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/48/4838e2001b16f4afcb0b97b7a194743adbaa14da59cb30f5b06626551baa018f",
+      "rows": 7,
+      "sha256": "4838e2001b16f4afcb0b97b7a194743adbaa14da59cb30f5b06626551baa018f"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 765974,
+      "path": "data/corpus/provisions/us/statute/2026-06-20-ssi-title-xvi-title-42-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/d9/d9c6e009b3336c17a3c309fa3e2809fc42ee3d7cef3b99fc1b94d470158b03e4",
+      "rows": 226,
+      "sha256": "d9c6e009b3336c17a3c309fa3e2809fc42ee3d7cef3b99fc1b94d470158b03e4"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 77351,
+      "path": "data/corpus/provisions/us/statute/2026-06-23-medicare-426-title-42-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/a3/a3999e4db5be509e1c7a0cb9cf9e01beb695c9b13019020ce0aa85911afbc5a5",
+      "rows": 25,
+      "sha256": "a3999e4db5be509e1c7a0cb9cf9e01beb695c9b13019020ce0aa85911afbc5a5"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 144422,
+      "path": "data/corpus/provisions/us/statute/2026-06-24-doe-rebates-title-42-title-42-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/8a/8ac084b723b6fd7a48a9ad769ace8df9201d627b15283201cefbf6d9542b1d26",
+      "rows": 51,
+      "sha256": "8ac084b723b6fd7a48a9ad769ace8df9201d627b15283201cefbf6d9542b1d26"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 420134,
+      "path": "data/corpus/provisions/us/statute/2026-06-26-medicaid-title-42-r2026-07-15-self-contained-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/0b/0b1a3bac05a189ef208f0a0d6cce7fee0a5ab635b25c57c48bcc876984bdbf07",
+      "rows": 112,
+      "sha256": "0b1a3bac05a189ef208f0a0d6cce7fee0a5ab635b25c57c48bcc876984bdbf07"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 63048,
+      "path": "data/corpus/provisions/us/statute/2026-06-29-pl-119-21-medicaid-community-engagement-r2026-07-15-self-contained.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/f3/f345c96d47b104f880e186f3b526291c65ade797cef34b90848aeb500ae1c7b7",
+      "rows": 12,
+      "sha256": "f345c96d47b104f880e186f3b526291c65ade797cef34b90848aeb500ae1c7b7"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 3096,
+      "path": "data/corpus/provisions/us/statute/2026-07-03-us-usc-26-85-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/6d/6d26a1ac0f5bd3f8c40cac2724cca8ddb0177ad25a134caa23e441542307513f",
+      "rows": 1,
+      "sha256": "6d26a1ac0f5bd3f8c40cac2724cca8ddb0177ad25a134caa23e441542307513f"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1284891,
+      "path": "data/corpus/provisions/us/statute/2026-07-05-oasdi-title-ii-title-42-r2026-07-17-dedup.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/0c/0cf626cb1e45e8f187450ec657071f7e97dae35fc213d8135d02fde2f369b14d",
+      "rows": 276,
+      "sha256": "0cf626cb1e45e8f187450ec657071f7e97dae35fc213d8135d02fde2f369b14d"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 7343017,
+      "path": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/03/03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+      "rows": 2453,
+      "sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 370325,
+      "path": "data/corpus/provisions/us/statute/2026-07-15-hr6644-current-law-r2026-07-19-expression-date.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/1f/1fa1ea881a1f13a5ce21f7eb0a7b894ed3dbd503cd468250237c80b553216ba0",
+      "rows": 39,
+      "sha256": "1fa1ea881a1f13a5ce21f7eb0a7b894ed3dbd503cd468250237c80b553216ba0"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1266039,
+      "path": "data/corpus/provisions/us/statute/2026-07-16-hr6644-dependencies-current-law-title-12.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/9b/9b289d666020569e9929410018d08412b119d87a202fc084c2117f97e7550492",
+      "rows": 295,
+      "sha256": "9b289d666020569e9929410018d08412b119d87a202fc084c2117f97e7550492"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 1662494,
+      "path": "data/corpus/provisions/us/statute/2026-07-17-hr6644-dependency-closure-title-12-title-12-r2026-07-18-dedup.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/17/17a04cf75357c52e9f54cbbf6273d89384e2fd07a0a62d6e609f1490c62c6032",
+      "rows": 463,
+      "sha256": "17a04cf75357c52e9f54cbbf6273d89384e2fd07a0a62d6e609f1490c62c6032"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 28306,
+      "path": "data/corpus/provisions/us/statute/2026-07-17-hr6644-dependency-closure-title-15-title-15.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/d7/d751aaa2cdebb08c717f6ba316e4b615d6fad222334a6a06d7231facf68e00f4",
+      "rows": 13,
+      "sha256": "d751aaa2cdebb08c717f6ba316e4b615d6fad222334a6a06d7231facf68e00f4"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 451581,
+      "path": "data/corpus/provisions/us/statute/2026-07-17-hr6644-dependency-closure-title-26-title-26-r2026-07-18-dedup.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/d1/d1f44cdf0bd017b646c4f692fc2fe9f0451986de8a0aca0d50063fd69e36950e",
+      "rows": 115,
+      "sha256": "d1f44cdf0bd017b646c4f692fc2fe9f0451986de8a0aca0d50063fd69e36950e"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 54732,
+      "path": "data/corpus/provisions/us/statute/2026-07-17-hr6644-dependency-closure-title-38-title-38.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/93/934fc48b01505e5ae17bd5c1bd80bc961295478204e942b9478d50b7aaf061dd",
+      "rows": 25,
+      "sha256": "934fc48b01505e5ae17bd5c1bd80bc961295478204e942b9478d50b7aaf061dd"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 962512,
+      "path": "data/corpus/provisions/us/statute/2026-07-17-hr6644-dependency-closure-title-42-title-42-r2026-07-18-dedup.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/79/79e1ca5dcdadacd577c0729b8ceddd3e40f76832aec7843a334bf3a20c39086e",
+      "rows": 305,
+      "sha256": "79e1ca5dcdadacd577c0729b8ceddd3e40f76832aec7843a334bf3a20c39086e"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 3843044,
+      "path": "data/corpus/provisions/us/statute/2026-07-19-rulespec-title-42-consolidated.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/16/16c62848bb00af6aa66812ee7300a3cd447a996ee0b1845c07a9f36d24f434d1",
+      "rows": 1081,
+      "sha256": "16c62848bb00af6aa66812ee7300a3cd447a996ee0b1845c07a9f36d24f434d1"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 2803487,
+      "path": "data/corpus/provisions/us/statute/2026-07-22-rulespec-title-7-consolidated.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/88/88a56c9032cca614208f3d1f324b15417e3bbee3c26ff3ff3c1ad67d64b38213",
+      "rows": 862,
+      "sha256": "88a56c9032cca614208f3d1f324b15417e3bbee3c26ff3ff3c1ad67d64b38213"
+    }
+  ],
+  "inaccessible": [
+    {
+      "artifact_class": "provisions",
+      "bytes": 166518,
+      "path": "data/corpus/provisions/us-ca/guidance/2026-07-28-ca-cdss-calfresh-bbce-authority.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/41/41f7997a9704cfa05b22a4e6873e2a6721e2e1d3f6822ac7d41ef72f4769675d",
+      "rows": 47,
+      "sha256": "41f7997a9704cfa05b22a4e6873e2a6721e2e1d3f6822ac7d41ef72f4769675d",
+      "reason": "absent"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 6372,
+      "path": "data/corpus/provisions/us-ca/statute/2026-07-28-ca-cdss-calfresh-bbce-authority-us-ca-sections-wic-18901.3-wic-18901.5.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/b4/b4ab85f9d45b56003fb6433d2799c5b4c33b473886b58519c54bd52380d28060",
+      "rows": 2,
+      "sha256": "b4ab85f9d45b56003fb6433d2799c5b4c33b473886b58519c54bd52380d28060",
+      "reason": "absent"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 21701,
+      "path": "data/corpus/provisions/us-id/statute/2026-07-31-id-title-63-chapter-30-successor.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/1a/1a8ff1e147a47a80dbf4c4b96fead6776206d46f2fd3a51d16631bd066f752d1",
+      "rows": 7,
+      "sha256": "1a8ff1e147a47a80dbf4c4b96fead6776206d46f2fd3a51d16631bd066f752d1",
+      "reason": "absent"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 38612,
+      "path": "data/corpus/provisions/us-ma/guidance/2026-08-03-ma-dta-snap-cola-official-source-recovery.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/c5/c5431fa0a069da8eb355b68810a567b9e35cddcbd3debb4111d0693b61cd3cf6",
+      "rows": 20,
+      "sha256": "c5431fa0a069da8eb355b68810a567b9e35cddcbd3debb4111d0693b61cd3cf6",
+      "reason": "absent"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 2335195,
+      "path": "data/corpus/provisions/us-nc/statute/2026-08-03-nc-income-tax-current-union.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/e0/e05d2aee0dd392ba8031d6ad727f145fc93ac92d7caec15d8f290b67433e0243",
+      "rows": 58,
+      "sha256": "e05d2aee0dd392ba8031d6ad727f145fc93ac92d7caec15d8f290b67433e0243",
+      "reason": "absent"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 41415,
+      "path": "data/corpus/provisions/us/guidance/2026-08-07-snap-obbb-alien-eligibility-implementation-memo.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/64/6475df5a213466d7998301a4541fb93aa5107c084dc6fc25ab695eac887c1a42",
+      "rows": 12,
+      "sha256": "6475df5a213466d7998301a4541fb93aa5107c084dc6fc25ab695eac887c1a42",
+      "reason": "absent"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 4050672,
+      "path": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/81/818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+      "rows": 768,
+      "sha256": "818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+      "reason": "absent"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 4463529,
+      "path": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/74/7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+      "rows": 1709,
+      "sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+      "reason": "absent"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 2094183,
+      "path": "data/corpus/provisions/us/statute/2026-08-03-rulespec-title-26-current-union.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/37/37bc1708f5e7f08c8eddcec7bd9db43e83c705c977a05b2f7d9fcbf433987fc2",
+      "rows": 804,
+      "sha256": "37bc1708f5e7f08c8eddcec7bd9db43e83c705c977a05b2f7d9fcbf433987fc2",
+      "reason": "absent"
+    },
+    {
+      "artifact_class": "provisions",
+      "bytes": 741723,
+      "path": "data/corpus/provisions/us/statute/2026-08-03-tariff-title-19-spine-with-root-title-19.jsonl",
+      "r2_bucket": "axiom-corpus",
+      "r2_key": "objects/sha256/bf/bfb77b3425957a1d68a6815c794e87ee53450154b8a5c0ffa7262076e314926e",
+      "rows": 326,
+      "sha256": "bfb77b3425957a1d68a6815c794e87ee53450154b8a5c0ffa7262076e314926e",
+      "reason": "absent"
+    }
+  ]
+}
