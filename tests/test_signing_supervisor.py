@@ -2008,6 +2008,11 @@ def test_targeted_signed_reencode_binds_protected_composer_to_rulespec_pin() -> 
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
     )
     steps = workflow["jobs"]["encode"]["steps"]
+    parse = next(
+        step
+        for step in steps
+        if step.get("name") == "Parse RuleSpec-pinned axiom-compose reference"
+    )
     checkout = next(
         step
         for step in steps
@@ -2024,7 +2029,9 @@ def test_targeted_signed_reencode_binds_protected_composer_to_rulespec_pin() -> 
         if step.get("name") == "Encode, review, validate, and apply"
     )["run"]
 
-    assert 'workflow_toolchain.get("axiom_compose_ref")' in checkout
+    assert 'workflow_toolchain.get("axiom_compose_ref")' in parse["run"]
+    assert "GH_TOKEN" not in parse["env"]
+    assert "python" not in checkout
     assert 'git -C axiom-compose checkout --detach "$compose_ref"' in checkout
     assert 'test "$(git -C axiom-compose rev-parse HEAD)" = "$compose_ref"' in checkout
     assert "git -C axiom-compose merge-base --is-ancestor" in checkout
@@ -2070,7 +2077,7 @@ def test_targeted_signed_reencode_reconciles_retired_inventory_before_commits() 
         if item.get("name") == "Encode, review, validate, and apply"
     )
     command = step["run"]
-    invocation = "reconcile-retired-manifest-inventory"
+    invocation = "queue_operation reconcile"
 
     assert command.count(invocation) == 3
     assert '[ "$source_bundle_enabled" = "false" ]' in command
@@ -2560,20 +2567,23 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         for step in steps
         if step.get("name") == "Encode, review, validate, and apply"
     )
-    assert apply_step["id"] == "encode_apply"
-    assert apply_step["env"]["AXIOM_ENCODE_APPLY_SIGNING_KEY"] == (
+    assert apply_step["id"] == "prepare_encode_apply"
+    assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in apply_step["env"]
+    signer_step = next(step for step in steps if step.get("id") == "apply_signing_01")
+    assert signer_step["env"]["AXIOM_ENCODE_APPLY_SIGNING_KEY"] == (
         "${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}"
     )
     assert "AXIOM_ENCODE_APPLY_CHECKOUT" not in apply_step["env"]
     command = apply_step["run"]
     assert "run_signed_encode()" in command
-    assert "/opt/axiom-verification/axiom-encode-apply-signer run" in command
-    assert "--key-env AXIOM_ENCODE_APPLY_SIGNING_KEY" in command
+    signer_command = signer_step["run"]
+    assert "/opt/axiom-verification/axiom-encode-apply-signer run" in signer_command
+    assert "--key-env AXIOM_ENCODE_APPLY_SIGNING_KEY" in signer_command
     assert (
         "TheAxiomFoundation/axiom-encode/.github/workflows/"
-        "targeted-signed-reencode.yml@refs/heads/main" in command
+        "targeted-signed-reencode.yml@refs/heads/main" in signer_command
     )
-    assert "--allowed-event-name workflow_dispatch" in command
+    assert "--allowed-event-name workflow_dispatch" in signer_command
     assert "--apply" in command
     assert "--require-complete-source-unit" in command
     assert 'local require_complete_source_unit="${10:-true}"' in command
@@ -3021,7 +3031,10 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     metadata_migration_step = next(
         step for step in steps if step.get("name") == "Migrate retired source metadata"
     )
-    assert secret_steps == [metadata_migration_step, apply_step]
+    assert secret_steps == [metadata_migration_step] + [
+        step for step in steps if step.get("id", "").startswith("apply_signing_")
+    ]
+    assert len(secret_steps) == 20
 
     publish_step = next(
         step
@@ -3030,20 +3043,36 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert publish_step["id"] == "publish_lane_pull_request"
     assert publish_step["if"] == (
-        "${{ inputs.open_pr && "
+        "${{ !cancelled() && "
+        "steps.verify_reviewed_lane_pull_request_base.outcome != 'skipped' && "
+        "inputs.open_pr && "
         "steps.retired_source_metadata_request.outputs.enabled != 'true' }}"
     )
     assert publish_step["env"]["GH_TOKEN"] == "${{ secrets.AXIOM_REPO_TOKEN }}"
     assert publish_step["env"]["PR_BASE_BRANCH"] == ("${{ inputs.pr_base_branch }}")
     assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in publish_step["env"]
     publish_command = publish_step["run"]
-    assert f"workflow_python=({trusted_python} -I)" in publish_command
+    prepare_branch = next(
+        step
+        for step in steps
+        if step.get("name") == "Prepare reviewed lane pull request branch"
+    )
+    verify_base = next(
+        step
+        for step in steps
+        if step.get("name") == "Verify reviewed lane pull request base"
+    )
+    assert f"workflow_python=({trusted_python} -I)" in prepare_branch["run"]
+    assert "GH_TOKEN" not in prepare_branch["env"]
+    assert "python" not in publish_command
     assert 'repo="TheAxiomFoundation/rulespec-${COUNTRY}"' in publish_command
-    assert '"$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"' in publish_command
+    assert '"$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"' in prepare_branch["run"]
     assert "core.hooksPath=/dev/null" in publish_command
-    assert "fetch --no-tags origin \\\n" in publish_command
-    assert "refs/remotes/origin/${PR_BASE_BRANCH}" in publish_command
-    assert '" = "$RULESPEC_REF"' in publish_command
+    assert "fetch --no-tags origin \\\n" in verify_base["run"]
+    assert "refs/remotes/origin/${PR_BASE_BRANCH}" in verify_base["run"]
+    assert '" = "$RULESPEC_REF"' in verify_base["run"]
+    assert steps.index(verify_base) < steps.index(prepare_branch)
+    assert steps.index(prepare_branch) < steps.index(publish_step)
     assert '"HEAD:refs/heads/${branch}"' in publish_command
     assert publish_command.count('"HEAD:refs/heads/${branch}"') == 1
     assert "gh api --method POST" in publish_command
@@ -4232,10 +4261,7 @@ def test_targeted_signed_reencode_preserves_checkpoint_guard_failure(
         for step in workflow["jobs"]["encode"]["steps"]
         if step.get("name") == "Encode, review, validate, and apply"
     )
-    checkpoint = command.split("checkpoint_signed_changes() {", 1)[1].split(
-        '\n}\n\nif [ "$reviewed_candidate_promotion"',
-        1,
-    )[0]
+    checkpoint = _signed_reencode_checkpoint_body(command)
     guard_stub = tmp_path / "guard-stub"
     guard_stub.write_text(
         "#!/bin/sh\n"
@@ -4310,10 +4336,7 @@ def test_targeted_signed_reencode_packages_noncontract_checkpoint_failure(
         for step in steps
         if step.get("name") == "Encode, review, validate, and apply"
     )
-    checkpoint = apply_command.split("checkpoint_signed_changes() {", 1)[1].split(
-        '\n}\n\nif [ "$reviewed_candidate_promotion"',
-        1,
-    )[0]
+    checkpoint = _signed_reencode_checkpoint_body(apply_command)
     guard_stub = tmp_path / "guard-stub"
     guard_stub.write_text(
         "#!/bin/sh\n"
@@ -4765,6 +4788,118 @@ def _prepare_empty_signed_import_inputs(runner_temp: Path) -> None:
     (runner_temp / "existing-signed-import-paths.txt").write_text("")
 
 
+def _signed_reencode_checkpoint_body(command: str) -> str:
+    return command.split("checkpoint_signed_changes() {", 1)[1].split(
+        "\n}\n\n# Capture only named non-secret inputs",
+        1,
+    )[0]
+
+
+def _stub_signed_reencode_checkpoints(command: str) -> str:
+    body = _signed_reencode_checkpoint_body(command)
+    return command.replace(
+        "checkpoint_signed_changes() {" + body + "\n}",
+        "checkpoint_signed_changes() {\n"
+        + '  printf \'%s\\n\' "$1" >> "$CHECKPOINTS_PATH"\n'
+        + '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n'
+        + "}",
+        1,
+    )
+
+
+def _stub_signed_reencode_reconciliation(command: str, replacement: str) -> str:
+    original = (
+        '      "$workflow_python" "$backfill_helper" \\\n'
+        "        reconcile-retired-manifest-inventory \\\n"
+        '        "$RULESPEC_CHECKOUT" "${operation[1]}"'
+    )
+    assert original in command
+    return command.replace(original, replacement, 1)
+
+
+def _run_prepared_signed_reencode(
+    command: str,
+    *,
+    env: dict[str, str],
+    check: bool = True,
+    capture_output: bool = False,
+    text: bool = True,
+    cwd: Path = ROOT,
+    signing_slots: int | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run the workflow's init, signer, and advance steps in separate processes."""
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = workflow["jobs"]["encode"]["steps"]
+    initialization = next(
+        step for step in steps if step.get("id") == "prepare_encode_apply"
+    )
+    environment = {
+        name: value if "${{" not in value else ""
+        for name, value in initialization["env"].items()
+    }
+    environment.update(env)
+    for name in PRIVATE_ENV_NAMES:
+        environment.pop(name, None)
+    assert not any(name in environment for name in PRIVATE_ENV_NAMES)
+    runner_temp = Path(environment["RUNNER_TEMP"])
+    shutil.rmtree(runner_temp / "signed-encode", ignore_errors=True)
+    output = runner_temp / "prepared-step-output"
+    environment["GITHUB_OUTPUT"] = str(output)
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+
+    def run_step(script: str, step_env: dict[str, str]) -> subprocess.CompletedProcess:
+        output.write_text("")
+        completed = subprocess.run(
+            ["bash", "-c", script],
+            cwd=cwd,
+            env=step_env,
+            capture_output=True,
+            text=True,
+        )
+        stdout_parts.append(completed.stdout)
+        stderr_parts.append(completed.stderr)
+        return completed
+
+    completed = run_step(command, environment)
+    signer_steps = [
+        step for step in steps if step.get("id", "").startswith("apply_signing_")
+    ]
+    if signing_slots is not None:
+        signer_steps = signer_steps[:signing_slots]
+    advance = next(step for step in steps if step.get("id") == "prepare_apply_02")
+    for signer in signer_steps:
+        if completed.returncode or "ready=true" not in output.read_text().splitlines():
+            break
+        signer_script = signer["run"].replace(
+            "/opt/axiom-verification/axiom-encode-apply-signer run",
+            '"$SIGNER_STUB"',
+        )
+        completed = run_step(
+            signer_script,
+            {**environment, "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key"},
+        )
+        if completed.returncode:
+            break
+        if signer is signer_steps[-1]:
+            break
+        completed = run_step(advance["run"], environment)
+    if completed.returncode == 0:
+        finish = next(step for step in steps if step.get("id") == "encode_apply")
+        completed = run_step(finish["run"], {**environment, "PRIOR_STATUS": "success"})
+    result = subprocess.CompletedProcess(
+        args=["bash", "-c", command],
+        returncode=completed.returncode,
+        stdout="".join(stdout_parts),
+        stderr="".join(stderr_parts),
+    )
+    if check:
+        result.check_returncode()
+    return result
+
+
 def _prepare_canonical_refresh_inputs(
     tmp_path: Path,
 ) -> tuple[Path, str, str, list[dict[str, str]]]:
@@ -4836,38 +4971,12 @@ def test_targeted_signed_reencode_runs_canonical_refresh_bundle_in_order(
         step["run"]
         for step in workflow["jobs"]["encode"]["steps"]
         if step.get("name") == "Encode, review, validate, and apply"
-    ).replace(
-        "/opt/axiom-verification/axiom-encode-apply-signer run",
-        '"$SIGNER_STUB"',
     )
-    before_checkpoint, checkpoint_and_after = command.split(
-        "checkpoint_signed_changes() {",
-        1,
+    command = _stub_signed_reencode_checkpoints(command)
+    command = _stub_signed_reencode_reconciliation(
+        command,
+        '      printf \'%s\\n\' "${operation[1]}" >> "$RECONCILIATIONS_PATH"',
     )
-    _checkpoint_body, after_checkpoint = checkpoint_and_after.split(
-        '\n}\n\nif [ "$reviewed_candidate_promotion"',
-        1,
-    )
-    command = (
-        before_checkpoint
-        + "checkpoint_signed_changes() {\n"
-        + '  printf \'%s\\n\' "$1" >> "$CHECKPOINTS_PATH"\n'
-        + '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n'
-        + '}\n\nif [ "$reviewed_candidate_promotion"'
-        + after_checkpoint
-    )
-    canonical_reconciliation = (
-        '    "$workflow_python" "$backfill_helper" \\\n'
-        "      reconcile-retired-manifest-inventory \\\n"
-        '      "$RULESPEC_CHECKOUT" "$refresh_rulespec_path"'
-    )
-    command_before_reconciliation_stub = command
-    command = command.replace(
-        canonical_reconciliation,
-        '    printf \'%s\\n\' "$refresh_rulespec_path" >> "$RECONCILIATIONS_PATH"',
-        1,
-    )
-    assert command != command_before_reconciliation_stub
 
     repo, primary_citation, primary_path, additions = _prepare_canonical_refresh_inputs(
         tmp_path
@@ -5001,8 +5110,8 @@ if mutation_path and len(calls_path.read_text(encoding="utf-8").splitlines()) ==
         "SECOND_DEPENDENT_REVIEW_FINDING": "",
         "SIGNER_STUB": str(signer_stub),
     }
-    subprocess.run(
-        ["bash", "-c", command],
+    _run_prepared_signed_reencode(
+        command,
         cwd=ROOT,
         check=True,
         env=environment,
@@ -5096,8 +5205,8 @@ if mutation_path and len(calls_path.read_text(encoding="utf-8").splitlines()) ==
     checkpoints_path.unlink()
     reconciliations_path.unlink()
     future_companion = repo / str(normalized[1]["companion_path"])
-    blocked = subprocess.run(
-        ["bash", "-c", command],
+    blocked = _run_prepared_signed_reencode(
+        command,
         cwd=ROOT,
         check=False,
         capture_output=True,
@@ -5303,11 +5412,7 @@ if sys.argv[-1] == os.environ["CITATION"]:
             }
         )
 
-    subprocess.run(
-        ["bash", "-c", command],
-        check=True,
-        env=environment,
-    )
+    _run_prepared_signed_reencode(command, check=True, env=environment)
 
     calls = [
         json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()
@@ -5458,38 +5563,15 @@ def test_targeted_signed_reencode_composes_nonempty_source_bundle(
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
     )
-    command = (
-        next(
-            step["run"]
-            for step in workflow["jobs"]["encode"]["steps"]
-            if step.get("name") == "Encode, review, validate, and apply"
-        )
-        .replace(
-            "/opt/axiom-verification/axiom-encode-apply-signer run",
-            '"$SIGNER_STUB"',
-        )
-        .replace(
-            '    "$workflow_python" "$backfill_helper" \\\n'
-            "      reconcile-retired-manifest-inventory \\\n"
-            '      "$RULESPEC_CHECKOUT" "$REPLACE_RULESPEC_PATH"',
-            '    printf \'%s\\n\' "$REPLACE_RULESPEC_PATH" >> "$RECONCILIATIONS_PATH"',
-        )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Encode, review, validate, and apply"
     )
-    before_checkpoint, checkpoint_and_after = command.split(
-        "checkpoint_signed_changes() {",
-        1,
-    )
-    _checkpoint_body, after_checkpoint = checkpoint_and_after.split(
-        '\n}\n\nif [ "$reviewed_candidate_promotion"',
-        1,
-    )
-    command = (
-        before_checkpoint
-        + "checkpoint_signed_changes() {\n"
-        + '  printf \'%s\\n\' "$1" >> "$CHECKPOINTS_PATH"\n'
-        + '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n'
-        + '}\n\nif [ "$reviewed_candidate_promotion"'
-        + after_checkpoint
+    command = _stub_signed_reencode_checkpoints(command)
+    command = _stub_signed_reencode_reconciliation(
+        command,
+        '      printf \'%s\\n\' "${operation[1]}" >> "$RECONCILIATIONS_PATH"',
     )
 
     calls_path = tmp_path / "calls.jsonl"
@@ -5560,8 +5642,8 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
             + ')"',
         )
 
-    subprocess.run(
-        ["bash", "-c", command],
+    _run_prepared_signed_reencode(
+        command,
         check=True,
         env={
             **os.environ,
@@ -5656,6 +5738,142 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
         replacement_path
     ]
     assert canonical.is_file()
+
+
+@pytest.mark.parametrize("failure_point", ["none", "signer", "checkpoint", "limit"])
+def test_targeted_signed_reencode_handles_all_nineteen_signing_slots(
+    tmp_path: Path, failure_point: str
+) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("id") == "prepare_encode_apply"
+    )
+    # This capacity test keeps the real input parsers. Avoid sixteen identical
+    # package startups for the fixture's already-known citation path mapping.
+    source_path_lookup = (
+        '  "$workflow_python" "$backfill_helper" \\\n'
+        '    citation-rulespec-path "$source_citation" \\\n'
+        '    >> "$RUNNER_TEMP/source-bundle-rulespec-paths.txt"'
+    )
+    assert command.count(source_path_lookup) == 1
+    command = command.replace(
+        source_path_lookup,
+        "  printf 'us/policies/%s.yaml\\n' "
+        '"${source_citation#us/guidance/}" \\\n'
+        '    >> "$RUNNER_TEMP/source-bundle-rulespec-paths.txt"',
+        1,
+    )
+    command = _stub_signed_reencode_checkpoints(command).replace(
+        '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n',
+        '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n'
+        '  test -z "${AXIOM_ENCODE_APPLY_SIGNING_KEY+x}"\n'
+        '  if [ "${FAIL_CHECKPOINT:-}" = true ]; then return 29; fi\n',
+        1,
+    )
+    command = 'test -z "${AXIOM_ENCODE_APPLY_SIGNING_KEY+x}"\n' + command
+    command = command.replace(
+        "# Each invocation runs key-free post-signing work and prepares one request.\n",
+        "# Each invocation runs key-free post-signing work and prepares one request.\n"
+        'test -z "${AXIOM_ENCODE_APPLY_SIGNING_KEY+x}"\n',
+        1,
+    )
+    runner_temp = tmp_path / "runner-temp"
+    runner_temp.mkdir()
+    _prepare_empty_signed_import_inputs(runner_temp)
+    calls_path = tmp_path / "calls.jsonl"
+    checkpoints_path = tmp_path / "checkpoints.txt"
+    signer_stub = tmp_path / "signer-stub"
+    signer_stub.write_text(
+        """#!/usr/bin/env python3
+import json
+import os
+import sys
+from pathlib import Path
+
+assert os.environ["AXIOM_ENCODE_APPLY_SIGNING_KEY"] == "test-key"
+calls = Path(os.environ["CALLS_PATH"])
+with calls.open("a", encoding="utf-8") as stream:
+    stream.write(json.dumps(sys.argv[1:]) + "\\n")
+if os.environ["FAIL_SIGNER"] == "true" and len(calls.read_text().splitlines()) == 2:
+    raise SystemExit(23)
+""",
+        encoding="utf-8",
+    )
+    signer_stub.chmod(0o700)
+    primary = "us/guidance/example/target"
+    sources = [f"us/guidance/example/source-{index:02d}" for index in range(1, 17)]
+    dependents = ["us/guidance/example/dependent-1", "us/guidance/example/dependent-2"]
+    result = _run_prepared_signed_reencode(
+        command,
+        check=False,
+        signing_slots=18 if failure_point == "limit" else None,
+        env={
+            **os.environ,
+            "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key",
+            "AXIOM_TEST_PYTHON": sys.executable,
+            "ATOMIC_SOURCE_JSON": json.dumps(sources),
+            "CALLS_PATH": str(calls_path),
+            "CHECKPOINTS_PATH": str(checkpoints_path),
+            "CITATION": primary,
+            "DEPENDENT_CITATION": dependents[0],
+            "DEPENDENT_REVIEW_FINDING": "Preserve the first dependent.",
+            "DEPENDENT_RULESPEC_PATHS_JSON": json.dumps(
+                [
+                    "us/policies/example/dependent-1.yaml",
+                    "us/policies/example/dependent-2.yaml",
+                ]
+            ),
+            "FAIL_CHECKPOINT": str(failure_point == "checkpoint").lower(),
+            "FAIL_SIGNER": str(failure_point == "signer").lower(),
+            "GITHUB_WORKSPACE": str(tmp_path),
+            "REVIEW_FINDING": "Preserve the target.",
+            "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
+            "RULESPEC_REF": "a" * 40,
+            "RUNNER_TEMP": str(runner_temp),
+            "SECOND_DEPENDENT_CITATION": dependents[1],
+            "SECOND_DEPENDENT_REVIEW_FINDING": "Preserve the second dependent.",
+            "SIGNER_STUB": str(signer_stub),
+        },
+    )
+    calls = [json.loads(line) for line in calls_path.read_text().splitlines()]
+    citations = [call[-1] for call in calls]
+    checkpoints = checkpoints_path.read_text().splitlines()
+    if failure_point == "none":
+        assert result.returncode == 0, result.stderr
+        assert citations == [*sources, primary, *dependents]
+        target_args = calls[len(sources)]
+        required_imports = [
+            target_args[index + 1]
+            for index, value in enumerate(target_args)
+            if value == "--required-import-rulespec-path"
+        ]
+        assert required_imports == [
+            f"us/policies/example/source-{index:02d}.yaml" for index in range(1, 17)
+        ]
+        for source_args in calls[: len(sources)]:
+            assert "--apply-target-only" in source_args
+            assert "--required-import-rulespec-path" not in source_args
+        assert checkpoints == [
+            *(f"Add signed source module for {citation}" for citation in sources),
+            f"Compose signed source bundle for {primary}",
+        ]
+    elif failure_point == "signer":
+        assert result.returncode == 23
+        assert citations == sources[:2]
+        assert checkpoints == [f"Add signed source module for {sources[0]}"]
+    elif failure_point == "checkpoint":
+        assert result.returncode == 29
+        assert citations == sources[:1]
+        assert checkpoints == [f"Add signed source module for {sources[0]}"]
+    else:
+        assert result.returncode != 0
+        assert "exceeded the bounded signing slots" in result.stderr
+        assert citations == [*sources, primary, dependents[0]]
+        assert len(checkpoints) == 16
 
 
 @pytest.mark.parametrize(
@@ -5841,8 +6059,8 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
     (runner_temp / "existing-signed-import-paths.txt").write_text(existing_path + "\n")
     (runner_temp / "canonical-refresh-bundle.json").write_text("[]\n")
 
-    subprocess.run(
-        ["bash", "-c", command],
+    _run_prepared_signed_reencode(
+        command,
         check=True,
         env={
             **os.environ,
@@ -5883,22 +6101,14 @@ def test_targeted_signed_reencode_runs_replacement_target(
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
     )
-    command = (
-        next(
-            step["run"]
-            for step in workflow["jobs"]["encode"]["steps"]
-            if step.get("name") == "Encode, review, validate, and apply"
-        )
-        .replace(
-            "/opt/axiom-verification/axiom-encode-apply-signer run",
-            '"$SIGNER_STUB"',
-        )
-        .replace(
-            '    "$workflow_python" "$backfill_helper" \\\n'
-            "      reconcile-retired-manifest-inventory \\\n"
-            '      "$RULESPEC_CHECKOUT" "$REPLACE_RULESPEC_PATH"',
-            "    printf '%s\\n' 'retired manifest inventory unchanged'",
-        )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Encode, review, validate, and apply"
+    )
+    command = _stub_signed_reencode_reconciliation(
+        command,
+        "      printf '%s\\n' 'retired manifest inventory unchanged'",
     )
     calls_path = tmp_path / "calls.jsonl"
     signer_stub = tmp_path / "signer-stub"
@@ -5950,11 +6160,7 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
         "SIGNER_STUB": str(signer_stub),
         "ATOMIC_SOURCE_JSON": "[]",
     }
-    subprocess.run(
-        ["bash", "-c", command],
-        check=True,
-        env=environment,
-    )
+    _run_prepared_signed_reencode(command, check=True, env=environment)
 
     calls = [
         json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()
@@ -5973,8 +6179,8 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
         assert "--apply-target-only" not in encode_args[1]
         assert encode_args[1][-1] == dependent_citation
 
-    blocked = subprocess.run(
-        ["bash", "-c", command],
+    blocked = _run_prepared_signed_reencode(
+        command,
         check=False,
         capture_output=True,
         text=True,
@@ -6056,7 +6262,7 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
         "ATOMIC_SOURCE_JSON": "[]",
     }
 
-    subprocess.run(["bash", "-c", command], check=True, env=environment)
+    _run_prepared_signed_reencode(command, check=True, env=environment)
 
     calls = [
         json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()

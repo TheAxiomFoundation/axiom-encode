@@ -1,0 +1,1 @@
+Confine targeted re-encode apply-key delivery to minimal signer launch steps, with key-free preparation and checkpoint checks between signatures. Separate Python helpers from repository-token checkout and publication steps, and add workflow boundary regression checks.
