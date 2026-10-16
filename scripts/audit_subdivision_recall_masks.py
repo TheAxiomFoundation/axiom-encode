@@ -226,7 +226,7 @@ def exact_glued_quantity_guard_assignment(old, new, unit_word):
 
 
 def isolate_entry_masks(baseline_path: Path):
-    """Prove the existing cleanup body is unchanged and extract its new prefix."""
+    """Prove inherited cleanup is unchanged and extract only the inserted masks."""
     old_tree = ast.parse(baseline_path.read_text())
     new_tree = ast.parse(Path(current.__file__).read_text())
     existing = {ast.dump(node, include_attributes=False) for node in new_tree.body}
@@ -266,15 +266,46 @@ def isolate_entry_masks(baseline_path: Path):
     )
     old_body = old_function.body[1:]
     new_body = new_function.body[1:]
+    header = copy.deepcopy(new_function)
+    header.body = old_function.body
+    if ast.dump(header, include_attributes=False) != ast.dump(
+        old_function, include_attributes=False
+    ) or ast.dump(new_function.body[0], include_attributes=False) != ast.dump(
+        old_function.body[0], include_attributes=False
+    ):
+        raise ValueError("Baseline recall cleanup signature or docstring changed")
+    # Main runs manual-locator cleanup before this PR's masks. Preserve every
+    # inherited statement on both sides of the insertion; the isolated wrapper
+    # must not run that unrelated prelude against the original source.
+    insertion = 0
+    for old, new in zip(old_body, new_body):
+        if ast.dump(old, include_attributes=False) != ast.dump(
+            new, include_attributes=False
+        ):
+            break
+        insertion += 1
     prefix_length = len(new_body) - len(old_body)
-    if prefix_length < 1 or ast.dump(
+    if prefix_length != 2 or ast.dump(
         ast.Module(body=old_body, type_ignores=[]), include_attributes=False
     ) != ast.dump(
-        ast.Module(body=new_body[prefix_length:], type_ignores=[]),
+        ast.Module(
+            body=new_body[:insertion] + new_body[insertion + prefix_length :],
+            type_ignores=[],
+        ),
         include_attributes=False,
     ):
-        raise ValueError("Baseline recall cleanup is not an exact unchanged suffix")
-    prefix = copy.deepcopy(new_body[:prefix_length])
+        raise ValueError("Baseline recall cleanup prelude or suffix changed")
+    prefix = copy.deepcopy(new_body[insertion : insertion + prefix_length])
+    expected_masks = ast.parse(
+        "source_text = _mask_numeric_spans("
+        "source_text, _english_subdivision_numeric_recall_spans(source_text))\n"
+        "source_text = _mask_numeric_spans("
+        "source_text, _contiguous_states_numeric_recall_spans(source_text))\n"
+    )
+    if ast.dump(
+        ast.Module(body=prefix, type_ignores=[]), include_attributes=False
+    ) != ast.dump(expected_masks, include_attributes=False):
+        raise ValueError("Entry masks are not the exact permitted insertions")
     wrapper = copy.deepcopy(new_function)
     wrapper.name = "_audit_entry_masks"
     wrapper.body = prefix + [

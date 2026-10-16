@@ -2,13 +2,16 @@
 
 The [reproduction helper](../../scripts/reproduce_subdivision_recall_audit.py)
 runs the repository's independent span audit against a fixed signed corpus
-release and the pinned audit baseline `4f3547461300bfa70569f57c83728b2ad25d9d0b`.
-The baseline's production module is byte-identical to `origin/main` at
-`c7fe642eee36ba4e1a766d3eae8a9f3bb31b9ed3`; both have SHA-256
-`875df7eb77efdaef6add1ca6756989f2881b5825dcf65dd6e66c0f30c43f3b62`. Main later
-changed the module only in companion-test and paired-case evidence code (#1916),
-outside numeric recall and locator masking, so the audit's counts still describe
-this change.
+release and the pinned audit baseline `0206ce3d540762c1337a6afd85c02a740c9ee3bf`.
+This is main's side of merge `e33cb2965` and the current checkout's merge base
+with `origin/main`. Its production module has SHA-256
+`322ebbb3dbf6a8c339b943d911322c36ee0caef11937be3cd52e4922fe657a04`.
+Round 5 rebases the baseline to include main's unrelated changes, including
+paired-case evidence and manual cleanup. This retains the strict AST identity
+guard for every inherited definition outside the exact glued-marker extension.
+The complete inherited recall body, including its leading manual cleanup, must
+also remain identical after removing the two exact subdivision/geography mask
+assignments. Only those assignments execute in the isolated entry-mask wrapper.
 The helper downloads and verifies one corpus artifact at a time. Each audit
 subprocess has a 480-second timeout
 within a 540-second shard budget. Run each shard as a separate command; a whole
@@ -62,20 +65,32 @@ one locator is absent from the baseline typed inventory. The generated case
 and typography controls exercise the quantity guard even though this signed
 corpus has no matching quantity restoration.
 
-The round-4 rerun used the unchanged committed audit and reproduction scripts.
-All 27 shards passed, and the totals match both the prior audit and the
-independent round-4 review. The complete row and changed-row ledger hashes
-are unchanged; the changed-row ledger is byte-identical to the previously
-checked-in ledger. The production-module hash below identifies the final
-tested working-tree bytes.
+The round-5 rerun used the rebased main-side baseline and the strict isolation
+checks described above. All 27 completed shards passed, with the same artifact
+and row bounds and every total unchanged from the committed round-4 evidence.
+All 22 changed-row records are byte-identical to their historical records.
+The complete row ledger has a new hash because it now records recall under
+main's inherited cleanup; the changed-row ledger and all removal proofs are
+unchanged. The hashes below bind the final tested working-tree bytes.
+
+One initial attempt at artifacts 50–59 hit its 480-second timeout after writing
+13,627 partial row records. Those outputs have no completion receipt and were
+excluded. The same bounded command passed on retry in 285.567 seconds. The
+slowest completed shard took 462.101 seconds; no command exceeded ten minutes.
+
+The pinned-baseline/current-source integration regression passes. Negative
+controls alter the reachable `_mask_numeric_spans` helper, the inherited recall
+prelude, or the recall suffix; each raises `ValueError`. The audit test file
+passed 111 tests, and the four focused production regression files passed
+199 tests (310 total). Ruff lint, changed-file formatting and compilation passed.
 
 | Audited content | SHA-256 |
 | --- | --- |
-| Production module | `75275e2cc92251b6d22385036e904e8cc5a4af895e15e01cbdbf1a01614e6925` |
-| Audit script | `c3d30f2cdb427fd3c6125257da720775f3d8cfec083f653bcce36fef80c745ca` |
-| Reproduction helper | `5178432ed1f89aeda789702f98e6eb53d7a4fd23baebe5a34e688f9651a878b5` |
-| Summary | `46a293a715479d4ec596b1c8b2678c9e13488a5077504a51f5c597f203e588a7` |
-| Complete row ledger (regenerated) | `f19e64c7f9f8034423f5e92d6e622c790ebd5f118d18fe1ef33b63177977de05` |
+| Production module | `27e899777b94b303ddcd852e7fef07bc0542735160a7522f255ab3c3518b96ae` |
+| Audit script | `83a6d510cac7f85b01e6692c16b3cef3c69a0848373c09e9e08086053b21c8e9` |
+| Reproduction helper | `20cde7a8e5838fbffb893a26321f95c102cf16fc3691dbe6ca8b98da21de4bc4` |
+| Summary | `bd06d5fa09238a857fb7028352f7e9e294769c3d895cc64622927c15012a8f63` |
+| Complete row ledger (regenerated) | `eb1b6376ac188cc893206afebb3dd1b92ce1b0e3ddeaad0aedde864ecd04f149` |
 | Changed-row ledger | `2838be19c23c224a37866fb81db40dbaa8889498e029d55c231430f106d61d1c` |
 
 ## Pinned inputs
@@ -87,9 +102,23 @@ tested working-tree bytes.
 | Release object SHA-256 | `8d0fd2993fa667b13205947b71b91aafbb56be73351e9acebbd03255e233190a` |
 | Release object bytes | `7150325` |
 | Corpus revision | `e79781bddeaba4d3697c5375c7371b2a038f0f74` |
-| Pinned audit baseline revision | `4f3547461300bfa70569f57c83728b2ad25d9d0b` |
-| Current merge base with `origin/main` (production-byte-identical) | `c7fe642eee36ba4e1a766d3eae8a9f3bb31b9ed3` |
-| Baseline module SHA-256 | `875df7eb77efdaef6add1ca6756989f2881b5825dcf65dd6e66c0f30c43f3b62` |
+| Pinned audit baseline revision and current merge base with `origin/main` | `0206ce3d540762c1337a6afd85c02a740c9ee3bf` |
+| Baseline module SHA-256 | `322ebbb3dbf6a8c339b943d911322c36ee0caef11937be3cd52e4922fe657a04` |
+
+Earlier identities are historical, not the current checkout:
+
+| Historical content | Identity |
+| --- | --- |
+| Earlier audit baseline | `4f3547461300bfa70569f57c83728b2ad25d9d0b` |
+| Earlier merge base with identical baseline module bytes | `c7fe642eee36ba4e1a766d3eae8a9f3bb31b9ed3` |
+| Earlier baseline module SHA-256 | `875df7eb77efdaef6add1ca6756989f2881b5825dcf65dd6e66c0f30c43f3b62` |
+| Round-4 audited production revision | `99793952f` |
+| Round-4 production module SHA-256 | `75275e2cc92251b6d22385036e904e8cc5a4af895e15e01cbdbf1a01614e6925` |
+| Round-4 audit script SHA-256 | `c3d30f2cdb427fd3c6125257da720775f3d8cfec083f653bcce36fef80c745ca` |
+| Round-4 reproduction helper SHA-256 | `5178432ed1f89aeda789702f98e6eb53d7a4fd23baebe5a34e688f9651a878b5` |
+| Round-4 summary SHA-256 | `46a293a715479d4ec596b1c8b2678c9e13488a5077504a51f5c597f203e588a7` |
+| Round-4 complete row ledger SHA-256 | `f19e64c7f9f8034423f5e92d6e622c790ebd5f118d18fe1ef33b63177977de05` |
+| Round-4 changed-row ledger SHA-256 | `2838be19c23c224a37866fb81db40dbaa8889498e029d55c231430f106d61d1c` |
 
 The immutable, content-addressed
 [signed release object](https://pub-a8952f8657fc49fda358146ac001366c.r2.dev/releases/us-rulespec-2026-08-08-obbb-alien-snap/0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc.json)
@@ -109,7 +138,8 @@ The verification roots are the public keys published in the
 The helper verifies the release signature against these roots, both release
 digests, corpus revision and exact baseline bytes before running a shard.
 The audit verifies each artifact against its signed identity and each file's
-row count. The inherited cleanup suffix must match the baseline. The bounded
+row count. The inherited cleanup prelude, suffix, signature and docstring must
+match the baseline. The bounded
 glued-quantity guard has a separate proof, and its quantity restorations are
 reported alongside entry-mask removals. Summarization rejects missing shards,
 changed script or module bytes, mismatched environments, noncontiguous
@@ -129,7 +159,7 @@ export UV_CACHE_DIR=/private/tmp/hub-shared-uv-cache
 export OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 MKL_NUM_THREADS=4
 export VECLIB_MAXIMUM_THREADS=4 NUMEXPR_NUM_THREADS=4 OMP_WAIT_POLICY=PASSIVE
 uv sync --locked --python 3.13 --extra dev
-uv run --locked python scripts/reproduce_subdivision_recall_audit.py prepare --directory .hub-scratch/round4/corpus
+uv run --locked python scripts/reproduce_subdivision_recall_audit.py prepare --directory .hub-scratch/round5/corpus
 ```
 
 The checked-in summary records the successful artifact and row bounds. Print
@@ -146,7 +176,7 @@ for batch in summary["batches"]:
     command = [
         "uv", "run", "--locked", "python",
         "scripts/reproduce_subdivision_recall_audit.py", "shard",
-        "--directory", ".hub-scratch/round4/corpus",
+        "--directory", ".hub-scratch/round5/corpus",
         "--artifact-start", str(batch["artifact_start"]),
         "--artifact-limit", str(batch["artifact_end"] - batch["artifact_start"]),
     ]
@@ -168,7 +198,7 @@ Summarization requires contiguous, complete signed coverage across all slices.
 After every shard exits successfully, run:
 
 ```sh
-uv run --locked python scripts/reproduce_subdivision_recall_audit.py summarize --directory .hub-scratch/round4/corpus
+uv run --locked python scripts/reproduce_subdivision_recall_audit.py summarize --directory .hub-scratch/round5/corpus
 ```
 
 `summary.json`, `combined.rows.jsonl` and `combined.removals.jsonl` are produced

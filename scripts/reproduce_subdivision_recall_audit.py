@@ -21,8 +21,10 @@ import time
 import urllib.request
 from pathlib import Path
 
-BASELINE_COMMIT = "4f3547461300bfa70569f57c83728b2ad25d9d0b"
-BASELINE_SHA256 = "875df7eb77efdaef6add1ca6756989f2881b5825dcf65dd6e66c0f30c43f3b62"
+# Main's side of the merged tree, including unrelated cleanup/evidence changes.
+# Earlier baseline and audited-module identities remain in docs/evidence/.
+BASELINE_COMMIT = "0206ce3d540762c1337a6afd85c02a740c9ee3bf"
+BASELINE_SHA256 = "322ebbb3dbf6a8c339b943d911322c36ee0caef11937be3cd52e4922fe657a04"
 RELEASE_NAME = "us-rulespec-2026-08-08-obbb-alien-snap"
 CONTENT_SHA256 = "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc"
 RELEASE_SHA256 = "8d0fd2993fa667b13205947b71b91aafbb56be73351e9acebbd03255e233190a"
@@ -32,7 +34,8 @@ RELEASE_URL = (
     "https://pub-a8952f8657fc49fda358146ac001366c.r2.dev/releases/"
     f"{RELEASE_NAME}/{CONTENT_SHA256}.json"
 )
-# Published roots in scripts/verify_real_defects.py at BASELINE_COMMIT.
+# Published roots in scripts/verify_real_defects.py at historical baseline
+# 4f3547461300bfa70569f57c83728b2ad25d9d0b (independent of the cleanup baseline).
 PUBLIC_KEYS = (
     "KwIYEbbs/905yxn/9Yi6jYTF8oyZcq1FlxiG4e0y0tg=",
     "9EJzeLnZsdBoDEDkU8xbi7HjYVVvd4HDX/BxPHPvXTk=",

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import re
+import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -12,12 +15,69 @@ from hypothesis import strategies as st
 
 from axiom_encode.harness import source_completeness as completeness
 from scripts import audit_subdivision_recall_masks as audit
+from scripts import reproduce_subdivision_recall_audit as reproduce
 from scripts.audit_subdivision_recall_masks import (
     entry_removals,
     independent_identifier_context,
     project_recall_removals,
     require_inventory_projections,
 )
+
+
+@pytest.fixture
+def pinned_baseline(tmp_path):
+    source = subprocess.run(
+        ["git", "show", f"{reproduce.BASELINE_COMMIT}:{reproduce.SOURCE.as_posix()}"],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        check=True,
+        timeout=60,
+    ).stdout
+    assert hashlib.sha256(source).hexdigest() == reproduce.BASELINE_SHA256
+    baseline = tmp_path / "baseline.py"
+    baseline.write_bytes(source)
+    return baseline
+
+
+def test_pinned_baseline_isolates_current_entry_masks(pinned_baseline):
+    masks, statements = audit.isolate_entry_masks(pinned_baseline)
+    source = (
+        "Under subdivision 2 of this section, the credit is $300. "
+        "The 48 contiguous states have 48 eligible children."
+    )
+    assert masks(source) == source.replace("subdivision 2", "subdivision  ").replace(
+        "48 contiguous", "   contiguous"
+    )
+    assert len(statements) == 2
+    assert all("_without_us_manual_locators" not in item for item in statements)
+
+
+@pytest.mark.parametrize("change", ("helper", "prelude", "suffix"))
+def test_pinned_baseline_rejects_unexplained_recall_changes(
+    pinned_baseline, tmp_path, monkeypatch, change
+):
+    tree = ast.parse(Path(completeness.__file__).read_text())
+    name = (
+        "_mask_numeric_spans"
+        if change == "helper"
+        else "authoritative_numeric_recall_text"
+    )
+    function = next(node for node in tree.body if getattr(node, "name", None) == name)
+    if change == "helper":
+        # Both the inherited cleanup and the new entry masks reach this helper.
+        function.body.insert(0, ast.Return(value=ast.Name(id="text", ctx=ast.Load())))
+        expected = "existing definition outside recall cleanup changed"
+    elif change == "prelude":
+        function.body[1].value.args[0] = ast.Constant(value="")
+        expected = "Baseline recall cleanup"
+    else:
+        function.body[-1] = ast.Return(value=ast.Constant(value=""))
+        expected = "Baseline recall cleanup"
+    mutated = tmp_path / "mutated_current.py"
+    mutated.write_text(ast.unparse(ast.fix_missing_locations(tree)))
+    monkeypatch.setattr(completeness, "__file__", str(mutated))
+    with pytest.raises(ValueError, match=expected):
+        audit.isolate_entry_masks(pinned_baseline)
 
 
 @pytest.mark.parametrize(
