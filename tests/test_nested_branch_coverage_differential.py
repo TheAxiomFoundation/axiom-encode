@@ -968,21 +968,19 @@ def _complete_source_obligations(module, complete_source_module, outline):
     # describes demands and never changes them, so only that suffix is
     # removed: the demanded value, every other finding and all counts are
     # still compared exactly.
+    # Self-contained: the baseline worker runs this function's source alone.
+    import re as recall_re
+
+    recall_head = recall_re.compile(
+        r"^\[complete-source-unit:numeric-recall\] Authoritative corpus numeric "
+        r"value \S+ has no named scalar representation\. `module\.summary` is not "
+        r"consulted\."
+    )
     analysis["issues"] = [
-        _without_numeric_recall_repair_context(issue) for issue in analysis["issues"]
+        head.group(0) if (head := recall_head.match(issue)) is not None else issue
+        for issue in analysis["issues"]
     ]
     return analysis
-
-
-_NUMERIC_RECALL_ISSUE_HEAD = re.compile(
-    r"^\[complete-source-unit:numeric-recall\] Authoritative corpus numeric value "
-    r"\S+ has no named scalar representation\. `module\.summary` is not consulted\."
-)
-
-
-def _without_numeric_recall_repair_context(issue):
-    head = _NUMERIC_RECALL_ISSUE_HEAD.match(issue)
-    return head.group(0) if head is not None else issue
 
 
 @given(outline=constructed_outlines())
