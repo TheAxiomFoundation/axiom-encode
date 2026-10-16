@@ -626,7 +626,9 @@ def test_eitc_projection_matches_policyengine_age_and_identification_edges():
     projected = project_eitc_tax_unit_inputs(row=row, persons=persons)
     contexts = project_tax_unit_person_contexts(persons)
 
-    assert projected["childless_taxpayer_or_spouse_age_eligible_for_eitc"] is True
+    # The 34-year-old is not a filer; a non-filer cannot satisfy the
+    # taxpayer-or-spouse age condition for the 66-year-old taxpayer.
+    assert projected["childless_taxpayer_or_spouse_age_eligible_for_eitc"] is False
     assert (
         projected["taxpayer_includes_required_social_security_number_on_return"] is True
     )

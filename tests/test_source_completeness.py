@@ -3776,10 +3776,10 @@ def test_same_source_gate_diagnostics_are_grouped_capped_and_cached(monkeypatch)
         selector_calls += 1
         return original(formula, **kwargs)
 
-    def counted_gate_scan(source_clause):
+    def counted_gate_scan(source_clause, **kwargs):
         nonlocal gate_calls
         gate_calls += 1
-        return original_gate_scan(source_clause)
+        return original_gate_scan(source_clause, **kwargs)
 
     monkeypatch.setattr(
         completeness_module,
