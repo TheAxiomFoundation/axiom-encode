@@ -437,6 +437,60 @@ def test_inventory_class_spoof_does_not_bypass_validation(warm):
             retired_apply._inventory_index(index)
 
 
+@pytest.mark.parametrize("mode", ["outside", "fresh", "warm"])
+def test_inventory_class_spoofed_as_dict_cannot_replace_the_trusted_index(mode):
+    inventory, _ = _synthetic_inventory(1, "a" * 40)
+    replacement, _ = _synthetic_inventory(2, "b" * 40)
+    index = RetiredApplyInventory(inventory)
+
+    class Shape(tuple):
+        __slots__ = ()
+
+        @property
+        def __class__(self):
+            return dict
+
+        def __iter__(self):
+            return iter(replacement)
+
+        def __getitem__(self, key):
+            return replacement[key]
+
+    def reclass():
+        object.__setattr__(index, "__class__", Shape)
+        # The view now passes isinstance(dict) and serves a schema-valid
+        # replacement, so revalidating it would swap the trusted inventory.
+        assert isinstance(index, dict)
+        RetiredApplyInventory(replacement)
+
+    if mode == "outside":
+        reclass()
+        with pytest.raises(ValueError, match="broker index or raw dict"):
+            retired_apply._inventory_index(index)
+        return
+    with retired_apply_operation():
+        if mode == "warm":
+            assert retired_apply._inventory_index(index) is index
+        reclass()
+        with pytest.raises(ValueError, match="retired apply inventory"):
+            retired_apply._inventory_index(index)
+
+
+def test_inventory_state_restoration_is_refused_by_its_own_override():
+    inventory, _ = _synthetic_inventory(1, "a" * 40)
+    index = RetiredApplyInventory(inventory)
+    with pytest.raises(TypeError, match="cannot restore state"):
+        index.__setstate__([inventory])
+    assert list(index) == ["TheAxiomFoundation/rulespec-us"]
+
+
+def test_inventory_cannot_be_subclassed():
+    with pytest.raises(TypeError, match="cannot be subclassed"):
+
+        class _Subclass(RetiredApplyInventory):
+            pass
+
+
 def _synthetic_admission_times(frozen, monkeypatch, counts=(1000, 5000)):
     """Measure the hot admission path, with deterministic constant-cost Git IO.
 
