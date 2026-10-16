@@ -962,7 +962,27 @@ def _complete_source_obligations(module, complete_source_module, outline):
     )
     # Compare every completeness finding, branch, and numeric occurrence count,
     # including numeric recall, without sharing either implementation's results.
-    return dataclasses.asdict(result)
+    analysis = dataclasses.asdict(result)
+    # The first numeric-recall issue carries a repair-context suffix (source
+    # locations of every missing value) that the pinned baseline predates. It
+    # describes demands and never changes them, so only that suffix is
+    # removed: the demanded value, every other finding and all counts are
+    # still compared exactly.
+    analysis["issues"] = [
+        _without_numeric_recall_repair_context(issue) for issue in analysis["issues"]
+    ]
+    return analysis
+
+
+_NUMERIC_RECALL_ISSUE_HEAD = re.compile(
+    r"^\[complete-source-unit:numeric-recall\] Authoritative corpus numeric value "
+    r"\S+ has no named scalar representation\. `module\.summary` is not consulted\."
+)
+
+
+def _without_numeric_recall_repair_context(issue):
+    head = _NUMERIC_RECALL_ISSUE_HEAD.match(issue)
+    return head.group(0) if head is not None else issue
 
 
 @given(outline=constructed_outlines())
