@@ -96,6 +96,11 @@ def _structure_paths(result) -> set[str]:
     paths = set()
     for issue in _findings(result, "structure"):
         labels = re.search(r"\[([^\]]+)\] is neither", issue).group(1)
+        english = re.findall(r"\(([^()\s]+)\)", labels)
+        if english:
+            # U.S. labels read `paragraph (a)(1)` (#1896).
+            paths.add("/".join(english))
+            continue
         paths.add(
             "/".join(
                 component.strip().rsplit(maxsplit=1)[-1]

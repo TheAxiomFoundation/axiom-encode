@@ -522,8 +522,10 @@ def test_locator_spans_are_linear_in_long_sources():
 @pytest.mark.parametrize(
     "citation, source",
     (
-        # Main collapses `62,000` into the earlier `62`, so its demand for 62
-        # also carries the operative amount: the inventory stays main's.
+        # The 0.2.2190 base collapsed `62,000` into the earlier `62`, so its
+        # demand for 62 also carried the operative amount. Current main reads
+        # `62,000` on its own (combined swarm build), so only the locator
+        # digits may go and the operative amount must stay.
         (SNAP_REGULATION, "See 62 FR 61344. The cap is 62,000 households."),
         (
             EITC_STATUTE,
@@ -534,7 +536,15 @@ def test_locator_spans_are_linear_in_long_sources():
     ),
 )
 def test_locator_that_shadows_another_token_keeps_main_inventory(citation, source):
-    assert _occurrences(source, citation) == _main_occurrences(source, citation)
+    _assert_only_locator_digits_removed(source, citation)
+    # The grouped amounts (`62,000`, `124,000`, `1,983,000`) are operative.
+    operative = {
+        value
+        for value, _start, _end, raw in _main_occurrences(source, citation)
+        if "," in raw
+    }
+    assert operative
+    assert operative <= _values(source, citation)
 
 
 def _analysis(source: str, citation: str):
@@ -577,7 +587,27 @@ def test_source_and_unrepresented_views_share_one_locator_decision(monkeypatch):
         branch.covered_source_numeric_occurrence_count
         == main.covered_source_numeric_occurrence_count
     )
-    assert set(branch.issues) <= set(main.issues)
+
+    # The first numeric-recall finding lists every missing value, so its text
+    # depends on the whole missing set; compare the demanded values instead.
+    def demanded(issues):
+        return {
+            match.group(1)
+            for issue in issues
+            for match in [
+                re.match(
+                    r"\[complete-source-unit:numeric-recall\] Authoritative corpus "
+                    r"numeric value (\S+) ",
+                    issue,
+                )
+            ]
+            if match
+        }
+
+    assert demanded(branch.issues) <= demanded(main.issues)
+    assert {issue for issue in branch.issues if "numeric-recall" not in issue} <= set(
+        main.issues
+    )
 
 
 @pytest.mark.parametrize(
