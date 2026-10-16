@@ -486,15 +486,25 @@ exit 1
 """
 
 
-def _publish_step() -> dict[str, Any]:
+def _workflow_step(step_id: str) -> dict[str, Any]:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
     )
     return next(
         step
         for step in workflow["jobs"]["encode"]["steps"]
-        if step.get("id") == "publish_lane_pull_request"
+        if step.get("id") == step_id
     )
+
+
+def _publish_step() -> dict[str, Any]:
+    return _workflow_step("publish_lane_pull_request")
+
+
+def _prepare_branch_step() -> dict[str, Any]:
+    # The tokenless step that regenerates the reverse index and names the
+    # lane branch; the tokened publish step runs no python (#1928).
+    return _workflow_step("reviewed_lane_pull_request_branch")
 
 
 def _publish_fixture(tmp_path: Path, *, python: str) -> dict[str, Any]:
@@ -584,13 +594,39 @@ def _publish_fixture(tmp_path: Path, *, python: str) -> dict[str, Any]:
 
 
 def _run_publish(fixture: dict[str, Any]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["bash", "-c", str(_publish_step()["run"])],
+    output = fixture["runner"] / "github-output.txt"
+    output.write_text("")
+    prepare = subprocess.run(
+        ["bash", "-c", str(_prepare_branch_step()["run"])],
         cwd=fixture["workspace"],
-        env=fixture["env"],
+        env={**fixture["env"], "GITHUB_OUTPUT": str(output)},
         capture_output=True,
         text=True,
         check=False,
+    )
+    if prepare.returncode != 0:
+        return prepare
+    outputs = dict(
+        line.split("=", 1) for line in output.read_text().splitlines() if "=" in line
+    )
+    published = subprocess.run(
+        ["bash", "-c", str(_publish_step()["run"])],
+        cwd=fixture["workspace"],
+        env={
+            **fixture["env"],
+            "PRIOR_STATUS": "success",
+            "PREPARED_BRANCH": outputs.get("branch", ""),
+            "INDEX_MODE": outputs.get("index_mode", ""),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return subprocess.CompletedProcess(
+        published.args,
+        published.returncode,
+        prepare.stdout + published.stdout,
+        prepare.stderr + published.stderr,
     )
 
 
@@ -718,7 +754,7 @@ def test_a_refresh_timeout_takes_the_error_path(tmp_path: Path) -> None:
 
 
 def test_the_publish_step_bounds_and_rolls_back_the_refresh() -> None:
-    command = str(_publish_step()["run"])
+    command = str(_prepare_branch_step()["run"])
     assert 'timeout "${AXIOM_INDEX_REFRESH_TIMEOUT:-900}"' in command
     assert command.index('reset -q --hard "$lane_head"') < command.index(
         'rev-parse HEAD)" = "$lane_head"'

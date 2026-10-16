@@ -115,7 +115,7 @@ def test_first_issue_locates_every_missing_value_by_branch():
     # Values on one table row share one excerpt.
     assert "6330, 11610 at " in first
     assert "`| 1 qualifying child | $6,330 | $11,610 |`" in first
-    assert "In us/statute/26/32(c) [Absatz c]:" in first
+    assert "In us/statute/26/32(c) [provision (c)]:" in first
     assert "10000 at " in first
     assert "disqualified income exceeds $10,000.`" in first
     # A rate is named by the value the gate demands (34 percent -> 0.34).
