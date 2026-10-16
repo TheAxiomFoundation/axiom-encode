@@ -48,8 +48,9 @@ from axiom_encode.ci_parity import (
 
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
 PIN_6F11BE26 = "6f11be2655f79dd0a3b582db46525f58332ca120"
+PIN_92CCB0F2 = "92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3"
 EMBEDDED_PINS = pytest.mark.parametrize(
-    "pin", [PIN_0EFFA6A5, PIN_6F11BE26], ids=lambda sha: sha[:8]
+    "pin", [PIN_0EFFA6A5, PIN_6F11BE26, PIN_92CCB0F2], ids=lambda sha: sha[:8]
 )
 RULESPEC_US = "TheAxiomFoundation/rulespec-us"
 RULESPEC_US_REMOTE = f"https://github.com/{RULESPEC_US}.git"
@@ -414,8 +415,8 @@ def test_execute_workflow_gates_runs_every_handler_in_pin_order(
     assert run.workflow.pin.gates == expected
     # Repository-controlled tests run after every trusted gate, as in CI.
     assert expected[-1] == "repository_tests"
-    assert ("unmanifested_rulespec" in expected) is (pin == PIN_6F11BE26)
-    if pin == PIN_6F11BE26:
+    assert ("unmanifested_rulespec" in expected) is (pin != PIN_0EFFA6A5)
+    if pin != PIN_0EFFA6A5:
         assert expected[:3] == (
             "unsupported_paths",
             "unmanifested_rulespec",
@@ -1626,10 +1627,17 @@ def _waiver_gate(
 
 
 def _expected_audit(run: WorkflowRun, shard: str) -> CliInvocation:
+    # 92ccb0f2 adds --json (and, with a composer, the composer arguments).
+    json_flag = (
+        ("--json",)
+        if "--json" in _spec("validation_waivers", run.workflow.sha).flags
+        else ()
+    )
     return CliInvocation(
         (
             "validation-waivers",
             "audit",
+            *json_flag,
             "--root",
             str(run.repo),
             "--corpus-path",
