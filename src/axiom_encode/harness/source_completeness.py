@@ -431,10 +431,15 @@ _INLINE_OUTLINE_EXPLICIT_REFERENCE_COMMAND = re.compile(
     r".{0,160}[:;.!?—]\s*$",
     flags=re.IGNORECASE | re.DOTALL,
 )
+_RECALL_UNIT_WORD = (
+    r"(?i:days?|weeks?|months?|years?|hours?|percent|members?|persons?|"
+    r"people|dollars?|cents?)"
+)
 _GLUED_SENTENCE_MARKER = re.compile(
     r"(?<![\w])(?P<label>[1-9]\d?)"
     r"(?![A-ZÄÖÜ](?:\d+)?\b)"
     r"(?!(?i:st|nd|rd|th)\b)"
+    rf"(?!{_RECALL_UNIT_WORD}\b|(?i:per[ \t\u00a0\u202f]+cent)\b)"
     r"(?=[A-ZÄÖÜ](?!:)(?![ \t]*[.:/\-\u2010-\u2015\u2212\ufe58\ufe63\uff0d]"
     r"[ \t]*\d))"
 )
@@ -2221,12 +2226,85 @@ _BRACKETED_USC_ET_SEQ_CITATION_LIST = re.compile(
 # continuations keep the identifier's hyphenated shape and never take a range
 # that a unit word follows, so `policy 254, 3 members`, `policy 254, 10-15
 # days` and `policy 10-day notice` keep their values.
-_RECALL_UNIT_WORD = (
-    r"(?i:days?|weeks?|months?|years?|hours?|percent|members?|persons?|"
-    r"people|dollars?|cents?)"
-)
 _RECALL_UNIT_FOLLOWS = (
     rf"[ \t]*(?:%|-?(?:[A-Za-z]+[ \t-]+){{0,2}}{_RECALL_UNIT_WORD}\b)"
+)
+# Scan labels first, then prove their reference boundary. Arbitrary connectives
+# and quantity words cannot prove that a bare coordinated number is a locator.
+_NUMERIC_RECALL_IDENTIFIER_TRANSLATION = str.maketrans(
+    {
+        "\u00a0": " ",
+        "\u202f": " ",
+        "‘": "'",
+        "’": "'",
+        "“": '"',
+        "”": '"',
+        "−": "-",
+        "–": "-",
+        "—": "-",
+    }
+)
+# Keep locator readers ASCII: Unicode case folding must not prove unit suffixes.
+_ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR = (
+    r"(?<![A-Za-z])(?:[A-Za-z][ \t]*)?\d+[A-Za-z]?"
+    r"(?:[ \t]+[A-Za-z]\b)?(?:\([A-Za-z]\))*"
+    r"(?!\w|[.,]\d)"
+)
+_ENGLISH_SUBDIVISION_LOCATOR_TOKEN = re.compile(
+    _ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR, flags=re.ASCII
+)
+_ENGLISH_SUBDIVISION_NUMERIC_RECALL_CITATION = re.compile(
+    r"\b(?P<keyword>subdivisions?)[ \t]+(?P<labels>"
+    + _ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR
+    + r"(?:[ \t]*(?:,[ \t]*(?:(?:and|or)[ \t]+)?|"
+    r"(?:and|or|through|to)[ \t]+|[-–—][ \t]*)"
+    + _ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR
+    + r")*)",
+    flags=re.IGNORECASE | re.ASCII,
+)
+_ENGLISH_SUBDIVISION_STATUTORY_TAIL = re.compile(
+    r"[ \t]+of[ \t]+(?:(?:this|the|that)[ \t]+"
+    r"(?:section|subsection|paragraph|subdivision|act|code|chapter)\b|"
+    r"§[ \t]*\d+(?:[.-]\d+)*(?:\([A-Za-z0-9]+\))*)"
+    r"(?=[ \t]*(?:$|[,.;:](?!\d)|"
+    r"for[ \t]+(?:the[ \t]+same[ \t]+taxable[ \t]+year|taxpayers)\b))",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_SUBDIVISION_REFERENCE_BOUNDARY = re.compile(
+    r"[ \t]*(?:$|[.;:](?!\d)|"
+    r"(?:for[ \t]+the[ \t]+same[ \t]+taxable[ \t]+year|hereof|herein)"
+    r"(?=[ \t]*(?:$|[,.;:](?!\d)))|"
+    r",[ \t]*(?:claim\b|use\b|the[ \t]+(?:credit|tax|deduction|subtraction)\b|"
+    r"the[ \t]+following[ \t]+applies[ \t]*:|"
+    r'(?:"[A-Za-z][A-Za-z -]*"|“[A-Za-z][A-Za-z -]*”)[ \t]+'
+    r"(?:means?|includes?|refers?[ \t]+to)\b))",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_SUBDIVISION_QUANTITY_CLAUSE_BOUNDARY = re.compile(
+    # A comma alone cannot separate a locator from a shared quantity list.
+    # Prove a complete, independent quantity subject and finite predicate.
+    # Coordination stays ambiguous; a local comparison or range is one subject.
+    r"[ \t]*,[ \t]+\d+(?:\.\d+)?"
+    r"(?:[ \t]*(?:[-–—]|to\b|through\b)[ \t]*\d+(?:\.\d+)?)?"
+    r"(?:[ \t]+or[ \t]+(?:more|fewer|less|greater)\b)?[ \t]+"
+    # Bound positive proof work; longer or ambiguous clauses stay demanded.
+    r"(?:(?!(?:and|or)\b)[\w'’%-]+[ \t]+){0,32}"
+    r"(?:qualif(?:y|ies)|(?:must|shall|may|can|is|are)[ \t]+"
+    r"(?:(?!(?:and|or)\b)[A-Za-z][\w'’-]*[ \t]+){0,32}"
+    r"(?!(?:and|or)\b)[A-Za-z][\w'’-]*)"
+    r"(?=[ \t]*(?:$|[.;:](?!\d)))",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_SUBDIVISION_SINGLE_REFERENCE_PREDICATE = re.compile(
+    r"[ \t]+(?:(?:is|are)[ \t]+(?:required|applicable|authorized)|"
+    r"appl(?:y|ies)|provides?|authorizes?|governs?|requires?)\b(?!-)",
+    flags=re.IGNORECASE,
+)
+# The exact phrase can identify poverty-guideline geography. The span helper
+# also requires bare or definite reference syntax, retaining unknown units.
+_CONTIGUOUS_STATES_NUMERIC_RECALL_IDENTIFIER = re.compile(
+    r"(?<![\w.,])48(?=[ \t]+contiguous[ \t]+states\b)",
+    flags=re.IGNORECASE,
 )
 _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
     r"\bWAC[ \t]+\d+-\d+-\d+[A-Za-z]?"
@@ -14659,6 +14737,101 @@ def _partition_condition_clause_at_rows(
     )
 
 
+def _english_subdivision_numeric_recall_spans(
+    source_text: str,
+) -> Iterable[tuple[int, int]]:
+    """Yield only digits in positively completed subdivision references."""
+
+    # Scan one-to-one typography variants, then mask the original digit spans.
+    # Lowercasing the entire source could expand characters and move offsets.
+    source_text = source_text.translate(_NUMERIC_RECALL_IDENTIFIER_TRANSLATION)
+    for citation in _ENGLISH_SUBDIVISION_NUMERIC_RECALL_CITATION.finditer(source_text):
+        labels = tuple(
+            _ENGLISH_SUBDIVISION_LOCATOR_TOKEN.finditer(
+                source_text, citation.start("labels"), citation.end("labels")
+            )
+        )
+        if not labels:
+            # An unrecognized label proves no locator; keep every demand.
+            continue
+        statutory_tail = _ENGLISH_SUBDIVISION_STATUTORY_TAIL.match(
+            source_text, citation.end()
+        )
+        complete = statutory_tail or _ENGLISH_SUBDIVISION_REFERENCE_BOUNDARY.match(
+            source_text, citation.end()
+        )
+        # A suffix letter can be a unit (`3 m`, `3m`, `15m a`). Parenthesized
+        # letters identify hierarchy; any unparenthesized suffix is ambiguous.
+        ambiguous_labels = {
+            label.span()
+            for label in labels
+            if re.search(
+                r"\d(?:[A-Za-z]|[ \t]+[A-Za-z])", label.group(), flags=re.ASCII
+            )
+        }
+        if ambiguous_labels:
+            complete = False
+        has_range = any(
+            re.search(
+                r"[-–—]|\b(?:to|through)\b",
+                source_text[left.end() : right.start()],
+                flags=re.IGNORECASE,
+            )
+            for left, right in zip(labels, labels[1:])
+        )
+        if has_range and not (
+            citation.group("keyword").lower() == "subdivisions" and statutory_tail
+        ):
+            # A range needs an explicit plural legal reference and its object.
+            complete = False
+        if complete:
+            selected = labels
+        elif (
+            citation.group("keyword").lower() == "subdivision"
+            and _ENGLISH_SUBDIVISION_QUANTITY_CLAUSE_BOUNDARY.match(
+                source_text, labels[0].end()
+            )
+        ):
+            # Only a positively completed new clause proves this boundary.
+            # A bare comma or a shared quantity suffix never proves a locator.
+            selected = labels[:1]
+        elif (
+            len(labels) == 1
+            and re.match(r"[A-Za-z]", labels[0].group())
+            and _ENGLISH_SUBDIVISION_SINGLE_REFERENCE_PREDICATE.match(
+                source_text, citation.end()
+            )
+        ):
+            selected = labels
+        else:
+            # In particular, `N of ...`, comparisons, units and coordinated
+            # rates supply no reference boundary. Ambiguous values stay.
+            continue
+        for label in selected:
+            if label.span() in ambiguous_labels:
+                continue
+            for number in re.finditer(r"\d+", label.group(0)):
+                yield label.start() + number.start(), label.start() + number.end()
+
+
+def _contiguous_states_numeric_recall_spans(
+    source_text: str,
+) -> Iterable[tuple[int, int]]:
+    """Prove bare/definite geography without guessing currency or unit tokens."""
+
+    source_text = source_text.translate(_NUMERIC_RECALL_IDENTIFIER_TRANSLATION)
+    for identifier in _CONTIGUOUS_STATES_NUMERIC_RECALL_IDENTIFIER.finditer(
+        source_text
+    ):
+        before = identifier.start()
+        while before > 0 and source_text[before - 1].isspace():
+            before -= 1
+        if before == 0 or re.search(
+            r"(?<!\w)the$", source_text[max(0, before - 4) : before], re.IGNORECASE
+        ):
+            yield identifier.span()
+
+
 def authoritative_numeric_recall_text(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> str:
@@ -14666,6 +14839,12 @@ def authoritative_numeric_recall_text(
 
     source_text = _without_us_manual_locators(
         source_text, corpus_citation_path=corpus_citation_path
+    )
+    source_text = _mask_numeric_spans(
+        source_text, _english_subdivision_numeric_recall_spans(source_text)
+    )
+    source_text = _mask_numeric_spans(
+        source_text, _contiguous_states_numeric_recall_spans(source_text)
     )
     source_text = _mask_numeric_spans(
         source_text, _corroborated_form_output_label_spans(source_text)
