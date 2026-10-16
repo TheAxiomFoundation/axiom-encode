@@ -347,9 +347,7 @@ class TestGuardInventoryCaseAliases:
         )
 
         assert issues, "a checkout without Git must be refused"
-        assert any(
-            relative in issue or "Cannot resolve guard" in issue for issue in issues
-        ), issues
+        assert any("Cannot resolve guard head_ref" in issue for issue in issues), issues
 
     @pytest.mark.parametrize("all_files", [False, True])
     def test_signed_receipt_cannot_hide_noncanonical_ancestor_suffix(
