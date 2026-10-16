@@ -24,6 +24,9 @@
 ## 0.2.2199
 
 - Read conventional CFR branch citations (`42 CFR 457.622(c)(1)`) in completeness deferral reasons for repeal, runtime-gap, and non-operative deferrals, with the same exact-branch guard as the corpus-path form; CFR and Act dependency deferrals are not opened by this reader. Accept bounded non-operative deferrals of single-sentence Basis/Scope/Purpose/Findings/Severability/Short title leaves. Check branch deferrals anchored at the manual, form, and dotted-regulation module root instead of dropping them. A regulation runtime gap now covers a branch only when none of its covered text matches a closed lexical list of amount, computation, eligibility, or benefit-consequence phrases and every covered leaf states, or inherits from its chapeau, a finite administrative act on an administrative artifact. Correct the completeness prompt sentence that said `7 CFR 273.10(a)(1)` does not identify a branch.
+## 0.2.2218
+
+- Scope the session-law ("section N of this act") deferral reader to statute and guidance law-compilation sources that self-reference their own act. Regulations, policies and manuals that name "section N of the Act" (a codified enabling statute) no longer pass as same-act dependencies.
 
 ## 0.2.2183
 

@@ -1437,6 +1437,13 @@ _SAME_ACT_SECTION_DEPENDENCY = re.compile(
     r"\bsection\s+(?P<section>\d+[a-z]?)\s+of\s+(?P<act>this|the)\s+act\b",
     flags=re.IGNORECASE,
 )
+# Corpus document classes whose "section N of this act" can name a section of
+# the source's own enactment: statutes (codes and session laws) and guidance
+# law compilations that reproduce an act. In regulations, policies, manuals
+# and forms, "the Act" is a defined term for a separate, codified enabling
+# statute (42 CFR "section 1927 of the Act" is 42 U.S.C. 1396r-8), so a
+# reason naming it is not a same-act dependency.
+_SAME_ACT_SELF_REFERENCE_DOCUMENT_CLASSES = frozenset({"statute", "guidance"})
 _USC_DEFERRAL_DEPENDENCY = re.compile(
     r"\b(?P<title>\d+)\s+U\.?\s*S\.?\s*C\.?(?:\s*[,;:])?\s*"
     r"(?:(?:§{1,2}|sections?)\s*)?"
@@ -10582,9 +10589,23 @@ def _reason_names_missing_same_act_dependency(
     path: tuple[str, ...] | None,
     authenticated_same_act_aliases: Sequence[str] = (),
 ) -> bool:
-    """Recognize an exact missing session-law section named by one source branch."""
+    """Recognize an exact missing session-law section named by one source branch.
+
+    The source branch must make itself subject to "section N of this act" (a
+    self-reference, not the defined term "the Act"), and the source must be a
+    statute or a guidance law compilation; see
+    `_SAME_ACT_SELF_REFERENCE_DOCUMENT_CLASSES`.
+    """
 
     if not path:
+        return False
+    citation_parts = [
+        part for part in corpus_citation_path.strip("/").split("/") if part
+    ]
+    if (
+        len(citation_parts) < 3
+        or citation_parts[1].lower() not in _SAME_ACT_SELF_REFERENCE_DOCUMENT_CLASSES
+    ):
         return False
     # The conventional CFR form does not open this session-law dependency
     # reader to `section N of the Act` references in federal regulations; CFR
@@ -10616,7 +10637,10 @@ def _reason_names_missing_same_act_dependency(
     source_sections = {
         match.group("section").lower()
         for match in _SAME_ACT_SECTION_DEPENDENCY.finditer(source_scope_text)
-        if re.search(
+        # Only the source's self-reference binds; "the Act" is a defined
+        # external statute even inside a statute.
+        if match.group("act").lower() == "this"
+        and re.search(
             r"\b(?:except|unless|subject\s+to)\b",
             source_scope_text[max(0, match.start() - 80) : match.start()],
             flags=re.IGNORECASE,
