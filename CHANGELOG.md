@@ -4,6 +4,9 @@
 ## 0.2.2214
 
 - Regenerate rulespec's derived provision-to-rules reverse index at publish, as one unsigned commit from a byte-exact replica of the tree's own generator, so signed PRs that add a citation pass the reverse-index check.
+## 0.2.2193
+
+- Keep US bibliographic locators out of complete-source numeric recall: Federal Register volume/page citations, `Pub. L.` public-law numbers, the public-law and Statutes at Large numbers of complete U.S. Code repeal, omission and transfer notes, and years in act titles. The recall text is not rewritten; an occurrence is dropped only when it lies wholly inside a locator's numbers, the citation's context is bibliographic, and a re-read with those numbers blanked agrees on every other occurrence. Otherwise the inventory stays unchanged.
 
 ## 0.2.2183
 
