@@ -33692,7 +33692,7 @@ def _admit_retired_replacement_source_verification(
                 or historical.row.jurisdiction != requested.row.jurisdiction
             ):
                 raise ValueError(
-                    "external scalar source must resolve exactly in the same verified release and jurisdiction"
+                    "external proof source must resolve exactly in the same verified release and jurisdiction"
                 )
             obligations = external_parameter_obligations(
                 payload, path, historical.proof_evidence_segments
@@ -33702,7 +33702,11 @@ def _admit_retired_replacement_source_verification(
             admitted_sources.append(
                 {
                     "attestation": historical.to_attestation(),
-                    "admission_kind": "unchanged-external-scalar-parameter",
+                    "admission_kind": (
+                        "unchanged-external-proved-rule"
+                        if any(rule.get("kind") == "derived" for rule in obligations)
+                        else "unchanged-external-scalar-parameter"
+                    ),
                     "required_rules": [rule["name"] for rule in obligations],
                 }
             )
@@ -33823,7 +33827,14 @@ def _admit_retired_replacement_source_verification(
         )
     return {
         "contract": (
-            "retired-source-external-parameters/v1"
+            (
+                "retired-source-external-preserved-rules/v1"
+                if any(
+                    rule.get("kind") == "derived"
+                    for rule in required_unchanged_rules.values()
+                )
+                else "retired-source-external-parameters/v1"
+            )
             if required_unchanged_rules
             else (
                 "retired-source-containment/v2"
