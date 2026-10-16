@@ -114,11 +114,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      # The engine rulespec-us's reviewed workflow toolchain validates with
-      # (.axiom/workflow-toolchain.toml axiom_rules_engine_ref), also pinned by
-      # issue233-canada-source-diagnostic.yml. The tests check the checkout is
-      # clean at this commit and the binary carries a receipt for it.
-      AXIOM_RULES_ENGINE_REF: 89571cc2a938707fd60a5489b951135345697296
+      # Reviewed merged engine with required unique Boolean relation projection.
+      # The tests require a clean checkout at this commit and a binding receipt
+      # for the actual binary; downstream policy toolchain pins are independent.
+      AXIOM_RULES_ENGINE_REF: 50215d97ce9b59467d4738b2e872d5253b6e2847
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

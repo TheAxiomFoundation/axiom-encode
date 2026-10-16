@@ -8304,6 +8304,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [IncomeComponent, Household]
   - name: household_income
     kind: derived
     entity: Household

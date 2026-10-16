@@ -4940,6 +4940,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -4997,6 +4998,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -5051,6 +5053,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -37865,6 +37868,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: household_size
     kind: derived
     entity: Household
