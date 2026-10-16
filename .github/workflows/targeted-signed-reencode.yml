@@ -2881,6 +2881,7 @@ jobs:
         id: package_retired_source_metadata_changes
         if: steps.retired_source_metadata_request.outputs.enabled == 'true'
         env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
         run: |
@@ -2889,15 +2890,19 @@ jobs:
           test -x "${workflow_python[0]}"
           artifact="$RUNNER_TEMP/targeted-reencode"
           mkdir -p "$artifact"
+          # The early resolver selects a lane before the protected runtime is
+          # provisioned. Bind publication to the raw dispatch input instead.
+          dispatched_plan="$RUNNER_TEMP/retired-source-metadata-dispatched-plan.json"
+          printf '%s\n' "$ATOMIC_SOURCE_JSON" > "$dispatched_plan"
           "${workflow_python[@]}" \
             axiom-encode/scripts/prepare_retired_source_metadata.py changes \
             --repo "$RULESPEC_CHECKOUT" --base-ref "$RULESPEC_REF" \
-            --request "$RUNNER_TEMP/retired-source-metadata-plan.json" \
+            --request "$dispatched_plan" \
             > "$artifact/retired-source-metadata-changes.json"
           receipt_path="$(jq -r '.receipt_path' \
             "$artifact/retired-source-metadata-changes.json")"
           cp "$RULESPEC_CHECKOUT/$receipt_path" "$artifact/retired-source-metadata-receipt.json"
-          cp "$RUNNER_TEMP/retired-source-metadata-plan.json" "$artifact/retired-source-metadata-plan.json"
+          cp "$dispatched_plan" "$artifact/retired-source-metadata-plan.json"
           cp "$RUNNER_TEMP/retired-source-metadata-report.json" "$artifact/retired-source-metadata-report.json"
           cp "$RUNNER_TEMP/guard-generated.json" "$artifact/guard-generated.json"
           git -C "$RULESPEC_CHECKOUT" diff --binary --full-index \
