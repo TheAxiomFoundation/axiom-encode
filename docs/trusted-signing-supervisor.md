@@ -535,7 +535,9 @@ with the active root. Ordinary
 `guard-generated` diffs require the active root. A scheduled or manual audit of
 an already frozen commit must explicitly use `guard-generated --retrospective`;
 its actual checkout head must equal or precede the trusted cutoff, and its
-`--head-ref` must be `HEAD` or that exact SHA.
+`--head-ref` must resolve to that checkout head (for example `HEAD`, its exact
+SHA, or a branch that points at it); refs are resolved once before any Git
+inspection.
 
 A retired-root manifest at the base of a guard range is admitted only as the
 exact frozen payload (or evidence nested in it), because the inventory holds one

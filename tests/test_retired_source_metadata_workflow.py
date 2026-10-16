@@ -13,6 +13,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+import axiom_encode.cli as cli
+from axiom_encode.harness.evals import resolve_corpus_source_unit
 from axiom_encode.retired_source_metadata import (
     MIGRATION_TOOL,
     PLAN_SCHEMA,
@@ -29,6 +31,13 @@ from axiom_encode.retired_source_metadata_workflow import (
     verify_inventory,
 )
 from scripts.enforce_attempt_budget import is_retired_source_metadata_plan
+from tests.test_cli import (
+    TEST_APPLY_SIGNING_BROKER,
+    TEST_PINNED_ENCODER_IDENTITY,
+    TEST_VALIDATION_WAIVER_SHA256,
+    _bind_test_corpus_release,
+)
+from tests.test_cli import TestGuardGenerated as _GuardFixtures
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/targeted-signed-reencode.yml"
@@ -153,7 +162,19 @@ def test_publication_refuses_without_trusted_interpreter(name: str) -> None:
     command = _step(name)["run"]
     assert "workflow_python=(/opt/axiom-verification/python/bin/python -I)" in command
     assert 'test -x "${workflow_python[0]}"' in command
+    assert '"${workflow_python[@]}"' in command
     assert "AXIOM_TEST_PYTHON" not in command
+
+
+def test_packaging_compares_receipt_with_raw_dispatched_plan() -> None:
+    package = _step("Package retired source metadata migration changes")
+    assert package["env"]["ATOMIC_SOURCE_JSON"] == "${{ inputs.source_bundle_json }}"
+    command = package["run"]
+    assert 'printf \'%s\\n\' "$ATOMIC_SOURCE_JSON" > "$dispatched_plan"' in command
+    assert '--request "$dispatched_plan"' in command
+    assert (
+        'cp "$dispatched_plan" "$artifact/retired-source-metadata-plan.json"' in command
+    )
 
 
 def test_resolver_admits_only_exact_base_bound_plan() -> None:
@@ -201,18 +222,59 @@ def test_model_attempt_budget_cannot_block_deterministic_lane() -> None:
 
 
 @pytest.fixture
-def migrated(tmp_path: Path):
+def migrated(tmp_path: Path, monkeypatch):
     repo = tmp_path / "rulespec-us"
     primary = repo / PRIMARY
     primary.parent.mkdir(parents=True)
-    before = (
-        b"module:\n  source_verification:\n"
-        b"    corpus_citation_path: us/statute/26/1\n"
-        b"    values:\n      old: retained in receipt\n"
-        b"rules: []\n"
+    release = _bind_test_corpus_release(
+        repo, tmp_path / "axiom-corpus", body="test source\n"
     )
+    fixtures = _GuardFixtures()
+    fixtures.source_attestation = resolve_corpus_source_unit(
+        "us/statute/26/1", release
+    ).source_attestation
+    fixtures.source_attestation["generation_input_sha256"] = (
+        fixtures.source_attestation["resolved_text_sha256"]
+    )
+    fixtures.source_attestation["rulespec_root"] = "rulespec-us/us"
+    source_sha256 = fixtures.source_attestation["source_sha256"]
+    before = (
+        "format: rulespec/v1\nmodule:\n  source_verification:\n"
+        "    corpus_citation_path: us/statute/26/1\n"
+        f"    source_sha256: {source_sha256}\n"
+        "    values:\n      old: retained in receipt\n"
+        "rules: []\n"
+    ).encode()
     primary.write_bytes(before)
     primary.chmod(0o644)
+    manifest_relative = cli._applied_encoding_manifest_path(Path(PRIMARY))
+    manifest = repo / manifest_relative
+    manifest.parent.mkdir(parents=True)
+    owner = fixtures._model_manifest(
+        [{"path": PRIMARY, "sha256": hashlib.sha256(before).hexdigest()}]
+    )
+    manifest.write_text(json.dumps(owner) + "\n")
+    manifest.chmod(0o644)
+    owner_bytes = manifest.read_bytes()
+    owner_binding = {
+        "path": manifest_relative.as_posix(),
+        "sha256": hashlib.sha256(owner_bytes).hexdigest(),
+    }
+    monkeypatch.setattr(
+        cli, "_applied_encoding_manifest_verifier", lambda: TEST_APPLY_SIGNING_BROKER
+    )
+    monkeypatch.setattr(
+        cli,
+        "verify_rulespec_validation_waiver_set",
+        lambda *_: TEST_VALIDATION_WAIVER_SHA256,
+    )
+    monkeypatch.setattr(
+        cli,
+        "_current_guard_encoder_execution_identity",
+        lambda: TEST_PINNED_ENCODER_IDENTITY,
+    )
+    monkeypatch.setattr(cli, "load_rulespec_local_corpus_release", lambda *_: release)
+    cli._RETIRED_SOURCE_METADATA_REPLAY_CACHE.clear()
     _git(repo, "init", "-q")
     _git(repo, "-c", "user.name=Test", "-c", "user.email=test@example.com", "add", "-A")
     _git(
@@ -233,7 +295,8 @@ def migrated(tmp_path: Path):
     migration = build_migration(
         load_plan_bytes(request.read_bytes()),
         base_tree=tree,
-        base_files={PRIMARY: before},
+        base_files={PRIMARY: before, manifest_relative.as_posix(): owner_bytes},
+        prior_manifests={PRIMARY: owner_binding},
     )
     for item in migration.files:
         (repo / item.path).write_bytes(item.after)
@@ -241,8 +304,6 @@ def migrated(tmp_path: Path):
     receipt.parent.mkdir(parents=True)
     receipt.write_bytes(migration.receipt_bytes)
     receipt.chmod(0o644)
-    manifest = repo / ".axiom/encoding-manifests" / Path(PRIMARY).with_suffix(".json")
-    manifest.parent.mkdir(parents=True)
     manifest.write_text(
         json.dumps(
             {
@@ -257,6 +318,7 @@ def migrated(tmp_path: Path):
                     "receipt_path": migration.receipt_relative.as_posix(),
                     "receipt_sha256": migration.receipt_sha256,
                 },
+                "prior_manifest": {**owner_binding, "manifest": owner},
             }
         )
     )

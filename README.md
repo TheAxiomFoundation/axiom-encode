@@ -352,8 +352,16 @@ Repository CI should run:
 axiom-encode guard-generated \
   --repo "$GITHUB_WORKSPACE" \
   --corpus-path "$AXIOM_CORPUS_PATH" \
+  --base-ref "$PROTECTED_BASE_REF" \
   --all
 ```
+
+CI must supply `PROTECTED_BASE_REF` from its trusted review or dispatch context.
+When retired source metadata migration receipts are present, `--all` requires
+this protected base to admit each receipt's complete transaction, including
+every rewritten importer and replacement owner. The receipt's own
+`base_commit` does not establish which base CI trusts. Without an explicit
+protected base, the guard refuses the receipt and names its path.
 
 That guard protects atomic RuleSpec YAML under `legislation/`, `policies/`,
 `regulations/`, and `statutes/` unless it matches a root-owned encoder apply
