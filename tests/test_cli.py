@@ -44040,6 +44040,9 @@ class TestGuardGenerated:
     ):
         _relative, manifest_relative = self._receipt_only_manifest(tmp_path)
         (tmp_path / manifest_relative).unlink()
+        # The shared fixture initialises Git without a commit; this case is the
+        # Git-less checkout, whose base receipt cannot be inspected.
+        shutil.rmtree(tmp_path / ".git", ignore_errors=True)
 
         def unexpected_verification(*_args, **_kwargs):
             pytest.fail("an uninspectable base must fail before manifest verification")

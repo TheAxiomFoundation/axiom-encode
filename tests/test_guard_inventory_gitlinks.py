@@ -500,8 +500,10 @@ class TestGuardInventoryGitlinks:
             head_ref="nonexistent-inventory-ref" if invalid_side == "head" else "HEAD",
         )
 
-        location = "immutable base" if invalid_side == "base" else "head"
+        # Guard refs are resolved and frozen before any inventory query, so the
+        # invalid ref is refused there, before it can approve anything.
         assert any(
-            f"Cannot inspect the {location} provenance inventory" in issue
+            f"Cannot resolve guard {invalid_side}_ref 'nonexistent-inventory-ref'"
+            in issue
             for issue in issues
         ), issues
