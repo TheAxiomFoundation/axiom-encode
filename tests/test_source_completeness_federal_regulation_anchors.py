@@ -155,15 +155,16 @@ def test_saved_457_800_rejection_now_evaluates_generated_cfr_deferrals():
 
     issues = _analyze(content, source, recorded["citation"], tests).issues
 
+    # Both reasons cite their branch as `42 CFR 457.800(a)` / `(b)`, which now
+    # binds the exact branch; neither states a bounded dependency, runtime gap,
+    # repeal, or non-operative assertion, so both remain imprecise.
     for index, branch in enumerate(("a", "b")):
         assert any(
             issue.startswith("[complete-source-unit:deferral] ")
             and f"`module.deferred_outputs[{index}]` identifies source branch "
             f"({branch})"
             in issue
-            and "literal canonical citation required in `reason` is "
-            f"`us/regulation/42/457/800({branch})`"
-            in issue
+            and "branch citation in `reason` is already recognized" in issue
             for issue in issues
         ), issues
 
@@ -229,15 +230,55 @@ rules: []
     assert not result.issues
 
 
-def test_federal_regulation_retry_shape_names_literal_canonical_citation():
-    content = """\
+@pytest.mark.parametrize(
+    "citation",
+    (
+        "42 CFR 457.622(a)",
+        "42 C.F.R. 457.622(a)",
+        "42 CFR § 457.622(a)",
+        "42 C.F.R. § 457.622 (a)",
+    ),
+)
+def test_federal_regulation_repeal_accepts_conventional_cfr_citation(citation):
+    content = f"""\
 format: rulespec/v1
 module:
   source_verification:
     corpus_citation_path: us/regulation/42/457/622
   deferred_outputs:
     - output: us:regulations/42-cfr/457/622/a#repealed_paragraph
-      reason: 42 CFR 457.622(a) is repealed.
+      reason: {citation} is repealed.
+rules: []
+"""
+
+    result = _analyze(content, "(a) Repealed.", "us/regulation/42/457/622", [])
+
+    assert not result.issues
+
+
+@pytest.mark.parametrize(
+    "citation",
+    (
+        # Wrong title, part, section, paragraph, or an extra descendant marker.
+        "43 CFR 457.622(a)",
+        "42 CFR 456.622(a)",
+        "42 CFR 457.6221(a)",
+        "42 CFR 457.62(a)",
+        "42 CFR 457.622(b)",
+        "42 CFR 457.622(a)(1)",
+        "142 CFR 457.622(a)",
+        "42 U.S.C. 457.622(a)",
+    ),
+)
+def test_federal_regulation_repeal_rejects_inexact_cfr_citation(citation):
+    content = f"""\
+format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/457/622
+  deferred_outputs:
+    - output: us:regulations/42-cfr/457/622/a#repealed_paragraph
+      reason: {citation} is repealed.
 rules: []
 """
 
@@ -245,8 +286,8 @@ rules: []
 
     assert any(
         "`module.deferred_outputs[0]` identifies source branch (a)" in issue
-        and "literal canonical citation required in `reason` is "
-        "`us/regulation/42/457/622(a)`"
+        and "the literal citation required in `reason` is `42 CFR 457.622(a)` "
+        "(or `us/regulation/42/457/622(a)`)"
         in issue
         for issue in issues
     ), issues
@@ -265,10 +306,77 @@ def test_deferral_anchors_end_at_the_encoder_module_root(citation):
 
 
 @pytest.mark.parametrize("citation", OTHER_CITATIONS)
-def test_deferral_anchors_unchanged_outside_numbered_federal_regulations(citation):
-    assert completeness_module._deferral_anchor_bases(citation) == (
-        completeness_module._rulespec_target_base(citation),
+def test_deferral_anchors_add_only_a_differing_us_encoder_module_root(citation):
+    anchors = completeness_module._deferral_anchor_bases(citation)
+    base = completeness_module._rulespec_target_base(citation)
+
+    assert anchors[0] == base
+    if citation.split("/", 1)[0] in {"us"} or citation.startswith("us-"):
+        assert anchors[-1] == _module_root(citation)
+        assert anchors == tuple(dict.fromkeys((base, _module_root(citation))))
+    else:
+        assert anchors == (base,)
+
+
+@pytest.mark.parametrize(
+    ("citation", "module_root"),
+    (
+        (
+            "us/form/cms/medicaid-chip-bhp-eligibility-levels/block-1",
+            "us:policies/cms/medicaid-chip-bhp-eligibility-levels/block-1",
+        ),
+        (
+            "us-nc/manual/dhhs/fns/appendix-3100/page-1",
+            "us-nc:policies/dhhs/fns/appendix-3100/page-1",
+        ),
+        ("us-ca/regulation/mpp/63-300.1", "us-ca:regulations/mpp/63-300/1"),
+    ),
+)
+def test_manual_form_and_dotted_state_regulation_deferrals_are_not_dropped(
+    citation, module_root
+):
+    """A precise repeal deferral at the encoder module root covers its branch;
+    an imprecise one at that root is reported instead of silently ignored."""
+
+    source = "(a) Repealed.\n\n(b) Repealed."
+    branches = recognize_source_structure(source, corpus_citation_path=citation)
+    assert completeness_module._deferral_anchor_bases(citation)[-1] == module_root
+
+    precise = _deferral_payload(
+        citation, [(f"{module_root}/a#repealed", f"{citation}(a) is repealed.")]
     )
+    covered, issues = completeness_module._deferred_coverage(
+        precise, corpus_citation_path=citation, source_text=source, branches=branches
+    )
+    assert ("a",) in covered and not issues
+
+    vague = _deferral_payload(citation, [(f"{module_root}/b#deferred", "Unavailable.")])
+    covered, issues = completeness_module._deferred_coverage(
+        vague, corpus_citation_path=citation, source_text=source, branches=branches
+    )
+    assert not covered
+    assert any("`module.deferred_outputs[0]`" in issue for issue in issues)
+
+    unrelated = _deferral_payload(
+        citation,
+        [(f"{citation.partition('/')[0]}:policies/other/a#repealed", "Repealed.")],
+    )
+    covered, _issues = completeness_module._deferred_coverage(
+        unrelated,
+        corpus_citation_path=citation,
+        source_text=source,
+        branches=branches,
+    )
+    assert not covered
+
+    # A record named only at the module root claims no source branch; it keeps
+    # its earlier treatment there (neither coverage nor an issue).
+    root_only = _deferral_payload(
+        citation, [(f"{module_root}#deferred", "Unavailable.")]
+    )
+    assert completeness_module._deferred_coverage(
+        root_only, corpus_citation_path=citation, source_text=source, branches=branches
+    ) == (set(), [])
 
 
 @pytest.mark.parametrize(
@@ -300,9 +408,9 @@ def test_deferred_coverage_is_invariant_to_anchor_root(citation, path, precise):
     assert len(results) == 2
     assert results[0] == results[1]
     covered, issues = results[0]
-    # The repeal predicate does not read dotted CFR section citations
-    # (`us/regulation/7/1.36B-2(a)`) at either root; that is unchanged here.
-    if precise and path in REPEALED_LEAF_PATHS and "." not in citation:
+    # Periods inside a canonical citation (`us/regulation/7/1.36B-2(a)`) are
+    # not clause boundaries, so dotted sections bind like the others.
+    if precise and path in REPEALED_LEAF_PATHS:
         assert path in covered and not issues
     elif not precise:
         assert not covered
