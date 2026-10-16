@@ -43,6 +43,12 @@ API_VERSION = "2026-03-10"
 
 ENCODE_WORKFLOW = "targeted-signed-reencode.yml"
 BUDGET_JOB = "Enforce failed-attempt budget"
+# Refuses, before approval and model spend, a run whose encoder the rulespec
+# pin cannot admit. Every run against that rulespec tip fails the same way.
+ADMISSION_JOB = "Check RuleSpec encoder pin admission"
+ADMISSION_STEP = "Refuse an encoder the RuleSpec pin cannot admit"
+# How long a pin-admission refusal holds dispatch on an unchanged rulespec tip.
+INADMISSIBLE_HOLD = timedelta(hours=24)
 RUN_TITLE_PREFIX = "Targeted signed RuleSpec re-encode [adhoc:adhoc:adhoc] "
 DISPATCH_ACTOR = "github-actions[bot]"
 INVENTORY_PATH = "manifests/state-snap-manual-agent-queue.yaml"
@@ -707,6 +713,7 @@ class Failure:
     budget_exhausted: bool
     step: str | None
     where: str
+    encoder_inadmissible: bool = False
 
 
 def describe_failure(github: GitHub, repo: str, run_id: int) -> Failure:
@@ -719,6 +726,17 @@ def describe_failure(github: GitHub, repo: str, run_id: int) -> Failure:
         job.get("name") == BUDGET_JOB and job.get("conclusion") == "failure"
         for job in jobs
     )
+    # Only the refusal step itself; a checkout or runner failure in that job
+    # is an ordinary failure, not a verdict on the pin.
+    encoder_inadmissible = any(
+        job.get("name") == ADMISSION_JOB
+        and job.get("conclusion") == "failure"
+        and any(
+            step.get("name") == ADMISSION_STEP and step.get("conclusion") == "failure"
+            for step in job.get("steps") or []
+        )
+        for job in jobs
+    )
     for job in jobs:
         if job.get("conclusion") not in COUNTED_FAILURES:
             continue
@@ -729,9 +747,13 @@ def describe_failure(github: GitHub, repo: str, run_id: int) -> Failure:
         ]
         name = job.get("name", "?")
         if steps:
-            return Failure(budget_exhausted, steps[0], f"{name}: {steps[0]}")
-        return Failure(budget_exhausted, None, name)
-    return Failure(budget_exhausted, None, "no failed step reported")
+            return Failure(
+                budget_exhausted, steps[0], f"{name}: {steps[0]}", encoder_inadmissible
+            )
+        return Failure(budget_exhausted, None, name, encoder_inadmissible)
+    return Failure(
+        budget_exhausted, None, "no failed step reported", encoder_inadmissible
+    )
 
 
 def pr_step_failed(github: GitHub, repo: str, run_id: int) -> bool:
@@ -1100,6 +1122,16 @@ def reconcile_dispatched(
         elif failure.budget_exhausted:
             item["status"] = "blocked"
             item["note"] = "the encode workflow's failed-attempt budget is used up"
+        elif failure.encoder_inadmissible:
+            # Refused before approval and model spend; the rulespec pin, not
+            # the item, has to change. Not an attempt.
+            attempt["result"] = "encoder-inadmissible"
+            item["status"] = "pending"
+            events.append(
+                f"held {item['citation']}: the rulespec encoder pin does not "
+                "admit the encoder; not counted"
+            )
+            return None
         elif moved and failure.step in STALE_BASE_STEPS:
             attempt["result"] = "stale-base"
             events.append(f"retrying {item['citation']}: rulespec main moved mid-run")
@@ -1181,6 +1213,13 @@ def tick(
 
     dispatched: list[dict[str, Any]] = []
     hold = None
+    inadmissible_on_tip = any(
+        attempt.get("result") == "encoder-inadmissible"
+        and attempt.get("rulespec_ref") == target.rulespec_ref
+        and now - _parse_iso(attempt["dispatched_at"]) < INADMISSIBLE_HOLD
+        for item in state["items"]
+        for attempt in item["attempts"]
+    )
     if state["state"] != "active":
         hold = "queue is paused"
     elif target.corpus_release != state["build"]["corpus_release"]:
@@ -1188,6 +1227,12 @@ def tick(
             f"rulespec-us main now pins corpus release {target.corpus_release}, "
             f"but this queue was built from {state['build']['corpus_release']}; "
             "it needs rebuilding from the new release before dispatching more"
+        )
+    elif inadmissible_on_tip:
+        hold = (
+            f"the encoder pin of rulespec-us `{target.rulespec_ref}` does not admit "
+            "axiom-encode main (Check RuleSpec encoder pin admission); dispatch "
+            "resumes when rulespec main moves or after a day"
         )
     else:
         # A tick whose state push failed leaves runs nobody recorded; adopt
@@ -1321,8 +1366,10 @@ def requeue(state: dict[str, Any], citation: str, *, now: datetime) -> None:
     if "attempt budget" in item.get("note", ""):
         print(
             f"::warning::{citation} hit the encode workflow's own failed-attempt "
-            "budget; raise it in ATTEMPT_BUDGET_BY_CITATION_JSON first or the "
-            "next run is blocked again",
+            "budget; raise it in ATTEMPT_BUDGET_BY_CITATION_JSON first (or, "
+            "after two failures with the same final rule codes, add the "
+            "citation to REPEATED_FAILURE_OVERRIDE_JSON) or the next run is "
+            "blocked again",
             file=sys.stderr,
         )
     item["status"] = "pending"
