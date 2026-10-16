@@ -75,6 +75,118 @@ def git(repo: Path, *args: str) -> str:
     ).stdout.strip()
 
 
+@pytest.fixture(params=["clean", "foreign", "missing"])
+def ambient_git(tmp_path, monkeypatch, request):
+    for name in tuple(os.environ):
+        if name.startswith("GIT_"):
+            monkeypatch.delenv(name)
+    if request.param == "clean":
+        return
+    foreign = tmp_path / "foreign"
+    if request.param == "foreign":
+        foreign.mkdir()
+        git(foreign, "init")
+        git(
+            foreign,
+            "-c",
+            "user.name=Foreign checkout",
+            "-c",
+            "user.email=foreign@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "foreign history",
+        )
+    monkeypatch.setenv("GIT_DIR", str(foreign / ".git"))
+
+
+@pytest.mark.parametrize("all_files", [False, True], ids=["explicit_files", "all"])
+def test_guard_gitless_default_refs_run_worktree_verification(
+    checkout, monkeypatch, ambient_git, all_files
+):
+    shutil.rmtree(checkout.repo / ".git")
+    calls = []
+    real_run = subprocess.run
+
+    def capture(command, **kwargs):
+        calls.append(command)
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(cli.subprocess, "run", capture)
+    assert (
+        cli.guard_generated_change_issues(
+            checkout.repo,
+            corpus_path=checkout.args.corpus_path,
+            changed_files=[],
+            all_files=all_files,
+        )
+        == []
+    )
+    assert not any(command[-1] == "HEAD^{commit}" for command in calls), calls
+
+
+@pytest.mark.parametrize("argument", ["base_ref", "head_ref"])
+def test_guard_gitless_explicit_refs_are_refused(checkout, ambient_git, argument):
+    shutil.rmtree(checkout.repo / ".git")
+    ref = "HEAD" if argument == "base_ref" else "reviewed-head"
+    issues = cli.guard_generated_change_issues(
+        checkout.repo,
+        corpus_path=checkout.args.corpus_path,
+        changed_files=[],
+        **{argument: ref},
+    )
+    assert issues == [
+        f"Cannot resolve guard {argument} {ref!r} without a Git repository"
+    ]
+
+
+def test_guard_gitless_retrospective_is_refused(checkout, ambient_git):
+    shutil.rmtree(checkout.repo / ".git")
+    issues = cli.guard_generated_change_issues(
+        checkout.repo,
+        corpus_path=checkout.args.corpus_path,
+        changed_files=[],
+        retrospective=True,
+    )
+    assert issues == ["Retrospective guard requires a Git repository to freeze history"]
+
+
+@pytest.mark.parametrize("git_entry", ["malformed", "dangling_symlink"])
+def test_guard_damaged_git_metadata_does_not_enable_gitless_fallback(
+    tmp_path, git_entry
+):
+    repo = tmp_path / "rulespec-us"
+    repo.mkdir()
+    if git_entry == "malformed":
+        (repo / ".git").write_text("gitdir: missing\n")
+    else:
+        (repo / ".git").symlink_to(repo / "missing")
+    issues = cli.guard_generated_change_issues(
+        repo, corpus_path=tmp_path / "corpus", changed_files=[]
+    )
+    assert len(issues) == 1
+    assert issues[0].startswith("Cannot inspect guard Git repository:"), issues
+
+
+def test_guard_git_probe_refusal_does_not_enable_gitless_fallback(
+    tmp_path, monkeypatch
+):
+    def refuse(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command, 128, b"", b"fatal: detected dubious ownership in repository"
+        )
+
+    monkeypatch.setattr(cli.subprocess, "run", refuse)
+    issues = cli.guard_generated_change_issues(
+        tmp_path, corpus_path=tmp_path / "corpus", changed_files=[]
+    )
+    assert issues == [
+        "Cannot inspect guard Git repository: "
+        "fatal: detected dubious ownership in repository"
+    ]
+
+
+@pytest.mark.parametrize("git_checkout", [False, True], ids=["gitless", "git"])
 @pytest.mark.parametrize("all_files", [False, True], ids=["diff", "all_with_base"])
 @pytest.mark.parametrize("argument", ["base_ref", "head_ref"])
 @pytest.mark.parametrize(
@@ -83,8 +195,10 @@ def git(repo: Path, *args: str) -> str:
     + [f"HEAD{control}" for control in ("\x00", "\n", "\r", "\t", "\x7f", "\x85")],
 )
 def test_guard_ref_arguments_cannot_be_git_options(
-    checkout, monkeypatch, all_files, argument, ref
+    checkout, monkeypatch, git_checkout, all_files, argument, ref
 ):
+    if not git_checkout:
+        shutil.rmtree(checkout.repo / ".git")
     calls = []
     real_run = subprocess.run
 
@@ -114,7 +228,7 @@ def test_guard_ref_arguments_cannot_be_git_options(
 
 @pytest.mark.parametrize("all_files", [False, True], ids=["diff", "all_with_base"])
 def test_guard_freezes_symbolic_refs_before_transaction_queries(
-    checkout, capsys, monkeypatch, all_files
+    checkout, capsys, monkeypatch, ambient_git, all_files
 ):
     migrate(checkout, capsys)
     git(checkout.repo, "add", ".")

@@ -77,7 +77,7 @@ class TestGuardInventoryCaseAliases:
             lambda *_: TEST_PINNED_ENCODER_IDENTITY,
         )
 
-    def _guard(self, repo, monkeypatch, *, allow_uninspectable=False, **options):
+    def _guard(self, repo, monkeypatch, **options):
         tools = repo.parent / "case-alias-trusted-tools"
         if not tools.exists():
             tools.mkdir()
@@ -89,10 +89,7 @@ class TestGuardInventoryCaseAliases:
             issues = cli.guard_generated_change_issues(
                 repo, corpus_path=self.corpus_path, **options
             )
-        if not allow_uninspectable:
-            assert not any("cannot inspect" in issue.casefold() for issue in issues), (
-                issues
-            )
+        assert not any("cannot inspect" in issue.casefold() for issue in issues), issues
         return issues
 
     def _canonical_base(self, repo):
@@ -325,29 +322,31 @@ class TestGuardInventoryCaseAliases:
 
         assert any(relative in issue for issue in issues), issues
 
+    @pytest.mark.parametrize("foreign_git", [False, True])
     @pytest.mark.parametrize("all_files", [False, True])
     def test_absent_explicit_alias_is_refused_without_git_repository(
-        self, tmp_path, monkeypatch, all_files
+        self, tmp_path, monkeypatch, all_files, foreign_git
     ):
         self._receipt_only_manifest(tmp_path)
         relative = f".axiom/legacy-replacements/{_RECEIPT_NAME}.Json"
         assert not (tmp_path / relative).exists()
         # The shared fixture initialises Git; remove it to model a checkout
-        # without a repository. Guard refs are resolved before any file check,
-        # so such a checkout is refused outright, which also refuses the alias.
+        # without a repository.
+        if foreign_git:
+            foreign = tmp_path.parent / "foreign-git"
+            shutil.copytree(tmp_path / ".git", foreign)
+            monkeypatch.setenv("GIT_DIR", str(foreign))
         shutil.rmtree(tmp_path / ".git", ignore_errors=True)
         assert not (tmp_path / ".git").exists()
 
         issues = self._guard(
             tmp_path,
             monkeypatch,
-            allow_uninspectable=True,
             changed_files=[relative],
             all_files=all_files,
         )
 
-        assert issues, "a checkout without Git must be refused"
-        assert any("Cannot resolve guard head_ref" in issue for issue in issues), issues
+        assert any(relative in issue for issue in issues), issues
 
     @pytest.mark.parametrize("all_files", [False, True])
     def test_signed_receipt_cannot_hide_noncanonical_ancestor_suffix(

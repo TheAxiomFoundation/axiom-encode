@@ -23018,6 +23018,7 @@ def cmd_retire(args):
 
 
 @retired_apply_operation()
+@_rulespec_migration_clean_ambient_git()
 def guard_generated_change_issues(
     repo_path: Path,
     *,
@@ -23038,7 +23039,10 @@ def guard_generated_change_issues(
     repo_path = Path(repo_path).resolve()
     try:
         base_ref, head_ref = _resolve_guard_git_refs(
-            repo_path, base_ref=base_ref, head_ref=head_ref
+            repo_path,
+            base_ref=base_ref,
+            head_ref=head_ref,
+            retrospective=retrospective,
         )
     except (OSError, ValueError, RuntimeError) as exc:
         return [str(exc)]
@@ -23368,6 +23372,7 @@ def _guard_base_receipt_tree(repo_path: Path, base_ref: str) -> _GuardBaseReceip
                 base_ref,
             ],
             capture_output=True,
+            env=_rulespec_migration_git_environment(),
             check=False,
         )
     except OSError:
@@ -23429,6 +23434,7 @@ def _guard_base_receipt_bytes(
         completed = subprocess.run(
             ["git", "-C", str(repo_path), "cat-file", "blob", object_id],
             capture_output=True,
+            env=_rulespec_migration_git_environment(),
             check=False,
         )
         if completed.returncode or len(completed.stdout) != size:
@@ -23558,9 +23564,8 @@ def _guard_changed_manifest_coverage_issues(
     )
     if not manifest_paths:
         return []
-    # Fail-closed fallback: guard callers resolve refs first, so a checkout
-    # without Git is refused earlier. An absent receipt cannot establish that it
-    # had no protected-base owner.
+    # Gitless explicit additions still receive the normal head verification.
+    # An absent receipt cannot establish that it had no protected-base owner.
     if base_ref is None and not (repo_path / ".git").exists():
         return [
             f"{path} cannot inspect its immutable base receipt"
@@ -23910,8 +23915,7 @@ def _guard_provenance_inventory_git_issues(
     index stage, including when callers supply their own changed-file list.
     """
 
-    # Guard callers resolve their refs first, so a checkout without Git is
-    # refused before this point; this branch stays as a fail-closed fallback.
+    # Explicit-file verification also supports not-yet-initialized checkouts.
     if not (repo_path / ".git").exists():
         return _guard_provenance_worktree_case_issues(repo_path)
     # Match the production trusted-git wrapper's exact full-tree query shape.
@@ -24597,9 +24601,13 @@ def _all_applied_encoding_manifest_paths(
 
 
 def _resolve_guard_git_refs(
-    repo_path: Path, *, base_ref: str | None, head_ref: str
+    repo_path: Path,
+    *,
+    base_ref: str | None,
+    head_ref: str,
+    retrospective: bool = False,
 ) -> tuple[str | None, str]:
-    """Freeze caller-selected refs once before any guard query can use them."""
+    """Freeze selected refs, preserving default verification without Git history."""
 
     refs = {"base_ref": base_ref, "head_ref": head_ref}
     for label, ref in refs.items():
@@ -24617,6 +24625,37 @@ def _resolve_guard_git_refs(
             )
     commits: dict[str, str] = {}
     with _rulespec_migration_clean_ambient_git():
+        probe = subprocess.run(
+            ["git", "-C", str(repo_path), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True,
+            env={**_rulespec_migration_git_environment(), "LC_ALL": "C"},
+            check=False,
+        )
+        if probe.returncode != 0:
+            # Only a confirmed absence admits worktree-only verification;
+            # damaged metadata and other Git refusals must remain failures.
+            git_entry = repo_path / ".git"
+            if (
+                git_entry.exists()
+                or git_entry.is_symlink()
+                or not probe.stderr.startswith(b"fatal: not a git repository")
+            ):
+                raise ValueError(
+                    "Cannot inspect guard Git repository: "
+                    + os.fsdecode(probe.stderr).strip()
+                )
+            if retrospective:
+                raise ValueError(
+                    "Retrospective guard requires a Git repository to freeze history"
+                )
+            for label, ref in refs.items():
+                if ref is not None and (label == "base_ref" or ref != "HEAD"):
+                    raise ValueError(
+                        f"Cannot resolve guard {label} {ref!r} without a Git repository"
+                    )
+            return base_ref, head_ref
+        if probe.stdout.strip() != b"true":
+            raise ValueError("Guard requires a Git working tree")
         for label, ref in refs.items():
             if ref is None or ref in commits:
                 continue
