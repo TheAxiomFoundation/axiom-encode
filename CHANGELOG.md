@@ -1,3 +1,7 @@
+## 0.2.2213
+
+- Demand every source-stated threshold of a conjoined condition as a companion-test boundary. `less than $500 and whose net income is less than $300` used to demand only `$300`, so a wrong `<=` on `$500` passed; each dropped threshold is now demanded with its own comparator's direction and inclusivity.
+
 ## 0.2.2183
 
 - Repair source-verification metadata emitted for generated overlay targets during protected apply while preserving source-bound validation.
