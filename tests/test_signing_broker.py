@@ -20,6 +20,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from axiom_encode.corpus_release import RELEASE_OBJECT_PUBLIC_KEY_ENV
+from axiom_encode.retired_apply import validate_retired_apply_inventory
 from axiom_encode.signing_broker import (
     APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV,
     BROKER_FD_ENV,
@@ -310,27 +311,63 @@ def _client_for_status(status: dict[str, object]) -> SigningBrokerClient:
         raise
 
 
-def test_broker_preserves_retired_roots_and_copies_frozen_inventory() -> None:
+def test_broker_preserves_retired_roots_and_indexes_inventory_once() -> None:
     status = _base_protocol_status()
     inventory = _frozen_status_inventory()
     status["retired_apply_public_keys"] = [b64encode(b"d" * 32).decode()]
     status["retired_apply_inventory"] = inventory
-    client = _client_for_status(status)
-    try:
-        assert client.capabilities == frozenset()
-        assert client.apply_public_key_raw == b"a" * 32
-        assert client.retired_apply_public_keys_raw == (b"d" * 32,)
-        assert client.retired_apply_inventory == inventory
-        inventory["schema"] = "caller-mutated"
-        exposed = client.retired_apply_inventory
-        assert exposed is not None
-        exposed["schema"] = "caller-mutated"
-        assert (
-            client.retired_apply_inventory["schema"]
-            == "axiom-encode/retired-apply-inventory/v1"
-        )
-    finally:
-        client.close()
+    with patch(
+        "axiom_encode.retired_apply.validate_retired_apply_inventory",
+        wraps=validate_retired_apply_inventory,
+    ) as validate:
+        client = _client_for_status(status)
+        try:
+            assert client.capabilities == frozenset()
+            assert client.apply_public_key_raw == b"a" * 32
+            assert client.retired_apply_public_keys_raw == (b"d" * 32,)
+            exposed = client.retired_apply_inventory
+            assert exposed is not None
+            assert not hasattr(exposed, "__dict__")
+            exposed.__init__(inventory)  # Tuple initialization cannot replace data.
+            with pytest.raises(AttributeError):
+                exposed._repositories = {}
+            repository = exposed["TheAxiomFoundation/rulespec-us"]
+            artifacts = repository["artifacts"]
+            artifact = artifacts[".axiom/encoding-manifests/frozen.json"]
+            covered = artifact["covered_files"]
+            assert repository["cutoff_commit"] == "a" * 40
+            assert artifact["sha256"] == "b" * 64
+            assert covered == ({"path": "statute/frozen.yaml", "sha256": "c" * 64},)
+            with pytest.raises(TypeError):
+                exposed["TheAxiomFoundation/rulespec-us"] = repository
+            with pytest.raises(TypeError):
+                repository["cutoff_commit"] = "d" * 40
+            with pytest.raises(TypeError):
+                artifacts[artifact["path"]] = artifact
+            with pytest.raises(TypeError):
+                artifact["sha256"] = "d" * 64
+            with pytest.raises(TypeError):
+                covered[0] = {"path": "changed.yaml", "sha256": "d" * 64}
+            with pytest.raises(TypeError):
+                covered[0]["sha256"] = "d" * 64
+            raw_repository = inventory["repositories"][0]
+            raw_artifact = raw_repository["artifacts"][0]
+            raw_covered = raw_artifact["covered_files"][0]
+            inventory["schema"] = "caller-mutated"
+            raw_repository["cutoff_commit"] = "d" * 40
+            raw_artifact["sha256"] = "d" * 64
+            raw_covered["sha256"] = "d" * 64
+            raw_artifact["covered_files"].clear()
+            raw_repository["artifacts"].clear()
+            inventory["repositories"].clear()
+            assert repository["cutoff_commit"] == "a" * 40
+            assert artifact["sha256"] == "b" * 64
+            assert covered == ({"path": "statute/frozen.yaml", "sha256": "c" * 64},)
+            for _ in range(10):
+                assert client.retired_apply_inventory is exposed
+            assert validate.call_count == 1
+        finally:
+            client.close()
 
 
 @pytest.mark.parametrize(
