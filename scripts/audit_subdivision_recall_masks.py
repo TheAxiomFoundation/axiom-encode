@@ -225,11 +225,97 @@ def exact_glued_quantity_guard_assignment(old, new, unit_word):
     )
 
 
+def module_bound_names(node: ast.AST) -> set[str]:
+    """Collect module bindings without mistaking nested local scopes for them."""
+
+    class Bindings(ast.NodeVisitor):
+        def __init__(self):
+            self.names = set()
+
+        def visit_Name(self, node):
+            if isinstance(node.ctx, (ast.Store, ast.Del)):
+                self.names.add(node.id)
+
+        def visit_Import(self, node):
+            self.names.update(
+                alias.asname or alias.name.split(".")[0] for alias in node.names
+            )
+
+        def visit_ImportFrom(self, node):
+            self.names.update(alias.asname or alias.name for alias in node.names)
+
+        def visit_FunctionDef(self, node):
+            self.names.add(node.name)
+            # Defaults, annotations and decorators execute in the outer scope.
+            self.visit(node.args)
+            if node.returns is not None:
+                self.visit(node.returns)
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_ClassDef(self, node):
+            self.names.add(node.name)
+            for expression in [*node.bases, *node.keywords, *node.decorator_list]:
+                self.visit(expression)
+
+            def class_globals(children):
+                for child in children:
+                    if isinstance(child, ast.Global):
+                        yield from child.names
+                    elif not isinstance(
+                        child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+                    ):
+                        yield from class_globals(ast.iter_child_nodes(child))
+
+            # Class bodies execute immediately. Conservatively reserve their
+            # declared globals, while allowing ordinary class/method locals.
+            self.names.update(class_globals(node.body))
+
+        def visit_Lambda(self, node):
+            self.visit(node.args)
+
+        def visit_comprehension(self, node):
+            # Comprehension targets are local; assignment expressions in their
+            # values, iterables or conditions can still bind the outer scope.
+            self.visit(node.iter)
+            for condition in node.ifs:
+                self.visit(condition)
+
+        def visit_ExceptHandler(self, node):
+            if node.name is not None:
+                self.names.add(node.name)
+            self.generic_visit(node)
+
+        def visit_MatchAs(self, node):
+            if node.name is not None:
+                self.names.add(node.name)
+            self.generic_visit(node)
+
+        visit_MatchStar = visit_MatchAs
+
+        def visit_MatchMapping(self, node):
+            if node.rest is not None:
+                self.names.add(node.rest)
+            self.generic_visit(node)
+
+    bindings = Bindings()
+    bindings.visit(node)
+    return bindings.names
+
+
 def isolate_entry_masks(baseline_path: Path):
     """Prove inherited cleanup is unchanged and extract only the inserted masks."""
     old_tree = ast.parse(baseline_path.read_text())
     new_tree = ast.parse(Path(current.__file__).read_text())
-    existing = {ast.dump(node, include_attributes=False) for node in new_tree.body}
+    old_nodes = {
+        node: ast.dump(node, include_attributes=False) for node in old_tree.body
+    }
+    new_nodes = {
+        node: ast.dump(node, include_attributes=False) for node in new_tree.body
+    }
+    existing = set(new_nodes.values())
 
     def assignment(tree, name):
         found = [
@@ -252,7 +338,7 @@ def isolate_entry_masks(baseline_path: Path):
     for node in old_tree.body:
         if getattr(node, "name", None) == "authoritative_numeric_recall_text":
             continue
-        if ast.dump(node, include_attributes=False) not in existing:
+        if old_nodes[node] not in existing:
             if node is old_marker:
                 continue
             raise ValueError("An existing definition outside recall cleanup changed")
@@ -306,6 +392,27 @@ def isolate_entry_masks(baseline_path: Path):
         ast.Module(body=prefix, type_ignores=[]), include_attributes=False
     ) != ast.dump(expected_masks, include_attributes=False):
         raise ValueError("Entry masks are not the exact permitted insertions")
+    baseline_names = module_bound_names(old_tree)
+    unmatched_baseline = Counter(
+        old_nodes[node]
+        for node in old_tree.body
+        if node is not old_marker and node is not old_function
+    )
+    for node in new_tree.body:
+        key = new_nodes[node]
+        if unmatched_baseline[key]:
+            unmatched_baseline[key] -= 1
+            continue
+        if node is new_marker or node is new_function:
+            # Both replacements have already passed their exact-change guards.
+            continue
+        bound_names = module_bound_names(node)
+        shadowed = baseline_names & bound_names
+        if shadowed or "*" in bound_names:
+            raise ValueError(
+                "A new top-level node shadows a baseline binding: "
+                + ", ".join(sorted(shadowed or {"*"}))
+            )
     wrapper = copy.deepcopy(new_function)
     wrapper.name = "_audit_entry_masks"
     wrapper.body = prefix + [

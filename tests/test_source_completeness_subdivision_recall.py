@@ -150,8 +150,24 @@ def test_unknown_money_markers_never_become_geography_identifiers(marker, gap):
     )
 
 
-@pytest.mark.parametrize("source", ("subdivision 2.5", "subdivision 2,500"))
+@pytest.mark.parametrize(
+    "source",
+    (
+        "subdivision 2.5",
+        "subdivision 2,500",
+        "subdivision 2:30",
+        "subdivision 2;3",
+    ),
+)
 def test_subdivision_mask_requires_a_complete_locator(source):
+    assert _clean(source) == source
+
+
+@pytest.mark.parametrize(
+    "source",
+    ("subdivision 2m, 3 members must qualify.", "Subdivision a3b applies."),
+)
+def test_ambiguous_subdivision_labels_keep_every_number(source):
     assert _clean(source) == source
 
 
