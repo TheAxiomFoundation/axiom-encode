@@ -37,6 +37,9 @@
 ## 0.2.2212
 
 - Count a case pair as the witness for a source exception only when the toggled input matches the exception's own controlling condition, not words in its consequence (7 CFR 273.4(c)(5) same-sponsor clause). The condition is narrowed only for `if`/`when`/`whenever`/`unless`/`except`/`provided that` cues whose consequence's own predicate states an outcome; requirement consequences, reservations and conditions without a clear end keep the whole clause.
+## 0.2.2210
+
+- In federal US statutes, regulations and guidance, stop counting administrative condition sentences (a notice, verification, Federal Register publication or agency workflow step as the main verb of the main clause, a definitions lead-in, and the guidance-portal disclaimer) as complete-source-unit controls or paired-case conditions. Sentences with a numeric limit, a computation, an outcome after their leading condition or after a `;`, notice content with its own outcome, a trailing exception, or a second predicate after the administrative verb stay controls; administrative sentences still compete for case pairs; federal forms, policies, rulemaking, `/manual/` paths, state and non-US sources are unchanged.
 
 ## 0.2.2183
 
