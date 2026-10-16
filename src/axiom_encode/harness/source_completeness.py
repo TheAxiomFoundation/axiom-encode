@@ -5949,6 +5949,19 @@ def _analyze_rulespec_payload(
         source_text=source_text,
         branches=branches,
         corpus_citation_path=corpus_citation_path,
+        stated_value_evidence=_StatedValueEvidence(
+            values_by_rule=_numeric_values_by_rule_name(
+                artifact_numeric_bindings
+                if artifact_numeric_bindings is not None
+                else collect_artifact_numeric_bindings(
+                    content,
+                    extract_named_scalars=extract_named_scalars,
+                    imported_symbol_contents=(),
+                )
+            ),
+            extract_numeric_occurrences=extract_numeric_grounding_occurrences,
+            numeric_value_is_grounded=numeric_value_is_grounded,
+        ),
     )
     named_rules = {
         str(rule.get("name") or "").strip(): rule
@@ -6777,12 +6790,245 @@ def _numeric_recall_repair_context(
     return "".join(parts) + header + "".join(body) + tail
 
 
+@dataclass(frozen=True)
+class _StatedValueEvidence:
+    """What a non-principal rule needs to show that it encodes a branch."""
+
+    values_by_rule: Mapping[str, tuple[float, ...]]
+    extract_numeric_occurrences: NumericOccurrenceExtractor
+    numeric_value_is_grounded: NumericGroundingPredicate
+
+
+def _numeric_values_by_rule_name(
+    bindings: Sequence[tuple[str, float]],
+) -> dict[str, tuple[float, ...]]:
+    values: dict[str, list[float]] = {}
+    for name, value in bindings:
+        values.setdefault(str(name), []).append(float(value))
+    return {name: tuple(found) for name, found in values.items()}
+
+
+# A comparison or limit makes a branch an operative condition, not a stated
+# value: `under the age of 19`, `does not exceed $100`, `at least 25 percent`,
+# `has not attained age 17`, `age 65 and over`, `the lesser of $2,000 or`.
+_STATED_VALUE_CONDITION_LANGUAGE = re.compile(
+    r"\b(?:"
+    r"under(?=\s+(?:the\s+)?age\b|\s+\$?\d)|over(?=\s+(?:the\s+)?age\b|\s+\$?\d)|"
+    r"(?:more|less|fewer|greater)\s+than|at\s+(?:least|most)|"
+    r"exceed(?:s|ed|ing)?|up\s+to|(?:below|above)(?=\s+\$?\d)|"
+    r"or\s+(?:more|less|older|younger|over|under)|"
+    r"(?:has\s+|have\s+)?(?:not\s+)?attain(?:s|ed)?|"
+    r"and\s+(?:over|older|above)|(?:a|the)\s+(?:maximum|minimum)\s+of|"
+    r"(?:lesser|greater|smaller|larger)\s+of|reach(?:es|ed)?"
+    r")\b",
+    flags=re.IGNORECASE,
+)
+# A rate or bracket table row compares income with the same rule's threshold
+# ("Amount exceeding $11,000,000 ... 2.25%", "Over $10,000 but not over
+# $20,000 ... 5 percent"); the threshold parameter encodes that comparison.
+_STATED_VALUE_TABLE_COMPARISON = re.compile(
+    r"\b(?:first|over|not\s+over|exceeding|in\s+excess\s+of|up\s+to|"
+    r"(?:more|less)\s+than)\s+\$\s?(?P<amount>\d[\d,]*(?:\.\d+)?)",
+    flags=re.IGNORECASE,
+)
+_STATED_VALUE_TABLE_RESULT = re.compile(
+    r"\d\s*%|\bper\s*cent\b|\bpercent\b|\bno\s+tax\b", flags=re.IGNORECASE
+)
+_WORD_NUMBER_UNITS = {
+    "zero": 0,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+}
+_WORD_NUMBER_TENS = {
+    "twenty": 20,
+    "thirty": 30,
+    "forty": 40,
+    "fifty": 50,
+    "sixty": 60,
+    "seventy": 70,
+    "eighty": 80,
+    "ninety": 90,
+}
+_WORD_FRACTION_DENOMINATORS = {
+    "half": 2,
+    "halves": 2,
+    "third": 3,
+    "thirds": 3,
+    "fourth": 4,
+    "fourths": 4,
+    "quarter": 4,
+    "quarters": 4,
+    "fifth": 5,
+    "fifths": 5,
+    "tenth": 10,
+    "tenths": 10,
+}
+_WORD_NUMBER = re.compile(
+    r"\b(?P<tens>"
+    + "|".join(_WORD_NUMBER_TENS)
+    + r")(?:[\s-]+(?P<unit_after>"
+    + "|".join(name for name, value in _WORD_NUMBER_UNITS.items() if 0 < value < 10)
+    + r"))?\b|\b(?P<unit>"
+    + "|".join(_WORD_NUMBER_UNITS)
+    + r")\b(?:[\s-]+(?P<fraction>"
+    + "|".join(_WORD_FRACTION_DENOMINATORS)
+    + r")\b)?",
+    flags=re.IGNORECASE,
+)
+_SCALED_NUMBER = re.compile(
+    r"(?P<number>\d[\d,]*(?:\.\d+)?)\s*(?P<scale>million|billion|thousand|cents?)\b",
+    flags=re.IGNORECASE,
+)
+_WORD_PERCENT = re.compile(r"\s*-?\s*(?:per\s*cent|percent)\b", re.IGNORECASE)
+
+
+def _stated_word_values(text: str) -> tuple[float, ...]:
+    """Values stated in words or with a scale.
+
+    "one-half", "two-thirds", "fifty percent", "within ten days",
+    "$1.5 million", "50 cents".
+    """
+
+    values: list[float] = []
+    for match in _WORD_NUMBER.finditer(text):
+        if match.group("tens"):
+            number = float(_WORD_NUMBER_TENS[match.group("tens").lower()])
+            if match.group("unit_after"):
+                number += _WORD_NUMBER_UNITS[match.group("unit_after").lower()]
+        else:
+            number = float(_WORD_NUMBER_UNITS[match.group("unit").lower()])
+            if match.group("fraction"):
+                number /= _WORD_FRACTION_DENOMINATORS[match.group("fraction").lower()]
+        values.append(number)
+        if _WORD_PERCENT.match(text, match.end()):
+            values.append(number / 100)
+    for match in _SCALED_NUMBER.finditer(text):
+        number = float(match.group("number").replace(",", ""))
+        scale = match.group("scale").lower()
+        values.append(
+            number * {"million": 1e6, "billion": 1e9, "thousand": 1e3}.get(scale, 0.01)
+        )
+    return tuple(values)
+
+
+def _stated_value_matches(value: float, stated: Sequence[float]) -> bool:
+    return any(
+        abs(value - candidate) <= 1e-9 * max(1.0, abs(value)) for candidate in stated
+    )
+
+
+def _stated_value_table_row(text: str, values: Sequence[float]) -> bool:
+    """A rate/bracket row whose compared amount is one of the rule's values."""
+
+    if not _STATED_VALUE_TABLE_RESULT.search(text):
+        return False
+    return any(
+        _stated_value_matches(float(match.group("amount").replace(",", "")), values)
+        for match in _STATED_VALUE_TABLE_COMPARISON.finditer(text)
+    )
+
+
+_RULE_FORMULA_NUMBER = re.compile(r"(?<![A-Za-z0-9_.])-?\d+(?:\.\d+)?(?![A-Za-z0-9_])")
+
+
+def _rule_version_numeric_values(rule: dict[str, Any]) -> tuple[float, ...]:
+    """Numbers a rule states in its version formulas and value tables."""
+
+    found: list[float] = []
+
+    def collect(value: object) -> None:
+        if isinstance(value, bool):
+            return
+        if isinstance(value, (int, float)):
+            found.append(float(value))
+        elif isinstance(value, str):
+            found.extend(float(item) for item in _RULE_FORMULA_NUMBER.findall(value))
+        elif isinstance(value, dict):
+            for item in value.values():
+                collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    versions = rule.get("versions")
+    for version in versions if isinstance(versions, list) else ():
+        if isinstance(version, dict):
+            for key in ("formula", "values", "value", "brackets"):
+                collect(version.get(key))
+    return tuple(found)
+
+
+def _non_principal_rule_encodes_branch(
+    rule: dict[str, Any],
+    branch_path: tuple[str, ...],
+    *,
+    branches: Sequence[SourceStructureBranch],
+    evidence: _StatedValueEvidence,
+) -> bool:
+    """Whether a parameter (or other non-principal rule) encodes its branch.
+
+    A parameter encodes a branch only when the branch is a stated value: the
+    branch text states one of the rule's values, and the branch's own text
+    states no condition, exception or limit around it. Otherwise the
+    parameter only cites the branch (`7 CFR 273.4(c)(3)(vi)`: "a sponsored
+    alien child under 18" is an exemption, not the number 18), and a
+    principal output or a precise deferral must account for it.
+    """
+
+    if not branch_path:
+        return True
+    matches = [branch for branch in branches if branch.path == branch_path]
+    if not matches:
+        return True
+    values = (
+        *evidence.values_by_rule.get(str(rule.get("name") or "").strip(), ()),
+        *_rule_version_numeric_values(rule),
+    )
+    if not values:
+        return False
+    for branch in matches:
+        own_text = _source_branch_direct_text(branch, branches=branches)
+        occurrences = tuple(evidence.extract_numeric_occurrences(branch.text))
+        stated = _stated_word_values(branch.text)
+        table_row = _stated_value_table_row(own_text, values)
+        if not table_row and not any(
+            evidence.numeric_value_is_grounded(value, occurrences)
+            or _stated_value_matches(value, stated)
+            for value in values
+        ):
+            continue
+        if _EXCEPTION_LANGUAGE.search(own_text):
+            continue
+        if _STATED_VALUE_CONDITION_LANGUAGE.search(own_text) and not table_row:
+            continue
+        return True
+    return False
+
+
 def _rule_coverage(
     payload: dict[str, Any],
     *,
     source_text: str,
     branches: Sequence[SourceStructureBranch],
     corpus_citation_path: str,
+    stated_value_evidence: _StatedValueEvidence | None = None,
 ) -> tuple[
     set[tuple[str, ...]],
     set[tuple[str, ...]],
@@ -6821,9 +7067,22 @@ def _rule_coverage(
                 paths.add(excerpt_branch.path)
             elif _collapse_text(excerpt) in _collapse_text(source_text):
                 paths.add(())
+        principal = kind in {"derived", "derived_relation"}
         for path in paths:
-            all_paths.add(path)
-        if kind in {"derived", "derived_relation"} and name:
+            # Only a parameter states a value; relation rules keep their
+            # citations as on main.
+            if (
+                kind != "parameter"
+                or stated_value_evidence is None
+                or _non_principal_rule_encodes_branch(
+                    rule,
+                    path,
+                    branches=branches,
+                    evidence=stated_value_evidence,
+                )
+            ):
+                all_paths.add(path)
+        if principal and name:
             principal_rules[name] = rule
             principal_rule_paths.setdefault(name, set()).update(paths)
             for path in paths:

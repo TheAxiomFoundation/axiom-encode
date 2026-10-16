@@ -31,6 +31,9 @@
 ## 0.2.2218
 
 - Scope the session-law ("section N of this act") deferral reader to statute and guidance law-compilation sources that self-reference their own act. Regulations, policies and manuals that name "section N of the Act" (a codified enabling statute) no longer pass as same-act dependencies.
+## 0.2.2216
+
+- Let a parameter (or other non-principal rule) cover the source branch it cites only when the branch is a stated value: the branch text states one of the rule's values and the branch's own text states no condition, exception or limit. A parameter holding a threshold no longer covers the eligibility condition or exemption that states it; a principal output or precise deferral must account for that branch.
 
 ## 0.2.2183
 
