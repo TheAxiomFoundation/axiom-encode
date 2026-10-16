@@ -303,6 +303,10 @@ def _inventory_index(inventory: object) -> RetiredApplyInventory:
         if operation is not None:
             operation.inventories.setdefault(id(inventory), (inventory, inventory))
         return inventory
+    # isinstance honors a reassigned __class__, so a broker view re-classed to
+    # pose as a dict could otherwise be revalidated as a replacement inventory.
+    if type(inventory) is not dict:
+        raise ValueError("retired apply inventory must be a broker index or raw dict")
     if operation is None:
         return RetiredApplyInventory(inventory)
     key = id(inventory)
