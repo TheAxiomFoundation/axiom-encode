@@ -23060,9 +23060,12 @@ def guard_generated_change_issues(
     ]
     if path_case_issues:
         return path_case_issues
-    inventory_issues = _guard_provenance_inventory_git_issues(
-        repo_path, base_ref=base_ref, head_ref=head_ref
-    )
+    # Inspect this checkout even when the caller carries Git authority for
+    # another one, as discovery and receipt admission do.
+    with _rulespec_migration_clean_ambient_git():
+        inventory_issues = _guard_provenance_inventory_git_issues(
+            repo_path, base_ref=base_ref, head_ref=head_ref
+        )
     if inventory_issues:
         return inventory_issues
     pending_transaction = repo_path / _APPLY_TRANSACTION_DIRECTORY
@@ -23555,8 +23558,9 @@ def _guard_changed_manifest_coverage_issues(
     )
     if not manifest_paths:
         return []
-    # Gitless explicit additions still receive the normal head verification.
-    # An absent receipt cannot establish that it had no protected-base owner.
+    # Fail-closed fallback: guard callers resolve refs first, so a checkout
+    # without Git is refused earlier. An absent receipt cannot establish that it
+    # had no protected-base owner.
     if base_ref is None and not (repo_path / ".git").exists():
         return [
             f"{path} cannot inspect its immutable base receipt"
@@ -23906,7 +23910,8 @@ def _guard_provenance_inventory_git_issues(
     index stage, including when callers supply their own changed-file list.
     """
 
-    # Explicit-file verification also supports not-yet-initialized checkouts.
+    # Guard callers resolve their refs first, so a checkout without Git is
+    # refused before this point; this branch stays as a fail-closed fallback.
     if not (repo_path / ".git").exists():
         return _guard_provenance_worktree_case_issues(repo_path)
     # Match the production trusted-git wrapper's exact full-tree query shape.

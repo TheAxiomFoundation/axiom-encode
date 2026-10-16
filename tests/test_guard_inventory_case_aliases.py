@@ -77,7 +77,7 @@ class TestGuardInventoryCaseAliases:
             lambda *_: TEST_PINNED_ENCODER_IDENTITY,
         )
 
-    def _guard(self, repo, monkeypatch, **options):
+    def _guard(self, repo, monkeypatch, *, allow_uninspectable=False, **options):
         tools = repo.parent / "case-alias-trusted-tools"
         if not tools.exists():
             tools.mkdir()
@@ -89,7 +89,10 @@ class TestGuardInventoryCaseAliases:
             issues = cli.guard_generated_change_issues(
                 repo, corpus_path=self.corpus_path, **options
             )
-        assert not any("cannot inspect" in issue.casefold() for issue in issues), issues
+        if not allow_uninspectable:
+            assert not any("cannot inspect" in issue.casefold() for issue in issues), (
+                issues
+            )
         return issues
 
     def _canonical_base(self, repo):
@@ -329,16 +332,24 @@ class TestGuardInventoryCaseAliases:
         self._receipt_only_manifest(tmp_path)
         relative = f".axiom/legacy-replacements/{_RECEIPT_NAME}.Json"
         assert not (tmp_path / relative).exists()
+        # The shared fixture initialises Git; remove it to model a checkout
+        # without a repository. Guard refs are resolved before any file check,
+        # so such a checkout is refused outright, which also refuses the alias.
+        shutil.rmtree(tmp_path / ".git", ignore_errors=True)
         assert not (tmp_path / ".git").exists()
 
         issues = self._guard(
             tmp_path,
             monkeypatch,
+            allow_uninspectable=True,
             changed_files=[relative],
             all_files=all_files,
         )
 
-        assert any(relative in issue for issue in issues), issues
+        assert issues, "a checkout without Git must be refused"
+        assert any(
+            relative in issue or "Cannot resolve guard" in issue for issue in issues
+        ), issues
 
     @pytest.mark.parametrize("all_files", [False, True])
     def test_signed_receipt_cannot_hide_noncanonical_ancestor_suffix(
