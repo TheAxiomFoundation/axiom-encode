@@ -35,9 +35,13 @@ def _repo_token_commands(script: str) -> set[str]:
     def check_tokens(tokens: list[_ShellToken]) -> None:
         command_start = True
         redirect_target = False
+        command = ""
+        git_config_value = False
         for token in tokens:
             if token.plain and token.value in {"\n", ";", "&&", "||", "|"}:
+                assert not git_config_value, "git -c without a value"
                 command_start = True
+                command = ""
             elif token.plain and token.value in {"<", ">", ">>", ">&"}:
                 redirect_target = True
             elif redirect_target:
@@ -46,12 +50,37 @@ def _repo_token_commands(script: str) -> set[str]:
                 if token.plain and token.value in {"if", "then", "else", "fi", "!"}:
                     continue
                 if token.assignment:
+                    # Every token-step assignment is a lowercase local. Uppercase
+                    # names (PATH, GIT_SSH_COMMAND, LD_*) change how commands run.
+                    name = token.value.split("=", 1)[0]
+                    assert re.fullmatch(r"[a-z_][a-z_0-9]*", name), (
+                        f"environment-style assignment is not allowed: {name!r}"
+                    )
                     continue
                 assert token.plain and token.value in REPO_TOKEN_COMMANDS, (
                     f"command is not allowed with the repository token: {token.value!r}"
                 )
                 commands.add(token.value)
+                command = token.value
                 command_start = False
+            elif command == "printf":
+                # printf -v assigns a variable, including PATH.
+                assert not token.value.startswith("-v"), "printf -v is not allowed"
+            elif command == "git" and git_config_value:
+                # The only configuration the token steps set disables hooks.
+                assert token.value == "core.hooksPath=/dev/null", (
+                    f"git -c value is not allowed with the repository token: {token.value!r}"
+                )
+                git_config_value = False
+            elif command == "git":
+                # Other git configuration and exec-path options can run programs.
+                assert (
+                    not token.value.startswith(("--config-env", "--exec-path", "-c"))
+                    or token.value == "-c"
+                ), (
+                    f"git option is not allowed with the repository token: {token.value!r}"
+                )
+                git_config_value = token.value == "-c"
         assert not redirect_target, "missing redirection target"
 
     def word() -> _ShellToken:
@@ -212,6 +241,15 @@ def test_repo_token_detection_is_case_insensitive(
         "git() { python -c pass; }; git",
         '"if" python -c pass',
         '"IGNORED"=value python -c pass',
+        'PATH="$DIR:$PATH" git status',
+        'PATH="$DIR"\ngit status',
+        "GIT_SSH_COMMAND='python -c pass' git ls-remote origin",
+        "printf -v PATH '%s' \"$DIR\"\ngit status",
+        "git -c alias.x='!python -c pass' x",
+        "git --config-env=core.sshCommand=HELPER fetch origin",
+        'git --exec-path="$DIR" status',
+        "git -c core.sshCommand='python -c pass' fetch origin",
+        "git -ccore.hooksPath=/dev/null status",
     ],
 )
 def test_repo_token_command_allowlist_rejects_other_execution(script: str) -> None:
@@ -239,6 +277,7 @@ def test_repo_token_command_allowlist_rejects_other_execution(script: str) -> No
             {"tr", "cp"},
         ),
         ('git -C "$REPO" \\\n status > "$FILE"', {"git"}),
+        ('git -C "$REPO" -c core.hooksPath=/dev/null push origin "$branch"', {"git"}),
     ],
 )
 def test_repo_token_command_allowlist_accepts_used_shell_grammar(

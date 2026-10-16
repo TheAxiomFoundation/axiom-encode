@@ -433,9 +433,11 @@ also run in separate steps before token-bearing checkout or publication commands
 This confinement does not isolate the key from repository code that runs
 earlier in the same job on the same runner. That code shares the runner user,
 passwordless `sudo`, `$RUNNER_TEMP`, and values written to `GITHUB_ENV`; it can
-use that access to influence or intercept a later launch. Isolation from such
-code requires a separate signing job on a fresh runner, or removing `sudo`
-before any helper runs. This PR does neither.
+use that access to influence or intercept a later launch. Removing `sudo`
+alone would not close this: a leftover same-user process could still race the
+argument check, read the launch shell's environment, or set `GITHUB_ENV` values.
+Isolation from such code requires signing in a separate job on a fresh runner
+that runs no repository helper code; the workflow does not do that today.
 
 **The signing leg runs only on `workflow_dispatch` from the main-branch
 workflow definition, never on `pull_request`.** The workflow requires
