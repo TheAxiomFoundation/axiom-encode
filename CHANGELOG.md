@@ -45,6 +45,9 @@
 - Report an unbound computation or an unencoded branch once (formula-output or structure) instead of repeating it as a companion-test demand, keep the named-rule binding hint on the formula-output finding, and give each missing boundary its source text, covering outputs and directly compared inputs.
 - Count a negative-input case as `max(0, x)` evidence only when the clamp is on the owner's executed formula path, and fail closed when that path cannot be resolved.
 - Let the eval repair loop clone an existing model-written case toward an unmet source boundary, with every expected value taken from executing the module. Keep an `auto_source_boundary_*` case only when every output its source case asserts agrees with the engine and the analysis removes exactly the targeted boundary demand. Clamp, formula-branch, unasserted-output and paired exception demands are never synthesized.
+## 0.2.2213
+
+- Demand every source-stated threshold of a conjoined condition as a companion-test boundary. `less than $500 and whose net income is less than $300` used to demand only `$300`, so a wrong `<=` on `$500` passed; each dropped threshold is now demanded with its own comparator's direction and inclusivity.
 
 ## 0.2.2183
 
