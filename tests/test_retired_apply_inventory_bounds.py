@@ -138,6 +138,57 @@ def test_attached_inventory_cannot_change_broker_admission(frozen, mutation):
         client.close()
 
 
+@pytest.mark.parametrize("scope", ["outside", "fresh"])
+def test_broker_view_reclassed_as_dict_fails_closed(frozen, scope):
+    replayed = frozen.manifest.with_name("not-frozen.json")
+    replayed.write_bytes(frozen.manifest_bytes)
+    new_head = frozen.commit("replay outside protected inventory")
+    context = replace(frozen.context, artifact_path=replayed)
+    replacement_wire = copy.deepcopy(frozen.inventory)
+    repository = replacement_wire["repositories"][0]
+    repository["cutoff_commit"] = new_head
+    repository["artifacts"][0]["path"] = replayed.relative_to(frozen.repo).as_posix()
+    RetiredApplyInventory(replacement_wire)
+    status = _base_protocol_status()
+    status["retired_apply_public_keys"] = [b64encode(b"d" * 32).decode()]
+    status["retired_apply_inventory"] = frozen.inventory
+    client = _client_for_status(status)
+    try:
+        inventory = client.retired_apply_inventory
+        with retired_apply_operation():
+            assert retired_apply_admission_issue(inventory, frozen.context) is None
+            assert "not frozen" in retired_apply_admission_issue(inventory, context)
+
+        class Shape(tuple):
+            __slots__ = ()
+
+            @property
+            def __class__(self):
+                return dict
+
+            def __iter__(self):
+                return iter(replacement_wire)
+
+            def __getitem__(self, key):
+                return replacement_wire[key]
+
+        # The broker's own view, re-classed to pose as a dict that serves a
+        # schema-valid replacement, must never become the trusted inventory.
+        object.__setattr__(inventory, "__class__", Shape)
+        assert client.retired_apply_inventory is inventory
+
+        def admit(admitted_context):
+            if scope == "outside":
+                return retired_apply_admission_issue(inventory, admitted_context)
+            with retired_apply_operation():
+                return retired_apply_admission_issue(inventory, admitted_context)
+
+        for admitted_context in (context, frozen.context):
+            assert "broker index or raw dict" in admit(admitted_context)
+    finally:
+        client.close()
+
+
 def test_guard_validates_and_copies_inventory_only_at_attach(frozen_repo):
     fixture = frozen_repo
     status = _base_protocol_status()
