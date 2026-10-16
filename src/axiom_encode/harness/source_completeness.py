@@ -24,6 +24,7 @@ import textwrap
 import unicodedata
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 from datetime import date
 from decimal import (
     ROUND_CEILING,
@@ -138,6 +139,12 @@ class SourceStructureBranch:
     start: int
     end: int
     structural_numeric_spans: tuple[tuple[int, int], ...] = ()
+    # Printed-case designations for `path` (`("a", "6", "i", "A")` for the
+    # lowercased `("a", "6", "i", "a")`). Display only: excluded from equality
+    # and hashing, and ignored unless it still spells `path`.
+    display_path: tuple[str, ...] | None = dataclass_field(
+        default=None, compare=False, repr=False
+    )
 
 
 @dataclass(frozen=True)
@@ -3117,14 +3124,60 @@ def _irs_revenue_procedure_structure(
     return tuple(sorted(branches, key=lambda branch: (branch.start, len(branch.path))))
 
 
+def _with_display_paths(
+    branches: Iterable[SourceStructureBranch],
+) -> tuple[SourceStructureBranch, ...]:
+    """Attach printed-case designations (`(A)`, `(I)`) to lowercased paths."""
+
+    branches = tuple(branches)
+    printed: dict[tuple[str, ...], str] = {}
+    for branch in branches:
+        if not branch.path:
+            continue
+        label = re.fullmatch(
+            r"\s*\(?(?P<designation>[A-Za-z0-9]+)[.)]?\s*", branch.label
+        )
+        if label is not None and label.group("designation").lower() == branch.path[-1]:
+            printed.setdefault(branch.path, label.group("designation"))
+    return tuple(
+        replace(
+            branch,
+            display_path=tuple(
+                printed.get(branch.path[: index + 1], component)
+                for index, component in enumerate(branch.path)
+            ),
+        )
+        if branch.path
+        else branch
+        for branch in branches
+    )
+
+
 def recognize_source_structure(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> tuple[SourceStructureBranch, ...]:
-    """Recognize paragraph, list, letter, and glued German sentence markers."""
+    """Recognize paragraph, list, letter, and glued German sentence markers.
+
+    German glued (`1Das`) and explicit (`Satz 2`) sentence markers are German
+    drafting conventions; a U.S. source never numbers its sentences that way,
+    so U.S. corpus paths do not recognize them (`K-40ES`, `42CFR`, `22VAC40`
+    and `Form G-2RP` are not "Satz 40", "Satz 42", "Satz 22" or "Satz 2").
+    """
 
     if _IRS_REVENUE_PROCEDURE_CITATION.fullmatch(corpus_citation_path):
-        return _irs_revenue_procedure_structure(source_text)
+        return _with_display_paths(_irs_revenue_procedure_structure(source_text))
+    return _with_display_paths(
+        _recognize_source_structure(
+            source_text,
+            sentence_markers=_US_CORPUS_CITATION_PATH.match(corpus_citation_path)
+            is None,
+        )
+    )
 
+
+def _recognize_source_structure(
+    source_text: str, *, sentence_markers: bool
+) -> tuple[SourceStructureBranch, ...]:
     branches: list[SourceStructureBranch] = []
     paragraph_segments: list[tuple[tuple[str, ...], int, int, str]] = []
     dotted_matches = _qualified_dotted_subsection_matches(source_text)
@@ -3259,13 +3312,24 @@ def recognize_source_structure(
     legacy_marker_offsets = {
         *(match.start() for match in _NUMBER_MARKER.finditer(source_text)),
         *(match.start() for match in _LETTER_MARKER.finditer(source_text)),
-        *(match.start() for match in _GLUED_SENTENCE_MARKER.finditer(source_text)),
-        *(
-            match.start()
-            for match in _GLUED_SECTION_SENTENCE_MARKER.finditer(source_text)
-        ),
-        *(match.start() for match in _EXPLICIT_SENTENCE_MARKER.finditer(source_text)),
     }
+    if sentence_markers:
+        legacy_marker_offsets.update(
+            (
+                *(
+                    match.start()
+                    for match in _GLUED_SENTENCE_MARKER.finditer(source_text)
+                ),
+                *(
+                    match.start()
+                    for match in _GLUED_SECTION_SENTENCE_MARKER.finditer(source_text)
+                ),
+                *(
+                    match.start()
+                    for match in _EXPLICIT_SENTENCE_MARKER.finditer(source_text)
+                ),
+            )
+        )
     owner_paths = _most_specific_segment_paths_at_offsets(
         paragraph_segments,
         legacy_marker_offsets,
@@ -3326,18 +3390,22 @@ def recognize_source_structure(
                     )
                 )
 
-        sentence_matches = [
-            match
-            for match in sorted(
-                (
-                    *_GLUED_SENTENCE_MARKER.finditer(paragraph_text),
-                    *_glued_section_sentence_matches(paragraph_text),
-                    *_EXPLICIT_SENTENCE_MARKER.finditer(paragraph_text),
-                ),
-                key=lambda item: item.start(),
-            )
-            if owner_paths.get(paragraph_start + match.start()) == paragraph_path
-        ]
+        sentence_matches = (
+            [
+                match
+                for match in sorted(
+                    (
+                        *_GLUED_SENTENCE_MARKER.finditer(paragraph_text),
+                        *_glued_section_sentence_matches(paragraph_text),
+                        *_EXPLICIT_SENTENCE_MARKER.finditer(paragraph_text),
+                    ),
+                    key=lambda item: item.start(),
+                )
+                if owner_paths.get(paragraph_start + match.start()) == paragraph_path
+            ]
+            if sentence_markers
+            else []
+        )
         for index, match in enumerate(sentence_matches):
             start = paragraph_start + match.start()
             end = (
@@ -6311,6 +6379,10 @@ def _rule_coverage(
         paths = _paths_from_source_reference(
             str(rule.get("source") or ""),
             corpus_citation_path=corpus_citation_path,
+            # Only a principal output encodes every branch its citation
+            # lists; a parameter citing `(c)(3)(vi)-(vii)` for an age of 18
+            # does not encode those deeming exemptions.
+            list_continuations=kind in {"derived", "derived_relation"},
         )
         for excerpt_citation_path, excerpt in _rule_source_excerpts(rule):
             if (
@@ -6652,6 +6724,7 @@ def _paths_from_source_reference(
     source: str,
     *,
     corpus_citation_path: str,
+    list_continuations: bool = False,
 ) -> set[tuple[str, ...]]:
     value = source.strip()
     if not value or not _source_reference_targets_authoritative_unit(
@@ -6660,7 +6733,30 @@ def _paths_from_source_reference(
     ):
         return set()
     paths: set[tuple[str, ...]] = set()
+    us_source = (
+        list_continuations
+        and _US_CORPUS_CITATION_PATH.match(corpus_citation_path) is not None
+    )
     reference_aliases = _authoritative_source_unit_aliases(corpus_citation_path)
+    current_section = corpus_citation_path.rstrip("/").rsplit("/", 1)[-1]
+    # Another citation of this unit after a designation list (`(a)(1), (2),
+    # and 7 CFR 273.4(b)`) keeps the list on this unit.
+    same_unit_reference = (
+        re.compile(
+            "|".join(
+                (
+                    *(
+                        rf"{re.escape(reference)}(?![A-Za-z0-9_])(?!\.\d)"
+                        for reference in reference_aliases
+                    ),
+                    rf"§{{1,2}}\s*{re.escape(current_section)}(?![A-Za-z0-9_-])(?!\.\d)",
+                )
+            ),
+            flags=re.IGNORECASE,
+        )
+        if us_source
+        else None
+    )
     for reference in reference_aliases:
         escaped_reference = re.escape(reference)
         for match in re.finditer(
@@ -6688,12 +6784,20 @@ def _paths_from_source_reference(
                         *_keyword_path_components(trailing, base_components),
                     )
                 )
+                if not suffix.startswith("/") and us_source:
+                    paths.update(
+                        _us_designation_list_continuations(
+                            value,
+                            match.end(),
+                            components,
+                            same_unit_reference=same_unit_reference,
+                        )
+                    )
 
     keyword_components = _keyword_path_components(value)
     if keyword_components:
         paths.add(tuple(keyword_components))
 
-    current_section = corpus_citation_path.rstrip("/").rsplit("/", 1)[-1]
     for match in re.finditer(
         rf"§\s*{re.escape(current_section)}"
         r"(?P<suffix>(?:\([A-Za-z0-9-]+\))+)",
@@ -6711,8 +6815,221 @@ def _paths_from_source_reference(
             paths.add(
                 (*base_components, *_keyword_path_components(trailing, base_components))
             )
+            if us_source:
+                paths.update(
+                    _us_designation_list_continuations(
+                        value,
+                        match.end(),
+                        components,
+                        same_unit_reference=same_unit_reference,
+                    )
+                )
     if not paths:
         paths.add(())
+    return paths
+
+
+_US_DESIGNATION_LIST_CONTINUATION = re.compile(
+    r"[ \t]*(?P<separator>,[ \t]*(?:(?:and|or)[ \t]+)?|[ \t]+(?:and|or)[ \t]+|"
+    r"[ \t]*(?:-|–|—|through|thru|to)[ \t]*)"
+    r"(?P<chain>(?:\([A-Za-z0-9]{1,6}\))+)",
+    flags=re.IGNORECASE,
+)
+# A list stays on the cited unit only when it ends the citation (end, `;`,
+# `.`, a line break), says `of this section` (or another `this` unit), or is
+# followed by another citation of the same unit. Anything else (`of 7 CFR
+# 273.9`, `in 7 CFR 273.9`, `under ...`, `as defined in ...`, `, 7 CFR
+# 273.9`, `(relating to ...) of ...`, `are not implemented`) may qualify the
+# listed items, so the list is not read.
+_US_DESIGNATION_LIST_TERMINAL = re.compile(
+    r"[ \t]*(?:$|[;.\r\n])|"
+    r"\s+of\s+this\s+(?:section|subsection|paragraph|subparagraph|clause|"
+    r"subclause|part|subpart|chapter|subchapter|title|rule|regulation)\b",
+    flags=re.IGNORECASE,
+)
+_US_DESIGNATION_LIST_JOINER = re.compile(
+    r"[ \t]*(?:[,;][ \t]*)?(?:(?:and/or|and|or)[ \t]+)?",
+    flags=re.IGNORECASE,
+)
+_US_DESIGNATION_RANGE_SEPARATORS = frozenset({"-", "–", "—", "through", "thru", "to"})
+_US_DESIGNATION_RANGE_LIMIT = 25
+
+
+def _is_outline_roman_designation(label: str) -> bool:
+    """A single letter is roman only as `i`, `v` or `x`."""
+
+    return _is_roman_outline_label(label) and (
+        len(label) > 1 or label.lower() in {"i", "v", "x"}
+    )
+
+
+def _us_designation_classes(label: str) -> frozenset[str]:
+    """Classify a U.S. designation: numeric, letter or roman, by case."""
+
+    if label[0].isdigit():
+        return frozenset({"numeric"})
+    case = "upper" if label.isupper() else "lower"
+    classes = set()
+    if len(label) == 1:
+        classes.add(f"{case}-letter")
+    if _is_outline_roman_designation(label):
+        classes.add(f"{case}-roman")
+    return frozenset(classes)
+
+
+def _us_designation_ordinal(label: str, label_class: str) -> int:
+    """Order designations of one class: 2 < 10, b < c, iv < vi."""
+
+    if label_class == "numeric":
+        return int(re.match(r"\d+", label).group(0))
+    if label_class.endswith("letter"):
+        return ord(label.lower())
+    return _roman_outline_value(label) or 0
+
+
+def _us_designation_range(
+    first: str, last: str, label_class: str
+) -> tuple[str, ...] | None:
+    """Expand `(3)-(5)`, `(A)-(C)`, `(vi)-(vii)` to the listed designations.
+
+    At most 25 siblings are expanded. `(v)-(x)` reads as roman numerals (v
+    to x), so a letter range `(v)-(x)` misses `(w)`: an under-claim that can
+    only leave a branch flagged, never cover one the citation did not name.
+    """
+
+    if label_class == "numeric":
+        if not (first.isdigit() and last.isdigit()):
+            return None
+        low, high = int(first), int(last)
+        if not 0 < high - low < _US_DESIGNATION_RANGE_LIMIT:
+            return None
+        return tuple(str(value) for value in range(low, high + 1))
+    if label_class.endswith("letter"):
+        if not 0 < ord(last.lower()) - ord(first.lower()) < _US_DESIGNATION_RANGE_LIMIT:
+            return None
+        return tuple(chr(code) for code in range(ord(first), ord(last) + 1))
+    first_value = _roman_outline_value(first)
+    last_value = _roman_outline_value(last)
+    if first_value is None or last_value is None:
+        return None
+    if not 0 < last_value - first_value < _US_DESIGNATION_RANGE_LIMIT:
+        return None
+    numerals = ((10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"))
+    labels = []
+    for value in range(first_value, last_value + 1):
+        rendered = ""
+        for size, numeral in numerals:
+            while value >= size:
+                rendered += numeral
+                value -= size
+        labels.append(rendered.upper() if first.isupper() else rendered)
+    return tuple(labels)
+
+
+def _us_designation_depth(previous: Sequence[str], label: str) -> int | None:
+    """Find the level that a continuation designation restates or advances.
+
+    The deepest level of the same class whose designation is not after the
+    label wins: `(c)(3)(v), and (c)(3)(vi)` restarts at (c), not at the
+    letter-shaped `(v)`. A label before a roman level of its class stops the
+    list: `(a)(1)(ii), (i)` does not reach subsection (i).
+    """
+
+    classes = _us_designation_classes(label)
+    for index in range(len(previous) - 1, -1, -1):
+        shared = _us_designation_classes(previous[index]) & classes
+        if not shared:
+            continue
+        if any(
+            _us_designation_ordinal(label, label_class)
+            >= _us_designation_ordinal(previous[index], label_class)
+            for label_class in shared
+        ):
+            return index
+        if any(label_class.endswith("roman") for label_class in shared):
+            return None
+    return None
+
+
+def _us_designation_list_ends_on_unit(
+    source: str,
+    position: int,
+    same_unit_reference: re.Pattern[str] | None,
+) -> bool:
+    """Tell whether a designation list ends without naming another source."""
+
+    if _US_DESIGNATION_LIST_TERMINAL.match(source, position):
+        return True
+    if same_unit_reference is None:
+        return False
+    joiner = _US_DESIGNATION_LIST_JOINER.match(source, position)
+    return bool(
+        joiner.group(0).strip()
+        and same_unit_reference.match(source, joiner.end()) is not None
+    )
+
+
+def _us_designation_list_continuations(
+    source: str,
+    position: int,
+    components: Sequence[str],
+    *,
+    same_unit_reference: re.Pattern[str] | None = None,
+) -> set[tuple[str, ...]]:
+    """Read the rest of `7 CFR 273.4(a)(1)-(2), (c)(3)(vi)-(vii)`.
+
+    U.S. citations list and range sibling designations after the first one.
+    Each continuation replaces the designation of its own class at the
+    deepest matching level of the previous one (`(a)(5)(iii)-(iv)` cites
+    (a)(5)(iii) and (a)(5)(iv); `(a)(4)(iii), (a)(5)(ii)` restarts at the
+    root). A range spans siblings only when it replaces the last designation;
+    `(a)(4)(iii)-(5)` cites (a)(4)(iii) and (a)(5), never all of (a)(4).
+    Reading stops at the first continuation that is not a designation of a
+    level already cited and at a gloss (`(a) (citizenship)`). A range that
+    crosses levels names only its endpoints. The list counts only when it
+    ends the citation, says `of this section`, or is followed by another
+    citation of this unit (`same_unit_reference`). After `of 7 CFR 273.9`,
+    `in ...`, `under ...`, `as defined in ...` or prose, which items the
+    qualifier governs is ambiguous, so only the first designation counts.
+    """
+
+    paths: set[tuple[str, ...]] = set()
+    previous = list(components)
+    read_any = False
+    while True:
+        continuation = _US_DESIGNATION_LIST_CONTINUATION.match(source, position)
+        if continuation is None:
+            break
+        labels = re.findall(r"\(([A-Za-z0-9]+)\)", continuation.group("chain"))
+        if not all(_is_parenthesized_outline_label(label) for label in labels):
+            break
+        classes = _us_designation_classes(labels[0])
+        depth = _us_designation_depth(previous, labels[0])
+        if depth is None:
+            break
+        current = [*previous[:depth], *labels]
+        if (
+            continuation.group("separator").strip().lower()
+            in _US_DESIGNATION_RANGE_SEPARATORS
+            and len(labels) == 1
+            and depth == len(previous) - 1
+        ):
+            shared = sorted(_us_designation_classes(previous[depth]) & classes)
+            expanded = (
+                _us_designation_range(previous[depth], labels[0], shared[-1])
+                if shared
+                else None
+            )
+            for label in expanded or ():
+                paths.add(tuple(part.lower() for part in (*previous[:depth], label)))
+        paths.add(tuple(part.lower() for part in current))
+        previous = current
+        position = continuation.end()
+        read_any = True
+    if read_any and not _us_designation_list_ends_on_unit(
+        source, position, same_unit_reference
+    ):
+        return set()
     return paths
 
 
@@ -7317,7 +7634,13 @@ def _resolved_definition_deferral_clauses(
             continue
         clauses.append(
             SourceStructureBranch(
-                owner.path, "deferred-definition", owner.label, text, start, end
+                owner.path,
+                "deferred-definition",
+                owner.label,
+                text,
+                start,
+                end,
+                display_path=owner.display_path,
             )
         )
     return tuple(clauses)
@@ -13847,6 +14170,8 @@ def _branch_citation(
         ]
         path = "".join(f"({component})" for component in branch.path)
         return f"{corpus_citation_path}{path} [{', '.join(components)}]"
+    if not _uses_german_branch_labels(corpus_citation_path):
+        return _english_branch_citation(corpus_citation_path, branch)
     citation = corpus_citation_path
     components: list[str] = []
     for index, component in enumerate(branch.path):
@@ -13859,6 +14184,65 @@ def _branch_citation(
         else:
             components.append(f"Nummer {component}")
     return f"{citation}({branch.path[0]}) [{', '.join(components)}]"
+
+
+_GERMAN_CORPUS_CITATION_PATH = re.compile(r"de(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
+
+
+def _uses_german_branch_labels(corpus_citation_path: str) -> bool:
+    """German (and unscoped legacy) sources keep Absatz/Nummer/Buchstabe."""
+
+    path = corpus_citation_path.strip()
+    return not path or _GERMAN_CORPUS_CITATION_PATH.match(path) is not None
+
+
+def _english_branch_citation(
+    corpus_citation_path: str,
+    branch: SourceStructureBranch,
+) -> str:
+    """Render `us/regulation/7/273/4(a)(6)(i)(A) [paragraph (a)(6)(i)(A)]`.
+
+    Repair feedback for a non-German source names the branch with its full
+    parenthesized designation instead of German Absatz/Nummer/Buchstabe
+    labels. Only the wording differs; the branch is the same. This is a
+    locator, not the citation form a deferral `reason` must use (a U.S. Code
+    reason cites `42 U.S.C. 415(i)(5)(B)`, see
+    `_reason_cites_exact_current_statute_branch`). The CFR calls every level
+    a paragraph; elsewhere the level nouns vary, so the label says
+    `provision`.
+    """
+
+    display = branch.display_path
+    if not (
+        display is not None
+        and len(display) == len(branch.path)
+        and all(
+            printed.lower() == component
+            for printed, component in zip(display, branch.path, strict=True)
+        )
+    ):
+        display = branch.path
+    designations = [
+        printed
+        for printed, component in zip(display, branch.path, strict=True)
+        if not component.startswith("satz-")
+    ]
+    sentences = [
+        component.removeprefix("satz-")
+        for component in branch.path
+        if component.startswith("satz-")
+    ]
+    fragment = "".join(f"({designation})" for designation in designations)
+    noun = (
+        "paragraph"
+        if corpus_citation_path.strip().startswith("us/regulation/")
+        else "provision"
+    )
+    components = [
+        *((f"{noun} {fragment}",) if fragment else ()),
+        *(f"sentence {sentence}" for sentence in sentences),
+    ]
+    return f"{corpus_citation_path}{fragment} [{', '.join(components)}]"
 
 
 def _validated_session_law_history_entries(
@@ -17632,6 +18016,11 @@ def _flattened_inline_dotted_list_ownership(
                 source_text[start:end].strip(),
                 start,
                 end,
+                display_path=(
+                    (*parent.display_path, match.group("label"))
+                    if parent.display_path is not None
+                    else None
+                ),
             )
         )
     return tuple(branches), False
@@ -20311,6 +20700,7 @@ def _source_formula_branches(
                 for label_start, label_end in worksheet_labels
                 if start <= label_start < label_end <= end
             ),
+            display_path=owner.display_path,
         )
         if _rounding_clause_refers_to_previous_result(
             obligation,
@@ -29140,6 +29530,7 @@ def _source_exception_branches(
                     branch_text,
                     branch_start,
                     branch_end,
+                    display_path=owner.display_path,
                 )
             )
     return tuple(
@@ -29906,6 +30297,7 @@ def _source_rounding_obligations(
             clause_text,
             clause_start,
             clause_end,
+            display_path=owner.display_path,
         )
         obligations.append((obligation_branch, direction))
     return tuple(obligations)

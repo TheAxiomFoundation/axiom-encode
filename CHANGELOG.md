@@ -10,6 +10,10 @@
 ## 0.2.2198
 
 - Read proof excerpts that differ from the cited source only typographically (ligatures, quotation-mark and in-word dash variants, wrapped compound and line-end hyphens, a space after a currency or section sign, a space before a comma, enclosing quotation marks, a recased first letter) as the printed source text, recognize the Code's "($X in the case of a joint return)" parenthetical as prose, and scope fused "(1)(a)" markers; ellipsis, paraphrase, stitched table text and sign changes stay rejected. State the contiguous-verbatim excerpt contract in the encoder prompts, and drop the bare `imports:` header when unused-import pruning removes every import.
+## 0.2.2192
+
+- Label U.S. and other non-German complete-source branches in English with their full designation (`us/regulation/7/273/4(a)(4) [paragraph (a)(4)]`); German labels are unchanged.
+- Stop reading German sentence markers in U.S. sources (`K-40ES`, `42CFR`, `22VAC40` were "Satz" branches), and let a principal output citing a U.S. list or range such as `7 CFR 273.4(a)(3)-(5)` cover each named branch. A list counts only when nothing after it qualifies it (`in 7 CFR 273.9`, `of section 152`), and an out-of-order roman (`(a)(1)(ii), (i)`) never reaches a top-level letter.
 
 ## 0.2.2183
 

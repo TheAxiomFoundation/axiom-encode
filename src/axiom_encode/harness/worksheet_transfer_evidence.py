@@ -137,7 +137,7 @@ class WorksheetTransferEvidence:
 
 
 def _additional_claimant(rules, source_text, citation, spans, core=None):
-    branches = sc.recognize_source_structure(source_text)
+    branches = sc.recognize_source_structure(source_text, corpus_citation_path=citation)
     for name, rule in rules.items():
         if name in {UNIT, *OUTPUTS}:
             continue
