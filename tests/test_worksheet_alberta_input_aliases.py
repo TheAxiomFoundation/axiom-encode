@@ -36,7 +36,7 @@ def certify(payload, cases, source=SOURCE):
         test_cases=cases,
         numeric_value_is_grounded=v.numeric_value_is_grounded,
         extract_numeric_occurrences=functools.partial(
-            v.extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+            v.extract_typed_numeric_occurrences_from_text, profile="legacy"
         ),
     )
 
