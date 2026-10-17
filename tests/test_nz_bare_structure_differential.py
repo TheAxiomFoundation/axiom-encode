@@ -1,5 +1,6 @@
 """Check the evidence used to certify the corpus differential."""
 
+import difflib
 import re
 import sys
 from importlib.util import module_from_spec, spec_from_file_location
@@ -7,6 +8,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from hypothesis import example, given, settings
+from hypothesis import strategies as st
 
 from axiom_encode.bare_structure import bare_outline, mask_bare_labels
 from axiom_encode.harness.source_completeness import SourceStructureBranch
@@ -2186,6 +2189,69 @@ def alignment_cache():
     cache.cache_clear()
     yield cache
     cache.cache_clear()
+
+
+@settings(max_examples=300, deadline=None)
+@example(source=["a"] * 130, recall=["a"] * 129)
+@example(
+    source=["a"] * 70 + ["b"] * 70 + ["a"] * 70,
+    recall=["b"] * 70 + ["a"] * 70 + ["b"] * 70,
+)
+@given(
+    source=st.lists(st.sampled_from(("a", "b", "c", "d")), max_size=150),
+    recall=st.lists(st.sampled_from(("a", "b", "c", "d")), max_size=150),
+)
+def test_source_token_matcher_preserves_difflib_blocks_and_ties(source, recall):
+    expected = difflib.SequenceMatcher(a=source, b=recall, autojunk=False)
+    actual = AUDIT.SourceTokenMatcher(source, recall)
+
+    assert actual.get_matching_blocks() == expected.get_matching_blocks()
+    assert actual.get_opcodes() == expected.get_opcodes()
+
+
+@settings(max_examples=200, deadline=None)
+@given(
+    source=st.lists(st.sampled_from(("a", "b", "c")), min_size=65, max_size=100),
+    recall=st.lists(st.sampled_from(("a", "b", "c")), min_size=65, max_size=100),
+    source_left=st.integers(min_value=0, max_value=5),
+    source_right=st.integers(min_value=0, max_value=5),
+    recall_left=st.integers(min_value=0, max_value=5),
+    recall_right=st.integers(min_value=0, max_value=5),
+)
+def test_source_token_matcher_preserves_bounded_window_positions(
+    source, recall, source_left, source_right, recall_left, recall_right
+):
+    bounds = (
+        source_left,
+        len(source) - source_right,
+        recall_left,
+        len(recall) - recall_right,
+    )
+    expected = difflib.SequenceMatcher(a=source, b=recall, autojunk=False)
+
+    assert AUDIT.SourceTokenMatcher(source, recall).find_longest_match(
+        *bounds
+    ) == expected.find_longest_match(*bounds)
+
+
+def test_large_repeated_token_alignment_avoids_quadratic_difflib_scan(monkeypatch):
+    original = difflib.SequenceMatcher.find_longest_match
+
+    def bounded_scan(self, alo=0, ahi=None, blo=0, bhi=None):
+        ahi = len(self.a) if ahi is None else ahi
+        bhi = len(self.b) if bhi is None else bhi
+        assert (ahi - alo) * (bhi - blo) <= 4096
+        return original(self, alo, ahi, blo, bhi)
+
+    monkeypatch.setattr(difflib.SequenceMatcher, "find_longest_match", bounded_scan)
+    source = ["repeated"] * 10_000 + ["source", "only"]
+    recall = ["repeated"] * 9_999 + ["recall", "only"]
+
+    assert AUDIT.SourceTokenMatcher(source, recall).get_matching_blocks() == [
+        difflib.Match(0, 0, 9_999),
+        difflib.Match(10_001, 10_000, 1),
+        difflib.Match(10_002, 10_001, 0),
+    ]
 
 
 def test_large_token_alignment_cache_reuses_only_immutable_indices(alignment_cache):

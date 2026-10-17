@@ -231,14 +231,93 @@ def partial_token_source_starts(
     return result
 
 
+class SourceTokenMatcher(difflib.SequenceMatcher):
+    """Keep difflib's block choices without its quadratic repeated-token scan.
+
+    With no junk or popular-token exclusions, each difflib search is the
+    longest common substring, with ties resolved by the earliest source start
+    and then the earliest recall start. A suffix automaton computes that exact
+    match in linear time and space per search. The inherited block recursion
+    and adjacent-block merging remain unchanged.
+    """
+
+    def __init__(self, source: list[str], recall: list[str]) -> None:
+        super().__init__(a=source, b=recall, autojunk=False)
+
+    def find_longest_match(
+        self, alo: int = 0, ahi: int | None = None, blo: int = 0, bhi: int | None = None
+    ) -> Any:
+        ahi = len(self.a) if ahi is None else ahi
+        bhi = len(self.b) if bhi is None else bhi
+        # Retain difflib for small windows, where building an index costs more
+        # than its bounded nested scan. Every larger search uses the automaton.
+        if (ahi - alo) * (bhi - blo) <= 4096:
+            return super().find_longest_match(alo, ahi, blo, bhi)
+
+        transitions: list[dict[str, int]] = [{}]
+        links = [-1]
+        lengths = [0]
+        first_ends = [-1]
+        previous = 0
+        for index in range(blo, bhi):
+            token = self.b[index]
+            state = len(transitions)
+            transitions.append({})
+            lengths.append(lengths[previous] + 1)
+            links.append(0)
+            first_ends.append(index)
+            parent = previous
+            while parent != -1 and token not in transitions[parent]:
+                transitions[parent][token] = state
+                parent = links[parent]
+            if parent != -1:
+                successor = transitions[parent][token]
+                if lengths[parent] + 1 == lengths[successor]:
+                    links[state] = successor
+                else:
+                    clone = len(transitions)
+                    transitions.append(transitions[successor].copy())
+                    lengths.append(lengths[parent] + 1)
+                    links.append(links[successor])
+                    # A clone has the same occurrence endpoints as the state
+                    # it splits, including its first physical recall endpoint.
+                    first_ends.append(first_ends[successor])
+                    while parent != -1 and transitions[parent].get(token) == successor:
+                        transitions[parent][token] = clone
+                        parent = links[parent]
+                    links[successor] = links[state] = clone
+            previous = state
+
+        state = size = best_size = 0
+        best_source, best_recall = alo, blo
+        for index in range(alo, ahi):
+            token = self.a[index]
+            while state and token not in transitions[state]:
+                state = links[state]
+                size = lengths[state]
+            successor = transitions[state].get(token)
+            if successor is None:
+                state = size = 0
+                continue
+            state = successor
+            size += 1
+            source_start = index - size + 1
+            recall_start = first_ends[state] - size + 1
+            if size > best_size or (
+                size == best_size
+                and (source_start, recall_start) < (best_source, best_recall)
+            ):
+                best_source, best_recall, best_size = source_start, recall_start, size
+        return difflib.Match(best_source, best_recall, best_size)
+
+
 def uncached_source_token_alignment(text: str, recall: str) -> tuple[Any, ...]:
     """Return the existing deterministic alignment as immutable index tuples."""
     source_tokens = list(re.finditer(r"\S+", text))
     recall_tokens = list(re.finditer(r"\S+", recall))
-    blocks = difflib.SequenceMatcher(
-        a=[token.group() for token in source_tokens],
-        b=[token.group() for token in recall_tokens],
-        autojunk=False,
+    blocks = SourceTokenMatcher(
+        [token.group() for token in source_tokens],
+        [token.group() for token in recall_tokens],
     ).get_matching_blocks()
     token_map = {
         block.b + index: block.a + index
