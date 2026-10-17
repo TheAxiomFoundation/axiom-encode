@@ -14784,11 +14784,79 @@ def _partition_condition_clause_at_rows(
     )
 
 
-def authoritative_numeric_recall_text(
-    source_text: str, *, corpus_citation_path: str = ""
-) -> str:
-    """Remove structural/citation ordinals, never substantive source values."""
+@dataclass
+class _NumericRecallSourceMap:
+    """Carry original character positions through recall substitutions.
 
+    Deleted citations shift later characters without changing their origins.
+    Rewritten text has no certified origin unless the substitution preserves
+    the character at the same position. Unknown origins must never authorize
+    the removal of a separate source obligation.
+    """
+
+    offsets: list[int | None]
+
+    def sub(
+        self,
+        pattern: str | re.Pattern[str],
+        replacement: str | Callable[[re.Match[str]], str],
+        text: str,
+        *,
+        flags: int = 0,
+    ) -> str:
+        offsets: list[int | None] = []
+        cursor = 0
+
+        def substitute(match: re.Match[str]) -> str:
+            nonlocal cursor
+            result = (
+                replacement(match)
+                if callable(replacement)
+                else match.expand(replacement)
+            )
+            offsets.extend(self.offsets[cursor : match.start()])
+            if len(result) == len(match.group()):
+                offsets.extend(
+                    self.offsets[match.start() + index]
+                    if character == text[match.start() + index]
+                    else None
+                    for index, character in enumerate(result)
+                )
+            else:
+                offsets.extend([None] * len(result))
+            cursor = match.end()
+            return result
+
+        result = re.sub(pattern, substitute, text, flags=flags)
+        offsets.extend(self.offsets[cursor:])
+        self.offsets = offsets
+        return result
+
+    def source_span(self, start: int, end: int) -> tuple[int, int] | None:
+        if not 0 <= start < end <= len(self.offsets):
+            return None
+        origin = self.offsets[start]
+        if origin is None or any(
+            offset != origin + index
+            for index, offset in enumerate(self.offsets[start:end])
+        ):
+            return None
+        return origin, origin + end - start
+
+
+def authoritative_numeric_recall_text(
+    source_text: str,
+    *,
+    corpus_citation_path: str = "",
+    _source_map: _NumericRecallSourceMap | None = None,
+) -> str:
+    """Remove structural/citation ordinals, never substantive source values.
+
+    An optional map, initialized to the input character positions, follows
+    deletions without changing the returned recall text.
+    """
+
+    sub = re.sub if _source_map is None else _source_map.sub
     source_text = _without_us_manual_locators(
         source_text, corpus_citation_path=corpus_citation_path
     )
@@ -14803,6 +14871,10 @@ def authoritative_numeric_recall_text(
     cleaned = _mask_spaced_german_sentence_labels(
         _strip_terminal_session_law_history(source_text)
     )
+    if _source_map is not None:
+        # The preceding masks preserve positions; history cleanup only drops
+        # a terminal suffix. All subsequent deletions go through tracked sub.
+        del _source_map.offsets[len(cleaned) :]
     if _GLUED_SECTION_SENTENCE_MARKER.search(cleaned):
         # Strip only authenticated sentence labels, before removing the section
         # citation that distinguishes `2§ 64` from a substantive number 2.
@@ -14825,7 +14897,7 @@ def authoritative_numeric_recall_text(
         # extraction can flatten these headings onto the preceding paragraph.
         # Require both a paragraph/sentence boundary and a title ending in a
         # period; ordinary leading-dot decimals remain substantive values.
-        cleaned = re.sub(
+        cleaned = sub(
             r"(?P<boundary>^|(?<=[.!?])\s+|\n[ \t]*)"
             r"\.\d{2}(?=[ \t]+[A-Z][A-Za-z'-]*"
             r"(?:[ \t]+(?:[A-Z][A-Za-z'-]*|as|of|for|and|or|the|to|in)){1,15}\.)",
@@ -14878,37 +14950,38 @@ def authoritative_numeric_recall_text(
         return match.group(0)
 
     confirmed_footnote_markers: set[str] = set()
-    cleaned = re.sub(
+    cleaned = sub(
         r"(?P<label>\b[A-Za-z]{4,})(?P<marker>[1-9]\d?)(?=[,.;])",
         linked_footnote_reference,
         cleaned,
     )
-    cleaned = re.sub(
+    cleaned = sub(
         r"(?P<label>[A-Za-z][A-Za-z0-9.-]{2,})(?P<closing>\))"
         r"(?P<marker>[1-9]\d?)(?=\s+(?:was|were|is|are|has|have|had)\b)",
         linked_footnote_reference,
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = re.sub(
+    cleaned = sub(
         r"\b(?:Public\s+Law|P\.?\s*L\.?)\s+\d+\s*[-–—]\s*\d+\b",
         "",
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = re.sub(
+    cleaned = sub(
         r"\bPage\s+\d+(?:\s+of\s+\d+)?\b",
         "",
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = re.sub(
+    cleaned = sub(
         r"\b(Attachment)\s+[1-9]\d?\b",
         r"\1",
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = footnote_definition.sub(
+    cleaned = sub(
+        footnote_definition,
         lambda match: (
             f"{match.group('boundary')}{match.group('body')}"
             if match.group("marker") in confirmed_footnote_markers
@@ -14920,7 +14993,7 @@ def authoritative_numeric_recall_text(
         ),
         cleaned,
     )
-    cleaned = re.sub(
+    cleaned = sub(
         r"\b\d{1,6}\s+[A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,4}\s+"
         r"(?:Avenue|Boulevard|Center|Drive|Lane|Place|Plaza|Road|Street|Way)\b"
         r",\s*[A-Za-z .'-]+,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?",
@@ -14938,53 +15011,54 @@ def authoritative_numeric_recall_text(
         ):
             # USDA's FY 2026 tables use "48 States" as a geographic column
             # label. Its 48 is not a policy amount; keep nearby dollar cells.
-            cleaned = re.sub(
+            cleaned = sub(
                 r"(?<![$\w])48(?=\s+States\b)",
                 "  ",
                 cleaned,
                 flags=re.IGNORECASE,
             )
-        cleaned = _BRACKETED_USC_ET_SEQ_CITATION_LIST.sub("", cleaned)
-        cleaned = _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL.sub("", cleaned)
-        cleaned = _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION.sub("", cleaned)
-        cleaned = _STATUTES_AT_LARGE_NUMERIC_RECALL_CITATION.sub(
+        cleaned = sub(_BRACKETED_USC_ET_SEQ_CITATION_LIST, "", cleaned)
+        cleaned = sub(_US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL, "", cleaned)
+        cleaned = sub(_US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION, "", cleaned)
+        cleaned = sub(
+            _STATUTES_AT_LARGE_NUMERIC_RECALL_CITATION,
             # Keep punctuation and the bibliography marker between neighboring
             # values: spaces alone can turn `49(...)620` into grouped `49 620`.
             lambda match: re.sub(r"\d", " ", match.group(0)),
             cleaned,
         )
-    cleaned = re.sub(
+    cleaned = sub(
         r"\bDate:\s*\d{4}[./-]\d{1,2}[./-]\d{1,2}\s+\d{1,2}:\d{2}:\d{2}"
         r"\s+[+-]\d{2}(?:[':]?\d{2})?'?",
         "",
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = _LOUISIANA_SESSION_LAW_CITATION.sub("", cleaned)
-    cleaned = _LOUISIANA_RS_NUMERIC_RECALL_CITATION.sub("", cleaned)
+    cleaned = sub(_LOUISIANA_SESSION_LAW_CITATION, "", cleaned)
+    cleaned = sub(_LOUISIANA_RS_NUMERIC_RECALL_CITATION, "", cleaned)
     # Mask complete instrument identifiers before structural-reference cleanup
     # can remove `Nr. 375` and leave the misleading numeric remainder `/2014`.
     # Gazette parentheses must contain only the citation, never operative text.
-    cleaned = _EU_REGULATION_NUMERIC_RECALL_CITATION.sub("", cleaned)
-    cleaned = _GERMAN_GAZETTE_NUMERIC_RECALL_CITATION.sub("", cleaned)
-    cleaned = _BFH_DECISION_NUMERIC_RECALL_CITATION.sub("", cleaned)
-    cleaned = _GERMAN_LEGAL_CITATION.sub("", cleaned)
-    cleaned = _TITLE_SUFFIX_LEGAL_CITATION.sub("", cleaned)
-    cleaned = _ENGLISH_LEGAL_CITATION.sub("", cleaned)
-    cleaned = _STRUCTURAL_REFERENCE.sub("", cleaned)
-    cleaned = re.sub(
+    cleaned = sub(_EU_REGULATION_NUMERIC_RECALL_CITATION, "", cleaned)
+    cleaned = sub(_GERMAN_GAZETTE_NUMERIC_RECALL_CITATION, "", cleaned)
+    cleaned = sub(_BFH_DECISION_NUMERIC_RECALL_CITATION, "", cleaned)
+    cleaned = sub(_GERMAN_LEGAL_CITATION, "", cleaned)
+    cleaned = sub(_TITLE_SUFFIX_LEGAL_CITATION, "", cleaned)
+    cleaned = sub(_ENGLISH_LEGAL_CITATION, "", cleaned)
+    cleaned = sub(_STRUCTURAL_REFERENCE, "", cleaned)
+    cleaned = sub(
         r"(?m)^[ \t]*\((?:\d+[a-z]?|[a-z])\)(?:[ \t]+bis[ \t]+\(\d+[a-z]?\))?",
         "",
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = re.sub(
+    cleaned = sub(
         r"(?m)^[ \t]*\d+[a-z]?\.[ \t]+",
         "",
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = _GLUED_SENTENCE_MARKER.sub("", cleaned)
+    cleaned = sub(_GLUED_SENTENCE_MARKER, "", cleaned)
     return cleaned
 
 
@@ -36176,7 +36250,52 @@ def _source_boundary_obligations(
     # Physical deduplication belongs only to positively recognized bare
     # outlines. Ambiguous sources retain the existing fallback obligations.
     physical_coordinates = bool(source_text and bare_outline(source_text))
-    obligations: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
+    coordinate_text = mask_bare_labels(source_text) if physical_coordinates else ""
+    obligations: list[
+        tuple[SourceStructureBranch, NumericOccurrenceLike, tuple[int, int] | None]
+    ] = []
+
+    def recall_with_source_map(
+        raw_text: str,
+    ) -> tuple[str, _NumericRecallSourceMap | None]:
+        source_map = (
+            _NumericRecallSourceMap(list(range(len(raw_text))))
+            if physical_coordinates
+            else None
+        )
+        return (
+            authoritative_numeric_recall_text(raw_text, _source_map=source_map),
+            source_map,
+        )
+
+    def raw_boundary_span(
+        branch: SourceStructureBranch,
+        occurrence: NumericOccurrenceLike,
+        raw_text: str,
+        recall_text: str,
+        source_map: _NumericRecallSourceMap | None,
+    ) -> tuple[int, int] | None:
+        if source_map is None or source_text is None:
+            return None
+        local_span = source_map.source_span(occurrence.start, occurrence.end)
+        if local_span is None:
+            return None
+        start, end = local_span
+        # Branch offsets must themselves be certified raw source coordinates.
+        # Equal numeric text elsewhere cannot establish a physical identity.
+        if (
+            not 0 <= branch.start <= branch.start + len(raw_text) <= branch.end
+            or (
+                source_text[branch.start : branch.start + len(raw_text)] != raw_text
+                and coordinate_text[branch.start : branch.start + len(raw_text)]
+                != raw_text
+            )
+            or source_text[branch.start + start : branch.start + end]
+            != recall_text[occurrence.start : occurrence.end]
+        ):
+            return None
+        return branch.start + start, branch.start + end
+
     for branch in branches:
         if branch.kind not in {
             "definition",
@@ -36199,9 +36318,8 @@ def _source_boundary_obligations(
             # A detached heading may describe the owning subsection's own
             # text. Inventory that threshold once, on its structural owner.
             continue
-        direct_text = authoritative_numeric_recall_text(
-            _source_branch_direct_text(branch, branches=branches)
-        )
+        raw_direct_text = _source_branch_direct_text(branch, branches=branches)
+        direct_text, source_map = recall_with_source_map(raw_direct_text)
         direct_inventory = tuple(extract_numeric_occurrences(direct_text))
         for fragment_start, fragment in _source_boundary_fragments(direct_text):
             range_fragment = fragment.split(":", 1)[0]
@@ -36233,7 +36351,13 @@ def _source_boundary_obligations(
             if interval is None:
                 continue
             obligations.extend(
-                (branch, boundary)
+                (
+                    branch,
+                    boundary,
+                    raw_boundary_span(
+                        branch, boundary, raw_direct_text, direct_text, source_map
+                    ),
+                )
                 for boundary in (interval.lower, interval.upper)
                 if boundary is not None
                 and any(
@@ -36244,14 +36368,24 @@ def _source_boundary_obligations(
                 )
             )
     for branch in narrative_formula_branches:
-        interval = _formula_branch_interval(
-            branch,
+        # _formula_branch_interval inventories only the first physical line.
+        # Use that same cleaned view while carrying its original positions.
+        raw_first_line = branch.text.splitlines()[0] if branch.text.splitlines() else ""
+        range_text, source_map = recall_with_source_map(raw_first_line)
+        interval = _formula_interval_from_text(
+            range_text,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
         if interval is None:
             continue
         obligations.extend(
-            (branch, boundary)
+            (
+                branch,
+                boundary,
+                raw_boundary_span(
+                    branch, boundary, raw_first_line, range_text, source_map
+                ),
+            )
             for boundary in (interval.lower, interval.upper)
             if boundary is not None
         )
@@ -36267,10 +36401,12 @@ def _source_boundary_obligations(
                 occurrence.requires_rate_context,
                 occurrence.is_word_number,
                 occurrence.alternative_values,
-                (branch.start if physical_coordinates else 0) + occurrence.start,
-                (branch.start if physical_coordinates else 0) + occurrence.end,
+                # Unknown origins each retain their own obligation.
+                (("raw", *raw_span) if raw_span is not None else ("unmapped", index))
+                if physical_coordinates
+                else (occurrence.start, occurrence.end),
             ): (branch, occurrence)
-            for branch, occurrence in obligations
+            for index, (branch, occurrence, raw_span) in enumerate(obligations)
         }.values()
     )
 
