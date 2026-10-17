@@ -322,13 +322,21 @@ class TestGuardInventoryCaseAliases:
 
         assert any(relative in issue for issue in issues), issues
 
+    @pytest.mark.parametrize("foreign_git", [False, True])
     @pytest.mark.parametrize("all_files", [False, True])
     def test_absent_explicit_alias_is_refused_without_git_repository(
-        self, tmp_path, monkeypatch, all_files
+        self, tmp_path, monkeypatch, all_files, foreign_git
     ):
         self._receipt_only_manifest(tmp_path)
         relative = f".axiom/legacy-replacements/{_RECEIPT_NAME}.Json"
         assert not (tmp_path / relative).exists()
+        # The shared fixture initialises Git; remove it to model a checkout
+        # without a repository.
+        if foreign_git:
+            foreign = tmp_path.parent / "foreign-git"
+            shutil.copytree(tmp_path / ".git", foreign)
+            monkeypatch.setenv("GIT_DIR", str(foreign))
+        shutil.rmtree(tmp_path / ".git", ignore_errors=True)
         assert not (tmp_path / ".git").exists()
 
         issues = self._guard(

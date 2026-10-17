@@ -394,11 +394,50 @@ The ungated apply-signing and caller App keys were removed during the October
 `signed-apply-reusable.yml`, which previously accepted caller-provided keys.
 Route signed re-encodes through the central targeted workflow.
 
-The central signed-apply leg runs the same provisioning as the verification
-supervisor (`scripts/provision_verification_supervisor.py`, a root-owned tree), then invokes
+The central signed-apply leg runs the same provisioning as the verification supervisor
+(`scripts/provision_verification_supervisor.py`, a root-owned tree), then invokes
 `axiom-encode-apply-signer run …` in place of a bare supervisor call. The private
-key reaches the signing step only as a protected environment secret bound to
-that step's `env:`; the launcher consumes and clears it.
+key in `targeted-signed-reencode.yml` is bound only to the `env:` of 20 signer
+launch steps. Actions supplies it to each launch shell, which uses only shell
+builtins before replacing itself with the owned apply-signer binary via `exec`
+and `--key-env`. These scripts never launch Python, workflow helpers, the CLI,
+or another external executable directly. Their fixed Bash invocation uses
+privileged mode to ignore inherited startup files, shell functions, and shell
+options; their step environment explicitly clears `LD_PRELOAD`, `LD_AUDIT`, and
+`LD_LIBRARY_PATH`. The launcher consumes and clears the key before spawning the
+supervisor. Its private key pipe connects only owned signer processes.
+
+In `targeted-signed-reencode.yml`, input refusals, source-bundle parsing, repair
+extraction, corpus and queue preparation all run in earlier steps without the
+apply key. Preparation writes NUL-delimited arguments and ordered operations,
+never key material. Nineteen launch steps read this argument data without
+evaluating it, after using builtin regular-file and symlink checks to refuse
+a missing, non-regular, or symbolic-link arguments file. The check narrows a
+race-prone path: another process can replace the file between the check and
+the read, and the check does nothing against `sudo`. The twentieth launch
+step, retired-metadata migration, passes its arguments inline and reads no
+prepared data before `exec`. The next preparation step reconciles inventory and
+runs the checkpoint guard before preparing another signature, preserving the
+checks between source, dependent, and canonical-refresh lanes. Nineteen signing
+slots cover the existing maximum of sixteen sources plus a target and two dependents;
+an unfinished transaction fails closed. The final `encode_apply` step reports
+upstream failures and completes the last checkpoint.
+
+The CLI and helpers can request signatures through the broker when supervised,
+but the workflow does not give them the raw key through their environment,
+arguments, files, or descriptors. Keeping the key out of every step except the
+20 signer launch steps prevents helpers from reading it by inheritance,
+logging their environment, or inspecting `os.environ`. Repository-token helpers
+also run in separate steps before token-bearing checkout or publication commands.
+
+This confinement does not isolate the key from repository code that runs
+earlier in the same job on the same runner. That code shares the runner user,
+passwordless `sudo`, `$RUNNER_TEMP`, and values written to `GITHUB_ENV`; it can
+use that access to influence or intercept a later launch. Removing `sudo`
+alone would not close this: a leftover same-user process could still race the
+argument check, read the launch shell's environment, or set `GITHUB_ENV` values.
+Isolation from such code requires signing in a separate job on a fresh runner
+that runs no repository helper code; the workflow does not do that today.
 
 **The signing leg runs only on `workflow_dispatch` from the main-branch
 workflow definition, never on `pull_request`.** The workflow requires
@@ -426,11 +465,12 @@ independently of the YAML.
   request signing approval. The binding therefore never widens who can
   sign; it only narrows it further.
 - **A compromised or malicious PR** can change the module content a future
-  generation session encodes, but it cannot exfiltrate the key: the signing leg
-  does not run on its event, the secret is absent from PR-triggered runs, and the
-  supervised encoder never has the key in its environment or argv. The worst a PR
-  can do is propose bad content, which the supervised `validate` gate and human
-  review still catch.
+  generation session encodes. Its PR-triggered run cannot receive the key:
+  the signing leg does not run on its event and the secret is absent from
+  PR-triggered runs. The supervised encoder has no key in its environment or
+  argv. These controls do not protect against malicious repository code after
+  it is merged and runs earlier in a signing job with the shared runner access
+  described above. Content validation and human review remain necessary.
 - **Signer misuse for arbitrary payloads.** The signer signs only domain-bound
   `apply_ed25519` messages presented over the socket. There is no endpoint that
   signs an attacker-chosen pre-image, and an apply signature cannot be replayed as
@@ -535,7 +575,9 @@ with the active root. Ordinary
 `guard-generated` diffs require the active root. A scheduled or manual audit of
 an already frozen commit must explicitly use `guard-generated --retrospective`;
 its actual checkout head must equal or precede the trusted cutoff, and its
-`--head-ref` must be `HEAD` or that exact SHA.
+`--head-ref` must resolve to that checkout head (for example `HEAD`, its exact
+SHA, or a branch that points at it); refs are resolved once before any Git
+inspection.
 
 A retired-root manifest at the base of a guard range is admitted only as the
 exact frozen payload (or evidence nested in it), because the inventory holds one

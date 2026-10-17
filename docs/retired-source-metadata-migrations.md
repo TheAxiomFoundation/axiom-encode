@@ -36,3 +36,23 @@ it is not a read-only operation and its output is not publication evidence.
 Protected publication still requires the established signing environment and
 matching producer/verifier identities. A successful neutral migration does not
 clear unrelated source, ownership, runtime, waiver, or admission failures.
+
+Repository CI must pass `guard-generated --all --base-ref "$PROTECTED_BASE_REF"`
+with the base selected by its trusted review or dispatch context. When any
+retired source metadata migration receipt is present in the tree, `--all`
+requires protected-base admission before accepting its replacement manifests
+as generated. Without an explicit protected base, the guard refuses the
+receipt and names its path. A receipt's self-declared `base_commit` is replay
+evidence; it does not select the trusted review base.
+
+Admission verifies the complete replayed transaction against that base:
+receipt, rewritten primary and cascade importers, their replacement manifests,
+and every live postimage must agree. The authoritative Git change set must
+match the transaction exactly. Diff mode and the `changed_files` API enforce
+the same admission even when the caller supplies a selected path list; omitting
+a receipt or cascade path cannot make a partial transaction acceptable.
+
+The selected base must be the original protected pre-migration commit. A base
+that already contains the receipt cannot admit it as a new transaction. Trees
+containing sequential receipts from different bases cannot satisfy this exact
+transaction gate with one base.

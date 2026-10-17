@@ -35087,6 +35087,7 @@ _RULESPEC_FORMULA_BUILTINS = {
     "max",
     "min",
     "not",
+    "only_related",
     "or",
     "period_end",
     "period_start",

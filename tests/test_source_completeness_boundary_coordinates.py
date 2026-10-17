@@ -3,6 +3,7 @@
 import functools
 import re
 
+import pytest
 import yaml
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -235,3 +236,54 @@ def test_citation_inside_formula_first_line_deduplicates_one_physical_threshold(
         "b\nThe person must be resident.\n"
     )
     assert _threshold_obligations(source, 50) == [(None, 50)]
+
+
+@pytest.mark.parametrize("gap", [" ", "\u00a0\u202f"])
+@pytest.mark.parametrize("locator", ["(3)(b)", "3(b)"])
+def test_bare_threshold_coordinates_survive_subdivision_and_geography_masks(
+    gap, locator
+):
+    source, first, second = _colliding_source(before=20)
+    context = (
+        f"Under subdivision{gap}{locator} of this section, "
+        f"the 48{gap}contiguous States apply."
+    )
+    gap_start = source.index(first) + len(first)
+    gap_end = source.index(second)
+    context = " " + context
+    assert len(context) < gap_end - gap_start
+    source = (
+        source[:gap_start]
+        + context
+        + " " * (gap_end - gap_start - len(context))
+        + source[gap_end:]
+    )
+    assert (source.index("50"), source.rindex("50")) == (325, 505)
+    source_map = sc._NumericRecallSourceMap(list(range(len(source))))
+    cleaned = sc.authoritative_numeric_recall_text(source, _source_map=source_map)
+    assert cleaned == sc.authoritative_numeric_recall_text(source)
+    numbers = list(
+        vp.extract_typed_numeric_inventory_occurrences_from_text(
+            cleaned, profile="legacy"
+        )
+    )
+    assert {item.value for item in numbers} == {2, 50}
+    thresholds = [item for item in numbers if item.value == 50]
+    assert thresholds[1].start == source.index("50")
+    assert [source_map.source_span(item.start, item.end) for item in thresholds] == [
+        (source.index("50"), source.index("50") + 2),
+        (source.rindex("50"), source.rindex("50") + 2),
+    ]
+    # Main's masks must not certify replacement spaces as raw characters.
+    subdivision_spans = tuple(sc._english_subdivision_numeric_recall_spans(source))
+    geography_spans = tuple(sc._contiguous_states_numeric_recall_spans(source))
+    assert bool(subdivision_spans) == (locator == "3(b)")
+    assert geography_spans == ((source.index("48"), source.index("48") + 2),)
+    for raw_start, raw_end in (*subdivision_spans, *geography_spans):
+        assert not any(
+            offset is not None and raw_start <= offset < raw_end
+            for offset in source_map.offsets
+        )
+    assert sorted(_threshold_obligations(source, 50), key=repr) == sorted(
+        [(None, 50), (50, None)], key=repr
+    )
