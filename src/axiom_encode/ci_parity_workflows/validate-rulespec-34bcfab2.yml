@@ -1,0 +1,1438 @@
+name: Validate RuleSpec Repository
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python version used for repository tests and validators.
+        required: false
+        type: string
+        default: "3.14"
+      axiom-encode-ref:
+        description: Full commit SHA for TheAxiomFoundation/axiom-encode.
+        required: true
+        type: string
+      axiom-rules-engine-ref:
+        description: Full commit SHA for TheAxiomFoundation/axiom-rules-engine.
+        required: true
+        type: string
+      axiom-corpus-ref:
+        description: Full commit SHA for TheAxiomFoundation/axiom-corpus.
+        required: true
+        type: string
+      rulespec-us-ref:
+        description: Full commit SHA for TheAxiomFoundation/rulespec-us canonical targets.
+        required: true
+        type: string
+      corpus-release-base-url:
+        description: HTTPS base URL of the public R2 bucket containing releases/.
+        # Interim r2.dev URL for the dedicated axiom-corpus-releases bucket;
+        # switch to https://corpus.axiom-foundation.org once the custom domain
+        # is bound (needs the R2 bucket in the axiom-foundation.org zone account).
+        required: false
+        default: https://pub-a8952f8657fc49fda358146ac001366c.r2.dev
+        type: string
+      validate-roots:
+        description: >-
+          Space-separated repository roots containing RuleSpec YAML, or
+          "auto" to discover jurisdiction directories in a country monorepo
+          (top-level dirs like us/, us-co/ that contain statutes/,
+          regulations/, policies/, or legislation/).
+        required: false
+        type: string
+        default: "statutes regulations policies"
+      run-pytest:
+        description: Whether to run pytest when the repository has a tests directory.
+        required: false
+        type: boolean
+        default: true
+      run-generated-guard:
+        description: >-
+          Whether to run the manual-RuleSpec-change guard. Disable ONLY for
+          history-preserving migration PRs (e.g. repo consolidation) where
+          every file arrives from an already-validated repo; re-enable
+          immediately after.
+        required: false
+        type: boolean
+        default: true
+      guard-programs-root:
+        description: >-
+          Whether to require encoding manifests on the composed-pilot
+          `programs/` root too (encode#1053). Opt-in per repo: enable only
+          after every existing `programs/` file has an encoder apply-manifest
+          or a manual attestation, otherwise the guard fails on the backlog.
+          When true, `programs` is guarded as a RuleSpec root rather than
+          merely tolerated as an allowed extra directory.
+        required: false
+        type: boolean
+        default: false
+      run-money-atom-check:
+        description: >-
+          Whether to require a proof atom citing a provision on every
+          policy-bearing monetary value (currency parameters, currency
+          parameter-table cells, and currency literals in derived formulas).
+          The calling repo may carry a `known-missing-money-atoms.yaml`
+          ratchet to tolerate a visible backlog; an absent ratchet means a
+          strict zero allowance, so a repo must be clean or carry a ratchet.
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  shards:
+    name: shards
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.compute.outputs.matrix }}
+      first: ${{ steps.compute.outputs.first }}
+      roots: ${{ steps.compute.outputs.roots }}
+      allowed-extra: ${{ steps.compute.outputs.allowed-extra }}
+    steps:
+      - name: Checkout rules repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Full history so shard-on-demand can diff the pull-request base
+          # against the head to see which jurisdiction subtrees changed.
+          fetch-depth: 0
+
+      - name: Compute validation shards
+        id: compute
+        shell: bash
+        env:
+          VALIDATE_ROOTS_INPUT: ${{ inputs.validate-roots }}
+          GUARD_PROGRAMS_ROOT: ${{ inputs.guard-programs-root }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$VALIDATE_ROOTS_INPUT" = "auto" ]; then
+            all_shards=()
+            for dir in */; do
+              dir="${dir%/}"
+              case "$dir" in _*|.*) continue ;; esac
+              if printf '%s' "$dir" | grep -Eq '^[a-z]{2}(-[a-z0-9-]+)*$'; then
+                for marker in statutes regulations policies legislation; do
+                  if [ -d "$dir/$marker" ]; then
+                    all_shards+=("$dir")
+                    break
+                  fi
+                done
+              fi
+            done
+            if [ "${#all_shards[@]}" -eq 0 ]; then
+              echo "validate-roots=auto found no jurisdiction directories" >&2
+              exit 1
+            fi
+            # roots always covers every discovered jurisdiction, even when the
+            # matrix is scoped to one shard: the repo-wide gates (layout,
+            # obsolete-file, manual-change guard, money-atom) run on the first
+            # shard against this full set, so their whole-repo scope is
+            # preserved regardless of which single shard the matrix selects.
+            roots="${all_shards[*]}"
+            if [ "$GUARD_PROGRAMS_ROOT" = "true" ]; then
+              # Guard the composed-pilot programs/ root instead of merely
+              # tolerating it as an allowed extra (encode#1053).
+              roots="$roots programs"
+              allowed_extra="sources"
+            else
+              allowed_extra="sources programs"
+            fi
+
+            # Shard-on-demand: a pull request whose diff is confined to exactly
+            # one jurisdiction subtree (the bulk-encoding case) validates only
+            # that jurisdiction's shard. Multi-tree diffs, pushes, scheduled
+            # runs, and any change that touches shared infrastructure fall back
+            # to the full matrix, which stays the honesty backstop against
+            # cross-shard drift (a daily scheduled full run lives in the
+            # calling repo). The repo-wide gates still run because they are
+            # pinned to the first shard, so no gate is skipped when scoped.
+            mapfile -t selected_shards < <(
+              ALL_SHARDS="${all_shards[*]}" \
+              EVENT_NAME="$EVENT_NAME" \
+              PR_BASE_SHA="$PR_BASE_SHA" \
+              HEAD_SHA="$HEAD_SHA" \
+              python3 <<'PY'
+          import os
+          import subprocess
+          import sys
+
+          all_shards = os.environ["ALL_SHARDS"].split()
+          shard_set = set(all_shards)
+
+
+          def full(reason: str) -> None:
+              print(f"scope=full ({reason})", file=sys.stderr)
+              for shard in all_shards:
+                  print(shard)
+              raise SystemExit
+
+
+          event = os.environ.get("EVENT_NAME", "")
+          base = os.environ.get("PR_BASE_SHA", "").strip()
+          head = os.environ.get("HEAD_SHA", "").strip()
+
+          if event != "pull_request" or not base or not head:
+              full(f"event={event or 'unknown'}")
+
+          diff = subprocess.run(
+              ["git", "diff", "--name-only", "--no-renames",
+               "--diff-filter=ACMRTD", base, head],
+              stdout=subprocess.PIPE, text=True,
+          )
+          if diff.returncode != 0:
+              full("git diff failed")
+
+          changed = [line.strip() for line in diff.stdout.splitlines() if line.strip()]
+          if not changed:
+              full("empty diff")
+
+          touched: set[str] = set()
+          for path in changed:
+              top = path.split("/", 1)[0]
+              if top in shard_set:
+                  touched.add(top)
+                  continue
+              # The reverse index is derived tooling metadata regenerated from
+              # the YAML; it never changes what any shard must validate, so an
+              # index-only edit alongside a jurisdiction edit stays scoped.
+              if path.startswith(".axiom/index/"):
+                  continue
+              # Anything else (workflows, toolchain, structure config, other
+              # .axiom entries, sources/, programs/, root files, ...) can
+              # affect every shard: fall back to the full matrix.
+              full(f"cross-cutting path {path}")
+
+          if len(touched) == 1:
+              only = next(iter(touched))
+              print(f"scope=one-jurisdiction ({only})", file=sys.stderr)
+              print(only)
+          else:
+              full(f"{len(touched)} jurisdiction subtrees touched")
+          PY
+            )
+            # Never emit an empty matrix: if scope selection produced nothing
+            # (e.g. the classifier crashed), run the full matrix rather than
+            # skip validation, so the required check can never pass vacuously.
+            if [ "${#selected_shards[@]}" -eq 0 ]; then
+              echo "Scope selection produced no shards; falling back to full matrix." >&2
+              selected_shards=("${all_shards[@]}")
+            fi
+            shards=("${selected_shards[@]}")
+          else
+            shards=("__all__")
+            roots="$VALIDATE_ROOTS_INPUT"
+            if [ "$GUARD_PROGRAMS_ROOT" = "true" ]; then
+              case " $roots " in
+                *" programs "*) : ;;
+                *) roots="$roots programs" ;;
+              esac
+            fi
+            allowed_extra="sources"
+          fi
+          matrix=$(printf '%s\n' "${shards[@]}" | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')
+          {
+            echo "matrix=$matrix"
+            echo "first=${shards[0]}"
+            echo "roots=$roots"
+            echo "allowed-extra=$allowed_extra"
+          } >> "$GITHUB_OUTPUT"
+          echo "Shards: $matrix"
+
+  validate:
+    # Keep the check name exactly `validate` across matrix legs so existing
+    # required-status configs keep matching; legacy repos run one `__all__`
+    # leg with behavior identical to the pre-shard workflow.
+    name: validate
+    needs: shards
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.shards.outputs.matrix) }}
+
+    steps:
+      # This job stacks four dependency checkouts, Go + Rust toolchains, an
+      # isolated verification runtime, and an engine build on one ~14 GB
+      # runner disk; reclaim the preinstalled bloat first or the runner dies
+      # mid-job with "No space left on device" (and no usable step logs).
+      - name: Free runner disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Disk before cleanup:" && df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          echo "Disk after cleanup:" && df -h /
+
+      - name: Checkout rules repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Resolve shard validation roots
+        id: resolve_roots
+        shell: bash
+        env:
+          VALIDATE_ROOTS_INPUT: ${{ inputs.validate-roots }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          if [ "$SHARD" = "__all__" ]; then
+            roots="$VALIDATE_ROOTS_INPUT"
+          else
+            roots="$SHARD"
+          fi
+          echo "roots=$roots" >> "$GITHUB_OUTPUT"
+          echo "Shard validation roots: $roots"
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Resolve RuleSpec toolchain
+        id: toolchain
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          TOOLCHAIN_PATH = Path(".axiom/toolchain.toml")
+          EXPECTED_KEYS = {
+              "axiom_corpus_release",
+              "axiom_corpus_release_content_sha256",
+              "validation_waiver_set_sha256",
+          }
+          SHA256_RE = re.compile(r"[0-9a-f]{64}")
+          RELEASE_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+
+          def fail(message: str) -> None:
+              print(f"RuleSpec toolchain error: {message}", file=sys.stderr)
+              sys.exit(1)
+
+          def load_toolchain(raw: bytes) -> dict[str, str]:
+              try:
+                  payload = tomllib.loads(raw.decode("utf-8"))
+              except (UnicodeError, tomllib.TOMLDecodeError) as exc:
+                  fail(f"toolchain file is not valid UTF-8 TOML: {exc}")
+              if set(payload) != {"toolchain"} or not isinstance(payload["toolchain"], dict):
+                  fail("toolchain file must contain exactly one top-level [toolchain] table")
+              table = payload["toolchain"]
+              if set(table) != EXPECTED_KEYS:
+                  fail("[toolchain] must contain exactly: " + ", ".join(sorted(EXPECTED_KEYS)))
+              if not all(isinstance(value, str) for value in table.values()):
+                  fail("all [toolchain] values must be strings")
+              if RELEASE_RE.fullmatch(table["axiom_corpus_release"]) is None:
+                  fail("axiom_corpus_release is not a canonical immutable release name")
+              if table["axiom_corpus_release"] == "current":
+                  fail("axiom_corpus_release must not use the mutable current alias")
+              for key in EXPECTED_KEYS - {"axiom_corpus_release"}:
+                  if SHA256_RE.fullmatch(table[key]) is None:
+                      fail(f"{key} must be a lowercase sha256 digest")
+              return table
+
+          def base_toolchain() -> dict[str, object] | None:
+              base_sha = os.environ.get("PR_BASE_SHA")
+              if not base_sha:
+                  return None
+              result = subprocess.run(
+                  ["git", "show", f"{base_sha}:.axiom/toolchain.toml"],
+                  check=False,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.DEVNULL,
+              )
+              if result.returncode != 0:
+                  return None
+              # A base branch that predates the canonical-toolchain migration
+              # carries an old-schema toolchain. For the removal-guard below,
+              # that is equivalent to "no canonical toolchain yet": only a base
+              # whose toolchain already conforms to the strict schema may be
+              # forbidden from dropping it. Parse the base softly (key set only)
+              # so the very PR that performs the migration is not rejected for
+              # the base still being pre-migration. Any base already on the
+              # protected branch necessarily passed strict validation to land,
+              # so an exact EXPECTED_KEYS match is a sufficient "is migrated"
+              # signal here.
+              try:
+                  payload = tomllib.loads(result.stdout.decode("utf-8"))
+              except (UnicodeError, tomllib.TOMLDecodeError):
+                  return None
+              table = payload.get("toolchain")
+              if not isinstance(table, dict) or set(table) != EXPECTED_KEYS:
+                  return None
+              return table
+
+          base_config = base_toolchain()
+          if not TOOLCHAIN_PATH.is_file() or TOOLCHAIN_PATH.is_symlink():
+              if base_config is not None:
+                  fail(".axiom/toolchain.toml cannot be removed once a base branch uses it")
+              fail("a regular .axiom/toolchain.toml is required")
+          config = load_toolchain(TOOLCHAIN_PATH.read_bytes())
+
+          waiver_path = Path("known-validation-gaps.yaml")
+          if not waiver_path.is_file() or waiver_path.is_symlink():
+              fail("known-validation-gaps.yaml must be a regular file")
+          import hashlib
+          waiver_sha256 = hashlib.sha256(waiver_path.read_bytes()).hexdigest()
+          if waiver_sha256 != config["validation_waiver_set_sha256"]:
+              fail(
+                  "ValidationWaiverHashMismatch: known-validation-gaps.yaml "
+                  f"sha256 {waiver_sha256} != pinned "
+                  f"{config['validation_waiver_set_sha256']}"
+              )
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          with output_path.open("a") as output:
+              for key, value in config.items():
+                  print(f"{key}={value}", file=output)
+          print(f"Resolved strict RuleSpec toolchain from {TOOLCHAIN_PATH}:")
+          for key, value in config.items():
+              print(f"- {key}: {value}")
+          PY
+
+      - name: Validate immutable dependency inputs
+        shell: bash
+        env:
+          AXIOM_ENCODE_SHA: ${{ inputs.axiom-encode-ref }}
+          AXIOM_RULES_ENGINE_SHA: ${{ inputs.axiom-rules-engine-ref }}
+          AXIOM_CORPUS_SHA: ${{ inputs.axiom-corpus-ref }}
+          RULESPEC_US_SHA: ${{ inputs.rulespec-us-ref }}
+          RELEASE_BASE_URL: ${{ inputs.corpus-release-base-url }}
+          PYTHON_VERSION: ${{ inputs.python-version }}
+        run: |
+          set -euo pipefail
+          for value in "$AXIOM_ENCODE_SHA" "$AXIOM_RULES_ENGINE_SHA" "$AXIOM_CORPUS_SHA" "$RULESPEC_US_SHA"; do
+            if [[ ! "$value" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Dependency inputs must be exact 40-character lowercase commit SHAs: $value" >&2
+              exit 1
+            fi
+          done
+          # python-version is spliced into many run: blocks; bound it to major.minor
+          # so a caller cannot smuggle shell into those steps (fail-open / RCE).
+          if [[ ! "$PYTHON_VERSION" =~ ^3\.[0-9]+$ ]]; then
+            echo "python-version must be a bare major.minor like 3.14: $PYTHON_VERSION" >&2
+            exit 1
+          fi
+          case "$RELEASE_BASE_URL" in
+            https://*) ;;
+            *) echo "corpus-release-base-url must use HTTPS" >&2; exit 1 ;;
+          esac
+
+      - name: Checkout axiom-encode
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-encode
+          ref: ${{ inputs.axiom-encode-ref }}
+          path: _axiom/axiom-encode
+          persist-credentials: false
+
+      - name: Checkout axiom-rules-engine
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-rules-engine
+          ref: ${{ inputs.axiom-rules-engine-ref }}
+          path: _axiom/axiom-rules-engine
+          persist-credentials: false
+
+      - name: Checkout axiom-corpus
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-corpus
+          ref: ${{ inputs.axiom-corpus-ref }}
+          path: _axiom/axiom-corpus
+          persist-credentials: false
+
+      - name: Checkout rulespec-us canonical targets
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/rulespec-us
+          ref: ${{ inputs.rulespec-us-ref }}
+          path: _axiom/rulespec-us
+          persist-credentials: false
+
+      - name: Authenticate dependency commits
+        shell: bash
+        env:
+          AXIOM_ENCODE_SHA: ${{ inputs.axiom-encode-ref }}
+          AXIOM_RULES_ENGINE_SHA: ${{ inputs.axiom-rules-engine-ref }}
+          AXIOM_CORPUS_SHA: ${{ inputs.axiom-corpus-ref }}
+          RULESPEC_US_SHA: ${{ inputs.rulespec-us-ref }}
+        run: |
+          set -euo pipefail
+          verify_ancestor() {
+            local repo="$1" expected="$2"
+            test "$(git -C "$repo" rev-parse HEAD)" = "$expected" || {
+              echo "$repo did not check out expected SHA $expected" >&2; return 1;
+            }
+            default_branch="$(git -C "$repo" ls-remote --symref origin HEAD | sed -n 's#^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$#\1#p')"
+            test -n "$default_branch" || { echo "Cannot resolve $repo default branch" >&2; return 1; }
+            git -C "$repo" fetch --no-tags --unshallow origin "+refs/heads/$default_branch:refs/remotes/origin/$default_branch"
+            git -C "$repo" merge-base --is-ancestor "$expected" "refs/remotes/origin/$default_branch" || {
+              echo "$repo SHA $expected is not an ancestor of protected default branch $default_branch" >&2; return 1;
+            }
+          }
+          verify_ancestor _axiom/axiom-encode "$AXIOM_ENCODE_SHA"
+          verify_ancestor _axiom/axiom-rules-engine "$AXIOM_RULES_ENGINE_SHA"
+          verify_ancestor _axiom/axiom-corpus "$AXIOM_CORPUS_SHA"
+          verify_ancestor _axiom/rulespec-us "$RULESPEC_US_SHA"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+
+      - name: Set up Go 1.26.1
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: 1.26.1
+          cache: false
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pyyaml
+          python -m pip install -e _axiom/axiom-encode
+          rm -rf "$RUNNER_TEMP/axiom-verification-site-packages"
+          python -m pip install \
+            --target "$RUNNER_TEMP/axiom-verification-site-packages" \
+            ./_axiom/axiom-encode
+
+      - name: Fetch pinned signed corpus release object
+        shell: bash
+        env:
+          RELEASE_BASE_URL: ${{ inputs.corpus-release-base-url }}
+          RELEASE_NAME: ${{ steps.toolchain.outputs.axiom_corpus_release }}
+          RELEASE_CONTENT_SHA256: ${{ steps.toolchain.outputs.axiom_corpus_release_content_sha256 }}
+        run: |
+          set -euo pipefail
+          destination="$GITHUB_WORKSPACE/_axiom/axiom-corpus/releases/$RELEASE_NAME/$RELEASE_CONTENT_SHA256.json"
+          mkdir -p "$(dirname "$destination")"
+          url="${RELEASE_BASE_URL%/}/releases/$RELEASE_NAME/$RELEASE_CONTENT_SHA256.json"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --output "$destination.tmp" "$url"
+          python - "$destination.tmp" "$RELEASE_NAME" "$RELEASE_CONTENT_SHA256" <<'PY'
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          path, expected_name, expected_sha = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+          try:
+              payload = json.loads(path.read_bytes())
+          except (OSError, json.JSONDecodeError) as exc:
+              raise SystemExit(f"Corpus release acquisition error: invalid JSON: {exc}")
+          if payload.get("release") != expected_name:
+              raise SystemExit("Corpus release acquisition error: release name mismatch")
+          content = payload.get("content")
+          if not isinstance(content, dict):
+              raise SystemExit("Corpus release acquisition error: missing content object")
+          actual = hashlib.sha256(json.dumps(
+              content, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+          ).encode()).hexdigest()
+          if payload.get("content_sha256") != actual or actual != expected_sha:
+              raise SystemExit(
+                  f"Corpus release acquisition error: content sha256 mismatch "
+                  f"({actual} != {expected_sha})"
+              )
+          path.replace(path.with_suffix(""))
+          PY
+
+      - name: Authenticate signed corpus provenance commit
+        shell: bash
+        env:
+          RELEASE_NAME: ${{ steps.toolchain.outputs.axiom_corpus_release }}
+          RELEASE_CONTENT_SHA256: ${{ steps.toolchain.outputs.axiom_corpus_release_content_sha256 }}
+          AXIOM_CORPUS_SHA: ${{ inputs.axiom-corpus-ref }}
+        run: |
+          set -euo pipefail
+          object="_axiom/axiom-corpus/releases/$RELEASE_NAME/$RELEASE_CONTENT_SHA256.json"
+          release_commit="$(python - "$object" <<'PY'
+          import json
+          import sys
+          print(json.load(open(sys.argv[1]))["content"]["git"]["commit"])
+          PY
+          )"
+          if [[ ! "$release_commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Signed release provenance is not a full lowercase commit SHA" >&2
+            exit 1
+          fi
+          default_branch="$(git -C _axiom/axiom-corpus ls-remote --symref origin HEAD | sed -n 's#^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$#\1#p')"
+          git -C _axiom/axiom-corpus fetch --no-tags origin \
+            "+refs/heads/$default_branch:refs/remotes/origin/$default_branch"
+          git -C _axiom/axiom-corpus merge-base --is-ancestor \
+            "$release_commit" "refs/remotes/origin/$default_branch" || {
+              echo "Signed release provenance $release_commit is not on the corpus default branch" >&2
+              exit 1
+            }
+          git -C _axiom/axiom-corpus merge-base --is-ancestor \
+            "$release_commit" "$AXIOM_CORPUS_SHA" || {
+              echo "Corpus checkout $AXIOM_CORPUS_SHA predates signed release provenance $release_commit" >&2
+              exit 1
+            }
+
+      - name: Provision protected verification supervisor
+        working-directory: _axiom/axiom-encode
+        env:
+          TRUST_APPLY_ROOT: ${{ vars.AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY }}
+          TRUST_EVAL_ROOT: ${{ vars.AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY }}
+          TRUST_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$TRUST_APPLY_ROOT" && test -n "$TRUST_EVAL_ROOT" && test -n "$TRUST_CORPUS_RELEASE_ROOT"
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
+            -o "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
+            ./cmd/axiom-encode-signing-supervisor
+          sudo rm -rf /opt/axiom-verification
+          # sudo resets PATH (secure_path), so a bare `python` under sudo is
+          # the SYSTEM interpreter — and the provision script copies the
+          # invoking interpreter's sys.base_prefix, i.e. it would copytree
+          # /usr until the runner disk dies. Resolve the setup-python
+          # interpreter in this shell and pass its absolute path through.
+          sudo "$(command -v python)" scripts/provision_verification_supervisor.py \
+            --destination /opt/axiom-verification \
+            --supervisor "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
+            --site-packages "$RUNNER_TEMP/axiom-verification-site-packages" \
+            --apply-root "$TRUST_APPLY_ROOT" --eval-root "$TRUST_EVAL_ROOT" \
+            --corpus-release-root "$TRUST_CORPUS_RELEASE_ROOT"
+          sudo chown -R 0:0 /opt/axiom-verification
+          sudo chmod -R go-w /opt/axiom-verification
+          # The supervisor refuses a trust chain with group/other-writable
+          # ancestors, and /opt ships group-writable on hosted runners.
+          # Harden the directory bit itself (contents are untouched; nothing
+          # later in this job creates new /opt entries).
+          # The supervised child's PATH is exactly the trusted tool directory
+          # (the supervisor exports no ambient PATH), and the checkout-identity
+          # probes shell out to git builtins (rev-parse --show-toplevel,
+          # remote get-url origin) whenever a module sits inside a git
+          # boundary — which every CI workspace does. Provision the runner's
+          # git binary alongside the trusted tools so those probes fail closed
+          # on identity, not on a missing binary.
+          # With a provisioned python runtime the supervisor rewrites exec to
+          # the trusted interpreter, so the child's PATH (= dirname of the
+          # exec'd command) is the runtime's bin directory — install git
+          # THERE, not at the verification root.
+          sudo install -m 0755 "$(command -v git)" /opt/axiom-verification/python/bin/git
+          sudo chown root:root /opt
+          sudo chmod go-w /opt
+
+      - name: Build axiom-rules-engine
+        working-directory: _axiom/axiom-rules-engine
+        run: cargo build --verbose
+
+      - name: Expose axiom-rules-engine on PATH
+        run: echo "$GITHUB_WORKSPACE/_axiom/axiom-rules-engine/target/debug" >> "$GITHUB_PATH"
+
+      - name: Link axiom-rules-engine as sibling checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          ln -sfn "$GITHUB_WORKSPACE/_axiom/axiom-rules-engine" "$GITHUB_WORKSPACE/../axiom-rules-engine"
+          ln -sfn "$GITHUB_WORKSPACE/_axiom/axiom-corpus" "$GITHUB_WORKSPACE/../axiom-corpus"
+          if [ "$(basename "$GITHUB_WORKSPACE")" != "rulespec-us" ]; then
+            ln -sfn "$GITHUB_WORKSPACE/_axiom/rulespec-us" "$GITHUB_WORKSPACE/../rulespec-us"
+          fi
+
+      - name: Run repository tests
+        if: ${{ inputs.run-pytest && matrix.shard == needs.shards.outputs.first }}
+        run: |
+          if [ -d tests ] && find tests -type f \( -name "test_*.py" -o -name "*_test.py" \) | grep -q .; then
+            python -m pytest -q tests
+          else
+            echo "No Python tests found; skipping pytest."
+          fi
+
+      - name: Reject obsolete generated files
+        if: ${{ matrix.shard == needs.shards.outputs.first }}
+        run: |
+          obsolete_ext="r""ac"
+          matches="$(find . \
+            \( -path ./.git -o -path ./_axiom -o -path ./.venv -o -path ./.pytest_cache \) -prune \
+            -o \( -name "*.${obsolete_ext}" -o -name "*.${obsolete_ext}.test" \) -print)"
+          if [ -n "$matches" ]; then
+            printf '%s\n' "$matches" >&2
+            exit 1
+          fi
+
+      - name: Reject disallowed repository layout
+        if: ${{ matrix.shard == needs.shards.outputs.first }}
+        shell: bash
+        env:
+          VALIDATE_ROOTS: ${{ needs.shards.outputs.roots }}
+          ALLOWED_EXTRA_ROOTS: ${{ needs.shards.outputs.allowed-extra }}
+        run: |
+          set -euo pipefail
+
+          if [ -f .axiom/repository-structure.yaml ]; then
+          python - <<'PY'
+          import fnmatch
+          import sys
+          from pathlib import Path, PurePosixPath
+
+          import yaml
+
+          CONFIG_PATH = Path(".axiom/repository-structure.yaml")
+
+          def fail(message: str) -> None:
+              print(f"Repository structure error: {message}", file=sys.stderr)
+              sys.exit(1)
+
+          def string_set(payload: object, key: str) -> set[str]:
+              value = payload.get(key) if isinstance(payload, dict) else None
+              if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+                  fail(f"{key} must be a list of strings")
+              normalized = {item.strip("/") for item in value}
+              if "" in normalized:
+                  fail(f"{key} contains an empty path")
+              return normalized
+
+          def tracked_files() -> list[str]:
+              import subprocess
+
+              result = subprocess.run(
+                  ["git", "ls-files", "-z"],
+                  check=True,
+                  stdout=subprocess.PIPE,
+              )
+              return sorted(
+                  path.decode()
+                  for path in result.stdout.split(b"\0")
+                  if path
+              )
+
+          config = yaml.safe_load(CONFIG_PATH.read_text()) or {}
+          if not isinstance(config, dict):
+              fail(f"{CONFIG_PATH} must contain a mapping")
+          if config.get("version") != 1:
+              fail(f"{CONFIG_PATH} must set version: 1")
+
+          allowed_root_directories = string_set(config, "allowed_root_directories")
+          allowed_root_files = string_set(config, "allowed_root_files")
+          path_rules = config.get("path_rules")
+          if not isinstance(path_rules, list) or not path_rules:
+              fail("path_rules must be a non-empty list")
+
+          normalized_rules: list[dict[str, object]] = []
+          for index, rule in enumerate(path_rules, start=1):
+              if not isinstance(rule, dict):
+                  fail(f"path_rules[{index}] must be a mapping")
+              patterns = rule.get("patterns")
+              if not isinstance(patterns, list) or not patterns or not all(
+                  isinstance(pattern, str) for pattern in patterns
+              ):
+                  fail(f"path_rules[{index}].patterns must be a non-empty list of strings")
+              allow_extensions = rule.get("allow_extensions", [])
+              allow_filenames = rule.get("allow_filenames", [])
+              if not isinstance(allow_extensions, list) or not all(
+                  isinstance(extension, str) for extension in allow_extensions
+              ):
+                  fail(f"path_rules[{index}].allow_extensions must be a list of strings")
+              if not isinstance(allow_filenames, list) or not all(
+                  isinstance(filename, str) for filename in allow_filenames
+              ):
+                  fail(f"path_rules[{index}].allow_filenames must be a list of strings")
+              normalized_rules.append(
+                  {
+                      "patterns": [pattern.strip("/") for pattern in patterns],
+                      "allow_extensions": set(allow_extensions),
+                      "allow_filenames": set(allow_filenames),
+                  }
+              )
+
+          problems: list[str] = []
+          for path in tracked_files():
+              parts = PurePosixPath(path).parts
+              if len(parts) == 1:
+                  if path not in allowed_root_files:
+                      problems.append(f"{path}: top-level file is not allowed")
+                  continue
+
+              root = parts[0]
+              if root not in allowed_root_directories:
+                  problems.append(f"{path}: top-level directory {root}/ is not allowed")
+                  continue
+
+              matched_rule = None
+              for rule in normalized_rules:
+                  if any(fnmatch.fnmatchcase(path, pattern) for pattern in rule["patterns"]):
+                      matched_rule = rule
+                      break
+              if matched_rule is None:
+                  problems.append(f"{path}: no path rule matched")
+                  continue
+
+              name = PurePosixPath(path).name
+              extension = PurePosixPath(path).suffix
+              if name in matched_rule["allow_filenames"]:
+                  continue
+              if extension in matched_rule["allow_extensions"]:
+                  continue
+              problems.append(
+                  f"{path}: file name/extension is not allowed by matched path rule"
+              )
+
+          if problems:
+              print(
+                  f"Repository layout does not match {CONFIG_PATH}.",
+                  file=sys.stderr,
+              )
+              for problem in problems:
+                  print(f"- {problem}", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Repository layout matches {CONFIG_PATH}.")
+          PY
+          exit 0
+          fi
+          disallowed=()
+
+          for root in statute regulation policy; do
+            if [ -e "$root" ]; then
+              disallowed+=("$root/")
+            fi
+          done
+
+          while IFS= read -r path; do
+            disallowed+=("$path")
+          done < <(
+            find . \
+              \( -path ./.git -o -path ./_axiom -o -path ./.venv -o -path ./.pytest_cache \) -prune \
+              -o -type f \( -name "parameters.yaml" -o -name "tests.yaml" \) -print
+          )
+
+          while IFS= read -r path; do
+            disallowed+=("$path")
+          done < <(
+            find tests -type f -name "*.yaml" 2>/dev/null || true
+          )
+
+          prune=( -path ./.git -o -path ./_axiom -o -path ./.venv -o -path ./.pytest_cache -o -path ./.github )
+          for allowed in $VALIDATE_ROOTS $ALLOWED_EXTRA_ROOTS; do
+            prune+=( -o -path "./$allowed" )
+          done
+          while IFS= read -r path; do
+            disallowed+=("$path")
+          done < <(
+            find . \( "${prune[@]}" \) -prune \
+              -o -type f \( -name "*.yaml" -o -name "*.yml" \) \
+                ! -name "known-dangling.yaml" ! -name "known-validation-gaps.yaml" -print
+          )
+
+          if [ "${#disallowed[@]}" -ne 0 ]; then
+            printf 'Repository layout is not allowed. Use RuleSpec YAML under statutes/, regulations/, or policies/.\n' >&2
+            printf '%s\n' "${disallowed[@]}" >&2
+            exit 1
+          fi
+
+      - name: Enforce validation waiver ratchet
+        if: ${{ matrix.shard == needs.shards.outputs.first }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_ref="${{ github.event.pull_request.base.sha }}"
+          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            base_ref="${{ github.event.before }}"
+          else
+            base_ref="HEAD~1"
+          fi
+          protected_base="$RUNNER_TEMP/protected-known-validation-gaps.yaml"
+          changed_paths="$RUNNER_TEMP/waiver-changed-paths.txt"
+          git show "$base_ref:known-validation-gaps.yaml" > "$protected_base" || {
+            echo "ValidationWaiverBaseMissing: protected base must contain known-validation-gaps.yaml" >&2
+            exit 1
+          }
+          git diff --name-only --no-renames --diff-filter=ACMRTD \
+            "$base_ref" "$GITHUB_SHA" > "$changed_paths"
+          python - "$protected_base" known-validation-gaps.yaml <<'PY'
+          import sys
+          from pathlib import Path
+
+          import yaml
+
+          base_path, head_path = map(Path, sys.argv[1:])
+          base = yaml.safe_load(base_path.read_bytes())
+          head = yaml.safe_load(head_path.read_bytes())
+          base_entries = base.get("validate_failures", {}) if isinstance(base, dict) else {}
+          head_entries = head.get("validate_failures", {}) if isinstance(head, dict) else {}
+          if not isinstance(base_entries, dict) or not isinstance(head_entries, dict):
+              raise SystemExit(
+                  "ValidationWaiverRatchetSchema: validate_failures must be a mapping"
+              )
+          growth = []
+          for module, head_states in head_entries.items():
+              base_states = base_entries.get(module)
+              if not isinstance(head_states, dict) or not isinstance(base_states, dict):
+                  growth.append(str(module))
+                  continue
+              for state, metadata in head_states.items():
+                  if base_states.get(state) == metadata:
+                      continue
+                  if state == "active" and base_states.get("pending") == metadata:
+                      # A protected-base pending approval being consumed
+                      # (pending -> active) is the sanctioned transition; the
+                      # supervised audit still enforces the full protocol
+                      # (exact consumption, expiry, waiver-only approvals).
+                      continue
+                  growth.append(f"{module}:{state}")
+          if growth:
+              raise SystemExit(
+                  "ValidationWaiverRatchetGrowth: waivers may only shrink; "
+                  "new, changed, or broadened records: " + ", ".join(sorted(growth))
+              )
+          print(
+              "Validation waiver ratchet is decrement-only: "
+              f"{len(base_entries)} base module(s) -> {len(head_entries)} head module(s)."
+          )
+          PY
+          /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python${{ inputs.python-version }}/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python${{ inputs.python-version }}/site-packages/axiom_encode \
+            -- /opt/axiom-verification/axiom-encode validation-waivers audit \
+            --root "$GITHUB_WORKSPACE" \
+            --corpus-path "$GITHUB_WORKSPACE/_axiom/axiom-corpus" \
+            --protected-base "$protected_base" \
+            --changed-paths "$changed_paths" \
+            --axiom-rules-engine-path "$GITHUB_WORKSPACE/_axiom/axiom-rules-engine"
+
+      - name: Reject manual RuleSpec changes
+        if: ${{ inputs.run-generated-guard && matrix.shard == needs.shards.outputs.first }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_ref="${{ github.event.pull_request.base.sha }}"
+          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            base_ref="${{ github.event.before }}"
+          else
+            base_ref="HEAD~1"
+          fi
+
+          /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python${{ inputs.python-version }}/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python${{ inputs.python-version }}/site-packages/axiom_encode \
+            -- /opt/axiom-verification/axiom-encode guard-generated \
+            --repo "$GITHUB_WORKSPACE" \
+            --base-ref "$base_ref" \
+            --head-ref "$GITHUB_SHA" \
+            --corpus-path "$GITHUB_WORKSPACE/_axiom/axiom-corpus" \
+            --expected-encoder-checkout "$GITHUB_WORKSPACE/_axiom/axiom-encode"
+
+      - name: Select RuleSpec validation targets
+        id: validation_targets
+        shell: bash
+        env:
+          VALIDATE_ROOTS: ${{ steps.resolve_roots.outputs.roots }}
+        run: |
+          set -euo pipefail
+
+          rulespec_file_list="$RUNNER_TEMP/rulespec-files.txt"
+          test_file_list="$RUNNER_TEMP/rulespec-test-files.txt"
+          : > "$rulespec_file_list"
+          : > "$test_file_list"
+
+          add_existing_file() {
+            local path="$1"
+            local list="$2"
+            if [ -f "$path" ]; then
+              printf '%s\n' "$path" >> "$list"
+            fi
+          }
+
+          add_rulespec_target() {
+            local path="$1"
+            case "$path" in
+              # Composition specs (the programs root, canonically nested
+              # under the jurisdiction dir) are axiom-compose inputs, not
+              # atomic RuleSpec modules — the encoder rejects them from
+              # atomic validation by design.
+              */programs/*|programs/*) return ;;
+            esac
+            case "$path" in
+              *.test.yaml)
+                add_existing_file "$path" "$test_file_list"
+                add_existing_file "${path%.test.yaml}.yaml" "$rulespec_file_list"
+                ;;
+              *.test.yml)
+                add_existing_file "$path" "$test_file_list"
+                add_existing_file "${path%.test.yml}.yml" "$rulespec_file_list"
+                ;;
+              *.yaml)
+                add_existing_file "$path" "$rulespec_file_list"
+                add_existing_file "${path%.yaml}.test.yaml" "$test_file_list"
+                ;;
+              *.yml)
+                add_existing_file "$path" "$rulespec_file_list"
+                add_existing_file "${path%.yml}.test.yml" "$test_file_list"
+                ;;
+            esac
+          }
+
+          add_all_rulespec_targets() {
+            while IFS= read -r path; do
+              add_existing_file "$path" "$rulespec_file_list"
+            done < <(
+              for root in $VALIDATE_ROOTS; do
+                if [ -d "$root" ]; then
+                  find "$root" -type f \( -name "*.yaml" -o -name "*.yml" \) \
+                    ! -name "*.test.yaml" ! -name "*.test.yml" \
+                    ! -path "*/programs/*"
+                fi
+              done
+            )
+            while IFS= read -r path; do
+              add_existing_file "$path" "$test_file_list"
+            done < <(
+              for root in $VALIDATE_ROOTS; do
+                if [ -d "$root" ]; then
+                  find "$root" -type f \( -name "*.test.yaml" -o -name "*.test.yml" \) \
+                    ! -path "*/programs/*"
+                fi
+              done
+            )
+          }
+
+          classify_toolchain_change() {
+            python - "$base_ref" <<'PY'
+          import subprocess
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          base_ref = sys.argv[1]
+          path = Path(".axiom/toolchain.toml")
+          result = subprocess.run(
+              ["git", "show", f"{base_ref}:.axiom/toolchain.toml"],
+              check=False,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.DEVNULL,
+          )
+          if result.returncode != 0 or not path.exists():
+              print("full")
+              raise SystemExit
+
+          def load(text: bytes) -> dict[str, object]:
+              payload = tomllib.loads(text.decode())
+              table = payload.get("toolchain", payload)
+              if not isinstance(table, dict):
+                  return {}
+              return table
+
+          before = load(result.stdout)
+          after = load(path.read_bytes())
+          changed = {
+              key for key in set(before) | set(after)
+              if before.get(key) != after.get(key)
+          }
+          if changed and changed <= {
+              "axiom_corpus_release",
+              "axiom_corpus_release_content_sha256",
+          }:
+              print("corpus-only")
+          else:
+              print("full")
+          PY
+          }
+
+          mode="full-push"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_ref="${{ github.event.pull_request.base.sha }}"
+            mapfile -t all_changed_paths < <(
+              git diff --name-only --no-renames --diff-filter=ACMRTD "$base_ref" "$GITHUB_SHA"
+            )
+            mode="changed"
+            for path in "${all_changed_paths[@]}"; do
+              case "$path" in
+                .github/workflows/*.yml|.github/workflows/*.yaml)
+                  mode="full-toolchain-bump"
+                  break
+                  ;;
+                .axiom/toolchain.toml)
+                  if [ "$(classify_toolchain_change)" = "corpus-only" ]; then
+                    mode="changed-corpus-toolchain-bump"
+                  else
+                    mode="full-toolchain-bump"
+                    break
+                  fi
+                  ;;
+              esac
+            done
+
+            if [ "$mode" = "full-toolchain-bump" ]; then
+              add_all_rulespec_targets
+            else
+              for path in "${all_changed_paths[@]}"; do
+                for root in $VALIDATE_ROOTS; do
+                  case "$path" in
+                    "$root"/*)
+                      add_rulespec_target "$path"
+                      ;;
+                  esac
+                done
+              done
+            fi
+          else
+            add_all_rulespec_targets
+          fi
+
+          sort -u "$rulespec_file_list" -o "$rulespec_file_list"
+          sort -u "$test_file_list" -o "$test_file_list"
+
+          {
+            echo "RULESPEC_FILE_LIST=$rulespec_file_list"
+            echo "RULESPEC_TEST_FILE_LIST=$test_file_list"
+            echo "RULESPEC_VALIDATION_MODE=$mode"
+          } >> "$GITHUB_ENV"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+
+          echo "RuleSpec validation mode: $mode"
+          echo "RuleSpec files selected:"
+          sed 's/^/- /' "$rulespec_file_list" || true
+          echo "RuleSpec companion tests selected:"
+          sed 's/^/- /' "$test_file_list" || true
+
+      - name: Validate RuleSpec YAML
+        shell: bash
+        env:
+          VALIDATE_ROOTS: ${{ steps.resolve_roots.outputs.roots }}
+          AXIOM_RULESPEC_REPO_ROOTS: ${{ github.workspace }}:${{ github.workspace }}/_axiom/rulespec-us
+          AXIOM_CORPUS_ARTIFACT_ROOT: ${{ github.workspace }}/data/corpus
+          AXIOM_CORPUS_REPO: ${{ github.workspace }}/_axiom/axiom-corpus
+        run: |
+          set -euo pipefail
+
+          mapfile -t rulespec_files < "$RULESPEC_FILE_LIST"
+
+          if [ "${#rulespec_files[@]}" -eq 0 ]; then
+            echo "No RuleSpec YAML files selected for validation."
+            exit 0
+          fi
+
+          # Ratcheted pre-existing validate failures: repos may list files in
+          # known-validation-gaps.yaml under `validate_failures` (each needs
+          # an issue link in that file). Listed files are skipped LOUDLY.
+          skip_list="$RUNNER_TEMP/validate-skip.txt"
+          : > "$skip_list"
+          if [ -f known-validation-gaps.yaml ]; then
+            python - <<'SKIP' > "$skip_list"
+          import yaml
+          payload = yaml.safe_load(open("known-validation-gaps.yaml")) or {}
+          for entry in payload.get("validate_failures") or []:
+              print(entry)
+          SKIP
+          fi
+
+          selected=()
+          for file in "${rulespec_files[@]}"; do
+            if grep -qxF "$file" "$skip_list"; then
+              echo "SKIPPED (known-validation-gaps validate_failures): $file"
+              continue
+            fi
+            selected+=("$GITHUB_WORKSPACE/$file")
+          done
+
+          if [ "${#selected[@]}" -eq 0 ]; then
+            echo "All selected RuleSpec YAML files are skipped."
+            exit 0
+          fi
+
+          # One invocation for all files: validation reuses one process and
+          # one registry load instead of paying both per file. Failed files
+          # are listed in the command's own summary output.
+          /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python${{ inputs.python-version }}/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python${{ inputs.python-version }}/site-packages/axiom_encode \
+            -- /opt/axiom-verification/axiom-encode validate "${selected[@]}" \
+            --skip-reviewers \
+            --corpus-path "$GITHUB_WORKSPACE/_axiom/axiom-corpus" \
+            --axiom-rules-engine-path "$GITHUB_WORKSPACE/_axiom/axiom-rules-engine"
+
+      - name: Execute RuleSpec companion tests
+        shell: bash
+        env:
+          VALIDATE_ROOTS: ${{ steps.resolve_roots.outputs.roots }}
+          AXIOM_RULESPEC_REPO_ROOTS: ${{ github.workspace }}:${{ github.workspace }}/_axiom/rulespec-us
+        run: |
+          set -euo pipefail
+
+          mapfile -t test_files < "$RULESPEC_TEST_FILE_LIST"
+
+          # A module ratcheted under validate_failures cannot be expected to
+          # execute either; skip its companion test loudly (same
+          # known-validation-gaps.yaml list the validate step consults).
+          skip_list="$RUNNER_TEMP/validate-skip.txt"
+          selected=()
+          for test_file in "${test_files[@]}"; do
+            case "$test_file" in
+              *.test.yaml) module_file="${test_file%.test.yaml}.yaml" ;;
+              *.test.yml) module_file="${test_file%.test.yml}.yml" ;;
+              *) module_file="$test_file" ;;
+            esac
+            if [ -s "$skip_list" ] && grep -qxF "$module_file" "$skip_list"; then
+              echo "SKIPPED companion (known-validation-gaps validate_failures): $test_file"
+              continue
+            fi
+            selected+=("$test_file")
+          done
+
+          if [ "${#selected[@]}" -eq 0 ]; then
+            echo "No RuleSpec companion tests selected; skipping."
+            exit 0
+          fi
+
+          # The hard-cut encoder requires --root to be the exact jurisdiction
+          # content root (rulespec-<country>/<jurisdiction>), not the checkout;
+          # group the selected companion tests by their jurisdiction directory
+          # and run one invocation per group.
+          declare -A by_root=()
+          for test_file in "${selected[@]}"; do
+            jurisdiction="${test_file%%/*}"
+            # Paths are resolved relative to --root, so strip the
+            # jurisdiction prefix or they double up (<root>/dk/dk/...).
+            by_root[$jurisdiction]+="${test_file#"$jurisdiction"/}"$'\n'
+          done
+          for jurisdiction in "${!by_root[@]}"; do
+            mapfile -t group <<< "${by_root[$jurisdiction]%$'\n'}"
+            axiom-encode test \
+              --root "$GITHUB_WORKSPACE/$jurisdiction" \
+              --axiom-rules-engine-path "$GITHUB_WORKSPACE/_axiom/axiom-rules-engine" \
+              "${group[@]}"
+          done
+
+      - name: Validate RuleSpec proofs and claims
+        shell: bash
+        env:
+          VALIDATE_ROOTS: ${{ steps.resolve_roots.outputs.roots }}
+          AXIOM_CORPUS_ARTIFACT_ROOT: ${{ github.workspace }}/data/corpus
+          AXIOM_CORPUS_REPO: ${{ github.workspace }}/_axiom/axiom-corpus
+        run: |
+          set -euo pipefail
+
+          mapfile -t rulespec_files < "$RULESPEC_FILE_LIST"
+
+          if [ "${#rulespec_files[@]}" -eq 0 ]; then
+            echo "No RuleSpec YAML files selected for proof validation."
+            exit 0
+          fi
+
+          prefixed=()
+          for file in "${rulespec_files[@]}"; do
+            prefixed+=("$GITHUB_WORKSPACE/$file")
+          done
+
+          # One invocation for all files; failed files are listed in the
+          # command's own summary output.
+          /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python${{ inputs.python-version }}/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python${{ inputs.python-version }}/site-packages/axiom_encode \
+            -- /opt/axiom-verification/axiom-encode proof-validate "${prefixed[@]}" \
+            --corpus-path "$GITHUB_WORKSPACE/_axiom/axiom-corpus"
+
+      - name: Require money proof atoms
+        # Scan the whole repository (not just changed files) on the first
+        # shard: the ratchet allowance is repo-wide, so a per-PR changed-file
+        # subset could not tell whether a change raised the money-atom debt.
+        # This is a cheap pure-Python pass (no compile, no engine build).
+        if: ${{ inputs.run-money-atom-check && matrix.shard == needs.shards.outputs.first }}
+        shell: bash
+        env:
+          VALIDATE_ROOTS: ${{ needs.shards.outputs.roots }}
+        run: |
+          set -euo pipefail
+
+          money_atom_files=()
+          for root in $VALIDATE_ROOTS; do
+            if [ -d "$root" ]; then
+              while IFS= read -r path; do
+                money_atom_files+=("$path")
+              done < <(
+                find "$root" -type f \( -name "*.yaml" -o -name "*.yml" \) \
+                  ! -name "*.test.yaml" ! -name "*.test.yml"
+              )
+            fi
+          done
+
+          if [ "${#money_atom_files[@]}" -eq 0 ]; then
+            echo "No RuleSpec YAML files found for money-atom check."
+            exit 0
+          fi
+
+          ratchet_args=()
+          if [ -f known-missing-money-atoms.yaml ]; then
+            echo "Using money-atom ratchet: known-missing-money-atoms.yaml"
+            ratchet_args=(--ratchet-file known-missing-money-atoms.yaml)
+          else
+            echo "No known-missing-money-atoms.yaml ratchet; requiring zero missing money atoms."
+          fi
+
+          # --money-atoms-only checks solely the money obligations; it does
+          # not re-run base proof-tree validation, so scanning the whole repo
+          # here never re-reports unrelated proof issues on unchanged files
+          # (those stay scoped to the changed-file proof step above).
+          /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python${{ inputs.python-version }}/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python${{ inputs.python-version }}/site-packages/axiom_encode \
+            -- /opt/axiom-verification/axiom-encode proof-validate \
+            "${money_atom_files[@]}" \
+            --money-atoms-only \
+            --corpus-path "$GITHUB_WORKSPACE/_axiom/axiom-corpus" \
+            "${ratchet_args[@]}"
+
+      - name: Validate PolicyEngine oracle coverage classification
+        if: ${{ github.event_name != 'pull_request' || steps.validation_targets.outputs.mode == 'full-toolchain-bump' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          axiom-encode oracle-coverage \
+            --root "$GITHUB_WORKSPACE" \
+            --fail-on-unmapped \
+            --fail-on-untested-comparable \
+            --limit 50
+
+      - name: Checkout changed-file oracle coverage classifier
+        if: ${{ github.event_name == 'pull_request' && steps.validation_targets.outputs.mode != 'full-toolchain-bump' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-encode
+          ref: ${{ inputs.axiom-encode-ref }}
+          path: _axiom/axiom-encode-oracle-coverage
+          persist-credentials: false
+
+      - name: Install changed-file oracle coverage classifier
+        if: ${{ github.event_name == 'pull_request' && steps.validation_targets.outputs.mode != 'full-toolchain-bump' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -e _axiom/axiom-encode-oracle-coverage
+          # The changed-file classifier checkout may pin an axiom-oracles commit
+          # step installed. axiom-oracles is a git dependency whose version string
+          # does not change per commit, so pip treats the pinned SHA as "already
+          # satisfied" and keeps the stale copy — the classifier then reports
+          # freshly-added not_comparable mappings as unmapped. Force-reinstall the
+          # axiom-oracles pin declared by this checkout so the classifier reads its
+          # bridge mappings, not the toolchain-pinned ones.
+          oracles_spec="$(
+            python - <<'PY'
+          import pathlib
+          import re
+
+          text = pathlib.Path("_axiom/axiom-encode-oracle-coverage/pyproject.toml").read_text()
+          match = re.search(
+              r'"(axiom-oracles @ git\+https://github\.com/[^"]+)"', text
+          )
+          print(match.group(1) if match else "")
+          PY
+          )"
+          if [ -n "$oracles_spec" ]; then
+            python -m pip install --force-reinstall --no-deps "$oracles_spec"
+          fi
+          python - <<'PY'
+          import importlib.metadata
+
+          print(
+              "Changed-file oracle coverage classifier uses axiom-encode "
+              f"{importlib.metadata.version('axiom-encode')}."
+          )
+          PY
+
+      - name: Validate changed PolicyEngine oracle coverage classification
+        if: ${{ github.event_name == 'pull_request' && steps.validation_targets.outputs.mode != 'full-toolchain-bump' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -s "$RULESPEC_FILE_LIST" ]; then
+            echo "No changed RuleSpec YAML files selected for oracle coverage."
+            exit 0
+          fi
+
+          coverage_json="$RUNNER_TEMP/policyengine-oracle-coverage.json"
+          axiom-encode oracle-coverage \
+            --root "$GITHUB_WORKSPACE" \
+            --json > "$coverage_json"
+
+          python - "$coverage_json" "$RULESPEC_FILE_LIST" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          coverage_path = Path(sys.argv[1])
+          rulespec_file_list = Path(sys.argv[2])
+          repo = Path(os.environ["GITHUB_WORKSPACE"]).name
+          if repo.startswith("rulespec-be"):
+              print(
+                  "Changed PolicyEngine oracle coverage skipped for Belgium; "
+                  "rulespec-be uses the EUROMOD household-level oracle surface."
+              )
+              raise SystemExit
+          changed = {
+              f"{repo}/{line.strip()}"
+              for line in rulespec_file_list.read_text().splitlines()
+              if line.strip()
+          }
+          payload = json.loads(coverage_path.read_text())
+          items = [
+              item for item in payload.get("items", [])
+              if item.get("file") in changed
+          ]
+          failures = []
+          for item in items:
+              legal_id = item.get("legal_id")
+              if item.get("status") == "unmapped":
+                  failures.append(f"{legal_id}: unmapped")
+              elif item.get("status") == "comparable" and not item.get("tested"):
+                  failures.append(f"{legal_id}: comparable but not covered by companion tests")
+
+          if failures:
+              print("Changed PolicyEngine oracle coverage is incomplete.", file=sys.stderr)
+              for failure in failures[:50]:
+                  print(f"- {failure}", file=sys.stderr)
+              if len(failures) > 50:
+                  print(f"- ... {len(failures) - 50} more", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Changed PolicyEngine oracle coverage passed for {len(items)} output(s).")
+          PY
+
+  validate-complete:
+    # Matrix jobs get suffixed check names such as `validate (us-ca)`.
+    # Keep this aggregate name as `validate` so existing branch-protection
+    # rules requiring `validate / validate` have one stable context.
+    name: validate
+    needs: validate
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check validation matrix result
+        shell: bash
+        env:
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+        run: |
+          set -euo pipefail
+          if [ "$VALIDATE_RESULT" != "success" ]; then
+            echo "Validation matrix completed with result: $VALIDATE_RESULT" >&2
+            exit 1
+          fi
+          echo "Validation matrix passed."
