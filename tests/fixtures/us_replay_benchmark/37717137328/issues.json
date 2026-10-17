@@ -1,0 +1,13 @@
+{
+  "attempt_count": 4,
+  "citation": "us/statute/7/2012/j",
+  "encoder_version": "0.2.2136",
+  "issues": [
+    "statutes/7/2012/j.yaml: ci: Test input assignment missing: `household_with_elderly_or_disabled_member` must provide `input` facts or `tables` rows assigning every local factual `#input.<fact>` referenced by this module's formulas.",
+    "statutes/7/2012/j.yaml: ci: Test input assignment missing: `household_without_elderly_or_disabled_member` must provide `input` facts or `tables` rows assigning every local factual `#input.<fact>` referenced by this module's formulas."
+  ],
+  "path": "statutes/7/2012/j.yaml",
+  "rulespec_sha256": "3bd1f850a4fa3a18fc0f5d6d67e5bd124777857483b3459781b949bc294b40ea",
+  "schema": "axiom-encode/failed-encode-candidate/v1",
+  "tests_sha256": "0d56c580f4ddf779b220a199c127669eaa0d22d042447e37a5e75d2e2fbd86f0"
+}

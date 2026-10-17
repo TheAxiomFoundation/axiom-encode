@@ -1,0 +1,297 @@
+{
+ "schema": "axiom-encode/us-replay-snapshot/v1",
+ "context": "workspace",
+ "totals": {
+  "cases": 32,
+  "clean": 8,
+  "issues": 503,
+  "rules": {
+   "complete-source-unit:deferral": 139,
+   "complete-source-unit:formula-output": 44,
+   "complete-source-unit:numeric-recall": 141,
+   "complete-source-unit:source-explicit-conditions": 4,
+   "complete-source-unit:structure": 112,
+   "complete-source-unit:tests": 63
+  }
+ },
+ "cases": {
+  "34157534364": {
+   "citation": "us/statute/7/2015/f",
+   "issues": 1,
+   "rules": {
+    "complete-source-unit:tests": 1
+   },
+   "error": null
+  },
+  "34231167091": {
+   "citation": "us/guidance/usda/fns/snap-fy2026-cola/page-1",
+   "issues": 70,
+   "rules": {
+    "complete-source-unit:numeric-recall": 64,
+    "complete-source-unit:tests": 6
+   },
+   "error": null
+  },
+  "34892655726": {
+   "citation": "us/guidance/irs/rev-proc-2025-32/page-15",
+   "issues": 41,
+   "rules": {
+    "complete-source-unit:deferral": 20,
+    "complete-source-unit:numeric-recall": 20,
+    "complete-source-unit:tests": 1
+   },
+   "error": null
+  },
+  "35113847668": {
+   "citation": "us/guidance/usda/fns/snap-obbb-alien-eligibility-implementation-memo",
+   "issues": 2,
+   "rules": {
+    "complete-source-unit:formula-output": 1,
+    "complete-source-unit:tests": 1
+   },
+   "error": null
+  },
+  "35789753522": {
+   "citation": "us/statute/42/402/a",
+   "issues": 3,
+   "rules": {
+    "complete-source-unit:deferral": 1,
+    "complete-source-unit:structure": 1,
+    "complete-source-unit:tests": 1
+   },
+   "error": null
+  },
+  "35863402410": {
+   "citation": "us/guidance/irs/notice-2025-67/page-4",
+   "issues": 13,
+   "rules": {
+    "complete-source-unit:deferral": 6,
+    "complete-source-unit:formula-output": 1,
+    "complete-source-unit:numeric-recall": 6
+   },
+   "error": null
+  },
+  "35891119107": {
+   "citation": "us/guidance/irs/rev-proc-2025-32/page-13",
+   "issues": 0,
+   "rules": {},
+   "error": null
+  },
+  "35898279912": {
+   "citation": "us/statute/7/2017/a",
+   "issues": 3,
+   "rules": {
+    "complete-source-unit:tests": 3
+   },
+   "error": null
+  },
+  "35952553153": {
+   "citation": "us/regulation/7/273/4",
+   "issues": 112,
+   "rules": {
+    "complete-source-unit:deferral": 16,
+    "complete-source-unit:formula-output": 18,
+    "complete-source-unit:numeric-recall": 12,
+    "complete-source-unit:structure": 63,
+    "complete-source-unit:tests": 3
+   },
+   "error": null
+  },
+  "36072201077": {
+   "citation": "us/guidance/irs/rev-proc-2025-32/page-18",
+   "issues": 5,
+   "rules": {
+    "complete-source-unit:deferral": 2,
+    "complete-source-unit:formula-output": 2,
+    "complete-source-unit:structure": 1
+   },
+   "error": null
+  },
+  "36174590343": {
+   "citation": "us/guidance/irs/rev-proc-2025-32/page-14",
+   "issues": 0,
+   "rules": {},
+   "error": null
+  },
+  "36550604743": {
+   "citation": "us/guidance/usda/fns/snap-fy2024-cola/page-2",
+   "issues": 0,
+   "rules": {},
+   "error": null
+  },
+  "36596173514": {
+   "citation": "us-wv/manual/bfa/income-maintenance-manual/page-3",
+   "issues": 1,
+   "rules": {
+    "complete-source-unit:source-explicit-conditions": 1
+   },
+   "error": null
+  },
+  "36608658862": {
+   "citation": "us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1",
+   "issues": 35,
+   "rules": {
+    "complete-source-unit:deferral": 3,
+    "complete-source-unit:formula-output": 1,
+    "complete-source-unit:numeric-recall": 17,
+    "complete-source-unit:source-explicit-conditions": 1,
+    "complete-source-unit:tests": 13
+   },
+   "error": null
+  },
+  "36610746268": {
+   "citation": "us/regulation/42/435/927",
+   "issues": 117,
+   "rules": {
+    "complete-source-unit:deferral": 73,
+    "complete-source-unit:formula-output": 9,
+    "complete-source-unit:structure": 35
+   },
+   "error": null
+  },
+  "36610757133": {
+   "citation": "us-dc/statute/47/47-1807.02",
+   "issues": 5,
+   "rules": {
+    "complete-source-unit:deferral": 3,
+    "complete-source-unit:formula-output": 1,
+    "complete-source-unit:tests": 1
+   },
+   "error": null
+  },
+  "36610775618": {
+   "citation": "us-md/guidance/dhs/fia/snap-manual-214/page-5",
+   "issues": 7,
+   "rules": {
+    "complete-source-unit:deferral": 2,
+    "complete-source-unit:numeric-recall": 3,
+    "complete-source-unit:tests": 2
+   },
+   "error": null
+  },
+  "36635442145": {
+   "citation": "us/regulation/42/457/800",
+   "issues": 4,
+   "rules": {
+    "complete-source-unit:deferral": 2,
+    "complete-source-unit:structure": 2
+   },
+   "error": null
+  },
+  "36667433580": {
+   "citation": "us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5",
+   "issues": 1,
+   "rules": {
+    "complete-source-unit:numeric-recall": 1
+   },
+   "error": null
+  },
+  "36821800286": {
+   "citation": "us-or/manual/odhs/open/page-26",
+   "issues": 0,
+   "rules": {},
+   "error": null
+  },
+  "36880457452": {
+   "citation": "us-ut/manual/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm",
+   "issues": 0,
+   "rules": {},
+   "error": null
+  },
+  "37047738781": {
+   "citation": "us-mo/statute/143.011",
+   "issues": 34,
+   "rules": {
+    "complete-source-unit:deferral": 9,
+    "complete-source-unit:formula-output": 5,
+    "complete-source-unit:numeric-recall": 11,
+    "complete-source-unit:structure": 4,
+    "complete-source-unit:tests": 5
+   },
+   "error": null
+  },
+  "37047757269": {
+   "citation": "us-ri/guidance/tax/adv-2025-22/page-2",
+   "issues": 7,
+   "rules": {
+    "complete-source-unit:formula-output": 3,
+    "complete-source-unit:tests": 4
+   },
+   "error": null
+  },
+  "37150620832": {
+   "citation": "us-az/manual/des/faa5/na-eligibility-and-benefit-determination/block-9",
+   "issues": 10,
+   "rules": {
+    "complete-source-unit:formula-output": 2,
+    "complete-source-unit:source-explicit-conditions": 1,
+    "complete-source-unit:tests": 7
+   },
+   "error": null
+  },
+  "37154591758": {
+   "citation": "us/statute/26/911/f",
+   "issues": 5,
+   "rules": {
+    "complete-source-unit:source-explicit-conditions": 1,
+    "complete-source-unit:tests": 4
+   },
+   "error": null
+  },
+  "37175948842": {
+   "citation": "us/statute/42/416/l",
+   "issues": 2,
+   "rules": {
+    "complete-source-unit:tests": 2
+   },
+   "error": null
+  },
+  "37526146015": {
+   "citation": "us/guidance/usda/fns/snap-fy2026-cola/page-2",
+   "issues": 0,
+   "rules": {},
+   "error": null
+  },
+  "37717137328": {
+   "citation": "us/statute/7/2012/j",
+   "issues": 0,
+   "rules": {},
+   "error": null
+  },
+  "37936331759": {
+   "citation": "us-ok/statute/68-2906",
+   "issues": 0,
+   "rules": {},
+   "error": null
+  },
+  "37983156312": {
+   "citation": "us/statute/42/1382c/f/2",
+   "issues": 2,
+   "rules": {
+    "complete-source-unit:deferral": 1,
+    "complete-source-unit:tests": 1
+   },
+   "error": null
+  },
+  "38083442606": {
+   "citation": "us-nm/statute/7-2-39",
+   "issues": 2,
+   "rules": {
+    "complete-source-unit:deferral": 1,
+    "complete-source-unit:tests": 1
+   },
+   "error": null
+  },
+  "38131544124": {
+   "citation": "us-va/statute/58.1/58.1-339.8",
+   "issues": 21,
+   "rules": {
+    "complete-source-unit:formula-output": 1,
+    "complete-source-unit:numeric-recall": 7,
+    "complete-source-unit:structure": 6,
+    "complete-source-unit:tests": 7
+   },
+   "error": null
+  }
+ }
+}

@@ -1,0 +1,36 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "36667433580",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/36667433580",
+  "bundle_citation": "us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5",
+  "citation": "us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5",
+  "lane": "target",
+  "runner": "openai-gpt-6-sol",
+  "module_path": "policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5.yaml",
+  "policy_prefix": "us-wa",
+  "encoder_commit": "21204d628fba7bcba9d9038d4132b66107571598",
+  "encoder_version": "0.2.2076",
+  "attempt_count": 4,
+  "corpus_ref": "c65b2ca15ba4a789f547eb323728a7aadcfc1f9d",
+  "rulespec_ref": "5f7a38c20a3ed4dd217d9c5505a73cddd9152d9c",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:numeric-recall": 13,
+    "complete-source-unit:tests": 1
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "files": {
+    "candidate.test.yaml": "f1fab774706f42629852ddc45c90ca2d391c737acbc27d9a9a518f810422aaef",
+    "candidate.yaml": "6c0413310d948771e0912a4fbd6d7ce393838fe4f7d8298359aa5cef266909aa",
+    "issues.json": "93fa6c99e9ae9c2616456ac21188216523109b112eca9897cc5d57d34d561011",
+    "source-metadata.json": "c96be945449733e625330cda95afea6bb835bffc27cb815a756192de4e6650a3",
+    "source.txt": "57cedd89b8f52cfe56c2a993f0c944b84010b55b74102d6847e5271d7f837557"
+  }
+}
