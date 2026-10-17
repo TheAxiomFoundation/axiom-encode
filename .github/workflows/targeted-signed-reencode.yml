@@ -128,7 +128,10 @@ jobs:
   # it reads public run history with the read-scoped token and signs
   # nothing. Tunables are repository variables, not inputs — the dispatch
   # input list sits at GitHub's hard cap of 25 (pinned by
-  # tests/test_signing_supervisor.py).
+  # tests/test_signing_supervisor.py). The same job refuses any ad hoc
+  # dispatch, repair replays included, after two consecutive model-bearing
+  # failures that ended with the same final rule-code set (read from those
+  # runs' failure artifacts with the read-scoped token).
   attempt_budget:
     name: Enforce failed-attempt budget
     if: >-
@@ -156,16 +159,69 @@ jobs:
           ATTEMPT_BUDGET: ${{ vars.ATTEMPT_BUDGET }}
           ATTEMPT_BUDGET_OVERRIDE: ${{ vars.ATTEMPT_BUDGET_OVERRIDE }}
           ATTEMPT_BUDGET_BY_CITATION_JSON: ${{ vars.ATTEMPT_BUDGET_BY_CITATION_JSON }}
+          REPEATED_FAILURE_OVERRIDE_JSON: ${{ vars.REPEATED_FAILURE_OVERRIDE_JSON }}
         run: |
           python3 "$GITHUB_WORKSPACE/axiom-encode/scripts/enforce_attempt_budget.py"
 
+  # Cost damper: a signed PR lands only when the target RuleSpec repository's
+  # pinned encoder (.axiom/workflow-toolchain.toml axiom_encode_ref) admits
+  # this run's encoder: the exact pin or, for pins that contain axiom-encode
+  # #1883, a first-parent main descendant of it (pins from #1859 up to #1883
+  # admit nothing in CI). Decide that from the dispatch refs before the
+  # protected environment asks for approval and before any model call, for
+  # queue and ad hoc runs alike; artifact-only runs are reported, not blocked.
+  # Unprotected and read-only: it uses the read-scoped token on public
+  # repositories and signs nothing.
+  encoder_pin_admission:
+    name: Check RuleSpec encoder pin admission
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch'
+        && github.ref == 'refs/heads/main'
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout axiom-encode
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: axiom-encode
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout RuleSpec workflow toolchain
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/rulespec-${{ inputs.country }}
+          ref: ${{ inputs.rulespec_ref }}
+          path: rulespec-${{ inputs.country }}
+          sparse-checkout: .axiom/workflow-toolchain.toml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Refuse an encoder the RuleSpec pin cannot admit
+        env:
+          ENCODER_PIN_ADMISSION_OVERRIDE: ${{ vars.ENCODER_PIN_ADMISSION_OVERRIDE }}
+          OPEN_PR: ${{ inputs.open_pr }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          test "$(git -C axiom-encode rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 axiom-encode/scripts/check_encoder_pin_admission.py \
+            --toolchain "$RULESPEC_CHECKOUT/.axiom/workflow-toolchain.toml" \
+            --encoder-checkout axiom-encode \
+            --encoder-commit "$GITHUB_SHA" \
+            --main-ref refs/remotes/origin/main \
+            --open-pr "$OPEN_PR"
+
   encode:
     name: Queue protected signed RuleSpec re-encode
-    needs: attempt_budget
+    needs: [attempt_budget, encoder_pin_admission]
     # !cancelled() disables the implicit success() gate so a skipped
     # attempt_budget (queue dispatch) still admits encode; an explicit
     # failure (budget exhausted) or infrastructure failure of the guard
     # job blocks only ad hoc runs, which can always be re-dispatched.
+    # The encoder pin admission check must succeed for every run.
     if: >-
       ${{
         !cancelled()
@@ -173,6 +229,7 @@ jobs:
           needs.attempt_budget.result == 'success'
           || needs.attempt_budget.result == 'skipped'
         )
+        && needs.encoder_pin_admission.result == 'success'
         && github.event_name == 'workflow_dispatch'
         && github.ref == 'refs/heads/main'
         && (
