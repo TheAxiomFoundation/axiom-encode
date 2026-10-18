@@ -1329,14 +1329,132 @@ def test_the_test_environment_is_exactly_the_locked_set():
 
 def test_setup_uv_takes_only_a_version():
     # Its other inputs export UV_* variables (python-version sets UV_PYTHON,
-    # tool-dir sets UV_TOOL_DIR, ...) that later uv calls would honour.
+    # tool-dir sets UV_TOOL_DIR, ...) that later uv calls would honour. The one
+    # exception is enable-cache, and only to turn the cache off.
     inputs = [
-        f"{name}:{job}[{index}] {sorted(step.get('with') or {})}"
+        f"{name}:{job}[{index}] {(step.get('with') or {})}"
         for name, job, index, step in _action_steps()
         if step["uses"].startswith("astral-sh/setup-uv@")
-        and set(step.get("with") or {}) != {"version"}
+        and not (
+            set(step.get("with") or {}) == {"version"}
+            or (
+                set(step["with"]) == {"version", "enable-cache"}
+                and step["with"]["enable-cache"] == "false"
+            )
+        )
     ]
     assert inputs == []
+
+
+def _environment_jobs():
+    for name, workflow in _workflows():
+        for job_name, job in workflow["jobs"].items():
+            if job.get("environment") is not None:
+                yield name, job_name, job
+
+
+def test_key_bearing_jobs_never_use_the_uv_cache():
+    # A job that selects an environment can read that environment's secrets
+    # (the apply key, the repository token). setup-uv's default enable-cache,
+    # "auto", restores and saves the uv cache on hosted runners, and an entry
+    # under the same key can be written by any run on main, including test
+    # code an ordinary PR merged. Such a job must not restore one: its setup-uv
+    # turns the cache off, and nothing else in it touches a cache.
+    offenders = []
+    for name, job_name, job in _environment_jobs():
+        for index, step in enumerate(job.get("steps", [])):
+            uses = step.get("uses", "")
+            where = f"{name}:{job_name}[{index}]"
+            if uses.startswith("astral-sh/setup-uv@"):
+                if (step.get("with") or {}).get("enable-cache") != "false":
+                    offenders.append(f"{where} setup-uv without enable-cache false")
+            elif uses.startswith("actions/cache"):
+                offenders.append(f"{where} {uses.split('@')[0]}")
+            elif uses.startswith("actions/setup-go@"):
+                # setup-go caches modules and the build cache unless told not to.
+                if (step.get("with") or {}).get("cache") not in (False, "false"):
+                    offenders.append(f"{where} setup-go without cache false")
+            elif uses.startswith("actions/setup-python@"):
+                # setup-python caches nothing unless a package manager is named.
+                if (step.get("with") or {}).get("cache") not in (
+                    None,
+                    "",
+                    False,
+                    "false",
+                ):
+                    offenders.append(f"{where} setup-python cache")
+    assert offenders == []
+
+
+def test_key_bearing_jobs_are_found():
+    # The cache check is not vacuous: both signing-side workflows are seen.
+    jobs = {(name, job_name) for name, job_name, _ in _environment_jobs()}
+    assert ("targeted-signed-reencode.yml", "encode") in jobs
+    assert any(name == "finalize-signed-snap-queue.yml" for name, _ in jobs)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "drop",
+        "true",
+        "auto",
+        "cache-action",
+        "setup-go-cache",
+        "setup-go-default",
+        "setup-python-cache",
+    ],
+)
+def test_a_key_bearing_job_using_a_cache_is_caught(monkeypatch, mutation):
+    workflows = copy.deepcopy(_workflows())
+    steps = dict(workflows)["targeted-signed-reencode.yml"]["jobs"]["encode"]["steps"]
+    setup_uv = next(
+        step for step in steps if step.get("uses", "").startswith("astral-sh/setup-uv@")
+    )
+    if mutation == "drop":
+        del setup_uv["with"]["enable-cache"]
+    elif mutation in ("true", "auto"):
+        setup_uv["with"]["enable-cache"] = mutation
+    elif mutation == "cache-action":
+        steps.insert(
+            0, {"uses": "actions/cache@" + "0" * 40, "with": {"path": "~/.cache/uv"}}
+        )
+    elif mutation == "setup-go-default":
+        step = next(
+            s for s in steps if s.get("uses", "").startswith("actions/setup-go@")
+        )
+        del step["with"]["cache"]
+    elif mutation == "setup-go-cache":
+        step = next(
+            s for s in steps if s.get("uses", "").startswith("actions/setup-go@")
+        )
+        step["with"]["cache"] = True
+    else:
+        # The job installs Python with uv; a setup-python step that caches is new.
+        steps.insert(
+            0,
+            {
+                "uses": "actions/setup-python@" + "0" * 40,
+                "with": {"python-version": "3.13", "cache": "pip"},
+            },
+        )
+    monkeypatch.setattr(
+        "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
+    )
+    with pytest.raises(AssertionError):
+        test_key_bearing_jobs_never_use_the_uv_cache()
+
+
+def test_setup_uv_enable_cache_other_than_false_is_caught(monkeypatch):
+    workflows = copy.deepcopy(_workflows())
+    for step in dict(workflows)["ci.yml"]["jobs"]["lint"]["steps"]:
+        if step.get("uses", "").startswith("astral-sh/setup-uv@"):
+            step["with"]["enable-cache"] = "true"
+    monkeypatch.setattr(
+        "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
+    )
+    with pytest.raises(AssertionError):
+        test_setup_uv_takes_only_a_version()
 
 
 def test_setup_python_takes_only_a_python_version():
