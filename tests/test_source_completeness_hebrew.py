@@ -1205,6 +1205,32 @@ DIFFERENTIAL_CASES = (
     ("e1", "42 USC 9: חסר סעיף 345ב.", "42 USC 9: missing section 345b.", "neither"),
     (
         "e1",
+        "il/statute/context. חסר סעיף 345ב.",
+        "il/statute/context. Missing section 345b.",
+        "both",
+    ),
+    (
+        "e1",
+        "לא ניתן להכריע כי סעיף 345ב טרם קודד.",
+        "Cannot be decided because section 345b is not yet encoded.",
+        "neither",
+    ),
+    (
+        "e1",
+        "לא ניתן לחשב עד שיקודדו התנאים בהגשה הקבועים בסעיף 345ב.",
+        "Cannot be computed until the conditions in filing set in section 345b "
+        "are encoded.",
+        "neither",
+    ),
+    (
+        "e1",
+        "לא ניתן לחשב עד שיקודדו התנאים לזכאות הקבועים בסעיף 345ב.",
+        "Cannot be computed until the conditions for eligibility set in section "
+        "345b are encoded.",
+        "neither",
+    ),
+    (
+        "e1",
         "42 U.S.C. 9(a): חסר סעיף 345ב.",
         "42 U.S.C. 9(a): missing section 345b.",
         "neither",
@@ -1465,7 +1491,18 @@ def test_the_said_law_with_no_antecedent_binds_no_named_instrument():
             + "בהתאם לסעיף 345ב.",
             False,
         ),
-        # A relative clause that carries the link resets it (section 14(ו1)).
+        # A main-clause prohibition governs relative clauses after it.
+        ("(א) הוראה.\n(ה1) אין לחשב את התשלום שנקבע בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) אין לחשב את התשלום הקבוע בסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) נאסר על המוסד לפעול בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) נאסרו פעולות בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) חל איסור לפעול בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) המוסד מנוע מלפעול בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) המועצות מנועות מלפעול בהתאם לסעיף 345ב.", False),
+        # A cut word keeps its left boundary: `כלפי` ("against") is not `לפי`.
+        ("(א) הוראה.\n(ה1) טענה כלפי" + " " * 237 + "סעיף 345ב.", False),
+        # A relative negation ends where a relative clause carrying the link
+        # begins (section 14(ו1)).
         ("(א) הוראה.\n(ה1) החלק שאינו עולה על הסכום שנקבע לפי סעיף 345ב.", True),
         ("(א) הוראה.\n(ה1) החלק שאינו עולה על הסכום הקבוע בסעיף 345ב.", True),
         # A relative clause's negation is read as negating, stricter than English.
@@ -1516,6 +1553,21 @@ def test_every_negative_copula_negates_a_link(copula):
         ),
         ("הפיקוח על שירותים פיננסיים", "הפיקוח על הבנקים", False),
         ("הביטוח הלאומי בשינויים המחויבים", "הביטוח הלאומי", True),
+        ("יסוד: כבוד האדם וחירותו", "יסוד: חופש העיסוק", False),
+        ("יסוד: כבוד האדם וחירותו", "יסוד: כבוד האדם וחירותו", True),
+        ("״הביטוח הלאומי״", "הביטוח הלאומי", True),
+        ("״הביטוח הלאומי״", "״שירות המדינה״", False),
+        # Past six name words a name is uncertain and binds no named law.
+        (
+            "הרשות לפינוי שדות מוקשים ולטיפול בשטחי נפלים",
+            "הרשות לפינוי שדות מוקשים ולטיפול בשטחי גבולות",
+            False,
+        ),
+        (
+            "שירות המדינה (" + "גמלאות " * 8 + ")",
+            "שירות המדינה (" + "משמעת " * 8 + ")",
+            False,
+        ),
     ),
 )
 def test_a_law_name_is_read_to_its_end(source_law, reason_law, linked):
@@ -1524,6 +1576,50 @@ def test_a_law_name_is_read_to_its_end(source_law, reason_law, linked):
     issues = _analyze(_deferral_content("e1", reason), source)
 
     assert (_deferral_issue(issues, 0) is None) is linked
+
+
+@pytest.mark.parametrize("prefix", ("ש", "שה", "וש", "ושה", "כש", "כשה", "וכש", "וכשה"))
+def test_the_said_law_follows_a_relative_mention(prefix):
+    """`תשלום שחוק הביטוח הלאומי חל עליו` names the law "the said law" means."""
+
+    source = (
+        "(א) הוראה.\n(ה1) חוק שירות המדינה. "
+        f"תשלום {prefix}חוק הביטוח הלאומי חל עליו, "
+        "יש לפעול בהתאם לסעיף 42 לחוק האמור."
+    )
+    issues = _analyze(
+        _deferral_content("e1", "חסרות הוראות סעיף 42 לחוק שירות המדינה."), source
+    )
+
+    assert _deferral_issue(issues, 0) is not None
+
+
+@pytest.mark.parametrize("kind", ("חוק", "פקודה", "פקודת", "תקנות", "צו"))
+@pytest.mark.parametrize("separator", (",", ":"))
+def test_a_preposed_law_name_claims_no_branch_of_this_one(kind, separator):
+    reference = f"{kind} הביטוח הלאומי{separator} סעיף 14(ב)"
+
+    assert (
+        completeness_module._paths_from_source_reference(
+            reference, corpus_citation_path=CITATION
+        )
+        == set()
+    )
+    assert not hebrew.cites_current_branch(reference, CITATION, ("b",))
+    assert hebrew.cites_current_branch(
+        f"חוק זה{separator} סעיף 14(ב)", CITATION, ("b",)
+    )
+
+
+def test_hebrew_omission_labels_leave_english_omissions_alone():
+    """Round-6 review: `(a) (1) omitted.` keeps its English reading."""
+
+    for omission in ("omitted", "...", "weggefallen", "aufgehoben"):
+        assert not completeness_module._EDITORIAL_OMISSION_ONLY.match(
+            f"(a) (1) {omission}."
+        )
+    assert completeness_module._EDITORIAL_OMISSION_ONLY.match("(ג) (בוטל).")
+    assert completeness_module._EDITORIAL_OMISSION_ONLY.match("(1) (ה1) בוטל.")
 
 
 @pytest.mark.parametrize(
@@ -1733,6 +1829,10 @@ def test_native_citation_scans_stay_linear():
     # An outline that deepens without end, and a citation chain thousands deep.
     assert hebrew.hebrew_outline_markers("(א) הוראה.\n(1) הוראה.\n" * 4_000) == ()
     assert not hebrew._linked_source_instruments("לפי סעיף 345ב" + "(1)" * 6_400 + ".")
+    # Many citations after one negation.
+    assert not hebrew._linked_source_instruments(
+        "אין לפעול " + "בהתאם לסעיף 345ב " * 8_000 + "."
+    )
     # Many reason citations against many distinct named laws.
     names = ["צ" + hebrew.hebrew_numeral(value) for value in range(1, 3_201)]
     assert not hebrew.reason_names_source_bound_dependency(

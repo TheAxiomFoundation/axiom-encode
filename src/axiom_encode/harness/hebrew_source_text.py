@@ -151,6 +151,9 @@ OUTLINE_LABEL = (
     rf"(?:{_LABEL_LETTERS}\d{{0,2}}"
     rf"|\d{{1,3}}(?:[{_H}](?:[{_GERESH_MARKS}]?[{_H}])?[{_GERESH_MARKS}]?)?)"
 )
+# A label with at least one Hebrew letter, for patterns shared with English
+# text, where a bare ``(1)`` must keep its English reading.
+HEBREW_OUTLINE_LABEL = rf"(?=[^()\s]*[{_H}]){OUTLINE_LABEL}"
 # Israeli statutes nest subsection, paragraph, subparagraph and at most a few
 # levels more. A deeper outline or citation chain is not one this reader
 # supports: the outline is not used and the citation is not read, so neither
@@ -457,6 +460,39 @@ def current_branch_citation_pattern(
     )
 
 
+def _preposed_other_instrument(text: str, start: int) -> bool:
+    """Whether another law is named just before ``start`` (``חוק הביטוח הלאומי, סעיף``)."""
+
+    return any(
+        match.end() == start
+        and _instrument_words(match.group("name"))[:1]
+        not in {(word,) for word in _CURRENT_INSTRUMENT_NAMES}
+        for match in _PREPOSED_INSTRUMENT.finditer(text, max(0, start - 160), start)
+    )
+
+
+def cites_current_branch(
+    text: str,
+    corpus_citation_path: str,
+    path: tuple[str, ...],
+    *,
+    citation_must_start: bool = False,
+    citation_must_end: bool = False,
+) -> bool:
+    """Whether ``text`` cites exactly this branch of the current section natively."""
+
+    pattern = current_branch_citation_pattern(
+        corpus_citation_path,
+        path,
+        citation_must_start=citation_must_start,
+        citation_must_end=citation_must_end,
+    )
+    return pattern is not None and any(
+        not _preposed_other_instrument(text, match.start())
+        for match in pattern.finditer(text)
+    )
+
+
 def native_source_reference_paths(
     source: str, corpus_citation_path: str
 ) -> set[tuple[str, ...]]:
@@ -472,6 +508,8 @@ def native_source_reference_paths(
         rf"(?!\s*\()(?![A-Za-z0-9_{_H}]){_OTHER_INSTRUMENT_QUALIFIER}",
         source,
     ):
+        if _preposed_other_instrument(source, match.start()):
+            continue
         labels = [
             parse_outline_label(label)
             for label in re.findall(
@@ -487,9 +525,9 @@ def cites_current_section(source: str, corpus_citation_path: str) -> bool:
     """Return whether text cites the current section natively (``סעיף 14``)."""
 
     section = native_section_label(corpus_citation_path)
-    return bool(
-        section
-        and re.search(
+    return bool(section) and any(
+        not _preposed_other_instrument(source, match.start())
+        for match in re.finditer(
             rf"{_NOT_HEBREW_BEFORE}{_PROCLITICS}{_SECTION_WORD}\s*{_native_section_pattern(section)}"
             rf"(?![0-9{_H}{_GERESH_MARKS}])(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{0,{MAX_OUTLINE_DEPTH}}}(?!\s*\()"
             rf"{_OTHER_INSTRUMENT_QUALIFIER}",
@@ -531,7 +569,7 @@ MISSING_DEPENDENCY_LANGUAGE = (
     rf"|תלוי(?:ה|ים|ות)?\s+ב(?=[{_H}])"
     rf"|עד\s+(?:ש(?=[{_H}])|אשר\s)"
     rf"|(?:בלי|ללא|מבלי){_NOT_HEBREW_AFTER}"
-    rf"|(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד|להכריע){_NOT_HEBREW_AFTER}"
+    rf"|(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד){_NOT_HEBREW_AFTER}"
     r")"
 )
 _SIGNAL = re.compile(
@@ -541,7 +579,7 @@ _SIGNAL = re.compile(
     rf"|(?P<until>עד\s+(?:(?:ש|אשר\s+)(?P<until_verb>{_UNTIL_STATE}){_NOT_HEBREW_AFTER}"
     rf"|ש(?=[{_H}]|$)|אשר\s))"
     rf"|(?P<without>(?:בלי|ללא|מבלי){_NOT_HEBREW_AFTER})"
-    rf"|(?P<cannot>(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד|להכריע)"
+    rf"|(?P<cannot>(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד)"
     rf"{_NOT_HEBREW_AFTER})"
     r")"
 )
@@ -613,11 +651,22 @@ _NAME_STOP_WORDS = (
 # Up to six name words and a parenthetical that distinguishes laws of one
 # name (``חוק שירות המדינה (גמלאות)``, ``חוק הפיקוח על שירותים פיננסיים
 # (ביטוח)``).
-_INSTRUMENT_NAME = (
-    r"(?:\s+(?!(?:"
+_NAME_WORD = (
+    r"\s+(?!(?:"
     + "|".join(_NAME_STOP_WORDS.split())
-    + rf"){_NOT_HEBREW_AFTER})[{_H}][{_H}{_GERESH_MARKS}{_MAQAF}-]*){{0,6}}"
+    + rf"){_NOT_HEBREW_AFTER})[{_QUOTES}]?[{_H}][{_H}{_GERESH_MARKS}{_MAQAF}{_QUOTES}-]*"
+)
+_INSTRUMENT_NAME = (
+    # ``חוק יסוד: כבוד האדם וחירותו`` and ``חוק־יסוד: חופש העיסוק``.
+    rf"(?:\s*[{_MAQAF}-]?\s*יסוד\s*:)?"
+    rf"(?:{_NAME_WORD}){{0,6}}"
     r"(?:\s*\([^()\n]{1,40}\))?"
+)
+# What may follow a name that was cut short: another name word past the
+# six-word bound, a parenthetical too long or nested to read, or a quoted or
+# colon-led continuation. Such a name identifies no law with certainty.
+_NAME_CONTINUES = re.compile(
+    rf"(?:{_NAME_WORD})|\s*\(|\s*[{_QUOTES}]?\s*:\s*[{_H}]|\s*[{_MAQAF}-][{_H}]"
 )
 SECTION_DEPENDENCY = re.compile(
     rf"{_NOT_HEBREW_BEFORE}(?P<proclitics>[ובלמשכה]{{0,3}})(?:סעיפים|סעיף)\s+"
@@ -664,10 +713,18 @@ def _dependency_identity(
 # ``לחוק האמור`` ("the said law") can be read as the instrument last named, as
 # in ``קיצבאות כמשמעותן בחוק הביטוח הלאומי, לפי סעיף 2 לחוק האמור``.
 _INSTRUMENT_MENTION = re.compile(
-    rf"{_NOT_HEBREW_BEFORE}(?:ו)?(?:{_INSTRUMENT_INTRO}|כ|[{_QUOTES}]?ה?)"
+    # Any attached prefixes: ``שחוק``, ``כשהחוק``, ``ושבחוק``, ``מן החוק``.
+    rf"{_NOT_HEBREW_BEFORE}(?:של\s+|(?:אשר\s+)?(?:מן\s+|מתוך\s+)?)?"
+    rf"[ובלמשכה]{{0,4}}[{_QUOTES}]?ה?[{_QUOTES}]?"
     rf"(?P<kind>{_INSTRUMENT_KIND})"
     rf"{_NOT_HEBREW_AFTER}"
     rf"(?P<name>{_INSTRUMENT_NAME})"
+)
+# A law named just before a native citation: ``חוק הביטוח הלאומי, סעיף 14``.
+_PREPOSED_INSTRUMENT = re.compile(
+    rf"{_NOT_HEBREW_BEFORE}[ובלמשכה]{{0,4}}[{_QUOTES}]?ה?[{_QUOTES}]?"
+    rf"{_INSTRUMENT_KIND}{_NOT_HEBREW_AFTER}(?P<name>{_INSTRUMENT_NAME})"
+    rf"[{_QUOTES}]?\s*[,:]\s*"
 )
 _CURRENT_INSTRUMENT = ("current", ())
 _UNRESOLVED_INSTRUMENT = ("unresolved", ())
@@ -681,12 +738,20 @@ def _instrument_kind(kind: str) -> str:
 def _instrument_words(name: str) -> tuple[str, ...]:
     """Name words, with a parenthetical qualifier kept as one word."""
 
+    def word(token: str) -> str:
+        return _normalize_word(token.strip(_QUOTES + _MAQAF + "-"))
+
     return tuple(
-        "(" + " ".join(_normalize_word(word) for word in token[1:-1].split()) + ")"
+        "(" + " ".join(word(part) for part in token[1:-1].split()) + ")"
         if token.startswith("(")
-        else _normalize_word(token)
+        else word(token)
         for token in re.findall(r"\([^()]*\)|[^\s()]+", name)
+        if word(token) or token.startswith("(")
     )
+
+
+def _name_is_cut_short(text: str, end: int) -> bool:
+    return _NAME_CONTINUES.match(text, end) is not None
 
 
 def _named_instrument(
@@ -720,7 +785,12 @@ def _explicit_instrument_mentions(
             kind = _instrument_kind(mention.group("kind"))
             positions, instruments = mentions.setdefault(kind, ([], []))
             positions.append(mention.start())
-            instruments.append((kind, words))
+            # A cut-short name is the last law named, but not a known one.
+            instruments.append(
+                _UNRESOLVED_INSTRUMENT
+                if _name_is_cut_short(text, mention.end())
+                else (kind, words)
+            )
     return mentions
 
 
@@ -737,16 +807,17 @@ def _section_citations(
     citations: list[tuple[re.Match[str], Instrument | None]] = []
     for match in SECTION_DEPENDENCY.finditer(text):
         kind = match.group("instrument_kind")
-        instrument = (
-            _named_instrument(
+        if not kind:
+            instrument = None
+        elif _name_is_cut_short(text, match.end()):
+            instrument = _UNRESOLVED_INSTRUMENT
+        else:
+            instrument = _named_instrument(
                 _instrument_kind(kind),
                 _instrument_words(match.group("instrument_name") or ""),
                 mentions,
                 match.start("instrument"),
             )
-            if kind
-            else None
-        )
         citations.append((match, instrument))
     return tuple(citations)
 
@@ -785,18 +856,21 @@ def _clause_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     return clause_start, clause_end
 
 
-# A negation or exclusion anywhere before a source linker in its clause
-# negates the link (``אין לפעול בהתאם ל``, ``תשלום שאינו בהתאם ל``, ``אי
-# אפשר ...``), as English's ``_source_link_scope_has_unreset_negation`` reads
-# ``do not act in accordance with``. Only a relative clause that carries the
-# link itself resets it, as English's later finite predicate does: the
-# linker is a participle (``הקבוע ב``, ``שנקבע ב``), or the word just before
-# it is a relative verb (``... הסכום שנקבע לפי סעיף 341``, section 14(ו1)).
-# Any other negation stands, so ``מבוטח שלא עבד ישלם לפי`` is read as
-# negating: stricter than English, which does not check ``under``.
+# A negation, prohibition or exclusion anywhere before a source linker in its
+# clause negates the link (``אין לפעול בהתאם ל``, ``נאסר ...``, ``אי אפשר
+# ...``), as English's ``_source_link_scope_has_unreset_negation`` reads ``do
+# not act in accordance with``. A main-clause negation governs to the end of
+# its clause, relative clauses included (``אין לחשב את התשלום שנקבע בהתאם
+# ל``). A negation inside a relative clause (``שאינו``, ``שלא``) ends where a
+# later relative clause carrying the link begins: the linker is a participle
+# (``הקבוע ב``, ``שנקבע ב``) or the word just before it is a relative verb
+# (``החלק שאינו עולה על הסכום שנקבע לפי סעיף 341``, section 14(ו1)). Any other
+# negation stands, so ``מבוטח שלא עבד ישלם לפי`` is read as negating:
+# stricter than English, which does not check ``under``.
 _NEGATIONS = re.compile(
-    rf"{_NOT_HEBREW_BEFORE}[ושכמה]{{0,2}}"
+    rf"{_NOT_HEBREW_BEFORE}(?P<relative>(?:ו)?(?:כ)?ש)?(?:[ומה]{{0,2}})"
     r"(?:אין|לא|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|אסור(?:ה|ים|ות)?|בל|לבל|בלתי"
+    r"|נאסר(?:ה|ו|ים|ות)?|איסור|מנוע(?:ה|ים|ות)?"
     r"|בלי|ללא|מבלי|למעט|מלבד|להוציא|זולת)"
     rf"{_NOT_HEBREW_AFTER}"
     rf"|{_NOT_HEBREW_BEFORE}[ושכמה]{{0,2}}אי{_SEP}(?:אפשר|ניתן){_NOT_HEBREW_AFTER}"
@@ -832,23 +906,30 @@ _SOURCE_LINKER = re.compile(
 )
 
 
-def _source_linker(clause_before: str) -> re.Match[str] | None:
-    """The operative linker ending ``clause_before``, unless it displaces."""
+def _source_linker(text: str, start: int, end: int) -> re.Match[str] | None:
+    """The operative linker ending at ``end``, read from ``start``, unless it displaces.
 
-    if _DISPLACEMENT.search(clause_before):
+    The text is searched in place, so a word cut by ``start`` keeps its left
+    boundary (``כלפי`` is not ``לפי``).
+    """
+
+    if _DISPLACEMENT.search(text, start, end):
         return None
-    return _SOURCE_LINKER.search(clause_before)
+    return _SOURCE_LINKER.search(text, start, end)
 
 
-def _link_resets(
-    text: str, negation_end: int, linker: re.Match[str], offset: int
-) -> bool:
-    """Whether a relative clause after the negation carries the link."""
+def _link_resets(text: str, negation: re.Match[str], linker: re.Match[str]) -> bool:
+    """Whether a relative clause after a relative negation carries the link."""
 
+    if not negation.group("relative"):
+        return False
     if _PARTICIPLE_LINKER.match(linker.group(0)):
         return True
+    # The relative verb is adjacent to the linker, so a bounded look suffices.
     return (
-        _RELATIVE_VERB_BEFORE_LINKER.search(text, negation_end, offset + linker.start())
+        _RELATIVE_VERB_BEFORE_LINKER.search(
+            text, max(negation.end(), linker.start() - 24), linker.start()
+        )
         is not None
     )
 
@@ -902,10 +983,8 @@ def _linked_source_instruments(
     """
 
     index: dict[tuple[str, tuple[str, ...]], _LinkedInstruments] = {}
-    negations = [
-        (match.start(), match.end()) for match in _NEGATIONS.finditer(source_scope_text)
-    ]
-    negation_ends = [end for _start, end in negations]
+    negations = list(_NEGATIONS.finditer(source_scope_text))
+    negation_ends = [negation.end() for negation in negations]
     for cited, cited_instrument in _section_citations(source_scope_text):
         clause_start, _clause_end = _clause_bounds(
             source_scope_text, cited.start(), cited.end()
@@ -914,20 +993,16 @@ def _linked_source_instruments(
         # before the citation; the window keeps a long clause linear. The
         # negation index covers the whole clause.
         window_start = max(clause_start, cited.start() - _LINK_WINDOW)
-        before = source_scope_text[window_start : cited.start()] + cited.group(
-            "proclitics"
+        linker = _source_linker(
+            source_scope_text, window_start, cited.end("proclitics")
         )
-        linker = _source_linker(before)
         if linker is None:
             continue
-        linker_start = window_start + linker.start()
-        last = bisect.bisect_right(negation_ends, linker_start) - 1
+        last = bisect.bisect_right(negation_ends, linker.start()) - 1
         if (
             last >= 0
-            and negations[last][0] >= clause_start
-            and not _link_resets(
-                source_scope_text, negations[last][1], linker, window_start
-            )
+            and negations[last].start() >= clause_start
+            and not _link_resets(source_scope_text, negations[last], linker)
         ):
             continue
         section, fragments = _dependency_identity(cited)
@@ -1007,7 +1082,10 @@ _DEPENDENCY_MODIFIER_WORDS = _DEPENDENCY_SUBJECT_WORDS | frozenset(
         ).split(),
     )
 )
-_TERM_PREFIX_LETTERS = "ובהלמשכ"
+# Only the conjunction and the article attach to a subject-phrase word; a
+# preposition (``בהגשה``, ``לזכאות``, ``מהתקנות``) makes it a description that
+# English's bounded phrase does not allow.
+_TERM_PREFIX_LETTERS = "וה"
 
 
 def _is_term(word: str, terms: frozenset[str]) -> bool:
@@ -1071,7 +1149,7 @@ def _introduction_is_bounded(bridge: str) -> bool:
 
 
 _CANNOT_COMPUTE_BECAUSE = re.compile(
-    r"^\s*(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד|להכריע)"
+    r"^\s*(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד)"
     r"(?:\s+את\s+[^.;\n]{1,80}?)?\s+(?:כי|מאחר\s+ש|משום\s+ש|כיוון\s+ש)\s*"
 )
 
@@ -1138,6 +1216,7 @@ class _ReasonIndex:
         self,
         reason: str,
         other_citations: Callable[[str], Iterable[re.Match[str]]] | None = None,
+        masked_citations: Callable[[str], Iterable[re.Match[str]]] | None = None,
     ) -> None:
         self.signals = _signals(reason)
         self.signal_ends = [signal.end() for signal in self.signals]
@@ -1163,16 +1242,22 @@ class _ReasonIndex:
         for position in range(len(spans) - 1, -1, -1):
             earliest = min(earliest, spans[position][1])
             self.earliest_end_from[position] = earliest
-        # Clause stops, but not the periods inside an English citation
-        # (``42 U.S.C. 9``), as ``_reason_clause_bounds`` masks them.
+        # Clause stops, but not the periods inside the citations English masks
+        # (``42 U.S.C. 9``, ``R.S. 47:295``), as ``_reason_clause_bounds`` does.
+        masked_spans = sorted(
+            (match.start(), match.end())
+            for match in (masked_citations(reason) if masked_citations else ())
+        )
         self.stops = []
         span_index = 0
         for stop in _clause_stops(reason):
-            while span_index < len(other_spans) and other_spans[span_index][1] <= stop:
+            while (
+                span_index < len(masked_spans) and masked_spans[span_index][1] <= stop
+            ):
                 span_index += 1
             inside = (
-                span_index < len(other_spans)
-                and other_spans[span_index][0] <= stop < other_spans[span_index][1]
+                span_index < len(masked_spans)
+                and masked_spans[span_index][0] <= stop < masked_spans[span_index][1]
             )
             if not inside:
                 self.stops.append(stop)
@@ -1212,6 +1297,7 @@ def reason_names_source_bound_dependency(
     *,
     corpus_citation_path: str,
     other_citations: Callable[[str], Iterable[re.Match[str]]] | None = None,
+    masked_citations: Callable[[str], Iterable[re.Match[str]]] | None = None,
 ) -> bool:
     """Accept a Hebrew reason naming a missing external section the scope applies.
 
@@ -1228,13 +1314,14 @@ def reason_names_source_bound_dependency(
     The instrument comparison is stricter than the English prose route.
     ``other_citations`` is the English reader's citation finder (U.S. Code,
     R.S., ``§``, ``Absatz`` and canonical paths); without it the English
-    precise-dependency grammar alone stands in.
+    precise-dependency grammar alone stands in. ``masked_citations`` are the
+    citations whose periods the English clause reader masks.
     """
 
     current_section = native_section_label(corpus_citation_path)
     if current_section is None or not source_scope_text.strip():
         return False
-    index = _ReasonIndex(reason, other_citations)
+    index = _ReasonIndex(reason, other_citations, masked_citations)
     stops = index.stops
     for dependency, instrument in _section_citations(reason):
         if not _dependency_is_external(dependency, instrument, current_section):

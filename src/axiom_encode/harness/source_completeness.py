@@ -478,7 +478,7 @@ _EXPLICIT_SENTENCE_MARKER = re.compile(
 _EDITORIAL_OMISSION_ONLY = re.compile(
     r"^\s*"
     r"(?:(?:\((?:\d+[a-z]?|[a-z])\)|\d+[a-z]?\.|[a-z]\))\s*)?"
-    rf"(?:\({hebrew_source_text.OUTLINE_LABEL}\)\s*)?"
+    rf"(?:\({hebrew_source_text.HEBREW_OUTLINE_LABEL}\)\s*)?"
     r"(?:bis\s+\(\d+[a-z]?\)\s*)?"
     r"(?:\(\s*)?"
     r"(?:weggefallen|aufgehoben|omitted|\.{3,}|"
@@ -9336,6 +9336,7 @@ def _reason_dependency_is_source_bound(
         source_scope_text,
         corpus_citation_path=corpus_citation_path,
         other_citations=_reason_dependencies,
+        masked_citations=_clause_masked_dependencies,
     ):
         return True
     for match in re.finditer(
@@ -12000,6 +12001,15 @@ def _reason_dependency_occurrence_is_contextual(
     )
 
 
+def _clause_masked_dependencies(reason: str) -> tuple[re.Match[str], ...]:
+    """The citations whose periods ``_reason_clause_bounds`` masks."""
+
+    return (
+        *_qualified_usc_dependencies(reason),
+        *_qualified_louisiana_rs_dependencies(reason),
+    )
+
+
 def _reason_dependencies(reason: str) -> list[re.Match[str]]:
     return sorted(
         (
@@ -13467,13 +13477,13 @@ def _reason_cites_exact_current_statute_branch(
         return True
     # Israeli sources: the native citation `סעיף 14(ב)(2)` of the current
     # section, read through the same gematria transliteration as its path.
-    native_pattern = hebrew_source_text.current_branch_citation_pattern(
+    if hebrew_source_text.cites_current_branch(
+        reason,
         corpus_citation_path,
         path,
         citation_must_start=citation_must_start,
         citation_must_end=citation_must_end,
-    )
-    if native_pattern is not None and native_pattern.search(reason):
+    ):
         return True
 
     citation_parts = [
