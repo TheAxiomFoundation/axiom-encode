@@ -168,11 +168,13 @@ from .proof_validator import (
 )
 from .source_completeness import (
     _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
+    _is_us_manual_citation_path,
     _nested_outline_marker_spans,
     _qualified_parenthesized_legal_outline_markers,
     _us_manual_prose_scope,
     analyze_complete_source_unit,
     collect_artifact_numeric_bindings,
+    manual_outcome_exception_advice,
     source_states_stated_conversion_result,
 )
 
@@ -35805,6 +35807,49 @@ class ValidatorPipeline:
             f"{declared}."
         ]
 
+    def _manual_outcome_exception_advice(
+        self,
+        content: str,
+        *,
+        validation_source_texts: Mapping[str, str] | None,
+    ) -> tuple[dict[str, Any], ...]:
+        """Collect optional manual advice from the authoritative requested body."""
+
+        try:
+            payload = yaml.safe_load(content)
+            verification = (
+                _source_verification_block(payload)
+                if isinstance(payload, dict)
+                else None
+            )
+            citation_paths, _source_label = (
+                _source_verification_source_fields(verification)
+                if verification is not None
+                else ((), "")
+            )
+            citation_path = self.source_citation_path or (
+                citation_paths[0] if citation_paths else ""
+            )
+            if not _is_us_manual_citation_path(citation_path):
+                return ()
+            source_text = _source_verification_text(
+                citation_paths=(citation_path,),
+                source_label=citation_path,
+                source_texts=(
+                    dict(validation_source_texts)
+                    if validation_source_texts is not None
+                    else None
+                ),
+            )
+            return manual_outcome_exception_advice(
+                source_text or "",
+                corpus_citation_path=citation_path,
+            )
+        except Exception:
+            # An unavailable optional hint must never create a validation failure.
+            logger.debug("Manual outcome advice unavailable", exc_info=True)
+            return ()
+
     @timed_tool(TOOL_SOURCE_COMPLETENESS_CHECKS)
     def _complete_source_unit_issues(
         self,
@@ -38413,6 +38458,10 @@ class ValidatorPipeline:
                 rules_file=rules_file,
             )
         )
+        manual_advice = self._manual_outcome_exception_advice(
+            content,
+            validation_source_texts=validation_source_texts,
+        )
 
         duration = int((time.time() - start) * 1000)
         try:
@@ -38423,6 +38472,11 @@ class ValidatorPipeline:
                 duration_ms=duration,
                 error=issues[0] if issues else None,
                 raw_output=raw_output,
+                details=(
+                    {"manual_outcome_exception_advice": list(manual_advice)}
+                    if manual_advice
+                    else {}
+                ),
             )
         finally:
             tmpdir_cm.cleanup()

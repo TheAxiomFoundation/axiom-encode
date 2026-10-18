@@ -13767,6 +13767,91 @@ def _is_us_manual_citation_path(corpus_citation_path: str) -> bool:
     )
 
 
+# #1893's manual measurement names eligible/counted/excluded/deducted, but its
+# code defines only a broader federal administrative classifier. Keep this
+# explicit lexical shortlist independent of that classifier and of the gate:
+# eligibility, benefits/allotments/payments, counting/inclusion/exclusion,
+# deductions, sanctions/disqualification, termination/denial/approval,
+# reductions/increases and entitlement. Income/resources alone are deliberately
+# absent: they also occur in procedural verification instructions. This is
+# advice selection, not a determination that a sentence is operative.
+_MANUAL_OUTCOME_WORD = re.compile(
+    r"\b(?:ineligib\w*|eligib(?:le|ility)|benefits?|allotments?|payments?|"
+    r"paid|pay(?:s|ing)?|sanction\w*|disqualif\w*|terminat\w*|"
+    r"den(?:y|ies|ied|ying|ials?)|approv\w*|reduc\w*|increas\w*|entitle\w*|"
+    r"count(?:s|ed|ing|able)?|includ(?:e|es|ed|ing)|inclusions?|"
+    r"exclud(?:e|es|ed|ing)|exclusions?|deem(?:s|ed|ing)?|"
+    r"disregard(?:s|ed|ing)?|deduct(?:s|ed|ing|ions?)?)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def manual_outcome_exception_advice(
+    source_text: str,
+    *,
+    corpus_citation_path: str,
+) -> tuple[dict[str, Any], ...]:
+    """Identify optional manual conditions without changing completeness issues.
+
+    Reuse the gate's exception parser with its numeric-only filter disabled,
+    then select only the nonnumeric outcome-word sentences that filter drops.
+    Records depend only on the authoritative source, retain its character
+    offsets and digest for replay accounting, and stay in source order.
+    """
+
+    if not _is_us_manual_citation_path(corpus_citation_path):
+        return ()
+    body = source_text.strip()
+    if not body:
+        return ()
+    body_start = len(source_text) - len(source_text.lstrip())
+    with _us_manual_prose_scope(corpus_citation_path):
+        branches = recognize_source_structure(
+            body, corpus_citation_path=corpus_citation_path
+        )
+        formula_branches = _source_formula_branches(
+            body,
+            corpus_citation_path=corpus_citation_path,
+            branches=branches,
+            active_branches=branches,
+            deferred_paths=set(),
+        )
+        exceptions = _source_exception_branches(
+            body,
+            raw_source_text=source_text,
+            branches=branches,
+            active_branches=branches,
+            deferred_paths=set(),
+            formula_branches=formula_branches,
+        )
+    source_sha256 = hashlib.sha256(source_text.encode()).hexdigest()
+    advice: list[dict[str, Any]] = []
+    for branch in sorted(exceptions, key=lambda item: (item.start, item.end)):
+        if _STATED_NUMERIC_LIMIT.search(branch.text) or not _MANUAL_OUTCOME_WORD.search(
+            branch.text
+        ):
+            continue
+        excerpt = _bounded_source_feedback_excerpt(branch.text)
+        start, end = body_start + branch.start, body_start + branch.end
+        advice.append(
+            {
+                "corpus_citation_path": corpus_citation_path,
+                "source_sha256": source_sha256,
+                "source_start": start,
+                "source_end": end,
+                "excerpt": excerpt,
+                "message": (
+                    "[non-blocking] Manual outcome advisory: "
+                    f"{corpus_citation_path} characters {start}:{end}: `{excerpt}` "
+                    "may state an operative condition worth encoding as a derived "
+                    "output with paired tests (positive and blocking). Encoding this "
+                    "condition is optional and is not required to pass validation."
+                ),
+            }
+        )
+    return tuple(advice)
+
+
 @contextlib.contextmanager
 def _us_manual_prose_scope(corpus_citation_path: str) -> Iterator[None]:
     """Read word slashes and spaced word dashes as prose in a US manual."""
