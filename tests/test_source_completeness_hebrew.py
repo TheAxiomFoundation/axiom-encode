@@ -630,7 +630,7 @@ def test_native_range_resolves_like_its_canonical_form():
         "בלי הוראה",
         "ללא הוראה",
         "טרם קודד",
-        "אינו מקודד",
+        "עדיין לא קודד",
         "אינו זמין",
         "אינה זמינה",
         "אינם זמינים",
@@ -660,6 +660,20 @@ def test_hebrew_missing_dependency_language(text):
 )
 def test_hebrew_word_boundaries_reject_lookalikes(text):
     assert not completeness_module._MISSING_DEPENDENCY_LANGUAGE.search(text)
+
+
+@pytest.mark.parametrize(
+    ("hebrew_text", "english_text"),
+    (("אינו מקודד", "is not encoded"), ("לא קודד", "was not encoded")),
+)
+def test_plain_not_encoded_is_no_missing_signal_in_either_language(
+    hebrew_text, english_text
+):
+    """English signals `not yet encoded`; plain `not encoded` is only a state."""
+
+    assert not completeness_module._MISSING_DEPENDENCY_LANGUAGE.search(english_text)
+    assert not completeness_module._MISSING_DEPENDENCY_LANGUAGE.search(hebrew_text)
+    assert hebrew._missing_state_follows(f" {hebrew_text}.")
 
 
 @pytest.mark.parametrize(
@@ -1054,6 +1068,42 @@ DIFFERENTIAL_CASES = (
     ),
     (
         "e1",
+        "חסר מידע אף כי סעיף 345ב קודד.",
+        "Missing information although section 345b is encoded.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסרות הוראות מלבד סעיף 345ב.",
+        "Missing provisions except section 345b.",
+        "neither",
+    ),
+    (
+        "e1",
+        "החישוב שתלוי בסעיף 345ב טרם קודד.",
+        "The calculation that depends on section 345b is not yet encoded.",
+        "neither",
+    ),
+    (
+        "e1",
+        "החישוב אינו מקודד לפי סעיף 345ב.",
+        "The calculation is not encoded under section 345b.",
+        "neither",
+    ),
+    (
+        "e1",
+        "החישוב טרם קודד לפי סעיף 345ב.",
+        "The calculation is not yet encoded under section 345b.",
+        "both",
+    ),
+    (
+        "e1",
+        "לא ניתן לחשב את התשלום עד אשר יקודד סעיף 345ב.",
+        "The payment cannot be computed until section 345b is encoded.",
+        "both",
+    ),
+    (
+        "e1",
         "לא ניתן לחשב עד שיקודדו התנאים הקבועים בסעיף 345ב.",
         "Cannot be computed until the conditions set in section 345b are encoded.",
         "both",
@@ -1166,6 +1216,13 @@ DIFFERENTIAL_CASES = (
         "סעיף 14(ג): חסרה יכולת לייצג את העתק הדוח.",
         "us-nj/statute/54a:8-6(c): missing capability to represent the copy of "
         "the report.",
+        "neither",
+    ),
+    (
+        "c",
+        "סעיף 14(ג): חסר מידע על מה שהמוסד רשאי לעשות.",
+        "us-nj/statute/54a:8-6(c): missing information about what the Institute "
+        "may do.",
         "neither",
     ),
 )
@@ -1287,6 +1344,8 @@ def test_requires_and_until_introductions_are_bounded(reason, accepted):
         "סעיף 14(ב)(2) לחוק הביטוח הלאומי",
         "סעיף 14(ב) (2) לחוק הביטוח הלאומי",
         "סעיף 14(ב)(2), לחוק הביטוח הלאומי",
+        "סעיף 14(ב) שבחוק הביטוח הלאומי",
+        "סעיף 14(ב) אשר בחוק הביטוח הלאומי",
     ),
 )
 def test_another_laws_section_claims_no_branch_of_this_one(reference):
@@ -1311,8 +1370,19 @@ def test_native_citation_scans_stay_linear():
     assert not hebrew.reason_names_source_bound_dependency(
         many, PRECISION_SOURCE, corpus_citation_path=CITATION
     )
-    # Quadratic forms of these took about 15 s and 40 s; linear ones take
-    # milliseconds, so the bound holds on a loaded host.
+    # Many reason clauses against many source citations of another section.
+    assert not hebrew.reason_names_source_bound_dependency(
+        "חסר סעיף 346. " * 8_000,
+        "(ה1) " + "לפי סעיף 345ב. " * 8_000,
+        corpus_citation_path=CITATION,
+    )
+    # Many distinct shared words.
+    words = " ".join(
+        "צ" + hebrew.hebrew_numeral(value) + "ת" for value in range(1, 8_001)
+    )
+    assert hebrew.shared_substantive_word_count(words, words) > 1_000
+    # Quadratic forms of these took tens of seconds; linear ones take well under
+    # a second, so the bound holds on a loaded host.
     assert time.perf_counter() - started < 5
 
 
