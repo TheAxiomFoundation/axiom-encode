@@ -16,6 +16,7 @@ import hashlib
 import json
 import re
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -743,10 +744,10 @@ def _accepted(branch: str, reason: str) -> bool:
         "סעיף 14(ה1) מחייב תשלום לפי הוראות סעיף 345ב לחוק הביטוח הלאומי בשינויים "
         "המחויבים; חסרה הוראת החישוב המדויקת שבסעיף 345ב.",
         "חסרות הוראות סעיף 345ב לחוק הביטוח הלאומי.",
-        "החישוב תלוי בסעיף 345ב לחוק הביטוח הלאומי, שטרם קודד.",
-        "לא ניתן לחשב את התשלום עד שיקודד סעיף 345ב לחוק הביטוח הלאומי.",
-        "לא ניתן לחשב את התשלום עד שסעיף 345ב לחוק הביטוח הלאומי יקודד.",
-        "לא ניתן לחשב את התשלום כי סעיף 345ב לחוק הביטוח הלאומי טרם קודד.",
+        "החישוב תלוי בסעיף 345ב טרם קודד.",
+        "לא ניתן לחשב את התשלום עד שיקודד סעיף 345ב.",
+        "לא ניתן לחשב את התשלום עד שסעיף 345ב יקודד.",
+        "לא ניתן לחשב את התשלום כי סעיף 345ב טרם קודד.",
         "לא ניתן לחשב את התשלום ללא הוראות סעיף 345ב.",
     ),
 )
@@ -777,6 +778,17 @@ def test_hebrew_external_dependency_applied_by_the_branch_is_precise(reason):
         # `requires` and `until` need the dependency's own missing state.
         "החישוב דורש את סעיף 345ב לחוק הביטוח הלאומי.",
         "לא ניתן לחשב עד שסעיף 345ב לחוק הביטוח הלאומי יפורש.",
+        # As in English, those routes read only the bare section followed by
+        # its state: no law qualifier and no relative `, which is not encoded`.
+        "לא ניתן לחשב את התשלום עד שיקודד סעיף 345ב לחוק הביטוח הלאומי.",
+        "לא ניתן לחשב את התשלום עד שסעיף 345ב לחוק הביטוח הלאומי יקודד.",
+        "לא ניתן לחשב את התשלום כי סעיף 345ב לחוק הביטוח הלאומי טרם קודד.",
+        "החישוב תלוי בסעיף 345ב, שאינו מקודד.",
+        # Except, unless, and a reversal in the next clause.
+        "חסרות הוראות, למעט סעיף 345ב.",
+        "חסר מידע אף שסעיף 345ב קודד.",
+        "חסרה הוראת סעיף 345ב, אלא אם היא קודדה.",
+        "חסרה הוראת סעיף 345ב. אולם היא זמינה.",
         # An earlier citation in the clause leaves `missing` ambiguous.
         "סעיף 341 וחסרה הוראת סעיף 345ב.",
     ),
@@ -974,9 +986,7 @@ def _english_accepted(branch: str, reason: str) -> bool:
 
 # (Hebrew branch, Hebrew reason, English reason, verdict). `hebrew-stricter`
 # marks the intended cases where the Hebrew rule refuses what the English one
-# admits; `english-reader-gap` the one case English refuses only because its
-# reader does not take an `of <law>` qualifier between a reference and its
-# state (the unqualified pair before it passes both).
+# admits. No case passes Hebrew alone.
 DIFFERENTIAL_CASES = (
     (
         "e1",
@@ -1004,7 +1014,43 @@ DIFFERENTIAL_CASES = (
         "לא ניתן לחשב את התשלום עד שיקודד סעיף 345ב לחוק הביטוח הלאומי.",
         "the payment cannot be computed until section 345b of the National "
         "Insurance Law is encoded.",
-        "english-reader-gap",
+        "neither",
+    ),
+    (
+        "e1",
+        "החישוב תלוי בסעיף 345ב טרם קודד.",
+        "The calculation depends on section 345b is not encoded.",
+        "both",
+    ),
+    (
+        "e1",
+        "החישוב תלוי בסעיף 345ב, שאינו מקודד.",
+        "The calculation depends on section 345b, which is not encoded.",
+        "neither",
+    ),
+    (
+        "e1",
+        "החישוב תלוי בסעיף 345ב, וסעיף 345ב טרם קודד.",
+        "The calculation depends on section 345b and section 345b is not yet encoded.",
+        "hebrew-stricter",
+    ),
+    (
+        "e1",
+        "חסרות הוראות, למעט סעיף 345ב.",
+        "Missing provisions, except section 345b.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסר מידע אף שסעיף 345ב קודד.",
+        "Missing information although section 345b is encoded.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסרה הוראת סעיף 345ב. אולם היא זמינה.",
+        "Missing the rule in section 345b. However, it is available.",
+        "neither",
     ),
     (
         "e1",
@@ -1107,12 +1153,26 @@ DIFFERENTIAL_CASES = (
         "report of the insured.",
         "neither",
     ),
+    # Two shared source terms: the same term twice, or `copy`/`העתק`, is not two.
+    (
+        "c",
+        "סעיף 14(ג): חסר מידע מהמבוטח על המבוטח.",
+        "us-nj/statute/54a:8-6(c): missing information from the insured about "
+        "the insured.",
+        "neither",
+    ),
+    (
+        "c",
+        "סעיף 14(ג): חסרה יכולת לייצג את העתק הדוח.",
+        "us-nj/statute/54a:8-6(c): missing capability to represent the copy of "
+        "the report.",
+        "neither",
+    ),
 )
 _DIFFERENTIAL_VERDICTS = {
     "both": (True, True),
     "neither": (False, False),
     "hebrew-stricter": (False, True),
-    "english-reader-gap": (True, False),
 }
 
 
@@ -1128,17 +1188,6 @@ def test_hebrew_rule_agrees_with_the_english_rule(
         _accepted(branch, hebrew_reason),
         _english_accepted(ENGLISH_BRANCH[branch], english_reason),
     ) == _DIFFERENTIAL_VERDICTS[verdict]
-
-
-def test_only_the_reader_gap_is_looser_than_english():
-    looser = [case for case in DIFFERENTIAL_CASES if case[3] == "english-reader-gap"]
-
-    assert len(looser) == 1
-    # The same claim without the qualifier passes both rules.
-    assert any(
-        case[3] == "both" and case[1] == looser[0][1].replace(" לחוק הביטוח הלאומי", "")
-        for case in DIFFERENTIAL_CASES
-    )
 
 
 @pytest.mark.parametrize(
@@ -1213,9 +1262,9 @@ def test_hebrew_subject_phrases_use_the_english_vocabulary(phrase, bounded):
 @pytest.mark.parametrize(
     ("reason", "accepted"),
     (
-        ("החישוב תלוי בסעיף 345ב לחוק הביטוח הלאומי, שטרם קודד.", True),
-        ("לא ניתן לחשב כי החישוב תלוי בסעיף 345ב, שטרם קודד.", True),
-        ("הענף המיוחד הזה תלוי בסעיף 345ב לחוק הביטוח הלאומי, שטרם קודד.", False),
+        ("החישוב תלוי בסעיף 345ב טרם קודד.", True),
+        ("לא ניתן לחשב כי החישוב תלוי בסעיף 345ב טרם קודד.", True),
+        ("הענף המיוחד הזה תלוי בסעיף 345ב טרם קודד.", False),
         ("לא ניתן לחשב עד שיקודדו התנאים שבסעיף 345ב.", True),
         ("לא ניתן לחשב עד שיקודדו כל הדברים המעניינים שבסעיף 345ב.", False),
         (
@@ -1230,6 +1279,41 @@ def test_requires_and_until_introductions_are_bounded(reason, accepted):
 
 
 # --- Rule `source:` citations ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "reference",
+    (
+        "סעיף 14(ב)(2) לחוק הביטוח הלאומי",
+        "סעיף 14(ב) (2) לחוק הביטוח הלאומי",
+        "סעיף 14(ב)(2), לחוק הביטוח הלאומי",
+    ),
+)
+def test_another_laws_section_claims_no_branch_of_this_one(reference):
+    """The qualifier binds the whole chain; no shorter prefix of it is claimed."""
+
+    paths = completeness_module._paths_from_source_reference(
+        reference, corpus_citation_path=CITATION
+    )
+
+    assert paths == set()
+    assert not hebrew.cites_current_section(reference, CITATION)
+    assert hebrew.cites_current_section("סעיף 14(ב)(2) לחוק זה", CITATION)
+
+
+def test_native_citation_scans_stay_linear():
+    """A long whitespace run or many citations cannot make a scan quadratic."""
+
+    pattern = hebrew.current_branch_citation_pattern(CITATION, ("c",))
+    started = time.perf_counter()
+    assert pattern.search("סעיף 14(ג)" + " " * 64_000 + "x")
+    many = "חסר " + "סעיף 346 " * 8_000
+    assert not hebrew.reason_names_source_bound_dependency(
+        many, PRECISION_SOURCE, corpus_citation_path=CITATION
+    )
+    # Quadratic forms of these took about 15 s and 40 s; linear ones take
+    # milliseconds, so the bound holds on a loaded host.
+    assert time.perf_counter() - started < 5
 
 
 @pytest.mark.parametrize(
