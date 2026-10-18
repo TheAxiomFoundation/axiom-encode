@@ -352,20 +352,25 @@ def native_section_label(corpus_citation_path: str) -> str | None:
     number, suffix = match.groups()
     if not suffix:
         return number
-    value = ordinal_path_value(suffix)
-    return number + hebrew_numeral(value) if value else None
+    # A section suffix is one or two letters (``121ב``, ``345יא``).
+    value = ordinal_path_value(suffix) if len(suffix) <= 2 else None
+    return number + hebrew_numeral(value) if value and value <= 99 else None
 
 
 def native_path_label(component: str) -> str | None:
     """Render one path component as its printed Hebrew label: ``e1`` -> ``ה1``."""
 
-    number = re.fullmatch(r"(\d+)([a-z]*)", component)
+    # Labels are small numerals (``OUTLINE_LABEL``): at most two path letters,
+    # checked before any value or Hebrew numeral is built from them.
+    number = re.fullmatch(r"(\d+)([a-z]{0,2})", component)
     if number is not None:
         if not number.group(2):
             return number.group(1)
         value = ordinal_path_value(number.group(2))
-        return number.group(1) + hebrew_numeral(value) if value else None
-    letters = re.fullmatch(r"([a-z]+)(\d*)", component)
+        if value is None or value > _MAX_LETTER_LABEL_VALUE:
+            return None
+        return number.group(1) + hebrew_numeral(value)
+    letters = re.fullmatch(r"([a-z]{1,2})(\d*)", component)
     if letters is None:
         return None
     value = ordinal_path_value(letters.group(1))
@@ -405,11 +410,37 @@ _INSTRUMENT_INTRO = (
     r"(?:של\s+|ל|(?:ש|אשר\s+)?(?:ב|מ|מן\s+|מתוך\s+))"
     rf"[{_QUOTES}]?ה?[{_QUOTES}]?"
 )
-_OTHER_INSTRUMENT_QUALIFIER = (
-    rf"(?!\s*(?:,\s*)?{_INSTRUMENT_INTRO}{_INSTRUMENT_KIND}"
-    rf"{_NOT_HEBREW_AFTER}"
-    rf"(?!\s+(?:זה|זו|הזה|הזאת){_NOT_HEBREW_AFTER}))"
-)
+_KIND_PATTERNS = {"חוק": "חוק", "פקודה": "פקוד[הת]", "תקנות": "תקנות", "צו": "צו"}
+
+
+def current_instrument_kind(corpus_citation_path: str) -> str:
+    """The kind of the current instrument: a law, unless its slug says otherwise."""
+
+    parts = corpus_citation_path.lower().strip("/").split("/")
+    slug = parts[2] if len(parts) > 2 else ""
+    if "ordinance" in slug:
+        return "פקודה"
+    if "regulation" in slug or parts[1:2] == ["regulation"]:
+        return "תקנות"
+    if re.search(r"(?<![a-z])order(?![a-z])", slug):
+        return "צו"
+    return "חוק"
+
+
+@functools.lru_cache(maxsize=64)
+def _other_instrument_qualifier(current_kind: str) -> str:
+    """Refuse a citation qualified by another instrument: another kind, or this
+    kind under any name but ``זה``/``זו``/``אלה`` (``לפקודה זו`` is no law's)."""
+
+    current = _KIND_PATTERNS[current_kind]
+    return (
+        rf"(?!\s*(?:,\s*)?{_INSTRUMENT_INTRO}"
+        rf"(?:(?!{current}{_NOT_HEBREW_AFTER}){_INSTRUMENT_KIND}{_NOT_HEBREW_AFTER}"
+        rf"|{current}{_NOT_HEBREW_AFTER}"
+        rf"(?!\s+(?:זה|זו|הזה|הזאת|אלה|האלה){_NOT_HEBREW_AFTER})))"
+    )
+
+
 _PROCLITICS = "[ובלמשכה]{0,3}"
 # A section's letter suffix, with a geresh or gershayim as printed (``345י״א``).
 _SECTION_SUFFIX = rf"(?:[{_H}](?:[{_GERESH_MARKS}]?[{_H}])?[{_GERESH_MARKS}]?)?"
@@ -456,27 +487,43 @@ def current_branch_citation_pattern(
     return re.compile(
         rf"{start_guard}{_NOT_HEBREW_BEFORE}{_PROCLITICS}{_SECTION_WORD}\s*"
         rf"{_native_section_pattern(section)}\s*{branch}"
-        rf"(?!\s*\()(?![A-Za-z0-9_{_H}]){_OTHER_INSTRUMENT_QUALIFIER}{end_guard}"
+        rf"(?!\s*\()(?![A-Za-z0-9_{_H}])"
+        rf"{_other_instrument_qualifier(current_instrument_kind(corpus_citation_path))}"
+        rf"{end_guard}"
     )
 
 
-def _preposed_other_instrument(text: str, start: int) -> bool:
-    """Whether a law other than this one is named earlier in the clause.
+@functools.lru_cache(maxsize=256)
+def _other_instrument_mention_starts(text: str, current_kind: str) -> tuple[int, ...]:
+    """Where ``text`` names an instrument other than the current one."""
+
+    return tuple(
+        mention.start()
+        for mention in _INSTRUMENT_MENTION.finditer(text)
+        if not (
+            _instrument_kind(mention.group("kind")) == current_kind
+            and _instrument_words(mention.group("name"))[:1]
+            and _instrument_words(mention.group("name"))[0] in _CURRENT_INSTRUMENT_NAMES
+        )
+    )
+
+
+def _preposed_other_instrument(
+    text: str, start: int, current_kind: str = "חוק"
+) -> bool:
+    """Whether an instrument other than this one is named earlier in the clause.
 
     ``חוק הביטוח הלאומי, התשנ״ה–1995, סעיף 14(ב)`` cites that law's section
-    14(b), whatever dates, editions or parentheticals sit between. Only
-    ``חוק זה`` ("this law") keeps the current law.
+    14(b), whatever dates, editions or descriptions sit between. Only ``חוק
+    זה`` ("this law", of the current kind) keeps the current instrument.
     """
 
-    window_start = max(0, start - 200)
-    stop = max(text.rfind(separator, window_start, start) for separator in ".;\n")
-    if stop >= 0:
-        window_start = stop + 1
-    for mention in _INSTRUMENT_MENTION.finditer(text, window_start, start):
-        words = _instrument_words(mention.group("name"))
-        if not words or words[0] not in _CURRENT_INSTRUMENT_NAMES:
-            return True
-    return False
+    stops = _clause_stops(text)
+    stop = bisect.bisect_left(stops, start)
+    clause_start = stops[stop - 1] + 1 if stop else 0
+    mentions = _other_instrument_mention_starts(text, current_kind)
+    first = bisect.bisect_left(mentions, clause_start)
+    return first < len(mentions) and mentions[first] < start
 
 
 def cites_current_branch(
@@ -495,8 +542,9 @@ def cites_current_branch(
         citation_must_start=citation_must_start,
         citation_must_end=citation_must_end,
     )
+    current_kind = current_instrument_kind(corpus_citation_path)
     return pattern is not None and any(
-        not _preposed_other_instrument(text, match.start())
+        not _preposed_other_instrument(text, match.start(), current_kind)
         for match in pattern.finditer(text)
     )
 
@@ -513,10 +561,13 @@ def native_source_reference_paths(
     for match in re.finditer(
         rf"{_NOT_HEBREW_BEFORE}{_PROCLITICS}{_SECTION_WORD}\s*{_native_section_pattern(section)}"
         rf"(?P<chain>(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{1,{MAX_OUTLINE_DEPTH}}})"
-        rf"(?!\s*\()(?![A-Za-z0-9_{_H}]){_OTHER_INSTRUMENT_QUALIFIER}",
+        rf"(?!\s*\()(?![A-Za-z0-9_{_H}])"
+        rf"{_other_instrument_qualifier(current_instrument_kind(corpus_citation_path))}",
         source,
     ):
-        if _preposed_other_instrument(source, match.start()):
+        if _preposed_other_instrument(
+            source, match.start(), current_instrument_kind(corpus_citation_path)
+        ):
             continue
         labels = [
             parse_outline_label(label)
@@ -534,11 +585,13 @@ def cites_current_section(source: str, corpus_citation_path: str) -> bool:
 
     section = native_section_label(corpus_citation_path)
     return bool(section) and any(
-        not _preposed_other_instrument(source, match.start())
+        not _preposed_other_instrument(
+            source, match.start(), current_instrument_kind(corpus_citation_path)
+        )
         for match in re.finditer(
             rf"{_NOT_HEBREW_BEFORE}{_PROCLITICS}{_SECTION_WORD}\s*{_native_section_pattern(section)}"
             rf"(?![0-9{_H}{_GERESH_MARKS}])(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{0,{MAX_OUTLINE_DEPTH}}}(?!\s*\()"
-            rf"{_OTHER_INSTRUMENT_QUALIFIER}",
+            rf"{_other_instrument_qualifier(current_instrument_kind(corpus_citation_path))}",
             source,
         )
     )
@@ -547,19 +600,15 @@ def cites_current_section(source: str, corpus_citation_path: str) -> bool:
 # --- Deferral precision -----------------------------------------------------
 
 _SIGNAL_PROCLITICS = r"(?:וש|שה|וה|ו|ש|ה)?"
-# A missing signal before its object: missing, not yet encoded, unavailable,
-# the English signal words. Plain "not encoded" is not one in English either.
+# A missing signal before its object: missing, not yet encoded and
+# unavailable (``בלתי זמין``), the English signal words. Plain "not encoded"
+# and "not available" are not English signals, so ``אינו מקודד`` and ``אינו
+# זמין`` are not either.
 _MISSING_SIGNAL = (
     r"(?:חסר(?:ה|ים|ות)?"
     r"|(?:טרם|עדיין\s+(?:לא|אינו|אינה|אינם|אינן))\s+"
     r"(?:קודד(?:ה|ו)?|מקודד(?:ת|ים|ות)?)"
-    r"|(?:אינו|אינה|אינם|אינן|לא)\s+(?:זמין|זמינ(?:ה|ים|ות)))"
-)
-# A state after its subject (``סעיף 345ב אינו מקודד``), where English also
-# reads ``section 345b is not encoded``.
-_MISSING_STATE = (
-    rf"(?:{_MISSING_SIGNAL}"
-    r"|(?:אינו|אינה|אינם|אינן|לא)\s+(?:מקודד(?:ת|ים|ות)?|קודד(?:ה|ו)?))"
+    r"|בלתי\s+(?:זמין|זמינ(?:ה|ים|ות)))"
 )
 _UNTIL_STATE = (
     r"(?:יקודד(?:ו)?|תקודד(?:נה)?|ייקבע(?:ו)?|תיקבע"
@@ -570,6 +619,11 @@ _UNTIL_STATE = (
 # requires/depends on, until, without, not yet encoded, unavailable and
 # cannot be computed. A one-letter conjunction, relative or article prefix
 # may attach (``וחסרים``, ``שחסרה``); the next letter must end the word.
+# This only says a reason speaks of a missing dependency. Of the signals
+# ``_SIGNAL`` classifies, only missing and without can make a Hebrew reason
+# precise: the requires, until and cannot-compute routes rest on English
+# vocabulary lists (bounded subjects, ``computed``/``encoded``) that a
+# Hebrew word does not translate into reliably, so they stay closed.
 MISSING_DEPENDENCY_LANGUAGE = (
     rf"{_NOT_HEBREW_BEFORE}{_SIGNAL_PROCLITICS}(?:"
     rf"{_MISSING_SIGNAL}{_NOT_HEBREW_AFTER}"
@@ -591,9 +645,17 @@ _SIGNAL = re.compile(
     rf"{_NOT_HEBREW_AFTER})"
     r")"
 )
+# A negation governs a signal through up to two copulas or adverbs (``לא היה
+# חסר``, ``לא בהכרח חסרה``), as English reads "was not missing" and "is not
+# necessarily missing".
+_NEGATION_BRIDGE_WORDS = "היה היתה הייתה היו יהיה תהיה יהיו ממש באמת בהכרח תמיד כלל עוד"
 _NEGATED_SIGNAL_PREFIX = re.compile(
     rf"{_NOT_HEBREW_BEFORE}(?:ו|ש|וש|כש)?"
-    r"(?:לא|אין|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|כלל\s+לא)\s*$"
+    r"(?:לא|אין|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|כלל\s+לא)"
+    r"(?:\s+(?:"
+    + "|".join(_NEGATION_BRIDGE_WORDS.split())
+    + rf"){_NOT_HEBREW_AFTER}){{0,2}}"
+    r"\s*$"
 )
 
 # Words of a compound connective are separated by a space, a maqaf or a hyphen.
@@ -608,7 +670,7 @@ def _connective(words: str) -> str:
 # though, except, however, nevertheless, nonetheless, notwithstanding,
 # though, unless, whereas, while, yet. Any may take the conjunction ``ו``.
 _ADVERSATIVE_WORDS = (
-    'אך אבל אולם ברם למרות חרף למעט זולת מלבד להוציא ואילו בעוד מאידך אעפ״כ אעפ"כ'
+    'אבל אולם ברם למרות חרף למעט זולת מלבד להוציא ואילו בעוד מאידך מנגד אעפ״כ אעפ"כ'
 )
 _ADVERSATIVE_PHRASES = (
     "אף כי",
@@ -621,6 +683,7 @@ _ADVERSATIVE_PHRASES = (
     "אלא אם",
     "גם אם",
     "הגם כי",
+    "לעומת זאת",
 )
 # Connectives glued to the next word's first letter (``פרט לסעיף``, ``אף
 # שסעיף``), which may also follow a separator (``פרט־ל``).
@@ -644,6 +707,8 @@ _ADVERSATIVE_GLUED = (
     ("בזמן", "ש"),
 )
 ADVERSATIVE_LANGUAGE = (
+    # ``אך`` ("but"), but not ``אך ורק`` ("only").
+    rf"{_NOT_HEBREW_BEFORE}(?:ו)?אך{_NOT_HEBREW_AFTER}(?!{_SEP}ורק{_NOT_HEBREW_AFTER})|"
     rf"{_NOT_HEBREW_BEFORE}(?:ו)?(?:"
     + "|".join(re.escape(word) for word in _ADVERSATIVE_WORDS.split())
     + "|"
@@ -686,8 +751,10 @@ _INSTRUMENT_NAME = (
 # certainty.
 _NAME_CONTINUES = re.compile(
     rf"(?:{_NAME_WORD})|\s*\(|\s*(?:[{_QUOTES}]\s*)?:\s*[{_H}]|\s*[{_MAQAF}-][{_H}]"
-    # A number continues a title (``חוק התקציב לשנת הכספים 2025``).
-    r"|\s*\d"
+    # A number continues a title (``חוק התקציב לשנת הכספים 2025``), and so do
+    # an edition (``[נוסח משולב]``) and an enactment date (``, התשנ״ה–1995``).
+    r"|\s*\d|\s*\["
+    rf"|\s*,\s*(?:ה?תש[{_H}{_GERESH_MARKS}]*|\d{{4}})"
 )
 SECTION_DEPENDENCY = re.compile(
     rf"{_NOT_HEBREW_BEFORE}(?P<proclitics>[ובלמשכה]{{0,3}})(?:סעיפים|סעיף)\s+"
@@ -774,12 +841,17 @@ def _named_instrument(
     words: tuple[str, ...],
     mentions: dict[str, tuple[list[int], list[Instrument]]],
     start: int,
+    current_kind: str = "חוק",
 ) -> Instrument:
-    """Resolve ``לחוק זה``, ``לחוק האמור`` or ``לחוק הביטוח הלאומי``."""
+    """Resolve ``לחוק זה``, ``לחוק האמור`` or ``לחוק הביטוח הלאומי``.
+
+    ``זה`` names the current instrument only in its own kind: ``לפקודה זו``
+    ("this ordinance") in a law is no instrument this reader knows.
+    """
 
     first = words[0] if words else ""
     if first in _CURRENT_INSTRUMENT_NAMES:
-        return _CURRENT_INSTRUMENT
+        return _CURRENT_INSTRUMENT if kind == current_kind else _UNRESOLVED_INSTRUMENT
     if words and first not in _CONTEXTUAL_INSTRUMENT_NAMES:
         return (kind, words)
     # A contextual (or bare) name is the same kind of instrument last named.
@@ -810,12 +882,14 @@ def _explicit_instrument_mentions(
 
 
 def _section_citations(
-    text: str,
+    text: str, current_kind: str = "חוק"
 ) -> tuple[tuple[re.Match[str], Instrument | None], ...]:
     """Return each section citation with the instrument it belongs to.
 
     ``None`` is a citation that names no instrument; in a source that is the
-    current law, while a reason may leave the instrument to its context.
+    current law, while a reason may leave the instrument to its context. An
+    unqualified citation after another law named in its clause (``חוק הביטוח
+    הלאומי: חסר סעיף 42``) may be that law's, so it is unresolved.
     """
 
     mentions = _explicit_instrument_mentions(text)
@@ -823,7 +897,11 @@ def _section_citations(
     for match in SECTION_DEPENDENCY.finditer(text):
         kind = match.group("instrument_kind")
         if not kind:
-            instrument = None
+            instrument = (
+                _UNRESOLVED_INSTRUMENT
+                if _preposed_other_instrument(text, match.start(), current_kind)
+                else None
+            )
         elif _name_is_cut_short(text, match.end()):
             instrument = _UNRESOLVED_INSTRUMENT
         else:
@@ -832,6 +910,7 @@ def _section_citations(
                 _instrument_words(match.group("instrument_name") or ""),
                 mentions,
                 match.start("instrument"),
+                current_kind,
             )
         citations.append((match, instrument))
     return tuple(citations)
@@ -890,7 +969,7 @@ def _clause_bounds(text: str, start: int, end: int) -> tuple[int, int]:
 _NEGATIONS = re.compile(
     rf"{_NOT_HEBREW_BEFORE}(?P<relative>(?:ו)?(?:כ)?ש)?(?:[ומה]{{0,2}})"
     r"(?:אין|לא|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|אסור(?:ה|ים|ות)?|בל|לבל|בלתי"
-    r"|נאסר(?:ה|ו|ים|ות)?|איסור|מנוע(?:ה|ים|ות)?"
+    r"|נאסר(?:ה|ו|ים|ות)?|איסור|מנוע(?:ה|ים|ות)?|מסרב(?:ת|ים|ות)?|בלא"
     r"|בלי|ללא|מבלי|למעט|מלבד|להוציא|זולת)"
     rf"{_NOT_HEBREW_AFTER}"
     rf"|{_NOT_HEBREW_BEFORE}[ושכמה]{{0,2}}אי{_SEP}(?:אפשר|ניתן){_NOT_HEBREW_AFTER}"
@@ -975,7 +1054,7 @@ class _LinkedInstruments:
 
 @functools.lru_cache(maxsize=256)
 def _linked_source_instruments(
-    source_scope_text: str,
+    source_scope_text: str, current_kind: str = "חוק"
 ) -> dict[tuple[str, tuple[str, ...]], _LinkedInstruments]:
     """Instruments of the operative citations, by section and fragment prefix.
 
@@ -992,7 +1071,7 @@ def _linked_source_instruments(
     main_before = [0]
     for negation in negations:
         main_before.append(main_before[-1] + (not negation.group("relative")))
-    for cited, cited_instrument in _section_citations(source_scope_text):
+    for cited, cited_instrument in _section_citations(source_scope_text, current_kind):
         clause_start, _clause_end = _clause_bounds(
             source_scope_text, cited.start(), cited.end()
         )
@@ -1024,6 +1103,7 @@ def _source_scope_links_dependency(
     source_scope_text: str,
     dependency: re.Match[str],
     instrument: Instrument | None,
+    current_kind: str = "חוק",
 ) -> bool:
     """Bind a reason's dependency to an operative citation in the deferred scope.
 
@@ -1035,7 +1115,9 @@ def _source_scope_links_dependency(
     """
 
     section, fragments = _dependency_identity(dependency)
-    linked = _linked_source_instruments(source_scope_text).get((section, fragments))
+    linked = _linked_source_instruments(source_scope_text, current_kind).get(
+        (section, fragments)
+    )
     if linked is None:
         return False
     return instrument is None or linked.admits(instrument)
@@ -1060,121 +1142,9 @@ _OTHER_CITATION = re.compile(
 )
 
 
-# Counterparts of ``_DEPENDENCY_SUBJECT_TERMS``: the head noun of a bounded
-# subject phrase such as ``התנאים`` or ``הוראות החישוב``. Hebrew puts the head
-# first where English puts it last.
-_DEPENDENCY_SUBJECT_WORDS = frozenset(
-    map(
-        _normalize_word,
-        (
-            "סכום סכומי סכומים סיוע חישוב חישובי סיווג תנאי תנאים נתון נתונים נתוני מועד "
-            "מועדי מועדים תאריך קביעה קביעת מסמך מסמכי מסמכים זכאות עובדה "
-            "עובדות טופס טפסים הנחיה הנחיות הכנסה הכנסת מידע קלט קלטים תקרה "
-            "תקרת הודעה הודעת תשלום תשלומי תשלומים שיעור שיעורי שיעורים רשומה "
-            "רישום תקנה תקנות דרישה דרישות כלל כללי כללים "
-            "תקן מעמד סף נוהל הליך תהליך הגשה אימות תכנית תוכנית"
-        ).split(),
-    )
-)
-# Counterparts of ``_DEPENDENCY_MODIFIER_TERMS`` (of, or, annual, applicable,
-# administrative, gross, household, legal, local, public, state, tax, year).
-_DEPENDENCY_MODIFIER_WORDS = _DEPENDENCY_SUBJECT_WORDS | frozenset(
-    map(
-        _normalize_word,
-        (
-            "של או וכן שנתי שנתית החל החלה החלים החלות מנהלי "
-            "מנהלית ברוטו משק בית משפטי משפטית מקומי מקומית ציבורי ציבורית "
-            "ממלכתי ממלכתית מס שנה שנת מתואם מתואמת ראשוני ראשונית"
-        ).split(),
-    )
-)
-# Only the conjunction and the article attach to a subject-phrase word; a
-# preposition (``בהגשה``, ``לזכאות``, ``מהתקנות``) makes it a description that
-# English's bounded phrase does not allow.
-_TERM_PREFIX_LETTERS = "וה"
-
-
-def _is_term(word: str, terms: frozenset[str]) -> bool:
-    """Whether ``word``, with up to two attached prefix letters, is in ``terms``."""
-
-    candidate = _normalize_word(word)
-    for _ in range(3):
-        if candidate in terms:
-            return True
-        if len(candidate) < 3 or candidate[0] not in _TERM_PREFIX_LETTERS:
-            return False
-        candidate = candidate[1:]
-    return False
-
-
-def _subject_phrase_is_bounded(phrase: str) -> bool:
-    """Counterpart of ``_dependency_subject_phrase_is_bounded``.
-
-    A short noun phrase of listed words whose head is a subject word, such as
-    ``התנאים`` or ``את הוראות החישוב``; anything else is open description.
-    """
-
-    if re.search(rf"[^{_H}{_GERESH_MARKS}{_MAQAF}\s,-]", phrase):
-        return False
-    words = re.findall(rf"[{_H}{_GERESH_MARKS}]+", phrase)
-    if words and words[0] == "את":
-        words = words[1:]
-    return bool(
-        words
-        and _is_term(words[0], _DEPENDENCY_SUBJECT_WORDS)
-        and all(_is_term(word, _DEPENDENCY_MODIFIER_WORDS) for word in words)
-    )
-
-
-# Counterparts of the English linkers ``under``, ``pursuant to``,
-# ``according to`` and ``set``/``specified``/``provided``/``defined in``,
-# ending where the dependency citation (with its prefix letters) begins.
-_INTRODUCTION_LINKER = re.compile(
-    r"(?:"
-    rf"{_NOT_HEBREW_BEFORE}(?:ש)?(?:לפי|על[\s{_MAQAF}-]פי|עפ[״\"]י)\s*"
-    rf"|{_NOT_HEBREW_BEFORE}בהתאם\s+ל"
-    rf"|{_NOT_HEBREW_BEFORE}(?:ה|ש)?(?:קבוע|מנוי|מפורט|אמור|נדרש)(?:ה|ים|ות|ת)?\s+ב"
-    rf"|{_NOT_HEBREW_BEFORE}שנקבע(?:ו|ה)?\s+ב"
-    rf"|{_NOT_HEBREW_BEFORE}כ(?:אמור|מפורט|הגדרת(?:ו|ה|ם|ן)?|משמעות(?:ו|ה|ם|ן)?)\s+ב"
-    rf"|{_NOT_HEBREW_BEFORE}שב"
-    r")$"
-)
-
-
-def _introduction_is_bounded(bridge: str) -> bool:
-    """Counterpart of ``_reason_reference_introduction_is_bounded``.
-
-    Between ``עד שיקודדו`` and the citation: nothing, or a bounded subject
-    phrase and a linker, as in ``עד שיקודדו התנאים שבסעיף 345ב``.
-    """
-
-    if not bridge.strip():
-        return True
-    linker = _INTRODUCTION_LINKER.search(bridge)
-    return linker is not None and _subject_phrase_is_bounded(bridge[: linker.start()])
-
-
-_CANNOT_COMPUTE_BECAUSE = re.compile(
-    r"^\s*(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד)"
-    r"(?:\s+את\s+[^.;\n]{1,80}?)?\s+(?:כי|מאחר\s+ש|משום\s+ש|כיוון\s+ש)\s*"
-)
-
-
-def _requirement_subject_is_bounded(introduction: str) -> bool:
-    """Counterpart of the English ``requires``/``depends on`` subject bound.
-
-    As English strips ``cannot be computed because``, the Hebrew strips
-    ``לא ניתן לחשב ... כי`` and requires the rest to be empty or a bounded
-    subject phrase: ``החישוב תלוי ב...``, not ``הענף המיוחד הזה תלוי ב...``.
-    """
-
-    introduction = _CANNOT_COMPUTE_BECAUSE.sub("", introduction)
-    return not introduction.strip() or _subject_phrase_is_bounded(introduction)
-
-
-# Longest negation the prefix pattern reads (``וכלל  לא``), with room for the
-# whitespace inside it; whitespace before the signal is skipped first.
-_NEGATION_WINDOW = 32
+# Longest negation the prefix pattern reads (``ולא היתה בהכרח``), with room
+# for the whitespace inside it; whitespace before the signal is skipped first.
+_NEGATION_WINDOW = 48
 
 
 def _signals(text: str) -> list[re.Match[str]]:
@@ -1192,30 +1162,6 @@ def _signals(text: str) -> list[re.Match[str]]:
         if not _NEGATED_SIGNAL_PREFIX.search(text, max(0, end - _NEGATION_WINDOW), end):
             signals.append(signal)
     return signals
-
-
-_MISSING_STATE_AFTER = re.compile(rf"\s*{_MISSING_STATE}{_NOT_HEBREW_AFTER}")
-_UNTIL_STATE_AFTER = re.compile(rf"\s*{_UNTIL_STATE}{_NOT_HEBREW_AFTER}")
-# Anything but spacing and closing punctuation after a state.
-_REMAINDER = re.compile(r"[^\s,.)]")
-
-
-def _state_follows(state: re.Pattern[str], text: str, start: int, end: int) -> bool:
-    """``state`` right after ``start`` and nothing more before ``end``, read in place."""
-
-    found = state.match(text, start, end)
-    return found is not None and _REMAINDER.search(text, found.end(), end) is None
-
-
-def _missing_state_follows(after: str) -> bool:
-    """``…סעיף 345ב טרם קודד`` / ``…סעיף 345ב אינו מקודד`` and nothing more.
-
-    The state follows the citation directly, as English reads ``section 345b
-    is not yet encoded``; English refuses ``, which is not encoded``, so the
-    relative ``, שטרם קודד`` is refused too.
-    """
-
-    return _state_follows(_MISSING_STATE_AFTER, after, 0, len(after))
 
 
 class _ReasonIndex:
@@ -1321,9 +1267,9 @@ def reason_names_source_bound_dependency(
     between, neither that clause nor a following citation-free clause may
     hold an adversative, and the deferred source scope must make that section
     of that instrument operative (``לפי סעיף 345ב``, ``כהגדרתה בסעיף 345ב``).
-    As in English, only the missing and without routes read a citation
-    qualified by its law (``סעיף 345ב לחוק הביטוח הלאומי``); the requires,
-    until and cannot-compute routes need the bare section with its state.
+    Only the missing and without signals open it: the requires, until and
+    cannot-compute routes rest on English vocabulary lists that Hebrew words
+    do not translate into reliably, so a Hebrew reason cannot use them.
     The instrument comparison is stricter than the English prose route.
     ``other_citations`` is the English reader's citation finder (U.S. Code,
     R.S., ``§``, ``Absatz`` and canonical paths); without it the English
@@ -1334,9 +1280,10 @@ def reason_names_source_bound_dependency(
     current_section = native_section_label(corpus_citation_path)
     if current_section is None or not source_scope_text.strip():
         return False
+    current_kind = current_instrument_kind(corpus_citation_path)
     index = _ReasonIndex(reason, other_citations, masked_citations)
     stops = index.stops
-    for dependency, instrument in _section_citations(reason):
+    for dependency, instrument in _section_citations(reason, current_kind):
         if not _dependency_is_external(dependency, instrument, current_section):
             continue
         clause_start, clause_end = index.clause_bounds(
@@ -1353,8 +1300,8 @@ def reason_names_source_bound_dependency(
                 clause_end + 1, following_end
             ) and not index.has_citation(clause_end + 1, following_end):
                 continue
-        # A signal may be glued to the citation's prefix letters, as in
-        # ``תלוי בסעיף`` (depends on section) or ``עד שסעיף`` (until section).
+        # The signal is read up to the citation's own prefix letters
+        # (``שבסעיף``), which belong to the citation.
         reference_start = dependency.end("proclitics")
         signal = index.last_signal(clause_start, reference_start)
         if signal is None:
@@ -1365,61 +1312,13 @@ def reason_names_source_bound_dependency(
             signal.end(), reference_start
         ):
             continue
-        bridge = reason[signal.end() : reference_start]
-        after_start = dependency.end()
-        qualified = bool(dependency.group("instrument"))
-        if signal.group("missing") or signal.group("without"):
-            # As in English, an earlier citation in the same clause leaves the
-            # missing claim ambiguous between the two.
-            names_missing = not index.has_citation(clause_start, signal.start())
-        elif signal.group("requires"):
-            # ``החישוב שתלוי בסעיף 345ב טרם קודד`` or ``החישוב התלוי ...`` says
-            # the calculation that depends on the section is unencoded, not the
-            # section: a relative or attributive prefix makes the state belong to
-            # the subject, so only a bare or ``ו`` signal opens this route.
-            names_missing = (
-                not qualified
-                and re.match(r"(?:ו)?(?:דורש|תלוי)", signal.group(0)) is not None
-                and signal.start() - clause_start <= 200
-                and _requirement_subject_is_bounded(
-                    reason[clause_start : signal.start()]
-                )
-                and _state_follows(
-                    _MISSING_STATE_AFTER, reason, after_start, clause_end
-                )
-            )
-        elif signal.group("until"):
-            names_missing = not qualified and (
-                (
-                    signal.group("until_verb") is not None
-                    and _introduction_is_bounded(bridge)
-                    and _REMAINDER.search(reason, after_start, clause_end) is None
-                )
-                or (
-                    signal.group("until_verb") is None
-                    and not bridge.strip()
-                    and _state_follows(
-                        _UNTIL_STATE_AFTER, reason, after_start, clause_end
-                    )
-                )
-            )
-        else:
-            # ``לא ניתן לחשב`` only introduces; the citation must carry its
-            # own missing state (``כי סעיף 345ב טרם קודד``).
-            names_missing = (
-                not qualified
-                and re.fullmatch(
-                    r"\s*(?:את\s+[^.;\n]{1,80}?\s+)?"
-                    r"(?:כי|מאחר\s+ש|משום\s+ש|כיוון\s+ש)?\s*",
-                    bridge,
-                )
-                is not None
-                and _state_follows(
-                    _MISSING_STATE_AFTER, reason, after_start, clause_end
-                )
-            )
+        if not (signal.group("missing") or signal.group("without")):
+            continue
+        # As in English, an earlier citation in the same clause leaves the
+        # missing claim ambiguous between the two.
+        names_missing = not index.has_citation(clause_start, signal.start())
         if names_missing and _source_scope_links_dependency(
-            source_scope_text, dependency, instrument
+            source_scope_text, dependency, instrument, current_kind
         ):
             return True
     return False

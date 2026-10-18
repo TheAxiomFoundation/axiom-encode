@@ -670,10 +670,8 @@ def test_native_range_resolves_like_its_canonical_form():
         "ללא הוראה",
         "טרם קודד",
         "עדיין לא קודד",
-        "אינו זמין",
-        "אינה זמינה",
-        "אינם זמינים",
-        "אינן זמינות",
+        "בלתי זמין",
+        "בלתי זמינה",
         "לא ניתן לחשב",
     ),
 )
@@ -703,16 +701,20 @@ def test_hebrew_word_boundaries_reject_lookalikes(text):
 
 @pytest.mark.parametrize(
     ("hebrew_text", "english_text"),
-    (("אינו מקודד", "is not encoded"), ("לא קודד", "was not encoded")),
+    (
+        ("אינו מקודד", "is not encoded"),
+        ("לא קודד", "was not encoded"),
+        ("אינו זמין", "is not available"),
+        ("אינן זמינות", "are not available"),
+    ),
 )
-def test_plain_not_encoded_is_no_missing_signal_in_either_language(
+def test_plain_negated_states_are_no_missing_signal_in_either_language(
     hebrew_text, english_text
 ):
-    """English signals `not yet encoded`; plain `not encoded` is only a state."""
+    """English signals "not yet encoded" and "unavailable", not these."""
 
     assert not completeness_module._MISSING_DEPENDENCY_LANGUAGE.search(english_text)
     assert not completeness_module._MISSING_DEPENDENCY_LANGUAGE.search(hebrew_text)
-    assert hebrew._missing_state_follows(f" {hebrew_text}.")
 
 
 @pytest.mark.parametrize(
@@ -788,10 +790,7 @@ def _accepted(branch: str, reason: str) -> bool:
         "סעיף 14(ה1) מחייב תשלום לפי הוראות סעיף 345ב לחוק הביטוח הלאומי בשינויים "
         "המחויבים; חסרה הוראת החישוב המדויקת שבסעיף 345ב.",
         "חסרות הוראות סעיף 345ב לחוק הביטוח הלאומי.",
-        "החישוב תלוי בסעיף 345ב טרם קודד.",
-        "לא ניתן לחשב את התשלום עד שיקודד סעיף 345ב.",
-        "לא ניתן לחשב את התשלום עד שסעיף 345ב יקודד.",
-        "לא ניתן לחשב את התשלום כי סעיף 345ב טרם קודד.",
+        "החישוב טרם קודד לפי סעיף 345ב.",
         "לא ניתן לחשב את התשלום ללא הוראות סעיף 345ב.",
     ),
 )
@@ -1076,7 +1075,7 @@ DIFFERENTIAL_CASES = (
         "e1",
         "לא ניתן לחשב את התשלום עד שיקודד סעיף 345ב.",
         "the payment cannot be computed until section 345b is encoded.",
-        "both",
+        "hebrew-stricter",
     ),
     (
         "e1",
@@ -1089,7 +1088,7 @@ DIFFERENTIAL_CASES = (
         "e1",
         "החישוב תלוי בסעיף 345ב טרם קודד.",
         "The calculation depends on section 345b is not encoded.",
-        "both",
+        "hebrew-stricter",
     ),
     (
         "e1",
@@ -1217,6 +1216,42 @@ DIFFERENTIAL_CASES = (
     ),
     (
         "e1",
+        "לא היה חסר הכלל שבסעיף 345ב.",
+        "The rule in section 345b was not missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "לא בהכרח חסרה הוראת החישוב שבסעיף 345ב.",
+        "The computation rule in section 345b is not necessarily missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "לא יהיו חסרות הוראות סעיף 345ב.",
+        "The provisions of section 345b will not be missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסר מידע, לעומת זאת סעיף 345ב קודד.",
+        "Missing information, however section 345b is encoded.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסר מידע, ומנגד סעיף 345ב קודד.",
+        "Missing information, and whereas section 345b is encoded.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסרות אך ורק הוראות סעיף 345ב.",
+        "Missing only the provisions of section 345b.",
+        "both",
+    ),
+    (
+        "e1",
         "איננה חסרה הוראת החישוב שבסעיף 345ב.",
         "The computation rule in section 345b is not missing.",
         "neither",
@@ -1258,7 +1293,7 @@ DIFFERENTIAL_CASES = (
         "לא ניתן לחשב עד שיקודד החישוב השנתי הקבוע בסעיף 345ב.",
         "Cannot be computed until the annual calculation set in section 345b is "
         "encoded.",
-        "both",
+        "hebrew-stricter",
     ),
     (
         "e1",
@@ -1276,13 +1311,13 @@ DIFFERENTIAL_CASES = (
         "e1",
         "לא ניתן לחשב את התשלום עד אשר יקודד סעיף 345ב.",
         "The payment cannot be computed until section 345b is encoded.",
-        "both",
+        "hebrew-stricter",
     ),
     (
         "e1",
         "לא ניתן לחשב עד שיקודדו התנאים הקבועים בסעיף 345ב.",
         "Cannot be computed until the conditions set in section 345b are encoded.",
-        "both",
+        "hebrew-stricter",
     ),
     (
         "e1",
@@ -1498,6 +1533,10 @@ def test_the_said_law_with_no_antecedent_binds_no_named_instrument():
         ("(א) הוראה.\n(ה1) אסורות פעולות בהתאם לסעיף 345ב.", False),
         ("(א) הוראה.\n(ה1) אי אפשר לפעול בהתאם לסעיף 345ב.", False),
         ("(א) הוראה.\n(ה1) תשלום ללא ניכוי לפי סעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) בלא לחשב את התשלום בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) ושבלא לחשב את התשלום בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) המוסד מסרב לחשב את התשלום בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) המועצות מסרבות לחשב את התשלום בהתאם לסעיף 345ב.", False),
         (
             "(א) הוראה.\n(ה1) אין לפעול "
             + "בכל עת ובכל מצב " * 20
@@ -1586,6 +1625,13 @@ def test_every_negative_copula_negates_a_link(copula):
         ("המקרקעין (חיזוק בתים משותפים מפני רעידות אדמה)", "המקרקעין", False),
         # A number continues a title; a glued Basic Law title is read too.
         ("התקציב לשנת הכספים 2025", "התקציב לשנת הכספים 2026", False),
+        # An edition or enactment date continues a name too.
+        (
+            "הביטוח הלאומי [נוסח משולב], התשכ״ח–1968",
+            "הביטוח הלאומי [נוסח משולב], התשנ״ה–1995",
+            False,
+        ),
+        ("הביטוח הלאומי, התשכ״ח–1968", "הביטוח הלאומי, התשנ״ה–1995", False),
         ("יסוד:כבוד האדם וחירותו", "יסוד:חופש העיסוק", False),
         # Past six name words a name is uncertain and binds no named law.
         (
@@ -1642,6 +1688,71 @@ def test_a_preposed_law_name_claims_no_branch_of_this_one(kind, separator, tail)
     assert hebrew.cites_current_branch(
         f"חוק זה{separator} סעיף 14(ב)", CITATION, ("b",)
     )
+
+
+@pytest.mark.parametrize(
+    "reason",
+    (
+        "חוק הביטוח הלאומי: חסרות הוראות סעיף 42.",
+        "פקודת מס הכנסה, התשכ״א–1961: חסרות הוראות סעיף 42.",
+        "חסרות הוראות סעיף 42 לפקודה זו.",
+        "חסרות הוראות סעיף 42 לתקנות אלה.",
+        "חסרות הוראות סעיף 42 לצו זה.",
+    ),
+)
+def test_another_instrument_owns_a_reason_citation(reason):
+    """A law named earlier in the clause, or "this ordinance" in a law, is not this law."""
+
+    source = "(א) הוראה.\n(ה1) יש לפעול לפי סעיף 42 לחוק זה."
+    issues = _analyze(_deferral_content("e1", reason), source)
+
+    assert _deferral_issue(issues, 0) is not None
+
+
+def test_this_law_binds_this_law():
+    source = "(א) הוראה.\n(ה1) יש לפעול לפי סעיף 42 לחוק זה."
+    issues = _analyze(_deferral_content("e1", "חסרות הוראות סעיף 42 לחוק זה."), source)
+
+    assert _deferral_issue(issues, 0) is None
+
+
+@pytest.mark.parametrize("qualifier", ("לפקודה זו", "לצו זה", "לתקנות אלה"))
+def test_this_ordinance_in_a_law_claims_no_branch(qualifier):
+    reference = f"סעיף 14(ב) {qualifier}"
+
+    assert not hebrew.native_source_reference_paths(reference, CITATION)
+    assert not hebrew.cites_current_branch(reference, CITATION, ("b",))
+    assert hebrew.native_source_reference_paths("סעיף 14(ב) לחוק זה", CITATION) == {
+        ("b",)
+    }
+
+
+def test_a_long_preposed_envelope_still_owns_the_citation():
+    reference = "חוק הביטוח הלאומי, " + " " * 300 + "סעיף 14(ב)"
+
+    assert hebrew.native_source_reference_paths(reference, CITATION) == set()
+    assert not hebrew.cites_current_section(reference, CITATION)
+
+
+@pytest.mark.parametrize(
+    "component", ("1zzzzzzz", "1" + "z" * 40, "a" * 40_000, "zzz", "1aaa", "cv")
+)
+def test_unsupported_labels_are_refused_before_conversion(component):
+    """A label is a numeral up to 99; nothing larger is converted (round 8)."""
+
+    started = time.perf_counter()
+
+    assert hebrew.native_path_label(component) is None
+    assert hebrew.native_section_label(f"il/statute/x/section-1{component}") is None
+    assert time.perf_counter() - started < 1
+
+
+@pytest.mark.parametrize(
+    ("leaf", "label"),
+    (("section-14", "14"), ("section-121b", "121ב"), ("section-345k", "345יא")),
+)
+def test_supported_section_labels_render(leaf, label):
+    assert hebrew.native_section_label(f"il/statute/x/{leaf}") == label
 
 
 def test_hebrew_omission_labels_leave_english_omissions_alone():
@@ -1762,40 +1873,40 @@ def test_linked_instrument_index_agrees_with_the_pairwise_rule(cited, query):
 
 
 @pytest.mark.parametrize(
-    ("phrase", "bounded"),
+    ("hebrew_reason", "english_reason"),
     (
-        ("התנאים", True),
-        ("את כללי החישוב", True),
-        # English has no "provision" among its subject terms.
-        ("את הוראות החישוב", False),
-        ("סכום ההכנסה השנתית", True),
-        ("הענף המיוחד הזה", False),
-        ("כל הדברים", False),
-        ("התנאים 2025", False),
-        ("", False),
-    ),
-)
-def test_hebrew_subject_phrases_use_the_english_vocabulary(phrase, bounded):
-    assert hebrew._subject_phrase_is_bounded(phrase) is bounded
-
-
-@pytest.mark.parametrize(
-    ("reason", "accepted"),
-    (
-        ("החישוב תלוי בסעיף 345ב טרם קודד.", True),
-        ("לא ניתן לחשב כי החישוב תלוי בסעיף 345ב טרם קודד.", True),
-        ("הענף המיוחד הזה תלוי בסעיף 345ב טרם קודד.", False),
-        ("לא ניתן לחשב עד שיקודדו התנאים שבסעיף 345ב.", True),
-        ("לא ניתן לחשב עד שיקודדו כל הדברים המעניינים שבסעיף 345ב.", False),
         (
-            "il/statute/national-health-insurance-law-1994/section-14(e1): "
-            "חסרה הוראת סעיף 345ב.",
-            False,
+            "החישוב תלוי בסעיף 345ב טרם קודד.",
+            "The calculation depends on section 345b is not encoded.",
+        ),
+        (
+            "לא ניתן לחשב את התשלום עד שיקודד סעיף 345ב.",
+            "the payment cannot be computed until section 345b is encoded.",
+        ),
+        (
+            "לא ניתן לחשב עד שיקודדו התנאים הקבועים בסעיף 345ב.",
+            "Cannot be computed until the conditions set in section 345b are encoded.",
+        ),
+        (
+            "לא ניתן לחשב את התשלום כי סעיף 345ב טרם קודד.",
+            "the payment cannot be computed because section 345b is not yet encoded.",
         ),
     ),
 )
-def test_requires_and_until_introductions_are_bounded(reason, accepted):
-    assert _accepted("e1", reason) is accepted
+def test_requires_until_and_cannot_routes_are_closed_to_hebrew(
+    hebrew_reason, english_reason
+):
+    """Stricter than English, by design.
+
+    These routes accept a reason only through English word lists (a bounded
+    subject, "computed"/"encoded"), and a Hebrew word has more than one
+    faithful translation, some outside those lists (`חישוב` is "calculation"
+    and "computation"). A Hebrew reason names its missing section with
+    `חסר`, `ללא` or `בלי` instead, as the retry hint shows.
+    """
+
+    assert not _accepted("e1", hebrew_reason)
+    assert _english_accepted("d", english_reason)
 
 
 # --- Rule `source:` citations ------------------------------------------------
