@@ -1202,6 +1202,19 @@ DIFFERENTIAL_CASES = (
         "neither",
     ),
     ("e1", "Absatz 9: חסר סעיף 345ב.", "Absatz 9: missing section 345b.", "neither"),
+    ("e1", "42 USC 9: חסר סעיף 345ב.", "42 USC 9: missing section 345b.", "neither"),
+    (
+        "e1",
+        "42 U.S.C. 9(a): חסר סעיף 345ב.",
+        "42 U.S.C. 9(a): missing section 345b.",
+        "neither",
+    ),
+    (
+        "e1",
+        "42 USC sections 9: חסר סעיף 345ב.",
+        "42 USC sections 9: missing section 345b.",
+        "neither",
+    ),
     (
         "e1",
         "לא ניתן לחשב עד שיקודד החישוב השנתי הקבוע בסעיף 345ב.",
@@ -1438,8 +1451,23 @@ def test_the_said_law_with_no_antecedent_binds_no_named_instrument():
         ),
         ("(א) הוראה.\n(ה1) תשלום שאינו בהתאם לסעיף 345ב פטור.", False),
         ("(א) הוראה.\n(ה1) תשלום, למעט תשלום לפי סעיף 345ב.", False),
-        # A later relative clause carries the link (section 14(ו1)'s shape).
+        ("(א) הוראה.\n(ה1) אין לחשב את שיעור התשלום בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) אין לחשב שכר בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) אין לחשב את התשלום שחל עליו המס בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) אסורה פעולה בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) אסורים מעשים בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) אסורות פעולות בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) אי אפשר לפעול בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) תשלום ללא ניכוי לפי סעיף 345ב.", False),
+        (
+            "(א) הוראה.\n(ה1) אין לפעול "
+            + "בכל עת ובכל מצב " * 20
+            + "בהתאם לסעיף 345ב.",
+            False,
+        ),
+        # A relative clause that carries the link resets it (section 14(ו1)).
         ("(א) הוראה.\n(ה1) החלק שאינו עולה על הסכום שנקבע לפי סעיף 345ב.", True),
+        ("(א) הוראה.\n(ה1) החלק שאינו עולה על הסכום הקבוע בסעיף 345ב.", True),
         # A relative clause's negation is read as negating, stricter than English.
         ("(א) הוראה.\n(ה1) מבוטח שלא עבד ישלם לפי סעיף 345ב.", False),
     ),
@@ -1471,6 +1499,46 @@ def test_every_negative_copula_negates_a_link(copula):
     issues = _analyze(_deferral_content("e1", "חסרות הוראות סעיף 345ב."), source)
 
     assert _deferral_issue(issues, 0) is not None
+
+
+@pytest.mark.parametrize(
+    ("source_law", "reason_law", "linked"),
+    (
+        (
+            "הפיקוח על שירותים פיננסיים (ביטוח)",
+            "הפיקוח על שירותים פיננסיים (ביטוח)",
+            True,
+        ),
+        (
+            "הפיקוח על שירותים פיננסיים (ביטוח)",
+            "הפיקוח על שירותים פיננסיים (קופות גמל)",
+            False,
+        ),
+        ("הפיקוח על שירותים פיננסיים", "הפיקוח על הבנקים", False),
+        ("הביטוח הלאומי בשינויים המחויבים", "הביטוח הלאומי", True),
+    ),
+)
+def test_a_law_name_is_read_to_its_end(source_law, reason_law, linked):
+    source = f"(א) הוראה.\n(ה1) יש לפעול בהתאם לסעיף 42 לחוק {source_law}."
+    reason = f"חסרות הוראות סעיף 42 לחוק {reason_law}."
+    issues = _analyze(_deferral_content("e1", reason), source)
+
+    assert (_deferral_issue(issues, 0) is None) is linked
+
+
+@pytest.mark.parametrize(
+    ("reason", "source", "linked"),
+    (
+        ("חסרות הוראות סעיף 345י״א.", "(ה1) יש לפעול בהתאם לסעיף 345י.", False),
+        ("חסרות הוראות סעיף 345י״א.", "(ה1) יש לפעול בהתאם לסעיף 345יא.", True),
+        ('חסרות הוראות סעיף 345י"א.', "(ה1) יש לפעול בהתאם לסעיף 345יא.", True),
+        ("חסרות הוראות סעיף 345יא.", "(ה1) יש לפעול בהתאם לסעיף 345י׳א.", True),
+    ),
+)
+def test_a_marked_section_suffix_is_read_whole(reason, source, linked):
+    issues = _analyze(_deferral_content("e1", reason), "(א) הוראה.\n" + source)
+
+    assert (_deferral_issue(issues, 0) is None) is linked
 
 
 @pytest.mark.parametrize(
@@ -1604,6 +1672,19 @@ def test_requires_and_until_introductions_are_bounded(reason, accepted):
         "סעיף 14(ב) אשר בחוק הביטוח הלאומי",
         "סעיף 14(ב) מחוק הביטוח הלאומי",
         "סעיף 14(ב) מתוך חוק הביטוח הלאומי",
+        "סעיף 14(ב) שמחוק הביטוח הלאומי",
+        "סעיף 14(ב) שמן החוק הביטוח הלאומי",
+        "סעיף 14(ב) שמתוך חוק הביטוח הלאומי",
+        "סעיף 14(ב) אשר מחוק הביטוח הלאומי",
+        "סעיף 14(ב) אשר מן החוק הביטוח הלאומי",
+        "סעיף 14(ב) אשר מתוך חוק הביטוח הלאומי",
+        "סעיף 14(ב) ל״חוק הביטוח הלאומי״",
+        'סעיף 14(ב) ל"חוק הביטוח הלאומי"',
+        "סעיף 14(ב) ל׳חוק הביטוח הלאומי׳",
+        "סעיף 14(ב) ל'חוק הביטוח הלאומי'",
+        "סעיף 14(ב) ל“חוק הביטוח הלאומי”",
+        "סעיף 14(ב) ל‘חוק הביטוח הלאומי’",
+        "סעיף 14(ב) ל«חוק הביטוח הלאומי»",
     ),
 )
 def test_another_laws_section_claims_no_branch_of_this_one(reference):

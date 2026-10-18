@@ -9335,6 +9335,7 @@ def _reason_dependency_is_source_bound(
         reason,
         source_scope_text,
         corpus_citation_path=corpus_citation_path,
+        other_citations=_reason_dependencies,
     ):
         return True
     for match in re.finditer(
