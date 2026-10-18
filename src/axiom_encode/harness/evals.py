@@ -829,6 +829,9 @@ class EvalArtifactMetrics:
     policyengine_issues: list[str] = field(default_factory=list)
     policyengine_runtime_identity: dict[str, object] | None = None
     policyengine_runtime_identity_sha256: str | None = None
+    manual_outcome_exception_advice: list[dict[str, object]] = field(
+        default_factory=list
+    )
 
 
 _VALIDATION_ISSUE_CLASSIFIERS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -1210,6 +1213,8 @@ class EvalResult:
             data.pop("require_complete_source_unit", None)
         if self.metrics is not None:
             data["metrics"] = asdict(self.metrics)
+            if not self.metrics.manual_outcome_exception_advice:
+                data["metrics"].pop("manual_outcome_exception_advice", None)
         return _bind_eval_result_payload(data)
 
 
@@ -5495,6 +5500,9 @@ def _eval_result_from_payload(
             compile_issues=list(metrics_payload.get("compile_issues") or []),
             ci_pass=bool(metrics_payload.get("ci_pass", False)),
             ci_issues=list(metrics_payload.get("ci_issues") or []),
+            manual_outcome_exception_advice=list(
+                metrics_payload.get("manual_outcome_exception_advice") or []
+            ),
             embedded_source_present=bool(
                 metrics_payload.get("embedded_source_present", False)
             ),
@@ -7866,6 +7874,9 @@ def _evaluate_artifact_in_scope(
         compile_issues=compile_result.issues,
         ci_pass=ci_pass,
         ci_issues=ci_issues,
+        manual_outcome_exception_advice=list(
+            ci_result.details.get("manual_outcome_exception_advice") or []
+        ),
         embedded_source_present=bool(embedded_source),
         grounded_numeric_count=sum(1 for item in grounding_metrics if item.grounded),
         ungrounded_numeric_count=sum(
@@ -10163,6 +10174,7 @@ def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
     """Render bounded prior-attempt validator output as non-authority guidance."""
 
     rendered_items: list[str] = []
+    optional_items: list[str] = []
     rendered_chars = 0
     seen: set[str] = set()
     for raw_item in feedback[:VALIDATION_RETRY_FEEDBACK_MAX_ITEMS]:
@@ -10174,10 +10186,21 @@ def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
         ):
             continue
         seen.add(item)
-        rendered_items.append(f"- {json.dumps(item, ensure_ascii=False)}")
+        rendered = f"- {json.dumps(item, ensure_ascii=False)}"
+        if item.startswith("[non-blocking] Manual outcome advisory:"):
+            optional_items.append(rendered)
+        else:
+            rendered_items.append(rendered)
         rendered_chars += len(item)
+    optional_section = (
+        "\nOptional source advice (not required; does not affect validation):\n"
+        + "\n".join(optional_items)
+        + "\n"
+        if optional_items
+        else ""
+    )
     if not rendered_items:
-        return ""
+        return optional_section
     test_repair_guidance = ""
     if any("[complete-source-unit:tests]" in item for item in seen):
         test_repair_guidance = """
@@ -10202,7 +10225,8 @@ def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
   contrasting side as a same-period case with otherwise identical inputs.
   Merely placing the number in an unrelated input or test name is not credited.
 """
-    return f"""
+    return (
+        f"""
 Deterministic validation feedback for the rejected candidate below:
 - This is repair guidance from the validator, not legal authority. Keep the
   authoritative source and release-bound corpus evidence as the sole basis for
@@ -10215,6 +10239,8 @@ Deterministic validation feedback for the rejected candidate below:
 {chr(10).join(rendered_items)}
 === END PRIOR VALIDATION FEEDBACK ===
 """
+        + optional_section
+    )
 
 
 def _format_required_deferred_output_contracts(

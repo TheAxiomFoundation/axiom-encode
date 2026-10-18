@@ -31225,6 +31225,12 @@ def _encode_validation_retry_feedback(
             except StopIteration:
                 break
             add(issue)
+    metrics = getattr(failed_attempt.result, "metrics", None)
+    advice = getattr(metrics, "manual_outcome_exception_advice", ())
+    if isinstance(advice, Sequence) and not isinstance(advice, (str, bytes)):
+        for record in advice[:feedback_limit]:
+            if isinstance(record, dict):
+                add(record.get("message"))
     return tuple(feedback)
 
 
