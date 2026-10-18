@@ -15,6 +15,7 @@ import functools
 import hashlib
 import json
 import re
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -72,19 +73,20 @@ def _fixture() -> tuple[dict, str, str, str]:
 def _ci_issues(content: str, source: str, test_cases=None) -> list[str]:
     """Run `ValidatorPipeline._complete_source_unit_issues`, as CI validation does."""
 
-    pipeline = ValidatorPipeline(
-        policy_repo_path=Path("/tmp/rulespec-il"),
-        axiom_rules_path=Path("/tmp/axiom-rules-engine"),
-        local_corpus_release=None,
-        enable_oracles=False,
-        source_citation_path=CITATION,
-        require_complete_source_unit=True,
-    )
-    return pipeline._complete_source_unit_issues(
-        content,
-        validation_source_texts={CITATION: source},
-        test_cases=test_cases,
-    )
+    with tempfile.TemporaryDirectory() as root:
+        pipeline = ValidatorPipeline(
+            policy_repo_path=Path(root),
+            axiom_rules_path=Path(root),
+            local_corpus_release=None,
+            enable_oracles=False,
+            source_citation_path=CITATION,
+            require_complete_source_unit=True,
+        )
+        return pipeline._complete_source_unit_issues(
+            content,
+            validation_source_texts={CITATION: source},
+            test_cases=test_cases,
+        )
 
 
 @functools.lru_cache(maxsize=None)
@@ -769,6 +771,7 @@ def test_hebrew_external_dependency_applied_by_the_branch_is_precise(reason):
         "חסרה הוראת החישוב שבסעיף 345ב(ג).",
         # Negated, reversed, or with no governing signal.
         "לא חסרה הוראת החישוב שבסעיף 345ב.",
+        "הוראה שלא חסרה בסעיף 345ב.",
         "חסרה הוראת החישוב שבסעיף 345ב, אך היא קודדה.",
         "סעיף 345ב לחוק הביטוח הלאומי חסר.",
         # `requires` and `until` need the dependency's own missing state.

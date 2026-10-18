@@ -21,6 +21,7 @@ the English reader refuses only because it does not parse the qualifier.
 
 from __future__ import annotations
 
+import bisect
 import functools
 import re
 from dataclasses import dataclass
@@ -497,7 +498,7 @@ _SIGNAL = re.compile(
     r")"
 )
 _NEGATED_SIGNAL_PREFIX = re.compile(
-    rf"{_NOT_HEBREW_BEFORE}(?:ו)?(?:לא|אין|אינו|אינה|אינם|אינן|כלל\s+לא)\s*$"
+    rf"{_NOT_HEBREW_BEFORE}(?:ו|ש|וש|כש)?(?:לא|אין|אינו|אינה|אינם|אינן|כלל\s+לא)\s*$"
 )
 
 # Counterparts of ``_ADVERSATIVE_LANGUAGE`` (but, however, although, despite,
@@ -602,9 +603,10 @@ def _explicit_instrument_mentions(text: str) -> list[tuple[int, Instrument]]:
     return mentions
 
 
+@functools.lru_cache(maxsize=256)
 def _section_citations(
     text: str,
-) -> list[tuple[re.Match[str], Instrument | None]]:
+) -> tuple[tuple[re.Match[str], Instrument | None], ...]:
     """Return each section citation with the instrument it belongs to.
 
     ``None`` is a citation that names no instrument; in a source that is the
@@ -626,7 +628,7 @@ def _section_citations(
             else None
         )
         citations.append((match, instrument))
-    return citations
+    return tuple(citations)
 
 
 def _same_instrument(left: Instrument, right: Instrument) -> bool:
@@ -647,12 +649,19 @@ def _dependency_is_external(
     return section != _normalize_word(current_section)
 
 
+@functools.lru_cache(maxsize=256)
+def _clause_stops(text: str) -> tuple[int, ...]:
+    return tuple(match.start() for match in re.finditer(r"[;\n]|\.(?!\d)", text))
+
+
 def _clause_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     """Bound a clause by ``;``, a line break or a sentence period, not ``5.17``."""
 
-    stops = [match.start() for match in re.finditer(r"[;\n]|\.(?!\d)", text)]
-    clause_start = max((stop for stop in stops if stop < start), default=-1) + 1
-    clause_end = min((stop for stop in stops if stop >= end), default=len(text))
+    stops = _clause_stops(text)
+    before = bisect.bisect_left(stops, start)
+    after = bisect.bisect_left(stops, end)
+    clause_start = stops[before - 1] + 1 if before else 0
+    clause_end = stops[after] if after < len(stops) else len(text)
     return clause_start, clause_end
 
 
@@ -679,6 +688,9 @@ def _source_links_dependency(clause_before: str) -> bool:
             clause_before,
         )
     )
+
+
+_LINK_WINDOW = 240
 
 
 def _source_scope_links_dependency(
@@ -709,9 +721,11 @@ def _source_scope_links_dependency(
         clause_start, _clause_end = _clause_bounds(
             source_scope_text, cited.start(), cited.end()
         )
-        before = source_scope_text[clause_start : cited.start()] + cited.group(
-            "proclitics"
-        )
+        # The linkers and the displacement guard read at most ~140 characters
+        # before the citation; the window keeps a long clause linear.
+        before = source_scope_text[
+            max(clause_start, cited.start() - _LINK_WINDOW) : cited.start()
+        ] + cited.group("proclitics")
         if _source_links_dependency(before):
             return True
     return False
@@ -845,12 +859,26 @@ def _requirement_subject_is_bounded(introduction: str) -> bool:
     return not introduction.strip() or _subject_phrase_is_bounded(introduction)
 
 
+# Longest negation the prefix pattern reads (``וכלל  לא``), with room for the
+# whitespace inside it; whitespace before the signal is skipped first.
+_NEGATION_WINDOW = 32
+
+
 def _signals(text: str) -> list[re.Match[str]]:
-    return [
-        signal
-        for signal in _SIGNAL.finditer(text)
-        if not _NEGATED_SIGNAL_PREFIX.search(text[: signal.start()])
-    ]
+    """Missing-dependency signals of ``text`` that no negation governs.
+
+    The negation is read in a bounded window before each signal, so the scan
+    stays linear in the reason's length.
+    """
+
+    signals = []
+    for signal in _SIGNAL.finditer(text):
+        end = signal.start()
+        while end and text[end - 1].isspace():
+            end -= 1
+        if not _NEGATED_SIGNAL_PREFIX.search(text, max(0, end - _NEGATION_WINDOW), end):
+            signals.append(signal)
+    return signals
 
 
 def _missing_state_follows(after: str) -> bool:
