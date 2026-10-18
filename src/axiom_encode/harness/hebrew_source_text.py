@@ -23,7 +23,7 @@ from __future__ import annotations
 import bisect
 import functools
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 HEBREW_LETTER_CLASS = "א-ת"
 _H = HEBREW_LETTER_CLASS
@@ -147,8 +147,14 @@ def ordinal_path_value(label: str) -> int | None:
 # (``(י״א)``, ``(ה׳)``), as consolidations print numerals.
 _LABEL_LETTERS = rf"[{_H}](?:[{_GERESH_MARKS}]?[{_H}]){{0,2}}[{_GERESH_MARKS}]?"
 OUTLINE_LABEL = (
-    rf"(?:{_LABEL_LETTERS}\d{{0,2}}|\d{{1,3}}(?:[{_H}](?:[{_GERESH_MARKS}]?[{_H}])?)?)"
+    rf"(?:{_LABEL_LETTERS}\d{{0,2}}"
+    rf"|\d{{1,3}}(?:[{_H}](?:[{_GERESH_MARKS}]?[{_H}])?[{_GERESH_MARKS}]?)?)"
 )
+# Israeli statutes nest subsection, paragraph, subparagraph and at most a few
+# levels more. A deeper outline or citation chain is not one this reader
+# supports: the outline is not used and the citation is not read, so neither
+# can cost more than linear time.
+MAX_OUTLINE_DEPTH = 6
 
 
 @dataclass(frozen=True)
@@ -290,6 +296,8 @@ def hebrew_outline_markers(
                 if index == 0
                 else [*active, label]
             )
+            if len(active) > MAX_OUTLINE_DEPTH:
+                return ()
             markers.append(
                 (
                     start,
@@ -436,7 +444,7 @@ def native_source_reference_paths(
     paths: set[tuple[str, ...]] = set()
     for match in re.finditer(
         rf"{_NOT_HEBREW_BEFORE}{_PROCLITICS}{_SECTION_WORD}\s*{re.escape(section)}"
-        rf"(?P<chain>(?:\s*\(\s*{OUTLINE_LABEL}\s*\))+)"
+        rf"(?P<chain>(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{1,{MAX_OUTLINE_DEPTH}}})"
         rf"(?!\s*\()(?![A-Za-z0-9_{_H}]){_OTHER_INSTRUMENT_QUALIFIER}",
         source,
     ):
@@ -459,7 +467,7 @@ def cites_current_section(source: str, corpus_citation_path: str) -> bool:
         section
         and re.search(
             rf"{_NOT_HEBREW_BEFORE}{_PROCLITICS}{_SECTION_WORD}\s*{re.escape(section)}"
-            rf"(?![0-9{_H}])(?:\s*\(\s*{OUTLINE_LABEL}\s*\))*(?!\s*\()"
+            rf"(?![0-9{_H}])(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{0,{MAX_OUTLINE_DEPTH}}}(?!\s*\()"
             rf"{_OTHER_INSTRUMENT_QUALIFIER}",
             source,
         )
@@ -499,7 +507,7 @@ MISSING_DEPENDENCY_LANGUAGE = (
     rf"|תלוי(?:ה|ים|ות)?\s+ב(?=[{_H}])"
     rf"|עד\s+(?:ש(?=[{_H}])|אשר\s)"
     rf"|(?:בלי|ללא|מבלי){_NOT_HEBREW_AFTER}"
-    rf"|(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד|להכריע|לקבוע){_NOT_HEBREW_AFTER}"
+    rf"|(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד|להכריע){_NOT_HEBREW_AFTER}"
     r")"
 )
 _SIGNAL = re.compile(
@@ -509,7 +517,7 @@ _SIGNAL = re.compile(
     rf"|(?P<until>עד\s+(?:(?:ש|אשר\s+)(?P<until_verb>{_UNTIL_STATE}){_NOT_HEBREW_AFTER}"
     rf"|ש(?=[{_H}]|$)|אשר\s))"
     rf"|(?P<without>(?:בלי|ללא|מבלי){_NOT_HEBREW_AFTER})"
-    rf"|(?P<cannot>(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד|להכריע|לקבוע)"
+    rf"|(?P<cannot>(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד|להכריע)"
     rf"{_NOT_HEBREW_AFTER})"
     r")"
 )
@@ -517,36 +525,78 @@ _NEGATED_SIGNAL_PREFIX = re.compile(
     rf"{_NOT_HEBREW_BEFORE}(?:ו|ש|וש|כש)?(?:לא|אין|אינו|אינה|אינם|אינן|כלל\s+לא)\s*$"
 )
 
+# Words of a compound connective are separated by a space, a maqaf or a hyphen.
+_SEP = rf"(?:\s+|\s*[{_MAQAF}-]\s*)"
+
+
+def _connective(words: str) -> str:
+    return _SEP.join(re.escape(word) for word in words.split())
+
+
 # Counterparts of ``_ADVERSATIVE_LANGUAGE``: although, but, despite, even
 # though, except, however, nevertheless, nonetheless, notwithstanding,
-# though, unless, whereas, while, yet.
+# though, unless, whereas, while, yet. Any may take the conjunction ``ו``.
+_ADVERSATIVE_WORDS = (
+    'אך אבל אולם ברם למרות חרף למעט זולת מלבד להוציא ואילו בעוד מאידך אעפ״כ אעפ"כ'
+)
+_ADVERSATIVE_PHRASES = (
+    "אף כי",
+    "אם כי",
+    "אף על פי",
+    "בכל זאת",
+    "יחד עם זאת",
+    "עם זאת",
+    "על אף",
+    "אלא אם",
+    "גם אם",
+)
+# Connectives glued to the next word's first letter (``פרט לסעיף``, ``אף
+# שסעיף``), which may also follow a separator (``פרט־ל``).
+_ADVERSATIVE_GLUED = (
+    ("פרט", "ל"),
+    ("חוץ", "מ"),
+    ("לבד", "מ"),
+    ("הגם", "ש"),
+    ("אף", "ש"),
+    ("אלא", "ש"),
+    ("גם אם", "ש"),
+    ("אף על פי", "ש"),
+    ("על אף העובדה", "ש"),
+)
 ADVERSATIVE_LANGUAGE = (
-    rf"{_NOT_HEBREW_BEFORE}(?:ו)?(?:אך|אבל|אולם|ברם|למרות|חרף|למעט|זולת|מלבד"
-    r"|להוציא|ואילו|בעוד|מאידך|אעפ[״\"]כ)"
-    rf"{_NOT_HEBREW_AFTER}"
-    rf"|{_NOT_HEBREW_BEFORE}(?:ו)?(?:אף|אם)\s+כי{_NOT_HEBREW_AFTER}"
-    rf"|{_NOT_HEBREW_BEFORE}(?:ו)?(?:אף\s+על\s+פי|בכל\s+זאת|יחד\s+עם\s+זאת)"
-    rf"{_NOT_HEBREW_AFTER}"
-    rf"|{_NOT_HEBREW_BEFORE}(?:ו)?(?:הגם|גם\s+אם)\s+ש?(?=[{_H}])"
-    rf"|{_NOT_HEBREW_BEFORE}(?:ו)?(?:פרט|חוץ|לבד)\s+(?:ל|מ)(?=[{_H}])"
-    rf"|{_NOT_HEBREW_BEFORE}(?:ו)?אלא\s+אם{_NOT_HEBREW_AFTER}"
-    rf"|{_NOT_HEBREW_BEFORE}(?:ו)?(?:אף\s+על\s+פי|אף|אלא|בעוד)\s+ש(?=[{_H}])"
-    rf"|{_NOT_HEBREW_BEFORE}(?:עם\s+זאת|על\s+אף){_NOT_HEBREW_AFTER}"
+    rf"{_NOT_HEBREW_BEFORE}(?:ו)?(?:"
+    + "|".join(re.escape(word) for word in _ADVERSATIVE_WORDS.split())
+    + "|"
+    + "|".join(_connective(phrase) for phrase in _ADVERSATIVE_PHRASES)
+    + rf"){_NOT_HEBREW_AFTER}"
+    + rf"|{_NOT_HEBREW_BEFORE}(?:ו)?(?:"
+    + "|".join(
+        rf"{_connective(phrase)}(?:{_SEP})?{glue}"
+        for phrase, glue in _ADVERSATIVE_GLUED
+    )
+    + rf")(?=[{_H}])"
 )
 _ADVERSATIVE = re.compile(ADVERSATIVE_LANGUAGE)
 
 _INSTRUMENT_KIND = r"(?:חוק|פקוד[הת]|תקנות|צו)"
+# Up to two name words and a parenthetical that distinguishes laws of one
+# name (``חוק שירות המדינה (גמלאות)``, ``(משמעת)``).
+_INSTRUMENT_NAME = (
+    rf"(?:\s+[{_H}][{_H}{_GERESH_MARKS}{_MAQAF}-]*){{0,2}}"
+    r"(?:\s*\([^()\n]{1,40}\))?"
+)
 SECTION_DEPENDENCY = re.compile(
     rf"{_NOT_HEBREW_BEFORE}(?P<proclitics>[ובלמשכה]{{0,3}})(?:סעיפים|סעיף)\s+"
     rf"(?P<section>\d+[{_H}]{{0,2}})(?![0-9{_H}])"
-    rf"(?P<fragments>(?:\s*\(\s*{OUTLINE_LABEL}\s*\))*)"
-    # A fragment the label grammar cannot read (``(1000)``, a glued ``(x)``)
-    # leaves the citation unreadable rather than shortened to its section.
-    r"(?!\s*\(\s*\d+\s*\))(?!\()"
+    rf"(?P<fragments>(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{0,{MAX_OUTLINE_DEPTH}}})"
+    # A fragment the label grammar cannot read (``(1000)``, a glued ``(x)``),
+    # or one past the supported depth, leaves the citation unreadable rather
+    # than shortened to its section.
+    rf"(?!\s*\(\s*(?:\d+|{OUTLINE_LABEL})\s*\))(?!\()"
     rf"(?P<instrument>\s*(?:,\s*)?(?:של\s+|ש?ב|ל|מ|מן\s+|מתוך\s+|אשר\s+ב)ה?"
     rf"(?P<instrument_kind>{_INSTRUMENT_KIND})"
     rf"{_NOT_HEBREW_AFTER}"
-    rf"(?P<instrument_name>(?:\s+[{_H}][{_H}{_GERESH_MARKS}{_MAQAF}-]*){{0,2}}))?"
+    rf"(?P<instrument_name>{_INSTRUMENT_NAME}))?"
 )
 
 
@@ -582,7 +632,7 @@ def _dependency_identity(
 _INSTRUMENT_MENTION = re.compile(
     rf"{_NOT_HEBREW_BEFORE}(?:של\s+|[ולבמשכ]{{0,2}})ה?(?P<kind>{_INSTRUMENT_KIND})"
     rf"{_NOT_HEBREW_AFTER}"
-    rf"(?P<name>(?:\s+[{_H}][{_H}{_GERESH_MARKS}{_MAQAF}-]*){{0,2}})"
+    rf"(?P<name>{_INSTRUMENT_NAME})"
 )
 _CURRENT_INSTRUMENT = ("current", ())
 _UNRESOLVED_INSTRUMENT = ("unresolved", ())
@@ -594,7 +644,14 @@ def _instrument_kind(kind: str) -> str:
 
 
 def _instrument_words(name: str) -> tuple[str, ...]:
-    return tuple(_normalize_word(word) for word in name.split())
+    """Name words, with a parenthetical qualifier kept as one word."""
+
+    return tuple(
+        "(" + " ".join(_normalize_word(word) for word in token[1:-1].split()) + ")"
+        if token.startswith("(")
+        else _normalize_word(token)
+        for token in re.findall(r"\([^()]*\)|[^\s()]+", name)
+    )
 
 
 def _named_instrument(
@@ -693,15 +750,32 @@ def _clause_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     return clause_start, clause_end
 
 
-# A negation within three words before a linker (``אין לפעול בהתאם ל``, ``לא
-# יחולו ההוראות לפי``) negates the link, as English's
+# A negation or exclusion before a source linker in its clause negates the
+# link (``אין לפעול בהתאם ל``, ``תשלום שאינו בהתאם ל``), as English's
 # ``_source_link_scope_has_unreset_negation`` reads ``do not act in accordance
-# with``. A negation farther back, or one opening a relative clause (``מבוטח
-# שלא עבד ישלם לפי``), belongs to another predicate.
-_NEGATED_LINK = re.compile(
-    rf"{_NOT_HEBREW_BEFORE}(?:ו)?(?:אין|לא|אינו|אינה|אינם|אינן|אל|אסור)"
-    rf"{_NOT_HEBREW_AFTER}(?:\s+[^\s.;\n]+){{0,3}}\s+$"
+# with``. A later relative clause resets it, as English's later finite
+# predicate does: in ``החלק שאינו עולה על הסכום שנקבע לפי סעיף 341`` the link
+# belongs to ``שנקבע``. A negation in a relative clause that does not reach
+# the linker (``מבוטח שלא עבד ישלם לפי``) is still read as negating: stricter
+# than English, which does not check ``under``.
+_NEGATION = (
+    rf"{_NOT_HEBREW_BEFORE}[ושכמה]{{0,2}}"
+    r"(?:אין|לא|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|אסור|בל|לבל"
+    r"|למעט|מלבד|להוציא|זולת)"
+    rf"{_NOT_HEBREW_AFTER}"
+    rf"|{_NOT_HEBREW_BEFORE}(?:ו)?(?:פרט{_SEP}?ל|חוץ{_SEP}?מ)(?=[{_H}])"
 )
+_NEGATION_RESET = re.compile(
+    rf"{_NOT_HEBREW_BEFORE}(?:ש[{_H}]{{2,}}|אשר{_NOT_HEBREW_AFTER})"
+)
+_NEGATIONS = re.compile(_NEGATION)
+
+
+def _link_is_negated(clause_before: str, linker_start: int) -> bool:
+    negations = list(_NEGATIONS.finditer(clause_before, 0, linker_start))
+    if not negations:
+        return False
+    return not _NEGATION_RESET.search(clause_before, negations[-1].end(), linker_start)
 
 
 def _source_links_dependency(clause_before: str) -> bool:
@@ -725,18 +799,50 @@ def _source_links_dependency(clause_before: str) -> bool:
         r")$",
         clause_before,
     )
-    return linker is not None and not _NEGATED_LINK.search(
-        clause_before, 0, linker.start()
-    )
+    return linker is not None and not _link_is_negated(clause_before, linker.start())
 
 
 _LINK_WINDOW = 240
 
 
+@dataclass
+class _LinkedInstruments:
+    """The instruments whose citations of one section a scope makes operative."""
+
+    current: bool = False
+    names: dict[str, set[tuple[str, ...]]] = field(default_factory=dict)
+    prefixes: dict[str, set[tuple[str, ...]]] = field(default_factory=dict)
+
+    def add(self, instrument: Instrument) -> None:
+        if instrument == _CURRENT_INSTRUMENT:
+            self.current = True
+            return
+        if instrument == _UNRESOLVED_INSTRUMENT:
+            return
+        kind, words = instrument
+        self.names.setdefault(kind, set()).add(words)
+        prefixes = self.prefixes.setdefault(kind, set())
+        for length in range(1, len(words) + 1):
+            prefixes.add(words[:length])
+
+    def admits(self, instrument: Instrument) -> bool:
+        """``_same_instrument`` against every entry, in time linear in the name."""
+
+        if instrument == _CURRENT_INSTRUMENT:
+            return self.current
+        if instrument == _UNRESOLVED_INSTRUMENT:
+            return False
+        kind, words = instrument
+        return words in self.prefixes.get(kind, ()) or any(
+            words[:length] in self.names.get(kind, ())
+            for length in range(1, len(words) + 1)
+        )
+
+
 @functools.lru_cache(maxsize=256)
 def _linked_source_instruments(
     source_scope_text: str,
-) -> dict[tuple[str, tuple[str, ...]], frozenset[Instrument]]:
+) -> dict[tuple[str, tuple[str, ...]], _LinkedInstruments]:
     """Instruments of the operative citations, by section and fragment prefix.
 
     Each scope citation that a linker makes operative (``לפי סעיף 345ב(א)``)
@@ -744,7 +850,7 @@ def _linked_source_instruments(
     reason citing ``345ב`` or ``345ב(א)`` is answered by one lookup.
     """
 
-    index: dict[tuple[str, tuple[str, ...]], set[Instrument]] = {}
+    index: dict[tuple[str, tuple[str, ...]], _LinkedInstruments] = {}
     for cited, cited_instrument in _section_citations(source_scope_text):
         clause_start, _clause_end = _clause_bounds(
             source_scope_text, cited.start(), cited.end()
@@ -758,10 +864,10 @@ def _linked_source_instruments(
             continue
         section, fragments = _dependency_identity(cited)
         for length in range(len(fragments) + 1):
-            index.setdefault((section, fragments[:length]), set()).add(
+            index.setdefault((section, fragments[:length]), _LinkedInstruments()).add(
                 cited_instrument or _CURRENT_INSTRUMENT
             )
-    return {key: frozenset(value) for key, value in index.items()}
+    return index
 
 
 def _source_scope_links_dependency(
@@ -780,20 +886,26 @@ def _source_scope_links_dependency(
 
     section, fragments = _dependency_identity(dependency)
     linked = _linked_source_instruments(source_scope_text).get((section, fragments))
-    if not linked:
+    if linked is None:
         return False
-    return instrument is None or any(
-        _same_instrument(instrument, cited) for cited in linked
-    )
+    return instrument is None or linked.admits(instrument)
 
 
 # Citations an English or canonical reader counts, so a mixed-language
 # clause such as ``il/statute/.../section-14(e1): חסר ...`` is read as having
 # two citations, as ``_PRECISE_DEFERRAL_DEPENDENCY`` reads it.
 _OTHER_CITATION = re.compile(
-    r"§|\b(?:section|subsection|paragraph)\s*\d"
-    r"|\b[a-z]{2}(?:-[a-z0-9-]+)?(?:/(?:statute|regulation|guidance|manual)/"
-    r"|:(?:statutes|regulations|guidance|manuals)/)",
+    # ``_PRECISE_DEFERRAL_DEPENDENCY`` in source_completeness, verbatim;
+    # ``test_other_citations_use_the_english_citation_grammar`` holds them equal.
+    r"(?:"
+    r"§{1,2}\s*\d+[a-z]?|"
+    r"\b(?:section|subsection|paragraph|absatz|abs\.|satz|nummer|nr\.)"
+    r"\s*\d+[a-z]?|"
+    r"\b[a-z]{2}(?:-[a-z0-9-]+)?/(?:statute|regulation|guidance|manual)/"
+    r"[A-Za-z0-9_./-]+|"
+    r"\b[a-z]{2}(?:-[a-z0-9-]+)?:"
+    r"(?:statutes|regulations|guidance|manuals)/[A-Za-z0-9_./-]+#[A-Za-z0-9_]+"
+    r")",
     flags=re.IGNORECASE,
 )
 
@@ -891,7 +1003,7 @@ def _introduction_is_bounded(bridge: str) -> bool:
 
 
 _CANNOT_COMPUTE_BECAUSE = re.compile(
-    r"^\s*(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד|להכריע|לקבוע)"
+    r"^\s*(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד|להכריע)"
     r"(?:\s+את\s+[^.;\n]{1,80}?)?\s+(?:כי|מאחר\s+ש|משום\s+ש|כיוון\s+ש)\s*"
 )
 
@@ -1104,7 +1216,10 @@ def reason_names_source_bound_dependency(
     return False
 
 
-# Counterparts of ``_SOURCE_BOUND_RUNTIME_GAP_LANGUAGE``, word for word:
+# Counterparts of ``_SOURCE_BOUND_RUNTIME_GAP_LANGUAGE``, word for word. They
+# only choose the diagnostic for a reason that attempts a runtime gap on a
+# branch stating a computation; the runtime-gap route itself counts English
+# words and so admits no Hebrew reason. The words:
 # administrative, calendar, capability, classification, complaint, content,
 # data, date arithmetic, designation, determination, document, event, fact,
 # filing, form, hearing, information, input, investigation, notice, process,
@@ -1122,186 +1237,6 @@ RUNTIME_GAP_LANGUAGE = (
     r"|מעמד|סטטוס|עיתוי|מועד(?:ים|י)?"
     rf"){_NOT_HEBREW_AFTER}"
 )
-
-# Counterparts of ``_ADMINISTRATIVE_SOURCE_ARTIFACT_LANGUAGE``: amendment,
-# approval, audit, certification, comment, complaint, consultation, copy,
-# document, filing, hearing, inspection, notice, plan, procedure,
-# recommendation, record, report or return, submission, waiver.
-ADMINISTRATIVE_ARTIFACT_LANGUAGE = (
-    rf"{_NOT_HEBREW_BEFORE}[ובהלמשכ]{{0,3}}(?:"
-    r"תיקונ(?:ים|י)|תיקון|אישור(?:ים|י|ו|ה)?|ביקורת|תעוד(?:ה|ות|ת)|הער(?:ה|ות|ת)"
-    r"|תלונ(?:ה|ות|ת)|התייעצות|העתק(?:ים|י)?|מסמ(?:ך|כים|כי)|הגש(?:ה|ת|ות)"
-    r"|שימוע(?:ים)?|פיקוח|הודע(?:ה|ות|ת)|תו?כני(?:ת|ות)|נוהל|נהלים|הליך|הליכים"
-    r"|המלצ(?:ה|ות|ת)|רשומ(?:ה|ות|ת)|רישום|דוח(?:ות)?|דו[״\"]ח(?:ות)?"
-    r"|דין\s+וחשבון|ויתור"
-    rf"){_NOT_HEBREW_AFTER}"
-)
-
-# Counterparts of ``_ADMINISTRATIVE_SOURCE_ACTION_LANGUAGE``: adopt, approve,
-# certify, consult, contain, conduct, enforce, establish, file, investigate,
-# notify, prescribe, publish, recommend, review, submit, waive.
-ADMINISTRATIVE_ACTION_LANGUAGE = (
-    rf"{_NOT_HEBREW_BEFORE}(?:ו|ש|וש|כש)?(?:"
-    r"לאמץ|יאמץ|תאמץ|אימץ|לאשר|יאשר|תאשר|אישר(?:ה|ו)?|מאשר(?:ת)?|יאושר(?:ו)?"
-    r"|תאושר|אושר(?:ה|ו)?|להתייעץ|יתייעץ|תתייעץ|להכיל|יכיל|תכיל|מכיל(?:ה)?"
-    r"|לערוך|יערוך|תערוך|לאכוף|יאכוף|תאכוף|להקים|יקים|תקים|הוקמ(?:ה|ו)|הוקם"
-    r"|להגיש|יגיש(?:ו)?|תגיש|הגיש(?:ה|ו)?|יוגש(?:ו)?|תוגש|הוגש(?:ה|ו)?"
-    r"|לחקור|יחקור|תחקור|להודיע|יודיע(?:ו)?|תודיע|הודיע(?:ה|ו)?"
-    r"|לקבוע|יקבע(?:ו)?|תקבע|קבע(?:ה|ו)?|ייקבע(?:ו)?|תיקבע|נקבע(?:ה|ו)?"
-    r"|לפרסם|יפרסם|תפרסם|פרסם|יפורסמו|יפורסם|תפורסם|פורסמ(?:ה|ו)|פורסם"
-    r"|להמליץ|ימליץ|תמליץ|המליץ|לבחון|יבחן|תבחן|לעיין|יעיין|תעיין"
-    r"|לוותר|יוותר|תוותר"
-    rf"){_NOT_HEBREW_AFTER}"
-)
-
-_RUNTIME_GAP_STOPWORDS = frozenset(
-    _normalize_word(word)
-    for word in (
-        "סעיף",
-        "סעיפים",
-        "קטן",
-        "קטנים",
-        "פסקה",
-        "חסר",
-        "חסרה",
-        "חסרים",
-        "חסרות",
-        "קלט",
-        "קלטים",
-        "ייצוג",
-        "יכולת",
-        "מקודד",
-        "קודד",
-        "זמין",
-        "ניתן",
-        "לחשב",
-        "לקודד",
-        "לפי",
-        "אשר",
-        "הוראות",
-        "הוראה",
-        "חוק",
-        "לחוק",
-        "בחוק",
-        "המקור",
-        "מקור",
-        # Modals and function words whose English counterparts (may, must,
-        # can, when, for, it) are too short for the English count.
-        "רשאי",
-        "רשאית",
-        "רשאים",
-        "רשאיות",
-        "חייב",
-        "חייבת",
-        "חייבים",
-        "חייבות",
-        "יכול",
-        "יכולה",
-        "יכולים",
-        "יכולות",
-        "צריך",
-        "צריכה",
-        "צריכים",
-        "כאשר",
-        "לגבי",
-        "אותו",
-        "אותה",
-        "אותם",
-        "אותן",
-        "עליו",
-        "עליה",
-        "יהיה",
-        "תהיה",
-        "יהיו",
-        "להיות",
-        "היתה",
-        # Inflected prepositions and pronouns (from him, to her, for them).
-        "ממנו",
-        "ממנה",
-        "מהם",
-        "מהן",
-        "אליו",
-        "אליה",
-        "אליהם",
-        "אליהן",
-        "עליהם",
-        "עליהן",
-        "שלהם",
-        "שלהן",
-        "בעדו",
-        "בעדה",
-        "בעדם",
-        "בעדן",
-        "לגביו",
-        "לגביה",
-        "לגביהם",
-        "בשבילו",
-        "בשבילה",
-        "אצלו",
-        "אצלה",
-    )
-)
-_PREFIX_LETTERS = "ובהלמשכ"
-
-
-def _word_variants(word: str) -> set[str]:
-    """A word and its forms without up to two attached prefix letters.
-
-    Only forms of four letters or more count, and not a four-letter form that
-    is the article on a three-letter word (``הדוח``, ``העתק``): English counts
-    only words of five letters or more, which leaves out ``copy``.
-    """
-
-    normalized = _normalize_word(word)
-    variants = {normalized}
-    stripped = normalized
-    for _ in range(2):
-        if len(stripped) > 4 and stripped[0] in _PREFIX_LETTERS:
-            stripped = stripped[1:]
-            variants.add(stripped)
-    return {
-        variant
-        for variant in variants
-        if len(variant) >= 4 and not (len(variant) == 4 and variant[0] == "ה")
-    }
-
-
-def shared_substantive_word_count(reason: str, source_scope_text: str) -> int:
-    """Count distinct substantive words the reason shares with the source scope.
-
-    Hebrew counterpart of the English rule that two shared substantive terms
-    keep an exact self-citation from laundering a vague capability claim.
-    Reason words that share a form with each other (``מהמבוטח``, ``המבוטח``)
-    are one word, so a repeated term never counts twice.
-    """
-
-    source_variants: set[str] = set()
-    for word in re.findall(rf"[{_H}]+", source_scope_text):
-        source_variants |= _word_variants(word)
-    # Union-find over shared words: a variant names the word that first used it.
-    parent: list[int] = []
-    owner: dict[str, int] = {}
-
-    def root(node: int) -> int:
-        while parent[node] != node:
-            parent[node] = parent[parent[node]]
-            node = parent[node]
-        return node
-
-    for word in re.findall(rf"[{_H}]+", reason):
-        variants = _word_variants(word)
-        if not variants or variants & _RUNTIME_GAP_STOPWORDS:
-            continue
-        if not variants & source_variants:
-            continue
-        node = len(parent)
-        parent.append(node)
-        for variant in variants:
-            if variant in owner:
-                parent[root(owner[variant])] = node
-            owner[variant] = node
-    return len({root(node) for node in range(len(parent))})
-
 
 # A Hebrew branch states a computation when it applies a rate or fraction to
 # a base (``בשיעור של 5.17% מהכנסתו``, ``מחצית``), names a product or

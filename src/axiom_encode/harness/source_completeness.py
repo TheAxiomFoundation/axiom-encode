@@ -2053,14 +2053,14 @@ _ADMINISTRATIVE_SOURCE_ARTIFACT_LANGUAGE = re.compile(
     r"amendment|approval|audit|certification|comment|complaint|consultation|"
     r"copy|document|filing|hearing|inspection|notice|plan|procedure|"
     r"recommendation|record|report|return|submission|waiver"
-    r")[a-z-]*\b|" + hebrew_source_text.ADMINISTRATIVE_ARTIFACT_LANGUAGE,
+    r")[a-z-]*\b",
     flags=re.IGNORECASE,
 )
 _ADMINISTRATIVE_SOURCE_ACTION_LANGUAGE = re.compile(
     r"\b(?:"
     r"adopt|approve|certif|consult|contain|conduct|disapprov|enforce|establish|"
     r"file|investigat|notify|prescrib|publish|recommend|review|submit|waiv"
-    r")[a-z-]*\b|" + hebrew_source_text.ADMINISTRATIVE_ACTION_LANGUAGE,
+    r")[a-z-]*\b",
     flags=re.IGNORECASE,
 )
 _SOURCE_BOUND_RUNTIME_GAP_STOPWORDS = frozenset(
@@ -2188,7 +2188,8 @@ def _imprecise_deferral_retry_shape(
             "names an external missing dependency as another section that the "
             "deferred branch itself applies (`לפי סעיף <N>`), of the same law, "
             "for example `חסרה הוראת החישוב שבסעיף <N>`; missing facts of the "
-            "branch's own computation are local inputs, not deferral grounds."
+            "branch's own computation are local inputs, not deferral grounds, "
+            "and a Hebrew reason cannot defer a branch as a runtime gap."
         )
     return f"{_IMPRECISE_DEFERRAL_RETRY_SHAPE}{branch_hint}"
 
@@ -13042,11 +13043,11 @@ def _reason_names_source_bound_runtime_gap(
         }
 
     # Two shared source terms keep an exact self-citation from laundering a vague
-    # or invented capability assertion into complete-source coverage.
-    shared_terms = len(
-        substantive_tokens(reason) & substantive_tokens(source_scope_text)
-    ) + hebrew_source_text.shared_substantive_word_count(reason, source_scope_text)
-    return shared_terms >= 2
+    # or invented capability assertion into complete-source coverage. The count
+    # is of English words: no Hebrew word count can promise that a Hebrew term
+    # would pass the English five-letter test in translation, so a Hebrew
+    # runtime-gap reason is refused rather than admitted on a guess (#1882).
+    return len(substantive_tokens(reason) & substantive_tokens(source_scope_text)) >= 2
 
 
 def _deferral_scope_states_explicit_computation(source_scope_text: str) -> bool:

@@ -338,12 +338,17 @@ def test_labels_follow_the_ratified_gematria_scheme(marker, path_label):
         ("(י) הוראה.\n(י״א) הוראה.\n(יב) הוראה.", [("j",), ("k",), ("l",)]),
         ('(י) הוראה.\n(י"א) הוראה.\n(י"ב) הוראה.', [("j",), ("k",), ("l",)]),
         ("(ה׳) הוראה.\n(ו׳) הוראה.", [("e",), ("f",)]),
+        ("(ב) הוראה.\n(2א׳) הוראה.", [("b",), ("b", "2a")]),
+        ('(ב) הוראה.\n(2א") הוראה.', [("b",), ("b", "2a")]),
     ),
 )
 def test_geresh_and_gershayim_labels_keep_their_branch(source, paths):
     branches = recognize_source_structure(source, corpus_citation_path=CITATION)
 
     assert [branch.path for branch in branches] == paths
+    assert hebrew.native_source_reference_paths("סעיף 14(ב)(2א׳)", CITATION) == {
+        ("b", "2a")
+    }
     assert completeness_module._reason_cites_exact_current_statute_branch(
         "סעיף 14(י״א) קובע",
         corpus_citation_path=CITATION,
@@ -716,8 +721,6 @@ def test_plain_not_encoded_is_no_missing_signal_in_either_language(
         hebrew.MISSING_DEPENDENCY_LANGUAGE,
         hebrew.ADVERSATIVE_LANGUAGE,
         hebrew.RUNTIME_GAP_LANGUAGE,
-        hebrew.ADMINISTRATIVE_ARTIFACT_LANGUAGE,
-        hebrew.ADMINISTRATIVE_ACTION_LANGUAGE,
         hebrew.EDITORIAL_OMISSION_WORDS,
         hebrew._SIGNAL.pattern,
         hebrew._EXPLICIT_COMPUTATION.pattern,
@@ -727,13 +730,6 @@ def test_vocabulary_writes_final_letters_only_at_word_end(pattern):
     """`זמין(?:ה)?` can never match `זמינה`: a final letter followed by more letters."""
 
     assert not re.search(r"[ךםןףץ](?:\(\?:)?[א-ת]", pattern)
-
-
-@pytest.mark.parametrize(
-    "text", ("יפורסמו", "פורסמו", "יאושרו", "הוגשו", "ייקבעו", "יודיעו")
-)
-def test_hebrew_plural_administrative_actions(text):
-    assert completeness_module._ADMINISTRATIVE_SOURCE_ACTION_LANGUAGE.search(text)
 
 
 # --- Deferral precision: Hebrew mirrors of the English controls --------------
@@ -861,13 +857,38 @@ def test_imprecise_hebrew_deferral_retry_names_native_citation_and_scheme():
     assert "(ט)→i" in issue
 
 
-def test_hebrew_administrative_runtime_gap_on_exact_branch_is_precise():
-    """Counterpart of `test_exact_canonical_state_branch_can_name_source_bound_runtime_gap`."""
+def test_hebrew_runtime_gap_is_refused_although_english_admits_its_translation():
+    """Counterpart of `test_exact_canonical_state_branch_can_name_source_bound_runtime_gap`.
 
-    assert _accepted(
+    The runtime-gap route needs two shared source terms of five letters or
+    more, counted in English. No Hebrew word count can promise that, since a
+    long Hebrew word may translate to a short English one (`נתונים`, "data"),
+    so a Hebrew runtime-gap reason is refused.
+    """
+
+    assert not _accepted(
         "c",
         "סעיף 14(ג) לא ניתן לקודד: חסרה יכולת לייצג את הגשת העתק הדוח השנתי של המבוטח.",
     )
+    assert _english_accepted(
+        "c",
+        "us-nj/statute/54a:8-6(c) cannot be encoded: missing a capability to "
+        "represent the submission of a copy of the annual report of the insured.",
+    )
+
+
+@pytest.mark.parametrize(
+    "term", ("נתונים", "טופס", "עובדה", "תאריך", "תכנית", "עותק", "עבודה", "חובה")
+)
+def test_a_term_with_a_short_translation_cannot_carry_a_runtime_gap(term):
+    """Round-4 review: each of these is "data", "form", "fact", ... in English."""
+
+    source = f"(א) הוראה.\n(ג) המוסד רשאי להגיש דוח על {term}."
+    issues = _analyze(
+        _deferral_content("c", f"סעיף 14(ג): חסר מידע על {term} של המוסד."), source
+    )
+
+    assert _deferral_issue(issues, 0) is not None
 
 
 @pytest.mark.parametrize(
@@ -1157,6 +1178,32 @@ DIFFERENTIAL_CASES = (
     ),
     (
         "e1",
+        "לא ניתן לקבוע את מועד התשלום כי סעיף 345ב טרם קודד.",
+        "The payment date cannot be determined because section 345b is not yet "
+        "encoded.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסר מידע, ועם זאת סעיף 345ב קודד.",
+        "Missing information, and nevertheless section 345b is encoded.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסר מידע, ועל אף זאת סעיף 345ב קודד.",
+        "Missing information, and despite that section 345b is encoded.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסר מידע אף־על־פי שסעיף 345ב קודד.",
+        "Missing information although section 345b is encoded.",
+        "neither",
+    ),
+    ("e1", "Absatz 9: חסר סעיף 345ב.", "Absatz 9: missing section 345b.", "neither"),
+    (
+        "e1",
         "לא ניתן לחשב עד שיקודד החישוב השנתי הקבוע בסעיף 345ב.",
         "Cannot be computed until the annual calculation set in section 345b is "
         "encoded.",
@@ -1266,7 +1313,7 @@ DIFFERENTIAL_CASES = (
         "סעיף 14(ג) לא ניתן לקודד: חסרה יכולת לייצג את הגשת העתק הדוח השנתי של המבוטח.",
         "us-nj/statute/54a:8-6(c) cannot be encoded: missing a capability to "
         "represent the submission of a copy of the annual report of the insured.",
-        "both",
+        "hebrew-stricter",
     ),
     (
         "c",
@@ -1378,32 +1425,133 @@ def test_the_said_law_with_no_antecedent_binds_no_named_instrument():
     assert _deferral_issue(unnamed, 0) is None
 
 
-def test_inflected_pronouns_are_not_shared_terms():
-    """`ממנו` is "from him": English counts only `Institute` in the translation."""
-
-    assert (
-        hebrew.shared_substantive_word_count(
-            "סעיף 14(ג): חסר מידע ממנו על המוסד.",
-            "(ג) המוסד רשאי לדרוש ממנו להגיש דוח.",
-        )
-        == 1
-    )
-
-
 @pytest.mark.parametrize(
     ("source", "linked"),
     (
         ("(א) הוראה.\n(ה1) יש לפעול בהתאם לסעיף 345ב.", True),
         ("(א) הוראה.\n(ה1) אין לפעול בהתאם לסעיף 345ב.", False),
         ("(א) הוראה.\n(ה1) לא יחולו ההוראות לפי סעיף 345ב.", False),
-        # A relative clause's negation does not negate the main predicate.
-        ("(א) הוראה.\n(ה1) מבוטח שלא עבד ישלם לפי סעיף 345ב.", True),
+        ("(א) הוראה.\n(ה1) החישוב איננו בהתאם לסעיף 345ב.", False),
+        (
+            "(א) הוראה.\n(ה1) אין לפעול בשום אופן ובשום נסיבות בהתאם לסעיף 345ב.",
+            False,
+        ),
+        ("(א) הוראה.\n(ה1) תשלום שאינו בהתאם לסעיף 345ב פטור.", False),
+        ("(א) הוראה.\n(ה1) תשלום, למעט תשלום לפי סעיף 345ב.", False),
+        # A later relative clause carries the link (section 14(ו1)'s shape).
+        ("(א) הוראה.\n(ה1) החלק שאינו עולה על הסכום שנקבע לפי סעיף 345ב.", True),
+        # A relative clause's negation is read as negating, stricter than English.
+        ("(א) הוראה.\n(ה1) מבוטח שלא עבד ישלם לפי סעיף 345ב.", False),
     ),
 )
 def test_a_negated_source_link_does_not_apply_the_section(source, linked):
     issues = _analyze(_deferral_content("e1", "חסרות הוראות סעיף 345ב."), source)
 
     assert (_deferral_issue(issues, 0) is None) is linked
+
+
+@pytest.mark.parametrize(
+    "copula",
+    (
+        "אינו",
+        "אינה",
+        "אינם",
+        "אינן",
+        "איני",
+        "אינני",
+        "אינך",
+        "איננו",
+        "איננה",
+        "אינכם",
+        "אינכן",
+    ),
+)
+def test_every_negative_copula_negates_a_link(copula):
+    source = f"(א) הוראה.\n(ה1) החישוב {copula} בהתאם לסעיף 345ב."
+    issues = _analyze(_deferral_content("e1", "חסרות הוראות סעיף 345ב."), source)
+
+    assert _deferral_issue(issues, 0) is not None
+
+
+@pytest.mark.parametrize(
+    ("qualifier", "linked"),
+    (("(גמלאות)", True), ("", True), ("(משמעת)", False)),
+)
+def test_a_parenthetical_qualifier_distinguishes_laws_of_one_name(qualifier, linked):
+    source = "(א) הוראה.\n(ה1) יש לפעול בהתאם לסעיף 42 לחוק שירות המדינה (גמלאות)."
+    reason = f"חסרות הוראות סעיף 42 לחוק שירות המדינה {qualifier}".rstrip() + "."
+    issues = _analyze(_deferral_content("e1", reason), source)
+
+    assert (_deferral_issue(issues, 0) is None) is linked
+
+
+@pytest.mark.parametrize(
+    "connective",
+    (
+        "אף־כי",
+        "אם־כי",
+        "אף־על־פי ש",
+        "בכל־זאת",
+        "יחד־עם־זאת",
+        "הגם־ש",
+        "גם־אם",
+        "פרט־ל",
+        "חוץ־מ",
+        "לבד־מ",
+        "אלא־אם",
+        "אף־ש",
+        "אלא־ש",
+        "עם־זאת",
+        "על־אף העובדה ש",
+        "אף-על-פי ש",
+        "ועם זאת",
+        "ועל אף",
+    ),
+)
+def test_compound_adversatives_take_any_separator(connective):
+    glued = connective.endswith(("ש", "ל", "מ")) and connective[-2] in " ־-"
+    text = f"חסר מידע {connective}{'' if glued else ' '}סעיף 345ב קודד."
+
+    assert hebrew._ADVERSATIVE.search(text)
+    assert not _accepted("e1", text)
+
+
+def test_other_citations_use_the_english_citation_grammar():
+    assert (
+        hebrew._OTHER_CITATION.pattern
+        == completeness_module._PRECISE_DEFERRAL_DEPENDENCY.pattern
+    )
+    assert hebrew._OTHER_CITATION.flags == (
+        completeness_module._PRECISE_DEFERRAL_DEPENDENCY.flags
+    )
+
+
+_INSTRUMENTS = st.one_of(
+    st.just(hebrew._CURRENT_INSTRUMENT),
+    st.just(hebrew._UNRESOLVED_INSTRUMENT),
+    st.tuples(
+        st.sampled_from(("חוק", "פקודה", "תקנות")),
+        st.lists(
+            st.sampled_from(("הביטוח", "הלאומי", "שירות", "(גמלאות)")),
+            min_size=1,
+            max_size=3,
+        ).map(tuple),
+    ),
+)
+
+
+@settings(max_examples=300, deadline=None)
+@given(st.lists(_INSTRUMENTS, max_size=6), _INSTRUMENTS)
+def test_linked_instrument_index_agrees_with_the_pairwise_rule(cited, query):
+    """Differential: the indexed lookup is `_same_instrument` against each entry."""
+
+    linked = hebrew._LinkedInstruments()
+    for instrument in cited:
+        linked.add(instrument)
+
+    assert linked.admits(query) == any(
+        hebrew._same_instrument(query, instrument) for instrument in cited
+    )
 
 
 @pytest.mark.parametrize(
@@ -1501,11 +1649,16 @@ def test_native_citation_scans_stay_linear():
         )
         == 16_000
     )
-    # Many distinct shared words.
-    words = " ".join(
-        "צ" + hebrew.hebrew_numeral(value) + "ת" for value in range(1, 8_001)
+    # An outline that deepens without end, and a citation chain thousands deep.
+    assert hebrew.hebrew_outline_markers("(א) הוראה.\n(1) הוראה.\n" * 4_000) == ()
+    assert not hebrew._linked_source_instruments("לפי סעיף 345ב" + "(1)" * 6_400 + ".")
+    # Many reason citations against many distinct named laws.
+    names = ["צ" + hebrew.hebrew_numeral(value) for value in range(1, 3_201)]
+    assert not hebrew.reason_names_source_bound_dependency(
+        "חסר סעיף 345ב לחוק תתתתת. " * 3_200,
+        "(ה1) " + "".join(f"לפי סעיף 345ב לחוק {name}. " for name in names),
+        corpus_citation_path=CITATION,
     )
-    assert hebrew.shared_substantive_word_count(words, words) > 1_000
     # Quadratic forms of these took tens of seconds; linear ones take well under
     # a second, so the bound holds on a loaded host.
     assert time.perf_counter() - started < 5
