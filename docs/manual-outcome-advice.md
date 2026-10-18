@@ -54,8 +54,10 @@ exhausts the feedback budget, the full advice list remains in result JSON.
 Guarded encoder prompt content is unchanged.
 
 The byte-exact #1833 replay fixture for run 36880457452 retains zero blocking
-completeness issues. Its advice list is empty: its only exception sentence is
-"Refer to policy 770-3 to determine when no notice is required for the SNAP
-program.", which contains no outcome word from the shortlist. Uptake on the
+completeness issues. Its advice list is empty: the exception parser finds two
+branches, both about notices (a pointer to policy 770-2 for exceptions to
+advance notice, and "Refer to policy 770-3 to determine when no notice is
+required for the SNAP program."), and neither contains an outcome word from the
+shortlist. Uptake on the
 next Oregon/Utah replay remains the follow-up measurement before considering
 any blocking demand.
