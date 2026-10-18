@@ -295,3 +295,27 @@ def test_optional_only_feedback_does_not_request_mandatory_correction():
             "=== BEGIN PRIOR VALIDATION FEEDBACK ===", 1
         )[1]
     )
+
+
+@pytest.mark.parametrize(
+    ("persisted", "fresh"),
+    [
+        ((), ({"citation": CITATION, "source_start": 0},)),
+        (({"citation": CITATION, "source_start": 0},), ()),
+    ],
+)
+def test_resume_admission_ignores_advice_in_either_direction(persisted, fresh):
+    # The advice parser fails open: a run whose advisory parse failed records
+    # no advice, and its revalidation may recover some (or the reverse). The
+    # verdict is the same, so resume admission must not refuse the row.
+    assert evals._reviewer_independent_metrics(
+        _metrics(persisted)
+    ) == evals._reviewer_independent_metrics(_metrics(fresh))
+
+
+def test_resume_admission_still_compares_blocking_outcomes():
+    # Leaving advice out must not hide a real difference in the verdict.
+    advice = ({"citation": CITATION, "source_start": 0},)
+    assert evals._reviewer_independent_metrics(
+        _metrics(advice)
+    ) != evals._reviewer_independent_metrics(_metrics(advice, issues=("blocking",)))

@@ -4680,6 +4680,12 @@ _REVIEWER_DEPENDENT_METRIC_FIELDS = (
     "generalist_review_prompt_sha256",
 )
 
+# Optional repair advice never decides a verdict, and its parser fails open
+# (an advisory failure records no advice). A persisted row and its fresh
+# revalidation may therefore differ only in advice; that must not refuse a
+# resume. The persisted advice stays in the row as recorded.
+_ADVISORY_METRIC_FIELDS = ("manual_outcome_exception_advice",)
+
 
 def _reviewer_independent_metrics(
     metrics: EvalArtifactMetrics | None,
@@ -4688,12 +4694,13 @@ def _reviewer_independent_metrics(
 
     Generalist review is advisory and model-generated, so recomputing it
     yields different output for the same artifact; persisted-row integrity
-    checks must compare only the deterministic validator outputs.
+    checks must compare only the deterministic validator outputs. Optional
+    repair advice is left out for the same reason (``_ADVISORY_METRIC_FIELDS``).
     """
     if metrics is None:
         return None
     payload = asdict(metrics)
-    for field_name in _REVIEWER_DEPENDENT_METRIC_FIELDS:
+    for field_name in (*_REVIEWER_DEPENDENT_METRIC_FIELDS, *_ADVISORY_METRIC_FIELDS):
         payload.pop(field_name, None)
     return payload
 

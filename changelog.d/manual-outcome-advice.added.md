@@ -1,1 +1,1 @@
-Offer US manual exception sentences with outcome words and no numeric limit as optional encoder repair advice, and record the advised source spans in encode result JSON for replay uptake measurement. Blocking completeness checks and pass/fail outcomes are unchanged.
+Offer US manual exception branches with outcome words and no numeric limit as optional encoder repair advice, and record the advised source spans in encode result JSON for replay uptake measurement. Blocking completeness checks and pass/fail outcomes are unchanged.

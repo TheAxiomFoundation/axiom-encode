@@ -6,8 +6,13 @@ receive optional repair advice. Advice never enters blocking issue lists,
 changes a validation result, or initiates a repair attempt.
 
 Selection uses the existing source structure, computation and exception
-parsers. A selected exception sentence must lack a `_STATED_NUMERIC_LIMIT`
-match and contain an explicit outcome word. `_MANUAL_OUTCOME_WORD` in
+parsers, and works on exception branches, as #1833's filter does: a selected
+branch must lack a `_STATED_NUMERIC_LIMIT` match and contain an explicit
+outcome word. One sentence can hold several branches, so a sentence with a
+numeric limit in one branch can still yield advice for another ("If identity
+is verified, approve the application, and if income exceeds $500, deny it"
+advises on its first branch). Replay counts measure advice records, one per
+branch. `_MANUAL_OUTCOME_WORD` in
 `source_completeness.py` recognizes eligibility/ineligibility, benefits,
 allotments, payments/pay/paid, sanctions, disqualification, termination,
 denial/deny, approval, reductions, increases, entitlement, counting/countable,
