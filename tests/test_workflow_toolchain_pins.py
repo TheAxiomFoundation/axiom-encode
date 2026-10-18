@@ -1359,30 +1359,30 @@ def test_key_bearing_jobs_never_use_the_uv_cache():
     # "auto", restores and saves the uv cache on hosted runners, and an entry
     # under the same key can be written by any run on main, including test
     # code an ordinary PR merged. Such a job must not restore one: its setup-uv
-    # turns the cache off, and nothing else in it touches a cache.
+    # turns the cache off, setup-go (whose cache defaults to true) does too, and
+    # no other step uses an Actions cache: no cache action (actions/cache,
+    # Swatinem/rust-cache, anything named for caching) and no action told to
+    # cache through a ``cache`` input (setup-python, setup-node, ...).
+    # Jobs that hold secrets without an environment are out of this check.
     offenders = []
     for name, job_name, job in _environment_jobs():
         for index, step in enumerate(job.get("steps", [])):
             uses = step.get("uses", "")
+            action = uses.split("@")[0]
+            inputs = step.get("with") or {}
             where = f"{name}:{job_name}[{index}]"
-            if uses.startswith("astral-sh/setup-uv@"):
-                if (step.get("with") or {}).get("enable-cache") != "false":
+            if not uses:
+                continue
+            if action == "astral-sh/setup-uv":
+                if inputs.get("enable-cache") != "false":
                     offenders.append(f"{where} setup-uv without enable-cache false")
-            elif uses.startswith("actions/cache"):
-                offenders.append(f"{where} {uses.split('@')[0]}")
-            elif uses.startswith("actions/setup-go@"):
-                # setup-go caches modules and the build cache unless told not to.
-                if (step.get("with") or {}).get("cache") not in (False, "false"):
+            elif action == "actions/setup-go":
+                if inputs.get("cache") not in (False, "false"):
                     offenders.append(f"{where} setup-go without cache false")
-            elif uses.startswith("actions/setup-python@"):
-                # setup-python caches nothing unless a package manager is named.
-                if (step.get("with") or {}).get("cache") not in (
-                    None,
-                    "",
-                    False,
-                    "false",
-                ):
-                    offenders.append(f"{where} setup-python cache")
+            elif "cache" in action.lower():
+                offenders.append(f"{where} {action}")
+            elif inputs.get("cache") not in (None, "", False, "false"):
+                offenders.append(f"{where} {action} cache {inputs['cache']!r}")
     assert offenders == []
 
 
@@ -1403,6 +1403,9 @@ def test_key_bearing_jobs_are_found():
         "setup-go-cache",
         "setup-go-default",
         "setup-python-cache",
+        "setup-node-cache",
+        "rust-cache",
+        "cache-restore",
     ],
 )
 def test_a_key_bearing_job_using_a_cache_is_caught(monkeypatch, mutation):
@@ -1430,13 +1433,24 @@ def test_a_key_bearing_job_using_a_cache_is_caught(monkeypatch, mutation):
         )
         step["with"]["cache"] = True
     else:
-        # The job installs Python with uv; a setup-python step that caches is new.
+        # The job installs Python with uv and Rust without caching; these steps are new.
         steps.insert(
             0,
             {
-                "uses": "actions/setup-python@" + "0" * 40,
-                "with": {"python-version": "3.13", "cache": "pip"},
-            },
+                "setup-python-cache": {
+                    "uses": "actions/setup-python@" + "0" * 40,
+                    "with": {"python-version": "3.13", "cache": "pip"},
+                },
+                "setup-node-cache": {
+                    "uses": "actions/setup-node@" + "0" * 40,
+                    "with": {"node-version": "22", "cache": "npm"},
+                },
+                "rust-cache": {"uses": "Swatinem/rust-cache@" + "0" * 40},
+                "cache-restore": {
+                    "uses": "actions/cache/restore@" + "0" * 40,
+                    "with": {"path": "~/.cache/uv", "key": "uv"},
+                },
+            }[mutation],
         )
     monkeypatch.setattr(
         "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
