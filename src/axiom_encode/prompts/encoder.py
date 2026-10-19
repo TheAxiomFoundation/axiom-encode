@@ -1022,9 +1022,10 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   or 1800, not 700. Avoid exact equality boundaries for ratios or percentages;
   choose clearly below/above-boundary values so decimal precision cannot decide
   the test outcome.
-- Every test case for a local derived formula must assign every local factual
-  `#input.<fact>` referenced by that formula, including facts that are false in
-  the case. Missing false inputs make the executable test invalid.
+- Every test case must supply every factual `#input.<fact>` reached by its
+  selected formula branches, including false facts when read. Do not manufacture
+  defaults for unselected branches. Missing reached facts must fail execution;
+  exact required-case input maps must remain unchanged.
 - For every encoded `except`, `unless`, `subject to`, or `notwithstanding`
   carve-out, include companion tests for the positive path and the carve-out
   path so exclusions and override conditions cannot be silently dropped.
