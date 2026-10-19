@@ -1,3 +1,7 @@
+## 0.2.2221
+
+- Allow bounded authenticated corpus artifact transport for fresh complete-source replacements, verifying the official exporter, archive, signed release and immutable scope lock without granting source authority or exposing repository credentials to helper code.
+
 ## 0.2.2220
 
 - Preserve the complete tracked baseline for fresh same-source canonical replacements, supply full target edit context, and overlay omitted rules and companion cases before validation without accepting the old artifact as a generated repair.

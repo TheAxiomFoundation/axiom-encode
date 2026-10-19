@@ -39,7 +39,7 @@ on:
         required: false
         type: string
       source_bundle_json:
-        description: 'Atomic source input: legacy citation array/refresh object, v2-v5 contract, or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} for an authenticated failed ordinary single-target repair'
+        description: 'Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3; legacy citation array/refresh object, v2-v5 contract, or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} for an authenticated failed ordinary single-target repair'
         required: false
         default: "[]"
         type: string
@@ -517,6 +517,32 @@ jobs:
           sudo chown -R 0:0 /opt/axiom-compose-verification
           sudo chmod -R go-w /opt/axiom-compose-verification
           /opt/axiom-compose-verification/axiom-compose --help > /dev/null
+
+      - name: Validate optional authenticated corpus transport request
+        id: corpus_artifact_transport
+        env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+          CITATION: ${{ inputs.citation }}
+          REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
+          REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          QUEUE_ID: ${{ inputs.queue_id }}
+          QUEUE_ITEM_ID: ${{ inputs.queue_item_id }}
+          QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
+          QUEUE_ITEM_GENERATION_SHA256: ${{ inputs.queue_item_generation_sha256 }}
+          QUEUE_DISPATCHER_RUN_ID: ${{ inputs.queue_dispatcher_run_id }}
+          DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
+          SECOND_DEPENDENT_REVIEW_FINDING: ${{ inputs.second_dependent_review_finding }}
+          REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
+          LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
+          SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.second_legacy_exact_dependent_rulespec_path }}
+          EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
+          LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
+        run: |
+          set -euo pipefail
+          run_id="$(axiom-encode/.venv/bin/python -m axiom_encode.corpus_artifact_transport request)"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
 
       # Deterministic metadata migrations carry an exact base-bound plan in
       # source_bundle_json; GitHub's 25-input limit leaves no separate input.
@@ -1050,13 +1076,82 @@ jobs:
             exit 1
           fi
 
+      - name: Download corpus export metadata
+        if: steps.corpus_artifact_transport.outputs.run_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          EXPORT_RUN: ${{ steps.corpus_artifact_transport.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$EXPORT_RUN" > "$RUNNER_TEMP/corpus-export-run.json"
+          gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$EXPORT_RUN/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-export-artifacts.json"
+
+      - name: Authenticate corpus export metadata without repository token
+        id: corpus_export_archive
+        if: steps.corpus_artifact_transport.outputs.run_id != ''
+        env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+          CITATION: ${{ inputs.citation }}
+          REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
+          REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          QUEUE_ID: ${{ inputs.queue_id }}
+          QUEUE_ITEM_ID: ${{ inputs.queue_item_id }}
+          QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
+          QUEUE_ITEM_GENERATION_SHA256: ${{ inputs.queue_item_generation_sha256 }}
+          QUEUE_DISPATCHER_RUN_ID: ${{ inputs.queue_dispatcher_run_id }}
+          DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
+          SECOND_DEPENDENT_REVIEW_FINDING: ${{ inputs.second_dependent_review_finding }}
+          REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
+          LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
+          SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.second_legacy_exact_dependent_rulespec_path }}
+          EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
+          LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
+        run: |
+          set -euo pipefail
+          artifact_id="$(axiom-encode/.venv/bin/python -m axiom_encode.corpus_artifact_transport validate-export \
+            --corpus-root axiom-corpus \
+            --run-metadata "$RUNNER_TEMP/corpus-export-run.json" \
+            --artifact-metadata "$RUNNER_TEMP/corpus-export-artifacts.json")"
+          echo "artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
+
+      - name: Download authenticated corpus export archive
+        if: steps.corpus_artifact_transport.outputs.run_id != ''
+        # Metadata is authenticated and <=17 MiB before transfer. The gh transfer
+        # uses GitHub's immutable artifact size and job timeout, then the no-token
+        # helper independently bounds reads and verifies exact length and digest.
+        env:
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          ARTIFACT_ID: ${{ steps.corpus_export_archive.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/corpus-export.zip"
+
       - name: Fetch pinned signed corpus release object
         shell: bash
         env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+          CITATION: ${{ inputs.citation }}
+          REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
+          REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          QUEUE_ID: ${{ inputs.queue_id }}
+          QUEUE_ITEM_ID: ${{ inputs.queue_item_id }}
+          QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
+          QUEUE_ITEM_GENERATION_SHA256: ${{ inputs.queue_item_generation_sha256 }}
+          QUEUE_DISPATCHER_RUN_ID: ${{ inputs.queue_dispatcher_run_id }}
+          DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
+          SECOND_DEPENDENT_REVIEW_FINDING: ${{ inputs.second_dependent_review_finding }}
+          REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
+          LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
+          SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.second_legacy_exact_dependent_rulespec_path }}
+          EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
+          LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
+          TRUST_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
           RELEASE_BASE_URL: https://pub-a8952f8657fc49fda358146ac001366c.r2.dev
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
-          QUEUE_ID: ${{ inputs.queue_id }}
-          QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
@@ -1102,6 +1197,14 @@ jobs:
             echo "Pinned corpus checkout predates signed release provenance" >&2
             exit 1
           }
+          if [ -n "${{ steps.corpus_artifact_transport.outputs.run_id }}" ]; then
+            axiom-encode/.venv/bin/python -m axiom_encode.corpus_artifact_transport materialize \
+              --corpus-root axiom-corpus --toolchain "$toolchain" \
+              --run-metadata "$RUNNER_TEMP/corpus-export-run.json" \
+              --artifact-metadata "$RUNNER_TEMP/corpus-export-artifacts.json" \
+              --archive "$RUNNER_TEMP/corpus-export.zip" \
+              --release-object "axiom-corpus/releases/${release_name}/${release_sha}.json"
+          fi
           if [ -d axiom-corpus/.axiom/corpus-locks ]; then
             release_object="axiom-corpus/releases/${release_name}/${release_sha}.json"
             provision_paths_json="$(jq -e \
