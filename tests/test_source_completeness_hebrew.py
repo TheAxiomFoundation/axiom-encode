@@ -1236,6 +1236,42 @@ DIFFERENTIAL_CASES = (
     ),
     (
         "e1",
+        "חסרות הוראות סעיפים 345ב ו-345ג.",
+        "Missing the provisions of sections 345b and 345c.",
+        "neither",
+    ),
+    (
+        "e1",
+        "אינה יכולה להיות חסרה הוראת סעיף 345ב.",
+        "The provision of section 345b cannot be missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "אין זה נכון שחסרה הוראת סעיף 345ב.",
+        "It is not true that the provision of section 345b is missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "לא אמורה בכלל להיות חסרה הוראת סעיף 345ב.",
+        "The provision of section 345b is not supposed to be missing at all.",
+        "neither",
+    ),
+    (
+        "e1",
+        "לא־חסרה הוראת סעיף 345ב.",
+        "The provision of section 345b is not missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסרות הוראות סעיף 345b.",
+        "Missing the provisions of section 345b.",
+        "hebrew-stricter",
+    ),
+    (
+        "e1",
         "לא אמורה להיות חסרה הוראת סעיף 345ב.",
         "The provision of section 345b is not supposed to be missing.",
         "neither",
@@ -1578,6 +1614,19 @@ def test_the_said_law_with_no_antecedent_binds_no_named_instrument():
         # `דוחות` is also "reports": no negation.
         ("(א) הוראה.\n(ה1) הגשת דוחות לפי סעיף 345ב.", True),
         (
+            "(א) הוראה.\n(ה1) המועצות דוחות את הטענה שיש לחשב את התשלום בהתאם לסעיף 345ב.",
+            False,
+        ),
+        ("(א) הוראה.\n(ה1) החוק אוסר לחשב את התשלום בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) ייאסר לחשב את התשלום בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) המוסד מכחיש שיש לחשב את התשלום בהתאם לסעיף 345ב.", False),
+        # English reads "in accordance with the provisions of" and `על  פי`.
+        ("(א) הוראה.\n(ה1) יש לפעול בהתאם להוראות סעיף 345ב.", True),
+        ("(א) הוראה.\n(ה1) יש לפעול בהתאם להוראת סעיף 345ב.", True),
+        ("(א) הוראה.\n(ה1) יש לפעול על  פי סעיף 345ב.", True),
+        # Plural `סעיפים` is not read, as English does not read "sections".
+        ("(א) הוראה.\n(ה1) יש לפעול לפי סעיפים 345ב ו-345ג.", False),
+        (
             "(א) הוראה.\n(ה1) אין לפעול "
             + "בכל עת ובכל מצב " * 20
             + "בהתאם לסעיף 345ב.",
@@ -1837,6 +1886,26 @@ def test_a_parenthetical_qualifier_distinguishes_laws_of_one_name(qualifier, lin
 
 
 @pytest.mark.parametrize(
+    ("reason", "accepted"),
+    (
+        # Ordinary words that are adversatives only where a clause opens.
+        ("חסרות ההוראות להוציא רישיון לפי סעיף 345ב.", True),
+        ("חסרה הגדרת אולם שבסעיף 345ב.", True),
+        ("חסרים נתוני האבל לפי סעיף 345ב.", True),
+        ("חסר מידע, אולם סעיף 345ב קודד.", False),
+        ("חסר מידע. אולם סעיף 345ב קודד.", False),
+        ("חסר מידע, להוציא סעיף 345ב.", False),
+        ("חסר מידע, בעוד שסעיף 345ב קודד.", False),
+    ),
+)
+def test_ambiguous_adversatives_count_where_a_clause_opens(reason, accepted):
+    source = "(א) הוראה.\n(ה1) רישיון העסק לאולם יינתן לפי סעיף 345ב."
+    issues = _analyze(_deferral_content("e1", reason), source)
+
+    assert (_deferral_issue(issues, 0) is None) is accepted
+
+
+@pytest.mark.parametrize(
     "connective",
     (
         "אף־כי",
@@ -2041,6 +2110,10 @@ def test_native_citation_scans_stay_linear():
     )
     assert not hebrew.reason_names_source_bound_dependency(
         "חסר " + "סעיף 346 " * 64_000, PRECISION_SOURCE, corpus_citation_path=CITATION
+    )
+    # Many punctuation-joined signals before one citation.
+    assert not hebrew.reason_names_source_bound_dependency(
+        "חסר," * 16_000 + "סעיף 346.", PRECISION_SOURCE, corpus_citation_path=CITATION
     )
     # Many citations after one negation.
     assert not hebrew._linked_source_instruments(

@@ -592,7 +592,7 @@ def cites_current_section(source: str, corpus_citation_path: str) -> bool:
         )
         for match in re.finditer(
             rf"{_NOT_HEBREW_BEFORE}{_PROCLITICS}{_SECTION_WORD}\s*{_native_section_pattern(section)}"
-            rf"(?![0-9{_H}{_GERESH_MARKS}])(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{0,{MAX_OUTLINE_DEPTH}}}(?!\s*\()"
+            rf"(?![0-9A-Za-z{_H}{_GERESH_MARKS}])(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{0,{MAX_OUTLINE_DEPTH}}}(?!\s*\()"
             rf"{_other_instrument_qualifier(current_instrument_kind(corpus_citation_path))}",
             source,
         )
@@ -651,18 +651,23 @@ _SIGNAL = re.compile(
 # חסר``, ``לא בהכרח חסרה``), as English reads "was not missing" and "is not
 # necessarily missing".
 _NEGATION_BRIDGE_WORDS = (
-    "היה היתה הייתה היו יהיה תהיה יהיו להיות ממש באמת בהכרח תמיד כלל עוד "
-    "אמור אמורה אמורים אמורות צפוי צפויה צפויים צפויות עשוי עשויה עשויים עשויות"
+    "היה היתה הייתה היו יהיה תהיה יהיו להיות ממש באמת בהכרח תמיד כלל בכלל עוד "
+    "אמור אמורה אמורים אמורות צפוי צפויה צפויים צפויות עשוי עשויה עשויים עשויות "
+    "יכול יכולה יכולים יכולות צריך צריכה צריכים צריכות "
+    # Truth claims: ``אין זה נכון ש``, ``אין בסיס לטענה ש``, ``אין ראיה ש``.
+    "זה נכון בסיס לטענה ראיה"
 )
 # Words the negation may reach across: the negation itself and its bridge.
-_NEGATION_REACH_WORDS = 5
+_NEGATION_REACH_WORDS = 6
+# A space, maqaf or hyphen separates the negation from what it governs.
+_NEGATION_GAP = rf"[\s{_MAQAF}-]"
 _NEGATED_SIGNAL_PREFIX = re.compile(
     rf"{_NOT_HEBREW_BEFORE}(?:ו|ש|וש|כש)?"
     r"(?:לא|אין|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|כלל\s+לא)"
-    r"(?:\s+(?:"
+    rf"(?:{_NEGATION_GAP}+(?:"
     + "|".join(_NEGATION_BRIDGE_WORDS.split())
-    + rf"){_NOT_HEBREW_AFTER}){{0,3}}"
-    r"\s*$"
+    + rf"){_NOT_HEBREW_AFTER}){{0,4}}"
+    rf"{_NEGATION_GAP}*$"
 )
 
 # Words of a compound connective are separated by a space, a maqaf or a hyphen.
@@ -676,9 +681,12 @@ def _connective(words: str) -> str:
 # Counterparts of ``_ADVERSATIVE_LANGUAGE``: although, but, despite, even
 # though, except, however, nevertheless, nonetheless, notwithstanding,
 # though, unless, whereas, while, yet. Any may take the conjunction ``ו``.
-_ADVERSATIVE_WORDS = (
-    'אבל אולם ברם למרות חרף למעט זולת מלבד להוציא ואילו בעוד מאידך מנגד אעפ״כ אעפ"כ'
-)
+_ADVERSATIVE_WORDS = 'ברם למרות חרף למעט מלבד ואילו ואולם מאידך מנגד אעפ״כ אעפ"כ'
+# Adversatives that are also ordinary words: ``אולם`` (hall), ``אבל``
+# (mourning), ``להוציא`` (to issue), ``זולת`` (another person), ``בעוד`` (in a
+# stated time). They count only where a clause or a comma-led phrase opens.
+_AMBIGUOUS_ADVERSATIVES = "אולם אבל להוציא זולת בעוד"
+_CLAUSE_OPENING = r"(?:\A|(?<=[,;:.\n(])|(?<=[,;:.\n(]\s)|(?<=[,;:.\n(]\s\s))"
 _ADVERSATIVE_PHRASES = (
     "אף כי",
     "אם כי",
@@ -716,6 +724,9 @@ _ADVERSATIVE_GLUED = (
     ("בזמן", "ש"),
 )
 ADVERSATIVE_LANGUAGE = (
+    rf"{_CLAUSE_OPENING}(?:ו)?(?:"
+    + "|".join(_AMBIGUOUS_ADVERSATIVES.split())
+    + rf"){_NOT_HEBREW_AFTER}|"
     # ``אך`` ("but"), but not ``אך ורק`` ("only").
     rf"{_NOT_HEBREW_BEFORE}(?:ו)?אך{_NOT_HEBREW_AFTER}(?!{_SEP}ורק{_NOT_HEBREW_AFTER})|"
     rf"{_NOT_HEBREW_BEFORE}(?:ו)?(?:"
@@ -766,8 +777,10 @@ _NAME_CONTINUES = re.compile(
     rf"|\s*,\s*(?:ה?תש[{_H}{_GERESH_MARKS}]*|\d{{4}})"
 )
 SECTION_DEPENDENCY = re.compile(
-    rf"{_NOT_HEBREW_BEFORE}(?P<proclitics>[ובלמשכה]{{0,3}})(?:סעיפים|סעיף)\s+"
-    rf"(?P<section>\d+{_SECTION_SUFFIX})(?![0-9{_H}{_GERESH_MARKS}])"
+    # A single section, as English's grammar reads ``section`` and not
+    # ``sections``; a suffix it cannot read (``345b``) leaves it unread.
+    rf"{_NOT_HEBREW_BEFORE}(?P<proclitics>[ובלמשכה]{{0,3}})סעיף\s+"
+    rf"(?P<section>\d+{_SECTION_SUFFIX})(?![0-9A-Za-z{_H}{_GERESH_MARKS}])"
     rf"(?P<fragments>(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{0,{MAX_OUTLINE_DEPTH}}})"
     # A fragment the label grammar cannot read (``(1000)``, a glued ``(x)``),
     # or one past the supported depth, leaves the citation unreadable rather
@@ -983,6 +996,10 @@ _NEGATIONS = re.compile(
     r"|הוחרג(?:ה|ו)?|מוחרג(?:ת|ים|ות)?|יוחרג(?:ו)?|תוחרג(?:נה)?"
     r"|נמנע(?:ה|ו|ים|ות)?|יימנע(?:ו)?|תימנע(?:נה)?|דוח(?:ה|ים)"
     r"|שולל(?:ת|ים|ות)?|נשלל(?:ה|ו|ים|ות)?"
+    r"|אוסר(?:ת|ים|ות)?|אסר(?:ה|ו)?|יאסור|תאסור|יאסרו|תאסו?רנה|ייאסר(?:ו)?|תיאסר(?:נה)?"
+    r"|מכחיש(?:ה|ים|ות)?|הכחיש(?:ה|ו)?"
+    # ``דוחות את הטענה`` ("reject the claim"), not ``דוחות`` ("reports").
+    rf"|דוחות(?=\s+את{_NOT_HEBREW_AFTER})"
     r"|בלי|ללא|מבלי|למעט|מלבד|להוציא|זולת)"
     rf"{_NOT_HEBREW_AFTER}"
     rf"|{_NOT_HEBREW_BEFORE}[ושכמה]{{0,2}}אי{_SEP}(?:אפשר|ניתן){_NOT_HEBREW_AFTER}"
@@ -1005,8 +1022,9 @@ _DISPLACEMENT = re.compile(
 )
 _SOURCE_LINKER = re.compile(
     r"(?:"
-    rf"{_NOT_HEBREW_BEFORE}(?:ו|ש|וש)?(?P<under>לפי|על[\s{_MAQAF}-]פי|עפ[״\"]י)\s*"
-    rf"|{_NOT_HEBREW_BEFORE}(?:ו)?בהתאם\s+ל"
+    rf"{_NOT_HEBREW_BEFORE}(?:ו|ש|וש)?(?P<under>לפי|על{_SEP}פי|עפ[״\"]י)\s*"
+    # ``בהתאם להוראות סעיף``, "in accordance with the provisions of section".
+    rf"|{_NOT_HEBREW_BEFORE}(?:ו)?בהתאם\s+ל(?:הוראו?ת\s*)?"
     r")$"
 )
 
@@ -1155,16 +1173,24 @@ _OTHER_CITATION = re.compile(
 )
 
 
+def _is_word_char(char: str) -> bool:
+    return char.isalnum() or char in _GERESH_MARKS
+
+
 def _words_back(text: str, end: int, count: int) -> int:
-    """Where the ``count`` words before ``end`` begin, whitespace however long."""
+    """Where the ``count`` words before ``end`` begin, separators however long.
+
+    Words are letters, digits and numeral marks; anything else separates
+    them, so ``חסר,חסר,...`` is many short words and no scan grows.
+    """
 
     start = end
     for _ in range(count):
-        while start and text[start - 1].isspace():
+        while start and not _is_word_char(text[start - 1]):
             start -= 1
         if not start:
             break
-        while start and not text[start - 1].isspace():
+        while start and _is_word_char(text[start - 1]):
             start -= 1
     return start
 
@@ -1180,7 +1206,7 @@ def _signals(text: str) -> list[re.Match[str]]:
     signals = []
     for signal in _SIGNAL.finditer(text):
         end = signal.start()
-        while end and text[end - 1].isspace():
+        while end and (text[end - 1].isspace() or text[end - 1] in _MAQAF + "-"):
             end -= 1
         start = _words_back(text, end, _NEGATION_REACH_WORDS)
         if not _NEGATED_SIGNAL_PREFIX.search(text, start, end):
