@@ -78,6 +78,61 @@ def _bind_alberta_input_names(payload, contract):
     return replace(contract, obligations=tuple(obligations))
 
 
+_RESIDENCE_428MJ_STANDARD = (
+    "section_428mj_tax_before_foreign_tax_credit_for_residence_jurisdiction"
+)
+_RESIDENCE_428MJ_ALTERNATE = (
+    "form_428mj_tax_before_provincial_or_territorial_foreign_tax_credit_for_residence"
+)
+
+
+def _bind_residence_428mj_input_name(payload, contract):
+    """Bind one reviewed factual API spelling to the closed other-multi frame.
+
+    Source construction remains independent of candidate formulas. This changes
+    only the direct operand name; ordinary types, proof ownership, selected paths
+    and actual same-world witnesses must still certify the resulting contract.
+    """
+    inputs = paths._index(payload.get("inputs"))
+    rules = paths._index(payload.get("rules"))
+    if inputs is None or rules is None:
+        return replace(contract, unresolved=("invalid residence input declarations",))
+    standard, alternate = _RESIDENCE_428MJ_STANDARD, _RESIDENCE_428MJ_ALTERNATE
+    if alternate not in inputs:
+        return contract
+    if standard in inputs or {standard, alternate} & rules.keys():
+        return replace(contract, unresolved=("ambiguous residence 428MJ input alias",))
+    if payload.get("imports") or (payload.get("module") or {}).get("imports"):
+        return replace(contract, unresolved=("imported residence alias unsupported",))
+    targets = [o for o in contract.obligations if o.identity == "other_multi"]
+    if (
+        len(targets) != 1
+        or targets[0].owner != _TAX
+        or targets[0].expected_expression != standard
+        or sum(c.name == standard for c in targets[0].input_contracts) != 1
+    ):
+        return replace(
+            contract, unresolved=("unknown residence 428MJ source contract",)
+        )
+    target = targets[0]
+    return replace(
+        contract,
+        obligations=tuple(
+            replace(
+                o,
+                expected_expression=alternate,
+                input_contracts=tuple(
+                    replace(c, name=alternate) if c.name == standard else c
+                    for c in o.input_contracts
+                ),
+            )
+            if o is target
+            else o
+            for o in contract.obligations
+        ),
+    )
+
+
 @dataclass(frozen=True)
 class PathObligationEvidence:
     identity: str
@@ -294,6 +349,9 @@ def certify_worksheet_paths(
     if contract.unresolved:
         return CertifiedPathCoverage(unresolved=contract.unresolved)
     contract = _bind_alberta_input_names(payload, contract)
+    if contract.unresolved:
+        return CertifiedPathCoverage(unresolved=contract.unresolved)
+    contract = _bind_residence_428mj_input_name(payload, contract)
     if contract.unresolved:
         return CertifiedPathCoverage(unresolved=contract.unresolved)
     cases = [
