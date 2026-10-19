@@ -7,6 +7,7 @@ message, or acceptance decision changes with this guidance.
 import pytest
 
 from axiom_encode.harness import evals
+from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness.evals import EvalWorkspace
 
 
@@ -76,9 +77,15 @@ def test_completeness_findings_add_encode_first_repair_guidance(issue):
 
     assert "Completeness repair:" in normalized
     assert "Encoding is the default repair." in normalized
-    assert "Do not reword a rejected deferral of such a branch." in normalized
+    assert "A new deferral, or a reworded reason on a rejected one, is not." in (
+        normalized
+    )
+    assert "apply exactly that fix" in normalized
+    assert "follow the cross-reference rules in this prompt" in normalized
+    assert "only an administrative duty" in normalized
     assert "`output: <existing output>` and `repair_remove: true`" in normalized
-    assert "declare each fact the branch tests" in normalized.lower()
+    assert "declare each fact the branch states" in normalized.lower()
+    assert "non-operative" not in normalized
     assert "`us:statutes/26/2/a/<marker>/<marker>#<name>`" in normalized
     assert "Never use parentheses such as `a(1)(A)`" in normalized
     # Guidance comes before the verbatim validator findings, which stay intact.
@@ -171,7 +178,8 @@ def test_complete_source_prompt_adds_branch_coverage_plan(tmp_path):
     assert "Branch coverage plan:" in normalized
     assert "ENCODE is the default." in normalized
     assert (
-        "A missing input, a missing date type, or a missing relation is not a deferral ground."
+        "For a branch that states a condition, amount, or computation, a missing "
+        "input, a missing date type, or a missing relation is not a deferral ground."
         in normalized
     )
     assert "`us:statutes/26/2/a/<marker>/<marker>#<name>`" in normalized
@@ -194,3 +202,82 @@ def test_default_prompt_has_no_branch_coverage_plan(tmp_path):
 
     assert "Branch coverage plan:" not in default
     assert "Completeness repair:" not in default
+
+
+def test_retry_feedback_without_completeness_findings_is_byte_stable():
+    # Frozen from origin/main 68ab3f399: the guidance adds no text, not even a
+    # blank line, when no completeness finding is present.
+    assert evals._format_validation_retry_feedback(("plain issue",)) == (
+        "\nDeterministic validation feedback for the rejected candidate below:\n"
+        "- This is repair guidance from the validator, not legal authority. Keep "
+        "the\n  authoritative source and release-bound corpus evidence as the "
+        "sole basis for\n  legal facts and values.\n"
+        "- Correct every listed issue in this candidate. Do not repeat the "
+        "rejected\n  pattern.\n\n\n"
+        "=== BEGIN PRIOR VALIDATION FEEDBACK ===\n"
+        '- "plain issue"\n'
+        "=== END PRIOR VALIDATION FEEDBACK ===\n"
+    )
+
+
+_GUIDANCE_SOURCE = (
+    "(a) Notice. The State agency shall send each household a written notice "
+    "of the hearing before the household must file the quarterly report.\n\n"
+    "(b) Amount. The allotment equals 30 percent of the household's net income."
+)
+_GUIDANCE_CITATION = "us/statute/7/2020"
+_ADMINISTRATIVE_REASON = (
+    "7 U.S.C. 2020(a) requires the written hearing notice and quarterly report "
+    "filing dates for each household; that notice runtime capability is not "
+    "supplied in the available context."
+)
+
+
+def _coverage(output, reason):
+    payload = {
+        "format": "rulespec/v1",
+        "module": {
+            "source_verification": {"corpus_citation_path": _GUIDANCE_CITATION},
+            "deferred_outputs": [{"output": output, "reason": reason}],
+        },
+        "rules": [],
+    }
+    return sc._deferred_coverage(
+        payload,
+        corpus_citation_path=_GUIDANCE_CITATION,
+        source_text=_GUIDANCE_SOURCE,
+        branches=sc.recognize_source_structure(_GUIDANCE_SOURCE),
+    )
+
+
+def test_guidance_agrees_with_validator_on_administrative_runtime_gap():
+    """Ground (3) in the stated form and slash path is accepted as coverage."""
+
+    anchor = evals._complete_source_deferral_anchor(_GUIDANCE_CITATION)
+    covered, issues = _coverage(f"{anchor}/a#hearing_notice", _ADMINISTRATIVE_REASON)
+
+    assert covered == {("a",)}
+    assert issues == []
+
+
+def test_guidance_agrees_with_validator_on_missing_input_reasons():
+    """A computation branch deferred for a missing input is rejected."""
+
+    anchor = evals._complete_source_deferral_anchor(_GUIDANCE_CITATION)
+    covered, issues = _coverage(
+        f"{anchor}/b#allotment",
+        "7 U.S.C. 2020(b) requires the household net income, which is not "
+        "supplied in the available context.",
+    )
+
+    assert covered == set()
+    assert any("does not name an exact missing dependency" in i for i in issues)
+
+
+def test_guidance_agrees_with_validator_on_parenthesized_paths():
+    """The forbidden `a(1)(A)`-style output path covers no branch."""
+
+    anchor = evals._complete_source_deferral_anchor(_GUIDANCE_CITATION)
+    covered, _issues = _coverage(f"{anchor}(a)#hearing_notice", _ADMINISTRATIVE_REASON)
+
+    assert covered == set()

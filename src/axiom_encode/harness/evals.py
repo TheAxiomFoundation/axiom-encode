@@ -10212,24 +10212,37 @@ def _complete_source_deferral_anchor(corpus_citation_path: str | None) -> str:
     return anchors[-1] if anchors else "<module path>"
 
 
+_DEFERRAL_GROUNDS = """(1) the branch depends on the determination of another provision that
+  its own text cites, the cross-reference rules in this prompt call for a
+  deferral rather than an import or a boundary input, and `reason` names that
+  exact provision with dependency wording, such as `requires <provision>,
+  which is not encoded in the available context`; (2) the branch is a bare
+  repeal tombstone, in the repeal form above; or (3) the branch states only an
+  administrative duty, such as a notice, filing, report, hearing, or
+  submission, with no computation, and `reason` cites the exact canonical
+  branch citation and names the concrete missing runtime capability in the
+  branch's own terms"""
+
+
 def _format_branch_coverage_plan(deferral_anchor: str) -> str:
     """Render the complete-source encode-or-defer plan for a first attempt."""
 
     return f"""- Branch coverage plan: before writing YAML, list every structural branch
   marker in `./source.txt` (for example `(1)`, `(A)`, `(i)`) and decide ENCODE
   or DEFER for each one. ENCODE is the default. A condition, exception,
-  limitation, definition test, date or period test, status, classification,
-  amount, or computation is encodable even when its facts are not yet
-  modeled: declare each tested fact as a local `#input.*` named after the
-  source wording (a Boolean for a status, date, or period test; a number for
-  an amount), and bind a principal `derived` output to that branch through
-  `source:`. A missing input, a missing date type, or a missing relation is
-  not a deferral ground.
-- DEFER a branch only when (1) its own text cites another provision whose
-  determination it needs, no executable RuleSpec output for that provision is
-  in context, and `reason` names that exact provision; (2) it is a bare repeal
-  tombstone; or (3) it states no amount, condition, consequence, or
-  computation. Write each deferred output as
+  limitation, date or period test, status, classification, amount, or
+  computation that the branch itself states is encodable even when its facts
+  are not yet modeled: declare each fact the branch states as a local
+  `#input.*` (a Boolean for a status, date, or period test; a number for an
+  amount), and bind a principal `derived` output to that branch through
+  `source:`. For a determination made by a cited provision, follow the
+  cross-reference rules in this prompt (import an exact copied export, or use
+  their boundary-input or deferral form); do not invent a local fact for it.
+  For a branch that states a condition, amount, or computation, a missing
+  input, a missing date type, or a missing relation is not a deferral ground.
+- DEFER a branch only when {_DEFERRAL_GROUNDS}. A purpose, basis, or heading
+  leaf is covered by the `source:` or proof excerpt of the rule that consumes
+  it, not by a deferral. Write each deferred output as
   `{deferral_anchor}/<marker>/<marker>#<name>` with slash-separated markers;
   never use parentheses such as `a(1)(A)`, another jurisdiction prefix, or the
   bare module path for a branch. Return only when every listed branch is
@@ -10241,28 +10254,29 @@ def _format_completeness_repair_guidance(deferral_anchor: str) -> str:
     """Tell a repair to encode omitted branches instead of deferring them."""
 
     return f"""
-- Completeness repair: for every branch reported as neither encoded nor
+- Completeness repair: when a finding names an exact fix (a corrected output
+  path, a required literal citation in `reason`, or a proof atom to add to an
+  existing output that already implements the computation), apply exactly
+  that fix. Otherwise, for every branch reported as neither encoded nor
   precisely deferred, every source-stated control or computation reported
   without a principal output, and every deferral rejected because its reason
-  does not name an exact missing dependency, encode the branch. Encoding is
-  the default repair. A new deferral, or a reworded reason on a rejected one,
-  is not.
-- A condition, exception, limitation, definition test, date or period test,
-  status, classification, amount, or computation is encodable even when its
-  facts are not yet modeled. Declare each fact the branch tests as a local
-  `#input.*` named after the source wording (a Boolean for a status, date, or
-  period test; a number for an amount), and add a principal `derived` output
-  whose `source:` cites that exact branch. "No input is supplied", "the schema
-  has no date input", and "no executable relation is available" are not
-  deferral grounds: they name inputs to declare.
-- Do not reword a rejected deferral of such a branch. Replace it with the
-  executable rule, and remove the deferral with an item that contains only
-  `output: <existing output>` and `repair_remove: true`.
-- Keep or add a deferral only when (1) the branch's own text cites another
-  provision whose determination it needs, no executable RuleSpec output for
-  that provision is in context, and `reason` names that exact provision; (2)
-  the branch is a bare repeal tombstone; or (3) the branch states no amount,
-  condition, consequence, or computation.
+  does not name an exact missing dependency, encode the branch unless one of
+  the deferral grounds below applies. Encoding is the default repair. A new
+  deferral, or a reworded reason on a rejected one, is not.
+- A condition, exception, limitation, date or period test, status,
+  classification, amount, or computation that the branch itself states is
+  encodable even when its facts are not yet modeled. Declare each fact the
+  branch states as a local `#input.*` (a Boolean for a status, date, or period
+  test; a number for an amount), and add a principal `derived` output whose
+  `source:` cites that exact branch. For a determination made by a cited
+  provision, follow the cross-reference rules in this prompt instead of
+  inventing a local fact. For such a branch, "no input is supplied", "the
+  schema has no date input", and "no executable relation is available" are
+  not deferral grounds: they name inputs to declare.
+- When you encode a branch whose deferral was rejected, remove that deferral
+  with an item that contains only `output: <existing output>` and
+  `repair_remove: true`.
+- Keep or add a deferral only when {_DEFERRAL_GROUNDS}.
 - A deferred output path puts the branch after the module path as
   slash-separated markers: `{deferral_anchor}/<marker>/<marker>#<name>`.
   Never use parentheses such as `a(1)(A)`, another jurisdiction prefix, or the
@@ -10335,9 +10349,9 @@ def _format_validation_retry_feedback(
         for item in rendered_items
         for category in _COMPLETENESS_REPAIR_CATEGORIES
     ):
-        completeness_repair_guidance = _format_completeness_repair_guidance(
+        completeness_repair_guidance = "\n" + _format_completeness_repair_guidance(
             deferral_anchor
-        )
+        ).strip("\n")
     return (
         f"""
 Deterministic validation feedback for the rejected candidate below:
@@ -10345,8 +10359,7 @@ Deterministic validation feedback for the rejected candidate below:
   authoritative source and release-bound corpus evidence as the sole basis for
   legal facts and values.
 - Correct every listed issue in this candidate. Do not repeat the rejected
-  pattern.
-{completeness_repair_guidance.rstrip()}
+  pattern.{completeness_repair_guidance.rstrip()}
 {test_repair_guidance.rstrip()}
 
 === BEGIN PRIOR VALIDATION FEEDBACK ===
@@ -12298,8 +12311,8 @@ def _format_subparagraph_coverage_checklist(
     # In complete-source-unit mode a deferral is coverage only on the grounds
     # the completeness validator accepts; a scope reason is rejected there.
     deferral_reason_text = (
-        "the exact missing legal dependency, repeal, or non-operative ground\n"
-        "      allowed by the complete-source rules below"
+        "the exact missing legal dependency, repeal, or administrative runtime\n"
+        "      gap allowed by the complete-source rules below"
         if complete_source_unit
         else "the legal dependency or scope reason blocking encoding"
     )
