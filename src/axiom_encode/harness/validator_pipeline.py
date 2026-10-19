@@ -32346,20 +32346,13 @@ def find_test_input_assignment_issues(
         if isinstance(inputs, dict):
             assigned.update(_input_names_from_mapping(inputs))
         assigned.update(_table_input_names(test_case.get("tables")))
-        if not assigned:
-            issues.append(
-                "Test input assignment missing: "
-                f"`{test_name}` must provide `input` facts or `tables` rows "
-                "assigning every local factual `#input.<fact>` referenced by "
-                "this module's formulas."
-            )
-            continue
         missing = sorted(local_inputs - assigned)
         if not missing:
             continue
-        missing_display = ", ".join(f"#input.{name}" for name in missing[:8])
-        if len(missing) > 8:
-            missing_display += f", and {len(missing) - 8} more"
+        # The apply repair parses this diagnostic to add explicit facts. Report
+        # every missing name, including when a test has no factual inputs, so a
+        # single repair pass can satisfy modules with many local inputs.
+        missing_display = ", ".join(f"#input.{name}" for name in missing)
         issues.append(
             "Test input assignment missing: "
             f"`{test_name}` does not assign {missing_display}. Every test for a "
