@@ -33599,8 +33599,9 @@ def _admit_retired_replacement_source_verification(
     source is already covered by the exact requested resolver evidence. Keep
     the original bytes in replacement context. Exact descendant rows may also
     qualify within the same artifact and scope, with replayable containment
-    evidence. External evidence is admitted only for literal scalar parameters
-    whose complete rules must survive unchanged and pass normal validation.
+    evidence. External evidence is admitted only for proved scalar parameters
+    or eligible single-version derived rules whose complete rules must survive
+    unchanged and pass normal validation.
     """
     payload = yaml.load(
         target_bytes.decode("utf-8"), Loader=_LegacyReplacementYamlLoader
@@ -33614,8 +33615,8 @@ def _admit_retired_replacement_source_verification(
     declared_singular = verification.get("corpus_citation_path")
     plural = verification.get("corpus_citation_paths")
     requested = source_unit.resolved_source
-    composed_parent = declared_singular is None
-    singular = source_unit.requested if composed_parent else declared_singular
+    plural_only = declared_singular is None
+    singular = source_unit.requested if plural_only else declared_singular
     if (
         not isinstance(singular, str)
         or singular != source_unit.requested
@@ -33635,25 +33636,39 @@ def _admit_retired_replacement_source_verification(
             )
     if len(set(plural)) != len(plural):
         raise ValueError("replacement legacy source citations must not repeat")
-    if composed_parent:
-        # A bodyless parent can be the sole source of a fresh replacement only
-        # when the historical siblings are exactly its attested text-bearing
-        # components. A partial page list must not silently shed source text.
+    if plural_only:
+        # A plural-only declaration may identify either the exact text-bearing
+        # requested row or every attested component of a bodyless parent. In
+        # the first case, other citations still pass the descendant containment
+        # or unchanged external-proof checks below. In the second case, a
+        # partial page list must not silently shed source text.
         component_paths = [row.citation_path for row in requested.component_rows]
-        if (
-            requested.requested != singular
-            or requested.citation_path != singular
-            or not isinstance(requested.row, CorpusRowIdentity)
-            or requested.row.citation_path != singular
-            or requested.slice_required
-            or not component_paths
-            or len(set(component_paths)) != len(component_paths)
-            or set(plural) != set(component_paths)
-            or any(not path.startswith(singular + "/") for path in plural)
-        ):
+        exact_primary_row = (
+            singular in plural
+            and requested.requested == singular
+            and requested.citation_path == singular
+            and isinstance(requested.row, CorpusRowIdentity)
+            and requested.row.citation_path == singular
+            and not requested.slice_required
+            and not component_paths
+            and any(segment.strip() for segment in requested.proof_evidence_segments)
+        )
+        complete_composed_parent = (
+            requested.requested == singular
+            and requested.citation_path == singular
+            and isinstance(requested.row, CorpusRowIdentity)
+            and requested.row.citation_path == singular
+            and not requested.slice_required
+            and bool(component_paths)
+            and len(set(component_paths)) == len(component_paths)
+            and set(plural) == set(component_paths)
+            and all(path.startswith(singular + "/") for path in plural)
+        )
+        if not (exact_primary_row or complete_composed_parent):
             raise ValueError(
                 "replacement plural-only source verification requires the exact "
-                "complete composed parent and its attested descendant rows"
+                "text-bearing primary row or complete composed parent and its "
+                "attested descendant rows"
             )
 
     # Check other locations without changing the input handed to generation.
@@ -33662,7 +33677,7 @@ def _admit_retired_replacement_source_verification(
     remaining["module"] = dict(module)
     remaining_verification = dict(verification)
     del remaining_verification["corpus_citation_paths"]
-    if composed_parent:
+    if plural_only:
         remaining_verification["corpus_citation_path"] = singular
     remaining["module"]["source_verification"] = remaining_verification
     other_issues = find_plural_corpus_citation_path_issues(remaining)
@@ -33770,7 +33785,7 @@ def _admit_retired_replacement_source_verification(
             )
         )
         exact_composed_descendant = (
-            composed_parent
+            plural_only
             and path != singular
             and isinstance(historical.row, CorpusRowIdentity)
             and historical.requested
