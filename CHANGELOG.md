@@ -1,3 +1,7 @@
+## 0.2.2223
+
+- Integrate the current relation-only fixture repair and name the authenticated transport checkout explicitly, preserving source verification and workflow input guards.
+
 ## 0.2.2222
 
 - Bind corpus artifact transport to the reviewed exporter and its locked installation files, rejecting changes to the workflow, exporter, installer, uv requirements, package metadata or dependency lock.
