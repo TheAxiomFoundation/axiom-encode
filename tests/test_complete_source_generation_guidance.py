@@ -233,18 +233,18 @@ _ADMINISTRATIVE_REASON = (
 )
 
 
-def _coverage(output, reason):
+def _coverage(output, reason, citation=_GUIDANCE_CITATION):
     payload = {
         "format": "rulespec/v1",
         "module": {
-            "source_verification": {"corpus_citation_path": _GUIDANCE_CITATION},
+            "source_verification": {"corpus_citation_path": citation},
             "deferred_outputs": [{"output": output, "reason": reason}],
         },
         "rules": [],
     }
     return sc._deferred_coverage(
         payload,
-        corpus_citation_path=_GUIDANCE_CITATION,
+        corpus_citation_path=citation,
         source_text=_GUIDANCE_SOURCE,
         branches=sc.recognize_source_structure(_GUIDANCE_SOURCE),
     )
@@ -281,3 +281,44 @@ def test_guidance_agrees_with_validator_on_parenthesized_paths():
     covered, _issues = _coverage(f"{anchor}(a)#hearing_notice", _ADMINISTRATIVE_REASON)
 
     assert covered == set()
+
+
+def test_runtime_gap_ground_is_limited_to_the_classes_the_validator_reads():
+    """Ground (3) names statutes and federal regulations only; state rules fail."""
+
+    citation = "us-ny/regulation/18-nycrr/387/14"
+    anchor = evals._complete_source_deferral_anchor(citation)
+    covered, _issues = _coverage(
+        f"{anchor}/a#hearing_notice",
+        f"{citation}(a) requires the written hearing notice and quarterly report "
+        "filing dates for each household; that notice runtime capability is not "
+        "supplied in the available context.",
+        citation=citation,
+    )
+    rendered = _normalized(evals._format_completeness_repair_guidance(anchor))
+
+    assert covered == set()
+    assert "the source is a statute or a U.S. federal regulation" in rendered
+    assert "In other source classes, cover such an administrative branch" in rendered
+
+
+def test_guidance_points_to_the_repeal_form_without_direction_words():
+    rendered = _normalized(evals._format_branch_coverage_plan("us:statutes/7/2020"))
+
+    assert "in the repeal-tombstone form in the complete-source rules" in rendered
+    assert "repeal form above" not in rendered
+
+
+def test_checklist_non_operative_text_is_gated_on_complete_source_mode():
+    source = (
+        "(a) Purpose. This part promotes welfare.\n(b) Second category is ineligible."
+    )
+    citation = "us-ny/regulation/18-nycrr/387/14/a/5"
+    default = evals._format_subparagraph_coverage_checklist(source, citation)
+    complete = evals._format_subparagraph_coverage_checklist(
+        source, citation, complete_source_unit=True
+    )
+
+    assert "satisfy this checklist with\n`module.deferred_outputs[]`" in default
+    assert "satisfy this checklist with\n`module.deferred_outputs[]`" not in complete
+    assert "a\nnon-operative deferral is rejected" in complete

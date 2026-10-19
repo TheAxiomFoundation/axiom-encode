@@ -10217,11 +10217,14 @@ _DEFERRAL_GROUNDS = """(1) the branch depends on the determination of another pr
   deferral rather than an import or a boundary input, and `reason` names that
   exact provision with dependency wording, such as `requires <provision>,
   which is not encoded in the available context`; (2) the branch is a bare
-  repeal tombstone, in the repeal form above; or (3) the branch states only an
-  administrative duty, such as a notice, filing, report, hearing, or
-  submission, with no computation, and `reason` cites the exact canonical
-  branch citation and names the concrete missing runtime capability in the
-  branch's own terms"""
+  repeal tombstone, in the repeal-tombstone form in the complete-source
+  rules; or (3) the source is a statute or a U.S. federal regulation, the
+  branch states only an administrative duty, such as a notice, filing,
+  report, hearing, or submission, with no computation, and `reason` cites the
+  exact canonical branch citation and names the concrete missing runtime
+  capability in the branch's own terms. In other source classes, cover such
+  an administrative branch by citing it in the `source:` or proof excerpt of
+  the rule it governs"""
 
 
 def _format_branch_coverage_plan(deferral_anchor: str) -> str:
@@ -12324,6 +12327,16 @@ def _format_subparagraph_coverage_checklist(
         else "When in doubt, prefer (b): a `deferred_outputs` entry with a clear\n"
         "`reason` is honest and cheap to refine later. Silent omission is not."
     )
+    non_operative_text = (
+        "Legislative findings, preambles, intent clauses, and purpose clauses are still\n"
+        "source coverage items. In complete-source-unit mode, cover non-operative text\n"
+        "through the `source:` or proof excerpt of the rule that consumes it; a\n"
+        "non-operative deferral is rejected. Never invent an executable formula."
+        if complete_source_unit
+        else "Legislative findings, preambles, intent clauses, and purpose clauses are still\n"
+        "source coverage items. If the text is non-operative, satisfy this checklist with\n"
+        "`module.deferred_outputs[]` rather than inventing an executable formula."
+    )
     return f"""
 === BEGIN SUBPARAGRAPH COVERAGE CHECKLIST ===
 The source text above contains {len(subparagraphs)} high-signal top-level
@@ -12336,9 +12349,7 @@ below, the encoded artifact must contain EITHER:
       `us:statutes/7/2014/d#unspecified_output`) and whose `reason:` names
       {deferral_reason_text}.
 
-Legislative findings, preambles, intent clauses, and purpose clauses are still
-source coverage items. If the text is non-operative, satisfy this checklist with
-`module.deferred_outputs[]` rather than inventing an executable formula.
+{non_operative_text}
 
 Subparagraphs without (a) or (b) are an automatic CI failure under the
 source-subparagraph-coverage validator. There is no implicit "covered by
