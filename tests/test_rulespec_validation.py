@@ -47359,7 +47359,7 @@ rules:
     assert "sum(member_of_tax_unit, ...)" in issues[0]
 
 
-def test_relation_aggregate_syntax_rejects_sum_of_local_derived_relation_field():
+def test_relation_aggregate_syntax_accepts_sum_of_local_derived_relation_field():
     content = """format: rulespec/v1
 rules:
   - name: capital_asset_of_tax_unit
@@ -47390,9 +47390,7 @@ rules:
 
     issues = find_relation_aggregate_syntax_issues(content)
 
-    assert any("local executable output" in issue for issue in issues)
-    assert "sum(capital_asset_of_tax_unit.short_term_capital_gain)" in issues[0]
-    assert "sum_where(capital_asset_of_tax_unit, short_term_capital_gain" in issues[0]
+    assert issues == []
 
 
 def test_relation_aggregate_syntax_accepts_sum_of_relation_row_fact():
