@@ -1,0 +1,1 @@
+Recognize direct relation sums of local derived values supported by the rules engine, and align generation guidance without requiring an invented filter predicate. Preserve malformed-expression rejection and normal compilation/runtime validation.
