@@ -32021,9 +32021,20 @@ rules:
 
     assert len(issues) == 1
     assert "`no_facts` does not assign" in issues[0]
-    assert all(f"#input.fact_{name}" in issues[0] for name in (
-        "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"
-    ))
+    assert all(
+        f"#input.fact_{name}" in issues[0]
+        for name in (
+            "one",
+            "two",
+            "three",
+            "four",
+            "five",
+            "six",
+            "seven",
+            "eight",
+            "nine",
+        )
+    )
 
 
 def test_test_input_assignment_selects_formula_dependencies_by_case_period():
