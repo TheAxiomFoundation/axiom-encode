@@ -519,6 +519,20 @@ def test_non_hebrew_text_never_uses_the_hebrew_outline(text):
     assert hebrew.strip_leading_outline_chain(text) is None
 
 
+@pytest.mark.parametrize(
+    ("source", "paths"),
+    (
+        ("(א) הוראה.\n(ב)המוסד חייב בתשלום.", [("a",), ("b",)]),
+        ("(א) הוראה.\n(ב)(1)המוסד חייב בתשלום.", [("a",), ("b",), ("b", "1")]),
+        ("(א) הוראה.\n(1)המוסד חייב בתשלום.", [("a",), ("a", "1")]),
+    ),
+)
+def test_a_marker_touching_its_text_keeps_its_branch(source, paths):
+    branches = recognize_source_structure(source, corpus_citation_path=CITATION)
+
+    assert [branch.path for branch in branches] == paths
+
+
 def test_ambiguous_childless_letter_continues_the_subparagraph():
     """The intended reading of the case `_disambiguated` keeps out of the property."""
 
@@ -1222,6 +1236,24 @@ DIFFERENTIAL_CASES = (
     ),
     (
         "e1",
+        "לא אמורה להיות חסרה הוראת סעיף 345ב.",
+        "The provision of section 345b is not supposed to be missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "לא צפויים להיות חסרים כללי סעיף 345ב.",
+        "The rules of section 345b are not expected to be missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "לא" + " " * 60 + "היה חסר הכלל שבסעיף 345ב.",
+        "The rule in section 345b was not missing.",
+        "neither",
+    ),
+    (
+        "e1",
         "לא בהכרח חסרה הוראת החישוב שבסעיף 345ב.",
         "The computation rule in section 345b is not necessarily missing.",
         "neither",
@@ -1537,6 +1569,14 @@ def test_the_said_law_with_no_antecedent_binds_no_named_instrument():
         ("(א) הוראה.\n(ה1) ושבלא לחשב את התשלום בהתאם לסעיף 345ב.", False),
         ("(א) הוראה.\n(ה1) המוסד מסרב לחשב את התשלום בהתאם לסעיף 345ב.", False),
         ("(א) הוראה.\n(ה1) המועצות מסרבות לחשב את התשלום בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) חישוב התשלום הוחרג בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) תשלומים מוחרגים בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) נמנע מן המוסד לחשב את התשלום בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) המוסד דוחה את הטענה בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) המוסד שולל את התשלום בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) התשלום נשלל בהתאם לסעיף 345ב.", False),
+        # `דוחות` is also "reports": no negation.
+        ("(א) הוראה.\n(ה1) הגשת דוחות לפי סעיף 345ב.", True),
         (
             "(א) הוראה.\n(ה1) אין לפעול "
             + "בכל עת ובכל מצב " * 20
@@ -1698,6 +1738,8 @@ def test_a_preposed_law_name_claims_no_branch_of_this_one(kind, separator, tail)
         "חסרות הוראות סעיף 42 לפקודה זו.",
         "חסרות הוראות סעיף 42 לתקנות אלה.",
         "חסרות הוראות סעיף 42 לצו זה.",
+        "חסרות הוראות סעיף 42 לאותה פקודה.",
+        "חסרות הוראות סעיף 42 לאותו חוק.",
     ),
 )
 def test_another_instrument_owns_a_reason_citation(reason):
@@ -1824,6 +1866,11 @@ def test_a_parenthetical_qualifier_distinguishes_laws_of_one_name(qualifier, lin
         "אעפ״י ש",
         'אעפ"י ש',
         "ובשעה ש",
+        "עם כל זאת",
+        "ועם כל זאת",
+        "עם־כל־זאת",
+        "עם כל זה",
+        "ועם-כל-זה",
     ),
 )
 def test_compound_adversatives_take_any_separator(connective):
@@ -1935,6 +1982,10 @@ def test_requires_until_and_cannot_routes_are_closed_to_hebrew(
         "סעיף 14(ב) ל“חוק הביטוח הלאומי”",
         "סעיף 14(ב) ל‘חוק הביטוח הלאומי’",
         "סעיף 14(ב) ל«חוק הביטוח הלאומי»",
+        "סעיף 14(ב) לאותה פקודה",
+        "סעיף 14(ב) לאותו חוק",
+        "סעיף 14(ב) באותן תקנות",
+        "סעיף 14(ב) מאותו צו",
     ),
 )
 def test_another_laws_section_claims_no_branch_of_this_one(reference):

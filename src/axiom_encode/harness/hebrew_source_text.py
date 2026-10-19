@@ -222,9 +222,10 @@ def parse_outline_label(text: str) -> HebrewOutlineLabel | None:
     return HebrewOutlineLabel(marker, "paragraph", int(number.group(1)), suffix)
 
 
+# The closing parenthesis ends a marker, so a marker may touch its text
+# (``(ב)המוסד חייב``), as extracted statutes sometimes print it.
 _OUTLINE_CHAIN = re.compile(
     rf"(?m)^[ \t]*(?P<chain>\({OUTLINE_LABEL}\)(?:[ \t]*\({OUTLINE_LABEL}\))*)"
-    r"(?=\s|$)"
 )
 _CHAIN_LABEL = re.compile(rf"\(({OUTLINE_LABEL})\)")
 
@@ -408,7 +409,8 @@ _QUOTES = "״\"׳'“”‘’«»„"
 # (``ל״חוק הביטוח הלאומי״``).
 _INSTRUMENT_INTRO = (
     r"(?:של\s+|ל|(?:ש|אשר\s+)?(?:ב|מ|מן\s+|מתוך\s+))"
-    rf"[{_QUOTES}]?ה?[{_QUOTES}]?"
+    # ``לאותו חוק``, ``לאותה פקודה``: "that law", a contextual reference.
+    rf"(?:אות(?:ו|ה|ם|ן)\s+)?[{_QUOTES}]?ה?[{_QUOTES}]?"
 )
 _KIND_PATTERNS = {"חוק": "חוק", "פקודה": "פקוד[הת]", "תקנות": "תקנות", "צו": "צו"}
 
@@ -648,13 +650,18 @@ _SIGNAL = re.compile(
 # A negation governs a signal through up to two copulas or adverbs (``לא היה
 # חסר``, ``לא בהכרח חסרה``), as English reads "was not missing" and "is not
 # necessarily missing".
-_NEGATION_BRIDGE_WORDS = "היה היתה הייתה היו יהיה תהיה יהיו ממש באמת בהכרח תמיד כלל עוד"
+_NEGATION_BRIDGE_WORDS = (
+    "היה היתה הייתה היו יהיה תהיה יהיו להיות ממש באמת בהכרח תמיד כלל עוד "
+    "אמור אמורה אמורים אמורות צפוי צפויה צפויים צפויות עשוי עשויה עשויים עשויות"
+)
+# Words the negation may reach across: the negation itself and its bridge.
+_NEGATION_REACH_WORDS = 5
 _NEGATED_SIGNAL_PREFIX = re.compile(
     rf"{_NOT_HEBREW_BEFORE}(?:ו|ש|וש|כש)?"
     r"(?:לא|אין|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|כלל\s+לא)"
     r"(?:\s+(?:"
     + "|".join(_NEGATION_BRIDGE_WORDS.split())
-    + rf"){_NOT_HEBREW_AFTER}){{0,2}}"
+    + rf"){_NOT_HEBREW_AFTER}){{0,3}}"
     r"\s*$"
 )
 
@@ -684,6 +691,8 @@ _ADVERSATIVE_PHRASES = (
     "גם אם",
     "הגם כי",
     "לעומת זאת",
+    "עם כל זאת",
+    "עם כל זה",
 )
 # Connectives glued to the next word's first letter (``פרט לסעיף``, ``אף
 # שסעיף``), which may also follow a separator (``פרט־ל``).
@@ -970,6 +979,10 @@ _NEGATIONS = re.compile(
     rf"{_NOT_HEBREW_BEFORE}(?P<relative>(?:ו)?(?:כ)?ש)?(?:[ומה]{{0,2}})"
     r"(?:אין|לא|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|אסור(?:ה|ים|ות)?|בל|לבל|בלתי"
     r"|נאסר(?:ה|ו|ים|ות)?|איסור|מנוע(?:ה|ים|ות)?|מסרב(?:ת|ים|ות)?|בלא"
+    # Excluded, prevented, rejects, denies (not ``דוחות``, "reports").
+    r"|הוחרג(?:ה|ו)?|מוחרג(?:ת|ים|ות)?|יוחרג(?:ו)?|תוחרג(?:נה)?"
+    r"|נמנע(?:ה|ו|ים|ות)?|יימנע(?:ו)?|תימנע(?:נה)?|דוח(?:ה|ים)"
+    r"|שולל(?:ת|ים|ות)?|נשלל(?:ה|ו|ים|ות)?"
     r"|בלי|ללא|מבלי|למעט|מלבד|להוציא|זולת)"
     rf"{_NOT_HEBREW_AFTER}"
     rf"|{_NOT_HEBREW_BEFORE}[ושכמה]{{0,2}}אי{_SEP}(?:אפשר|ניתן){_NOT_HEBREW_AFTER}"
@@ -1142,15 +1155,25 @@ _OTHER_CITATION = re.compile(
 )
 
 
-# Longest negation the prefix pattern reads (``ולא היתה בהכרח``), with room
-# for the whitespace inside it; whitespace before the signal is skipped first.
-_NEGATION_WINDOW = 48
+def _words_back(text: str, end: int, count: int) -> int:
+    """Where the ``count`` words before ``end`` begin, whitespace however long."""
+
+    start = end
+    for _ in range(count):
+        while start and text[start - 1].isspace():
+            start -= 1
+        if not start:
+            break
+        while start and not text[start - 1].isspace():
+            start -= 1
+    return start
 
 
 def _signals(text: str) -> list[re.Match[str]]:
     """Missing-dependency signals of ``text`` that no negation governs.
 
-    The negation is read in a bounded window before each signal, so the scan
+    The negation is read over the few words before each signal (``לא אמורה
+    להיות חסרה``), however much whitespace sits between them, so the scan
     stays linear in the reason's length.
     """
 
@@ -1159,7 +1182,8 @@ def _signals(text: str) -> list[re.Match[str]]:
         end = signal.start()
         while end and text[end - 1].isspace():
             end -= 1
-        if not _NEGATED_SIGNAL_PREFIX.search(text, max(0, end - _NEGATION_WINDOW), end):
+        start = _words_back(text, end, _NEGATION_REACH_WORDS)
+        if not _NEGATED_SIGNAL_PREFIX.search(text, start, end):
             signals.append(signal)
     return signals
 
