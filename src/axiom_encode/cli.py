@@ -2571,9 +2571,18 @@ def main():
         "apply-reviewed-repair",
         help="Validate and sign an exact code-reviewed repair package without a model",
     )
-    for option in ("repo", "patch-checkout", "corpus-path", "seed-rulespec", "seed-tests", "seed-archive"):
+    for option in (
+        "repo",
+        "patch-checkout",
+        "corpus-path",
+        "seed-rulespec",
+        "seed-tests",
+        "seed-archive",
+    ):
         reviewed_repair_parser.add_argument("--" + option, type=Path, required=True)
-    reviewed_repair_parser.add_argument("--axiom-rules-engine-path", dest="axiom_rules_path", type=Path, required=True)
+    reviewed_repair_parser.add_argument(
+        "--axiom-rules-engine-path", dest="axiom_rules_path", type=Path, required=True
+    )
     for option in ("patch-id", "source-bundle-json", "run-id"):
         reviewed_repair_parser.add_argument("--" + option, required=True)
 
@@ -24981,11 +24990,10 @@ def _applied_manifest_source_attestation_issues(
             for issue in structure_issues
         )
 
-    reviewed_candidate = (
-        backend == ""
-        and payload.get("tool") in {APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
-                                   APPLIED_ENCODING_REVIEWED_REPAIR_TOOL}
-    )
+    reviewed_candidate = backend == "" and payload.get("tool") in {
+        APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+        APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
+    }
     generated_backend = (
         backend in APPLIED_ENCODING_GENERATED_BACKENDS or reviewed_candidate
     )
@@ -25466,7 +25474,9 @@ def _applied_manifest_tool_execution_issues(
         try:
             verify_repair_binding(payload.get("reviewed_repair"))
         except (ValueError, TypeError, RecursionError) as exc:
-            issues.append(f"{manifest_label} reviewed repair reconstruction refused: {exc}")
+            issues.append(
+                f"{manifest_label} reviewed repair reconstruction refused: {exc}"
+            )
         check_producer("reviewed repair")
         return issues
     if backend is None and tool == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL:
@@ -29235,8 +29245,11 @@ def _load_verified_applied_encoding_manifest_payload(
         )
     if (
         backend in APPLIED_ENCODING_ENCODER_BACKENDS
-        or payload.get("tool") in {APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
-                                   APPLIED_ENCODING_REVIEWED_REPAIR_TOOL}
+        or payload.get("tool")
+        in {
+            APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+            APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
+        }
     ) and expected_encoder_identity is not None:
         issues.extend(
             _model_apply_validation_execution_issues(
@@ -29251,7 +29264,13 @@ def _load_verified_applied_encoding_manifest_payload(
 
         try:
             verify_manifest_reconstruction(payload, repo_path, manifest_label)
-        except (ValueError, TypeError, OSError, subprocess.CalledProcessError, RecursionError) as exc:
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            subprocess.CalledProcessError,
+            RecursionError,
+        ) as exc:
             issues.append(f"{manifest_label} reviewed repair lineage refused: {exc}")
     if payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != expected_waiver_set_sha256:
         issues.append(
@@ -56416,18 +56435,27 @@ def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> 
     if isinstance(result, ReviewedRepairResult):
         package, postimage = verify_repair_binding(result.review_binding)
         if output_file.read_bytes() != postimage[0]:
-            raise RuntimeError("Reviewed repair RuleSpec differs from registered postimage")
+            raise RuntimeError(
+                "Reviewed repair RuleSpec differs from registered postimage"
+            )
         payload = _safe_load_unique_keys(output_file.read_text())
         module = payload.get("module") if isinstance(payload, dict) else None
-        verification = module.get("source_verification") if isinstance(module, dict) else None
+        verification = (
+            module.get("source_verification") if isinstance(module, dict) else None
+        )
         attestation = _generated_result_source_attestation(result)
-        if (attestation is None or not isinstance(verification, dict)
-                or result.citation != package.manifest["citation"]):
+        if (
+            attestation is None
+            or not isinstance(verification, dict)
+            or result.citation != package.manifest["citation"]
+        ):
             raise RuntimeError("Reviewed repair lacks bound source identity")
         issues = _source_attestation_structure_issues(attestation)
         issues.extend(_source_attestation_binding_issues(attestation, verification))
         if issues:
-            raise RuntimeError("Reviewed repair source binding failed: " + "; ".join(issues))
+            raise RuntimeError(
+                "Reviewed repair source binding failed: " + "; ".join(issues)
+            )
         return
 
     backend = str(getattr(result, "backend", "") or "").strip().lower()
@@ -56667,16 +56695,27 @@ def _apply_result_metadata(result) -> dict[str, object]:
 
     if isinstance(result, ReviewedRepairResult):
         package, _postimage = verify_repair_binding(result.review_binding)
-        if (result.tool != TOOL or result.runner != "reviewed-repair"
-                or result.backend is not None or result.model is not None
-                or result.generation_prompt_sha256 is not None
-                or result.trace_file is not None
-                or result.citation != package.manifest["citation"]):
-            raise RuntimeError("Reviewed repair result has invalid non-model provenance")
+        if (
+            result.tool != TOOL
+            or result.runner != "reviewed-repair"
+            or result.backend is not None
+            or result.model is not None
+            or result.generation_prompt_sha256 is not None
+            or result.trace_file is not None
+            or result.citation != package.manifest["citation"]
+        ):
+            raise RuntimeError(
+                "Reviewed repair result has invalid non-model provenance"
+            )
         return {
-            "tool": TOOL, "citation": result.citation, "runner": result.runner,
-            "backend": None, "model": None, "generation_prompt_sha256": None,
-            "codex_cli_version": None, "codex_cli_sha256": None,
+            "tool": TOOL,
+            "citation": result.citation,
+            "runner": result.runner,
+            "backend": None,
+            "model": None,
+            "generation_prompt_sha256": None,
+            "codex_cli_version": None,
+            "codex_cli_sha256": None,
             "source_attestation": copy.deepcopy(result.source_attestation),
             "reviewed_repair": copy.deepcopy(result.review_binding),
         }
@@ -60749,14 +60788,18 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             )
     from .reviewed_repair_patch import ReviewedRepairResult
 
-    if (not isinstance(result, ReviewedRepairResult)
-            and vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None):
+    if (
+        not isinstance(result, ReviewedRepairResult)
+        and vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None
+    ):
         _rewrite_generated_yaml_without_non_ascii_escapes(
             output_file,
             contained_in=generated_root,
         )
-    if (not isinstance(result, ReviewedRepairResult)
-            and vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is not True):
+    if (
+        not isinstance(result, ReviewedRepairResult)
+        and vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is not True
+    ):
         _rewrite_generated_yaml_without_non_ascii_escapes(
             output_test,
             contained_in=generated_root,

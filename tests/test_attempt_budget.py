@@ -448,12 +448,20 @@ class TestMainExitContract:
         assert budget_mod.main() == 0
 
     @pytest.mark.parametrize("override", ["", "true"])
-    def test_reviewed_patch_is_not_replay_budget_exemption(self, monkeypatch, capsys, override):
+    def test_reviewed_patch_is_not_replay_budget_exemption(
+        self, monkeypatch, capsys, override
+    ):
         self._set_env(monkeypatch, repair_run_id="32201076681", override=override)
-        monkeypatch.setenv("SOURCE_BUNDLE_JSON", json.dumps({
-            "schema": "axiom-encode/reviewed-repair-transaction/v1",
-            "patch_id": "fixture", "transaction": {},
-        }))
+        monkeypatch.setenv(
+            "SOURCE_BUNDLE_JSON",
+            json.dumps(
+                {
+                    "schema": "axiom-encode/reviewed-repair-transaction/v1",
+                    "patch_id": "fixture",
+                    "transaction": {},
+                }
+            ),
+        )
         self._stub_api(monkeypatch, self.FAILING_HISTORY)
         assert budget_mod.main() == 1
         assert "enforced=True blocked=True" in capsys.readouterr().out

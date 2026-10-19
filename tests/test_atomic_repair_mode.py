@@ -385,17 +385,40 @@ def test_direct_extractor_rejects_v6_side_modes_before_archive(tmp_path, field, 
 
 
 def test_reviewed_wrapper_preserves_exact_source_contract_and_mode():
-    inner = {"schema": "axiom-encode/atomic-source-transaction/v6", "repair_mode": "full_artifact", "transaction": transaction()}
-    raw = json.dumps({"schema": "axiom-encode/reviewed-repair-transaction/v1", "patch_id": "fixture", "transaction": inner})
-    assert immutable_atomic_source_contract(raw) == immutable_atomic_source_contract(json.dumps(inner))
+    inner = {
+        "schema": "axiom-encode/atomic-source-transaction/v6",
+        "repair_mode": "full_artifact",
+        "transaction": transaction(),
+    }
+    raw = json.dumps(
+        {
+            "schema": "axiom-encode/reviewed-repair-transaction/v1",
+            "patch_id": "fixture",
+            "transaction": inner,
+        }
+    )
+    assert immutable_atomic_source_contract(raw) == immutable_atomic_source_contract(
+        json.dumps(inner)
+    )
     assert split_atomic_source_input(raw)["reviewed_repair_patch_id"] == "fixture"
-    assert resolve_atomic_repair_mode(raw, DISPATCH) == {"mode": "full_artifact", "tests_only": False}
+    assert resolve_atomic_repair_mode(raw, DISPATCH) == {
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
 
 
 @pytest.mark.parametrize("mutation", ["extra", "nested", "tests_only", "id", "v3"])
 def test_reviewed_wrapper_remains_closed(mutation):
-    inner = {"schema": "axiom-encode/atomic-source-transaction/v6", "repair_mode": "full_artifact", "transaction": transaction()}
-    wrapper = {"schema": "axiom-encode/reviewed-repair-transaction/v1", "patch_id": "fixture", "transaction": inner}
+    inner = {
+        "schema": "axiom-encode/atomic-source-transaction/v6",
+        "repair_mode": "full_artifact",
+        "transaction": transaction(),
+    }
+    wrapper = {
+        "schema": "axiom-encode/reviewed-repair-transaction/v1",
+        "patch_id": "fixture",
+        "transaction": inner,
+    }
     if mutation == "extra":
         wrapper["caller_authorized"] = True
     elif mutation == "nested":

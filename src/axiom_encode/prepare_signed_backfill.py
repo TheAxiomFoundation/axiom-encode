@@ -407,14 +407,25 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     if len(atomic_source_json.encode("utf-8")) > MAX_SOURCE_BUNDLE_JSON_BYTES:
         raise ValueError("atomic source JSON exceeds the maximum input size")
     payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
-    if isinstance(payload, dict) and payload.get("schema") == "axiom-encode/reviewed-repair-transaction/v1":
+    if (
+        isinstance(payload, dict)
+        and payload.get("schema") == "axiom-encode/reviewed-repair-transaction/v1"
+    ):
         if set(payload) != {"schema", "patch_id", "transaction"}:
-            raise ValueError("reviewed repair requires exactly patch_id and transaction")
+            raise ValueError(
+                "reviewed repair requires exactly patch_id and transaction"
+            )
         patch_id = payload["patch_id"]
-        if not isinstance(patch_id, str) or re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", patch_id) is None:
+        if (
+            not isinstance(patch_id, str)
+            or re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", patch_id) is None
+        ):
             raise ValueError("reviewed repair patch id is invalid")
         inner = payload["transaction"]
-        if not isinstance(inner, dict) or inner.get("schema") != "axiom-encode/atomic-source-transaction/v6":
+        if (
+            not isinstance(inner, dict)
+            or inner.get("schema") != "axiom-encode/atomic-source-transaction/v6"
+        ):
             raise ValueError("reviewed repair requires an exact v6 transaction")
         normalized = split_atomic_source_input(json.dumps(inner, allow_nan=False))
         if normalized.get("repair_mode") != "full_artifact":
@@ -580,7 +591,9 @@ def immutable_atomic_source_contract(atomic_source_json: str) -> dict[str, objec
         return normalized
     payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
     if "reviewed_repair_patch_id" in normalized:
-        return immutable_atomic_source_contract(json.dumps(payload["transaction"], allow_nan=False))
+        return immutable_atomic_source_contract(
+            json.dumps(payload["transaction"], allow_nan=False)
+        )
     return split_atomic_source_input(
         json.dumps(payload["transaction"], allow_nan=False)
     )
@@ -3432,7 +3445,9 @@ def authorized_changed_paths(
             if backend is not None:
                 raise ValueError("reviewed repair cannot claim a model backend")
             verify_manifest_reconstruction(payload, repo, relative.as_posix())
-        is_exact_apply = tool == MODEL_APPLY_TOOL or is_reviewed_candidate or is_reviewed_repair
+        is_exact_apply = (
+            tool == MODEL_APPLY_TOOL or is_reviewed_candidate or is_reviewed_repair
+        )
         replacement = payload.get("replacement")
         receipt_rewrites: set[PurePosixPath] = set()
         if tool == LEGACY_REPLACEMENT_TOOL:
