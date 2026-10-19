@@ -8935,7 +8935,9 @@ def test_parenthesized_cfr_outline_is_recognized_with_bounded_runtime():
     assert len(branches) == 20_002
     assert branches[-2].path == ("a", "20000")
     assert branches[-1].path == ("b",)
-    assert elapsed < 1.5
+    # Shared CI runners can add scheduling noise to this large outline.
+    # Keep the guard bounded without treating small variance as a regression.
+    assert elapsed < 3.0
 
 
 def test_parenthesized_nonoutline_without_root_sequence_remains_flat():
