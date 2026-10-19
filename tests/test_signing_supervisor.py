@@ -2175,7 +2175,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["pr_base_branch"]["default"] == "main"
     assert inputs["source_bundle_json"] == {
         "description": (
-            "Atomic source input: legacy citation array/refresh object, v2-v5 contract, "
+            "Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3; "
+            "legacy citation array/refresh object, v2-v5 contract, "
             "or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} "
             "for an authenticated failed ordinary single-target repair"
         ),
@@ -2345,6 +2346,23 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         if step.get("name") == "Fetch pinned signed corpus release object"
     )
     assert release_step["env"] == {
+        "ATOMIC_SOURCE_JSON": "${{ inputs.source_bundle_json }}",
+        "CITATION": "${{ inputs.citation }}",
+        "REPLACE_RULESPEC_PATH": "${{ inputs.replace_rulespec_path }}",
+        "REPAIR_RUN_ID": "${{ inputs.repair_run_id }}",
+        "QUEUE_ITEM_ID": "${{ inputs.queue_item_id }}",
+        "QUEUE_ITEM_GENERATION_SHA256": "${{ inputs.queue_item_generation_sha256 }}",
+        "QUEUE_DISPATCHER_RUN_ID": "${{ inputs.queue_dispatcher_run_id }}",
+        "DEPENDENT_CITATION": "${{ inputs.dependent_citation }}",
+        "SECOND_DEPENDENT_CITATION": "${{ inputs.second_dependent_citation }}",
+        "DEPENDENT_REVIEW_FINDING": "${{ inputs.dependent_review_finding }}",
+        "SECOND_DEPENDENT_REVIEW_FINDING": "${{ inputs.second_dependent_review_finding }}",
+        "REPLACE_LEGACY_RULESPEC_PATH": "${{ inputs.replace_legacy_rulespec_path }}",
+        "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "${{ inputs.legacy_exact_dependent_rulespec_path }}",
+        "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "${{ inputs.second_legacy_exact_dependent_rulespec_path }}",
+        "EXISTING_SIGNED_IMPORTS_JSON": "${{ inputs.existing_signed_imports_json }}",
+        "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "${{ inputs.legacy_retained_successor_rulespec_paths_json }}",
+        "TRUST_CORPUS_RELEASE_ROOT": "${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}",
         "RELEASE_BASE_URL": ("https://pub-a8952f8657fc49fda358146ac001366c.r2.dev"),
         "RULESPEC_CHECKOUT": "rulespec-${{ inputs.country }}",
         "QUEUE_ID": "${{ inputs.queue_id }}",

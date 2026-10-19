@@ -53910,3 +53910,55 @@ def test_apply_collision_rejects_unauthorized_noncanonical_or_nondirect_refineme
             relative_output=relative_output,
             rules_repo_path=content_root,
         )
+
+
+def test_apply_repair_reads_unassigned_facts_from_real_validator_issue(tmp_path):
+    from axiom_encode.cli import _fill_missing_test_input_assignments
+    from axiom_encode.harness.validator_pipeline import (
+        find_test_input_assignment_issues,
+    )
+
+    rules_file = tmp_path / "4.yaml"
+    test_file = tmp_path / "4.test.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: fact_one and fact_two
+"""
+    )
+    test_file.write_text(
+        """- name: relation_only
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/4#relation.person: [true]
+  output:
+    us:regulations/7-cfr/273/4#eligible: holds
+"""
+    )
+    issues = find_test_input_assignment_issues(
+        rules_file.read_text(), yaml.safe_load(test_file.read_text())
+    )
+
+    repaired = _fill_missing_test_input_assignments(
+        rules_file=rules_file,
+        test_file=test_file,
+        policy_repo_path=tmp_path / "rulespec-us" / "us",
+        relative_output=Path("us/regulations/7-cfr/273/4.yaml"),
+        issues=issues,
+    )
+
+    assert repaired == ["relation_only"]
+    cases = yaml.safe_load(test_file.read_text())
+    assert cases[0]["input"]["us:regulations/7-cfr/273/4#input.fact_one"] is False
+    assert cases[0]["input"]["us:regulations/7-cfr/273/4#input.fact_two"] is False
+    assert find_test_input_assignment_issues(rules_file.read_text(), cases) == []

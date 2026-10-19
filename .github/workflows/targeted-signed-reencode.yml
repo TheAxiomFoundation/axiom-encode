@@ -1111,7 +1111,7 @@ jobs:
         run: |
           set -euo pipefail
           artifact_id="$(axiom-encode/.venv/bin/python -m axiom_encode.corpus_artifact_transport validate-export \
-            --corpus-root axiom-corpus \
+            --corpus-checkout axiom-corpus \
             --run-metadata "$RUNNER_TEMP/corpus-export-run.json" \
             --artifact-metadata "$RUNNER_TEMP/corpus-export-artifacts.json")"
           echo "artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
@@ -1199,7 +1199,7 @@ jobs:
           }
           if [ -n "${{ steps.corpus_artifact_transport.outputs.run_id }}" ]; then
             axiom-encode/.venv/bin/python -m axiom_encode.corpus_artifact_transport materialize \
-              --corpus-root axiom-corpus --toolchain "$toolchain" \
+              --corpus-checkout axiom-corpus --toolchain "$toolchain" \
               --run-metadata "$RUNNER_TEMP/corpus-export-run.json" \
               --artifact-metadata "$RUNNER_TEMP/corpus-export-artifacts.json" \
               --archive "$RUNNER_TEMP/corpus-export.zip" \

@@ -584,13 +584,21 @@ def test_staged_cli_revalidates_metadata_without_credentials(
     }.items():
         monkeypatch.setenv(name, value)
     common = [
-        "--corpus-root",
+        "--corpus-checkout",
         str(repo),
         "--run-metadata",
         str(run_path),
         "--artifact-metadata",
         str(metadata_path),
     ]
+    # The authenticated checkout argument does not retain the unsigned legacy alias.
+    monkeypatch.setattr(
+        "sys.argv", ["transport", "validate-export", "--corpus-root", str(repo)]
+    )
+    with pytest.raises(SystemExit) as rejected:
+        transport.main()
+    assert rejected.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
     monkeypatch.setattr("sys.argv", ["transport", "validate-export", *common])
     transport.main()
     assert capsys.readouterr().out.strip() == "456"

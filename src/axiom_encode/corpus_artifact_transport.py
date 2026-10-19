@@ -300,7 +300,7 @@ def read_regular(path: Path, limit: int) -> bytes:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=["request", "validate-export", "materialize"])
-    parser.add_argument("--corpus-root", type=Path)
+    parser.add_argument("--corpus-checkout", type=Path)
     parser.add_argument("--toolchain", type=Path)
     parser.add_argument("--release-object", type=Path)
     parser.add_argument("--run-metadata", type=Path)
@@ -315,10 +315,10 @@ def main() -> None:
         return
     if not run_id:
         return
-    if not all((args.corpus_root, args.run_metadata, args.artifact_metadata)):
+    if not all((args.corpus_checkout, args.run_metadata, args.artifact_metadata)):
         raise ValueError("transport requires exact corpus and GitHub metadata paths")
     run = json.loads(read_regular(args.run_metadata, MAX_JSON))
-    validate_run(run, run_id, args.corpus_root)
+    validate_run(run, run_id, args.corpus_checkout)
     artifact = select_artifact(
         json.loads(read_regular(args.artifact_metadata, MAX_JSON)), run
     )
@@ -346,9 +346,9 @@ def main() -> None:
         os.environ["TRUST_CORPUS_RELEASE_ROOT"],
         pin,
         run,
-        args.corpus_root,
+        args.corpus_checkout,
     )
-    place_member(args.corpus_root, path, payload)
+    place_member(args.corpus_checkout, path, payload)
     print(
         json.dumps(
             {
