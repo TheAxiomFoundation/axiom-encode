@@ -134,6 +134,7 @@ from .policyengine_runtime import (
 )
 from .pricing import estimate_usage_cost_usd
 from .source_completeness import (
+    _deferral_anchor_bases,
     _rulespec_target_base,
     collect_artifact_numeric_values,
 )
@@ -10188,7 +10189,92 @@ Mandatory independent-review corrections:
 """
 
 
-def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
+_COMPLETENESS_REPAIR_CATEGORIES = (
+    "[complete-source-unit:structure]",
+    "[complete-source-unit:deferral]",
+    "[complete-source-unit:formula-output]",
+)
+
+
+def _complete_source_deferral_anchor(corpus_citation_path: str | None) -> str:
+    """Return the module path a complete-source deferred output must extend.
+
+    This is the same preferred anchor the completeness validator names in its
+    own retry advice; it is used only to render generation guidance.
+    """
+
+    if not corpus_citation_path:
+        return "<module path>"
+    try:
+        anchors = _deferral_anchor_bases(corpus_citation_path)
+    except Exception:  # pragma: no cover - guidance must never block a prompt
+        return "<module path>"
+    return anchors[-1] if anchors else "<module path>"
+
+
+def _format_branch_coverage_plan(deferral_anchor: str) -> str:
+    """Render the complete-source encode-or-defer plan for a first attempt."""
+
+    return f"""- Branch coverage plan: before writing YAML, list every structural branch
+  marker in `./source.txt` (for example `(1)`, `(A)`, `(i)`) and decide ENCODE
+  or DEFER for each one. ENCODE is the default. A condition, exception,
+  limitation, definition test, date or period test, status, classification,
+  amount, or computation is encodable even when its facts are not yet
+  modeled: declare each tested fact as a local `#input.*` named after the
+  source wording (a Boolean for a status, date, or period test; a number for
+  an amount), and bind a principal `derived` output to that branch through
+  `source:`. A missing input, a missing date type, or a missing relation is
+  not a deferral ground.
+- DEFER a branch only when (1) its own text cites another provision whose
+  determination it needs, no executable RuleSpec output for that provision is
+  in context, and `reason` names that exact provision; (2) it is a bare repeal
+  tombstone; or (3) it states no amount, condition, consequence, or
+  computation. Write each deferred output as
+  `{deferral_anchor}/<marker>/<marker>#<name>` with slash-separated markers;
+  never use parentheses such as `a(1)(A)`, another jurisdiction prefix, or the
+  bare module path for a branch. Return only when every listed branch is
+  encoded or deferred on one of those grounds.
+"""
+
+
+def _format_completeness_repair_guidance(deferral_anchor: str) -> str:
+    """Tell a repair to encode omitted branches instead of deferring them."""
+
+    return f"""
+- Completeness repair: for every branch reported as neither encoded nor
+  precisely deferred, every source-stated control or computation reported
+  without a principal output, and every deferral rejected because its reason
+  does not name an exact missing dependency, encode the branch. Encoding is
+  the default repair. A new deferral, or a reworded reason on a rejected one,
+  is not.
+- A condition, exception, limitation, definition test, date or period test,
+  status, classification, amount, or computation is encodable even when its
+  facts are not yet modeled. Declare each fact the branch tests as a local
+  `#input.*` named after the source wording (a Boolean for a status, date, or
+  period test; a number for an amount), and add a principal `derived` output
+  whose `source:` cites that exact branch. "No input is supplied", "the schema
+  has no date input", and "no executable relation is available" are not
+  deferral grounds: they name inputs to declare.
+- Do not reword a rejected deferral of such a branch. Replace it with the
+  executable rule, and remove the deferral with an item that contains only
+  `output: <existing output>` and `repair_remove: true`.
+- Keep or add a deferral only when (1) the branch's own text cites another
+  provision whose determination it needs, no executable RuleSpec output for
+  that provision is in context, and `reason` names that exact provision; (2)
+  the branch is a bare repeal tombstone; or (3) the branch states no amount,
+  condition, consequence, or computation.
+- A deferred output path puts the branch after the module path as
+  slash-separated markers: `{deferral_anchor}/<marker>/<marker>#<name>`.
+  Never use parentheses such as `a(1)(A)`, another jurisdiction prefix, or the
+  bare module path for a branch.
+"""
+
+
+def _format_validation_retry_feedback(
+    feedback: Sequence[str],
+    *,
+    deferral_anchor: str = "<module path>",
+) -> str:
     """Render bounded prior-attempt validator output as non-authority guidance."""
 
     rendered_items: list[str] = []
@@ -10243,6 +10329,15 @@ def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
   contrasting side as a same-period case with otherwise identical inputs.
   Merely placing the number in an unrelated input or test name is not credited.
 """
+    completeness_repair_guidance = ""
+    if any(
+        category in item
+        for item in rendered_items
+        for category in _COMPLETENESS_REPAIR_CATEGORIES
+    ):
+        completeness_repair_guidance = _format_completeness_repair_guidance(
+            deferral_anchor
+        )
     return (
         f"""
 Deterministic validation feedback for the rejected candidate below:
@@ -10251,6 +10346,7 @@ Deterministic validation feedback for the rejected candidate below:
   legal facts and values.
 - Correct every listed issue in this candidate. Do not repeat the rejected
   pattern.
+{completeness_repair_guidance.rstrip()}
 {test_repair_guidance.rstrip()}
 
 === BEGIN PRIOR VALIDATION FEEDBACK ===
@@ -11034,11 +11130,16 @@ Preferred principal output:
         part.strip() for part in guidance_parts if part.strip()
     )
 
+    subparagraph_coverage_checklist = _format_subparagraph_coverage_checklist(
+        source_text,
+        corpus_citation_path,
+        complete_source_unit=require_complete_source_unit,
+    )
     inline_source = f"""
 === BEGIN SOURCE.TXT ===
 {source_text}
 === END SOURCE.TXT ===
-{_format_subparagraph_coverage_checklist(source_text, corpus_citation_path)}"""
+{subparagraph_coverage_checklist}"""
     corpus_source_section = ""
     corpus_rulespec_requirement = ""
     if corpus_citation_path:
@@ -11066,8 +11167,10 @@ Preferred principal output:
 """
 
     mandatory_review_findings_section = _format_mandatory_review_findings(workspace)
+    deferral_anchor = _complete_source_deferral_anchor(corpus_citation_path)
     validation_retry_feedback_section = _format_validation_retry_feedback(
-        validation_retry_feedback
+        validation_retry_feedback,
+        deferral_anchor=deferral_anchor,
     )
     required_deferred_output_contract_section = (
         _format_required_deferred_output_contracts(required_deferred_output_contracts)
@@ -11100,7 +11203,8 @@ Protected atomic-composition requirements:
 """
     complete_source_unit_section = ""
     if require_complete_source_unit:
-        complete_source_unit_section = """
+        complete_source_unit_section = (
+            """
 Complete-source-unit mode is enabled for this request:
 - Treat the entire authoritative `./source.txt` body as the completeness
   inventory. `module.summary` is only a concise reviewer orientation and
@@ -11139,7 +11243,9 @@ Complete-source-unit mode is enabled for this request:
   completeness validator. Follow the citation with the concrete missing input
   or runtime capability; do not infer a citation beyond the supplied source.
   Never guess a blocker target.
-- A child-branch `source:` citation does not cover a distinct parent chapeau.
+"""
+            + _format_branch_coverage_plan(deferral_anchor)
+            + """- A child-branch `source:` citation does not cover a distinct parent chapeau.
   When a parent chapeau states applicability, temporal scope, or a shared
   computation, bind one consuming executable rule to that exact parent path
   and include an exact parent-chapeau proof excerpt. Keep the child bindings as
@@ -11193,6 +11299,7 @@ Complete-source-unit mode is enabled for this request:
   applicable path.
 - A genuinely scalar-only source unit may remain parameter-only.
 """
+        )
 
     stable_prefix = f"""You are participating in an encoding eval for {citation}.
 
@@ -12151,7 +12258,10 @@ def _source_identifier_requests_percentage_rate_boundary(
 
 
 def _format_subparagraph_coverage_checklist(
-    source_text: str, corpus_citation_path: str | None
+    source_text: str,
+    corpus_citation_path: str | None,
+    *,
+    complete_source_unit: bool = False,
 ) -> str:
     """Pre-compute the validator's subparagraph coverage list and inject it as a
     structured checklist the model must satisfy.
@@ -12185,6 +12295,22 @@ def _format_subparagraph_coverage_checklist(
         excerpt = _compact_source_excerpt(text, limit=100)
         rows.append(f"  - {citation}: {excerpt}")
     rows_text = "\n".join(rows)
+    # In complete-source-unit mode a deferral is coverage only on the grounds
+    # the completeness validator accepts; a scope reason is rejected there.
+    deferral_reason_text = (
+        "the exact missing legal dependency, repeal, or non-operative ground\n"
+        "      allowed by the complete-source rules below"
+        if complete_source_unit
+        else "the legal dependency or scope reason blocking encoding"
+    )
+    preference_text = (
+        "When in doubt, prefer (a): encode the subparagraph, declaring the facts\n"
+        "it tests as local inputs. In complete-source-unit mode a deferral with a\n"
+        "scope or generic reason is rejected. Silent omission is not allowed."
+        if complete_source_unit
+        else "When in doubt, prefer (b): a `deferred_outputs` entry with a clear\n"
+        "`reason` is honest and cheap to refine later. Silent omission is not."
+    )
     return f"""
 === BEGIN SUBPARAGRAPH COVERAGE CHECKLIST ===
 The source text above contains {len(subparagraphs)} high-signal top-level
@@ -12195,7 +12321,7 @@ below, the encoded artifact must contain EITHER:
   (b) An entry under `module.deferred_outputs[]` whose `output:` target path
       includes that subparagraph segment (e.g.
       `us:statutes/7/2014/d#unspecified_output`) and whose `reason:` names
-      the legal dependency or scope reason blocking encoding.
+      {deferral_reason_text}.
 
 Legislative findings, preambles, intent clauses, and purpose clauses are still
 source coverage items. If the text is non-operative, satisfy this checklist with
@@ -12218,8 +12344,7 @@ top-level checklist string, or the item must be listed under
 Subparagraphs requiring action:
 {rows_text}
 
-When in doubt, prefer (b): a `deferred_outputs` entry with a clear
-`reason` is honest and cheap to refine later. Silent omission is not.
+{preference_text}
 === END SUBPARAGRAPH COVERAGE CHECKLIST ===
 """
 
