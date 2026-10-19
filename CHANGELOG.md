@@ -1,3 +1,7 @@
+## 0.2.2222
+
+- Bind corpus artifact transport to the reviewed exporter and its locked installation files, rejecting changes to the workflow, exporter, installer, uv requirements, package metadata or dependency lock.
+
 ## 0.2.2221
 
 - Allow bounded authenticated corpus artifact transport for fresh complete-source replacements, verifying the official exporter, archive, signed release and immutable scope lock without granting source authority or exposing repository credentials to helper code.

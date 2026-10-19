@@ -400,14 +400,13 @@ def test_artifact_metadata_exact_binding_and_negatives():
         transport.select_artifact({"total_count": 2, "artifacts": [good]}, run)
 
 
-def test_reviewed_exporter_ancestry_and_exact_blobs(signed, monkeypatch):
+@pytest.mark.parametrize("changed_path", tuple(transport.REVIEWED_BLOBS))
+def test_reviewed_exporter_ancestry_and_exact_blobs(signed, monkeypatch, changed_path):
     repo = signed["corpus"]
-    workflow = repo / transport.WORKFLOW
-    workflow.parent.mkdir(parents=True)
-    workflow.write_text("fixture-workflow")
-    script = repo / "scripts/export_release_artifact.py"
-    script.parent.mkdir()
-    script.write_text("fixture-script")
+    for path in transport.REVIEWED_BLOBS:
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("reviewed fixture " + path)
     transport.git(repo, "add", ".")
     transport.git(
         repo, "-c", "commit.gpgsign=false", "commit", "-qm", "reviewed-exporter"
@@ -443,7 +442,7 @@ def test_reviewed_exporter_ancestry_and_exact_blobs(signed, monkeypatch):
         "run_attempt": 1,
     }
     transport.validate_run(run, "123", repo)
-    script.write_text("unreviewed")
+    (repo / changed_path).write_text("unreviewed")
     transport.git(repo, "add", ".")
     transport.git(
         repo, "-c", "commit.gpgsign=false", "commit", "-qm", "changed-exporter"

@@ -26,10 +26,14 @@ from axiom_encode.prepare_signed_backfill import (
 
 REPOSITORY = "TheAxiomFoundation/axiom-corpus"
 WORKFLOW = ".github/workflows/export-release-artifact.yml"
-REVIEWED_EXPORTER = "c11d93a407aa2f83b00ae093defb4fae1913daee"
+REVIEWED_EXPORTER = "d77b54c474e9bbb350f79ccbd6805bcfaf940e0b"
 REVIEWED_BLOBS = {
-    WORKFLOW: "13e41febf02f33f558fb770f7fad96527618a340",
+    WORKFLOW: "aa33c31545926e12c62eaf3b3e11376a533b0832",
     "scripts/export_release_artifact.py": "f3e4764363c609c419e763badbbeb6f428042578",
+    ".github/scripts/install-locked.sh": "d49d89cfccf6f53b38169583976749d7a225c922",
+    ".github/scripts/uv-requirements.txt": "75951a305fc786c7dc98dd3785a8cd15614cce3f",
+    "pyproject.toml": "d2e466184798193640ed498fe00c0546679c0099",
+    "uv.lock": "438ba675bc1acd5d4228b466c7de116fc0a2ddc5",
 }
 MAX_PAYLOAD = 16 * 1024 * 1024
 MAX_ARCHIVE = 17 * 1024 * 1024
