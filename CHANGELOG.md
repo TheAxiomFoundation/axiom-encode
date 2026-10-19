@@ -1,3 +1,7 @@
+## 0.2.2220
+
+- Preserve the complete tracked baseline for fresh same-source canonical replacements, supply full target edit context, and overlay omitted rules and companion cases before validation without accepting the old artifact as a generated repair.
+
 ## 0.2.2183
 
 - Repair source-verification metadata emitted for generated overlay targets during protected apply while preserving source-bound validation.
