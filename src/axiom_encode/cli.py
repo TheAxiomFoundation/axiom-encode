@@ -31313,6 +31313,7 @@ class _EncodeReplacementTarget(NamedTuple):
     context_paths: tuple[Path, ...]
     legacy_replacement: "_LegacyReplacementContract | None" = None
     retired_source_admission: dict[str, Any] | None = None
+    baseline: ValidationRetryCandidate | None = None
 
 
 _LEGACY_REPLACEMENT_ATTR = "_axiom_legacy_replacement_contract"
@@ -33874,6 +33875,97 @@ def _admit_retired_replacement_source_verification(
     }
 
 
+def _canonical_replacement_baseline(
+    checkout: Path, target: Path, companion: Path, *, source_unit
+) -> ValidationRetryCandidate | None:
+    """Capture current tracked v5-owned bytes, without granting signature trust.
+
+    This is preservation context only. Normal source resolution, signed ownership
+    and apply guards remain authoritative; a manifest's presence is not signature
+    verification. Historical/unmanifested replacement lanes keep their behavior.
+    """
+    relative = target.relative_to(checkout)
+    manifest_path = (
+        checkout / APPLIED_ENCODING_MANIFEST_DIR / relative.with_suffix(".json")
+    )
+    if not manifest_path.exists() and not manifest_path.is_symlink():
+        return None
+    manifest_raw = read_bounded_regular_file(
+        checkout,
+        manifest_path,
+        label="replacement baseline manifest",
+        max_bytes=10 * 1024 * 1024,
+    )
+    manifest = json.loads(manifest_raw)
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA
+    ):
+        return None
+    entries = manifest.get("applied_files")
+    if not isinstance(entries, list):
+        raise ValueError("replacement baseline manifest has no applied files")
+    captured: list[str] = []
+    for path in (target, companion):
+        raw = read_bounded_regular_file(
+            checkout,
+            path,
+            label="replacement baseline file",
+            max_bytes=VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES,
+        )
+        relative_path = path.relative_to(checkout).as_posix()
+        matches = [
+            item
+            for item in entries
+            if isinstance(item, dict) and item.get("path") == relative_path
+        ]
+        if (
+            len(matches) != 1
+            or matches[0].get("sha256") != hashlib.sha256(raw).hexdigest()
+        ):
+            raise ValueError("replacement baseline file is not uniquely hash-bound")
+        if _git_show_bytes(checkout, "HEAD", relative_path) != raw:
+            raise ValueError("replacement baseline file differs from tracked HEAD")
+        captured.append(raw.decode("utf-8", errors="strict"))
+    if (
+        _git_show_bytes(
+            checkout, "HEAD", manifest_path.relative_to(checkout).as_posix()
+        )
+        != manifest_raw
+    ):
+        raise ValueError("replacement baseline manifest differs from tracked HEAD")
+    # A new release may carry identical source bytes; release identity itself
+    # is not a same-source test. Changed-source replacement keeps its old lane.
+    digest = hashlib.sha256(source_unit.body.encode("utf-8")).hexdigest()
+    document = yaml.safe_load(captured[0])
+    verification = (
+        document.get("module", {}).get("source_verification", {})
+        if isinstance(document, dict)
+        else {}
+    )
+    attestation = manifest.get("source_attestation", {})
+    if not isinstance(verification, dict) or not isinstance(attestation, dict):
+        return None
+    if (
+        verification.get("source_sha256") != digest
+        or verification.get("corpus_citation_path") != source_unit.requested
+        or attestation.get("requested_corpus_citation_path") != source_unit.requested
+        or attestation.get("resolved_corpus_citation_path") != source_unit.citation_path
+        or any(
+            attestation.get(key) != digest
+            for key in (
+                "source_sha256",
+                "resolved_text_sha256",
+                "generation_input_sha256",
+            )
+        )
+    ):
+        return None
+    return ValidationRetryCandidate(
+        captured[0], captured[1], context_role="replacement_baseline"
+    )
+
+
 def _resolve_encode_replacement_target(
     args,
     *,
@@ -34038,6 +34130,16 @@ def _resolve_encode_replacement_target(
         relative_output=relative_output,
         context_paths=tuple(context_paths),
         retired_source_admission=retired_source_admission,
+        baseline=(
+            _canonical_replacement_baseline(
+                policy_checkout_path, target, companion, source_unit=source_unit
+            )
+            if not direct_child_refinement
+            and retired_source_admission is None
+            and not getattr(args, "repair_candidate_root", None)
+            and not getattr(args, "repair_candidate_tests_only", False)
+            else None
+        ),
     )
 
 
@@ -34640,6 +34742,15 @@ def _run_encode_attempt(
             ),
         )
     )
+    if (
+        validation_retry_candidate is None
+        and not prior_attempts
+        and replacement_target is not None
+    ):
+        # Fresh canonical repair uses the complete original pair, not a 6000-char
+        # precedent excerpt. This does not set initial_retry_candidate, so it can
+        # never activate the accept-valid-retry-candidate generation shortcut.
+        validation_retry_candidate = getattr(replacement_target, "baseline", None)
     results = run_model_eval(
         citations=[args.citation],
         runner_specs=[runner],
