@@ -30945,8 +30945,18 @@ def _best_validation_retry_attempt(
         index, attempt = indexed
         unsafe_candidate = (
             any(
-                "[generated-yaml:" in issue or "compile validation" in issue.casefold()
-                for issue in attempt.validation_issues
+                "[generated-yaml:" in issue
+                or "compile validation" in issue.casefold()
+                or re.match(
+                    r"^[^\n:]+\.yaml: (?:compile|ci): "
+                    r"Axiom rules engine compile failed:",
+                    issue,
+                )
+                is not None
+                for issue in (
+                    *attempt.validation_issues,
+                    *attempt.full_validation_issues,
+                )
                 if isinstance(issue, str)
             )
             or "compile validation" in attempt.error.casefold()
