@@ -115,6 +115,9 @@ from axiom_encode.harness.coverage_exemptions import (
     filter_coverage_demands,
     has_reviewed_repeal,
 )
+from axiom_encode.harness.strict_compiled_inputs import (
+    compiled_program_has_strict_input_reads,
+)
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.repo_routing import (
     _path_identity_fingerprint,
@@ -38398,7 +38401,14 @@ class ValidatorPipeline:
                                 policy_repo_path=self.policy_repo_path,
                             )
                         )
-                    issues.extend(find_test_input_assignment_issues(content, payload))
+                    # Static unions include facts on unselected branches. For
+                    # recognized strict-read IR, ordinary execution below is
+                    # authoritative about reached missing facts. Unknown/default-
+                    # bearing compiled programs retain the conservative check.
+                    if not compiled_program_has_strict_input_reads(compiled_payload):
+                        issues.extend(
+                            find_test_input_assignment_issues(content, payload)
+                        )
                     issues.extend(find_tax_filing_status_test_input_issues(payload))
                     issues.extend(find_exception_test_coverage_issues(content, payload))
                     issues.extend(
