@@ -42,6 +42,7 @@ from axiom_encode.bare_structure import (
     bare_outline,
     mask_bare_labels,
 )
+from axiom_encode.form_numeric_structure import form_numeric_locator_spans
 from axiom_encode.form_source_structure import mask_form_display
 from axiom_encode.harness.manual_locator_metadata import (
     MANUAL_CONTENTS_HEADINGS,
@@ -15149,6 +15150,7 @@ def authoritative_numeric_recall_text(
     source_text = _without_us_manual_locators(
         source_text, corpus_citation_path=corpus_citation_path
     )
+    source_text = mask(source_text, form_numeric_locator_spans(source_text))
     source_text = mask_bare_labels(source_text)
     source_text = mask(
         source_text, _english_subdivision_numeric_recall_spans(source_text)

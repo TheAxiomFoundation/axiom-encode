@@ -1,3 +1,7 @@
+## 0.2.2232
+
+- Distinguish complete slip-box referrals, coordinated printed line labels, and corroborated form footers from numeric policy values, preserving amounts, source offsets, and unrelated completeness checks.
+
 ## 0.2.2230
 
 - Keep a person responsible for a family-type resource distinct from a Family claimant in source-scope validation, while retaining genuine Family and Household requirements.
