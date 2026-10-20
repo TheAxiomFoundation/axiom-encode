@@ -471,19 +471,26 @@ def test_guard_git_queries_leave_no_graft_deprecation_hint_on_stderr(
     # GIT_GRAFT_FILE=/dev/null is a readable graft file, so Git prints its graft
     # deprecation advice whenever a query parses a commit, grafts or not.
     history, main, feature = _forked_graph(tmp_path / "advice-history")
+    # Control: with no inherited Git settings, GIT_GRAFT_FILE alone must make
+    # this Git advise, or the assertions below could pass without the fix.
+    control_environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
+    control_environment.update(
+        GIT_GRAFT_FILE=os.devnull,
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+    )
     control = subprocess.run(
         [shutil.which("git") or "git", "-C", str(history.root), "rev-list", "HEAD"],
         capture_output=True,
         text=True,
         timeout=30,
-        env={
-            **os.environ,
-            "GIT_GRAFT_FILE": os.devnull,
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_NOSYSTEM": "1",
-        },
+        env=control_environment,
     )
-    if "hint:" not in control.stderr:
+    assert control.returncode == 0, control.stderr
+    if "advice.graftFileDeprecated" not in control.stderr:
         pytest.skip("this Git prints no graft-file deprecation advice")
     if metadata == "repository-grafts":
         # The guard refuses repository grafts before parsing any commit; switch
