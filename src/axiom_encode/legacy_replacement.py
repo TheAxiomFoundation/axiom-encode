@@ -430,6 +430,7 @@ def legacy_generated_manifest_issues(
     expected_primary_path: str,
     expected_citation: str,
     jurisdiction_prefix: str,
+    allow_in_place_module_citation: bool = False,
 ) -> list[str]:
     """Require one strict historical generated-v1 shape as untrusted evidence.
 
@@ -526,7 +527,22 @@ def legacy_generated_manifest_issues(
         canonical_citation = normalize_corpus_identifier(expected_citation)
     except (TypeError, ValueError):
         canonical_citation = ""
-    if not canonical_citation or payload.get("citation") != canonical_citation:
+    relative_primary = expected_primary_path.removeprefix(f"{jurisdiction_prefix}/")
+    historical_module_citation = (
+        relative_primary.removesuffix(".yaml")
+        if relative_primary != expected_primary_path
+        and relative_primary.endswith(".yaml")
+        else ""
+    )
+    admitted_citations = {canonical_citation}
+    if allow_in_place_module_citation and historical_module_citation:
+        admitted_citations.add(historical_module_citation)
+    manifest_citation = payload.get("citation")
+    if (
+        not canonical_citation
+        or not isinstance(manifest_citation, str)
+        or manifest_citation not in admitted_citations
+    ):
         issues.append("legacy generated ownership manifest citation is stale")
 
     primary_digest = canonical_files.get(expected_primary_path)
@@ -610,6 +626,7 @@ def legacy_v1_manifest_issues(
     expected_citation: str,
     jurisdiction_prefix: str,
     allow_unmarked_manual_exception: bool = False,
+    allow_in_place_module_citation: bool = False,
 ) -> list[str]:
     """Dispatch only the two explicitly supported historical v1 owner classes."""
 
@@ -637,6 +654,7 @@ def legacy_v1_manifest_issues(
             expected_primary_path=expected_primary_path,
             expected_citation=expected_citation,
             jurisdiction_prefix=jurisdiction_prefix,
+            allow_in_place_module_citation=allow_in_place_module_citation,
         )
     return ["legacy ownership manifest class is unsupported"]
 
@@ -650,6 +668,7 @@ def legacy_receipt_v1_manifest_issues(
     expected_citation: str,
     jurisdiction_prefix: str,
     allow_unmarked_manual_exception: bool = False,
+    allow_in_place_module_citation: bool = False,
 ) -> list[str]:
     """Preserve old manual receipts without permitting owner-class relabeling."""
 
@@ -667,6 +686,7 @@ def legacy_receipt_v1_manifest_issues(
             expected_citation=expected_citation,
             jurisdiction_prefix=jurisdiction_prefix,
             allow_unmarked_manual_exception=allow_unmarked_manual_exception,
+            allow_in_place_module_citation=allow_in_place_module_citation,
         )
     return ["legacy receipt ownership class is unsupported"]
 

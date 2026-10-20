@@ -9258,6 +9258,7 @@ def _legacy_replacement_authoritative_map(
                 expected_citation=source_citations[0] if source_citations else "",
                 jurisdiction_prefix=(source_path.parts[0] if source_path.parts else ""),
                 allow_unmarked_manual_exception=in_place,
+                allow_in_place_module_citation=in_place,
             )
             issues.extend(
                 f"legacy replacement source manifest is not legacy-owned: {issue}"
@@ -32642,6 +32643,7 @@ def _resolve_legacy_replacement_contract(
         expected_citation=requested_citation,
         jurisdiction_prefix=source.parts[0],
         allow_unmarked_manual_exception=in_place,
+        allow_in_place_module_citation=in_place,
     )
     if legacy_issues:
         raise ValueError("; ".join(legacy_issues))

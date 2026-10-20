@@ -324,6 +324,55 @@ def test_generated_manifest_admits_exact_checkout_relative_scope() -> None:
     assert _generated_manifest_issues(payload) == []
 
 
+def test_historical_module_citation_is_admitted_only_for_in_place_replacement() -> None:
+    payload = _generated_manifest()
+    payload["citation"] = "statutes/42/1437c–1"
+    expected_files = {
+        "us/statutes/42/1437c–1.yaml": "a" * 64,
+        "us/statutes/42/1437c–1.test.yaml": "b" * 64,
+    }
+    kwargs = {
+        "expected_files": expected_files,
+        "expected_primary_path": "us/statutes/42/1437c–1.yaml",
+        "expected_citation": "us/statute/42/1437c–1",
+        "jurisdiction_prefix": "us",
+    }
+    assert any(
+        "citation is stale" in issue
+        for issue in legacy_v1_manifest_issues(payload, **kwargs)
+    )
+    assert (
+        legacy_v1_manifest_issues(
+            payload, **kwargs, allow_in_place_module_citation=True
+        )
+        == []
+    )
+    assert (
+        legacy_receipt_v1_manifest_issues(
+            payload,
+            owner_class="v1-hmac-untrusted",
+            **kwargs,
+            allow_in_place_module_citation=True,
+        )
+        == []
+    )
+    payload["citation"] = "statutes/42/another-module"
+    assert any(
+        "citation is stale" in issue
+        for issue in legacy_v1_manifest_issues(
+            payload, **kwargs, allow_in_place_module_citation=True
+        )
+    )
+    for malformed in ([], {}):
+        payload["citation"] = malformed
+        assert any(
+            "citation is stale" in issue
+            for issue in legacy_v1_manifest_issues(
+                payload, **kwargs, allow_in_place_module_citation=True
+            )
+        )
+
+
 @pytest.mark.parametrize(
     ("mutation", "match"),
     [

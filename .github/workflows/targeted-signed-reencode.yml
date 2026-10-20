@@ -39,7 +39,7 @@ on:
         required: false
         type: string
       source_bundle_json:
-        description: 'Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3 for an ordinary or single legacy replacement; legacy citation array/refresh object, v2-v5 contract, or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} for an authenticated failed ordinary single-target repair'
+        description: 'Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3 for an ordinary or in-place legacy replacement; legacy citation array/refresh object, v2-v5 contract, or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} for an authenticated failed ordinary single-target repair'
         required: false
         default: "[]"
         type: string
@@ -53,7 +53,7 @@ on:
         required: false
         type: string
       replace_legacy_rulespec_path:
-        description: Exact noncanonical legacy primary replaced by a fresh model encode
+        description: Exact legacy primary replaced in place or by an ordinary unique normalized path with a fresh model encode
         required: false
         type: string
       legacy_exact_dependent_rulespec_path:

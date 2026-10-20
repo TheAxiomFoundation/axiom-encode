@@ -76,16 +76,19 @@ def test_excluded_dispatch_before_transport(field):
         transport.request_run_id(json.dumps(WRAPPER), {**DISPATCH, field: '["x"]'})
 
 
-def test_single_legacy_replacement_transport_is_bound_to_canonical_destination():
+def test_in_place_legacy_replacement_transport_preserves_ece_dependents():
+    legacy_path = (
+        "us-az/policies/des/faa5/na-categorical-eligibility/"
+        "expanded-categorical-eligibility.yaml"
+    )
+    legacy_identity = (
+        "us-az:policies/des/faa5/na-categorical-eligibility/"
+        "expanded-categorical-eligibility"
+    )
     dispatch = {
         "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
-        "REPLACE_RULESPEC_PATH": (
-            "us-az/policies/des/faa5/na-categorical-eligibility/block-4.yaml"
-        ),
-        "REPLACE_LEGACY_RULESPEC_PATH": (
-            "us-az/policies/des/faa5/na-categorical-eligibility/"
-            "expanded-categorical-eligibility.yaml"
-        ),
+        "REPLACE_RULESPEC_PATH": legacy_path,
+        "REPLACE_LEGACY_RULESPEC_PATH": legacy_path,
     }
     assert transport.request_run_id(json.dumps(WRAPPER), dispatch) == "123"
 
@@ -100,8 +103,7 @@ def test_single_legacy_replacement_transport_is_bound_to_canonical_destination()
             },
             "input": {},
             "required_output": {
-                "us-az:policies/des/faa5/na-categorical-eligibility/"
-                "block-4#expanded_categorical_eligibility_fpl_limit_rate": 1.85
+                f"{legacy_identity}#expanded_categorical_eligibility_fpl_limit_rate": 1.85
             },
         },
         {
@@ -112,22 +114,15 @@ def test_single_legacy_replacement_transport_is_bound_to_canonical_destination()
                 "end": "2026-03-31",
             },
             "input": {
-                "us-az:policies/des/faa5/na-categorical-eligibility/"
-                "block-4#input.gross_income": 1900,
-                "us-az:policies/des/faa5/na-categorical-eligibility/"
-                "block-4#input.current_federal_poverty_level_amount": 1000,
-                "us-az:policies/des/faa5/na-categorical-eligibility/"
-                "block-4#input.budgetary_unit_meets_basic_categorical_eligibility_requirements": False,
-                "us-az:policies/des/faa5/na-categorical-eligibility/"
-                "block-4#input.resources_of_participants_with_certain_disqualifications_are_not_over_na_resource_limit": True,
-                "us-az:policies/des/faa5/na-categorical-eligibility/"
-                "block-4#input.budgetary_unit_has_participant_with_disqualification": False,
+                f"{legacy_identity}#input.gross_income": 1900,
+                f"{legacy_identity}#input.current_federal_poverty_level_amount": 1000,
+                f"{legacy_identity}#input.budgetary_unit_meets_basic_categorical_eligibility_requirements": False,
+                f"{legacy_identity}#input.resources_of_participants_with_certain_disqualifications_are_not_over_na_resource_limit": True,
+                f"{legacy_identity}#input.budgetary_unit_has_participant_with_disqualification": False,
             },
             "required_output": {
-                "us-az:policies/des/faa5/na-categorical-eligibility/"
-                "block-4#expanded_categorical_eligibility_fpl_limit_rate": 2.0,
-                "us-az:policies/des/faa5/na-categorical-eligibility/"
-                "block-4#expanded_categorical_eligibility_deems_resources_met": "holds",
+                f"{legacy_identity}#expanded_categorical_eligibility_fpl_limit_rate": 2.0,
+                f"{legacy_identity}#expanded_categorical_eligibility_deems_resources_met": "holds",
             },
         },
     ]
@@ -138,10 +133,38 @@ def test_single_legacy_replacement_transport_is_bound_to_canonical_destination()
     }
 
 
+def test_corpus_transport_rejects_arbitrary_legacy_path_move():
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": (
+            "us-az/policies/des/faa5/na-categorical-eligibility/block-4.yaml"
+        ),
+        "REPLACE_LEGACY_RULESPEC_PATH": (
+            "us-az/policies/des/faa5/na-categorical-eligibility/"
+            "expanded-categorical-eligibility.yaml"
+        ),
+    }
+    with pytest.raises(ValueError, match="in-place protected RuleSpec target"):
+        transport.request_run_id(json.dumps(WRAPPER), dispatch)
+
+
+def test_corpus_transport_rejects_even_normalizable_legacy_path_move():
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": (
+            "us-az/policies/des/faa5/na-categorical-eligibility/block-4.yaml"
+        ),
+        "REPLACE_LEGACY_RULESPEC_PATH": (
+            "us-az/policies/des/faa5/na-categorical-eligibility/Block 4.yaml"
+        ),
+    }
+    with pytest.raises(ValueError, match="in-place protected RuleSpec target"):
+        transport.request_run_id(json.dumps(WRAPPER), dispatch)
+
+
 @pytest.mark.parametrize(
     "legacy_source",
     [
-        "us-az/policies/des/faa5/na-categorical-eligibility/block-4.yaml",
         "us/policies/des/faa5/na-categorical-eligibility/expanded.yaml",
         "us-az/../../other.yaml",
         "us-az/policies/des/faa5//expanded.yaml",

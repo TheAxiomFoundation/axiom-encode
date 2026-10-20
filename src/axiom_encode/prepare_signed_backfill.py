@@ -633,14 +633,16 @@ def resolve_atomic_repair_mode(
                     "corpus transport cannot include imports or retained successors"
                 )
         target = dispatch.get("REPLACE_RULESPEC_PATH", "")
-        if (
-            not target
-            or citation_rulespec_path(dispatch.get("CITATION", "")).as_posix() != target
+        legacy_source = dispatch.get("REPLACE_LEGACY_RULESPEC_PATH", "")
+        if not target or (
+            not legacy_source
+            and citation_rulespec_path(dispatch.get("CITATION", "")).as_posix()
+            != target
         ):
             raise ValueError(
-                "corpus transport requires the exact canonical replacement citation/path"
+                "corpus transport requires an in-place legacy target or the exact "
+                "canonical ordinary citation/path"
             )
-        legacy_source = dispatch.get("REPLACE_LEGACY_RULESPEC_PATH", "")
         if normalized["primary_required_test_cases"] and not legacy_source:
             raise ValueError(
                 "corpus transport required cases need a single legacy replacement"
@@ -658,13 +660,13 @@ def resolve_atomic_repair_mode(
                 or legacy_path.parts[1] not in RULESPEC_ATOMIC_ROOTS
                 or legacy_path.suffix != ".yaml"
                 or legacy_path.name.endswith(".test.yaml")
-                or legacy_path == target_path
+                or legacy_path != target_path
                 or ".." in legacy_path.parts
                 or "\\" in legacy_source
             ):
                 raise ValueError(
-                    "corpus transport legacy source must be a distinct protected "
-                    "RuleSpec module in the target jurisdiction"
+                    "corpus transport legacy source must be the in-place protected "
+                    "RuleSpec target in the requested jurisdiction"
                 )
     explicit = normalized.get("repair_mode")
     if "corpus_artifact_run_id" in normalized:
