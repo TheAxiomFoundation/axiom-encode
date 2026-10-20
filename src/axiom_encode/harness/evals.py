@@ -3802,9 +3802,13 @@ def _read_only_git_environment() -> dict[str, str]:
         GIT_CONFIG_GLOBAL=os.devnull,
         GIT_CONFIG_SYSTEM=os.devnull,
         GIT_CONFIG_NOSYSTEM="1",
-        GIT_CONFIG_COUNT="1",
+        GIT_CONFIG_COUNT="2",
         GIT_CONFIG_KEY_0="core.commitGraph",
         GIT_CONFIG_VALUE_0="false",
+        # GIT_GRAFT_FILE=/dev/null is itself a readable graft file, so without
+        # this Git advises on stderr whenever a query here parses a commit.
+        GIT_CONFIG_KEY_1="advice.graftFileDeprecated",
+        GIT_CONFIG_VALUE_1="false",
         GIT_TERMINAL_PROMPT="0",
     )
     return environment
