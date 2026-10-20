@@ -3441,68 +3441,137 @@ def test_another_laws_section_claims_no_branch_of_this_one(reference):
     assert hebrew.cites_current_section("סעיף 14(ב)(2) לחוק זה", CITATION)
 
 
-def test_native_citation_scans_stay_linear():
-    """A long whitespace run or many citations cannot make a scan quadratic."""
+def _citation_scans(size: int):
+    """The scans of ``test_native_citation_scans_stay_linear`` and their results.
+
+    ``size`` counts quarters of the whole input, so 4 is the whole.
+    """
 
     pattern = hebrew.current_branch_citation_pattern(CITATION, ("c",))
-    # CPU time, not wall time: a shared host's scheduling cannot fail the
-    # bound, and a quadratic scan still exceeds it.
-    started = time.process_time()
-    assert pattern.search("סעיף 14(ג)" + " " * 64_000 + "x")
-    many = "חסר " + "סעיף 346 " * 8_000
-    assert not hebrew.reason_names_source_bound_dependency(
-        many, PRECISION_SOURCE, corpus_citation_path=CITATION
+    names = ["צ" + hebrew.hebrew_numeral(value) for value in range(1, 800 * size + 1)]
+    reads = functools.partial(
+        hebrew.reason_names_source_bound_dependency, corpus_citation_path=CITATION
     )
-    # Many reason clauses against many source citations of another section.
-    assert not hebrew.reason_names_source_bound_dependency(
-        "חסר סעיף 346. " * 8_000,
-        "(ה1) " + "לפי סעיף 345ב. " * 8_000,
-        corpus_citation_path=CITATION,
+    return (
+        (
+            "a long whitespace run after a citation",
+            lambda: bool(pattern.search("סעיף 14(ג)" + " " * 16_000 * size + "x")),
+            True,
+        ),
+        (
+            "many citations in one reason clause",
+            lambda: reads("חסר " + "סעיף 346 " * 2_000 * size, PRECISION_SOURCE),
+            False,
+        ),
+        (
+            "many reason clauses against many source citations of another section",
+            lambda: reads(
+                "חסר סעיף 346. " * 2_000 * size,
+                "(ה1) " + "לפי סעיף 345ב. " * 2_000 * size,
+            ),
+            False,
+        ),
+        (
+            "many reason fragments of one section, each a distinct query",
+            lambda: reads(
+                " ".join(f"חסר סעיף 346({index})." for index in range(2, 250 * size)),
+                "(ה1) " + "לפי סעיף 346(1). " * 500 * size,
+            ),
+            False,
+        ),
+        (
+            "many contextual references resolved against many named laws",
+            lambda: len(
+                hebrew._section_citations(
+                    "חוק הביטוח הלאומי. " * 4_000 * size
+                    + "סעיף 345ב לפקודה האמורה. " * 4_000 * size
+                )
+            ),
+            4_000 * size,
+        ),
+        (
+            "an outline that deepens without end",
+            lambda: hebrew.hebrew_outline_markers(
+                "(א) הוראה.\n(1) הוראה.\n" * 1_000 * size
+            ),
+            (),
+        ),
+        (
+            "a citation chain thousands deep",
+            lambda: bool(
+                hebrew._linked_source_instruments(
+                    "לפי סעיף 345ב" + "(1)" * 1_600 * size + "."
+                )
+            ),
+            False,
+        ),
+        (
+            "a long whitespace run inside an instrument name",
+            lambda: len(
+                hebrew._section_citations(
+                    "סעיף 345ב לחוק" + " " * 16_000 * size + "הביטוח."
+                )
+            ),
+            1,
+        ),
+        (
+            "one long clause of citations",
+            lambda: reads("חסר " + "סעיף 346 " * 16_000 * size, PRECISION_SOURCE),
+            False,
+        ),
+        (
+            "many punctuation-joined signals before one citation",
+            lambda: reads("חסר," * 4_000 * size + "סעיף 346.", PRECISION_SOURCE),
+            False,
+        ),
+        (
+            "many citations after one negation",
+            lambda: bool(
+                hebrew._linked_source_instruments(
+                    "אין לפעול " + "בהתאם לסעיף 345ב " * 2_000 * size + "."
+                )
+            ),
+            False,
+        ),
+        (
+            "many reason citations against many distinct named laws",
+            lambda: reads(
+                "חסר סעיף 345ב לחוק תתתתת. " * 800 * size,
+                "(ה1) " + "".join(f"לפי סעיף 345ב לחוק {name}. " for name in names),
+            ),
+            False,
+        ),
     )
-    # Many reason fragments of one section, each a distinct query.
-    assert not hebrew.reason_names_source_bound_dependency(
-        " ".join(f"חסר סעיף 346({index})." for index in range(2, 1_000)),
-        "(ה1) " + "לפי סעיף 346(1). " * 2_000,
-        corpus_citation_path=CITATION,
-    )
-    # Many contextual references resolved against many named laws.
-    assert (
-        len(
-            hebrew._section_citations(
-                "חוק הביטוח הלאומי. " * 16_000 + "סעיף 345ב לפקודה האמורה. " * 16_000
-            )
-        )
-        == 16_000
-    )
-    # An outline that deepens without end, and a citation chain thousands deep.
-    assert hebrew.hebrew_outline_markers("(א) הוראה.\n(1) הוראה.\n" * 4_000) == ()
-    assert not hebrew._linked_source_instruments("לפי סעיף 345ב" + "(1)" * 6_400 + ".")
-    # Long whitespace runs inside an instrument name, and one long clause of
-    # citations.
-    assert (
-        len(hebrew._section_citations("סעיף 345ב לחוק" + " " * 64_000 + "הביטוח.")) == 1
-    )
-    assert not hebrew.reason_names_source_bound_dependency(
-        "חסר " + "סעיף 346 " * 64_000, PRECISION_SOURCE, corpus_citation_path=CITATION
-    )
-    # Many punctuation-joined signals before one citation.
-    assert not hebrew.reason_names_source_bound_dependency(
-        "חסר," * 16_000 + "סעיף 346.", PRECISION_SOURCE, corpus_citation_path=CITATION
-    )
-    # Many citations after one negation.
-    assert not hebrew._linked_source_instruments(
-        "אין לפעול " + "בהתאם לסעיף 345ב " * 8_000 + "."
-    )
-    # Many reason citations against many distinct named laws.
-    names = ["צ" + hebrew.hebrew_numeral(value) for value in range(1, 3_201)]
-    assert not hebrew.reason_names_source_bound_dependency(
-        "חסר סעיף 345ב לחוק תתתתת. " * 3_200,
-        "(ה1) " + "".join(f"לפי סעיף 345ב לחוק {name}. " for name in names),
-        corpus_citation_path=CITATION,
-    )
-    # Quadratic forms of these took tens of seconds of CPU; the linear ones take
-    # about two in all.
-    assert time.process_time() - started < 5
+
+
+def test_native_citation_scans_stay_linear():
+    """A long whitespace run or many citations cannot make a scan quadratic.
+
+    Each scan runs on a quarter of its input and on the whole. Four times the
+    input costs about four times the CPU when the scan is linear and sixteen
+    times when it is quadratic, so the bound is eight, midway between them on
+    a log scale. The bound is on growth, not on the total, because a fixed
+    total cannot do both jobs: GitHub's runners spent 5.5 to 6.2 CPU seconds
+    on the linear scans, which take about 2.4 on a development machine, while
+    a quadratic lookup (every bisection made a linear scan) costs only about
+    4.6 times the linear scans at these sizes.
+    """
+
+    for (name, quarter_scan, quarter_result), (_, whole_scan, whole_result) in zip(
+        _citation_scans(1), _citation_scans(4), strict=True
+    ):
+        # CPU time, not wall time, and the least of two interleaved runs at
+        # each size, so neither a cold first run nor waiting on a busy host
+        # counts.
+        quarter = whole = float("inf")
+        for _run in range(2):
+            started = time.process_time()
+            assert quarter_scan() == quarter_result, name
+            quarter = min(quarter, time.process_time() - started)
+            started = time.process_time()
+            assert whole_scan() == whole_result, name
+            whole = min(whole, time.process_time() - started)
+        assert whole < 8 * quarter + 0.05, (name, quarter, whole)
 
 
 def _least_cpu_seconds(call, *, runs: int = 3, repetitions: int = 1) -> float:
