@@ -103,7 +103,33 @@ def test_single_legacy_replacement_transport_is_bound_to_canonical_destination()
                 "us-az:policies/des/faa5/na-categorical-eligibility/"
                 "block-4#expanded_categorical_eligibility_fpl_limit_rate": 1.85
             },
-        }
+        },
+        {
+            "name": "2026 March ECE rate and deemed tests",
+            "period": {
+                "period_kind": "month",
+                "start": "2026-03-01",
+                "end": "2026-03-31",
+            },
+            "input": {
+                "us-az:policies/des/faa5/na-categorical-eligibility/"
+                "block-4#input.gross_income": 1900,
+                "us-az:policies/des/faa5/na-categorical-eligibility/"
+                "block-4#input.current_federal_poverty_level_amount": 1000,
+                "us-az:policies/des/faa5/na-categorical-eligibility/"
+                "block-4#input.budgetary_unit_meets_basic_categorical_eligibility_requirements": False,
+                "us-az:policies/des/faa5/na-categorical-eligibility/"
+                "block-4#input.resources_of_participants_with_certain_disqualifications_are_not_over_na_resource_limit": True,
+                "us-az:policies/des/faa5/na-categorical-eligibility/"
+                "block-4#input.budgetary_unit_has_participant_with_disqualification": False,
+            },
+            "required_output": {
+                "us-az:policies/des/faa5/na-categorical-eligibility/"
+                "block-4#expanded_categorical_eligibility_fpl_limit_rate": 2.0,
+                "us-az:policies/des/faa5/na-categorical-eligibility/"
+                "block-4#expanded_categorical_eligibility_deems_resources_met": "holds",
+            },
+        },
     ]
     assert transport.request_run_id(json.dumps(with_cases), dispatch) == "123"
     assert resolve_atomic_repair_mode(json.dumps(with_cases), dispatch) == {
