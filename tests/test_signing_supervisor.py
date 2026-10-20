@@ -3936,6 +3936,9 @@ def test_targeted_signed_reencode_packages_bounded_failure_diagnostics(
     (tmp_path / "repair-candidate.json").write_text("")
     env = {
         **os.environ,
+        # The protected workflow runs on Linux; macOS tar otherwise adds
+        # AppleDouble entries that are unrelated to these diagnostic bounds.
+        "COPYFILE_DISABLE": "1",
         "CITATION": "us/statute/42/1437c-1",
         "CORPUS_REF": "corpus-ref",
         "COUNTRY": "us",
@@ -4414,6 +4417,7 @@ def test_targeted_signed_reencode_packages_noncontract_checkpoint_failure(
         ["bash", "-c", package_command],
         env={
             **os.environ,
+            "COPYFILE_DISABLE": "1",
             "CITATION": "us-la/statute/47:294",
             "CORPUS_REF": "corpus-ref",
             "COUNTRY": "us",

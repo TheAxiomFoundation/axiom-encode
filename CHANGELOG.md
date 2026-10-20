@@ -1,3 +1,7 @@
+## 0.2.2232
+
+- Refresh authenticated corpus transport on current main and keep Linux-runner diagnostic archive tests deterministic on macOS.
+
 ## 0.2.2231
 
 - Integrate bounded authenticated corpus artifact transport with the current encoder baseline, preserving the reviewed exporter and locked-installation checks.
