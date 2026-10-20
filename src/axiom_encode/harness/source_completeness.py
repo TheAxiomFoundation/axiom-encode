@@ -17523,6 +17523,13 @@ def _source_condition_clauses_owned_by_excerpt(
     matches = tuple(pattern.finditer(source_text))
     if not matches:
         return (), False
+    printed_rows = _unconflicted_printed_rows(source_text, branches)
+    bare_labels = bare_outline(source_text) or ()
+    structural_boundaries = {
+        *(point for branch in branches for point in (branch.start, branch.end)),
+        *(point for label in bare_labels for point in (label.start, label.marker_end)),
+        *(start for start, _term in bare_definition_headers(source_text, bare_labels)),
+    }
     virtual_branches: dict[tuple[tuple[str, ...], str, int], SourceStructureBranch] = {}
     ambiguous_inline_ownership = False
     inline_ownership_by_parent: dict[
@@ -17618,6 +17625,26 @@ def _source_condition_clauses_owned_by_excerpt(
             ),
             default=container_end,
         )
+        atomic_printed_owner = False
+        if printed_rows is not None:
+            row_owners = [
+                (a, b)
+                for a, b in printed_rows.ownership_spans
+                if a <= match.start()
+                and match.end() <= b
+                and not any(a < point < b for point in structural_boundaries)
+            ]
+            if len(row_owners) == 1:
+                # This is only an offset container, never a new statutory path.
+                # Preserve the whole inherited group and every within-row
+                # advisory/condition; explicit source ownership wins conflicts.
+                a, b = row_owners[0]
+                container_start = max(container_start, a)
+                container_end = min(container_end, b)
+                atomic_printed_owner = (a, b) in printed_rows.atomic_spans and (
+                    container_start,
+                    container_end,
+                ) == (a, b)
         container_text = source_text[container_start:container_end]
         local_start = match.start() - container_start
         local_end = match.end() - container_start
@@ -17643,6 +17670,11 @@ def _source_condition_clauses_owned_by_excerpt(
             proposition_end=proposition_end,
         ):
             proposition_start, proposition_end = local_start, local_end
+        if atomic_printed_owner:
+            # A proof inside an inherited else-row or either conditional arm
+            # owns the full positively recognized guard group, not a detached
+            # sentence obtained by punctuation/conjunction slicing.
+            proposition_start, proposition_end = 0, len(container_text)
         absolute_start = container_start + proposition_start
         absolute_end = container_start + proposition_end
         identity = (branch_path, absolute_start, absolute_end)
@@ -20287,6 +20319,10 @@ def _source_formula_branches(
     if printed_rows is not None:
         a, b = printed_rows.heading_dash
         heading_text = source_text[:a] + " " * (b - a) + source_text[b:]
+        glyphs = list(heading_text)
+        for a, b in printed_rows.typography_spans:
+            glyphs[a:b] = _TYPOGRAPHY_MASK * (b - a)
+        heading_text = "".join(glyphs)
     classification_text = _without_precomputed_income_table_percentage_captions(
         mask_form_display(heading_text),
         corpus_citation_path=corpus_citation_path,

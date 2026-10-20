@@ -1,3 +1,7 @@
+## 0.2.2234
+
+- Recognize complete printed-form referrals and label typography without treating them as arithmetic. Keep condition proofs within their source rows while preserving inherited repayment guards and conditional branches.
+
 ## 0.2.2233
 
 - Preserve printed form operation rows and inherited conditions during source-clause recognition. Bind complete Add-range proof excerpts to their unique source context while retaining structural ownership and selected-version checks.

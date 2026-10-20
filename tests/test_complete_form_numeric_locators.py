@@ -58,7 +58,7 @@ def test_incomplete_or_value_bearing_referral_keeps_amount(profile, extract, tex
 
 
 def test_actual_three_bodies_inventory():
-    expected = {2: {3, 4}, 3: {1074, 82125, 93454}, 4: set()}
+    expected = {2: set(), 3: {1074, 82125, 93454}, 4: set()}
     for step, values in expected.items():
         text = (FIXTURES / f"step-{step}.txt").read_text()
         actual = {
