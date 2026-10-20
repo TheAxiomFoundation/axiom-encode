@@ -44,6 +44,7 @@ from axiom_encode.bare_structure import (
 )
 from axiom_encode.form_numeric_structure import form_numeric_locator_spans
 from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.harness.imported_export_evidence import ResolvedImportedExport
 from axiom_encode.harness.manual_locator_metadata import (
     MANUAL_CONTENTS_HEADINGS,
     MANUAL_SECTION_CAPTIONS,
@@ -65,6 +66,10 @@ from axiom_encode.harness.partnership_reporting_evidence import (
 from axiom_encode.harness.proof_validator import (
     _normalize_atom_path,
     _source_proof_evidence_spans,
+)
+from axiom_encode.harness.repayment_alternative_evidence import (
+    RepaymentAlternativeCoverage,
+    certify_repayment_alternatives,
 )
 from axiom_encode.harness.reporting_route_evidence import certify_reporting_routes
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
@@ -5302,6 +5307,8 @@ def analyze_complete_source_unit(
     artifact_numeric_bindings: Sequence[tuple[str, float]] | None = None,
     authenticated_same_act_aliases: Sequence[str] = (),
     imported_symbol_contents: Sequence[tuple[str, str]] = (),
+    imported_export_bindings: Sequence[ResolvedImportedExport] = (),
+    imported_proof_source_context: Mapping[str, str | None] | None = None,
     resolved_dependency_outputs: Sequence[str] = (),
     source_context: Mapping[str, str | None] | None = None,
 ) -> CompleteSourceUnitAnalysis:
@@ -5338,6 +5345,8 @@ def analyze_complete_source_unit(
                     artifact_numeric_bindings=artifact_numeric_bindings,
                     authenticated_same_act_aliases=authenticated_same_act_aliases,
                     imported_symbol_contents=imported_symbol_contents,
+                    imported_export_bindings=imported_export_bindings,
+                    imported_proof_source_context=imported_proof_source_context,
                     resolved_dependency_outputs=resolved_dependency_outputs,
                     source_context=source_context,
                 )
@@ -5440,6 +5449,8 @@ def _analyze_rulespec_payload(
     authenticated_same_act_aliases: Sequence[str],
     imported_symbol_contents: Sequence[tuple[str, str]],
     resolved_dependency_outputs: Sequence[str],
+    imported_export_bindings: Sequence[ResolvedImportedExport] = (),
+    imported_proof_source_context: Mapping[str, str | None] | None = None,
     source_context: Mapping[str, str | None] | None = None,
     raw_source_text: str | None = None,
 ) -> CompleteSourceUnitAnalysis:
@@ -5548,8 +5559,23 @@ def _analyze_rulespec_payload(
         source_text=source_text,
         corpus_citation_path=corpus_citation_path,
     )
+    repayment_alternatives = (
+        certify_repayment_alternatives(
+            content,
+            source_text=source_text,
+            raw_source_text=raw_source_text or source_text,
+            citation=corpus_citation_path,
+            source_context=imported_proof_source_context,
+            imported_exports=imported_export_bindings,
+            parse_branch=_parse_first_formula_branch_node,
+            parse_expression=_parse_formula_expression,
+        )
+        if _unconflicted_printed_rows(source_text, branches) is not None
+        else RepaymentAlternativeCoverage()
+    )
     source_condition_issues = _opaque_same_source_condition_input_issues(
         payload,
+        consumer_content=content,
         source_text=source_text,
         care_source_text=raw_source_text,
         branches=branches,
@@ -5558,6 +5584,7 @@ def _analyze_rulespec_payload(
         certified_paths=certified_paths,
         certified_transfers=certified_transfers,
         certified_country=certified_country,
+        repayment_alternatives=repayment_alternatives,
         test_cases=test_cases,
     )
     issues.extend(source_condition_issues)
@@ -18224,6 +18251,7 @@ def _opaque_same_source_condition_input_issues(
     payload: Mapping[str, Any],
     *,
     source_text: str,
+    consumer_content: str | None = None,
     branches: Sequence[SourceStructureBranch],
     principal_rules: Mapping[str, dict[str, Any]],
     corpus_citation_path: str,
@@ -18231,6 +18259,7 @@ def _opaque_same_source_condition_input_issues(
     certified_paths: Any = None,
     care_source_text: str | None = None,
     certified_country: Any = None,
+    repayment_alternatives: RepaymentAlternativeCoverage | None = None,
     test_cases: Sequence[object] | None = None,
 ) -> list[str]:
     """Reject terminal selectors that collapse explicit same-source fact gates."""
@@ -18669,6 +18698,25 @@ def _opaque_same_source_condition_input_issues(
                     )
                 )
                 for clause in condition_clauses:
+                    if (
+                        repayment_alternatives is not None
+                        and consumer_content is not None
+                        and not ambiguous
+                        and repayment_alternatives.owns_condition(
+                            owner=rule_name,
+                            consumer_content=consumer_content,
+                            version=version_index,
+                            formula=formula,
+                            start=start,
+                            end=end,
+                            clause_start=clause.start,
+                            clause_end=clause.end,
+                            clause_text=clause.text,
+                            source_text=source_text,
+                            citation=corpus_citation_path,
+                        )
+                    ):
+                        continue
                     if (
                         certified_country is not None
                         and not ambiguous
