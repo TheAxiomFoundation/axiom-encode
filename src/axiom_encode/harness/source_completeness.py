@@ -20313,6 +20313,7 @@ def _source_formula_branches(
         sorted(
             {row.span("label") for row in _worksheet_arithmetic_rows(source_text)}
             | set(_corroborated_form_output_label_spans(source_text))
+            | set(form_numeric_locator_spans(source_text))
         )
     )
     heading_text = source_text
