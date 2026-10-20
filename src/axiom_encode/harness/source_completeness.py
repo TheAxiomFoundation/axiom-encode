@@ -6659,7 +6659,9 @@ def _deferred_coverage(
                     f"anchor, for example `{corrected_output}`."
                 )
             continue
-        reason = str(record.get("reason") or "").strip()
+        # Hebrew points and direction marks hide no negation or adversative
+        # from the guards; a reason with no Hebrew script is unchanged.
+        reason = hebrew_source_text.fold_marks(str(record.get("reason") or "").strip())
         blocked_by = record.get("blocked_by")
         normalized_anchors = tuple(anchor.lower() for anchor in deferral_anchors)
         blocker_targets = (

@@ -23,11 +23,80 @@ from __future__ import annotations
 import bisect
 import functools
 import re
-from collections.abc import Callable, Iterable
+import unicodedata
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 
 HEBREW_LETTER_CLASS = "א-ת"
 _H = HEBREW_LETTER_CLASS
+
+# Marks that change no word: Hebrew points and cantillation (U+0591-U+05C7,
+# less the maqaf, paseq, sof pasuq and inverted nun, which are punctuation),
+# the bidirectional marks, embeddings and isolates, and the other invisible
+# format characters. ``לא`` with a holam (U+05B9) or a right-to-left mark
+# (U+200F) inside it is ``לא`` to a reader, so the guards read through them.
+_INVISIBLE_MARK_RANGES = (
+    (0x0591, 0x05BD),
+    (0x05BF, 0x05BF),
+    (0x05C1, 0x05C2),
+    (0x05C4, 0x05C5),
+    (0x05C7, 0x05C7),
+    (0x00AD, 0x00AD),
+    (0x034F, 0x034F),
+    (0x061C, 0x061C),
+    (0x200B, 0x200F),
+    (0x202A, 0x202E),
+    (0x2060, 0x2060),
+    (0x2066, 0x2069),
+    (0xFEFF, 0xFEFF),
+)
+# Precomposed pointed letters (U+FB4B, vav with holam) read as their letters.
+_PRESENTATION_FORMS = (0xFB1D, 0xFB4F)
+
+
+def _fold_table() -> dict[int, str | None]:
+    table: dict[int, str | None] = {
+        code: None
+        for low, high in _INVISIBLE_MARK_RANGES
+        for code in range(low, high + 1)
+    }
+    for code in range(_PRESENTATION_FORMS[0], _PRESENTATION_FORMS[1] + 1):
+        char = chr(code)
+        if unicodedata.category(char) == "Cn":
+            continue
+        table[code] = "".join(
+            part
+            for part in unicodedata.normalize("NFKD", char)
+            if not unicodedata.combining(part)
+        )
+    return table
+
+
+_FOLD_TABLE = _fold_table()
+_FOLDABLE = re.compile(
+    "["
+    + "".join(f"{chr(low)}-{chr(high)}" for low, high in _INVISIBLE_MARK_RANGES)
+    + f"{chr(_PRESENTATION_FORMS[0])}-{chr(_PRESENTATION_FORMS[1])}]"
+)
+# The Hebrew block from its first mark, and the presentation forms.
+_HEBREW_SCRIPT = re.compile("[\u0591-\u05f4\ufb1d-\ufb4f]")
+
+
+def fold_marks(text: str) -> str:
+    """Drop the marks that change no word from text in Hebrew script.
+
+    Every negation, adversative, signal and citation guard reads the folded
+    copy, so a pointed or direction-marked word is the word itself. Text with
+    no Hebrew script is returned as is, the same object, so no English or
+    German reading changes. The folded copy is read whole by functions that
+    return a verdict, never an offset into the original.
+    """
+
+    if _HEBREW_SCRIPT.search(text) is None or _FOLDABLE.search(text) is None:
+        return text
+    return text.translate(_FOLD_TABLE)
+
+
 # Geresh and gershayim, and the marks that stand in for them: ASCII quotes and
 # the typographic quotes a word processor substitutes (``345י”א``). A numeral
 # read without them would lose its last letters and name another section.
@@ -498,38 +567,48 @@ def current_branch_citation_pattern(
     )
 
 
-@functools.lru_cache(maxsize=256)
-def _other_instrument_mention_starts(text: str, current_kind: str) -> tuple[int, ...]:
-    """Where ``text`` names an instrument other than the current one."""
+def _clause_start(stops: Sequence[int], offset: int) -> int:
+    """Where the clause holding ``offset`` begins, given its text's sorted stops."""
 
-    return tuple(
-        mention.start()
-        for mention in _INSTRUMENT_MENTION.finditer(text)
-        if not (
-            _instrument_kind(mention.group("kind")) == current_kind
-            and _instrument_words(mention.group("name"))[:1]
-            and _instrument_words(mention.group("name"))[0] in _CURRENT_INSTRUMENT_NAMES
-        )
-    )
+    before = bisect.bisect_left(stops, offset)
+    return stops[before - 1] + 1 if before else 0
 
 
-def _preposed_other_instrument(
-    text: str, start: int, current_kind: str = "חוק"
-) -> bool:
-    """Whether an instrument other than this one is named earlier in the clause.
+class _PreposedInstruments:
+    """Where one text names instruments other than the current one.
 
     ``חוק הביטוח הלאומי, התשנ״ה–1995, סעיף 14(ב)`` cites that law's section
     14(b), whatever dates, editions, descriptions or line breaks sit between.
     Only ``חוק זה`` ("this law", of the current kind) keeps the current
-    instrument.
+    instrument. A scan builds one index, on its first question, and asks it
+    for each citation, so no citation rescans or rehashes the text.
     """
 
-    stops = _ownership_stops(text)
-    stop = bisect.bisect_left(stops, start)
-    clause_start = stops[stop - 1] + 1 if stop else 0
-    mentions = _other_instrument_mention_starts(text, current_kind)
-    first = bisect.bisect_left(mentions, clause_start)
-    return first < len(mentions) and mentions[first] < start
+    def __init__(self, text: str, current_kind: str = "חוק") -> None:
+        self._text = text
+        self._current_kind = current_kind
+        self._stops: list[int] | None = None
+        self._mentions: list[int] = []
+
+    def precede(self, start: int) -> bool:
+        """Whether another instrument is named earlier in the clause of ``start``."""
+
+        if self._stops is None:
+            self._stops = [
+                match.start() for match in _OWNERSHIP_STOP.finditer(self._text)
+            ]
+            self._mentions = [
+                mention.start()
+                for mention in _INSTRUMENT_MENTION.finditer(self._text)
+                if not (
+                    _instrument_kind(mention.group("kind")) == self._current_kind
+                    and _instrument_words(mention.group("name"))[:1]
+                    and _instrument_words(mention.group("name"))[0]
+                    in _CURRENT_INSTRUMENT_NAMES
+                )
+            ]
+        first = bisect.bisect_left(self._mentions, _clause_start(self._stops, start))
+        return first < len(self._mentions) and self._mentions[first] < start
 
 
 def cites_current_branch(
@@ -548,11 +627,11 @@ def cites_current_branch(
         citation_must_start=citation_must_start,
         citation_must_end=citation_must_end,
     )
-    current_kind = current_instrument_kind(corpus_citation_path)
-    return pattern is not None and any(
-        not _preposed_other_instrument(text, match.start(), current_kind)
-        for match in pattern.finditer(text)
-    )
+    if pattern is None:
+        return False
+    text = fold_marks(text)
+    preposed = _PreposedInstruments(text, current_instrument_kind(corpus_citation_path))
+    return any(not preposed.precede(match.start()) for match in pattern.finditer(text))
 
 
 def native_source_reference_paths(
@@ -563,17 +642,18 @@ def native_source_reference_paths(
     section = native_section_label(corpus_citation_path)
     if section is None:
         return set()
+    source = fold_marks(source)
+    current_kind = current_instrument_kind(corpus_citation_path)
+    preposed = _PreposedInstruments(source, current_kind)
     paths: set[tuple[str, ...]] = set()
     for match in re.finditer(
         rf"{_NOT_HEBREW_BEFORE}{_PROCLITICS}{_SECTION_WORD}\s*{_native_section_pattern(section)}"
         rf"(?P<chain>(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{1,{MAX_OUTLINE_DEPTH}}})"
         rf"(?!\s*\()(?![A-Za-z0-9_{_H}])"
-        rf"{_other_instrument_qualifier(current_instrument_kind(corpus_citation_path))}",
+        rf"{_other_instrument_qualifier(current_kind)}",
         source,
     ):
-        if _preposed_other_instrument(
-            source, match.start(), current_instrument_kind(corpus_citation_path)
-        ):
+        if preposed.precede(match.start()):
             continue
         labels = [
             parse_outline_label(label)
@@ -590,14 +670,17 @@ def cites_current_section(source: str, corpus_citation_path: str) -> bool:
     """Return whether text cites the current section natively (``סעיף 14``)."""
 
     section = native_section_label(corpus_citation_path)
-    return bool(section) and any(
-        not _preposed_other_instrument(
-            source, match.start(), current_instrument_kind(corpus_citation_path)
-        )
+    if not section:
+        return False
+    source = fold_marks(source)
+    current_kind = current_instrument_kind(corpus_citation_path)
+    preposed = _PreposedInstruments(source, current_kind)
+    return any(
+        not preposed.precede(match.start())
         for match in re.finditer(
             rf"{_NOT_HEBREW_BEFORE}{_PROCLITICS}{_SECTION_WORD}\s*{_native_section_pattern(section)}"
             rf"(?![0-9A-Za-z{_H}{_GERESH_MARKS}])(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{0,{MAX_OUTLINE_DEPTH}}}(?!\s*\()"
-            rf"{_other_instrument_qualifier(current_instrument_kind(corpus_citation_path))}",
+            rf"{_other_instrument_qualifier(current_kind)}",
             source,
         )
     )
@@ -666,9 +749,16 @@ _NEGATION_BRIDGE_WORDS = (
 _NEGATION_REACH_WORDS = 6
 # A space, maqaf or hyphen separates the negation from what it governs.
 _NEGATION_GAP = rf"[\s{_MAQAF}-]"
+# The prefixes a negation takes, in their order: the conjunction ``ו``, then a
+# subordinator ``ש``, ``כש``, ``מש``, ``לכש`` or ``בש`` (``שלא``, ``משלא``
+# "since ... not", ``וכשלא`` "and when ... not"). A preposition alone does not
+# prefix a negation here, so ``מלא`` ("full"), ``כלא`` ("prison"), ``בטרם``
+# ("before") and ``ללא`` ("without", a signal of its own) are no negations,
+# and neither is the rhetorical ``הלא`` ("surely").
+_NEGATION_PREFIX = r"ו?(?:(?:מ|כ|לכ|ב)?ש)?"
 _NEGATED_SIGNAL_PREFIX = re.compile(
-    rf"{_NOT_HEBREW_BEFORE}(?:ו|ש|וש|כש)?"
-    r"(?:לא|אין|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|כלל\s+לא)"
+    rf"{_NOT_HEBREW_BEFORE}{_NEGATION_PREFIX}"
+    r"(?:לא|אין|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|בלתי|כלל\s+לא)"
     rf"(?:{_NEGATION_GAP}+(?:"
     + "|".join(_NEGATION_BRIDGE_WORDS.split())
     + rf"){_NOT_HEBREW_AFTER}){{0,4}}"
@@ -679,12 +769,13 @@ _NEGATED_SIGNAL_PREFIX = re.compile(
 # לומר שחסרה``, ``אין כל ראיה לכך שחסרה``, ``טרם הוכח שחסרה``, ``לאו דווקא
 # חסרה``), and a negation between a signal and its citation leaves the claim
 # unread (``חסר מידע, לא ברור שחסרה הוראת סעיף 345ב``). A negation inside a
-# signal (``טרם קודד``, ``לא ניתן לחשב``) is that signal's own.
+# signal (``טרם קודד``, ``לא ניתן לחשב``, ``בלתי זמין``) is that signal's own.
+# ``בלתי`` ("un-", ``בלתי נכון ש`` "untrue that") negates as ``לא`` does.
 _REASON_NEGATION = re.compile(
-    rf"{_NOT_HEBREW_BEFORE}(?:ו|ש|וש|כש)?"
-    r"(?:לא|אין|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|טרם|מעולם|לאו)"
+    rf"{_NOT_HEBREW_BEFORE}{_NEGATION_PREFIX}"
+    r"(?:לא|אין|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|טרם|מעולם|לאו|בלתי)"
     rf"{_NOT_HEBREW_AFTER}"
-    rf"|{_NOT_HEBREW_BEFORE}(?:ו|ש|וש|כש)?אי[\s{_MAQAF}-]+(?:אפשר|ניתן)"
+    rf"|{_NOT_HEBREW_BEFORE}{_NEGATION_PREFIX}אי[\s{_MAQAF}-]+(?:אפשר|ניתן)"
     rf"{_NOT_HEBREW_AFTER}"
 )
 
@@ -785,6 +876,21 @@ ADVERSATIVE_LANGUAGE = (
     + rf")(?=[{_H}])"
 )
 _ADVERSATIVE = re.compile(ADVERSATIVE_LANGUAGE)
+# The adversatives a reason is read for: ``_ADVERSATIVE_LANGUAGE`` in
+# source_completeness, verbatim, the English and German words with the Hebrew
+# ones, so a reason that reverses itself in another language (``חסר סעיף 2.
+# However it is available.``) is refused as English refuses it.
+# ``test_reason_adversatives_use_the_shared_vocabulary`` holds them equal.
+_ANY_ADVERSATIVE = re.compile(
+    r"\b(?:"
+    r"although|but|despite|even\s+though|except|however|nevertheless|nonetheless|"
+    r"notwithstanding|though|unless|whereas|while|yet|aber|jedoch|obwohl"
+    r")\b|" + ADVERSATIVE_LANGUAGE,
+    flags=re.IGNORECASE,
+)
+# English does not read the "yet" of "not yet" as an adversative
+# (``_has_adversative_language``); blanking it keeps every offset.
+_NOT_YET = re.compile(r"\bnot\s+yet\b", flags=re.IGNORECASE)
 
 # Words that end a law's name: what follows a name in a statute or a reason
 # (``בשינויים המחויבים``, ``טרם קודד``, ``לפי``), never a word of it.
@@ -958,14 +1064,13 @@ def _section_citations(
     """
 
     mentions = _explicit_instrument_mentions(text)
+    preposed = _PreposedInstruments(text, current_kind)
     citations: list[tuple[re.Match[str], Instrument | None]] = []
     for match in SECTION_DEPENDENCY.finditer(text):
         kind = match.group("instrument_kind")
         if not kind:
             instrument = (
-                _UNRESOLVED_INSTRUMENT
-                if _preposed_other_instrument(text, match.start(), current_kind)
-                else None
+                _UNRESOLVED_INSTRUMENT if preposed.precede(match.start()) else None
             )
         elif _name_is_cut_short(text, match.end()):
             instrument = _UNRESOLVED_INSTRUMENT
@@ -1000,36 +1105,22 @@ def _dependency_is_external(
     return section != _normalize_word(current_section)
 
 
-@functools.lru_cache(maxsize=256)
-def _clause_stops(text: str) -> tuple[int, ...]:
-    return tuple(match.start() for match in re.finditer(r"[;\n]|\.(?!\d)", text))
+# A clause ends at ``;``, a line break or a sentence period, not ``5.17``.
+# Each scan finds its text's stops once; nothing caches them by text, since a
+# lookup keyed by an equal text costs a full comparison per citation.
+_CLAUSE_STOP = re.compile(r"[;\n]|\.(?!\d)")
 
 
+def _clause_stops(text: str) -> list[int]:
+    return [match.start() for match in _CLAUSE_STOP.finditer(text)]
+
+
+# Where an instrument named earlier stops owning a later citation. A clause
+# stop ends ownership, but a line break does so only where the next line opens
+# an outline branch: any other line break wraps one reference (``חוק הביטוח
+# הלאומי\nסעיף 14(ב)``), and the law named before it still owns the citation
+# after it.
 _OWNERSHIP_STOP = re.compile(rf";|\.(?!\d)|\n(?=[ \t]*\({OUTLINE_LABEL}\))")
-
-
-@functools.lru_cache(maxsize=256)
-def _ownership_stops(text: str) -> tuple[int, ...]:
-    """Where an instrument named earlier stops owning a later citation.
-
-    A clause stop ends ownership, but a line break does so only where the next
-    line opens an outline branch: any other line break wraps one reference
-    (``חוק הביטוח הלאומי\\nסעיף 14(ב)``), and the law named before it still
-    owns the citation after it.
-    """
-
-    return tuple(match.start() for match in _OWNERSHIP_STOP.finditer(text))
-
-
-def _clause_bounds(text: str, start: int, end: int) -> tuple[int, int]:
-    """Bound a clause by ``;``, a line break or a sentence period, not ``5.17``."""
-
-    stops = _clause_stops(text)
-    before = bisect.bisect_left(stops, start)
-    after = bisect.bisect_left(stops, end)
-    clause_start = stops[before - 1] + 1 if before else 0
-    clause_end = stops[after] if after < len(stops) else len(text)
-    return clause_start, clause_end
 
 
 # The linkers that make a cited section operative are English's: ``לפי``
@@ -1048,7 +1139,7 @@ def _clause_bounds(text: str, start: int, end: int) -> tuple[int, int]:
 # stands, so ``מבוטח שלא עבד ישלם לפי`` is read as negating: stricter than
 # English, which does not check ``under``.
 _NEGATIONS = re.compile(
-    rf"{_NOT_HEBREW_BEFORE}(?P<relative>(?:ו)?(?:כ)?ש)?(?:[ומה]{{0,2}})"
+    rf"{_NOT_HEBREW_BEFORE}(?P<relative>ו?(?:מ|כ|לכ|ב)?ש)?(?:[ומה]{{0,2}})"
     r"(?:אין|לא|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|אסור(?:ה|ים|ות)?|בל|לבל|בלתי"
     r"|נאסר(?:ה|ו|ים|ות)?|איסור|מסרב(?:ת|ים|ות)?|בלא"
     # Prevented (``מנוע מלפעול``), not the noun "engine" (``מס על מנוע``).
@@ -1155,18 +1246,22 @@ class _LinkedInstruments:
         return words in self.names.get(kind, ())
 
 
-@functools.lru_cache(maxsize=256)
+LinkedIndex = dict[tuple[str, tuple[str, ...]], _LinkedInstruments]
+
+
 def _linked_source_instruments(
     source_scope_text: str, current_kind: str = "חוק"
-) -> dict[tuple[str, tuple[str, ...]], _LinkedInstruments]:
+) -> LinkedIndex:
     """Instruments of the operative citations, by section and fragment prefix.
 
     Each scope citation that a linker makes operative (``לפי סעיף 345ב(א)``)
     is entered under its section with every prefix of its fragments, so a
-    reason citing ``345ב`` or ``345ב(א)`` is answered by one lookup.
+    reason citing ``345ב`` or ``345ב(א)`` is answered by one lookup. A scan
+    builds this once and passes it down.
     """
 
-    index: dict[tuple[str, tuple[str, ...]], _LinkedInstruments] = {}
+    index: LinkedIndex = {}
+    stops = _clause_stops(source_scope_text)
     negations = list(_NEGATIONS.finditer(source_scope_text))
     negation_starts = [negation.start() for negation in negations]
     negation_ends = [negation.end() for negation in negations]
@@ -1175,9 +1270,7 @@ def _linked_source_instruments(
     for negation in negations:
         main_before.append(main_before[-1] + (not negation.group("relative")))
     for cited, cited_instrument in _section_citations(source_scope_text, current_kind):
-        clause_start, _clause_end = _clause_bounds(
-            source_scope_text, cited.start(), cited.end()
-        )
+        clause_start = _clause_start(stops, cited.start())
         # The linkers and the displacement guard read at most ~140 characters
         # before the citation; the window keeps a long clause linear. The
         # negation index covers the whole clause.
@@ -1203,24 +1296,21 @@ def _linked_source_instruments(
 
 
 def _source_scope_links_dependency(
-    source_scope_text: str,
+    linked_index: LinkedIndex,
     dependency: re.Match[str],
     instrument: Instrument | None,
-    current_kind: str = "חוק",
 ) -> bool:
     """Bind a reason's dependency to an operative citation in the deferred scope.
 
-    The scope must cite the same section (and at least the reason's
-    fragments) of the same instrument. A reason that names no instrument
-    takes the one the scope cites; one that names an instrument binds only a
-    scope citation of that instrument, with ``לחוק האמור`` read as the law
-    last named and an unqualified scope citation read as the current law.
+    ``linked_index`` is the scope's ``_linked_source_instruments``. The scope
+    must cite the same section (and at least the reason's fragments) of the
+    same instrument. A reason that names no instrument takes the one the
+    scope cites; one that names an instrument binds only a scope citation of
+    that instrument, with ``לחוק האמור`` read as the law last named and an
+    unqualified scope citation read as the current law.
     """
 
-    section, fragments = _dependency_identity(dependency)
-    linked = _linked_source_instruments(source_scope_text, current_kind).get(
-        (section, fragments)
-    )
+    linked = linked_index.get(_dependency_identity(dependency))
     if linked is None:
         return False
     return instrument is None or linked.admits(instrument)
@@ -1322,11 +1412,20 @@ class _ReasonIndex:
         reason: str,
         other_citations: Callable[[str], Iterable[re.Match[str]]] | None = None,
         masked_citations: Callable[[str], Iterable[re.Match[str]]] | None = None,
+        citations: Sequence[tuple[re.Match[str], Instrument | None]] | None = None,
     ) -> None:
-        self.adversatives = [match.start() for match in _ADVERSATIVE.finditer(reason)]
+        # Every adversative English reads, in any of its languages, with "not
+        # yet" blanked as English blanks it.
+        self.adversatives = [
+            match.start()
+            for match in _ANY_ADVERSATIVE.finditer(
+                _NOT_YET.sub(lambda match: " " * len(match.group(0)), reason)
+            )
+        ]
         # A citation starts at its ``סעיף`` word: its prefix letters may belong
         # to a signal (``תלוי בסעיף``), and the citation is still between that
-        # signal and a later one.
+        # signal and a later one. ``citations`` are the reason's
+        # ``_section_citations``, when the caller has them.
         other_spans = sorted(
             (match.start(), match.end())
             for match in (other_citations or _OTHER_CITATION.finditer)(reason)
@@ -1334,7 +1433,9 @@ class _ReasonIndex:
         spans = sorted(
             [
                 (match.end("proclitics"), match.end())
-                for match, _ in _section_citations(reason)
+                for match, _ in (
+                    _section_citations(reason) if citations is None else citations
+                )
             ]
             + other_spans
         )
@@ -1434,15 +1535,24 @@ def reason_names_source_bound_dependency(
     R.S., ``§``, ``Absatz`` and canonical paths); without it the English
     precise-dependency grammar alone stands in. ``masked_citations`` are the
     citations whose periods the English clause reader masks.
+
+    Reason and scope are read as one folded copy each (``fold_marks``), so
+    points and direction marks hide no negation, adversative, signal or
+    citation, and every offset compared is an offset into that copy. Each
+    text is indexed once; no lookup inside the citation loop rereads one.
     """
 
     current_section = native_section_label(corpus_citation_path)
     if current_section is None or not source_scope_text.strip():
         return False
+    reason = fold_marks(reason)
+    source_scope_text = fold_marks(source_scope_text)
     current_kind = current_instrument_kind(corpus_citation_path)
-    index = _ReasonIndex(reason, other_citations, masked_citations)
+    citations = _section_citations(reason, current_kind)
+    index = _ReasonIndex(reason, other_citations, masked_citations, citations)
     stops = index.stops
-    for dependency, instrument in _section_citations(reason, current_kind):
+    linked_index: LinkedIndex | None = None
+    for dependency, instrument in citations:
         if not _dependency_is_external(dependency, instrument, current_section):
             continue
         clause_start, clause_end = index.clause_bounds(
@@ -1478,10 +1588,11 @@ def reason_names_source_bound_dependency(
             continue
         # As in English, an earlier citation in the same clause leaves the
         # missing claim ambiguous between the two.
-        names_missing = not index.has_citation(clause_start, signal.start())
-        if names_missing and _source_scope_links_dependency(
-            source_scope_text, dependency, instrument, current_kind
-        ):
+        if index.has_citation(clause_start, signal.start()):
+            continue
+        if linked_index is None:
+            linked_index = _linked_source_instruments(source_scope_text, current_kind)
+        if _source_scope_links_dependency(linked_index, dependency, instrument):
             return True
     return False
 
@@ -1516,7 +1627,11 @@ RUNTIME_GAP_LANGUAGE = (
 _COMPUTATION_WINDOW = r"(?:[^.;\n]|(?<=\d)\.(?=\d))"
 _COMPUTATION_BASE = r"(?:הכנס|שכר|סכום|גי?מל)"
 _EXPLICIT_COMPUTATION = re.compile(
-    rf"\d+(?:[.,]\d+)?\s*%\s*(?:ו)?מ(?:ן\s)?(?=[{_H}])"
+    # A rate starts where its digits start: a match from inside a run of
+    # digits implies one from the run's first digit, so the lookbehind changes
+    # no verdict and keeps a long run of digits from being retried at every
+    # suffix.
+    rf"(?<!\d)\d+(?:[.,]\d+)?\s*%\s*(?:ו)?מ(?:ן\s)?(?=[{_H}])"
     rf"|{_NOT_HEBREW_BEFORE}אחוז(?:ים)?\s+(?:ו)?מ(?:ן\s)?(?=[{_H}])"
     rf"|{_NOT_HEBREW_BEFORE}(?:ו)?ב(?:ה)?שיעור(?:ים)?{_NOT_HEBREW_AFTER}"
     rf"{_COMPUTATION_WINDOW}{{0,120}}"
@@ -1532,4 +1647,4 @@ _EXPLICIT_COMPUTATION = re.compile(
 
 
 def states_explicit_computation(text: str) -> bool:
-    return _EXPLICIT_COMPUTATION.search(text) is not None
+    return _EXPLICIT_COMPUTATION.search(fold_marks(text)) is not None

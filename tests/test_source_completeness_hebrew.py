@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode.harness import hebrew_source_text as hebrew
@@ -797,8 +797,8 @@ def _analyze(content: str, source: str = PRECISION_SOURCE) -> tuple[str, ...]:
     ).issues
 
 
-def _accepted(branch: str, reason: str) -> bool:
-    issues = _analyze(_deferral_content(branch, reason))
+def _accepted(branch: str, reason: str, source: str = PRECISION_SOURCE) -> bool:
+    issues = _analyze(_deferral_content(branch, reason), source)
     path = tuple(branch.split("/"))
     return _deferral_issue(issues, 0) is None and path not in _structure_paths(issues)
 
@@ -1053,17 +1053,76 @@ _NEUTRAL_WORDS = (
     "טענה",
     "במקרה",
     "הזה",
+    # Words spelled with a negation's prefix letters that negate nothing:
+    # "full", "prison", "surely", "before", "whence".
+    "מלא",
+    "כלא",
+    "הלא",
+    "בטרם",
+    "מאין",
 )
 _PRECISE_MISSING_CLAIMS = (
     "חסרה הוראת סעיף 345ב.",
     "חסרות הוראות סעיף 345ב לחוק הביטוח הלאומי.",
     "חסרה הוראת החישוב המדויקת שבסעיף 345ב.",
 )
+_NEGATORS = ("לא", "אין", "אינו", "טרם", "מעולם לא", "לאו", "אי אפשר", "בלתי")
+# The prefixes of ``_NEGATION_PREFIX``: ``ואין``, ``משלא``, ``וכשלא``, ``לכשלא``.
+_NEGATION_PREFIXES = ("", "ו", "ש", "וש", "כש", "וכש", "מש", "ומש", "לכש", "ולכש", "בש")
+# Points, cantillation, and direction and format marks: none changes a word.
+_INVISIBLE_MARKS = (
+    "\u05b0",
+    "\u05b4",
+    "\u05b5",
+    "\u05b7",
+    "\u05b8",
+    "\u05b9",
+    "\u05bc",
+    "\u05c1",
+    "\u05c7",
+    "\u0591",
+    "\u05a5",
+    "\u00ad",
+    "\u061c",
+    "\u200b",
+    "\u200d",
+    "\u200e",
+    "\u200f",
+    "\u202b",
+    "\u202c",
+    "\u2067",
+    "\u2069",
+    "\ufeff",
+)
 
 
-@settings(max_examples=40, deadline=None)
+@st.composite
+def _marked(draw, text: str) -> str:
+    """``text`` with any of its characters followed by an invisible mark."""
+
+    marks = draw(
+        st.lists(
+            st.sampled_from(("", "", *_INVISIBLE_MARKS)),
+            min_size=len(text),
+            max_size=len(text),
+        )
+    )
+    return "".join(char + mark for char, mark in zip(text, marks, strict=True))
+
+
+@st.composite
+def _negations(draw) -> str:
+    """A negation, under any of its prefixes, pointed or direction-marked."""
+
+    negation = draw(st.sampled_from(_NEGATION_PREFIXES)) + draw(
+        st.sampled_from(_NEGATORS)
+    )
+    return draw(_marked(negation))
+
+
+@settings(max_examples=80, deadline=None)
 @given(
-    st.sampled_from(("לא", "אין", "טרם", "מעולם לא", "לאו", "אי אפשר", "ואין")),
+    _negations(),
     st.lists(st.sampled_from(_NEUTRAL_WORDS), max_size=8),
     st.sampled_from(_PRECISE_MISSING_CLAIMS),
 )
@@ -1073,7 +1132,10 @@ def test_a_negation_earlier_in_the_clause_governs_the_missing_claim(
     """Polarity: a precise missing claim under any complement of a negation fails.
 
     The complement is worded freely, so no list of bridge words decides it; the
-    same complement without the negation leaves the claim precise.
+    same complement without the negation leaves the claim precise. The
+    negation may take its prefixes (``משלא``, ``וכשלא``) and carry points or
+    direction marks (review round 12), and a complement word that only
+    starts with a prefix's letters (``מלא``, "full") negates nothing.
     """
 
     complement = " ".join(words)
@@ -1100,7 +1162,9 @@ ENGLISH_PRECISION_SOURCE = """\
 ENGLISH_BRANCH = {"b/2": "b/2", "c": "c", "e1": "d", "f": "e"}
 
 
-def _english_accepted(branch: str, reason: str) -> bool:
+def _english_accepted(
+    branch: str, reason: str, source: str = ENGLISH_PRECISION_SOURCE
+) -> bool:
     content = (
         "format: rulespec/v1\n"
         "module:\n"
@@ -1113,7 +1177,7 @@ def _english_accepted(branch: str, reason: str) -> bool:
     )
     issues = analyze_complete_source_unit(
         content,
-        ENGLISH_PRECISION_SOURCE,
+        source,
         corpus_citation_path=ENGLISH_CITATION,
         test_cases=[],
         extract_numeric_occurrences=functools.partial(
@@ -1725,6 +1789,112 @@ DIFFERENTIAL_CASES = (
         "A subtraction operation under section 345b.",
         "neither",
     ),
+    # Review round 12. Points, cantillation and direction marks hide no
+    # negation or adversative: each reads as its unmarked word.
+    ("e1", "ל\u05b9א חסר סעיף 345ב.", "Section 345b is not missing.", "neither"),
+    ("e1", "ל\u200fא חסר סעיף 345ב.", "Section 345b is not missing.", "neither"),
+    ("e1", "\u202bלא\u202c חסר סעיף 345ב.", "Section 345b is not missing.", "neither"),
+    (
+        "e1",
+        "אי\u2067נ\u2069ו חסר סעיף 345ב.",
+        "Section 345b is not missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "א\u05b5ין חסרה הוראת סעיף 345ב.",
+        "The provision of section 345b is not missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "למרו\u05b9ת שחסר סעיף 345ב.",
+        "Although section 345b is missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסר מידע, א\u05b2ב\u05b8ל סעיף 345ב קודד.",
+        "Missing information, but section 345b is encoded.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסר מידע, א\u200fולם סעיף 345ב קודד.",
+        "Missing information, however section 345b is encoded.",
+        "neither",
+    ),
+    # Nor do they hide a signal or a citation.
+    ("e1", "ח\u05b8ס\u05b5ר סעיף 345ב.", "Missing section 345b.", "both"),
+    ("e1", "חס\u200fר סעיף 345ב.", "Missing section 345b.", "both"),
+    (
+        "e1",
+        "חסרות הוראות סעיף 345ב לחו\u05b9ק הביטוח הלאומי.",
+        "missing the provisions of section 345b of the National Insurance Law.",
+        "both",
+    ),
+    # Negations under their prefixes, and ``בלתי``.
+    ("e1", "משלא חסר סעיף 345ב.", "Since section 345b is not missing.", "neither"),
+    ("e1", "וכשלא חסר סעיף 345ב.", "And when section 345b is not missing.", "neither"),
+    (
+        "e1",
+        "לכשלא חסרה הוראת סעיף 345ב.",
+        "Once the provision of section 345b is not missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "ומשאין חסרה הוראת סעיף 345ב.",
+        "And since the provision of section 345b is not missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "בלתי נכון שחסר סעיף 345ב.",
+        "It is not true that section 345b is missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "ובלתי סביר שחסרה הוראת סעיף 345ב.",
+        "And it is implausible that the provision of section 345b is missing.",
+        "neither",
+    ),
+    # A word spelled with a negation's prefix letters negates nothing.
+    (
+        "e1",
+        "חסר נוסח מלא של סעיף 345ב.",
+        "Missing the full text of section 345b.",
+        "both",
+    ),
+    # A reversal in English or German, read with English's own vocabulary.
+    (
+        "e1",
+        "חסר סעיף 345ב. However it is available.",
+        "Missing section 345b. However it is available.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסר סעיף 345ב. Aber er ist verfügbar.",
+        "Missing section 345b. Aber er ist verfügbar.",
+        "neither",
+    ),
+    # The "yet" of "not yet" is no adversative, in English either.
+    (
+        "e1",
+        "חסר סעיף 345ב, not yet encoded.",
+        "Missing section 345b, not yet encoded.",
+        "both",
+    ),
+    # An adversative later in the citation's own clause: refused in Hebrew,
+    # as a Hebrew connective there is, though English admits it.
+    (
+        "e1",
+        "חסר סעיף 345ב, although it is available.",
+        "Missing section 345b, although it is available.",
+        "hebrew-stricter",
+    ),
 )
 _DIFFERENTIAL_VERDICTS = {
     "both": (True, True),
@@ -1745,6 +1915,357 @@ def test_hebrew_rule_agrees_with_the_english_rule(
         _accepted(branch, hebrew_reason),
         _english_accepted(ENGLISH_BRANCH[branch], english_reason),
     ) == _DIFFERENTIAL_VERDICTS[verdict]
+
+
+# --- Review round 12 ------------------------------------------------------------
+
+# The review's minimized reproducers, verbatim: its source, its output branch
+# `a` and its translations, Hebrew against English on each.
+REVIEW_SOURCE = "(א) ישולם לפי סעיף 2."
+REVIEW_ENGLISH_SOURCE = "(a) Payment shall be made under section 2."
+REVIEW_NEGATED_SOURCE = "(a) It is not computed in accordance with section 2."
+ROUND_12_REPRODUCERS = (
+    (REVIEW_SOURCE, REVIEW_ENGLISH_SOURCE, "חסר סעיף 2", "Missing section 2.", "both"),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "לא חסר סעיף 2",
+        "Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "ל\u05b9א חסר סעיף 2",
+        "Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "ל\u200fא חסר סעיף 2",
+        "Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "למרו\u05b9ת שחסר סעיף 2",
+        "Although section 2 is missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "משלא חסר סעיף 2",
+        "Since section 2 is not missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "וכשלא חסר סעיף 2",
+        "And when section 2 is not missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "בלתי נכון שחסר סעיף 2",
+        "It is not true that section 2 is missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "חסר סעיף 2. However it is available.",
+        "Missing section 2. However it is available.",
+        "neither",
+    ),
+    # The source-negation guard: a pointed negation negates the link.
+    (
+        "(א) א\u05b5ינו מחושב בהתאם לסעיף 2.",
+        REVIEW_NEGATED_SOURCE,
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "(א) אינו מחושב בהתאם לסעיף 2.",
+        REVIEW_NEGATED_SOURCE,
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "(א) מחושב בהתאם לסעיף 2.",
+        "(a) It is computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "both",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("hebrew_source", "english_source", "hebrew_reason", "english_reason", "verdict"),
+    ROUND_12_REPRODUCERS,
+)
+def test_round_12_reproducers_get_the_english_verdict(
+    hebrew_source, english_source, hebrew_reason, english_reason, verdict
+):
+    assert (
+        _accepted("a", hebrew_reason, hebrew_source),
+        _english_accepted("a", english_reason, english_source),
+    ) == _DIFFERENTIAL_VERDICTS[verdict]
+
+
+# A deferred branch whose link a negation governs, in Hebrew and in English,
+# against the reason "missing the provisions of section 345b".
+SOURCE_NEGATION_CASES = (
+    (
+        "החישוב מחושב בהתאם לסעיף 345ב.",
+        "The payment is computed in accordance with section 345b.",
+        "both",
+    ),
+    (
+        "החישוב א\u05b5ינו מחושב בהתאם לסעיף 345ב.",
+        "The payment is not computed in accordance with section 345b.",
+        "neither",
+    ),
+    (
+        "החישוב אי\u200fנו מחושב בהתאם לסעיף 345ב.",
+        "The payment is not computed in accordance with section 345b.",
+        "neither",
+    ),
+    (
+        "החישוב ל\u05b9א יחושב בהתאם לסעיף 345ב.",
+        "The payment shall not be computed in accordance with section 345b.",
+        "neither",
+    ),
+    # Negations under the subordinators ``מש``, ``לכש`` and ``ומש``.
+    (
+        "משלא חושב התשלום בהתאם לסעיף 345ב, ישולם סכום המינימום.",
+        "Since the payment was not computed in accordance with section 345b, the "
+        "minimum amount shall be paid.",
+        "neither",
+    ),
+    (
+        "לכשלא יחושב התשלום בהתאם לסעיף 345ב, ישולם סכום המינימום.",
+        "When the payment is not computed in accordance with section 345b, the "
+        "minimum amount shall be paid.",
+        "neither",
+    ),
+    (
+        "ומשאין לחשב את התשלום בהתאם לסעיף 345ב, ישולם סכום המינימום.",
+        "And since the payment is not to be computed in accordance with section "
+        "345b, the minimum amount shall be paid.",
+        "neither",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("hebrew_branch", "english_branch", "verdict"), SOURCE_NEGATION_CASES
+)
+def test_the_source_negation_guard_agrees_with_the_english_rule(
+    hebrew_branch, english_branch, verdict
+):
+    assert (
+        _accepted("e1", "חסרות הוראות סעיף 345ב.", f"(א) הוראה.\n(ה1) {hebrew_branch}"),
+        _english_accepted(
+            "d",
+            "missing the provisions of section 345b.",
+            f"(a) Provision.\n(d) {english_branch}",
+        ),
+    ) == _DIFFERENTIAL_VERDICTS[verdict]
+
+
+@pytest.mark.parametrize(
+    "adversative", ("אבל", "א\u05b2ב\u05b8ל", "א\u200fבל", "ו\u05b0או\u05bcל\u05b8ם")
+)
+def test_a_marked_hebrew_adversative_reverses_an_english_reason(adversative):
+    """The shared checker reads a Hebrew adversative through its marks, as "But"."""
+
+    assert _english_accepted("d", "Missing section 345b.")
+    assert not _english_accepted("d", "Missing section 345b. But it is available.")
+    assert not _english_accepted(
+        "d", f"Missing section 345b. {adversative} it is available."
+    )
+
+
+@settings(max_examples=40, deadline=None)
+@given(st.data())
+def test_invisible_marks_never_change_a_hebrew_verdict(data):
+    """Metamorphic: a reason reads as its unmarked words, through the CI method."""
+
+    branch, reason, _english, _verdict = data.draw(st.sampled_from(DIFFERENTIAL_CASES))
+
+    assert _accepted(branch, data.draw(_marked(reason))) is _accepted(branch, reason)
+
+
+@settings(max_examples=100, deadline=None)
+@given(st.data())
+def test_the_hebrew_reader_folds_reason_and_scope_itself(data):
+    """Metamorphic, on the reader alone: marks in reason or scope change nothing."""
+
+    _branch, reason, _english, _verdict = data.draw(st.sampled_from(DIFFERENTIAL_CASES))
+    scope = PRECISION_SOURCE.splitlines()[4]
+    expected = hebrew.reason_names_source_bound_dependency(
+        reason, scope, corpus_citation_path=CITATION
+    )
+
+    assert (
+        hebrew.reason_names_source_bound_dependency(
+            data.draw(_marked(reason)),
+            data.draw(_marked(scope)),
+            corpus_citation_path=CITATION,
+        )
+        is expected
+    )
+
+
+def test_text_without_hebrew_is_never_folded():
+    """English and German text reaches every reader as the same object."""
+
+    for text in ("Missing section\u200f 345b.", "Absatz\u00ad 2 Satz 1", "x\ufeff"):
+        assert hebrew.fold_marks(text) is text
+
+
+@pytest.mark.parametrize(
+    ("marked", "plain"),
+    (
+        ("ל\u05b9א", "לא"),
+        ("ל\u200fא", "לא"),
+        ("א\u05b5ינ\ufb4b", "אינו"),
+        ("\u202bחסר\u202c", "חסר"),
+        ("ש\u05c1\u05b6ל\u05bc\u05b9א", "שלא"),
+        ("\ufb2aלא", "שלא"),
+        # Maqaf, geresh and gershayim are punctuation, and stay.
+        ("על\u05beפי", "על\u05beפי"),
+        ("סעיף 345י\u05f4א", "סעיף 345י\u05f4א"),
+        ("סעיף 345ב\u05f3", "סעיף 345ב\u05f3"),
+    ),
+)
+def test_marks_fold_to_the_word_itself(marked, plain):
+    assert hebrew.fold_marks(marked) == plain
+
+
+@settings(max_examples=300, deadline=None)
+@given(
+    st.lists(
+        st.sampled_from(
+            (
+                *"אבגלתשמ סעיף 345.,()ab",
+                *_INVISIBLE_MARKS,
+                "\ufb4b",
+                "\ufb2a",
+                "\ufb4f",
+                "\u05be",
+                "\u05f4",
+            )
+        ),
+        max_size=60,
+    ).map("".join)
+)
+def test_folding_is_idempotent_and_leaves_no_mark(text):
+    folded = hebrew.fold_marks(text)
+
+    assert hebrew.fold_marks(folded) == folded
+    if hebrew._HEBREW_SCRIPT.search(text):
+        assert not hebrew._FOLDABLE.search(folded)
+    else:
+        assert folded is text
+
+
+@pytest.mark.parametrize(
+    "negation",
+    (
+        "ולא",
+        "שלא",
+        "ושלא",
+        "כשלא",
+        "וכשלא",
+        "משלא",
+        "ומשלא",
+        "לכשלא",
+        "ולכשלא",
+        "שאין",
+        "ומשאין",
+        "כשאינו",
+        "משטרם",
+        "שמעולם",
+        "בלתי",
+        "ובלתי",
+        "שבלתי",
+        "משאי אפשר",
+    ),
+)
+def test_a_negation_takes_its_prefixes(negation):
+    assert hebrew._REASON_NEGATION.fullmatch(negation)
+
+
+@pytest.mark.parametrize(
+    "word",
+    (
+        "מלא",
+        "מלאה",
+        "מלאים",
+        "מלאכה",
+        "כלא",
+        "הלא",
+        "הלאה",
+        "ללא",
+        "בטרם",
+        "מאין",
+        "כאין",
+        "לאין",
+    ),
+)
+def test_a_word_spelled_with_prefix_letters_is_no_negation(word):
+    """``מלא`` is "full", not ``מ`` + ``לא``: a bare preposition prefixes no negation."""
+
+    assert not hebrew._REASON_NEGATION.search(word)
+    assert not hebrew._NEGATED_SIGNAL_PREFIX.search(word)
+
+
+def test_reason_adversatives_use_the_shared_vocabulary():
+    assert (
+        hebrew._ANY_ADVERSATIVE.pattern
+        == completeness_module._ADVERSATIVE_LANGUAGE.pattern
+    )
+    assert hebrew._ANY_ADVERSATIVE.flags == (
+        completeness_module._ADVERSATIVE_LANGUAGE.flags
+    )
+
+
+# `_EXPLICIT_COMPUTATION` as it was before its rate was anchored at the first
+# digit of a run.
+_UNANCHORED_COMPUTATION = re.compile(
+    hebrew._EXPLICIT_COMPUTATION.pattern.replace("(?<!\\d)", "", 1)
+)
+
+
+@settings(max_examples=500, deadline=None)
+@given(
+    st.lists(
+        st.sampled_from(
+            ("1", "23", "5", ".", ",", "%", " ", "\t", "מ", "ו", "ן ", "ה", "כנס", "x")
+        ),
+        max_size=14,
+    ).map("".join)
+)
+@example("5.17% מהכנסתו")
+@example("1,234.5% מהכנסה")
+@example("x12.5 % ומן ההכנסה")
+@example("1" * 40)
+def test_the_rate_anchor_changes_no_verdict(text):
+    """Differential: a match from inside a run of digits implies one from its start."""
+
+    assert _UNANCHORED_COMPUTATION.pattern != hebrew._EXPLICIT_COMPUTATION.pattern
+    assert (hebrew._EXPLICIT_COMPUTATION.search(text) is None) is (
+        _UNANCHORED_COMPUTATION.search(text) is None
+    )
 
 
 @pytest.mark.parametrize(
@@ -2451,6 +2972,100 @@ def test_native_citation_scans_stay_linear():
     # Quadratic forms of these took tens of seconds of CPU; the linear ones take
     # about two in all.
     assert time.process_time() - started < 5
+
+
+def _least_cpu_seconds(call, *, runs: int = 3, repetitions: int = 1) -> float:
+    """The least CPU time of ``runs`` runs of ``repetitions`` calls, per call.
+
+    CPU time, not wall time, so a shared host's scheduling cannot fail a bound.
+    """
+
+    least = float("inf")
+    for _run in range(runs):
+        started = time.process_time()
+        for _repetition in range(repetitions):
+            call()
+        least = min(least, time.process_time() - started)
+    return least / repetitions
+
+
+def test_an_equal_copy_of_a_text_is_scanned_in_linear_time():
+    """Review round 12, finding 4: no index is looked up by an equal whole text.
+
+    Caches keyed by the whole text compared it in full once per citation when
+    an equal copy came back as another object, so the copy's scan grew
+    quadratically: 0.05, 0.19 and 0.82 CPU seconds at 8,000, 16,000 and 32,000
+    citations, against 0.01, 0.02 and 0.06 for the first scan.
+    """
+
+    first, copy = [], []
+    for count in (8_000, 16_000, 32_000):
+        text = "סעיף 1. " * count
+        equal = text.encode().decode()
+        assert equal == text and equal is not text
+        first.append(
+            _least_cpu_seconds(functools.partial(hebrew._section_citations, text))
+        )
+        copy.append(
+            _least_cpu_seconds(functools.partial(hebrew._section_citations, equal))
+        )
+    # Four times the citations cost about four times the CPU when the scan is
+    # linear, sixteen times when it is quadratic.
+    assert first[-1] < 10 * first[0], first
+    assert copy[-1] < 10 * copy[0], copy
+    # The copy costs what the first scan costs, not a comparison per citation.
+    assert copy[-1] < 2 * first[-1] + 0.01, (first, copy)
+
+
+def test_a_reason_and_its_equal_copy_are_read_in_linear_time():
+    """Review round 12, finding 4, through the shared checker.
+
+    Before, a reason of 32,000 citations took 0.49 CPU seconds and its equal
+    copy 3.2; both verdicts were, and are, refusals.
+    """
+
+    scope = "(ה1) לפי סעיף 345ב."
+
+    def read(reason: str) -> bool:
+        return completeness_module._reason_dependency_is_source_bound(
+            reason, scope, corpus_citation_path=CITATION, path=("e1",)
+        )
+
+    first, copy = [], []
+    for count in (8_000, 16_000, 32_000):
+        reason = "missing חסר " + "סעיף 346. " * count
+        equal = reason.encode().decode()
+        if count == 8_000:
+            assert not read(reason)
+            assert not read(equal)
+        first.append(_least_cpu_seconds(functools.partial(read, reason), runs=1))
+        copy.append(_least_cpu_seconds(functools.partial(read, equal), runs=1))
+    assert first[-1] < 10 * first[0], first
+    assert copy[-1] < 10 * copy[0], copy
+    assert copy[-1] < 2 * first[-1] + 0.05, (first, copy)
+
+
+def test_a_long_run_of_digits_is_read_once():
+    """Review round 12, finding 5: a rate is matched from the first digit of a run.
+
+    Unanchored, the rate retried every suffix of a run of digits with no
+    percent sign: 0.009 CPU seconds at 1,000 digits, 0.59 at 8,000.
+    """
+
+    per_call = []
+    for size in (1_000, 2_000, 4_000, 8_000):
+        digits = "1" * size
+        assert not hebrew.states_explicit_computation(digits)
+        per_call.append(
+            _least_cpu_seconds(
+                functools.partial(hebrew.states_explicit_computation, digits),
+                repetitions=32_000 // size,
+            )
+        )
+    # Eight times the digits cost about eight times the CPU when the scan is
+    # linear, sixty-four times when it is quadratic.
+    assert per_call[-1] < 24 * per_call[0], per_call
+    assert hebrew.states_explicit_computation("1" * 8_000 + "% מהכנסתו")
 
 
 @pytest.mark.parametrize(
