@@ -1,3 +1,7 @@
+## 0.2.2236
+
+- Bind imported entered-line observations to their canonical providers and authenticated source proofs. Check complete repayment alternative trees, strict thresholds and result branches before treating their conditions as explicit, while preserving ordinary execution and source checks.
+
 ## 0.2.2235
 
 - Preserve verified whole-form reference locations when extracting computation clauses, so a referral such as Step 4 is not mistaken for an arithmetic operand. Keep real amounts and malformed references subject to the existing checks.

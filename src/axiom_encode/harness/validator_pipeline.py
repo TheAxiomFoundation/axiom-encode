@@ -120,6 +120,7 @@ from axiom_encode.harness.coverage_exemptions import (
     filter_coverage_demands,
     has_reviewed_repeal,
 )
+from axiom_encode.harness.imported_export_evidence import ResolvedImportedExport
 from axiom_encode.harness.strict_compiled_inputs import (
     compiled_program_has_strict_input_reads,
 )
@@ -35912,8 +35913,11 @@ class ValidatorPipeline:
         corpus_citation_path = self.source_citation_path or (
             citation_paths[0] if citation_paths else ""
         )
-        imported_symbol_contents = self._complete_source_unit_import_symbol_contents(
+        imported_export_bindings = self._complete_source_unit_import_bindings(
             rules_file
+        )
+        imported_symbol_contents = self._complete_source_import_numeric_projection(
+            imported_export_bindings
         )
         artifact_numeric_bindings = collect_artifact_numeric_bindings(
             content,
@@ -35947,6 +35951,10 @@ class ValidatorPipeline:
             artifact_numeric_values=artifact_numeric_values,
             artifact_numeric_bindings=artifact_numeric_bindings,
             imported_symbol_contents=imported_symbol_contents,
+            imported_export_bindings=imported_export_bindings,
+            imported_proof_source_context=self._complete_source_import_proof_context(
+                imported_export_bindings, proof_source_texts
+            ),
             resolved_dependency_outputs=self._complete_source_unit_deferred_outputs(
                 content, rules_file
             ),
@@ -36031,8 +36039,31 @@ class ValidatorPipeline:
         self,
         rules_file: Path | None,
     ) -> tuple[tuple[str, str], ...]:
-        """Bind every directly imported symbol to its exact resolved artifact."""
+        """Preserve the existing numeric-import projection and deduplication."""
+        return self._complete_source_import_numeric_projection(
+            self._complete_source_unit_import_bindings(rules_file)
+        )
 
+    @staticmethod
+    def _complete_source_import_numeric_projection(
+        records: Sequence[ResolvedImportedExport],
+    ) -> tuple[tuple[str, str], ...]:
+        seen: set[tuple[str, str]] = set()
+        result: list[tuple[str, str]] = []
+        for record in records:
+            key = (record.resolved_path, record.export_name)
+            if key not in seen:
+                seen.add(key)
+                # Path.read_text previously performed universal newline conversion.
+                content = record.content.replace("\r\n", "\n").replace("\r", "\n")
+                result.append((record.export_name, content))
+        return tuple(result)
+
+    def _complete_source_unit_import_bindings(
+        self,
+        rules_file: Path | None,
+    ) -> tuple[ResolvedImportedExport, ...]:
+        """Retain exact direct resolver identity; never evaluate provider rules."""
         if rules_file is None:
             return ()
         try:
@@ -36040,8 +36071,8 @@ class ValidatorPipeline:
             import_items = self._extract_import_items(rules_file.read_text())
         except (OSError, ValueError, UnsafeRulespecContextPath):
             return ()
-        seen: set[tuple[Path, str]] = set()
-        bindings: list[tuple[str, str]] = []
+        bindings: list[ResolvedImportedExport] = []
+        snapshots: dict[Path, str] = {}
         for import_item in import_items:
             _target, separator, imported_symbol = import_item.rpartition("#")
             imported_symbol = imported_symbol.strip()
@@ -36056,14 +36087,76 @@ class ValidatorPipeline:
                 )
                 if dependency is None:
                     continue
-                binding_key = (dependency.resolve(), imported_symbol)
-                if binding_key in seen:
-                    continue
-                seen.add(binding_key)
-                bindings.append((imported_symbol, dependency.read_text()))
+                dependency = dependency.resolve()
+                if dependency not in snapshots:
+                    snapshots[dependency] = dependency.read_bytes().decode("utf-8")
+                content = snapshots[dependency]
+                jurisdiction_root = _rulespec_repo_root(dependency)
+                bindings.append(
+                    ResolvedImportedExport(
+                        import_uri=import_item,
+                        canonical_target=_canonical_rulespec_file_target(
+                            policy_repo_path=source_root,
+                            rules_file=dependency,
+                            symbol=imported_symbol,
+                        ),
+                        export_name=imported_symbol,
+                        resolved_path=str(dependency),
+                        jurisdiction_root=str(jurisdiction_root)
+                        if jurisdiction_root is not None
+                        else None,
+                        content_sha256=hashlib.sha256(content.encode()).hexdigest(),
+                        content=content,
+                        consumer_imports=tuple(import_items),
+                    )
+                )
             except (OSError, ValueError, UnsafeRulespecContextPath):
                 continue
         return tuple(bindings)
+
+    def _complete_source_import_proof_context(
+        self,
+        records: Sequence[ResolvedImportedExport],
+        consumer_context: Mapping[str, str | None] | None,
+    ) -> dict[str, str | None] | None:
+        """Resolve direct snapshot proofs only for typed import evidence.
+
+        This separate map cannot widen ordinary consumer proof/numeric scope.
+        Authentication errors propagate through the existing resolver.
+        """
+        if (
+            not records
+            or not isinstance(self.local_corpus_release, LocalCorpusRelease)
+            or _AUTHORITATIVE_CORPUS_RELEASE.get() is not self.local_corpus_release
+        ):
+            return None
+        snapshots: dict[str, tuple[str, str]] = {}
+        modules: dict[str, str] = {}
+        for record in records:
+            snapshot = (record.content_sha256, record.content)
+            if (
+                hashlib.sha256(record.content.encode()).hexdigest()
+                != record.content_sha256
+                or snapshots.setdefault(record.resolved_path, snapshot) != snapshot
+            ):
+                return None
+            if record.canonical_target is None:
+                return None
+            module = record.canonical_target.rsplit("#", 1)[0]
+            if modules.setdefault(module, record.resolved_path) != record.resolved_path:
+                return None
+        combined = dict(consumer_context or {})
+        for _digest, content in snapshots.values():
+            provider = self._proof_source_texts_for_rulespec_content(
+                content, source_texts=None
+            )
+            for citation, body in provider.items():
+                if not isinstance(body, str) or (
+                    citation in combined and combined[citation] != body
+                ):
+                    return None
+                combined[citation] = body
+        return combined
 
     def _rulespec_compile_roots(self) -> tuple[Path, ...]:
         """Return the exact country checkouts authorized for engine compilation."""
