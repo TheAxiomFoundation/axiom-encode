@@ -29,10 +29,13 @@ PolicyEngine's `is_snap_eligible`, `snap_max_allotment`, and
 `snap_min_allotment` to the Arizona benefit path (see
 `axiom_oracles/bridges/snap_populace.py`,
 `project_jurisdiction_household_inputs`). Allotment and eligibility comparison
-still cannot establish independent end-to-end parity. Remove each remaining
-oracle-derived input only after the corresponding source-grounded RuleSpec path
-is composed, then run matched households with the same member facts and compare
-intermediate as well as final outputs.
+still cannot establish independent end-to-end parity. The merged
+[axiom-oracles #645](https://github.com/TheAxiomFoundation/axiom-oracles/pull/645)
+now marks Arizona comparison rows `not_comparable` and keeps matching benefit
+amounts as diagnostics rather than parity passes while this bridge remains.
+Remove each remaining oracle-derived input only after the corresponding
+source-grounded RuleSpec path is composed, then run matched households with the
+same member facts and compare intermediate as well as final outputs.
 
 One **partial financial-path comparison**, not household parity: at the pinned
 PolicyEngine commit, a one-person Arizona household in January 2026 with $1,003
