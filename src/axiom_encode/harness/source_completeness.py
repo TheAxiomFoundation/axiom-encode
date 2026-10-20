@@ -1540,6 +1540,24 @@ _ADVERSATIVE_LANGUAGE = re.compile(
     r")\b|" + hebrew_source_text.ADVERSATIVE_LANGUAGE,
     flags=re.IGNORECASE,
 )
+# The English and German negators. The English words are the direct negators
+# of the English negation guards (``_source_link_scope_has_unreset_negation``,
+# ``_louisiana_assertion_is_negative`` and
+# ``_same_act_dependency_state_is_reversed``); the German words are those the
+# checker reads (``nicht``, ``kein`` with its forms, ``keinesfalls``) and the
+# German for each English one, but ``noch``, which also means "still".
+# ``without`` is not one: the deferral route reads it as a missing-dependency
+# signal. The Hebrew reader takes these as negating a Hebrew signal or link,
+# as the translation is read (``not חסר סעיף 2``, "section 2 is not
+# missing"); no English or German reason is read with them.
+_NEGATION_LANGUAGE = re.compile(
+    r"\b(?:"
+    r"not|no|never|neither|nor|nothing|nowhere|cannot|(?:false|untrue)\s+that|"
+    r"nicht|nichts|kein(?:e|en|em|er|es)?|keinesfalls|keineswegs|nie|niemals|"
+    r"weder|nirgends|(?:falsch|unwahr),?\s+dass"
+    r")\b|n['’]t\b",
+    flags=re.IGNORECASE,
+)
 _CONTEXTUAL_AUTHORITY_LANGUAGE = re.compile(
     r"\b(?:"
     r"(?:included|mentioned|quoted|summarized|discussed|provided|supplied|known)\s+"
@@ -9361,6 +9379,7 @@ def _reason_dependency_is_source_bound(
         corpus_citation_path=corpus_citation_path,
         other_citations=_reason_dependencies,
         masked_citations=_clause_masked_dependencies,
+        other_negations=_NEGATION_LANGUAGE.finditer,
     ):
         return True
     for match in re.finditer(

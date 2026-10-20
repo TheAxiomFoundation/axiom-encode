@@ -1067,8 +1067,23 @@ _PRECISE_MISSING_CLAIMS = (
     "חסרה הוראת החישוב המדויקת שבסעיף 345ב.",
 )
 _NEGATORS = ("לא", "אין", "אינו", "טרם", "מעולם לא", "לאו", "אי אפשר", "בלתי")
-# The prefixes of ``_NEGATION_PREFIX``: ``ואין``, ``משלא``, ``וכשלא``, ``לכשלא``.
-_NEGATION_PREFIXES = ("", "ו", "ש", "וש", "כש", "וכש", "מש", "ומש", "לכש", "ולכש", "בש")
+# The prefixes of ``_NEGATION_PREFIX``: ``ואין``, ``משלא``, ``וכשלא``, ``לכשלא``,
+# and the Aramaic relative of ``דלא`` and ``ודלא`` (review round 13).
+_NEGATION_PREFIXES = (
+    "",
+    "ו",
+    "ש",
+    "וש",
+    "כש",
+    "וכש",
+    "מש",
+    "ומש",
+    "לכש",
+    "ולכש",
+    "בש",
+    "ד",
+    "וד",
+)
 # Points, cantillation, and direction and format marks: none changes a word.
 _INVISIBLE_MARKS = (
     "\u05b0",
@@ -2207,6 +2222,14 @@ def test_folding_is_idempotent_and_leaves_no_mark(text):
         "ובלתי",
         "שבלתי",
         "משאי אפשר",
+        "דלא",
+        "ודלא",
+        "דאין",
+        "דאינו",
+        "דטרם",
+        "דלאו",
+        "דבלתי",
+        "דאי אפשר",
     ),
 )
 def test_a_negation_takes_its_prefixes(negation):
@@ -2245,6 +2268,298 @@ def test_reason_adversatives_use_the_shared_vocabulary():
     assert hebrew._ANY_ADVERSATIVE.flags == (
         completeness_module._ADVERSATIVE_LANGUAGE.flags
     )
+
+
+# --- Review round 13 ------------------------------------------------------------
+
+# The review's reproducers and their siblings: the Aramaic relative ``ד`` before
+# a negation, and an English or German negator before a Hebrew signal or link.
+# Each Hebrew reason gets its translation's English verdict; `hebrew-stricter`
+# marks a negator between the signal and its citation, which Hebrew refuses
+# and English, reading no negation there, admits.
+ROUND_13_REPRODUCERS = (
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "דלא חסר סעיף 2",
+        "Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "ודלא חסר סעיף 2",
+        "And section 2 is not missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "not חסר סעיף 2",
+        "Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "It is not true that חסר סעיף 2.",
+        "It is not true that section 2 is missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "nicht חסר סעיף 2",
+        "Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "It is not the case that חסר סעיף 2",
+        "It is not the case that section 2 is missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "Es ist nicht so, dass חסר סעיף 2",
+        "It is not the case that section 2 is missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "no חסר סעיף 2",
+        "No section 2 is missing.",
+        "neither",
+    ),
+    # Intended: a negator between the signal and the citation leaves the
+    # missing claim unread in Hebrew, in any language, as ``לא`` there does.
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "חסר not סעיף 2",
+        "Missing, not section 2.",
+        "hebrew-stricter",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "חסר nicht סעיף 2",
+        "Missing, not section 2.",
+        "hebrew-stricter",
+    ),
+    # Controls: no negator, a word that only starts like one, a negator after
+    # the citation, and one in an earlier clause.
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "It is true that חסר סעיף 2.",
+        "It is true that missing section 2.",
+        "both",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "Note: חסר סעיף 2",
+        "Note: missing section 2.",
+        "both",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "חסר סעיף 2, not yet encoded.",
+        "Missing section 2, not yet encoded.",
+        "both",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "nichts; חסר סעיף 2",
+        "Nothing; missing section 2.",
+        "both",
+    ),
+    # The same two classes in the source-link guard: ``דלא``, ``דאינו`` and an
+    # English or German negator before ``בהתאם ל`` negate the link.
+    (
+        "(א) דלא מחושב בהתאם לסעיף 2.",
+        "(a) That is not computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "(א) ודאינו מחושב בהתאם לסעיף 2.",
+        "(a) And that is not computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "(א) not מחושב בהתאם לסעיף 2.",
+        REVIEW_NEGATED_SOURCE,
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "(א) nicht מחושב בהתאם לסעיף 2.",
+        REVIEW_NEGATED_SOURCE,
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("hebrew_source", "english_source", "hebrew_reason", "english_reason", "verdict"),
+    ROUND_13_REPRODUCERS,
+)
+def test_round_13_reproducers_get_the_english_verdict(
+    hebrew_source, english_source, hebrew_reason, english_reason, verdict
+):
+    assert (
+        _accepted("a", hebrew_reason, hebrew_source),
+        _english_accepted("a", english_reason, english_source),
+    ) == _DIFFERENTIAL_VERDICTS[verdict]
+
+
+# Every word of the shared English and German negators (``_NEGATION_LANGUAGE``
+# in source_completeness), and contractions of its ``n't``.
+_OTHER_NEGATORS = (
+    "not",
+    "no",
+    "never",
+    "neither",
+    "nor",
+    "nothing",
+    "nowhere",
+    "cannot",
+    "false that",
+    "untrue that",
+    "isn't",
+    "doesn’t",
+    "can't",
+    "won't",
+    "nicht",
+    "nichts",
+    "kein",
+    "keine",
+    "keinen",
+    "keinem",
+    "keiner",
+    "keines",
+    "keinesfalls",
+    "keineswegs",
+    "nie",
+    "niemals",
+    "weder",
+    "nirgends",
+    "falsch, dass",
+    "unwahr dass",
+)
+# Words that are no negation in any of the three languages: English and German
+# fillers around a negator, and words that only start like one.
+_OTHER_NEUTRAL_WORDS = (
+    "it",
+    "is",
+    "true",
+    "the",
+    "case",
+    "that",
+    "es",
+    "ist",
+    "so",
+    "dass",
+    "wahr",
+    "note",
+    "knot",
+    "nordic",
+    "niece",
+    "noted",
+)
+
+
+def test_reason_negations_use_the_shared_vocabulary():
+    assert (
+        hebrew._OTHER_NEGATION.pattern == completeness_module._NEGATION_LANGUAGE.pattern
+    )
+    assert hebrew._OTHER_NEGATION.flags == completeness_module._NEGATION_LANGUAGE.flags
+
+
+def test_the_shared_vocabulary_holds_every_required_negator():
+    """The review's list, ``n't`` in its contractions; ``without`` is a signal."""
+
+    negation = completeness_module._NEGATION_LANGUAGE
+    for word in _OTHER_NEGATORS:
+        for form in (word, word.upper()):
+            # A contraction is read at its ``n't``, the whole word otherwise.
+            found = negation.search(form)
+            assert found and found.end() == len(form), form
+            assert found.start() == 0 or found.group(0).lower() in {"n't", "n’t"}
+    for word in _OTHER_NEUTRAL_WORDS + ("without", "ohne", "Nottingham"):
+        assert not negation.search(word), word
+
+
+def test_the_shared_checker_passes_its_negators_to_the_hebrew_reader(monkeypatch):
+    """The Hebrew route reads the shared checker's vocabulary, not only its copy."""
+
+    assert _accepted("a", "nope חסר סעיף 2", REVIEW_SOURCE)
+    monkeypatch.setattr(
+        completeness_module,
+        "_NEGATION_LANGUAGE",
+        re.compile(r"\bnope\b", flags=re.IGNORECASE),
+    )
+    assert not _accepted("a", "nope חסר סעיף 2", REVIEW_SOURCE)
+    # The source-link guard reads it too.
+    assert not _accepted("a", "חסר סעיף 2", "(א) nope מחושב בהתאם לסעיף 2.")
+
+
+@st.composite
+def _other_negations(draw) -> str:
+    """An English or German negator, in any letter case."""
+
+    word = draw(st.sampled_from(_OTHER_NEGATORS))
+    return draw(st.sampled_from((word, word.upper(), word.capitalize())))
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    st.one_of(_negations(), _other_negations()),
+    st.lists(st.sampled_from(_NEUTRAL_WORDS + _OTHER_NEUTRAL_WORDS), max_size=4),
+    st.lists(st.sampled_from(_NEUTRAL_WORDS + _OTHER_NEUTRAL_WORDS), max_size=6),
+    st.sampled_from(_PRECISE_MISSING_CLAIMS),
+    st.booleans(),
+)
+@example("דלא", [], [], _PRECISE_MISSING_CLAIMS[0], False)
+@example("not", ["It", "is"], ["true", "that"], _PRECISE_MISSING_CLAIMS[0], False)
+@example("nicht", ["Es", "ist"], ["so,", "dass"], _PRECISE_MISSING_CLAIMS[1], False)
+@example("not", [], [], _PRECISE_MISSING_CLAIMS[2], True)
+def test_any_negator_before_an_accepted_signal_refuses_it(
+    negation, lead, complement, claim, between
+):
+    """Polarity: a negator of any of the three languages flips an accepted claim.
+
+    The negator is a Hebrew one under any of its prefixes, ``ד`` included, and
+    pointed or direction-marked, or any word of the shared English and German
+    vocabulary. Placed anywhere earlier in the clause than the signal, after
+    words of any of the languages, or between the signal and its citation, it
+    refuses the claim the same words accept without it.
+    """
+
+    signal, rest = claim.split(" ", 1)
+    before = " ".join(lead)
+    after = " ".join(complement)
+    affirmed = f"{before} {after} ש{claim}".strip()
+    if between:
+        negated = f"{before} {after} ש{signal} {negation} {rest}".strip()
+    else:
+        negated = f"{before} {negation} {after} ש{claim}".strip()
+
+    assert _accepted("e1", affirmed)
+    assert not _accepted("e1", negated)
 
 
 # `_EXPLICIT_COMPUTATION` as it was before its rate was anchored at the first
