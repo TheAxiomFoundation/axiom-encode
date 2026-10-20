@@ -964,7 +964,7 @@ As of 2026-04-10:
     - the remaining blockers moved to companion tests;
     - mean wall time rose from 9.8 to 14.1 min;
     - a completeness replay over 106 saved candidates was byte-identical between the arms, so the validators were unchanged.
-  - **Step 2** (companion-test guidance for newly encoded branches, plus a guard against constant-`true` framing outputs, stacked on #1966; main `15aa35772` vs `90f156f18`, which applies both changes to that main; 25 citations × 3 reps):
+  - **Step 2** (companion-test guidance for newly encoded branches, plus a guard against constant-`true` framing outputs, stacked on #1966 as #1970; main `15aa35772` vs `90f156f18`, which applies both changes to that main; 25 citations × 3 reps):
     - final pass 19.2% vs 12.3% on 73 groups without timeout (McNemar p=0.33; per-citation sign test p=0.18);
     - manual pages fell from 46.7% to 13.3% (p=0.06; cluster bootstrap 95% interval −53% to −13%);
     - final-attempt test-case failures rose from 51 to 200. Most of the rise is "output missing from execution response" (26 to 128): the model asserted more derived outputs per case;
@@ -973,7 +973,7 @@ As of 2026-04-10:
     - result: not adopted.
   - Separate main issue: `artifact_repair` on some 42 CFR and NM sources takes 10–41 min and causes 75-min timeouts. The timeouts occurred in both arms, and NM 7-2-18.13 timed out more often with the guidance.
 - Primary evidence paths:
-  - #1966 and its stacked step-2 PR (the PR bodies hold the A/B tables, the review cycles and the accuracy audits).
+  - #1966 and the stacked step-2 PR #1970 (the PR bodies hold the A/B tables, the review cycles and the accuracy audits).
   - [local-encoder-ab.md](local-encoder-ab.md) and `scripts/local_ab/`.
   - Run archives, outside git: `~/axiom-encode-local-ab/2026-10-19-pilot2-validator-swarm`, `2026-10-19-ab1-pr1966`, `2026-10-19-ab1-aborted-9aad40a91`, `2026-10-20-ab2-step2`. Each has a `DESIGN` file, `report.md`, and per-encode `failed_attempts.jsonl`, candidates and logs; ab2 also has interim snapshots.
 
