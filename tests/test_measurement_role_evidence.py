@@ -280,3 +280,19 @@ def test_source_offsets_and_unknown_year_are_preserved_with_current_roles():
         for start, end, year in role.spans:
             assert source[start:end] == str(year)
     assert any("numeric value 2026" in issue for issue in issues(doc, cases, source))
+
+
+@pytest.mark.parametrize("rule_index", [0, 1, 2])
+def test_measurement_consumers_refuse_listed_assertions_from_another_row(rule_index):
+    doc, cases, source = current_material()
+    name = doc["rules"][rule_index]["name"]
+    for case in cases:
+        key = next(k for k in case["output"] if k.endswith("#" + name))
+        case["output"][key] = [case["output"][key]]
+        row = copy.deepcopy(case["input"])
+        paid = next(k for k in row if "paid_2025_line_48" in k)
+        row[paid] += 1
+        case["tables"] = {"Person": [row]}
+    found = issues(doc, cases, source)
+    assert any("formula" in issue for issue in found)
+    assert any("numeric value" in issue for issue in found)
