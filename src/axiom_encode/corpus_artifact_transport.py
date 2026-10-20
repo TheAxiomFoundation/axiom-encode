@@ -17,7 +17,11 @@ import tomllib
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from axiom_encode.corpus_materialize import _parse_scope_lock, lock_path_for
+from axiom_encode.corpus_materialize import (
+    CheckoutLocks,
+    _parse_scope_lock,
+    lock_path_for,
+)
 from axiom_encode.corpus_release import verify_release_object
 from axiom_encode.prepare_signed_backfill import (
     resolve_atomic_repair_mode,
@@ -237,7 +241,18 @@ def verify_member(
     entry = _parse_scope_lock(raw, lock).get(path)
     if entry is None or entry.content != (member["sha256"], member["bytes"]):
         raise ValueError("immutable lock disagrees with signed member")
+    require_current_lock(corpus, path, payload)
     return path
+
+
+def require_current_lock(corpus: Path, path: str, data: bytes) -> None:
+    """Keep transported bytes bound to this checkout's own scope lock."""
+
+    entry = CheckoutLocks(corpus).entry(path)
+    if isinstance(entry, str):
+        raise ValueError(f"current corpus checkout lock does not pin member: {entry}")
+    if entry.content != (hashlib.sha256(data).hexdigest(), len(data)):
+        raise ValueError("current corpus checkout lock disagrees with member")
 
 
 def place_member(corpus: Path, path: str, data: bytes) -> None:
@@ -248,6 +263,9 @@ def place_member(corpus: Path, path: str, data: bytes) -> None:
         or any(p in {".", ".."} for p in parts)
     ):
         raise ValueError("invalid provision destination")
+    # A checkout may advance after the signed release was published, or its lock
+    # may change after verify_member. Never place historical bytes against it.
+    require_current_lock(corpus, path, data)
     directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     parent_fd = os.open(corpus, directory_flags)
     try:

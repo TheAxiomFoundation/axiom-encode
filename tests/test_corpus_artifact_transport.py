@@ -358,6 +358,45 @@ def test_signed_member_lock_and_placement(signed):
         transport.place_member(signed["corpus"], path, b"different")
 
 
+def test_reingested_checkout_lock_refuses_historical_member(signed):
+    path = transport.verify_member(**signed)
+    repo = signed["corpus"]
+    lock = transport.lock_path_for(path)
+    (repo / lock).write_bytes(
+        _canonical_lock_bytes(
+            ("nz", "statute", "2026-07-10-nz-rulespec"),
+            {path: LockEntry("f" * 64, len(signed["payload"]))},
+        )
+    )
+    transport.git(repo, "add", str(lock))
+    transport.git(repo, "-c", "commit.gpgsign=false", "commit", "-qm", "reingest")
+
+    with pytest.raises(ValueError, match="current corpus checkout lock disagrees"):
+        transport.verify_member(**signed)
+    with pytest.raises(ValueError, match="current corpus checkout lock disagrees"):
+        transport.place_member(repo, path, signed["payload"])
+    assert not (repo / path).exists()
+
+
+@pytest.mark.parametrize("change", ["missing", "symlink"])
+def test_current_checkout_lock_requires_regular_file(signed, change, tmp_path):
+    path = transport.verify_member(**signed)
+    repo = signed["corpus"]
+    lock = repo / transport.lock_path_for(path)
+    original = lock.read_bytes()
+    lock.unlink()
+    if change == "symlink":
+        target = tmp_path / "outside-lock.json"
+        target.write_bytes(original)
+        lock.symlink_to(target)
+
+    with pytest.raises(ValueError, match="current corpus checkout lock does not pin"):
+        transport.verify_member(**signed)
+    with pytest.raises(ValueError, match="current corpus checkout lock does not pin"):
+        transport.place_member(repo, path, signed["payload"])
+    assert not (repo / path).exists()
+
+
 @pytest.mark.parametrize(
     "change",
     [
