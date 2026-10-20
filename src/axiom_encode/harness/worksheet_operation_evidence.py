@@ -7,6 +7,7 @@ unresolved. Transfer/aggregation is deliberately outside this certificate.
 from __future__ import annotations
 
 import ast
+import copy
 import hashlib
 import re
 from dataclasses import dataclass, replace
@@ -119,6 +120,24 @@ class WorksheetOperationCoverage:
     case_links: tuple[tuple[str, int], ...] = ()
     unresolved: tuple[str, ...] = ()
     source_sha256: str = ""
+    input_identity: str = ""
+    context_identity: str = ""
+
+    def matches(self, payload, cases, source_text, source_context) -> bool:
+        """Rebind successful universal evidence to its exact scalar inputs."""
+        try:
+            return (
+                bool(self.outputs)
+                and not self.unresolved
+                and (
+                    self.input_identity == path_input_identity(payload, cases)
+                    and self.context_identity == path_input_identity(source_context, ())
+                    and self.source_sha256
+                    == hashlib.sha256(source_text.encode()).hexdigest()
+                )
+            )
+        except (TypeError, ValueError, KeyError, AttributeError):
+            return False
 
     def remaining_exception(
         self, branch, *, source_text, principal_rules, corpus_citation_path
@@ -359,6 +378,60 @@ def _expected_operations() -> dict[str, ast.expr]:
     }
 
 
+def _known_predicate_key(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return ast.dump(node)
+    if (
+        isinstance(node, ast.Compare)
+        and len(node.ops) == len(node.comparators) == 1
+        and isinstance(node.left, ast.Name)
+        and isinstance(node.comparators[0], ast.Constant)
+        and type(node.comparators[0].value) in (str, bool, int)
+        and isinstance(
+            node.ops[0], (ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE)
+        )
+    ):
+        return ast.dump(node)
+    return None
+
+
+def _remove_known_guard(
+    node: ast.AST, facts: dict[str, bool], depth: int = 0
+) -> ast.AST:
+    # Comparison only, after the caller has resolved every typed dependency.
+    # Do not erase dependency errors/proof ownership or change executable ASTs.
+    if depth > 128:
+        raise ValueError("worksheet predicate context depth")
+    if isinstance(node, ast.IfExp):
+        key = _known_predicate_key(node.test)
+        if key is not None and key in facts:
+            return _remove_known_guard(
+                node.body if facts[key] else node.orelse, facts, depth + 1
+            )
+        yes, no = dict(facts), dict(facts)
+        if key is not None:
+            yes[key], no[key] = True, False
+        node.test = _remove_known_guard(node.test, facts, depth + 1)
+        node.body = _remove_known_guard(node.body, yes, depth + 1)
+        node.orelse = _remove_known_guard(node.orelse, no, depth + 1)
+        return node
+    for field, value in ast.iter_fields(node):
+        if isinstance(value, ast.AST):
+            setattr(node, field, _remove_known_guard(value, facts, depth + 1))
+        elif isinstance(value, list):
+            setattr(
+                node,
+                field,
+                [
+                    _remove_known_guard(item, facts, depth + 1)
+                    if isinstance(item, ast.AST)
+                    else item
+                    for item in value
+                ],
+            )
+    return node
+
+
 def _same_expression(a: ast.expr, b: ast.expr) -> bool:
     class EqualityOrder(ast.NodeTransformer):
         def visit_Compare(self, node: ast.Compare) -> ast.AST:
@@ -368,7 +441,65 @@ def _same_expression(a: ast.expr, b: ast.expr) -> bool:
                 node.left, node.comparators = left, [right]
             return node
 
-    return ast.dump(EqualityOrder().visit(a)) == ast.dump(EqualityOrder().visit(b))
+    try:
+        if any(sum(1 for _ in ast.walk(tree)) > 4096 for tree in (a, b)):
+            return False
+        left = EqualityOrder().visit(_remove_known_guard(copy.deepcopy(a), {}))
+        right = EqualityOrder().visit(_remove_known_guard(copy.deepcopy(b), {}))
+    except (RecursionError, ValueError):
+        return False
+    return ast.dump(left) == ast.dump(right)
+
+
+def _matches_source_operation(owner: str, actual: ast.expr, expected: ast.expr) -> bool:
+    if _same_expression(actual, expected):
+        return True
+    if owner != _LINE5:
+        return False
+    # A second fixed source-conformance descriptor, never derived from candidate
+    # expressions or case values. It retains this evaluation order: Quebec,
+    # Manitoba then AMT, federal equality, and the unchanged source-owned cap.
+    # This does not assert identical MissingInput behavior with the first form.
+    ratio = ast.unparse(_expected_operations()[_LINE4])
+    alternative = ast.parse(
+        f"0 if {_RESIDENCE} == 'Quebec' or "
+        f"({_RESIDENCE} == 'Manitoba' and minimum_tax_is_payable) else "
+        f"0 if {_CREDIT} == {_PAID} else "
+        f"min({_PAID} - {_LINE2}, {ratio}, {_TAX})",
+        mode="eval",
+    ).body
+    return _same_expression(actual, alternative)
+
+
+def _owns_inline_part_year_sum(rule: Mapping[str, Any], version: int) -> bool:
+    """Recognize only the selected direct source sum, not a donor helper."""
+    versions = rule.get("versions")
+    if not isinstance(versions, list) or not 0 <= version < len(versions):
+        return False
+    formula = versions[version].get("formula")
+    if not isinstance(formula, str):
+        return False
+    tree = _formula_ast(formula)
+    if not isinstance(tree, ast.IfExp) or not isinstance(tree.orelse, ast.IfExp):
+        return False
+    part_year = tree.orelse
+    return (
+        _same_expression(
+            tree.test, ast.parse("jurisdictions_tax_paid_count > 1", mode="eval").body
+        )
+        and isinstance(part_year.test, ast.Name)
+        and part_year.test.id == "resident_of_canada_for_part_of_year"
+        and isinstance(part_year.body, ast.BinOp)
+        and isinstance(part_year.body.op, ast.Add)
+        and _same_expression(
+            part_year.body,
+            ast.parse(
+                "income_for_part_of_year_resident_in_canada + "
+                "income_and_losses_under_paragraphs_115_1_a_to_c_for_nonresident_part",
+                mode="eval",
+            ).body,
+        )
+    )
 
 
 def _zero_reason(environment: Mapping[str, Any]) -> str | None:
@@ -585,7 +716,7 @@ def certify_worksheet_operations(
         if (
             actual is None
             or resolver.errors
-            or not _same_expression(actual, descriptor)
+            or not _matches_source_operation(owner, actual, descriptor)
         ):
             errors.extend(resolver.errors or {"operation differs: " + owner})
         dependencies.update(resolver.dependencies)
@@ -660,6 +791,19 @@ def certify_worksheet_operations(
             if text.startswith("If you were a resident of Canada")
             else "t2036_net_income_for_credit"
         )
+        # A source operation may be inline in the selected net-income owner.
+        # Never borrow the parent's proof for an arbitrary helper or override a
+        # selected named helper whose own proof is missing.
+        if (
+            required_owner == "net_income_for_part_year_resident"
+            and required_owner not in dependencies
+        ):
+            inline_owner = "t2036_net_income_for_credit"
+            inline_dep = dependencies.get(inline_owner)
+            if inline_dep is not None and _owns_inline_part_year_sum(
+                rules[inline_owner], inline_dep.version
+            ):
+                required_owner = inline_owner
         dep = dependencies.get(required_owner)
         if (
             required_owner not in net_owners
@@ -763,4 +907,6 @@ def certify_worksheet_operations(
         tuple(links),
         (),
         hashlib.sha256(source_text.encode()).hexdigest(),
+        path_input_identity(payload, test_cases),
+        path_input_identity(source_context, ()),
     )

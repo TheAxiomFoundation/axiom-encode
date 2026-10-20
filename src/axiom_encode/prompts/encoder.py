@@ -8,7 +8,7 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
-__version__ = 1
+__version__ = 3
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -816,7 +816,11 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   Use `dtype: Judgment` for derived legal predicates, or leave simple local
   facts as factual `#input.<fact>` keys consumed by formulas and tests.
 - Use `kind: data_relation` for executable runtime predicates such as
-  `member_of_household`. Put arity under `data_relation.arity`.
+  `member_of_household`. Put arity under `data_relation.arity` and declare
+  `data_relation.arguments` with one entity kind per tuple slot, in tuple
+  order. For person-to-household membership use
+  `data_relation: {arity: 2, arguments: [Person, Household]}`. The engine
+  rejects an untyped relation when a derived rule executes it.
 - Do not encode simple unary factual inputs as `kind: data_relation` rules. If
   a formula needs a local true/false fact, reference a descriptive bare fact
   name in the formula, declare that fact in the RuleSpec document-root `inputs`
@@ -1036,9 +1040,10 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   or 1800, not 700. Avoid exact equality boundaries for ratios or percentages;
   choose clearly below/above-boundary values so decimal precision cannot decide
   the test outcome.
-- Every test case for a local derived formula must assign every local factual
-  `#input.<fact>` referenced by that formula, including facts that are false in
-  the case. Missing false inputs make the executable test invalid.
+- Every test case must supply every factual `#input.<fact>` reached by its
+  selected formula branches, including false facts when read. Do not manufacture
+  defaults for unselected branches. Missing reached facts must fail execution;
+  exact required-case input maps must remain unchanged.
 - For every encoded `except`, `unless`, `subject to`, or `notwithstanding`
   carve-out, include companion tests for the positive path and the carve-out
   path so exclusions and override conditions cannot be silently dropped.
@@ -1257,14 +1262,14 @@ _FORMULA_PROTOCOL = """- Put formulas under `versions: - effective_from: 'YYYY-M
   use `if round_up: max(0, maximum - ceil(reduction)) else: max(0, floor(maximum - reduction))`,
   never `if round_up: maximum - ceil(reduction) else: floor(maximum - reduction)`.
 - Supported relation aggregators are `len(relation)`,
-  `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
+  `count_where(relation, predicate_fact)`, `sum(relation.amount_fact_or_derived)`, and
   `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write
   `sum(relation, expression)` or put arithmetic inside a relation field access.
-  Use `sum(relation.amount_fact)` only when `amount_fact` is a raw scalar fact
-  supplied directly on each relation row. Do not use `sum(relation.local_output)`
-  for a `parameter` or `derived` rule defined in the same file; for a computed
-  per-related-entity amount, write
-  `sum_where(relation, local_output, source_stated_predicate_fact)` instead.
+  `sum(relation.amount_fact)` sums supplied facts on related entities;
+  `sum(relation.local_derived)` evaluates that local derived rule for each related
+  entity and sums its results. Supply the derived rule's factual dependencies,
+  not precomputed values under its output name. Use `sum_where(...)` when the
+  source requires a filter; do not invent a predicate fact for an unfiltered sum.
   To count two boolean conditions over the same relation, write two
   `count_where(...)` calls and add them.
 - If a conditional is embedded inside arithmetic or another larger expression,
@@ -1699,6 +1704,11 @@ Complete-source-unit mode is enabled for this request:
   every subsection marker represented by the output branch, and name a
   concrete source-stated missing input or runtime capability. The output path
   is not a source citation.
+  For a U.S. regulation branch, use the resolver-attested canonical citation
+  in `reason`, such as `us/regulation/7/273/10(a)(1)` for that exact branch;
+  display-style `7 CFR 273.10(a)(1)` alone does not identify it to the
+  completeness validator. Follow the citation with the concrete missing input
+  or runtime capability; do not infer a citation beyond the supplied source.
   Never guess a blocker target.
 - Before returning YAML, inventory every top-level structural branch in the
   authoritative source and verify that each branch has either an executable

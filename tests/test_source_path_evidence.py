@@ -18,6 +18,9 @@ CITATION = "ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit"
 EXTRACT = functools.partial(
     v.extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
 )
+GROUNDING = functools.partial(
+    v.extract_typed_numeric_occurrences_from_text, profile="legacy"
+)
 
 
 def inputs():
@@ -33,7 +36,7 @@ def certify(payload, cases, source=SOURCE):
         corpus_citation_path=CITATION,
         test_cases=cases,
         numeric_value_is_grounded=v.numeric_value_is_grounded,
-        extract_numeric_occurrences=EXTRACT,
+        extract_numeric_occurrences=GROUNDING,
     )
 
 
@@ -44,7 +47,7 @@ def analyze(payload, cases):
         corpus_citation_path=CITATION,
         test_cases=cases,
         extract_numeric_occurrences=EXTRACT,
-        extract_numeric_grounding_occurrences=EXTRACT,
+        extract_numeric_grounding_occurrences=GROUNDING,
         extract_named_scalars=v.extract_named_scalar_occurrences,
         numeric_value_is_grounded=v.numeric_value_is_grounded,
     )
@@ -117,6 +120,37 @@ def test_interpretation_of_an_omitted_rule_does_not_change_path_evidence():
     )
     assert not invalid.passed
     assert any("must name a rule defined in this module" in x for x in invalid.issues)
+
+
+@pytest.mark.parametrize("mutation", ("wrong_count", "unrelated_proof"))
+def test_selected_country_count_requires_its_owned_word_number_proof(mutation):
+    p, c = inputs()
+    threshold = rule(p, "multiple_foreign_country_count_threshold")
+    if mutation == "wrong_count":
+        threshold["versions"][0]["formula"] = 2
+    else:
+        proof = next(
+            atom
+            for atom in threshold["metadata"]["proof"]["atoms"]
+            if atom["path"] == "versions[0].formula"
+        )
+        proof["source"]["excerpt"] = next(
+            atom["source"]["excerpt"]
+            for atom in rule(p, "t2036_foreign_tax_threshold")["metadata"]["proof"][
+                "atoms"
+            ]
+            if atom["path"] == "versions[0].formula"
+        )
+
+    result = certify(p, c)
+
+    assert not any(name == evidence._TAX for name, *_ in result.condition_spans)
+    if mutation == "unrelated_proof":
+        assert any(
+            "multiple_foreign_country_count_threshold: ungrounded selected parameter"
+            in issue
+            for issue in result.unresolved
+        )
 
 
 def test_actual_analyzer_keeps_cap_transfer_year_and_amt_findings():

@@ -1,0 +1,105 @@
+- name: schedule_m_partial_explicit_2024_calculation
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024: true
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46: 800
+    ? ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48
+    : 300
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60: 500
+  output:
+    ? ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46
+    : 800
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52: 1100
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385: 500
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62: 600
+- name: schedule_m_full_explicit_2024_calculation
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024: true
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46: 100
+    ? ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48
+    : 50
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60: 150
+  output:
+    ? ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46
+    : 100
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52: 150
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385: 150
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62: 0
+- name: schedule_m_zero_claim_explicit_2024_calculation
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024: true
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46: 100
+    ? ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48
+    : 50
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60: 0
+  output:
+    ? ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46
+    : 100
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52: 150
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385: 0
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62: 150
+- name: schedule_m_current_only_explicit_2024_calculation
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024: true
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46: 0
+    ? ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48
+    : 300
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60: 200
+  output:
+    ? ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46
+    : 0
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52: 300
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385: 200
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62: 100
+- name: schedule_m_prior_only_explicit_2024_calculation
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024: true
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_unused_student_loan_interest_line_46: 800
+    ? ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48
+    : 0
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60: 500
+  output:
+    ? ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46
+    : 800
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52: 800
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385: 500
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62: 300
+- name: schedule_m_historical_interest_reconstruction
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_carryforward_calculated_for_2024: false
+    ? ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_1998_through_2024
+    : 500
+    ? ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_used_for_previous_year_credits
+    : 200
+    ? ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_paid_2025_line_48
+    : 50
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#input.schedule_m_student_loan_interest_claimed_line_60: 100
+  output:
+    ? ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_unused_student_loan_interest_for_2025_line_46
+    : 300
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_available_line_52: 350
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_claim_line_385: 100
+    ca:policies/revenu-quebec/tp1-2025/schedule-m-student-loan-interest#schedule_m_student_loan_interest_carryforward_line_62: 250

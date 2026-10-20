@@ -16,6 +16,9 @@ FIXTURE = Path(__file__).parent / "fixtures/worksheet_operations"
 SOURCE = (FIXTURE.parent / "source_path_shadow/source.txt").read_text()
 SECONDARY = (FIXTURE / "secondary.txt").read_text()
 CONTEXT = {operations._PRIMARY: SOURCE, operations._SECONDARY: SECONDARY}
+GROUNDING = functools.partial(
+    v.extract_typed_numeric_occurrences_from_text, profile="legacy"
+)
 
 
 def inputs():
@@ -33,9 +36,7 @@ def certificate():
         corpus_citation_path=operations._PRIMARY,
         test_cases=c,
         numeric_value_is_grounded=v.numeric_value_is_grounded,
-        extract_numeric_occurrences=functools.partial(
-            v.extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
-        ),
+        extract_numeric_occurrences=GROUNDING,
     )
 
 
@@ -69,9 +70,7 @@ def certify(payload, cases, context=None, source=SOURCE):
         corpus_citation_path=operations._PRIMARY,
         test_cases=cases,
         numeric_value_is_grounded=v.numeric_value_is_grounded,
-        extract_numeric_occurrences=functools.partial(
-            v.extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
-        ),
+        extract_numeric_occurrences=GROUNDING,
     )
     return operations.certify_worksheet_operations(
         payload,
@@ -332,7 +331,7 @@ def analyze(payload, cases, *, context=CONTEXT, source=SOURCE):
         source_context=context,
         test_cases=cases,
         extract_numeric_occurrences=extract,
-        extract_numeric_grounding_occurrences=extract,
+        extract_numeric_grounding_occurrences=GROUNDING,
         extract_named_scalars=v.extract_named_scalar_occurrences,
         numeric_value_is_grounded=v.numeric_value_is_grounded,
     )

@@ -39,6 +39,7 @@ import importlib.metadata
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sysconfig
@@ -59,7 +60,7 @@ UV_OPTIONS = workflow_shell.load_uv_options()
 
 # workflow -> jobs whose environment runs the repository's tests or linters.
 TEST_ENVIRONMENTS = {
-    "ci.yml": {"test", "lint"},
+    "ci.yml": {"test", "real-engine", "lint"},
     "signing-supervisor.yml": {"build-and-test"},
 }
 LOCKED_DEV_SYNCS = {
@@ -100,6 +101,39 @@ UV_NAMES_ALLOWED: frozenset[str] = frozenset()
 TOOLS = re.compile(r"pytest|py\.test|ruff|towncrier|pre-commit|python[0-9.]*")
 PIP = re.compile(r"pip[0-9.]*")
 VENV_TOOL = re.compile(r"(?:\./)?\.venv/bin/\S+")
+HARDENED_SIGNER_SHELL = "/usr/bin/bash --noprofile --norc -p -e -o pipefail {0}"
+SIGNED_ENCODE_ADVANCE_HEADER = "cat > \"$signing_queue/advance.sh\" <<'ADVANCE'\n"
+SIGNED_ENCODE_ADVANCE_LAUNCHES = frozenset(
+    {
+        'bash "$signing_queue/advance.sh"',
+        'bash "$RUNNER_TEMP/signed-encode/advance.sh"',
+        'bash "$RUNNER_TEMP/signed-encode/advance.sh" --require-complete',
+    }
+)
+SIGNED_ENCODE_ADVANCE_CONSUMERS = frozenset(
+    {
+        'set -euo pipefail\nbash "$RUNNER_TEMP/signed-encode/advance.sh"',
+        'set -euo pipefail\ntest "$PRIOR_STATUS" = success\n'
+        'bash "$RUNNER_TEMP/signed-encode/advance.sh" --require-complete',
+    }
+)
+SIGNED_ENCODE_STATE_VARIABLES = tuple(
+    """REPAIR_MODE PYTHONUNBUFFERED ATOMIC_SOURCE_JSON
+    CITATION CORPUS_REF COUNTRY REVIEW_FINDING
+    REPAIR_CANDIDATE_PATH REPAIR_CANDIDATE_ROOT
+    REPAIR_CANDIDATE_RULESPEC_SHA256 REPAIR_CANDIDATE_TESTS_SHA256
+    REPAIR_TESTS_ONLY REPAIR_RUN_ID REPAIR_RUN_LANE REPAIR_RULESPEC_PATH
+    REPLACE_RULESPEC_PATH REPLACE_LEGACY_RULESPEC_PATH
+    LEGACY_EXACT_DEPENDENT_RULESPEC_PATH
+    SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH
+    LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON QUEUE_ID
+    DEPENDENT_CITATION DEPENDENT_REVIEW_FINDING
+    SECOND_DEPENDENT_CITATION SECOND_DEPENDENT_REVIEW_FINDING
+    EXISTING_SIGNED_IMPORTS_JSON RULESPEC_CHECKOUT RULESPEC_REF
+    RULES_ENGINE_REF retained_successor_paths dependent_rulespec_path
+    second_dependent_rulespec_path source_repair_candidates_json
+    backfill_helper workflow_python DEPENDENT_CASCADE_MODE""".split()
+)
 
 
 @functools.cache
@@ -110,10 +144,121 @@ def _workflows() -> tuple[tuple[str, dict], ...]:
     )
 
 
+def _signed_encode_initializer() -> str:
+    workflow = dict(_workflows())["targeted-signed-reencode.yml"]
+    steps = workflow["jobs"]["encode"]["steps"]
+    initializer = next(
+        step for step in steps if step.get("id") == "prepare_encode_apply"
+    )
+    artifacts = ("advance.sh", "state.sh", "functions.sh")
+    for step in steps:
+        if step is initializer:
+            continue
+        for key, value in step.items():
+            if any(name in text for text in _strings(value) for name in artifacts):
+                if key != "run" or value.strip() not in SIGNED_ENCODE_ADVANCE_CONSUMERS:
+                    raise UnanalyzableScript(
+                        "signed encode artifacts are referenced outside reviewed producers/consumers"
+                    )
+    return initializer["run"]
+
+
+def _resolve_signed_encode_advance(script: str, initializer: str) -> str:
+    """Inline only the queue scripts whose literal producers we can audit.
+
+    The general shell reader continues refusing file-backed Bash and source.
+    This reviewed exception follows the quoted ADVANCE heredoc and verifies
+    that its two sources contain only named ``declare -p`` data and the two
+    functions already visible in the initializer. Consumer steps conservatively
+    re-audit that producer too, so sourced function commands remain visible.
+    """
+    if initializer.count(SIGNED_ENCODE_ADVANCE_HEADER) != 1:
+        raise UnanalyzableScript(
+            "signed encode needs its exact quoted ADVANCE producer"
+        )
+    prefix, heredoc = initializer.split(SIGNED_ENCODE_ADVANCE_HEADER, 1)
+    if heredoc.count("\nADVANCE\n") != 1:
+        raise UnanalyzableScript("signed encode ADVANCE terminator changed")
+    advance, suffix = heredoc.split("\nADVANCE\n", 1)
+    if (
+        "advance.sh" in prefix
+        or "advance.sh" in advance
+        or suffix.strip() != 'bash "$signing_queue/advance.sh"'
+    ):
+        raise UnanalyzableScript("signed encode has another advance script reference")
+    for body in (prefix, advance):
+        queue_assignments = [
+            line for line in body.splitlines() if line.startswith("signing_queue=")
+        ]
+        if queue_assignments != ['signing_queue="$RUNNER_TEMP/signed-encode"']:
+            raise UnanalyzableScript("signed encode queue root changed")
+    logical_prefix = prefix.replace("\\\n", " ")
+    for filename, expected in (
+        (
+            "state.sh",
+            ["declare", "-p", *SIGNED_ENCODE_STATE_VARIABLES],
+        ),
+        (
+            "functions.sh",
+            ["declare", "-f", "run_signed_encode", "checkpoint_signed_changes"],
+        ),
+    ):
+        writers = [line for line in logical_prefix.splitlines() if filename in line]
+        expected += [">", f"$signing_queue/{filename}"]
+        if (
+            len(writers) != 1
+            or shlex.split(writers[0]) != expected
+            or filename in suffix
+        ):
+            raise UnanalyzableScript(f"signed encode {filename} producer changed")
+        source = f'source "$signing_queue/{filename}"'
+        if advance.count(filename) != 1 or advance.splitlines().count(source) != 1:
+            raise UnanalyzableScript(f"signed encode {filename} source changed")
+        advance = advance.replace(source + "\n", "", 1)
+    if SIGNED_ENCODE_ADVANCE_HEADER in script:
+        if script != initializer:
+            raise UnanalyzableScript(
+                "signed encode initializer differs from its producer"
+            )
+        script = prefix + suffix
+    else:
+        if script.strip() not in SIGNED_ENCODE_ADVANCE_CONSUMERS:
+            raise UnanalyzableScript(
+                "signed encode consumer differs from its reviewed form"
+            )
+        # The saved function definitions are part of what this consumer runs.
+        script = prefix + "\n" + script
+    launches = 0
+    resolved = []
+    for line in script.splitlines():
+        if line.strip() in SIGNED_ENCODE_ADVANCE_LAUNCHES:
+            launches += 1
+            resolved.append(advance)
+        else:
+            resolved.append(line)
+    if launches != 1:
+        raise UnanalyzableScript("signed encode advance launcher changed")
+    return "\n".join(resolved)
+
+
 @functools.cache
-def _script_commands(script: str) -> tuple[Command, ...]:
-    """What ``script`` runs, including what its ``uv run`` calls launch."""
+def _parsed_script_commands(script: str, initializer: str) -> tuple[Command, ...]:
+    if initializer:
+        script = _resolve_signed_encode_advance(script, initializer)
     return tuple(workflow_shell.expand(workflow_shell.commands(script), UV_OPTIONS))
+
+
+def _script_commands(
+    script: str, workflow_name: str = "", job_name: str = ""
+) -> tuple[Command, ...]:
+    """What ``script`` runs, including reviewed generated scripts and uv calls."""
+    initializer = ""
+    if "advance.sh" in script and (workflow_name, job_name) == (
+        "targeted-signed-reencode.yml",
+        "encode",
+    ):
+        initializer = _signed_encode_initializer()
+    return _parsed_script_commands(script, initializer)
 
 
 def _steps():
@@ -133,7 +278,7 @@ def _commands(steps) -> list[tuple[str, Command]]:
     return [
         (f"{name}:{job}[{index}]", command)
         for name, job, index, step in steps
-        for command in _script_commands(step.get("run", ""))
+        for command in _script_commands(step.get("run", ""), name, job)
     ]
 
 
@@ -196,11 +341,169 @@ def test_every_run_script_is_analyzable():
     unanalyzable = []
     for name, job, index, step in _steps():
         try:
-            for command in _script_commands(step.get("run", "")):
+            for command in _script_commands(step.get("run", ""), name, job):
                 workflow_shell.uv_invocation(command, UV_OPTIONS)
         except UnanalyzableScript as error:
             unanalyzable.append(f"{name}:{job}[{index}] {error}")
     assert unanalyzable == []
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        (
+            'bash "$signing_queue/advance.sh"',
+            'bash "$signing_queue/advance.sh" --unexpected',
+        ),
+        ("<<'ADVANCE'", "<<ADVANCE"),
+        ("\nADVANCE\n", "\nOTHER\n"),
+        (
+            'cat > "$signing_queue/advance.sh"',
+            'cat > "$signing_queue/other.sh"',
+        ),
+        (
+            'source "$signing_queue/state.sh"',
+            'source "$signing_queue/other.sh"',
+        ),
+        (
+            'source "$signing_queue/functions.sh"',
+            '. "$signing_queue/functions.sh"',
+        ),
+        (
+            'source "$signing_queue/state.sh"',
+            'source "$signing_queue/extra.sh"\nsource "$signing_queue/state.sh"',
+        ),
+        (
+            'source "$signing_queue/functions.sh"',
+            'printf "uv sync\\n" > "$signing_queue/functions.sh"\n'
+            'source "$signing_queue/functions.sh"',
+        ),
+        (
+            'source "$signing_queue/state.sh"',
+            'printf "uv sync\\n" > "$signing_queue/state.sh"\n'
+            'source "$signing_queue/state.sh"',
+        ),
+        (
+            SIGNED_ENCODE_ADVANCE_HEADER,
+            'printf x > "$signing_queue/advance.sh"\n' + SIGNED_ENCODE_ADVANCE_HEADER,
+        ),
+        (
+            'signing_queue="$RUNNER_TEMP/signed-encode"',
+            'signing_queue="$RUNNER_TEMP/other"',
+        ),
+        (
+            'set -euo pipefail\nsigning_queue="$RUNNER_TEMP/signed-encode"',
+            'set -euo pipefail\nsigning_queue="$RUNNER_TEMP/other"',
+        ),
+        ("declare -p \\\n", "declare -p AXIOM_ENCODE_APPLY_SIGNING_KEY \\\n"),
+        (
+            '> "$signing_queue/state.sh"',
+            '>> "$signing_queue/state.sh"',
+        ),
+        (
+            "declare -f run_signed_encode checkpoint_signed_changes",
+            "declare -f run_signed_encode checkpoint_signed_changes another_function",
+        ),
+        (
+            '> "$signing_queue/functions.sh"',
+            '> "$signing_queue/functions.sh"\nprintf x > "$signing_queue/functions.sh"',
+        ),
+        (
+            '> "$signing_queue/state.sh"',
+            '> "$signing_queue/state.sh"\nprintf x > "$signing_queue/state.sh"',
+        ),
+    ],
+)
+def test_signed_encode_generated_script_resolution_refuses_producer_drift(
+    before: str, after: str
+) -> None:
+    initializer = _signed_encode_initializer()
+    assert before in initializer
+    changed = initializer.replace(before, after, 1)
+    with pytest.raises(UnanalyzableScript):
+        _parsed_script_commands(changed, changed)
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        'bash "$RUNNER_TEMP/other.sh"',
+        'source "$RUNNER_TEMP/other.sh"',
+        '. "$RUNNER_TEMP/other.sh"',
+        'bash "$RUNNER_TEMP/signed-encode/advance.sh" --unexpected',
+        'source "$RUNNER_TEMP/signed-encode/advance.sh"',
+        'set -euo pipefail\nprintf "uv sync\\n" > '
+        '"$RUNNER_TEMP/signed-encode/advance.sh"\n'
+        'bash "$RUNNER_TEMP/signed-encode/advance.sh"',
+        'set -euo pipefail\nprintf "uv sync\\n" > '
+        '"$RUNNER_TEMP/signed-encode/functions.sh"\n'
+        'bash "$RUNNER_TEMP/signed-encode/advance.sh"',
+    ],
+)
+def test_signed_encode_resolution_preserves_unknown_script_refusals(
+    script: str,
+) -> None:
+    with pytest.raises(UnanalyzableScript):
+        _script_commands(script, "targeted-signed-reencode.yml", "encode")
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "job_name"),
+    [("ci.yml", "test"), ("targeted-signed-reencode.yml", "other"), ("", "")],
+)
+def test_signed_encode_script_resolution_requires_its_producer_job(
+    workflow_name: str, job_name: str
+) -> None:
+    for consumer in SIGNED_ENCODE_ADVANCE_CONSUMERS:
+        with pytest.raises(UnanalyzableScript):
+            _script_commands(consumer, workflow_name, job_name)
+
+
+@pytest.mark.parametrize("artifact", ["advance.sh", "state.sh", "functions.sh"])
+def test_signed_encode_resolution_rejects_another_step_rewriting_sources(
+    monkeypatch, artifact: str
+) -> None:
+    workflow = copy.deepcopy(dict(_workflows())["targeted-signed-reencode.yml"])
+    workflow["jobs"]["encode"]["steps"].append(
+        {
+            "name": "Unexpected generated script writer",
+            "run": f'printf "uv sync\\n" > "$RUNNER_TEMP/signed-encode/{artifact}"',
+        }
+    )
+    monkeypatch.setattr(
+        f"{__name__}._workflows", lambda: (("targeted-signed-reencode.yml", workflow),)
+    )
+    consumer = 'set -euo pipefail\nbash "$RUNNER_TEMP/signed-encode/advance.sh"'
+    with pytest.raises(UnanalyzableScript):
+        _script_commands(consumer, "targeted-signed-reencode.yml", "encode")
+
+
+@pytest.mark.parametrize("location", ["advance", "function"])
+def test_signed_encode_generated_script_commands_are_audited(location: str) -> None:
+    initializer = _signed_encode_initializer()
+    if location == "advance":
+        changed = initializer.replace(
+            SIGNED_ENCODE_ADVANCE_HEADER,
+            SIGNED_ENCODE_ADVANCE_HEADER + "uv sync\n",
+            1,
+        )
+    else:
+        changed = initializer.replace(
+            "run_signed_encode() {\n", "run_signed_encode() {\n  uv sync\n", 1
+        )
+    # Identical consumer text must see each current producer, even after the
+    # clean version has populated the parser cache.
+    consumer = 'set -euo pipefail\nbash "$RUNNER_TEMP/signed-encode/advance.sh"'
+    _parsed_script_commands(consumer, initializer)
+    invocations = [
+        invocation
+        for command in _parsed_script_commands(consumer, changed)
+        if (invocation := workflow_shell.uv_invocation(command, UV_OPTIONS))
+    ]
+    assert any(
+        invocation.subcommand == "sync" and not invocation.options
+        for invocation in invocations
+    ), "an unpinned uv command in either generated code source must remain visible"
 
 
 def test_discovery_is_not_vacuous():
@@ -221,6 +524,7 @@ def test_discovery_is_not_vacuous():
     }
     assert {
         ("ci.yml:test", "sync"),
+        ("ci.yml:real-engine", "sync"),
         ("ci.yml:lint", "sync"),
         ("signing-supervisor.yml:build-and-test", "sync"),
         ("prepare-all-state-snap-queue.yml:prepare", "run"),
@@ -877,7 +1181,7 @@ def test_no_workflow_sets_uv_environment_variables():
         )
     ]
     for name, job, index, step in _steps():
-        for command in _script_commands(step.get("run", "")):
+        for command in _script_commands(step.get("run", ""), name, job):
             # The same rule on each command's words and assignments after
             # quote removal and $'...' decoding, so `U"V_X"=1` and
             # `$'\\x55V_X'` count too.
@@ -1047,6 +1351,31 @@ def test_setup_python_takes_only_a_python_version():
     assert inputs == []
 
 
+def _supported_bash_shell(shell: str) -> bool:
+    return (
+        shell == HARDENED_SIGNER_SHELL
+        or re.fullmatch(r"bash(?:\s.*)?", shell) is not None
+    )
+
+
+@pytest.mark.parametrize(
+    ("shell", "allowed"),
+    [
+        ("bash", True),
+        ("bash -e {0}", True),
+        (HARDENED_SIGNER_SHELL, True),
+        ("/bin/bash -e {0}", False),
+        (HARDENED_SIGNER_SHELL.replace(" -p ", " "), False),
+        (HARDENED_SIGNER_SHELL + " extra", False),
+        ("/usr/bin/python {0}", False),
+    ],
+)
+def test_bash_shell_exception_accepts_only_the_exact_hardened_launcher(
+    shell: str, allowed: bool
+) -> None:
+    assert _supported_bash_shell(shell) is allowed
+
+
 def test_every_step_runs_under_bash():
     # The reader follows bash; a pwsh or python step would go unread.
     shells = [
@@ -1068,7 +1397,7 @@ def test_every_step_runs_under_bash():
                 if "run" in step
             ),
         ]
-        if shell is not None and not re.fullmatch(r"bash(?:\s.*)?", shell)
+        if shell is not None and not _supported_bash_shell(shell)
     ]
     assert shells == []
 
@@ -1291,7 +1620,7 @@ def test_test_environment_is_the_locked_dev_set(workflow_name, job_name):
     sync_step = next(
         index
         for index, step in enumerate(steps)
-        for command in _script_commands(step.get("run", ""))
+        for command in _script_commands(step.get("run", ""), workflow_name, job_name)
         if command.words == sync_words
     )
     dedicated = [

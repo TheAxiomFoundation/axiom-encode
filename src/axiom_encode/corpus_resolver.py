@@ -20,6 +20,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import AbstractSet, Any, Literal
 
+from axiom_encode.bare_structure import bare_outline, slice_bare_path
 from axiom_encode.corpus_materialize import (
     CorpusMaterializationError,
     corpus_uses_lock_files,
@@ -590,6 +591,42 @@ class _IndexedDelimiterStack(list[_DelimiterFrame]):
 
     def __reversed__(self) -> Iterator[_DelimiterFrame]:
         raise AssertionError("Delimiter replay stack must not be scanned")
+
+
+def local_corpus_row_is_repealed(identifier: str, release: LocalCorpusRelease) -> bool:
+    """Read exact release-bound row status, with no parent or alias fallback."""
+    citation_path = require_canonical_corpus_citation_path(identifier)
+    if not isinstance(release, LocalCorpusRelease):
+        raise TypeError("release must be a validated LocalCorpusRelease")
+    jurisdiction, document_class = citation_path.split("/")[:2]
+    scopes = tuple(
+        scope
+        for scope in release.scopes
+        if scope.jurisdiction == jurisdiction and scope.document_class == document_class
+    )
+    records = []
+    files = _candidate_provision_files(
+        release=release,
+        jurisdiction=jurisdiction,
+        document_class=document_class,
+        scopes=scopes,
+    )
+    for artifact in _read_corpus_artifacts(
+        files, release=release, budget=_LocalCorpusReadBudget()
+    ):
+        records.extend(
+            _read_matching_records(
+                artifact,
+                citation_path=citation_path,
+                active_scopes=frozenset(scopes),
+                provisions_root=release.provisions_root,
+            )
+        )
+    if len(records) > 1:
+        raise AmbiguousCorpusSourceError(
+            citation_path, tuple(record.row for record in records)
+        )
+    return len(records) == 1 and records[0].status == "repealed"
 
 
 def resolve_local_corpus_source(
@@ -1653,12 +1690,18 @@ def _slice_parent_body(text: str, *, requested_path: str, resolved_path: str) ->
             f"Could not isolate {requested_path!r} from active parent "
             f"{resolved_path!r}; missing structural marker path {missing!r}"
         )
-    sliced = _slice_parenthetical_fragments(
-        text,
-        fragments,
-        depth=0,
-        budget=_ParentheticalSliceBudget(),
-    )
+    # Choose by authenticated source layout, never by jurisdiction. Leave
+    # the existing parenthetical walker untouched for all other bodies.
+    outline = bare_outline(text)
+    if outline is not None:
+        sliced = slice_bare_path(text, fragments, outline=outline)
+    else:
+        sliced = _slice_parenthetical_fragments(
+            text,
+            fragments,
+            depth=0,
+            budget=_ParentheticalSliceBudget(),
+        )
     if sliced is None:
         missing = "/".join(fragments)
         raise CorpusSourceSliceError(

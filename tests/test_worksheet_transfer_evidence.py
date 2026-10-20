@@ -18,6 +18,9 @@ CONTEXT = {
     operations._PRIMARY: SOURCE,
     operations._SECONDARY: (ROOT / "worksheet_operations/secondary.txt").read_text(),
 }
+GROUNDING = functools.partial(
+    v.extract_typed_numeric_occurrences_from_text, profile="legacy"
+)
 
 
 def inputs():
@@ -34,9 +37,7 @@ def certify(payload, cases):
         source_context=CONTEXT,
         test_cases=cases,
         numeric_value_is_grounded=v.numeric_value_is_grounded,
-        extract_numeric_occurrences=functools.partial(
-            v.extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
-        ),
+        extract_numeric_occurrences=GROUNDING,
     )
 
 
@@ -275,9 +276,7 @@ def test_unknown_post_transfer_restriction_is_not_ignored():
         source_context={**CONTEXT, operations._PRIMARY: source},
         test_cases=c,
         numeric_value_is_grounded=v.numeric_value_is_grounded,
-        extract_numeric_occurrences=functools.partial(
-            v.extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
-        ),
+        extract_numeric_occurrences=GROUNDING,
     )
     assert result.unresolved == ("unknown transfer tail ownership",)
     assert not result.source_spans

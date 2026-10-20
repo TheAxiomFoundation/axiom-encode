@@ -1,0 +1,4527 @@
+--- Source: us/statute/hts/general-note-3/page-1 ---
+3 Rates of Duty.The rates of duty in the "Rates of Duty" columns designated 1 ("General" and "Special") and 2 of the tariff schedule apply to goods imported into the customs territory of the United States as hereinafter provided in this note: (a) Rate of Duty Column 1. (i) Except as provided in subparagraph (iv) of this paragraph, the rates of duty in column 1 are rates which are applicable to all products other than those of countries enumerated in paragraph (b) of this note. Column 1 is divided into two subcolumns, "General" and "Special", which are applicable as provided below. (ii) The "General" subcolumn sets forth the general or normal trade relations (NTR) rates which are applicable to products of those countries described in subparagraph (i) above which are not entitled to special tariff treatment as set forth below. (iii) The "Special" subcolumn reflects rates of duty under one or more special tariff treatment programs described in paragraph (c) of this note and identified in parentheses immediately following the duty rate specified in such subcolumn. These rates apply to those products which are properly classified under a provision for which a special rate is indicated and for which all of the legal requirements for eligibility for such program or programs have been met.Where a product is eligible for special treatment under more than one program, the lowest rate of duty provided for any applicable program shall be imposed.Where no special rate of duty is provided for a provision, or where the country from which a product otherwise eligible for special treatment was imported is not designated as a beneficiary country under a program appearing with the appropriate provision, the rates of duty in the "General" subcolumn of column 1 shall apply. (iv) Products of Insular Possessions. (A) Except as provided in additional U.S. note 5 of chapter 91 and except as provided in additional U.S. note 2 of chapter 96, and except as provided in section 423 of the Tax Reform Act of 1986, and additional U.S. note 3(e) of chapter 71, goods imported from insular possessions of the United States which are outside the customs territory of the United States are subject to the rates of duty set forth in column 1 of the tariff schedule, except that all such goods the growth or product of any such possession, or manufactured or produced in any such possession from materials the growth, product or manufacture of any such possession or of the customs territory of the United States, or of both, which do not contain foreign materials to the value of more than 70 percent of their total value (or more than 50 percent of their total value with respect to goods described in section 213(b) of the Caribbean Basin Economic Recovery Act), coming to the customs territory of the United States directly from any such possession, and all goods previously imported into the customs territory of the United States with payment of all applicable duties and taxes imposed upon or by reason of importation which were shipped from the United States, without remission, refund or drawback of such duties or taxes, directly to the possession from which they are being returned by direct shipment, are exempt from duty. (B) In determining whether goods produced or manufactured in any such insular possession contain foreign materials to the value of more than 70 percent, no material shall be considered foreign which either-- (1) at the time such goods are entered, or (2) at the time such material is imported into the insular possession, may be imported into the customs territory from a foreign country, and entered free of duty; except that no goods containing material to which (2) of this subparagraph applies shall be exempt from duty under subparagraph (A) unless adequate documentation is supplied to show that the material has been incorporated into such goods during the 18-month period after the date on which such material is imported into the insular possession. (C) Subject to the limitations imposed under sections 503(a)(2), 503(a)(3) and 503(c) of the Trade Act of 1974, goods designated as eligible under section 503 of such Act which are imported from an insular possession of the United States shall receive duty treatment no less favorable than the treatment afforded such goods imported from a beneficiary developing country under title V of such Act. (D) Subject to the provisions in section 213 of the Caribbean Basin Economic Recovery Act, goods which are imported from insular possessions of the United States shall receive duty treatment no less favorable than the treatment afforded such goods when they are imported from a beneficiary country under such Act. Harmonized Tariff Schedule of the United States Revision 3 (2026) Annotated for Statistical Reporting Purposes GN p.1 General Note 3
+
+--- Source: us/rulemaking/federal-register/2026-07-28/2026-15181 ---
+[Federal Register Volume 91, Number 143 (Tuesday, July 28, 2026)]
+[Notices]
+[Pages 47318-47662]
+From the Federal Register Online via the Government Publishing Office [www.gpo.gov]
+[FR Doc No: 2026-15181]
+
+
+
+[[Page 47317]]
+
+Vol. 91
+
+Tuesday,
+
+No. 143
+
+July 28, 2026
+
+Part II
+
+
+
+
+
+Office of the United States Trade Representative
+
+
+
+
+
+-----------------------------------------------------------------------
+
+
+
+
+
+Notice of Actions in Section 301 Investigations of Acts, Policies, and 
+Practices of Various Economies Related to the Failure of Each Economy 
+To Impose and Effectively Enforce a Prohibition on the Importation of 
+Goods Produced With Forced Labor; Notice
+
+
+
+
+
+-----------------------------------------------------------------------
+
+Federal Register / Vol. 91 , No. 143 / Tuesday, July 28, 2026 / 
+Notices
+
+[[Page 47318]]
+
+
+-----------------------------------------------------------------------
+
+OFFICE OF THE UNITED STATES TRADE REPRESENTATIVE
+
+[Docket Nos. USTR-2026-0265, USTR-2026-0266]
+
+
+Notice of Actions in Section 301 Investigations of Acts, 
+Policies, and Practices of Various Economies Related to the Failure of 
+Each Economy To Impose and Effectively Enforce a Prohibition on the 
+Importation of Goods Produced With Forced Labor
+
+AGENCY: Office of the United States Trade Representative (USTR).
+
+ACTION: Notice of action.
+
+-----------------------------------------------------------------------
+
+SUMMARY: The United States Trade Representative (Trade Representative) 
+has determined under Section 301(b) and Section 304(a) of the Trade Act 
+of 1974, as amended (Trade Act), that in each of 60 investigations, 
+certain of the acts, policies, and practices of the economy at issue 
+are actionable and that action by the United States is appropriate. In 
+accordance with the specific direction of the President, the Trade 
+Representative is taking actions in each of these investigations by 
+imposing tariffs on all products of the investigated economy, with 
+certain exemptions as provided in Annexes I and II to this notice 
+(Notice). Consistent with the specific direction of the President, for 
+an economy that imposes a forced labor import prohibition, has 
+committed to impose and enforce such a prohibition through an Agreement 
+on Reciprocal Trade (ART), or has imposed a partial regime with the 
+effect of preventing the importation of certain forced labor goods, the 
+Trade Representative has determined 10 percent is the appropriate rate 
+of Section 301 duties, with specific economies subject to a 10 percent 
+rate net of a product's most-favored-nation (MFN) duty. For every other 
+economy, and in accordance with the specific direction of the 
+President, the Trade Representative has determined 12.5 percent is the 
+appropriate rate of Section 301 duty, with specific economies subject 
+to a 12.5 percent rate net of a product's MFN duty. The Trade 
+Representative has also determined, consistent with the specific 
+direction of the President, to establish, when feasible, tariff-rate 
+quotas (TRQs) for Bangladesh, Cambodia, Indonesia, and Malaysia, based 
+on each economy's importation of U.S. inputs, to encourage the 
+importation by each of these economies of U.S. cotton and textile 
+goods, in order to reduce reliance on inputs from other sources that 
+are more likely to contain forced labor inputs.
+
+DATES: The additional rates of duty are applicable with respect to 
+products that are entered for consumption, or withdrawn from warehouse 
+for consumption, on or after 12:01 a.m. eastern time on July 24, 2026, 
+except that goods loaded onto a vessel at the port of loading and in 
+transit on the final mode of transit before 12:01 a.m. eastern time on 
+July 24, 2026, and entered for consumption or withdrawn from warehouse 
+for consumption before 12:01 a.m. eastern time on July 28, 2026, shall 
+not be subject to such additional duty.
+
+FOR FURTHER INFORMATION CONTACT: For general questions about this 
+Notice, contact Megan Grimball and Philip Butler, Chairs of the Section 
+301 Committee, at (202) 395-5725.
+
+SUPPLEMENTARY INFORMATION:
+
+I. Proceedings in the Investigations
+
+    On March 12, 2026, the Trade Representative initiated 60 
+investigations related to the failure of various economies to each 
+impose and effectively enforce a prohibition on the importation of 
+goods produced wholly or in part with forced labor (forced labor import 
+prohibition), pursuant to 302(b)(1) of the Trade Act (19 U.S.C. 
+2412(b)(1)). See 91 FR 12884 (published March 17, 2026).
+    On June 2, 2026, the Trade Representative determined that, in each 
+of the 60 investigations, certain of the acts, polices, and practices 
+of the economy at issue are actionable under sections 301(b) and 304(a) 
+of the Trade Act. The Trade Representative also issued a comprehensive 
+report, Acts, Policies, and Practices of Various Economies Related to 
+the Failure to Impose and Effectively Enforce a Prohibition on the 
+Importation of Goods Produced with Forced Labor (Report). Specifically, 
+the Trade Representative determined that:
+     The following 54 economies have failed to impose and 
+effectively enforce a prohibition on the importation of goods produced 
+with forced labor: Algeria; Angola; Argentina; Australia; the Bahamas; 
+Bahrain; Bangladesh; Brazil; Cambodia; Chile; China, People's Republic 
+of; Colombia; Costa Rica; Dominican Republic; Egypt; El Salvador; 
+Guatemala; Guyana; Honduras; Hong Kong, China; India; Iraq; Israel; 
+Japan; Jordan; Kazakhstan; Kuwait; Libya; Malaysia; Morocco; New 
+Zealand; Nicaragua; Nigeria; Norway; Oman; Peru; the Philippines; 
+Qatar; Russia; Saudi Arabia; Singapore; South Africa; South Korea; Sri 
+Lanka; Switzerland; Taiwan; Thailand; Trinidad and Tobago; 
+T[uuml]rkiye; United Arab Emirates; United Kingdom; Uruguay; Venezuela; 
+and Vietnam.
+     The following six economies have failed to effectively 
+enforce a prohibition on the importation of goods produced with forced 
+labor: Canada, Ecuador, the European Union, Indonesia, Mexico, and 
+Pakistan.
+     All of the investigated economies have failed to impose a 
+forced labor import prohibition and to effectively enforce such a 
+prohibition (that is to say, all of the economies have failed to 
+satisfy both factors in these investigations).
+    The Trade Representative proposed to determine that action is 
+appropriate in each investigation, and that appropriate action would 
+include tariffs on all products of an economy, with certain exemptions. 
+The Trade Representative also proposed a textile mechanism that would 
+allow for a certain volume of apparel and textile imports from certain 
+economies to enter the United States at a reduced Section 301 tariff 
+rate. See 91 FR 34272 (published June 5, 2026) (the June 5, 2026 FRN).
+    The June 5, 2026 FRN invited public comments on the proposed 
+actions to be taken in each investigation. The June 5, 2026 FRN 
+proposed applying tariffs of 10 percent for each economy that imposes a 
+forced labor import prohibition; has taken on commitments related to 
+forced labor import prohibitions through an ART; or has imposed a 
+partial regime with the effect of preventing the importation of certain 
+forced labor goods. The June 5, 2026 FRN proposed applying tariffs of 
+12.5 percent for every other economy. The tariff proposals in each 
+investigation included exemptions for certain goods, including 
+informational materials, donations, accompanied baggage, all articles 
+and parts of articles subject to tariffs under Section 232 of the Trade 
+Expansion Act of 1962, and certain products identified in Annex A to 
+the June 5, 2026 FRN.
+    As explained in the June 5, 2026 FRN, the proposed exemptions 
+included: (a) raw materials that, if subject to the proposed additional 
+tariffs, could lead to the unavailability of domestic supply; (b) 
+products that could cause economy-wide disruptions if subject to 
+additional tariffs; (c) certain products that cannot be grown or 
+produced in sufficient quantities in the United States or obtained from 
+other sources; and (d) articles for which additional tariffs may not 
+contribute substantially to the elimination of the acts, policies, and 
+practices determined to be actionable in the investigations.
+    Interested persons were invited to provide comments regarding the 
+scope
+
+[[Page 47319]]
+
+of tariff coverage (including the proposed excluded products identified 
+in Annex A to the June 5, 2026 FRN and the proposed textile mechanism. 
+With respect to the tariff proposals, the June 5, 2026 FRN stated that, 
+in considering whether certain articles should be subject to additional 
+duties under Section 301 of the Trade Act, USTR will consider the needs 
+of the U.S. economy. With respect to comments on the inclusion or 
+removal of particular tariff subheadings subject to the proposed 
+action, USTR requested that comments address specifically whether the 
+products under the tariff subheading are necessary raw materials that 
+if subject to the proposed tariff could lead to the unavailability of 
+domestic supply; whether additional tariffs would cause serious 
+dislocations in the supply of the products and could cause economy-wide 
+disruptions, or other similar factors; and whether imposing additional 
+tariffs on products under the tariff subheading would be practicable or 
+effective in obtaining the elimination of the investigated acts, 
+policies, and practices.
+    USTR also requested public comments regarding the proposed actions, 
+including whether the products in Annex A to the June 5, 2026 FRN were 
+appropriately excluded; the level of the increase, if any, in the rate 
+of duty; whether differential tariff rates should be applied to an 
+economy where the economy has made a commitment to the United States to 
+impose and enforce a forced labor import prohibition, has imposed a 
+forced labor import prohibition, or has imposed a partial regime with 
+the effect of preventing the importation of certain forced labor goods; 
+and features of the proposed textile mechanism, including the U.S. and 
+foreign products to be covered, the relative market opportunities for 
+each side, and the tariff rate (if any) to be applied to products 
+subject to the mechanism, as well as whether a similar mechanism should 
+apply to any other product or sector.
+    In response to the June 5, 2026 FRN, USTR received over 1,600 
+written comments. USTR and the Section 301 Committee held a three-day 
+public hearing on July 7, 8, and 9, 2026, regarding the proposed 
+actions. During the hearings, over 100 witnesses provided testimony and 
+responded to questions. Witnesses included representatives of the 
+governments of certain investigated economies, industry associations, 
+domestic producers, and non-governmental organizations. The public 
+submissions are available at: https://comments.ustr.gov/s/ at docket 
+numbers USTR-2026-0265 and USTR-2026-0266. Transcripts of the hearings 
+are available on USTR's website.
+    Following government-to-government consultations pursuant to 
+Section 303 of the Trade Act and the publication of proposed actions in 
+the June 5, 2026 FRN, additional economies have imposed forced labor 
+import prohibitions--Cambodia, Guatemala, Honduras, India, Sri Lanka, 
+and Trinidad and Tobago; or undertaken commitments regarding forced 
+labor import prohibitions in an ART--Jordan.
+
+II. Determinations of Action
+
+A. Overview of Responsive Actions in the Investigations
+
+    On June 2, 2026, the Trade Representative determined that, in each 
+of the 60 investigations, certain acts, policies, and practices of the 
+economy at issue are unreasonable and burden or restrict U.S. commerce, 
+and are thus actionable under Section 301(b) of the Trade Act. Section 
+301(b) provides that upon determining that the acts, policies, and 
+practices under investigation are actionable and that action is 
+appropriate, the Trade Representative shall take all appropriate and 
+feasible action authorized under Section 301(c), subject to the 
+specific direction, if any, of the President regarding such action, and 
+all other appropriate and feasible action within the power of the 
+President that the President may direct the Trade Representative to 
+take under Section 301(b), to obtain the elimination of that act, 
+policy, or practice. Section 301(b) provides further that actions 
+``within the power of the President'' may include ``[a]ctions . . . 
+with respect to trade in any goods or services, or with respect to any 
+other area of pertinent relations with the foreign country.''
+    Section 301(c) of the Trade Act authorizes the Trade Representative 
+to take certain, specific actions for purposes of carrying out the 
+provisions of Section 301(b). For example, Section 301(c)(1)(B) 
+authorizes the Trade Representative to ``impose duties or other import 
+restrictions on the goods'' of the foreign country subject to the 
+investigation. Section 301(c)(3)(A) provides that actions that the 
+Trade Representative is authorized to take may be taken against any 
+goods or economic sector on a non-discriminatory basis or solely 
+against the foreign country concerned. Section 301(c)(3)(B) empowers 
+the Trade Representative to take actions against any goods and economic 
+sector ``without regard to whether or not such goods or economic sector 
+were involved in the act, policy, or practice that is the subject of 
+such action.''
+    USTR and the Section 301 Committee have carefully reviewed the 
+public comments and testimony regarding the proposed actions to be 
+taken in each investigation. The Trade Representative informed the 
+President of his recommended responsive actions in each investigation, 
+including, for each economy, whether to impose 10 or 12.5 percent 
+tariffs on all products of that economy or, in the case of specific 
+economies, 10 or 12.5 percent tariffs net of a product's MFN duty, with 
+exemptions for certain goods. The Trade Representative also informed 
+the President of economies that have imposed forced labor import 
+prohibitions, or undertaken commitments regarding forced labor import 
+prohibitions through an ART, since June 5, 2026. The Trade 
+Representative also advised the President that, after considering 
+significant comments and testimony on the proposed actions, certain 
+products warranted exemption from the tariffs imposed in the 
+investigations as they are: (a) raw materials that if subject to these 
+tariffs could lead to the unavailability of domestic supply; (b) 
+products that could cause economy-wide disruptions if subject to these 
+tariffs; (c) products that cannot be grown or produced in sufficient 
+quantities or at reasonable prices in the United States or obtained 
+from other sources; (d) products for which these tariffs may not be 
+effective in obtaining the elimination of the acts, policies, and 
+practices of economies found to be actionable in the investigations; or 
+(e) certain products of Argentina, Bangladesh, Cambodia, Ecuador, El 
+Salvador, the European Union, Guatemala, Indonesia, Jordan, Malaysia, 
+Switzerland, Taiwan, or the United Kingdom that would encourage these 
+economies to fulfill commitments regarding forced labor import 
+prohibitions or to encourage these economies to enact and effectively 
+enforce a forced labor import prohibition.
+    On July 23, 2026--after considering and taking account of the 
+information and advice provided by the Trade Representative; the 
+information, findings, and determinations in the June 5, 2026 FRN; the 
+need to obtain the elimination of the acts, policies, and practices of 
+the investigated economies found to be actionable; and other pertinent 
+information--the President issued a memorandum (Memorandum) directing 
+that:
+
+    Section 1. Tariffs and Exemptions. (a) Except as otherwise 
+provided in this memorandum, the Trade Representative shall impose 
+the following tariff rates on all goods of the economy for which an 
+act, policy, or
+
+[[Page 47320]]
+
+practice was found actionable under section 301:
+    (i) 10 percent tariff rate: The Trade Representative shall 
+impose a tariff of 10 percent on goods of Argentina, Bangladesh, 
+Cambodia, Canada, Ecuador, El Salvador, Guatemala, Honduras, India, 
+Indonesia, Jordan, Malaysia, Mexico, Pakistan, Sri Lanka, the United 
+Kingdom, and Trinidad and Tobago.
+    (ii) Tariff rate of 10 percent or 12.5 percent, net of MFN rate: 
+For a product of the European Union or Taiwan, where such product's 
+MFN tariff is less than 10 percent, the Trade Representative shall 
+impose a section 301 tariff pursuant to these investigations so that 
+the sum of the MFN tariff and the section 301 tariff shall be 10 
+percent, and where such product's MFN tariff is greater than or 
+equal to 10 percent, the Trade Representative shall impose a section 
+301 tariff of zero. For a product of Japan, Korea, or Switzerland, 
+where such product's MFN tariff is less than 12.5 percent, the Trade 
+Representative shall impose a section 301 tariff pursuant to these 
+investigations so that the sum of the MFN tariff and the tariff 
+imposed pursuant to these investigations shall be 12.5 percent, and 
+where such product's MFN tariff is greater than or equal to 12.5 
+percent, the Trade Representative shall impose a section 301 tariff 
+of zero. Capping total duties in this manner is feasible, consistent 
+with the terms of the Agreements on Reciprocal Trade or similar 
+arrangements, and appropriate to encourage these economies to 
+fulfill commitments regarding forced labor import prohibitions or to 
+enact and effectively enforce such a prohibition.
+    (iii) 12.5 percent tariff rate: For goods of all other 
+investigated economies, the Trade Representative shall impose a 
+tariff rate of 12.5 percent.
+    (b) The Trade Representative shall exempt from the tariffs 
+imposed as directed in subsection (a) of this section the products 
+identified in the Annex to this memorandum for each economy for 
+which an act, policy, or practice was found actionable under section 
+301, as the products identified constitute:
+    (i) raw materials that if subject to these tariffs could lead to 
+the unavailability of domestic supply;
+    (ii) products that could cause economy-wide disruptions if 
+subject to these tariffs;
+    (iii) products that cannot be grown or produced in sufficient 
+quantities in the United States or obtained from other sources;
+    (iv) products for which these tariffs may not be effective in 
+obtaining the elimination of the acts, policies, and practices of 
+economies found to be actionable in the investigations; or
+    (v) certain products of Argentina, Bangladesh, Cambodia, 
+Ecuador, El Salvador, the European Union, Guatemala, Indonesia, 
+Jordan, Malaysia, Switzerland, Taiwan, or the United Kingdom that 
+would encourage these economies to fulfill commitments regarding 
+forced labor import prohibitions or to encourage these economies to 
+enact and effectively enforce a forced labor import prohibition.
+    (c) After considering the relevant issues and factors and 
+weighing the relevant considerations, including potential economic 
+harm and efficacy of tariffs, I determine that the products 
+identified in the Annex to this memorandum shall be exempted from 
+the tariffs directed in subsection (a) of this section, and the 
+Trade Representative shall direct that the Harmonized Tariff 
+Schedule of the United States (HTSUS) be modified as provided in the 
+Annex to this memorandum. In my judgment, the tariffs directed in 
+subsection (a) of this section with the exemptions described in 
+subsection (b) of this section are appropriate and feasible to 
+obtain the elimination of the acts, policies, or practices of the 
+economies found to be actionable under section 301.
+    Sec. 2. Tariff-Rate Quotas. (a) As soon as the Trade 
+Representative determines that it is feasible, the Trade 
+Representative shall:
+    (i) establish TRQs for Bangladesh, Cambodia, Indonesia, and 
+Malaysia, with an initial duration of 3 years, to encourage the 
+importation by each of these economies of U.S. textile goods, in 
+order to reduce reliance on inputs from other sources that are more 
+likely to contain forced labor inputs; and
+    (ii) structure the TRQs for Bangladesh, Cambodia, Indonesia, and 
+Malaysia to allow for a certain volume of specific textiles and 
+apparel, based on that economy's importation of U.S. inputs, to 
+enter the United States free of the section 301 tariffs provided for 
+in section 1(a) of this memorandum.
+    (b) As soon as the Trade Representative determines that it is 
+feasible, the Trade Representative shall:
+    (i) establish TRQs for Bangladesh, Cambodia, Indonesia, and 
+Malaysia, with an initial duration of 3 years, to encourage the 
+importation by each of these economies of U.S. cotton, in order to 
+reduce reliance on inputs from other sources that are more likely to 
+contain forced labor inputs; and
+    (ii) structure the TRQs for Bangladesh, Cambodia, Indonesia, and 
+Malaysia to allow for a certain volume of specific textile and 
+apparel, based on that economy's importation of U.S. cotton, to 
+enter the United States free of the section 301 tariffs provided for 
+in section 1(a) of this memorandum.
+    (c) Until the Trade Representative establishes the TRQs 
+described in subsections (a) and (b) of this section, the Trade 
+Representative shall impose the applicable section 301 tariffs 
+provided for in section 1(a) of this memorandum (here, 10 percent) 
+on imports of specific textile and apparel of Bangladesh, Cambodia, 
+Indonesia, and Malaysia that will be covered by the TRQs for each of 
+those economies.
+    (d) The Trade Representative shall modify the HTSUS as 
+appropriate to implement the directives in this section. The Trade 
+Representative shall publish a notice in the Federal Register 
+regarding the establishment and the effective date of the TRQs 
+directed in this section.
+
+    The Memorandum further directs that in the President's judgment, 
+tariffs for each economy of 10 or 12.5 percent on all goods or, in the 
+case of specific economies, 10 or 12.5 percent net of a good's MFN 
+duty, with the exemptions described in the Memorandum, are appropriate 
+and feasible to obtain the elimination of the acts, policies, and 
+practices of each economy found to be actionable under Section 301. 
+With respect to the tariff actions and exemptions, the Memorandum also 
+states the President's determination that alternatives to the action 
+directed by the President, such as a lower tariff rate, negotiation 
+without the imposition of tariffs, action under other statutory 
+authority without action under Section 301 of the Trade Act, and 
+combinations of various approaches, would be less effective and less 
+preferable than the action directed in the Memorandum.
+    Considering the public comments and testimony and the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and pursuant to Sections 301(b) and 304(a) of the Trade Act, the Trade 
+Representative has determined that action is appropriate in each 
+investigation. In accordance with the specific direction of the 
+President, and considering the public comments and testimony, the 
+advice of the Section 301 Committee, as well as the advice of advisory 
+committees, the Trade Representative has determined pursuant to 
+Sections 301(b), 301(c), and 304(a) of the Trade Act that appropriate 
+and feasible action in each investigation is the application of tariffs 
+to all imports of the investigated economy at issue, with certain 
+exemptions detailed in Annexes I and II to this Notice.
+    With respect to tariff rates, the Trade Representative has 
+determined, consistent with the specific direction of the President, to 
+impose a tariff of 10 percent on goods of Argentina, Bangladesh, 
+Cambodia, Canada, Ecuador, El Salvador, Guatemala, Honduras, India, 
+Indonesia, Jordan, Malaysia, Mexico, Pakistan, Sri Lanka, Trinidad and 
+Tobago, and the United Kingdom, unless otherwise exempted from this 
+action.
+    Consistent with the specific direction of the President, the Trade 
+Representative has determined to impose a tariff rate of 10 percent or 
+12.5 percent, net of MFN rate, for certain investigated economies. For 
+a product of the European Union or Taiwan that is not otherwise 
+exempted, where such product's MFN tariff is less than 10 percent, the 
+Trade Representative has determined to impose Section 301 tariffs 
+pursuant to each of these investigations so that the sum of the MFN 
+tariff and the Section 301 tariff for a product shall be 10 percent, 
+and where such product's MFN tariff is greater than or equal to 10 
+percent, the Section 301 tariff shall be zero. For a product of Japan, 
+Korea, or Switzerland that is not otherwise exempted, where such 
+product's MFN tariff is less than 12.5 percent, the Trade
+
+[[Page 47321]]
+
+Representative has determined to impose a Section 301 tariff pursuant 
+to these investigations so that the sum of the MFN tariff and the 
+tariff imposed pursuant to these investigations shall be 12.5 percent, 
+and where such product's MFN tariff is greater than or equal to 12.5 
+percent, the Section 301 tariff shall be zero. The Trade Representative 
+has determined in each of these investigations that capping total 
+duties in this manner would be consistent with an economy's respective 
+ART or similar arrangement and would be appropriate to encourage an 
+economy to fulfill commitments regarding forced labor import 
+prohibitions or to enact and effectively enforce a prohibition.
+    Consistent with the specific direction of the President, in the 
+investigations of all other economies, the Trade Representative has 
+determined to impose a tariff rate of 12.5 percent on goods of each 
+such economy, unless otherwise exempted from this action.
+    The Trade Representative has determined to exempt the products 
+listed in Annexes I and II from the scope of actions taken in each of 
+the investigations of the economies enumerated in those annexes. The 
+Trade Representative has determined, in accordance with the specific 
+direction of the President, that the product exemptions are appropriate 
+as each of these products constitutes: (a) raw materials that if 
+subject to these tariffs could lead to the unavailability of domestic 
+supply; (b) products that could cause economy-wide disruptions if 
+subject to these tariffs; (c) products that cannot be grown or produced 
+in sufficient quantities or at reasonable prices in the United States 
+or obtained from other sources; (d) products for which these tariffs 
+may not be effective in obtaining the elimination of the acts, 
+policies, and practices of economies found to be actionable in the 
+investigations; or (e) certain products of Argentina, Bangladesh, 
+Cambodia, Ecuador, El Salvador, the European Union, Guatemala, 
+Indonesia, Jordan, Malaysia, Switzerland, Taiwan, or the United Kingdom 
+that would encourage these economies to fulfill commitments regarding 
+forced labor import prohibitions or to encourage these economies to 
+enact and effectively enforce a forced labor import prohibition.
+    Any product of an economy that is subject to the additional duty 
+imposed by action taken in the respective investigation, and that is 
+admitted into a U.S. foreign trade zone, except any product that is 
+eligible for admission under ``domestic status'' as defined in 19 CFR 
+146.43, only may be admitted as ``privileged foreign status,'' as 
+defined in 19 CFR 146.41, effective as of the date that the additional 
+duty is imposed.
+    In accordance with the specific direction of the President, and 
+considering the public comments and testimony, the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+the Trade Representative has also determined to establish, when 
+feasible, a textile mechanism in the form of TRQs for Bangladesh, 
+Cambodia, Indonesia, and Malaysia, based on each economy's importation 
+of U.S. inputs, to encourage the importation by each of these economies 
+of U.S. cotton and textile goods, in order to reduce reliance on inputs 
+from other sources that are more likely to contain forced labor inputs.
+
+B. Specific Determinations of Action in Each Investigation
+
+1. Algeria: Determination of Action in Investigation
+    Based on the findings in the investigation of Algeria, considering 
+the public comments and testimony, the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Algeria, except as provided in Annex I and Annex II, Part 
+A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President, that the 
+tariff rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+2. Angola: Determination of Action in Investigation
+    Based on the findings in the investigation of Angola, considering 
+the public comments and testimony, the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Angola, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President, that the tariff rate to 
+be applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+3. Argentina: Determination of Action in Investigation
+    Based on the findings in the investigation of Argentina, including 
+consideration of Argentina's commitment in its ART related to 
+prohibiting the importation of forced labor goods, considering the 
+public comments, testimony, the advice of the Section 301 Committee, as 
+well as the advice of advisory committees, and in accordance with the 
+specific direction of the President, the Trade Representative has 
+determined to impose 10 percent tariffs on products of Argentina, 
+except as provided in Annex I and Annex II, Parts A and I, of this 
+Notice. The Trade Representative has determined, in accordance with the 
+specific direction of the President, that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+4. Australia: Determination of Action in Investigation
+    Based on the findings in the investigation of Australia, 
+considering the public comments, testimony, and the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and in accordance with the specific direction of the President, the 
+Trade Representative has determined to impose 12.5 percent tariffs on 
+products of Australia, except as provided in Annex I and Annex II, Part 
+A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President, that the 
+tariff rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+5. The Bahamas: Determination of Action in Investigation
+    Based on the findings in the investigation of The Bahamas, and 
+considering the public comments, testimony, and the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and in accordance with the specific direction of the President, the 
+Trade Representative has determined to impose 12.5 percent tariffs on 
+products of The Bahamas, except as provided in Annex I and Annex II, 
+Part A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President, that the 
+tariff rate to be applied, and the scope of tariffs and
+
+[[Page 47322]]
+
+exemptions are appropriate to obtain the elimination of the acts, 
+policies, and practices determined to be actionable in the 
+investigation.
+6. Bahrain: Determination of Action in Investigation
+    Based on the findings in the investigation of Bahrain, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Bahrain, except as provided in Annex I and Annex II, Part 
+A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President, that the 
+tariff rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+7. Bangladesh: Determination of Action in Investigation
+    Based on the findings in the investigation of Bangladesh, including 
+consideration of Bangladesh's obligation in its ART related to 
+prohibiting the importation of forced labor goods, and considering the 
+public comments and testimony, the advice of the Section 301 Committee, 
+as well as the advice of advisory committees, and in accordance with 
+the specific direction of the President, the Trade Representative has 
+determined to impose 10 percent tariffs on products of Bangladesh, 
+except as provided in Annex I and Annex II, Parts A and J, of this 
+Notice. The Trade Representative has determined, in accordance with the 
+specific direction of the President that the tariff rate to be applied, 
+and the scope of tariffs and exemptions are appropriate to obtain the 
+elimination of the acts, policies, and practices determined to be 
+actionable in the investigation.
+8. Brazil: Determination of Action in Investigation
+    Based on the findings in the investigation of Brazil, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Brazil, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+9. Cambodia: Determination of Action in Investigation
+    Based on the findings in the investigation of Cambodia, including 
+consideration of Cambodia's commitment in its ART related to 
+prohibiting the importation of forced labor goods and its adoption of a 
+forced labor import prohibition subsequent to the publication of the 
+June 5, 2026 FRN, and considering the public comments and testimony, 
+the advice of the Section 301 Committee, as well as the advice of 
+advisory committees, and in accordance with the specific direction of 
+the President, the Trade Representative has determined to impose 10 
+percent tariffs on products of Cambodia, except as provided in Annex I 
+and Annex II, Parts A and F, of this Notice. The Trade Representative 
+has determined, in accordance with the specific direction of the 
+President that the tariff rate to be applied, and the scope of tariffs 
+and exemptions are appropriate to obtain the elimination of the acts, 
+policies, and practices determined to be actionable in the 
+investigation.
+10. Canada: Determination of Action in Investigation
+    Based on the findings in the investigation of Canada, including 
+that Canada has failed to effectively enforce its forced labor import 
+prohibition, and considering the public comments and testimony, the 
+advice of the Section 301 Committee, as well as the advice of advisory 
+committees, and in accordance with the specific direction of the 
+President, the Trade Representative has determined to impose 10 percent 
+tariffs on products of Canada, except as provided in Annex I and Annex 
+II, Part A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+11. Chile: Determination of Action in Investigation
+    Based on the findings in the investigation of Chile, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Chile, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+12. China, People's Republic of: Determination of Action in 
+Investigation
+    Based on the findings in the investigation of China, and 
+considering the public comments and testimony, the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and in accordance with the specific direction of the President, the 
+Trade Representative has determined to impose 12.5 percent tariffs on 
+products of China, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+13. Colombia: Determination of Action in Investigation
+    Based on the findings in the investigation of Colombia, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Colombia, except as provided in Annex I and Annex II, Part 
+A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+14. Costa Rica: Determination of Action in Investigation
+    Based on the findings in the investigation of Costa Rica, 
+considering the public comments, testimony, and the advice of the 
+Section 301 Committee, as well as the advice of
+
+[[Page 47323]]
+
+advisory committees, and in accordance with the specific direction of 
+the President, the Trade Representative has determined to impose 12.5 
+percent tariffs on products of Costa Rica, except as provided in Annex 
+I and Annex II, Part A, of this Notice. The Trade Representative has 
+determined, in accordance with the specific direction of the President 
+that the tariff rate to be applied, and the scope of tariffs and 
+exemptions are appropriate to obtain the elimination of the acts, 
+policies, and practices determined to be actionable in the 
+investigation.
+15. Dominican Republic: Determination of Action in Investigation
+    Based on the findings in the investigation of the Dominican 
+Republic, considering the public comments, testimony, and the advice of 
+the Section 301 Committee, as well as the advice of advisory 
+committees, and in accordance with the specific direction of the 
+President, the Trade Representative has determined to impose 12.5 
+percent tariffs on products of the Dominican Republic, except as 
+provided in Annex I and Annex II, Part A, of this Notice. The Trade 
+Representative has determined, in accordance with the specific 
+direction of the President that the tariff rate to be applied, and the 
+scope of tariffs and exemptions are appropriate to obtain the 
+elimination of the acts, policies, and practices determined to be 
+actionable in the investigation.
+16. Ecuador: Determination of Action in Investigation
+    Based on the findings in the investigation of Ecuador, including 
+consideration of Ecuador's commitment in its ART related to prohibiting 
+the importation of forced labor goods, and considering the public 
+comments and testimony, the advice of the Section 301 Committee, as 
+well as the advice of advisory committees, and in accordance with the 
+specific direction of the President, the Trade Representative has 
+determined to impose 10 percent tariffs on products of Ecuador, except 
+as provided in Annex I and Annex II, Parts A and M, of this Notice. The 
+Trade Representative has determined, in accordance with the specific 
+direction of the President that the tariff rate to be applied, and the 
+scope of tariffs and exemptions are appropriate to obtain the 
+elimination of the acts, policies, and practices determined to be 
+actionable in the investigation.
+17. Egypt: Determination of Action in Investigation
+    Based on the findings in the investigation of Egypt, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Egypt, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+18. El Salvador: Determination of Action in Investigation
+    Based on the findings in the investigation of El Salvador, 
+including consideration of El Salvador's commitment in its ART related 
+to prohibiting the importation of forced labor goods, and considering 
+the public comments and testimony, the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 10 percent tariffs on products 
+of El Salvador, except as provided in Annex I and Annex II, Parts A, H, 
+and O, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+19. European Union: Determination of Action in Investigation
+    Based on the findings in the investigation of the European Union, 
+including that it has failed to effectively enforce its forced labor 
+import prohibition, and considering the public comments and testimony, 
+the advice of the Section 301 Committee, as well as the advice of 
+advisory committees, and in accordance with the specific direction of 
+the President, the Trade Representative has determined to impose 10 
+percent tariffs net of MFN on products of the European Union, except as 
+provided in Annex I and Annex II, Parts A and C, of this Notice. For 
+greater certainty, for a product of the European Union, where such 
+product's MFN tariff is less than 10 percent, the sum of the MFN tariff 
+and the Section 301 tariff shall be 10 percent, and where such 
+product's MFN tariff is greater than or equal to 10 percent, the 
+Section 301 tariff applied shall be zero. The Trade Representative has 
+determined, in accordance with the specific direction of the President 
+that the tariff rate to be applied, and the scope of tariffs and 
+exemptions are appropriate to obtain the elimination of the acts, 
+policies, and practices determined to be actionable in the 
+investigation.
+20. Guatemala: Determination of Action in Investigation
+    Based on the findings in the investigation of Guatemala, including 
+consideration of Guatemala's commitment in its ART related to 
+prohibiting the importation of forced labor goods and its adoption of a 
+forced labor import prohibition subsequent to the publication of the 
+June 5, 2026 FRN, and considering the public comments and testimony, 
+the advice of the Section 301 Committee, as well as the advice of 
+advisory committees, and in accordance with the specific direction of 
+the President, the Trade Representative has determined to impose 10 
+percent tariffs on products of Guatemala, except as provided in Annex I 
+and Annex II, Parts A, G, and O, of this Notice. The Trade 
+Representative has determined, in accordance with the specific 
+direction of the President that the tariff rate to be applied, and the 
+scope of tariffs and exemptions are appropriate to obtain the 
+elimination of the acts, policies, and practices determined to be 
+actionable in the investigation.
+21. Guyana: Determination of Action in Investigation
+    Based on the findings in the investigation of Guyana, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Guyana, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+
+[[Page 47324]]
+
+22. Honduras: Determination of Action in Investigation
+    Based on the findings in the investigation of Honduras, including 
+its adoption of a forced labor import prohibition subsequent to the 
+publication of the June 5, 2026 FRN, and considering the public 
+comments and testimony, the advice of the Section 301 Committee, as 
+well as the advice of advisory committees, and in accordance with the 
+specific direction of the President, the Trade Representative has 
+determined to impose 10 percent tariffs on products of Honduras, except 
+as provided in Annex I and Annex II, Part A, of this Notice. The Trade 
+Representative has determined, in accordance with the specific 
+direction of the President that the tariff rate to be applied, and the 
+scope of tariffs and exemptions are appropriate to obtain the 
+elimination of the acts, policies, and practices determined to be 
+actionable in the investigation.
+23. Hong Kong, China: Determination of Action in Investigation
+    Based on the findings in the investigation of Hong Kong, 
+considering the public comments, testimony, and the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and in accordance with the specific direction of the President, the 
+Trade Representative has determined to impose 12.5 percent tariffs on 
+products of Hong Kong, except as provided in Annex I and Annex II, Part 
+A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+24. India: Determination of Action in Investigation
+    Based on the findings in the investigation of India, including 
+India's adoption of a forced labor import prohibition subsequent to the 
+publication of the June 5, 2026 FRN, and considering the public 
+comments and testimony, the advice of the Section 301 Committee, as 
+well as the advice of advisory committees, and in accordance with the 
+specific direction of the President, the Trade Representative has 
+determined to impose 10 percent tariffs on products of India, except as 
+provided in Annex I and Annex II, Part A, of this Notice. The Trade 
+Representative has determined, in accordance with the specific 
+direction of the President that the tariff rate to be applied, and the 
+scope of tariffs and exemptions are appropriate to obtain the 
+elimination of the acts, policies, and practices determined to be 
+actionable in the investigation.
+25. Indonesia: Determination of Action in Investigation
+    Based on the findings in the investigation of Indonesia, including 
+consideration of Indonesia's commitment in its ART related to 
+prohibiting the importation of forced labor goods, and considering the 
+public comments and testimony, the advice of the Section 301 Committee, 
+as well as the advice of advisory committees, and in accordance with 
+the specific direction of the President, the Trade Representative has 
+determined to impose 10 percent tariffs on products of Indonesia, 
+except as provided in Annex I and Annex II, Parts A and L, of this 
+Notice. The Trade Representative has determined, in accordance with the 
+specific direction of the President that the tariff rate to be applied, 
+and the scope of tariffs and exemptions are appropriate to obtain the 
+elimination of the acts, policies, and practices determined to be 
+actionable in the investigation.
+26. Iraq: Determination of Action in Investigation
+    Based on the findings in the investigation of Iraq, considering the 
+public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Iraq, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+27. Israel: Determination of Action in Investigation
+    Based on the findings in the investigation of Israel, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Israel, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+28. Japan: Determination of Action in Investigation
+    Based on the findings in the investigation of Japan, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs net of MFN 
+on products of Japan, except as provided in Annex I and Annex II, Part 
+A, of this Notice. For greater certainty, for a product of Japan, where 
+such product's MFN tariff is less than 12.5 percent, the sum of the MFN 
+tariff and the Section 301 tariff shall be 12.5 percent, and where such 
+product's MFN tariff is greater than or equal to 12.5 percent, the 
+Section 301 tariff applied shall be zero. The Trade Representative has 
+determined, in accordance with the specific direction of the President 
+that the tariff rate to be applied, and the scope of tariffs and 
+exemptions are appropriate to obtain the elimination of the acts, 
+policies, and practices determined to be actionable in the 
+investigation.
+29. Jordan: Determination of Action in Investigation
+    Based on the findings in the investigation of Jordan, including 
+consideration of Jordan's commitment in its ART related to prohibiting 
+the importation of forced labor goods, and considering the public 
+comments and testimony, the advice of the Section 301 Committee, as 
+well as the advice of advisory committees, and in accordance with the 
+specific direction of the President, the Trade Representative has 
+determined to impose 10 percent tariffs on products of Jordan, except 
+as provided in Annex I and Annex II, Parts A, N, and O, of this Notice. 
+The Trade Representative has determined, in accordance with the 
+specific direction of the President that the tariff rate to be applied, 
+and the scope of tariffs and exemptions are appropriate to obtain the 
+elimination of the acts, policies, and practices determined to be 
+actionable in the investigation.
+
+[[Page 47325]]
+
+30. Kazakhstan: Determination of Action in Investigation
+    Based on the findings in the investigation of Kazakhstan, 
+considering the public comments, testimony, and the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and in accordance with the specific direction of the President, the 
+Trade Representative has determined to impose 12.5 percent tariffs on 
+products of Kazakhstan, except as provided in Annex I and Annex II, 
+Part A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+31. Kuwait: Determination of Action in Investigation
+    Based on the findings in the investigation of Kuwait, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Kuwait, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+32. Libya: Determination of Action in Investigation
+    Based on the findings in the investigation of Libya, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Libya, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+33. Malaysia: Determination of Action in Investigation
+    Based on the findings in the investigation of Malaysia, including 
+consideration of Malaysia's obligation in its ART related to 
+prohibiting the importation of forced labor goods, and considering the 
+public comments and testimony, the advice of the Section 301 Committee, 
+as well as the advice of advisory committees, and in accordance with 
+the specific direction of the President, the Trade Representative has 
+determined to impose 10 percent tariffs on products of Malaysia, except 
+as provided in Annex I and Annex II, Parts A and E, of this Notice. The 
+Trade Representative has determined, in accordance with the specific 
+direction of the President that the tariff rate to be applied, and the 
+scope of tariffs and exemptions are appropriate to obtain the 
+elimination of the acts, policies, and practices determined to be 
+actionable in the investigation.
+34. Mexico: Determination of Action in Investigation
+    Based on the findings in the investigation of Mexico, including 
+that Mexico has failed to effectively enforce such prohibition, and 
+considering the public comments and testimony, the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and in accordance with the specific direction of the President, the 
+Trade Representative has determined to impose 10 percent tariffs on 
+products of Mexico, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+35. Morocco: Determination of Action in Investigation
+    Based on the findings in the investigation of Morocco, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Morocco, except as provided in Annex I and Annex II, Part 
+A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+36. New Zealand: Determination of Action in Investigation
+    Based on the findings in the investigation of New Zealand, 
+considering the public comments, testimony, and the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and in accordance with the specific direction of the President, the 
+Trade Representative has determined to impose 12.5 percent tariffs on 
+products of New Zealand, except as provided in Annex I and Annex II, 
+Part A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+37. Nicaragua: Determination of Action in Investigation
+    Based on the findings in the investigation of Nicaragua, 
+considering the public comments, testimony, and the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and in accordance with the specific direction of the President, the 
+Trade Representative has determined to impose 12.5 percent tariffs on 
+products of Nicaragua, except as provided in Annex I and Annex II, Part 
+A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+38. Nigeria: Determination of Action in Investigation
+    Based on the findings in the investigation of Nigeria, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Nigeria, except as provided in Annex I and Annex II, Part 
+A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are
+
+[[Page 47326]]
+
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+39. Norway: Determination of Action in Investigation
+    Based on the findings in the investigation of Norway, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Norway, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+40. Oman: Determination of Action in Investigation
+    Based on the findings in the investigation of Oman, considering the 
+public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Oman, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+41. Pakistan: Determination of Action in Investigation
+    Based on the findings in the investigation of Pakistan, including 
+that Pakistan has failed to effectively enforce its forced labor import 
+prohibition, and considering the public comments and testimony, the 
+advice of the Section 301 Committee, as well as the advice of advisory 
+committees, and in accordance with the specific direction of the 
+President, the Trade Representative has determined to impose 10 percent 
+tariffs on products of Pakistan, except as provided in Annex I and 
+Annex II, Part A, of this Notice. The Trade Representative has 
+determined, in accordance with the specific direction of the President 
+that the tariff rate to be applied, and the scope of tariffs and 
+exemptions are appropriate to obtain the elimination of the acts, 
+policies, and practices determined to be actionable in the 
+investigation.
+42. Peru: Determination of Action in Investigation
+    Based on the findings in the investigation of Peru, considering the 
+public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Peru, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+43. The Philippines: Determination of Action in Investigation
+    Based on the findings in the investigation of the Philippines, 
+considering the public comments, testimony, and the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and in accordance with the specific direction of the President, the 
+Trade Representative has determined to impose 12.5 percent tariffs on 
+products of the Philippines, except as provided in Annex I and Annex 
+II, Part A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+44. Qatar: Determination of Action in Investigation
+    Based on the findings in the investigation of Qatar, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Qatar, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+45. Russia: Determination of Action in Investigation
+    Based on the findings in the investigation of Russia, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Russia, except as provided in Annex I and Annex II, Part A, 
+of this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+46. Saudi Arabia: Determination of Action in Investigation
+    Based on the findings in the investigation of Saudi Arabia, 
+considering the public comments, testimony, and the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and in accordance with the specific direction of the President, the 
+Trade Representative has determined to impose 12.5 percent tariffs on 
+products of Saudi Arabia, except as provided in Annex I and Annex II, 
+Part A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+47. Singapore: Determination of Action in Investigation
+    Based on the findings in the investigation of Singapore, 
+considering the public comments, testimony, and the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and in accordance with the specific direction of the President, the 
+Trade Representative has determined to impose 12.5 percent tariffs on 
+products of Singapore, except as provided in Annex I and Annex II, Part 
+A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be
+
+[[Page 47327]]
+
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+48. South Africa: Determination of Action in Investigation
+    Based on the findings in the investigation of South Africa, 
+considering the public comments, testimony, and the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and in accordance with the specific direction of the President, the 
+Trade Representative has determined to impose 12.5 percent tariffs on 
+products of South Africa, except as provided in Annex I and Annex II, 
+Part A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+49. South Korea: Determination of Action in Investigation
+    Based on the findings in the investigation of South Korea, 
+considering the public comments, testimony, and the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and in accordance with the specific direction of the President, the 
+Trade Representative has determined to impose 12.5 percent tariffs net 
+of MFN on products of South Korea, except as provided in Annex I and 
+Annex II, Part A, of this Notice. For greater certainty, for a product 
+of South Korea, where such product's MFN tariff is less than 12.5 
+percent, the sum of the MFN tariff and the Section 301 tariff shall be 
+12.5 percent, and where such product's MFN tariff is greater than or 
+equal to 12.5 percent, the Section 301 tariff applied shall be zero. 
+The Trade Representative has determined, in accordance with the 
+specific direction of the President that the tariff rate to be applied, 
+and the scope of tariffs and exemptions are appropriate to obtain the 
+elimination of the acts, policies, and practices determined to be 
+actionable in the investigation.
+50. Sri Lanka: Determination of Action in Investigation
+    Based on the findings in the investigation of Sri Lanka, including 
+its adoption of a forced labor import prohibition subsequent to the 
+publication of the June 5, 2026 FRN, and considering the public 
+comments and testimony, the advice of the Section 301 Committee, as 
+well as the advice of advisory committees, and in accordance with the 
+specific direction of the President, the Trade Representative has 
+determined to impose 10 percent tariffs on products of Sri Lanka, 
+except as provided in Annex I and Annex II, Part A, of this Notice. The 
+Trade Representative has determined, in accordance with the specific 
+direction of the President that the tariff rate to be applied, and the 
+scope of tariffs and exemptions are appropriate to obtain the 
+elimination of the acts, policies, and practices determined to be 
+actionable in the investigation.
+51. Switzerland: Determination of Action in Investigation
+    Based on the findings in the investigation of Switzerland, and 
+considering the public comments and testimony, the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and in accordance with the specific direction of the President, the 
+Trade Representative has determined to impose 12.5 percent tariffs net 
+of MFN on products of Switzerland, except as provided in Annex I and 
+Annex II, Parts A and D, of this Notice. For greater certainty, for a 
+product of Switzerland where such product's MFN tariff is less than 
+12.5 percent, the sum of the MFN tariff and the Section 301 tariff 
+shall be 12.5 percent, and where such product's MFN tariff is greater 
+than or equal to 12.5 percent, the Section 301 tariff applied shall be 
+zero. The Trade Representative has determined, in accordance with the 
+specific direction of the President that the tariff rate to be applied, 
+and the scope of tariffs and exemptions are appropriate to obtain the 
+elimination of the acts, policies, and practices determined to be 
+actionable in the investigation.
+52. Taiwan: Determination of Action in Investigation
+    Based on the findings in the investigation of Taiwan, including 
+consideration of Taiwan's commitment in its ART related to prohibiting 
+the importation of forced labor goods, and considering the public 
+comments and testimony, the advice of the Section 301 Committee, as 
+well as the advice of advisory committees, and in accordance with the 
+specific direction of the President, the Trade Representative has 
+determined to impose 10 percent tariffs net of MFN on products of 
+Taiwan, except as provided in Annex I and Annex II, Parts A and K, of 
+this Notice. For greater certainty, for a product of the Taiwan, where 
+such product's MFN tariff is less than 10 percent, the sum of the MFN 
+tariff and the Section 301 tariff shall be 10 percent, and where such 
+product's MFN tariff is greater than or equal to 10 percent, the 
+Section 301 tariff applied shall be zero. The Trade Representative has 
+determined, in accordance with the specific direction of the President 
+that the tariff rate to be applied, and the scope of tariffs and 
+exemptions are appropriate to obtain the elimination of the acts, 
+policies, and practices determined to be actionable in the 
+investigation.
+53. Thailand: Determination of Action in Investigation
+    Based on the findings in the investigation of Thailand, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Thailand, except as provided in Annex I and Annex II, Part 
+A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+54. Trinidad and Tobago: Determination of Action in Investigation
+    Based on the findings in the investigation of Trinidad and Tobago, 
+including its adoption of a forced labor import prohibition subsequent 
+to the publication of the June 5, 2026 FRN, and considering the public 
+comments and testimony, the advice of the Section 301 Committee, as 
+well as the advice of advisory committees, and in accordance with the 
+specific direction of the President, the Trade Representative has 
+determined to impose 10 percent tariffs on products of Trinidad and 
+Tobago, except as provided in Annex I and Annex II, Part A, of this 
+Notice. The Trade Representative has determined, in accordance with the 
+specific direction of the President that the tariff rate to be applied, 
+and the scope of tariffs and exemptions are appropriate to obtain the 
+elimination of the acts, policies, and practices determined to be 
+actionable in the investigation.
+55. T[uuml]rkiye: Determination of Action in Investigation
+    Based on the findings in the investigation of T[uuml]rkiye, 
+considering the public comments, testimony, and the advice of the 
+Section 301 Committee, as
+
+[[Page 47328]]
+
+well as the advice of advisory committees, and in accordance with the 
+specific direction of the President, the Trade Representative has 
+determined to impose 12.5 percent tariffs on products of T[uuml]rkiye, 
+except as provided in Annex I and Annex II, Part A, of this Notice. The 
+Trade Representative has determined, in accordance with the specific 
+direction of the President that the tariff rate to be applied, and the 
+scope of tariffs and exemptions are appropriate to obtain the 
+elimination of the acts, policies, and practices determined to be 
+actionable in the investigation.
+56. United Arab Emirates: Determination of Action in Investigation
+    Based on the findings in the investigation of the United Arab 
+Emirates, considering the public comments, testimony, and the advice of 
+the Section 301 Committee, as well as the advice of advisory 
+committees, and in accordance with the specific direction of the 
+President, the Trade Representative has determined to impose 12.5 
+percent tariffs on products of the United Arab Emirates, except as 
+provided in Annex I and Annex II, Part A, of this Notice. The Trade 
+Representative has determined, in accordance with the specific 
+direction of the President that the tariff rate to be applied, and the 
+scope of tariffs and exemptions are appropriate to obtain the 
+elimination of the acts, policies, and practices determined to be 
+actionable in the investigation.
+57. United Kingdom: Determination of Action in Investigation
+    Based on the findings in the investigation of the United Kingdom, 
+including its imposition of a partial regime with the effect of 
+prohibiting certain forced labor goods, and considering the public 
+comments and testimony, the advice of the Section 301 Committee, as 
+well as the advice of advisory committees, and in accordance with the 
+specific direction of the President, the Trade Representative has 
+determined to impose 10 percent tariffs on products of the United 
+Kingdom, except as provided in Annex I and Annex II, Parts A and B, of 
+this Notice. The Trade Representative has determined, in accordance 
+with the specific direction of the President that the tariff rate to be 
+applied, and the scope of tariffs and exemptions are appropriate to 
+obtain the elimination of the acts, policies, and practices determined 
+to be actionable in the investigation.
+58. Uruguay: Determination of Action in Investigation
+    Based on the findings in the investigation of Uruguay, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Uruguay, except as provided in Annex I and Annex II, Part 
+A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+59. Venezuela: Determination of Action in Investigation
+    Based on the findings in the investigation of Venezuela, 
+considering the public comments, testimony, and the advice of the 
+Section 301 Committee, as well as the advice of advisory committees, 
+and in accordance with the specific direction of the President, the 
+Trade Representative has determined to impose 12.5 percent tariffs on 
+products of Venezuela, except as provided in Annex I and Annex II, Part 
+A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+60. Vietnam: Determination of Action in Investigation
+    Based on the findings in the investigation of Vietnam, considering 
+the public comments, testimony, and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to impose 12.5 percent tariffs on 
+products of Vietnam, except as provided in Annex I and Annex II, Part 
+A, of this Notice. The Trade Representative has determined, in 
+accordance with the specific direction of the President that the tariff 
+rate to be applied, and the scope of tariffs and exemptions are 
+appropriate to obtain the elimination of the acts, policies, and 
+practices determined to be actionable in the investigation.
+
+III. USTR Responses to Significant Comments
+
+    In response to the June 5, 2026 FRN, USTR received over 1,600 
+written comments and heard testimony from over 100 witnesses. USTR and 
+the Section 301 Committee reviewed, examined, and considered each 
+comment and the public testimony. USTR responds below to significant 
+issues raised in the public comments and hearings in response to the 
+June 5, 2026 FRN and further explains the Trade Representative's 
+determinations to take appropriate and feasible action under Section 
+301(b) at the specific direction of the President. See 19 U.S.C. 
+2411(b)(2).
+
+A. Response to Comments Regarding Prior Determinations on Actionability
+
+    Multiple comments raised arguments taking issue with some or all of 
+the conclusions the Trade Representative reached in his actionability 
+finding and Report in these investigations. These include arguments 
+that the Trade Representative failed to substantiate the existence of 
+unreasonable acts, policies, or practices in each investigation, or 
+that the Trade Representative failed to demonstrate a burden or 
+restriction imposed by the acts, policies, and practices of each 
+economy. With respect to these arguments and other arguments regarding 
+the Trade Representative's earlier findings on actionability, the Trade 
+Representative observes that any such arguments that were appropriately 
+raised during the actionability phase of these investigations were 
+addressed in the June 5, 2026 FRN or the related comprehensive Report. 
+Moreover, the Trade Representative has taken into account all available 
+information regarding the efforts of the investigated economies to 
+impose and effectively enforce forced labor import prohibitions since 
+the issuance of the June 5, 2026 FRN.
+
+B. Comments Regarding the Use of Tariffs and Tariff Rates
+
+1. Responses to Significant Comments Regarding the Appropriateness of 
+the Additional Tariffs To Address the Acts, Policies, and Practices 
+Under Investigation
+    A number of comments argued that the additional tariffs proposed in 
+these investigations are not appropriate to achieve the elimination of 
+the unreasonable acts, policies, or practices of each of the 
+investigated economies. These comments argued, among other things, that 
+additional tariffs would be unlikely to significantly lessen the use of 
+forced labor. Other comments argued
+
+[[Page 47329]]
+
+that USTR should undertake diplomatic engagement or engage in technical 
+assistance and capacity building in order to achieve the elimination of 
+the acts, policies, or practices in these investigations.
+    With respect to the first argument, consistent with the specific 
+direction of the President, the Trade Representative has determined to 
+impose tariffs as a means to encourage the investigated economies to 
+impose and effectively enforce a forced labor import ban. Further, USTR 
+observes that since the initiation of the investigations and the 
+announcement of the proposed tariff actions, various economies have 
+imposed or are taking steps toward imposing a forced labor import 
+prohibition. This serves to confirm that tariff action can help obtain 
+the elimination of the investigated acts, policies, and practices. 
+While the elimination of forced labor generally is not the aim of these 
+Section 301 investigations, as observed in the Report, the prevalence 
+of forced labor has increased in recent years. Existing efforts to 
+address forced labor have proven inadequate to prevent this increase. 
+As discussed in the Report in these investigations, it is well 
+established that an effectively enforced forced labor import 
+prohibition can lead to the remediation of significant instances of 
+forced labor.
+    With respect to technical assistance and capacity building, we 
+observe that such efforts on their own are unlikely to achieve the 
+elimination of the unreasonable acts, policies, and practices. However, 
+where an economy agrees to address the issue of forced labor imports, 
+and seeks assistance to impose or effectively enforce such a 
+prohibition, such activities will be more effective. As discussed 
+above, trade-based measures, particularly tariffs, are encouraging 
+economies to impose or take steps toward imposing a forced labor import 
+prohibition.
+    While the Trade Representative has considered the arguments raised 
+in the comments, the Trade Representative disagrees with the comments 
+for the reasons discussed above. Furthermore, because the comments 
+suggested alternative actions that are inconsistent with the specific 
+direction of the President, the Trade Representative cannot accommodate 
+them.
+2. Response to Comments Regarding the Proposed Tariff Rates
+    USTR received several types of comments regarding the proposed 
+rates of duty for each investigation. For example, multiple comments 
+questioned whether a 10 or 12.5 percent duty would be significant 
+enough to encourage economies to eliminate the investigated acts, 
+policies, and practices. Some comments argued that the 2.5 percentage 
+point difference between the two rates is not significant enough to 
+encourage economies to eliminate the investigated acts, policies, or 
+practices. Multiple comments argued for certain investigated economies 
+to be excluded from the application of additional duties or be assigned 
+a lower additional rate of duty, including where the economy has 
+domestic laws prohibiting forced labor. Related to these arguments, 
+certain other comments argued that it was not appropriate for economies 
+that have made commitments regarding forced labor in ARTs to receive 
+the same tariff rate as economies with a forced labor import 
+prohibition, or economies that have taken steps towards enforcement of 
+a forced labor import prohibition, or economies with partial regimes 
+with the effect of preventing the importation of certain forced labor 
+goods. USTR addresses each of these comments in turn.
+    With respect to the significance of the rates of duty in these 
+investigations, including the differential of 2.5 percentage points, 
+the Trade Representative has determined that the rate for each economy 
+is appropriate to obtain the elimination of that economy's acts, 
+policies, and practices at this time. The Trade Representative 
+considers that a lower rate of duty would not be appropriate to obtain 
+the elimination of the acts, policies, and practices, at this time. The 
+specific action and level of duty that will obtain the elimination of 
+an act, policy, or practice is a matter of judgment, to be exercised by 
+the Trade Representative, subject to any specific direction of the 
+President. Information available indicates that these tariff rates and 
+the differential between them are significant enough to spur action by 
+investigated economies. Since the publication of the proposed actions 
+in these investigations, a number of economies have either imposed 
+forced labor import prohibitions, or undertaken a commitment to impose 
+a forced labor import prohibition as part of an ART. Other economies 
+have informed USTR that they are in the process of developing such 
+measures. Accordingly, the rates and the differential between them have 
+been successful in encouraging investigated economies to take steps 
+toward eliminating the investigated acts, policies, and practices.
+    With respect to excluding economies or providing a lower rate of 
+duty based on those economies' efforts to address forced labor within 
+their jurisdictions, such as the ratification of International Labor 
+Organization (ILO) conventions or domestic enforcement efforts related 
+to forced labor, doing so would not achieve the elimination of the 
+investigated acts, policies, and practices. The Trade Representative 
+applauds the efforts of our trading partners to eliminate forced labor 
+within their jurisdictions; however, as discussed in our June 5, 2026 
+FRN and the related Report, these efforts are not pertinent to the 
+elimination of the acts, policies, and practices that are the subject 
+of these investigations.
+    With respect to excluding or providing a lower rate to economies 
+that are in the process of developing forced labor import prohibitions, 
+the mere development or proposal of a measure to prohibit the 
+importation of forced labor goods, absent adoption of such measure, is 
+insufficient to address the acts, policies, and practices that are the 
+subject of these investigations. The development or proposal of such 
+measures alone provides no guarantee that a forced labor import 
+prohibition will be adopted and effectively enforced. Further, this is 
+distinct from circumstances where an economy has taken on a concrete 
+obligation to prohibit the importation of goods. Certain comments 
+contend that the Trade Representative should assign different rates of 
+duty to each of the following groups of economies: (1) those that have 
+imposed forced labor import prohibitions; (2) those that made 
+commitments regarding forced labor in an ART or other similar 
+agreement; and (3) those that have imposed a partial regime with the 
+effect of preventing the importation of certain forced labor goods. In 
+the Trade Representative's judgment, imposing distinct tariff rates on 
+each of these groups at this time would hinder the ability of the Trade 
+Representative to achieve the elimination of the investigated acts, 
+policies, and practices. The Trade Representative's determination to 
+apply a lower rate of duty to each economy meeting these criteria 
+acknowledges significant steps such economies are taking toward 
+imposing and effectively enforcing forced labor import prohibitions.
+    Considering the public comments and the advice of the Section 301 
+Committee, as well as the advice of advisory committees, and consistent 
+with the specific direction of the President, the Trade Representative 
+has determined that it is appropriate to impose tariffs of 10 percent 
+or 10 percent net of MFN duties, based on whether an economy has 
+imposed a
+
+[[Page 47330]]
+
+forced labor import prohibition, has undertaken commitments in an ART 
+regarding forced labor import prohibition, or has imposed a partial 
+regime with the effect of preventing the importation of certain forced 
+labor goods, and has determined that it is appropriate to impose 
+tariffs of 12.5 percent or 12.5 percent net of MFN duties for each 
+other investigated economy. In the Trade Representative's judgment, 
+imposing an economy-wide rate of zero or lower than 10 percent on 
+economies that have entered into an ART without implementing a forced 
+labor import prohibition, or on economies that have imposed a 
+prohibition but do not yet effectively implement such prohibition, 
+would be ineffective in encouraging the elimination of the acts, 
+policies, and practices under investigation. While the Trade 
+Representative has considered the arguments raised in the comments, the 
+Trade Representative disagrees with the comments for the reasons 
+discussed above. Furthermore, because the comments suggested 
+alternative actions that are inconsistent with the specific direction 
+of the President, the Trade Representative cannot accommodate them.
+3. Response to Comments Urging Lower Tariff Rates in Investigations of 
+Economies With Perceived Low-Risk Supply
+    Multiple comments suggested that the Trade Representative should 
+impose a lower or zero tariff rate on economies with export industries 
+that have a low-risk of forced labor in their supply chains. For 
+example, certain commenters argued that where investigated economies 
+export products to major U.S. retailers with their own supply chain due 
+diligence procedures, additional tariffs on such products would be 
+ineffective in bringing about the elimination of the investigated acts, 
+policies, and practices. These comments misunderstand the aims of the 
+investigations and the use of tariffs as leverage.
+    As demonstrated throughout the investigations, including in the 
+Report, the investigations are broader than any particular industry or 
+supply chain. The aim of each investigation is to encourage that 
+economy to impose and effectively enforce a forced labor import 
+prohibition. As already seen in certain investigations to date, tariffs 
+have proved to be an effective point of leverage to encourage the 
+elimination of the investigated acts, policies, and practices. Even 
+accepting these arguments at face value, it does not follow that U.S. 
+products do not compete in those economies against other imports 
+manufactured with forced labor, or that other exports from those 
+economies (i.e., those not subject to supply chain due diligence 
+procedures) are not manufactured with imported inputs made with forced 
+labor. While the Trade Representative has considered the arguments 
+raised in the comments, the Trade Representative disagrees with the 
+comments for the reasons discussed above. Furthermore, because the 
+comments suggested alternative actions that are inconsistent with the 
+specific direction of the President, the Trade Representative cannot 
+accommodate them.
+
+C. Discussion of Comments on Proposed Product Exemptions
+
+    USTR received a variety of comments on the proposed exemption list, 
+including support for the products proposed for exemption and requests 
+to remove certain products from the proposed exemption list. 
+Considering the public comments and the advice of the Section 301 
+Committee, as well as the advice of advisory committees and in 
+accordance with the specific direction of the President, the Trade 
+Representative has determined to exempt all of the products proposed 
+for exemption in Annex A to the June 5, 2026 FRN, except the non-
+pharmaceutical applications of certain chemical products. Other than 
+the products with non-pharmaceutical applications, as discussed below, 
+the Trade Representative determined not to remove additional products 
+from the exemption list. The Trade Representative determined to exempt 
+certain additional products not included in the proposed exemptions in 
+Annex A to June 5, 2026 FRN.
+1. Support for Keeping Products on the Proposed Exemption List
+    USTR received a number of comments expressing support for 
+maintaining certain proposed exemptions. Comments supported the 
+exemption of coffee, mineral tars, certain copper products, iron 
+oxides, coke, aluminum oxide, and coconut products. Other comments 
+expressed support for maintaining the proposed exemptions from Section 
+301 tariffs for products that are subject to Section 232 tariffs. 
+Commenters generally noted that these products are raw materials with 
+limited-to-no availability from domestic sources or cannot be grown or 
+produced in sufficient quantities or at reasonable prices in the United 
+States or obtained from other sources.
+    Considering the public comments and the advice of the Section 301 
+Committee, as well as the advice of advisory committees--and in 
+accordance with the specific direction of the President--the Trade 
+Representative has determined not to remove products other than the 
+non-pharmaceutical applications of certain products from the proposed 
+exemption list, as the remaining products in the proposed exemption 
+list constitute: (1) raw materials that if subject to the proposed 
+additional tariffs could lead to the unavailability of domestic supply; 
+(2) products that could cause economy-wide disruptions if subject to 
+the proposed additional tariffs; (3) products that cannot be grown or 
+produced in sufficient quantities or at reasonable prices in the United 
+States or obtained from other sources; or (4) products for which 
+tariffs may not contribute substantially to the elimination of the 
+acts, policies, and practices found to be actionable.
+2. Determination To Remove Certain Products From the Proposed Exemption 
+List
+    Considering the public comments and the advice of the Section 301 
+Committee, as well as the advice of advisory committees--and in 
+accordance with the specific direction of the President--the Trade 
+Representative has determined to limit the exemption for certain 
+chemicals and chemical products to their pharmaceutical applications. 
+Certain comments noted the health-related applications of products 
+proposed for exemptions and stated that certain ingredients that 
+support U.S. manufacturing of healthcare products are not available in 
+the United States in sufficient quantities to meet domestic demand. 
+Some commenters also requested that these product exemptions be limited 
+to their pharmaceutical applications due to competition with domestic 
+production. Limiting exemptions for these proposed chemical products to 
+their pharmaceutical applications is consistent with the proposal in 
+the June 5, 2026 FRN because an exemption for all applications is 
+broader than necessary to cover goods that have limited availability 
+outside of the investigated economies.
+3. Comments Requesting the Removal of Additional Products From 
+Exemption List
+    Some commenters requested that USTR remove other products from the 
+proposed exemption list or otherwise advocated for narrowly tailored 
+exemptions. Industries or products for which commenters expressed
+
+[[Page 47331]]
+
+opposition to proposed exemptions include beef, avocados, paprika and 
+paprika products, lithium hexafluorophosphate, and forgings and 
+articles containing forgings.
+    Commenters suggested, for example, that beef imported from certain 
+economies is linked to certain acts, policies, and practices found 
+actionable in these investigations, and that exempting these products 
+would benefit foreign exporters of beef produced with forced labor at 
+the expense of the American cattle producer. Similarly, commenters 
+suggested that paprika and paprika derived products, lithium 
+hexafluorophosphate, and certain chemicals used in the production of 
+pesticides are imported from certain economies linked to certain acts, 
+policies, and practices found actionable in these investigations.
+    Additionally, commenters suggested that imports of these products 
+are available from domestic sources and are putting pressure on 
+domestic producers. With respect to paprika and paprika derived 
+products, commenters suggested that imports have caused market 
+disruptions, preventing U.S. production of these products. 
+Additionally, comments reported that imports of lithium 
+hexafluorophosphate and certain chemicals used in the production of 
+pesticides have inhibited U.S. production of these products. Commenters 
+pointed to recent and anticipated expansion in U.S. production 
+capabilities, and suggested that imposing tariffs on these products 
+could support investment and employment in domestic production. With 
+respect to forgings and articles containing forgings, commenters 
+suggested that these products are readily available from domestic 
+sources, at reasonable prices, in sufficient quantities and that 
+subjecting imports of these products to tariffs could support 
+investment and employment in the United States. Similarly, comments 
+suggested that the domestic avocado industry is under significant 
+pressure due to low-priced avocado imports and applying tariffs would 
+benefit certain U.S. agricultural producers.
+    Considering the public comments and the advice of the Section 301 
+Committee, as well as the advice of advisory committees--and in 
+accordance with the specific direction of the President--the Trade 
+Representative has determined not to remove these products from the 
+list of exempted products. There remains limited availability of these 
+products from domestic sources, a point conceded by one commenter 
+regarding paprika. Regarding claims that these products should be 
+subject to the tariffs because they are related to acts, policies, and 
+practices found actionable in these investigations, Section 
+301(c)(3)(B) provides that the Trade Representative is authorized to 
+take action against any goods or economic sector ``without regard to 
+whether or not such goods or economic sector were involved in the act, 
+policy, or practice that is the subject of such action.''
+
+D. Determination To Exempt Additional Products
+
+    In addition to the products initially proposed for exemption in the 
+June 5, 2026 FRN, the Trade Representative, in accordance with the 
+specific direction of the President, has determined in each 
+investigation to exclude an additional 471 products from tariffs 
+imposed with respect to products of that economy. In certain 
+investigations, the Trade Representative also has determined to apply 
+additional exemptions for products from that specific investigated 
+economy based on requested exemptions negotiated in the context of 
+certain agreements and arrangements.
+    A number of comments expressed support for product exemptions in 
+addition to the initial list of proposed exemptions in the June 5, 2026 
+FRN. Comments requested exemptions of products including certain 
+agriculture products; metals and alloys; chemicals; semiconductor 
+manufacturing equipment; and art, antique, and collectible products. 
+Certain economies that have concluded ARTs or similar arrangements with 
+the United States have also requested exemption of products negotiated 
+as part of those agreements and arrangements.
+    Having considered the public comments, advice of the Section 301 
+Committee, as well as the advice of advisory committees, and the 
+specific direction of the President, the Trade Representative 
+determined to exempt the following additional products from the scope 
+of actions: certain animal products; certain seeds; certain vegetable 
+products; certain sugar and sugar containing products; unflavored 
+instant coffee; certain fertilizer inputs and pesticide inputs; certain 
+animal hides and leather; certain wood products; vanadium oxides and 
+hydroxides; pig iron; certain ferrous inputs and waste; certain 
+aluminum scrap waste; aluminum hydroxide; ash containing precious 
+metals or precious metal compounds; certain battery waste and scrap; 
+certain semiconductor manufacturing equipment; certain pharmaceuticals 
+and pharmaceutical ingredients; worked shell; worn clothing; and 
+certain antiques, collectibles, and art.
+    With respect to certain animal products used as food for animals or 
+an input in such food, commenters noted that these products are 
+incorporated into U.S. animal nutrition programs that support 
+livestock, poultry, aquaculture, and pet food production. According to 
+commenters, there is little opportunity for import substitution for 
+these products and any tariff applied to these products would impose 
+additional costs on U.S. consumers.
+    With respect to seeds of a kind used for planting, commenters noted 
+that tariffs on seeds have resulted in increased costs for U.S. seed 
+producers and U.S. farmers. According to comments, tariffs that impact 
+seed movement erode the ability of U.S. seed companies to provide U.S. 
+farmers with pure, high-quality seeds at an affordable price due to the 
+global nature of seed production. Specifically, many U.S. seed 
+companies have foreign operations to take advantage of environmental 
+and production conditions, such as additional growing seasons. 
+Commenters also noted that the increased costs associated with seed 
+production could reduce choices in the marketplace for consumers as 
+certain varieties of seed will no longer be viable for 
+commercialization in the United States.
+    With respect to certain vegetable products, commenters noted that 
+certain products falling under the relevant HTSUS subheading are 
+already included in Annex A to the June 5, 2026 FRN, but that the 
+proposed product exemptions are limited to products used for religious 
+purposes only. According to comments, products in the relevant HTSUS 
+subheading are essential growing-media and fiber inputs used in nursery 
+production that have no domestic source, including coconut coir, jute 
+burlap, and sisal twine. According to comments, the crops used to 
+produce these products are not commercially grown in the United States 
+given climate limitations and, therefore, there is no domestic industry 
+capable of producing these inputs for the U.S. horticulture sector.
+    With respect to in-quota imports of certain sugar and sugar-
+containing products, commenters noted that U.S. sugar producers are 
+more efficient than ever and domestic sugar yields have increased, yet 
+the United States has never produced enough sugar to meet its domestic 
+demand. To meet this demand, the United States has historically had to 
+import significant amounts of sugar. According to comments, U.S. sugar 
+processing
+
+[[Page 47332]]
+
+facilities rely on certain in-quota sugar to meet U.S. demand and 
+supply a critical input of the U.S. food supply chain.
+    With respect to unflavored instant coffee, commenters noted that 
+unflavored instant coffee is not available from domestic sources in 
+sufficient quantities for U.S. consumers and coffee companies, 
+including value-added manufacturers. These comments also maintained 
+that over 99 percent of instant coffee imports come from economies 
+covered by these investigations and there are not adequate non-tariffed 
+alternatives. Commenters also noted that U.S. coffee companies will 
+continue to be at a disadvantage producing and innovating ready-to-
+drink and cold brew coffee compared to their foreign competitors if 
+tariffs on unflavored instant coffee are imposed.
+    With respect to certain fertilizer inputs and pesticide inputs, 
+commenters noted that imposing additional duties on these chemicals 
+could cause disruptions or shortages in the domestic supply due to the 
+limited availability of certain active ingredients outside of the 
+investigated economies and because these products cannot be produced in 
+the United States in sufficient quantities to meet domestic demand. 
+Commenters also noted that the exemptions would be essential to avoid 
+tariff inversion, causing U.S. manufacturers who produce value-added 
+products to be disadvantaged in comparison to importers of finished 
+agriculture chemical products.
+    With respect to certain animal hides and leather products, 
+commenters noted that certain types of exotic leather--including 
+reptile and ostrich--cannot be obtained in the United States because 
+there is no domestic supply. According to commenters, tariffs would 
+cause the migration of exotic leather manufacturing and American jobs 
+to other countries, such as Mexico.
+    With respect to certain wood and wood products, commenters noted 
+that certain types of wood and wood product imports--including 
+eucalyptus and certain eucalyptus products--are not available from 
+domestic producers in sufficient quantities to meet U.S. demand. 
+According to commenters, these products are raw material inputs that 
+are used to make timber and crane mats necessary in U.S. construction, 
+powerline installation, and heavy civil infrastructure.
+    With respect to vanadium oxides and hydroxides, commenters noted 
+that these products are necessary critical mineral inputs for which 
+there is no or insufficient primary production in the United States and 
+additional tariffs on these materials would cause serious supply 
+dislocations for critical energy-storage infrastructure including AI 
+data centers, electric-grid resiliency, and defense applications. 
+According to comments, vanadium and vanadium electrolytes are necessary 
+inputs across multiple sectors, including steel (including high-
+strength, low-alloy steels for construction, pipelines, and automotive 
+applications); titanium alloys used in aerospace and defense; and 
+critical energy-storage.
+    With respect to pig iron, commenters noted that, historically, more 
+than 95 percent of domestic pig iron production has been consumed 
+internally by U.S. integrated steel producers, meaning that iron 
+foundries (like electric arc furnace steel producers) are reliant on 
+imported pig iron. Commenters also noted that other third-country 
+sources of pig iron were limited given that China consumes virtually 
+all of the pig iron it produces, and supply from Russia and Ukraine has 
+been affected by the Russia-Ukraine war. Commenters also stated that 
+pig iron is an essential raw material for iron foundry operations, and 
+that it is melted and mixed with scrap iron and other alloys to produce 
+cast iron. The comments observed that there is no substitute for pig 
+iron, and that additional tariffs on pig iron imports would exacerbate 
+competition they already face from imports of downstream products.
+    With respect to certain ferrous products, including pellets, 
+turnings, shavings, chips, fillings, trimmings, and stampings, 
+commenters noted that these products are similar to other products that 
+were proposed to be exempted from tariffs applied pursuant to this 
+action. The comments noted that, like other products already proposed 
+for exemption, iron and steel waste and scrap are important inputs for 
+carbon and alloy steel production, and there is no viable domestic 
+supply for these products.
+    With respect to aluminum scrap and waste, commenters noted it is 
+key feedstock material for the U.S. aluminum industry and imposing 
+tariffs would disrupt the supply chains, negatively impacting U.S. 
+aluminum production and, in turn, harming downstream industries and the 
+U.S. economy.
+    With respect to aluminum hydroxide, commenters noted that the sole 
+U.S. supplier of aluminum hydroxide is unable to meet U.S. demand and 
+that approximately 40 percent of U.S. supply is sourced from Brazil, 
+with remaining supply supported by producers in Germany and 
+T[uuml]rkiye, among others. According to comments, aluminum hydroxide 
+is an essential, non-substitutable raw material used in critical 
+applications such as sanitation of drinking water, production of flame-
+retardant polymer materials used in defense and industrial 
+applications, production of oil and gas, and refining of aluminum. 
+Companies that use aluminum hydroxide in these and other applications 
+require a stable and cost-effective supply of aluminum hydroxide.
+    With respect to ash containing precious metals or precious metal 
+compounds, commenters noted that tariffs on these items would increase 
+costs and disrupt supply chains for products needed to protect U.S. 
+national security, U.S. critical mineral security, and medical device 
+supply chains.
+    With respect to certain battery waste and scrap, commenters noted 
+that these products, which are crucial inputs for, among other things, 
+communications and safety technologies, are not available from U.S. 
+manufacturers in sufficient quantities or at commercially reasonable 
+prices. Commenters also noted additional tariffs on these products 
+would result in significant supply chain dislocations by increasing 
+costs, reducing sourcing flexibility, delaying production schedules, 
+and limiting product availability.
+    With respect to certain semiconductor manufacturing equipment, 
+commenters noted that these highly specialized tools are not readily 
+substitutable, and that applying Section 301 tariffs to these products 
+would increase investment costs for U.S. manufacturing without 
+materially encouraging the investigated economies to eliminate the 
+acts, policies, and practices determined to be actionable in the 
+investigations. The comments noted that these items are like other 
+products already proposed for exemption.
+    With respect to pharmaceuticals and pharmaceutical ingredients, 
+commenters suggested that these products are ingredients that support 
+U.S. manufacturing and cannot be obtained in the United States. 
+Comments further observed that these products were used for health 
+purposes similar to uses for products already proposed for exemption 
+from tariffs.
+    With respect to worked shell, commenters noted that there is no 
+U.S. source that can sufficiently meet domestic demand.
+    With respect to used worn clothing, and other worn articles, 
+commenters noted that the secondhand apparel market, which is now a 
+mainstream market, has distinct commercial characteristics in 
+comparison to the
+
+[[Page 47333]]
+
+broader retail apparel market, and that the used clothing market is 
+structurally different from new, commercially manufactured clothing. 
+Commenters also noted that additional Section 301 tariffs on used 
+clothing would undermine the goal of eliminating the investigated acts, 
+policies, and practices of the investigated economies; be 
+disproportionate to the value of the goods themselves (i.e., the 
+additional tariffs would be on the resale of the good, not its 
+production); cause serious dislocations in consumer access to 
+affordable clothing; and pose fundamental enforcement challenges in 
+relation to determining the country of origin.
+    With respect to certain goods under HTSUS Chapter 97, including, 
+among other things, art, antiques, and collections and collectors' 
+pieces of numismatic interest; goods of zoological, botanical, 
+mineralogical, anatomical interest; extinct or endangered species and 
+parts thereof; and goods of archeological, ethnographic or historical 
+interest, commenters emphasized the unique quality, design, history, 
+sourcing or origin, and supply chains of certain works of art and 
+collectibles, as well as the irreplaceable nature of certain works of 
+art and collectibles. The comments asserted that applying the 
+additional Section 301 tariffs would not be effective in obtaining the 
+elimination of the acts, policies, and practices of the 60 economies 
+determined to be actionable in these investigations and would result in 
+increased costs, administrative burdens, and disproportionate harm to 
+museums, educational institutions, researchers, galleries, auction 
+houses, and micro-, small- or medium-sized enterprises operating within 
+the cultural sector.
+    The Trade Representative has determined to add certain animal 
+products; certain seeds; certain vegetable products; certain sugar and 
+sugar containing products; unflavored instant coffee; certain 
+fertilizer inputs and pesticide inputs; certain animal hides and 
+leather; certain wood products; vanadium oxides and hydroxides; pig 
+iron; certain ferrous inputs and waste; certain aluminum scrap and 
+waste; aluminum hydroxide; ash containing precious metals or precious 
+metal compounds; certain battery waste and scrap; certain semiconductor 
+manufacturing equipment; certain pharmaceuticals and pharmaceutical 
+ingredients; worked shell; worn clothing; and certain antiques, 
+collectibles, and art to the list of products exempted from these 
+actions. These products constitute (a) raw materials that if subject to 
+these tariffs could lead to the unavailability of domestic supply; (b) 
+products that could cause economy-wide disruptions if subject to these 
+tariffs; (c) products that cannot be grown or produced in sufficient 
+quantities or at reasonable prices in the United States or obtained 
+from other sources; or (d) articles for which these tariffs may not 
+contribute substantially to the elimination of the acts, policies, and 
+practices of the 60 investigated economies found to be actionable in 
+the investigations.
+    The Trade Representative has also determined, consistent with the 
+specific direction of the President, to exempt certain products of 
+Argentina, Bangladesh, Cambodia, Ecuador, El Salvador, the European 
+Union, Guatemala, Indonesia, Jordan, Malaysia, Switzerland, Taiwan, and 
+the United Kingdom from the tariffs imposed on products of that economy 
+in each respective investigation. Exempting these products would be 
+appropriate to encourage each economy to fulfill its commitments 
+regarding forced labor import prohibitions in its ART or, in the case 
+of the European Union, Switzerland, and the United Kingdom, would be 
+appropriate to encourage the economy to impose and effectively enforce 
+a forced labor import prohibition.
+
+E. Determination Not To Exempt Additional Products and Response to 
+Comments
+
+    USTR received numerous comments that requested that additional 
+products be added to the exemption list and exempted from tariffs. 
+These comments covered products in a wide range of industries. Most 
+comments that requested that particular products be added to the 
+exemption list based their request on six arguments. These included: 
+(1) requested products have limited or no availability from U.S. 
+source; (2) additional tariffs would increase costs for producers and 
+consumers; (3) tariffs are a competitive disadvantage for U.S. 
+businesses; (4) products requested for exemption are unrelated to the 
+acts, policies, and practices investigated; (5) tariffs would not shift 
+production to the United States; and (6) the tariffs would cause 
+economy-wide disruptions. These six arguments are discussed below, 
+followed by a response to those arguments.
+    Products have limited or no availability from U.S. sources. A large 
+number of comments requested the exemption of products due to limited 
+or no availability from domestic sources. These products included 
+medical devices, decorations, frozen seafood, beads, hats, refined 
+lead, olive oil, packaging products, travel products, and sporting 
+goods.
+    Several comments noted that domestic producers supplied only a 
+small portion of U.S. demand or were unable to meet all of domestic 
+demand. Comments also noted that their products were not available from 
+domestic sources at reasonable prices or domestic production was not 
+commercially viable, as no domestic producer has the production 
+capacity, specialized equipment, technical expertise, or quality 
+systems necessary to supply the domestic market. Due to the lack of 
+domestic sources, some comments noted that companies would be forced to 
+curtail their business. Additionally, some comments noted that because 
+so many economies would be covered by the tariffs, it would not be 
+possible to shift production to economies not subject to the tariffs 
+and doing so would require significant time and investment.
+    Increased costs. Numerous comments reported that the tariffs would 
+result in increased costs to U.S. companies and consumers. These 
+comments came from a range of industries, including: sugar, travel 
+bags, agricultural packaging products, food products, parts and 
+accessories for inkjet printing, and auto parts.
+    Comments noted that due to limited domestic availability, costs 
+would increase for U.S. supply chains, including for U.S. food and U.S. 
+manufacturing. Comments noted increasing production costs would result 
+in a reduction in U.S. investment and the funds necessary to create 
+conditions of fair trade, including responsible labor practices. 
+Commenters also suggested that the increased costs would impact 
+retailers, small businesses, and consumers. A comment regarding parts 
+and accessories for inkjet printing systems reported that the tariffs 
+would increase operating and maintenance costs for U.S. companies, 
+extend repair times, disrupt production, and reduce the competitiveness 
+of U.S. manufacturers. Similarly, a comment on auto parts noted that as 
+a result of the tariffs, U.S. distributors, repair shops, and consumers 
+would face higher prices, reduced product availability, and diminished 
+competitiveness in the aftermarket supply chain.
+    Competitive disadvantage for U.S. businesses. Comments from a 
+variety of industries noted that tariffs put products produced in the 
+United States at a competitive disadvantage domestically and in 
+international markets. With respect to agricultural and horticultural
+
+[[Page 47334]]
+
+products, for example, commenters noted that they rely upon imports to 
+operate efficiently and remain competitive. Similarly, a comment 
+regarding imports of goose down used in domestic production noted that 
+tariffs on the raw materials will increase costs on domestic 
+manufacturing, making their products less accessible to U.S. consumers. 
+A global producer of electric bicycles that assembles bicycles in the 
+United States using certain imported parts reported that the tariffs 
+will make the company's U.S. subsidiary its most expensive production 
+facility. A commenter seeking an exemption for powersports vehicles 
+reported that it relies on certain imported inputs and that a portion 
+of its domestic manufacturing is supported by exports. Similarly, a 
+comment regarding loudspeakers noted that domestic producers that rely 
+on imported components are disadvantaged when selling in international 
+markets when those components are subject to increased tariffs.
+    Products unrelated to the acts, policies, and practices 
+investigated. Many comments argued that the tariffs should be narrowly 
+tailored to specific products linked to forced labor. These comments 
+noted that the products for which they requested exemption from tariffs 
+were not related to the acts, policies, and practices found actionable 
+in these investigations. Those products include: historical coins; 
+radiators and other parts and accessories for motor vehicles; manuka 
+honey; artificial floral, greenery, and seasonal decorative products; 
+various electrical and lighting products; canned olives; and purified 
+isophthalic acid. The comments emphasized that certain imports and 
+sectors have no connection to forced labor. For example, regarding 
+historical coins, a comment noted that the importation of those goods 
+has no connection to forced labor because they were typically produced 
+by skilled laborers or long ago.
+    Tariffs would not shift production to the United States. Some 
+comments, such as those related to hydraulic log splitters, women's 
+outerwear and insulated garments, stainless steel insulated drinkware, 
+outer shell covers for pets, cyanate ester resins, crayons, salmon, and 
+finished bovine upholstery leather argued that tariffs should not be 
+applied to their products, as the tariffs would not shift production to 
+the United States. Many of these comments argued that for a variety of 
+reasons, production in the United States is not feasible.
+    Tariffs would cause economy-wide disruptions. Some comments, such 
+as those related to toys and DL-methionine, suggested that tariffs 
+would cause economy-wide disruptions. With respect to DL-methionine, 
+commenters noted that tariffs risk serious disruption to the U.S. 
+economy, including U.S. poultry, dairy, beef, and swine producers that 
+depend on imports of that essential nutrient for livestock, and that 
+the additional tariff is likely to disrupt the feed supply chain for 
+U.S. livestock producers.
+    The President has directed the Trade Representative to impose 
+tariffs on all goods of the 60 investigated economies, with certain 
+exemptions. Exemptions directed by the President are limited to: (1) 
+raw materials that if subject to the proposed additional tariffs could 
+lead to the unavailability of domestic supply; (2) products that could 
+cause economy-wide disruptions if subject to the proposed additional 
+tariffs; (3) products that cannot be grown or produced in sufficient 
+quantities or at reasonable prices in the United States or obtained 
+from other sources; (4) products for which tariffs may not contribute 
+substantially to the elimination of the acts, policies, and practices 
+found to be actionable; or (5) products that if exempted from these 
+tariffs would encourage economies that have made commitments to the 
+United States regarding forced labor import prohibitions to implement 
+those commitments or to enact and effectively enforce a forced labor 
+import prohibition.
+    Considering the public comments and the advice of the Section 301 
+Committee, as well as the advice of advisory committees--and in 
+accordance with the specific direction of the President--the Trade 
+Representative has determined that the goods above and other goods do 
+not warrant exemption. With respect to the large number of the comments 
+requesting exemption based on availability, most were not raw 
+materials. Rather, most requests were for inputs or consumer goods. 
+While some inputs and consumer goods may have limited or no 
+availability from U.S. sources, those products should remain generally 
+available and will not cause economy-wide disruptions if subjected to 
+additional tariffs. Regarding tariffs resulting in increased costs, it 
+is possible that costs will increase, but a number of factors may 
+affect costs, and increased costs for a particular company or in a 
+particular sector are unlikely to cause economy-wide disruptions. With 
+respect to the argument that tariffs may result in a competitive 
+disadvantage to certain domestic producers, a competitive disadvantage 
+does not indicate unavailability of domestic supply or that products 
+cannot be produced in sufficient quantities or at reasonable prices in 
+the United States. Moreover, many inputs, including auto parts already 
+subject to Section 232 tariffs, are exempt from additional tariffs 
+pursuant to this action.
+    With respect to the comments that argued that the tariffs should be 
+narrowly tailored to specific products linked to forced labor, imposing 
+tariffs on imports can create greater leverage to obtain the 
+elimination of the investigated acts, policies, and practices, and as 
+described above, Section 301(c)(3)(B) of the Trade Act authorizes the 
+Trade Representative to take action against any goods or economic 
+sector of the foreign country concerned regardless of whether or not 
+such goods or economic sector are involved in the act, policy, or 
+practice subject to investigation. Regarding comments that argued that 
+the tariffs would not shift production to the United States, the goal 
+of the tariff action is not to create domestic production, but to 
+obtain the elimination of the acts, policies, or practices found to be 
+actionable. Finally, with respect to the comments that argued that the 
+tariffs would cause economy-wide disruptions, the comments fail to 
+demonstrate how tariffs on these products would cause economy-wide 
+disruptions, particularly with maximum tariffs of 12.5 percent.
+    While the Trade Representative has considered the arguments raised 
+in the comments, the Trade Representative disagrees with the comments 
+for the reasons discussed above. Furthermore, because the comments 
+suggested alternative actions that are inconsistent with the specific 
+direction of the President, the Trade Representative cannot accommodate 
+them.
+
+F. Response to Comments Regarding the Features of a Textile Mechanism
+
+    Consistent with the specific direction of the President, the Trade 
+Representative will establish a textile mechanism in a separate notice. 
+As outlined in Section II.A above, the President directed the Trade 
+Representative to, when feasible, establish TRQs for Bangladesh, 
+Cambodia, Indonesia, and Malaysia, with an initial duration of three 
+years, to encourage the importation of each of these economies of U.S. 
+cotton and textile goods. The President also directed that the TRQs be 
+structured to allow a certain volume of specific textile and apparel, 
+based on each economy's importation of U.S. cotton and textile inputs, 
+to enter the United States free of
+
+[[Page 47335]]
+
+the Section 301 tariffs in these investigations. In accordance with the 
+President's direction, the Trade Representative will publish a notice 
+in the Federal Register regarding the establishment and the effective 
+date of such TRQs. The Trade Representative continues to consider the 
+comments regarding the features of a textile mechanism that were 
+submitted in the response to the June 5, 2026 FRN and will establish 
+the mechanism and provide responses to significant comments regarding 
+the mechanism in a subsequent notice.
+
+G. Response to Comments Suggesting Action Other Than Tariffs
+
+    Certain comments recommended the Trade Representative establish an 
+exclusion process, or engage in a periodic review of the actions taken 
+in these investigations. As discussed above, the President directed the 
+imposition of tariffs in each investigation on all products of that 
+economy, with exemptions for certain goods, finding that alternatives 
+such as a lower tariff rate would be less effective and less 
+preferable. Establishing an exclusion process that would result in 
+lowering of tariffs on additional products would be inconsistent with 
+the President's direction. Regarding the request for periodic reviews, 
+the Section 301 statute itself provides for the modification of 
+actions, including a provision on review of necessity, in Section 307 
+of the Trade Act (19 U.S.C. 2417).
+
+IV. Severability of Tariff Actions
+
+    For convenience and concision, this Notice has set out the actions 
+of the Trade Representative in each of the 60 investigations of the 
+acts, policies, and practices of each investigated economy related to 
+its failure to enact and effectively enforce a forced labor import 
+prohibition.
+    The actions taken by the Trade Representative in this Notice with 
+respect to the acts, policies, and practices of an economy in one 
+investigation are separate from the actions taken with respect to the 
+acts, policies, and practices of each other economy in other 
+investigations by the Trade Representative. Each tariff action as to an 
+economy in one investigation is separate from every other tariff action 
+in other investigations and is for the distinct purpose of obtaining 
+the elimination of the applicable economy's acts, policies, and 
+practices found actionable under Section 301 in that investigation.
+    Each tariff action on an economy taken by the Trade Representative 
+in this Notice in one investigation is only for the purpose of 
+obtaining the elimination of the applicable economy's acts, policies, 
+and practices found actionable under Section 301 in that investigation 
+and not for any other purpose.
+    Each tariff action as to an economy taken by the Trade 
+Representative in this Notice is intended to operate independently of 
+each other, and the potential invalidity of one tariff action taken in 
+this Notice should not affect any other tariff. The potential 
+invalidity of one aspect of any tariff action taken in this Notice 
+should not affect any other aspect of the tariff action.
+    Should a court hold that the implementation of any tariff action 
+taken by the Trade Representative in this Notice with respect to any 
+Section 301 investigation to be invalid, only that tariff in that 
+investigation should be treated as invalid, and any other tariff action 
+taken in this Notice with respect to that investigation, or any other 
+investigation, and the remainder of the actions in this Notice should 
+continue to apply and should not be affected. Should a court hold that 
+any aspect of any tariff action taken by the Trade Representative in 
+this Notice with respect to any Section 301 investigation to be 
+invalid, only that aspect of that tariff action should be treated as 
+invalid.
+    In the Trade Representative's judgment, each tariff action taken in 
+this Notice is feasible and appropriate to obtain the elimination of 
+the applicable economy's acts, policies, and practices the Trade 
+Representative has found actionable under Section 301 in that 
+investigation. If any aspect of the tariff action for an economy is 
+held to be invalid, the remaining aspects of the tariff action and each 
+tariff for a product of an investigated economy would remain 
+appropriate and feasible to obtain the elimination of the applicable 
+economy's acts, policies, or practices found actionable under Section 
+301 in that investigation.
+    This section reflects the Trade Representative's intent that each 
+tariff action and each exemption for a product of an investigated 
+economy as set forth in section II.B of this Notice remain operative to 
+the maximum extent consistent with law. If any exemption to any tariff 
+action taken in this Notice with respect to an investigation is held to 
+be invalid in whole or in part, only that exemption or that part of the 
+exemption should be treated as invalid, and no other exemption, part of 
+an exemption, or application of an exemption should be treated as 
+invalid. The applicable tariff action taken in this Notice would apply 
+to imports of a product from the applicable economy to which the 
+invalidated exemption or the invalidated part of the exemption applied 
+before its invalidation.
+    For greater certainty, the Trade Representative has determined that 
+every tariff action and exemption in each investigation as set forth in 
+this Notice is lawful. This section reflects the Trade Representative's 
+view that each tariff action taken by the Trade Representative in this 
+Notice should remain operative to obtain the elimination of the 
+applicable economy's acts, policies, and practices found actionable 
+under Section 301.
+    The determinations in this section are consistent with the 
+President's specific direction in the Memorandum that ``[e]ach tariff 
+action directed in this memorandum is separate from every other and 
+imposed for the distinct purpose of obtaining the elimination of the 
+specific economy's act, policy, or practice found actionable under 
+section 301''; that ``[e]ach tariff action directed in this memorandum, 
+when implemented, is intended to operate independent of each other, and 
+the potential invalidity of one tariff directed in this memorandum that 
+is implemented should not affect any other tariff directed in this 
+memorandum that is implemented''; that ``each tariff directed in this 
+memorandum that is implemented--with any combinations of exemptions or 
+even without any exemptions--should remain operative to obtain the 
+elimination of the specific economy's act, policy, or practice found 
+actionable under section 301''; and that ``[i]f any exemption to any 
+tariff, when implemented, is held to be invalid in whole or in part, 
+only that exemption or that part of the exemption should be treated 
+invalid'' and ``[t]he applicable tariff action directed in this 
+memorandum should apply to imports to which the invalidated exemption 
+or the invalidated part of the exemption applied before its 
+invalidation.'' Further, this Notice, including this section, is 
+consistent with the President's directive that ``[e]ach tariff action 
+directed in this memorandum is only for the purpose of obtaining the 
+elimination of the specific economy's act, policy, or practice found 
+actionable under section 301 and not for any other purpose.''
+
+Jennifer Thornton,
+General Counsel, Office of the United States Trade Representative.
+
+Annex I
+
+    A. Effective with respect to goods entered for consumption, or 
+withdrawn
+
+[[Page 47336]]
+
+from warehouse for consumption, on or after 12:01 a.m. eastern time on 
+July 24, 2026, subchapter III of chapter 99 of the Harmonized Tariff 
+Schedule of the United States (HTSUS) is modified as follows:
+    1. The following new provisions are inserted in numerical sequence, 
+with the material in each new heading inserted in the columns of the 
+HTSUS labeled ``Heading/Subheading'', ``Article Description'', ``Rates 
+of Duty 1--General'', ``Rates of Duty 1--Special'' and ``Rates of Duty 
+2'', respectively:
+BILLING CODE 3390-F4-P
+
+[[Page 47337]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.000
+
+
+[[Page 47338]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.001
+
+
+[[Page 47339]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.002
+
+
+[[Page 47340]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.003
+
+
+[[Page 47341]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.004
+
+
+[[Page 47342]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.005
+
+
+[[Page 47343]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.006
+
+
+[[Page 47344]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.007
+
+
+[[Page 47345]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.008
+
+
+[[Page 47346]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.009
+
+
+[[Page 47347]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.010
+
+
+[[Page 47348]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.011
+
+
+[[Page 47349]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.012
+
+
+[[Page 47350]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.013
+
+
+[[Page 47351]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.014
+
+
+[[Page 47352]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.015
+
+BILLING CODE 3390-F4-C
+    2. The following new U.S. note 52 is inserted in numerical order:
+    ``52. (a) Except as provided in headings 9903.05.85-9903.06.21 and 
+in subdivisions (b) through (k) of this note, and other than products 
+for personal use included in accompanied baggage of persons arriving in 
+the United States, headings 9903.05.20-9903.05.84 impose additional ad 
+valorem rates of duty on imports of all products of the countries 
+provided for in these headings. Notwithstanding U.S. note 1 to this 
+subchapter, all products that are subject to the additional ad valorem 
+rates of duty imposed by these headings shall also be subject to the 
+general rates of duty imposed under subheadings in chapters 1 to 97 of 
+the tariff schedule. Except as provided in subdivisions (b) through (k) 
+of this note, all products that are subject to the additional ad 
+valorem rates of duty imposed by headings 9903.05.20-9903.05.84 shall 
+also be subject to any additional duty provided for in this subchapter 
+or in subchapter IV of chapter 99. Products that are eligible for 
+special tariff treatment under general note 3(c)(i) to the tariff 
+schedule, or that are eligible for temporary duty exemptions or 
+reductions under subchapter II to chapter 99, shall be subject to the 
+additional ad valorem rates of duty imposed by headings 9903.05.20-
+9903.05.84, except as otherwise provided in this note.
+    The additional duties imposed by headings 9903.05.20-9903.05.84 
+shall not apply to goods for which entry is properly claimed under a 
+provision of chapter 98 of the tariff schedule pursuant to applicable 
+regulations of U.S. Customs and Border Protection (``CBP''), and 
+whenever CBP agrees that entry under such a provision is appropriate, 
+except for goods entered under subheadings 9802.00.40, 9802.00.50 or 
+9802.00.60 or heading 9802.00.80. For goods entered under subheadings 
+9802.00.40, 9802.00.50 and 9802.00.60, the additional duties apply to 
+the value of repairs, alterations or processing performed, as described 
+in the applicable subheading. For goods entered under heading 
+9802.00.80, the additional duties apply to the value of the article 
+assembled abroad, less the cost or value of such products of the United 
+States, as described.
+    Products that are provided for in this note shall continue to be 
+subject to antidumping, countervailing or other duties, taxes, fees, 
+exactions and charges.
+    (b) As provided in heading 9903.05.86, the duties imposed by 
+headings 9903.05.20-9903.05.84 shall not apply to articles that are 
+classifiable in the following provisions of the HTSUS:
+BILLING CODE 3390-F4-P
+
+[[Page 47353]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.016
+
+
+[[Page 47354]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.017
+
+
+[[Page 47355]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.018
+
+
+[[Page 47356]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.019
+
+BILLING CODE 3390-F4-C
+    (c) As provided in heading 9903.05.87, the duties imposed by 
+headings 9903.05.20-9903.05.84 shall not apply to the following 
+particular articles:
+    (1) Etrogs (classifiable in subheading 0805.90.01);
+    (2) Tropical fruit, nesoi, frozen, whether or not previously 
+steamed or boiled (classifiable in subheading 0811.90.80);
+    (3) Castor oil seeds, for sowing (classifiable in subheading 
+1207.30.00);
+    (4) Sesame seeds, whether or not broken, for sowing (classifiable 
+in subheading 1207.40.00);
+    (5) Mustard seeds, whether or not broken, for sowing (classifiable 
+in subheading 1207.50.00);
+    (6) Safflower (Carthamus tintorius) seeds, for sowing (classifiable 
+in subheading 1207.60.00);
+    (7) Other oil seeds and oleaginous fruits whether or not broken, 
+including niger seeds, hemp seeds and seeds nesoi, for sowing 
+(classifiable in subheading 1207.99.03);
+    (8) Bread, pastry, cakes, biscuits and similar baked products, 
+nesoi, and puddings, whether or not containing chocolate, fruit, nuts 
+or confectionery, for religious purposes only (classifiable in 
+subheading 1905.90.10);
+    (9) Bakers' wares, communion wafers, sealing wafers, rice paper and 
+similar products, nesoi, for religious purposes only (classifiable in 
+subheading 1905.90.90);
+    (10) Acai (classifiable in subheading 2008.99.21);
+    (11) Citrus juice of any single citrus fruit (other than orange, 
+grapefruit or lime), of a Brix value not exceeding 20, concentrated, 
+unfermented, except for lemon juice (classifiable in subheading 
+2009.31.60);
+    (12) Coconut water or juice of acai (classifiable in subheading 
+2009.89.70);
+    (13) Coconut water juice blends, not from concentrate, packaged for 
+retail sale (classifiable in subheading 2009.90.40);
+    (14) Acai preparations for the manufacture of beverages 
+(classifiable in subheading 2106.90.99);
+    (15) Essential oils other than those of citrus fruit, nesoi, for 
+religious purposes only (classifiable in subheading 3301.29.51); and
+    (16) Eucalyptus plywood sheets not exceeding 6 mm in thickness, 
+outer ply of specified nonconiferous wood including birch or walnut, 
+surface covered beyond clear or transparent material (classifiable in 
+subheading 4412.33.57).
+    (d) As provided in heading 9903.05.88, the additional duties 
+imposed by headings 9903.05.20-9903.05.84 shall not apply to articles 
+that are civil aircraft (all aircraft other than military aircraft); 
+their engines, parts and components; their other parts, components and 
+subassemblies; and ground flight simulators and their parts and 
+components, that otherwise meet the criteria of general note 6 of the 
+HTSUS and are classifiable in the following provisions of the HTSUS, 
+but regardless of whether a product is entered under a provision for 
+which the rate of duty ``Free (C)'' appears in the ``Special'' sub-
+column:
+BILLING CODE 3390-F4-P
+
+[[Page 47357]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.020
+
+
+[[Page 47358]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.021
+
+
+[[Page 47359]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.022
+
+    (e) As provided in heading 9903.05.89, the additional duties 
+imposed by headings 9903.05.20-9903.05.84 shall not apply to articles 
+that are for use in pharmaceutical applications and that are 
+classifiable in the following provisions of the HTSUS, but regardless 
+of whether a product is entered under a provision for which the rate of 
+duty ``Free (K)'' appears in the ``Special'' sub-column:
+
+[[Page 47360]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.023
+
+
+[[Page 47361]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.024
+
+
+[[Page 47362]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.025
+
+BILLING CODE 3390-F4-C
+    (f) As provided in heading 9903.05.90, the additional duties 
+imposed by headings 9903.05.20-9903.05.84 shall not apply to:
+    (1) articles of aluminum, of steel or of copper, nor to derivative 
+aluminum or steel articles provided for in headings 9903.82.02 and 
+9903.82.04-9903.82.26;
+    (2) passenger vehicles (sedans, sport utility vehicles, crossover 
+utility vehicles, minivans and cargo vans) and light trucks provided 
+for in headings 9903.94.01, 9903.94.02 (as applied to the U.S. content 
+of passenger vehicles and light trucks described in subdivision 33(d) 
+of this subchapter upon approval from the Secretary of Commerce), 
+9903.94.03, 9903.94.31, 9903.94.40, 9903.94.41, 9903.94.50, 9903.94.51, 
+9903.94.60 and 9903.94.61;
+    (3) parts of passenger vehicles (sedans, sport utility vehicles, 
+crossover utility vehicles, minivans and cargo vans) and parts of light 
+trucks provided for in headings 9903.94.05, 9903.94.06 (as applied to 
+parts of passenger vehicles that are eligible for special tariff 
+treatment under the United States-Mexico-Canada Agreement (USMCA) other 
+than automobile knock-down kits or parts compilations), 9903.94.07, 
+9903.94.32, 9903.94.33, 9903.94.42, 9903.94.43, 9903.94.44, 9903.94.45, 
+9903.94.52, 9903.94.53, 9903.94.54, 9903.94.55, 9903.94.62, 9903.94.63, 
+9903.94.64, 9903.94.65, 9903.94.66, 9903.94.67, 9903.94.68 and 
+9903.94.69, and parts of passenger vehicles (sedans, sport utility 
+vehicles, crossover utility vehicles, minivans and cargo vans) and 
+parts of light trucks subject to an import adjustment offset pursuant 
+to
+
+[[Page 47363]]
+
+Proclamation 10925 of April 29, 2025 (90 FR 18899), as amended;
+    (4) wood products provided for in headings 9903.76.01, 9903.76.02, 
+9903.76.03, 9903.76.20, 9903.76.21, 9903.76.22, 9903.76.23 and 
+9903.76.24;
+    (5) medium- and heavy-duty vehicles, buses and other vehicles 
+provided for in headings 9903.74.01, 9903.74.02, 9903.74.03 and 
+9903.74.06;
+    (6) medium- and heavy-duty vehicle parts provided for in headings 
+9903.74.08, 9903.74.09 and 9903.74.10, and parts of medium- and heavy-
+duty vehicles subject to an import adjustment offset pursuant to 
+Proclamation 10984 of October 17, 2025 (90 FR 48451); and
+    (7) semiconductor articles provided for in heading 9903.79.01.
+    (g) As provided in heading 9903.05.93, the additional duties 
+imposed by heading 9903.05.29 shall not apply to any products of Canada 
+entered free of duty under the United States-Mexico-Canada Agreement, 
+including any treatment set forth in subchapter XXIII of chapter 98 and 
+subchapter XXII of chapter 99 of the HTSUS, but regardless of whether a 
+product is entered under a provision for which the rate of duty ``S or 
+S+'' appears in the ``Special'' sub-column.
+    (h) As provided in heading 9903.05.94, the additional duties 
+imposed by heading 9903.05.55 shall not apply to any products of Mexico 
+entered free of duty under the United States-Mexico-Canada Agreement, 
+including any treatment set forth in subchapter XXIII of chapter 98 and 
+subchapter XXII of chapter 99 of the HTSUS, but regardless of whether a 
+product is entered under a provision for which the rate of duty ``S or 
+S+'' appears in the ``Special'' sub-column.
+    (i) As provided in heading 9903.05.95, the additional duties 
+imposed by headings 9903.05.33, 9903.05.34, 9903.05.37, 9903.05.40, 
+9903.05.42 and 9903.05.58 shall not apply to a textile or apparel good 
+as defined in subdivision (d)(v) of general note 29 of the HTSUS which 
+is the product of Costa Rica, the Dominican Republic, El Salvador, 
+Guatemala, Honduras or Nicaragua, entered free of duty under the 
+Dominican Republic-Central America-United States Free Trade Agreement, 
+including any treatment set forth in subchapter XXII of chapter 98 of 
+the HTSUS.
+    (j)
+    (1) As provided in heading 9903.05.96, the duty imposed by heading 
+9903.05.81 shall not apply to articles the product of the United 
+Kingdom that are classifiable in the following provisions of the HTSUS:
+BILLING CODE 3390-F4-P
+[GRAPHIC] [TIFF OMITTED] TN28JY26.026
+
+    (2) As provided in heading 9903.05.97, the duties imposed by 
+headings 9903.05.38-9903.05.39 shall not apply to articles the product 
+of a member state of the European Union that are classifiable in the 
+following provisions of the HTSUS:
+[GRAPHIC] [TIFF OMITTED] TN28JY26.027
+
+    (3) As provided in heading 9903.05.98, the duties imposed by 
+headings 9903.05.73-9903.05.74 shall not apply to articles the product 
+of Switzerland that are classifiable in the following provisions of the 
+HTSUS:
+
+[[Page 47364]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.028
+
+    (4) (i) As provided in heading 9903.05.99, the duty imposed by 
+heading 9903.05.54 shall not apply to articles the product of Malaysia 
+that are classifiable in the following provisions of the HTSUS:
+
+[[Page 47365]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.029
+
+    (ii) As provided in heading 9903.06.01, the duty imposed by heading 
+9903.05.54 shall not apply to the following particular articles the 
+product of Malaysia:
+    (A) Psyllium seed husks (classifiable in subheading 1211.90.89);
+    (B) Boswellia (classifiable in subheading 1301.90.91); and
+    (C) Argan oil (classifiable in subheading 1515.90.81)
+    (5) (i) As provided in heading 9903.06.02, the duty imposed by 
+heading 9903.05.28 shall not apply to articles the product of Cambodia 
+that are classifiable in the following provisions of the HTSUS:
+
+[[Page 47366]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.030
+
+    (ii) As provided in heading 9903.06.03, the duty imposed by heading 
+9903.05.28 shall not apply to the following particular articles the 
+product of Cambodia:
+    (A) Psyllium seed husks (classifiable in subheading 1211.90.89);
+    (B) Boswellia (classifiable in subheading 1301.90.91); and
+    (C) Aloe, Tasmanian pepper, coconut and centella (classifiable in 
+subheading 1302.19.91)
+    (6) (i) As provided in heading 9903.06.04, the duty imposed by 
+heading 9903.05.40 shall not apply to articles the product of Guatemala 
+that are classifiable in the following provisions of the HTSUS:
+
+[[Page 47367]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.031
+
+    (ii) As provided in heading 9903.06.05, the duty imposed by heading 
+9903.05.40 shall not apply to the following particular articles the 
+product of Guatemala:
+    (A) Psyllium seed husks (classifiable in subheading 1211.90.89);
+    (B) Boswellia (classifiable in subheading 1301.90.91); and
+    (C) Aloe, Tasmanian pepper, coconut and centella (classifiable in 
+subheading 1302.19.91)
+    (iii) As provided in heading 9903.06.06, the duty imposed by 
+heading 9903.05.40 shall not apply to articles the product of Guatemala 
+for which entry is claimed under the Dominican Republic-Central 
+America-United States Free Trade Agreement consistent with general note 
+29 of the HTSUS, and classifiable in the following provisions of the 
+HTSUS:
+
+[[Page 47368]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.032
+
+
+[[Page 47369]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.033
+
+
+[[Page 47370]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.034
+
+
+[[Page 47371]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.035
+
+
+[[Page 47372]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.036
+
+
+[[Page 47373]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.037
+
+
+[[Page 47374]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.038
+
+    (7) (i) As provided in heading 9903.06.07, the duty imposed by 
+heading 9903.05.37 shall not apply to articles the product of El 
+Salvador that are classifiable in the following provisions of the 
+HTSUS:
+
+[[Page 47375]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.039
+
+    (ii) As provided in heading 9903.06.08, the duty imposed by heading 
+9903.05.37 shall not apply to the following particular articles the 
+product of El Salvador:
+    (A) Aloe, Tasmanian pepper, coconut and centella (classifiable in 
+subheading 1302.19.91)
+    (iii) As provided in heading 9903.06.09, the duty imposed by 
+heading 9903.05.37 shall not apply to articles the product of El 
+Salvador for which entry is claimed under the Dominican Republic-
+Central America-United States Free Trade Agreement consistent with 
+general note 29 of the HTSUS and which are classifiable in the 
+following provisions of the HTSUS:
+
+[[Page 47376]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.040
+
+
+[[Page 47377]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.041
+
+
+[[Page 47378]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.042
+
+
+[[Page 47379]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.043
+
+
+[[Page 47380]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.044
+
+
+[[Page 47381]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.045
+
+
+[[Page 47382]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.046
+
+    (8) (i) As provided in heading 9903.06.10, the duty imposed by 
+heading 9903.05.22 shall not apply to articles the product of Argentina 
+that are classifiable in the following provisions of the HTSUS:
+
+[[Page 47383]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.047
+
+    (ii) As provided in heading 9903.06.11, the duty imposed by heading 
+9903.05.22 shall not apply to the following particular articles the 
+product of Argentina:
+    (A) Psyllium seed husks (classifiable in subheading 1211.90.89);
+    (B) Aloe, Tasmanian pepper, coconut and centella (classifiable in 
+subheading 1302.19.91); and
+    (C) Argan oil (classifiable in subheading 1515.90.81)
+    (9) (i) As provided in heading 9903.06.12, the duty imposed by 
+heading 9903.05.26 shall not apply to articles the product of 
+Bangladesh that are classifiable in the following provisions of the 
+HTSUS:
+[GRAPHIC] [TIFF OMITTED] TN28JY26.048
+
+    (ii) As provided in heading 9903.06.13, the duty imposed by heading 
+9903.05.26 shall not apply to the following particular articles the 
+product of Bangladesh:
+    (A) Psyllium seed husks (classifiable in subheading 1211.90.89); 
+and
+    (B) Argan oil (classifiable in subheading 1515.90.81)
+    (10) (i) As provided in heading 9903.06.14, the duties imposed by 
+headings 9903.05.75-9903.05.76 shall not apply to articles the product 
+of Taiwan that are classifiable in the following provisions of the 
+HTSUS:
+
+[[Page 47384]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.049
+
+    (ii) As provided in heading 9903.06.15, the duties imposed by 
+headings 9903.05.75-9903.05.76 shall not apply to the following 
+particular articles the product of Taiwan:
+    (A) Psyllium seed husks (classifiable in subheading 1211.90.89);
+    (B) Boswellia (classifiable in subheading 1301.90.91);
+    (C) Aloe, Tasmanian pepper, coconut and centella (classifiable in 
+subheading 1302.19.91); and
+    (D) Argan oil (classifiable in subheading 1515.90.81)
+    (11) (i) As provided in heading 9903.06.16, the duty imposed by 
+heading 9903.05.45 shall not apply to articles the product of Indonesia 
+that are classifiable in the following provisions of the HTSUS:
+
+[[Page 47385]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.050
+
+    (ii) As provided in heading 9903.06.17, the duty imposed by heading 
+9903.05.45 shall not apply to the following particular articles the 
+product of Indonesia:
+    (A) Aloe, Tasmanian pepper, coconut and centella (classifiable in 
+subheading 1302.19.91)
+    (12) (i) As provided in heading 9903.06.18, the duty imposed by 
+heading 9903.05.35 shall not apply to articles the product of Ecuador 
+that are classifiable in the following provisions of the HTSUS:
+
+[[Page 47386]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.051
+
+    (ii) As provided in heading 9903.06.19, the duty imposed by heading 
+9903.05.35 shall not apply to the following particular articles the 
+product of Ecuador:
+    (A) Aloe, Tasmanian pepper, coconut and centella (classifiable in 
+subheading 1302.19.91)
+    (13) (i) As provided in heading 9903.06.20, the duty imposed by 
+heading 9903.05.50 shall not apply to articles the product of Jordan 
+that are classifiable in the following provisions of the HTSUS:
+
+[[Page 47387]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.052
+
+
+[[Page 47388]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.053
+
+
+[[Page 47389]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.054
+
+
+[[Page 47390]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.055
+
+
+[[Page 47391]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.056
+
+
+[[Page 47392]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.057
+
+
+[[Page 47393]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.058
+
+
+[[Page 47394]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.059
+
+BILLING CODE 3390-F4-C
+    (ii) As provided in heading 9903.06.21, the duty imposed by heading 
+9903.05.50 shall not apply to the following particular articles the 
+product of Jordan:
+    (A) Psyllium seed husks (classifiable in subheading 1211.90.89); 
+and
+    (B) Aloe, Tasmanian pepper, coconut and centella (classifiable in 
+subheading 1302.19.91).
+    (k) As provided in headings 9903.05.38, 9903.05.39, 9903.05.48, 
+9903.05.49, 9903.05.70, 9903.05.71 and 9903.05.73-9903.05.76, for any 
+good of a member state of the European Union, Japan, South Korea, 
+Switzerland or Taiwan subject to a specific or compound rate of duty 
+under column 1-General, the ad valorem equivalent rate of duty of such 
+good shall be determined by dividing the amount of duty payable under 
+column 1-General by the customs value of the good. For example, if a 
+good were subject to a specific duty of 50 cents per kilogram, and one 
+kilogram of the good were entered with a customs value of $10, then the 
+ad valorem equivalent rate of duty would be obtained by dividing 50 
+cents by $10, yielding 5 percent. For any good of South Korea for which 
+a specific or compound rate of duty under column 1-Special is properly 
+claimed, the ad valorem equivalent rate of duty shall be determined in 
+the same manner.
+    For headings 9903.05.39 and 9903.05.76, articles for which the 
+applicable column 1 duty rate is less than 10 percent, the sum of the 
+column 1 duty rate and the additional ad valorem rate of duty is 10 
+percent ad valorem.
+    For headings 9903.05.49, 9903.05.71 and 9903.05.74, articles for 
+which the applicable column 1 duty rate is less than 12.5 percent, the 
+sum of the column 1 duty rate and the additional ad valorem rate of 
+duty is 12.5 percent ad valorem.''
+    B. Effective with respect to goods entered for consumption, or 
+withdrawn from warehouse for consumption, on or after 12:01 a.m. 
+eastern time on July 31, 2026, subchapter III of chapter 99 of the 
+HTSUS is modified as follows:
+    1. The article description of heading 9903.05.90 is modified by 
+inserting ``patented pharmaceutical articles;'' after ``wood 
+products;''; and
+    2. Subdivision (f) of U.S. note 52 is modified:
+    a. by deleting the word ``and'' at the end of item (6);
+    b. by deleting the period at the end of item (7) and by inserting 
+``; and'' in lieu thereof; and
+    c. by inserting the following new item (8) in numerical order: 
+``(8) patented pharmaceutical articles provided for in headings 
+9903.04.60-9903.04.66.''
+
+Annex II
+
+    Note: All products that are properly classified in the 
+provisions of the Harmonized Tariff Schedule of the United States 
+(HTSUS) that are listed in this Annex are not covered by the 
+actions, except as provided in the ``Scope Limitations'' column. The 
+product descriptions that are contained in this Annex are provided 
+for informational purposes only, and are not intended to delimit in 
+any way the scope of the actions. In the product descriptions, the 
+abbreviation ``nesoi'' means ``not elsewhere specified or 
+included''. Any questions regarding the scope of particular HTSUS 
+provisions should be referred to U.S. Customs and Border Protection.
+
+    Notes on certain HTSUS provisions for which only a portion of the 
+provision is covered in this Annex, as provided in the ``Scope 
+Limitations'' column:
+     A subheading marked with ``Ex'' is defined and limited by 
+the product description.
+     A subheading marked with ``Aircraft'' includes only 
+articles of civil aircraft (all aircraft other than military aircraft); 
+their engines, parts, and components; their other parts, components, 
+and subassemblies; and ground flight simulators and their parts and 
+components, that otherwise meet the criteria of general note 6 of the 
+HTSUS, regardless of whether a product is entered under a provision for 
+which the rate of duty ``Free (C)'' appears in the ``Special'' sub-
+column.
+     A subheading marked with ``Pharma'' includes only articles 
+that are for use in pharmaceutical applications, regardless of whether 
+a product is entered under a provision for which the
+
+[[Page 47395]]
+
+rate of duty ``Free (K)'' appears in the ``Special'' sub-column.
+
+Table of Contents
+
+Part A. Goods of Any Investigated Economy
+Part B. Goods of the United Kingdom
+Part C. Goods of Any Member State of the European Union
+Part D. Goods of Switzerland
+Part E. Goods of Malaysia
+Part F. Goods of Cambodia
+Part G. Goods of Guatemala (See Part O for Textile and Apparel 
+Goods)
+Part H. Goods of El Salvador (See Part O for Textile and Apparel 
+Goods)
+Part I. Goods of Argentina
+Part J. Goods of Bangladesh
+Part K. Goods of Taiwan
+Part L. Goods of Indonesia
+Part M. Goods of Ecuador
+Part N. Goods of Jordan (See Part O for Textile and Apparel Goods)
+Part O. Textile and Apparel Goods of (i) Jordan or (ii) El Salvador 
+or Guatemala Entered Free of Duty Under the Dominican Republic-
+Central America-United States Free Trade Agreement (CAFTA-DR)
+BILLING CODE 3390-F4-P
+
+[[Page 47396]]
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.060
+
+
+[[Page 47397]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.061
+
+
+[[Page 47398]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.062
+
+
+[[Page 47399]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.063
+
+
+[[Page 47400]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.064
+
+
+[[Page 47401]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.065
+
+
+[[Page 47402]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.066
+
+
+[[Page 47403]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.067
+
+
+[[Page 47404]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.068
+
+
+[[Page 47405]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.069
+
+
+[[Page 47406]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.070
+
+
+[[Page 47407]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.071
+
+
+[[Page 47408]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.072
+
+
+[[Page 47409]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.073
+
+
+[[Page 47410]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.074
+
+
+[[Page 47411]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.075
+
+
+[[Page 47412]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.076
+
+
+[[Page 47413]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.077
+
+
+[[Page 47414]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.078
+
+
+[[Page 47415]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.079
+
+
+[[Page 47416]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.080
+
+
+[[Page 47417]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.081
+
+
+[[Page 47418]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.082
+
+
+[[Page 47419]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.083
+
+
+[[Page 47420]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.084
+
+
+[[Page 47421]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.085
+
+
+[[Page 47422]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.086
+
+
+[[Page 47423]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.087
+
+
+[[Page 47424]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.088
+
+
+[[Page 47425]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.089
+
+
+[[Page 47426]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.090
+
+
+[[Page 47427]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.091
+
+
+[[Page 47428]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.092
+
+
+[[Page 47429]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.093
+
+
+[[Page 47430]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.094
+
+
+[[Page 47431]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.095
+
+
+[[Page 47432]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.096
+
+
+[[Page 47433]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.097
+
+
+[[Page 47434]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.098
+
+
+[[Page 47435]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.099
+
+
+[[Page 47436]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.100
+
+
+[[Page 47437]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.101
+
+
+[[Page 47438]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.102
+
+
+[[Page 47439]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.103
+
+
+[[Page 47440]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.104
+
+
+[[Page 47441]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.105
+
+
+[[Page 47442]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.106
+
+
+[[Page 47443]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.107
+
+
+[[Page 47444]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.108
+
+
+[[Page 47445]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.109
+
+
+[[Page 47446]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.110
+
+
+[[Page 47447]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.111
+
+
+[[Page 47448]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.112
+
+
+[[Page 47449]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.113
+
+
+[[Page 47450]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.114
+
+
+[[Page 47451]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.115
+
+
+[[Page 47452]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.116
+
+
+[[Page 47453]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.117
+
+
+[[Page 47454]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.118
+
+
+[[Page 47455]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.119
+
+
+[[Page 47456]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.120
+
+
+[[Page 47457]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.121
+
+
+[[Page 47458]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.122
+
+
+[[Page 47459]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.123
+
+
+[[Page 47460]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.124
+
+
+[[Page 47461]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.125
+
+
+[[Page 47462]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.126
+
+
+[[Page 47463]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.127
+
+
+[[Page 47464]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.128
+
+
+[[Page 47465]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.129
+
+
+[[Page 47466]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.130
+
+
+[[Page 47467]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.131
+
+
+[[Page 47468]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.132
+
+
+[[Page 47469]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.133
+
+
+[[Page 47470]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.134
+
+
+[[Page 47471]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.135
+
+
+[[Page 47472]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.136
+
+
+[[Page 47473]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.137
+
+
+[[Page 47474]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.138
+
+
+[[Page 47475]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.139
+
+
+[[Page 47476]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.140
+
+
+[[Page 47477]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.141
+
+
+[[Page 47478]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.142
+
+
+[[Page 47479]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.143
+
+
+[[Page 47480]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.144
+
+
+[[Page 47481]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.145
+
+
+[[Page 47482]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.146
+
+
+[[Page 47483]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.147
+
+
+[[Page 47484]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.148
+
+
+[[Page 47485]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.149
+
+
+[[Page 47486]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.150
+
+
+[[Page 47487]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.151
+
+
+[[Page 47488]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.152
+
+
+[[Page 47489]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.153
+
+
+[[Page 47490]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.154
+
+
+[[Page 47491]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.155
+
+
+[[Page 47492]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.156
+
+
+[[Page 47493]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.157
+
+
+[[Page 47494]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.158
+
+
+[[Page 47495]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.159
+
+
+[[Page 47496]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.160
+
+
+[[Page 47497]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.161
+
+
+[[Page 47498]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.162
+
+
+[[Page 47499]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.163
+
+
+[[Page 47500]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.164
+
+
+[[Page 47501]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.165
+
+
+[[Page 47502]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.166
+
+
+[[Page 47503]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.167
+
+
+[[Page 47504]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.168
+
+
+[[Page 47505]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.169
+
+
+[[Page 47506]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.170
+
+
+[[Page 47507]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.171
+
+
+[[Page 47508]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.172
+
+
+[[Page 47509]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.173
+
+
+[[Page 47510]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.174
+
+
+[[Page 47511]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.175
+
+
+[[Page 47512]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.176
+
+
+[[Page 47513]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.177
+
+
+[[Page 47514]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.178
+
+
+[[Page 47515]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.179
+
+
+[[Page 47516]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.180
+
+
+[[Page 47517]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.181
+
+
+[[Page 47518]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.182
+
+
+[[Page 47519]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.183
+
+
+[[Page 47520]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.184
+
+
+[[Page 47521]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.185
+
+
+[[Page 47522]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.186
+
+
+[[Page 47523]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.187
+
+
+[[Page 47524]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.188
+
+
+[[Page 47525]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.189
+
+
+[[Page 47526]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.190
+
+
+[[Page 47527]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.191
+
+
+[[Page 47528]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.192
+
+
+[[Page 47529]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.193
+
+
+[[Page 47530]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.194
+
+
+[[Page 47531]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.195
+
+
+[[Page 47532]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.196
+
+
+[[Page 47533]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.197
+
+
+[[Page 47534]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.198
+
+
+[[Page 47535]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.199
+
+
+[[Page 47536]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.200
+
+
+[[Page 47537]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.201
+
+
+[[Page 47538]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.202
+
+
+[[Page 47539]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.203
+
+
+[[Page 47540]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.204
+
+
+[[Page 47541]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.205
+
+
+[[Page 47542]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.206
+
+
+[[Page 47543]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.207
+
+
+[[Page 47544]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.208
+
+
+[[Page 47545]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.209
+
+
+[[Page 47546]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.210
+
+
+[[Page 47547]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.211
+
+
+[[Page 47548]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.212
+
+
+[[Page 47549]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.213
+
+
+[[Page 47550]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.214
+
+
+[[Page 47551]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.215
+
+
+[[Page 47552]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.216
+
+
+[[Page 47553]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.217
+
+
+[[Page 47554]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.218
+
+
+[[Page 47555]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.219
+
+
+[[Page 47556]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.220
+
+
+[[Page 47557]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.221
+
+
+[[Page 47558]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.222
+
+
+[[Page 47559]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.223
+
+
+[[Page 47560]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.224
+
+
+[[Page 47561]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.225
+
+
+[[Page 47562]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.226
+
+
+[[Page 47563]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.227
+
+
+[[Page 47564]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.228
+
+
+[[Page 47565]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.229
+
+
+[[Page 47566]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.230
+
+
+[[Page 47567]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.231
+
+
+[[Page 47568]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.232
+
+
+[[Page 47569]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.233
+
+
+[[Page 47570]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.234
+
+
+[[Page 47571]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.235
+
+
+[[Page 47572]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.236
+
+
+[[Page 47573]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.237
+
+
+[[Page 47574]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.238
+
+
+[[Page 47575]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.239
+
+
+[[Page 47576]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.240
+
+
+[[Page 47577]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.241
+
+
+[[Page 47578]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.242
+
+
+[[Page 47579]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.243
+
+
+[[Page 47580]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.244
+
+
+[[Page 47581]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.245
+
+
+[[Page 47582]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.246
+
+
+[[Page 47583]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.247
+
+
+[[Page 47584]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.248
+
+
+[[Page 47585]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.249
+
+
+[[Page 47586]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.250
+
+
+[[Page 47587]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.251
+
+
+[[Page 47588]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.252
+
+
+[[Page 47589]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.253
+
+
+[[Page 47590]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.254
+
+
+[[Page 47591]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.255
+
+
+[[Page 47592]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.256
+
+
+[[Page 47593]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.257
+
+
+[[Page 47594]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.258
+
+
+[[Page 47595]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.259
+
+
+[[Page 47596]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.260
+
+
+[[Page 47597]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.261
+
+
+[[Page 47598]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.262
+
+
+[[Page 47599]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.263
+
+
+[[Page 47600]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.264
+
+
+[[Page 47601]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.265
+
+
+[[Page 47602]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.266
+
+
+[[Page 47603]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.267
+
+
+[[Page 47604]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.268
+
+
+[[Page 47605]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.269
+
+
+[[Page 47606]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.270
+
+
+[[Page 47607]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.271
+
+
+[[Page 47608]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.272
+
+
+[[Page 47609]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.273
+
+
+[[Page 47610]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.274
+
+
+[[Page 47611]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.275
+
+
+[[Page 47612]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.276
+
+
+[[Page 47613]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.277
+
+
+[[Page 47614]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.278
+
+
+[[Page 47615]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.279
+
+
+[[Page 47616]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.280
+
+
+[[Page 47617]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.281
+
+
+[[Page 47618]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.282
+
+
+[[Page 47619]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.283
+
+
+[[Page 47620]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.284
+
+
+[[Page 47621]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.285
+
+
+[[Page 47622]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.286
+
+
+[[Page 47623]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.287
+
+
+[[Page 47624]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.288
+
+
+[[Page 47625]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.289
+
+
+[[Page 47626]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.290
+
+
+[[Page 47627]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.291
+
+
+[[Page 47628]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.292
+
+
+[[Page 47629]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.293
+
+
+[[Page 47630]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.294
+
+
+[[Page 47631]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.295
+
+
+[[Page 47632]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.296
+
+
+[[Page 47633]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.297
+
+
+[[Page 47634]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.298
+
+
+[[Page 47635]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.299
+
+
+[[Page 47636]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.300
+
+
+[[Page 47637]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.301
+
+
+[[Page 47638]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.302
+
+
+[[Page 47639]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.303
+
+
+[[Page 47640]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.304
+
+
+[[Page 47641]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.305
+
+
+[[Page 47642]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.306
+
+
+[[Page 47643]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.307
+
+
+[[Page 47644]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.308
+
+
+[[Page 47645]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.309
+
+
+[[Page 47646]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.310
+
+
+[[Page 47647]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.311
+
+
+[[Page 47648]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.312
+
+
+[[Page 47649]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.313
+
+
+[[Page 47650]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.314
+
+
+[[Page 47651]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.315
+
+
+[[Page 47652]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.316
+
+
+[[Page 47653]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.317
+
+
+[[Page 47654]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.318
+
+
+[[Page 47655]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.319
+
+
+[[Page 47656]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.320
+
+
+[[Page 47657]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.321
+
+
+[[Page 47658]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.322
+
+
+[[Page 47659]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.323
+
+
+[[Page 47660]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.324
+
+
+[[Page 47661]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.325
+
+
+[[Page 47662]]
+
+
+[GRAPHIC] [TIFF OMITTED] TN28JY26.326
+
+[FR Doc. 2026-15181 Filed 7-27-26; 8:45 am]
+BILLING CODE 3390-F4-C
+
+--- Source: us/statute/hts/9903.05.85 ---
+Articles that (1) were loaded onto a vessel at the port of loading and in transit on the final mode of transit prior to entry into the United States before 12:01 a.m. eastern time on July 24, 2026; and (2) are entered for consumption, or withdrawn from warehouse for consumption, before 12:01 a.m. eastern time on July 28, 2026
+Rates of duty (1-General): The duty provided in the applicable subheading
+Rates of duty (1-Special): The duty provided in the applicable subheading
+Rates of duty (2): The duty provided in the applicable subheading
+Footnote [stat,units]: See chapter 99 statistical note 1.

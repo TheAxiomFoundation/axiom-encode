@@ -35,6 +35,13 @@ pipeline produces. The chartered admission model — where generation runs,
 what gets signed, and what CI is allowed to do — is
 [axiom-encode#1192](https://github.com/TheAxiomFoundation/axiom-encode/issues/1192).
 
+Signed re-encodes run centrally through this repository's
+[`targeted-signed-reencode.yml`](.github/workflows/targeted-signed-reencode.yml),
+behind the `production-signing` environment approval. The former key-migration
+and reusable caller-signing lanes were retired on 2026-10-14; jurisdiction
+repositories do not receive signing keys. See
+[signing deployment and secrets discipline](docs/trusted-signing-supervisor.md#workflow-deployment-and-secrets-discipline).
+
 If you are not running the supervised pipeline, you generally do not need
 this repo:
 
@@ -345,8 +352,16 @@ Repository CI should run:
 axiom-encode guard-generated \
   --repo "$GITHUB_WORKSPACE" \
   --corpus-path "$AXIOM_CORPUS_PATH" \
+  --base-ref "$PROTECTED_BASE_REF" \
   --all
 ```
+
+CI must supply `PROTECTED_BASE_REF` from its trusted review or dispatch context.
+When retired source metadata migration receipts are present, `--all` requires
+this protected base to admit each receipt's complete transaction, including
+every rewritten importer and replacement owner. The receipt's own
+`base_commit` does not establish which base CI trusts. Without an explicit
+protected base, the guard refuses the receipt and names its path.
 
 That guard protects atomic RuleSpec YAML under `legislation/`, `policies/`,
 `regulations/`, and `statutes/` unless it matches a root-owned encoder apply

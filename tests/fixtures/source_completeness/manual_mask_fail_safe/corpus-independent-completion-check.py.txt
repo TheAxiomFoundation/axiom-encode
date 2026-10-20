@@ -1,0 +1,107 @@
+"""Independently verify the completed fresh differential's full ledger."""
+from __future__ import annotations
+import collections
+import hashlib
+import json
+import math
+import re
+from pathlib import Path
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+RUN=HERE/'final-current-main-verified'
+CORPUS=ROOT/'.hub-scratch/r6/corpus'
+
+def sha(data):return hashlib.sha256(data).hexdigest()
+def file_sha(path):
+    h=hashlib.sha256()
+    with path.open('rb') as stream:
+        while chunk:=stream.read(1024*1024):h.update(chunk)
+    return h.hexdigest()
+def counter_metrics():return {p:collections.Counter() for p in ('en-US','legacy')}
+summary=json.loads((RUN/'summary.json').read_bytes())
+assert summary['complete'] and summary['full_corpus'] and summary['rows']==68848
+assert summary['input_files']==231 and summary['previous_records_read']==0
+assert summary['baseline_commit']=='4f3547461300bfa70569f57c83728b2ad25d9d0b'
+assert summary['runner_sha256']==file_sha(HERE/'final_differential.py')=='5485c8cfb55efb9ec6fd8df1eff3793763ec3614c0cc0b16fbc50354b86aef9e'
+assert summary['baseline_package_unchanged_at_completion']
+assert summary['workers']<=4
+for name in ('OMP_NUM_THREADS','OPENBLAS_NUM_THREADS','MKL_NUM_THREADS','VECLIB_MAXIMUM_THREADS','NUMEXPR_NUM_THREADS'):
+    assert 1<=int(summary['threads'][name])<=4
+assert summary['threads']['OMP_WAIT_POLICY']=='PASSIVE'
+assert '3.13.9' in summary['python']
+manifest_path=CORPUS/'corpus-manifest.json'
+assert summary['input_manifest_sha256']==file_sha(manifest_path)
+manifest=json.loads(manifest_path.read_bytes())
+assert len(manifest)==231 and sum(info['rows'] for info in manifest)==68848
+expected={}
+for info in manifest:
+    data=(CORPUS/'input'/info['file']).read_bytes()
+    assert sha(data)==info['sha256']
+    lines=data.splitlines();assert len(lines)==info['rows']
+    for number,raw in enumerate(lines,1):
+        if not raw.strip():continue
+        row=json.loads(raw);body=row.get('body') or ''
+        assert '/manual/' in row['citation_path']
+        key=info['file'],number;assert key not in expected
+        expected[key]={'row_sha256':sha(raw),'citation':row['citation_path'],'body_sha256':sha(body.encode()),'digit_count':sum(character.isdigit() for character in body)}
+assert len(expected)==68848
+proofs=collections.Counter();metrics=counter_metrics();seen=set();delta_hashes={};changed_by_jurisdiction=collections.Counter()
+allowed_proofs={'different_recall_actual_both_profiles','equal_recall_identical_en_us_and_no_legacy_guard_candidate','equal_recall_actual_current_legacy_no_guard_divergence','equal_recall_guard_divergence_actual_both_legacy'}
+with (RUN/'rows.jsonl').open('rb') as stream:
+    for raw in stream:
+        record=json.loads(raw);key=record['file'],record['line']
+        assert key not in seen and key in expected;seen.add(key)
+        input_row=expected[key]
+        assert record['row_sha256']==input_row['row_sha256'] and record['citation']==input_row['citation']
+        assert record['helper_length_and_idempotence'] is True
+        assert 0<=record['helper_masked_digit_count']<=input_row['digit_count']
+        assert re.fullmatch('[0-9a-f]{64}',record['helper_sha256'])
+        if not record['citation'].startswith('us'):
+            assert record['helper_sha256']==input_row['body_sha256'] and record['helper_masked_digit_count']==0
+        proof=record['proof'];assert proof in allowed_proofs;proofs[proof]+=1
+        recalls=record['recall_sha256'];assert set(recalls)=={'main','candidate'}
+        assert all(re.fullmatch('[0-9a-f]{64}',value) for value in recalls.values())
+        assert (recalls['main']!=recalls['candidate'])==(proof=='different_recall_actual_both_profiles')
+        assert set(record['changes'])<={'en-US','legacy'}
+        if proof in {'equal_recall_identical_en_us_and_no_legacy_guard_candidate','equal_recall_actual_current_legacy_no_guard_divergence'}:
+            assert not record['changes']
+        if proof=='equal_recall_guard_divergence_actual_both_legacy':assert set(record['changes'])<={'legacy'}
+        for profile,change in record['changes'].items():
+            assert not change['removed_demands'] and not change['removed_occurrences'] and not change['removed_typed'],(key,profile,'unexpected removal')
+            counts=metrics[profile];counts['changed_rows']+=1
+            for name in ('new_demands','removed_demands'):counts[name]+=len(change[name])
+            for name in ('added_occurrences','removed_occurrences','added_typed','removed_typed'):
+                counts[name]+=sum(item['count'] for item in change[name])
+                assert all(isinstance(item['count'],int) and item['count']>0 for item in change[name])
+            typed=collections.Counter()
+            for item in change['added_typed']:
+                value=item['item']['value'];assert math.isfinite(value);typed[value]+=item['count']
+            occurrences=collections.Counter({item['value']:item['count'] for item in change['added_occurrences']})
+            assert len(occurrences)==len(change['added_occurrences']) and typed==occurrences
+            assert set(change['new_demands'])<=set(occurrences)
+        if record['changes']:
+            delta_hashes[key]=sha(raw.rstrip(b'\r\n'))
+            changed_by_jurisdiction[record['citation'].split('/')[0]]+=1
+assert seen==set(expected) and len(seen)==68848
+assert dict(proofs)==summary['proof_counts']
+for profile in metrics:
+    assert dict(metrics[profile])==summary['comparisons'][profile]
+delta_seen=set()
+with (RUN/'deltas.jsonl').open('rb') as stream:
+    for raw in stream:
+        record=json.loads(raw);key=record['file'],record['line']
+        assert key not in delta_seen;delta_seen.add(key)
+        assert key in delta_hashes and delta_hashes[key]==sha(raw.rstrip(b'\r\n'))
+assert delta_seen==set(delta_hashes)
+for filename,expected_hash in summary['output_sha256'].items():assert file_sha(RUN/filename)==expected_hash
+for relative,digest in summary['baseline_package_sha256'].items():
+    assert file_sha(HERE/'current-main-package/src/axiom_encode'/relative)==digest
+for key,path in [('source_sha256','harness/source_completeness.py'),('validator_sha256','harness/validator_pipeline.py')]:
+    assert file_sha(ROOT/'src/axiom_encode'/path)==summary[key]['candidate']
+    assert file_sha(RUN/'candidate-package/src/axiom_encode'/path)==summary[key]['candidate']
+    assert file_sha(HERE/'current-main-package/src/axiom_encode'/path)==summary[key]['main']
+assert file_sha(ROOT/'src/axiom_encode/harness/manual_locator_metadata.py')==summary['metadata_sha256']
+report={'verdict':'VERIFIED_COMPLETE','rows':len(seen),'input_files':len(manifest),'changed_raw_rows':len(delta_seen),'proof_counts':dict(proofs),'comparisons':{profile:dict(values) for profile,values in metrics.items()},'changed_rows_by_jurisdiction':dict(sorted(changed_by_jurisdiction.items())),'all_input_file_and_row_hashes_match':True,'all_rows_have_length_and_idempotence_assertions':True,'all_non_us_helpers_are_no_ops':True,'full_key_coverage_no_duplicates':True,'delta_ledger_exactly_matches_changed_rows':True,'typed_additions_match_occurrence_additions':True,'all_removal_counts_zero':True,'output_file_hashes_match':True,'working_source_and_extractor_match_completed_run':True,'summary_sha256':file_sha(RUN/'summary.json'),'rows_sha256':file_sha(RUN/'rows.jsonl'),'deltas_sha256':file_sha(RUN/'deltas.jsonl'),'reviewer_script_sha256':file_sha(Path(__file__)),'limitations':'This independently verifies the complete execution ledger and bookkeeping, backed by the separately reviewed proof construction. It does not rerun every numeric extraction, certify historical execution, or classify conservative additions as all operative quantities.'}
+(HERE/'review-corpus-completion.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
+print(json.dumps(report,indent=2,sort_keys=True))

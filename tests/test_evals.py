@@ -5136,10 +5136,10 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     )
     assert "Do not use Python-only functions such as `round(...)`" in prompt
     assert (
-        "Use `sum(relation.amount_fact)` only when `amount_fact` is a raw scalar fact"
+        "`sum(relation.local_derived)` evaluates that local derived rule for each related"
         in prompt
     )
-    assert "Do not use `sum(relation.local_output)`" in prompt
+    assert "do not invent a predicate fact for an unfiltered sum" in prompt
     assert "Do not write `amount + if condition: extra else: 0`" in prompt
     assert "Do not emit more than one `versions:` entry for `kind: derived`" in prompt
     assert (
@@ -5149,6 +5149,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "row_key" in prompt
     assert "column_key" in prompt
     assert "kind: derived_relation" in prompt
+    assert "data_relation.arguments" in prompt
+    assert "arguments: [Person, Household]" in prompt
     assert "derived_relation:" in prompt
     assert "arity: 2" in prompt
     assert "source_relation: member_of_household" in prompt
