@@ -7292,6 +7292,10 @@ def test_fresh_encoding_prompts_require_open_interpretations(tmp_path, prompt_ki
         "question has been put to the publisher",
         "module.interpretations[]",
         "status: open",
+        "`alternatives` (`id`, `reading`, optional `effect`)",
+        "Every alternative requires a non-blank string `id` matching `^[a-z0-9]+(-[a-z0-9]+)*$`",
+        "unique within its interpretation",
+        "Its only allowed keys are `id`, `reading`, and `effect`",
         "Never invent `ruling` or `confirmation`",
         "recorded human ruling",
         "mandatory review findings",
@@ -7340,6 +7344,10 @@ def test_review_findings_carry_recorded_interpretation_ruling_to_repair_prompt(
     assert "A supplied ruling permits `status: ruled`" in prompt
     assert "exact `ruling` block" in prompt
     assert "Never invent either block" in prompt
+    assert (
+        "moving the old reading into `alternatives` with a required non-blank "
+        "kebab-case `id` unique within that interpretation" in " ".join(prompt.split())
+    )
     assert evidence["content"] == ruling
     assert evidence["sha256"] == hashlib.sha256(ruling.encode()).hexdigest()
 

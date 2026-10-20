@@ -464,15 +464,29 @@ def _validate_module_interpretations(
         if _interpretation_list(
             alternatives, label=f"{label}.alternatives", issues=issues
         ):
+            seen_alternative_ids: set[str] = set()
             for alternative_index, alternative in enumerate(alternatives):
                 alternative_label = f"{label}.alternatives[{alternative_index}]"
                 if not _interpretation_mapping(
                     alternative,
                     label=alternative_label,
-                    allowed={"reading", "effect"},
+                    allowed={"id", "reading", "effect"},
                     issues=issues,
                 ):
                     continue
+                alternative_id = alternative.get("id")
+                if _interpretation_string(
+                    alternative_id, label=f"{alternative_label}.id", issues=issues
+                ):
+                    if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", alternative_id):
+                        issues.append(
+                            f"{alternative_label}.id must match [a-z0-9]+(-[a-z0-9]+)*."
+                        )
+                    if alternative_id in seen_alternative_ids:
+                        issues.append(
+                            f"{alternative_label}.id duplicates alternative `{alternative_id}`."
+                        )
+                    seen_alternative_ids.add(alternative_id)
                 for field_name in ("reading", "effect"):
                     if field_name == "reading" or field_name in alternative:
                         _interpretation_string(

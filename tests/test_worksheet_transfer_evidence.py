@@ -75,7 +75,12 @@ def test_interpretation_of_an_omitted_rule_does_not_change_transfer_evidence():
                 }
             ],
             "reading": "The country count governs separate forms.",
-            "alternatives": [{"reading": "One form always covers every country."}],
+            "alternatives": [
+                {
+                    "id": "single-form-for-all-countries",
+                    "reading": "One form always covers every country.",
+                }
+            ],
             "basis": "The source distinguishes country counts.",
             "status": "open",
             "affects": ["separate_country_form_required"],

@@ -269,8 +269,11 @@ INTERPRETATIONS_PROTOCOL = """Interpretations:
   `module.interpretations[]` entry per reading with `status: open`.
 - Include a unique kebab-case `id`, plain-word `question`, non-empty `texts`
   (`corpus_citation_path` and verbatim `excerpt`), adopted `reading`, non-empty
-  `alternatives` (`reading`, optional `effect`), `basis`, and non-empty `affects`
+  `alternatives` (`id`, `reading`, optional `effect`), `basis`, and non-empty `affects`
   naming local `rules[].name`; never name deferred outputs.
+- Every alternative requires a non-blank string `id` matching
+  `^[a-z0-9]+(-[a-z0-9]+)*$`, unique within its interpretation. Its only allowed
+  keys are `id`, `reading`, and `effect`; all strings must be non-blank.
 - Never invent `ruling` or `confirmation`. A repair may copy a recorded human
   ruling supplied in mandatory review findings and set `status: ruled`; a
   supplied publisher reply and recorded ruling permit `confirmed` or

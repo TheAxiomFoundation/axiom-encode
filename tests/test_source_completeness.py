@@ -25146,7 +25146,9 @@ def test_interpretation_excerpt_cannot_cover_a_complete_source_obligation():
                         }
                     ],
                     "reading": "The main rule applies.",
-                    "alternatives": [{"reading": "Another rule applies."}],
+                    "alternatives": [
+                        {"id": "another-rule", "reading": "Another rule applies."}
+                    ],
                     "basis": "The source states the main rule.",
                     "status": "open",
                     "affects": ["unrelated_output"],

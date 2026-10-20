@@ -10190,8 +10190,9 @@ Mandatory independent-review corrections:
   replies supplied below. A supplied ruling permits `status: ruled` with its
   exact `ruling` block; a publisher reply permits `confirmed` or `contradicted`
   with the recorded ruling and confirmation. Never invent either block. Repair
-  contradicted readings, moving the old reading into `alternatives` and setting
-  the new status; otherwise create `status: open` entries.
+  contradicted readings, moving the old reading into `alternatives` with a
+  required non-blank kebab-case `id` unique within that interpretation, and
+  setting the new status; otherwise create `status: open` entries.
 
 {chr(10).join(rendered_files)}
 """

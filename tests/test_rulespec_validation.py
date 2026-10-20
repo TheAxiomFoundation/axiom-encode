@@ -40377,7 +40377,9 @@ def _interpretation_pipeline_content(*, excerpt="The official amount is $298."):
                 }
             ],
             "reading": "The stated official amount applies.",
-            "alternatives": [{"reading": "A different amount applies."}],
+            "alternatives": [
+                {"id": "different-amount", "reading": "A different amount applies."}
+            ],
             "basis": "The source states the official amount.",
             "status": "open",
             "affects": [payload["rules"][0]["name"]],

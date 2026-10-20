@@ -33,7 +33,11 @@ def _entry(status="open"):
         "texts": [{"corpus_citation_path": CITATION, "excerpt": EXCERPT}],
         "reading": "Apply twenty per cent once a week.",
         "alternatives": [
-            {"reading": "Apply twenty per cent each day.", "effect": "Less support."}
+            {
+                "id": "daily-percentage",
+                "reading": "Apply twenty per cent each day.",
+                "effect": "Less support.",
+            }
         ],
         "basis": "The weekly table supports this reading.",
         "status": status,
@@ -97,6 +101,7 @@ STRING_PATHS = [
     ("reading",),
     ("basis",),
     ("texts", 0, "excerpt"),
+    ("alternatives", 0, "id"),
     ("alternatives", 0, "reading"),
     ("alternatives", 0, "effect"),
     ("affects", 0),
@@ -208,6 +213,68 @@ def test_interpretation_ids_are_unique_within_module():
     ]
     payload["module"]["interpretations"][1]["id"] = "second-reading"
     assert _validate(payload).passed
+
+
+@pytest.mark.parametrize("alternative_index", [0, 1, 2])
+def test_interpretation_alternative_id_is_required_at_every_index(alternative_index):
+    entry = _entry()
+    entry["alternatives"] = [
+        {"id": f"alternative-{index}", "reading": "Another reading."}
+        for index in range(3)
+    ]
+    del entry["alternatives"][alternative_index]["id"]
+    assert _validate(_payload(entry)).issues == [
+        f"{LABEL}.alternatives[{alternative_index}].id must be a non-blank string."
+    ]
+
+
+@pytest.mark.parametrize("alternative_id", ["a", "0", "twenty20", "a-0-weekly"])
+def test_interpretation_alternative_kebab_case_id_positive_examples(alternative_id):
+    entry = _entry()
+    entry["alternatives"][0]["id"] = alternative_id
+    assert _validate(_payload(entry)).passed
+
+
+@pytest.mark.parametrize("alternative_index", [0, 1, 2])
+@pytest.mark.parametrize(
+    "alternative_id",
+    ["Uppercase", "two_words", "-prefix", "suffix-", "a--b", "a b", "é", "a\n"],
+)
+def test_interpretation_alternative_id_must_match_kebab_case(
+    alternative_index, alternative_id
+):
+    entry = _entry()
+    entry["alternatives"] = [
+        {"id": f"alternative-{index}", "reading": "Another reading."}
+        for index in range(3)
+    ]
+    entry["alternatives"][alternative_index]["id"] = alternative_id
+    assert _validate(_payload(entry)).issues == [
+        f"{LABEL}.alternatives[{alternative_index}].id "
+        "must match [a-z0-9]+(-[a-z0-9]+)*."
+    ]
+
+
+@pytest.mark.parametrize("alternative_index", [1, 2])
+def test_interpretation_alternative_ids_are_unique_within_interpretation(
+    alternative_index,
+):
+    entry = _entry()
+    entry["alternatives"] = [
+        {"id": f"alternative-{index}", "reading": "Another reading."}
+        for index in range(3)
+    ]
+    entry["alternatives"][alternative_index]["id"] = "alternative-0"
+    assert _validate(_payload(entry)).issues == [
+        f"{LABEL}.alternatives[{alternative_index}].id "
+        "duplicates alternative `alternative-0`."
+    ]
+
+
+def test_interpretation_alternative_ids_can_equal_the_parent_interpretation_id():
+    entry = _entry()
+    entry["alternatives"][0]["id"] = entry["id"]
+    assert _validate(_payload(entry)).passed
 
 
 @pytest.mark.parametrize("status", [None, "", "pending", "OPEN", 1, [], {}])
@@ -519,15 +586,14 @@ def test_interpretation_citations_are_resolved_once_without_becoming_proofs():
 @st.composite
 def _valid_entries(draw):
     entry = _entry(draw(st.sampled_from(["open", "ruled", "confirmed"])))
-    entry["id"] = draw(
-        st.lists(
-            st.text(
-                alphabet=string.ascii_lowercase + string.digits, min_size=1, max_size=8
-            ),
-            min_size=1,
-            max_size=4,
-        ).map("-".join)
-    )
+    kebab_id = st.lists(
+        st.text(
+            alphabet=string.ascii_lowercase + string.digits, min_size=1, max_size=8
+        ),
+        min_size=1,
+        max_size=4,
+    ).map("-".join)
+    entry["id"] = draw(kebab_id)
     nonblank_text = st.text(
         alphabet=string.ascii_letters + string.digits + " ,.?%£",
         min_size=1,
@@ -552,10 +618,12 @@ def _valid_entries(draw):
     entry["alternatives"] = draw(
         st.lists(
             st.fixed_dictionaries(
-                {"reading": nonblank_text}, optional={"effect": nonblank_text}
+                {"id": kebab_id, "reading": nonblank_text},
+                optional={"effect": nonblank_text},
             ),
             min_size=1,
             max_size=3,
+            unique_by=lambda alternative: alternative["id"],
         )
     )
     for field in ("ruling", "confirmation"):
@@ -602,9 +670,10 @@ def test_generated_valid_entries_pass_and_each_missing_required_field_has_one_fi
         for field in ("corpus_citation_path", "excerpt"):
             expectations[("texts", text_index, field)] = "must be a non-blank string."
     for alternative_index in range(len(entry["alternatives"])):
-        expectations[("alternatives", alternative_index, "reading")] = (
-            "must be a non-blank string."
-        )
+        for field in ("id", "reading"):
+            expectations[("alternatives", alternative_index, field)] = (
+                "must be a non-blank string."
+            )
     for field in ("ruling", "confirmation"):
         if field not in entry:
             continue

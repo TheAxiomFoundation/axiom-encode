@@ -404,7 +404,8 @@ module:
           excerpt: "Applicants must notify the council when household circumstances change."
       reading: One household notification satisfies the notice requirement.
       alternatives:
-        - reading: Each adult must notify the council separately.
+        - id: separate-adult-notices
+          reading: Each adult must notify the council separately.
           effect: Applicants would need to send separate notices.
       basis: The scheme addresses the household as one applicant.
       status: open
@@ -415,8 +416,10 @@ module:
 Each entry requires a module-unique `id` matching
 `[a-z0-9]+(-[a-z0-9]+)*`, non-blank `question`, `reading`, and `basis`, and
 non-empty `texts`, `alternatives`, and `affects` lists. A text has only
-`corpus_citation_path` and `excerpt`; an alternative has `reading` and an
-optional `effect`. All string fields, including optional fields when present,
+`corpus_citation_path` and `excerpt`; an alternative requires an `id` unique
+within its interpretation and matching `^[a-z0-9]+(-[a-z0-9]+)*$`, a `reading`,
+and an optional `effect`. Its only allowed keys are `id`, `reading`, and
+`effect`. All string fields, including optional fields when present,
 must be non-blank. Unknown keys are rejected throughout the block.
 Each canonical corpus citation must resolve, and its excerpt must match the
 corpus using the same normalization and matcher as source proof atoms.

@@ -39,6 +39,9 @@ match its canonical corpus citation with the source proof-atom matcher, and
 `affects` must name local rules that are not deferred outputs. These excerpts
 never satisfy a proof obligation or count as complete-source coverage; the
 affected executable rules still need their own proof atoms and tests.
+Each alternative requires a non-blank string `id` matching
+`^[a-z0-9]+(-[a-z0-9]+)*$`, unique within that interpretation; its only allowed
+keys are `id`, `reading`, and optional `effect`.
 
 New entries use `status: open`. A repair may carry recorded human rulings and
 publisher replies supplied through mandatory review findings into `ruling` and
