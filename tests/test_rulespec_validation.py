@@ -7106,7 +7106,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2217"')
+        .startswith('__version__ = "0.2.2230"')
     )
 
 
@@ -7338,13 +7338,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2217"
+    assert encoder_package["version"] == "0.2.2230"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2217"
+    assert project["project"]["version"] == "0.2.2230"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2217"')
+        .startswith('__version__ = "0.2.2230"')
     )
 
 
@@ -7606,13 +7606,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2217"
+    assert encoder_package["version"] == "0.2.2230"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2217"
+    assert project["project"]["version"] == "0.2.2230"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2217"')
+        .startswith('__version__ = "0.2.2230"')
     )
 
 
@@ -31994,6 +31994,49 @@ rules:
     assert "disqualifying_condition" in issues[0]
 
 
+def test_test_input_assignment_lists_every_missing_fact_when_none_assigned():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: fact_one and fact_two and fact_three and fact_four and fact_five and fact_six and fact_seven and fact_eight and fact_nine
+"""
+    cases = [
+        {
+            "name": "no_facts",
+            "input": {"us:regulations/7-cfr/273/4#relation.person": [True]},
+            "output": {"us:regulations/7-cfr/273/4#eligible": "holds"},
+        }
+    ]
+
+    issues = find_test_input_assignment_issues(content, cases)
+
+    assert len(issues) == 1
+    assert "`no_facts` does not assign" in issues[0]
+    assert all(
+        f"#input.fact_{name}" in issues[0]
+        for name in (
+            "one",
+            "two",
+            "three",
+            "four",
+            "five",
+            "six",
+            "seven",
+            "eight",
+            "nine",
+        )
+    )
+
+
 def test_test_input_assignment_selects_formula_dependencies_by_case_period():
     content = """format: rulespec/v1
 module:
@@ -47316,7 +47359,7 @@ rules:
     assert "sum(member_of_tax_unit, ...)" in issues[0]
 
 
-def test_relation_aggregate_syntax_rejects_sum_of_local_derived_relation_field():
+def test_relation_aggregate_syntax_accepts_sum_of_local_derived_relation_field():
     content = """format: rulespec/v1
 rules:
   - name: capital_asset_of_tax_unit
@@ -47347,9 +47390,7 @@ rules:
 
     issues = find_relation_aggregate_syntax_issues(content)
 
-    assert any("local executable output" in issue for issue in issues)
-    assert "sum(capital_asset_of_tax_unit.short_term_capital_gain)" in issues[0]
-    assert "sum_where(capital_asset_of_tax_unit, short_term_capital_gain" in issues[0]
+    assert issues == []
 
 
 def test_relation_aggregate_syntax_accepts_sum_of_relation_row_fact():

@@ -1,3 +1,27 @@
+## 0.2.2230
+
+- Keep a person responsible for a family-type resource distinct from a Family claimant in source-scope validation, while retaining genuine Family and Household requirements.
+
+## 0.2.2229
+
+- Validate Schedule L partnership reporting with executed sparse-input evidence and gross/net separation. Recognize complete form locators and corroborated printed table glyphs while preserving substantive values, source operations, and general validation requirements.
+
+## 0.2.2228
+
+- Bind student-loan reporting routes to executed, source-owned sparse facts and canonical module assertions; preserve unrelated condition checks.
+
+## 0.2.2227
+
+- Bind student-loan measurement periods to exact source roles, factual declarations, annual proofs, and ordinary executed witnesses without treating historical years as arithmetic operands; preserve unresolved conditions and unknown numeric obligations. Recognize the exact optional copy-for-records guide referral as nonoperative guidance.
+
+## 0.2.2226
+
+- Recognize correlated printed form titles, complete form identifiers, and corroborated terminal line coordinates without treating them as computations or scalar amounts; preserve substantive years and source offsets.
+
+## 0.2.2220
+
+- Preserve the complete tracked baseline for fresh same-source canonical replacements, supply full target edit context, and overlay omitted rules and companion cases before validation without accepting the old artifact as a generated repair.
+
 ## 0.2.2183
 
 - Repair source-verification metadata emitted for generated overlay targets during protected apply while preserving source-bound validation.

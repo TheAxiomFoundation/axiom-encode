@@ -1022,9 +1022,10 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   or 1800, not 700. Avoid exact equality boundaries for ratios or percentages;
   choose clearly below/above-boundary values so decimal precision cannot decide
   the test outcome.
-- Every test case for a local derived formula must assign every local factual
-  `#input.<fact>` referenced by that formula, including facts that are false in
-  the case. Missing false inputs make the executable test invalid.
+- Every test case must supply every factual `#input.<fact>` reached by its
+  selected formula branches, including false facts when read. Do not manufacture
+  defaults for unselected branches. Missing reached facts must fail execution;
+  exact required-case input maps must remain unchanged.
 - For every encoded `except`, `unless`, `subject to`, or `notwithstanding`
   carve-out, include companion tests for the positive path and the carve-out
   path so exclusions and override conditions cannot be silently dropped.
@@ -1243,14 +1244,14 @@ _FORMULA_PROTOCOL = """- Put formulas under `versions: - effective_from: 'YYYY-M
   use `if round_up: max(0, maximum - ceil(reduction)) else: max(0, floor(maximum - reduction))`,
   never `if round_up: maximum - ceil(reduction) else: floor(maximum - reduction)`.
 - Supported relation aggregators are `len(relation)`,
-  `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
+  `count_where(relation, predicate_fact)`, `sum(relation.amount_fact_or_derived)`, and
   `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write
   `sum(relation, expression)` or put arithmetic inside a relation field access.
-  Use `sum(relation.amount_fact)` only when `amount_fact` is a raw scalar fact
-  supplied directly on each relation row. Do not use `sum(relation.local_output)`
-  for a `parameter` or `derived` rule defined in the same file; for a computed
-  per-related-entity amount, write
-  `sum_where(relation, local_output, source_stated_predicate_fact)` instead.
+  `sum(relation.amount_fact)` sums supplied facts on related entities;
+  `sum(relation.local_derived)` evaluates that local derived rule for each related
+  entity and sums its results. Supply the derived rule's factual dependencies,
+  not precomputed values under its output name. Use `sum_where(...)` when the
+  source requires a filter; do not invent a predicate fact for an unfiltered sum.
   To count two boolean conditions over the same relation, write two
   `count_where(...)` calls and add them.
 - If a conditional is embedded inside arithmetic or another larger expression,

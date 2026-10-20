@@ -42,6 +42,7 @@ from axiom_encode.bare_structure import (
     bare_outline,
     mask_bare_labels,
 )
+from axiom_encode.form_source_structure import mask_form_display
 from axiom_encode.harness import hebrew_source_text
 from axiom_encode.harness.manual_locator_metadata import (
     MANUAL_CONTENTS_HEADINGS,
@@ -52,10 +53,20 @@ from axiom_encode.harness.manual_locator_metadata import (
     REVIEWED_MANUAL_LOCATOR_SPANS,
     REVIEWED_MANUAL_REVISION_STAMPS,
 )
+from axiom_encode.harness.measurement_role_evidence import (
+    BoundMeasurementRoles,
+    ExecutedMeasurementWitness,
+    MeasurementSourceEvidence,
+    bind_measurement_roles,
+)
+from axiom_encode.harness.partnership_reporting_evidence import (
+    certify_partnership_reporting,
+)
 from axiom_encode.harness.proof_validator import (
     _normalize_atom_path,
     _source_proof_evidence_spans,
 )
+from axiom_encode.harness.reporting_route_evidence import certify_reporting_routes
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.statute import (
     CitationParts,
@@ -5811,6 +5822,11 @@ def _analyze_rulespec_payload(
     represented_annual_spans: set[tuple[int, int]] = set(
         certified_operations.annual_spans
     )
+    measurement_roles = bind_measurement_roles(
+        payload, source_text, corpus_citation_path
+    )
+    represented_measurement_spans: set[tuple[int, int]] = set()
+    measurement_witnesses: set[ExecutedMeasurementWitness] = set()
     companion_issues: list[str] = []
     if principal_rules:
         imported_parameters = _resolved_imported_parameter_rules(
@@ -5837,9 +5853,13 @@ def _analyze_rulespec_payload(
         companion_issues.extend(
             _companion_test_issues(
                 principal_rules,
+                partnership_content=content,
                 certified_composition=certified_composition,
                 certified_replacement=certified_replacement,
                 represented_annual_spans=represented_annual_spans,
+                measurement_roles=measurement_roles,
+                represented_measurement_spans=represented_measurement_spans,
+                measurement_witnesses=measurement_witnesses,
                 certified_paths=certified_paths,
                 certified_operations=certified_operations,
                 certified_transfers=certified_transfers,
@@ -5897,9 +5917,11 @@ def _analyze_rulespec_payload(
         )
     )
     unrepresented_occurrences = source_occurrences
-    if represented_annual_spans:
+    if represented_annual_spans or represented_measurement_spans:
         unrepresented_recall_text = authoritative_numeric_recall_text(
-            _mask_numeric_spans(source_text, represented_annual_spans),
+            _mask_numeric_spans(
+                source_text, represented_annual_spans | represented_measurement_spans
+            ),
             corpus_citation_path=corpus_citation_path,
         )
         unrepresented_occurrences = tuple(
@@ -13903,6 +13925,91 @@ def _is_us_manual_citation_path(corpus_citation_path: str) -> bool:
     )
 
 
+# #1893's manual measurement names eligible/counted/excluded/deducted, but its
+# code defines only a broader federal administrative classifier. Keep this
+# explicit lexical shortlist independent of that classifier and of the gate:
+# eligibility, benefits/allotments/payments, counting/inclusion/exclusion,
+# deductions, sanctions/disqualification, termination/denial/approval,
+# reductions/increases and entitlement. Income/resources alone are deliberately
+# absent: they also occur in procedural verification instructions. This is
+# advice selection, not a determination that a sentence is operative.
+_MANUAL_OUTCOME_WORD = re.compile(
+    r"\b(?:ineligib\w*|eligib(?:le|ility)|benefits?|allotments?|payments?|"
+    r"paid|pay(?:s|ing)?|sanction\w*|disqualif\w*|terminat\w*|"
+    r"den(?:y|ies|ied|ying|ials?)|approv\w*|reduc\w*|increas\w*|entitle\w*|"
+    r"count(?:s|ed|ing|able)?|includ(?:e|es|ed|ing)|inclusions?|"
+    r"exclud(?:e|es|ed|ing)|exclusions?|deem(?:s|ed|ing)?|"
+    r"disregard(?:s|ed|ing)?|deduct(?:s|ed|ing|ions?)?)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def manual_outcome_exception_advice(
+    source_text: str,
+    *,
+    corpus_citation_path: str,
+) -> tuple[dict[str, Any], ...]:
+    """Identify optional manual conditions without changing completeness issues.
+
+    Reuse the gate's exception parser with its numeric-only filter disabled,
+    then select only the nonnumeric outcome-word sentences that filter drops.
+    Records depend only on the authoritative source, retain its character
+    offsets and digest for replay accounting, and stay in source order.
+    """
+
+    if not _is_us_manual_citation_path(corpus_citation_path):
+        return ()
+    body = source_text.strip()
+    if not body:
+        return ()
+    body_start = len(source_text) - len(source_text.lstrip())
+    with _us_manual_prose_scope(corpus_citation_path):
+        branches = recognize_source_structure(
+            body, corpus_citation_path=corpus_citation_path
+        )
+        formula_branches = _source_formula_branches(
+            body,
+            corpus_citation_path=corpus_citation_path,
+            branches=branches,
+            active_branches=branches,
+            deferred_paths=set(),
+        )
+        exceptions = _source_exception_branches(
+            body,
+            raw_source_text=source_text,
+            branches=branches,
+            active_branches=branches,
+            deferred_paths=set(),
+            formula_branches=formula_branches,
+        )
+    source_sha256 = hashlib.sha256(source_text.encode()).hexdigest()
+    advice: list[dict[str, Any]] = []
+    for branch in sorted(exceptions, key=lambda item: (item.start, item.end)):
+        if _STATED_NUMERIC_LIMIT.search(branch.text) or not _MANUAL_OUTCOME_WORD.search(
+            branch.text
+        ):
+            continue
+        excerpt = _bounded_source_feedback_excerpt(branch.text)
+        start, end = body_start + branch.start, body_start + branch.end
+        advice.append(
+            {
+                "corpus_citation_path": corpus_citation_path,
+                "source_sha256": source_sha256,
+                "source_start": start,
+                "source_end": end,
+                "excerpt": excerpt,
+                "message": (
+                    "[non-blocking] Manual outcome advisory: "
+                    f"{corpus_citation_path} characters {start}:{end}: `{excerpt}` "
+                    "may state an operative condition worth encoding as a derived "
+                    "output with paired tests (positive and blocking). Encoding this "
+                    "condition is optional and is not required to pass validation."
+                ),
+            }
+        )
+    return tuple(advice)
+
+
 @contextlib.contextmanager
 def _us_manual_prose_scope(corpus_citation_path: str) -> Iterator[None]:
     """Read word slashes and spaced word dashes as prose in a US manual."""
@@ -19622,6 +19729,9 @@ def _companion_test_issues(
     source_bound_constant_occurrences: dict[str, tuple[NumericOccurrenceLike, ...]],
     declared_input_names: set[str],
     represented_annual_spans: set[tuple[int, int]] | None = None,
+    measurement_roles: BoundMeasurementRoles | None = None,
+    represented_measurement_spans: set[tuple[int, int]] | None = None,
+    measurement_witnesses: set[ExecutedMeasurementWitness] | None = None,
     calendar_date_declarations: Mapping[str, bool] | None = None,
     deferred_clauses: Sequence[SourceStructureBranch] = (),
     input_declarations: Mapping[str, dict[str, Any]] | None = None,
@@ -19631,6 +19741,7 @@ def _companion_test_issues(
     certified_replacement: BoundWorksheetReplacement | None = None,
     certified_composition: BoundWorksheetComposition | None = None,
     raw_source_text: str | None = None,
+    partnership_content: str | None = None,
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
@@ -19710,6 +19821,9 @@ def _companion_test_issues(
         certified_replacement=certified_replacement,
         source_text=source_text,
         represented_annual_spans=represented_annual_spans,
+        measurement_roles=measurement_roles,
+        represented_measurement_spans=represented_measurement_spans,
+        measurement_witnesses=measurement_witnesses,
         corpus_citation_path=corpus_citation_path,
         principal_rules=principal_rules,
         principal_formula_clause_rules=principal_formula_clause_rules,
@@ -19720,6 +19834,42 @@ def _companion_test_issues(
         dependency_cache=formula_dependency_cache,
         execution_cache=formula_execution_cache,
     )
+    if measurement_roles is not None:
+        # These exact source operations are not necessarily formula branches in
+        # the generic inventory. Validate them with the same ordinary witness;
+        # they contribute only their own typed measurement spans, never a
+        # condition witness or an exemption from source coverage.
+        for binding in measurement_roles.current:
+            start, end = binding.operation_span
+            operation_branch = SourceStructureBranch(
+                (),
+                "formula-clause",
+                "measurement operation",
+                source_text[start:end],
+                start,
+                end,
+            )
+            _formula_branch_test_witnesses(
+                operation_branch,
+                corpus_citation_path=corpus_citation_path,
+                principal_rules=principal_rules,
+                rule_names={binding.owner},
+                asserted_by_rule=asserted_by_rule,
+                extract_numeric_occurrences=extract_numeric_occurrences,
+                numeric_value_is_grounded=numeric_value_is_grounded,
+                formula_environment=formula_environment,
+                dependency_cache=formula_dependency_cache,
+                execution_cache=formula_execution_cache,
+                source_text=source_text,
+                measurement_roles=measurement_roles,
+                represented_measurement_spans=represented_measurement_spans,
+                measurement_witnesses=measurement_witnesses,
+                operand_declarations={
+                    **parameter_rules,
+                    **principal_rules,
+                    **(input_declarations or {}),
+                },
+            )
     for branch in missing_formula_branches:
         source_excerpt = _bounded_source_feedback_excerpt(branch.text)
         source_location = f"characters {branch.start}:{branch.end}"
@@ -19915,6 +20065,28 @@ def _companion_test_issues(
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
+        reporting_routes = certify_reporting_routes(
+            measurement_roles,
+            measurement_witnesses or set(),
+            principal_rules=principal_rules,
+            formula_environment=formula_environment,
+        )
+        if reporting_routes is not None:
+            missing_exception_branches = reporting_routes.unmatched(
+                missing_exception_branches
+            )
+        partnership = certify_partnership_reporting(
+            partnership_content,
+            source_text,
+            corpus_citation_path,
+            cases,
+            principal_rules=principal_rules,
+            formula_environment=formula_environment,
+        )
+        if partnership is not None:
+            missing_exception_branches = partnership.unmatched(
+                missing_exception_branches
+            )
         if missing_exception_branches:
             unsupported_row_outputs = [
                 f"case `{case.get('name') or '<unnamed>'}` output `{key}` "
@@ -20134,7 +20306,7 @@ def _source_formula_branches(
         )
     )
     classification_text = _without_precomputed_income_table_percentage_captions(
-        source_text, corpus_citation_path=corpus_citation_path
+        mask_form_display(source_text), corpus_citation_path=corpus_citation_path
     )
     bare_labels = bare_outline(source_text) or ()
     bare_display_text = mask_bare_labels(source_text, bare_labels)
@@ -20942,6 +21114,9 @@ def _unwitnessed_formula_branches(
     *,
     source_text: str = "",
     represented_annual_spans: set[tuple[int, int]] | None = None,
+    measurement_roles: BoundMeasurementRoles | None = None,
+    represented_measurement_spans: set[tuple[int, int]] | None = None,
+    measurement_witnesses: set[ExecutedMeasurementWitness] | None = None,
     corpus_citation_path: str,
     principal_rules: dict[str, dict[str, Any]],
     principal_formula_clause_rules: dict[SourceStructureBranch, set[str]],
@@ -20963,6 +21138,9 @@ def _unwitnessed_formula_branches(
             certified_replacement=certified_replacement,
             source_text=source_text,
             represented_annual_spans=represented_annual_spans,
+            measurement_roles=measurement_roles,
+            represented_measurement_spans=represented_measurement_spans,
+            measurement_witnesses=measurement_witnesses,
             corpus_citation_path=corpus_citation_path,
             principal_rules=principal_rules,
             rule_names=principal_formula_clause_rules[branch],
@@ -21672,6 +21850,9 @@ def _formula_branch_test_witnesses(
     execution_cache: dict[tuple[str, int], _FormulaExecution | None],
     source_text: str = "",
     represented_annual_spans: set[tuple[int, int]] | None = None,
+    measurement_roles: BoundMeasurementRoles | None = None,
+    represented_measurement_spans: set[tuple[int, int]] | None = None,
+    measurement_witnesses: set[ExecutedMeasurementWitness] | None = None,
     max_cases_per_rule: int | None = None,
     operand_declarations: Mapping[str, dict[str, Any]] | None = None,
     certified_replacement: BoundWorksheetReplacement | None = None,
@@ -21731,6 +21912,13 @@ def _formula_branch_test_witnesses(
                 source_text=source_text,
                 corpus_citation_path=corpus_citation_path,
             )
+            measurement_evidence = (
+                measurement_roles.evidence(
+                    rule=rule, case=case, execution=execution, branch=branch
+                )
+                if measurement_roles is not None
+                else ()
+            )
             if not _formula_execution_is_source_branch_witness(
                 execution,
                 branch,
@@ -21745,6 +21933,7 @@ def _formula_branch_test_witnesses(
                 dependency_environment=dependency_environment,
                 require_corroborated_dependencies=True,
                 annual_evidence=annual_evidence,
+                measurement_evidence=measurement_evidence,
                 formula_environment=formula_environment,
                 extract_numeric_occurrences=extract_numeric_occurrences,
                 numeric_value_is_grounded=numeric_value_is_grounded,
@@ -21760,6 +21949,7 @@ def _formula_branch_test_witnesses(
                     continue
                 temporal_bindings = _formula_leaf_temporal_bindings(
                     execution.leaf,
+                    measurement_evidence=measurement_evidence,
                     case=case,
                     branch=branch,
                     interval=interval,
@@ -21785,11 +21975,39 @@ def _formula_branch_test_witnesses(
                     represented_annual_spans.update(
                         (e.start, e.end) for e in annual_evidence
                     )
+                if represented_measurement_spans is not None:
+                    represented_measurement_spans.update(
+                        (e.start, e.end) for e in measurement_evidence
+                    )
+                if measurement_witnesses is not None and measurement_evidence:
+                    import json
+
+                    measurement_witnesses.add(
+                        ExecutedMeasurementWitness(
+                            rule_name,
+                            json.dumps(case, sort_keys=True),
+                            measurement_evidence,
+                        )
+                    )
                 witnesses.add((rule_name, witness))
                 continue
             if represented_annual_spans is not None:
                 represented_annual_spans.update(
                     (e.start, e.end) for e in annual_evidence
+                )
+            if represented_measurement_spans is not None:
+                represented_measurement_spans.update(
+                    (e.start, e.end) for e in measurement_evidence
+                )
+            if measurement_witnesses is not None and measurement_evidence:
+                import json
+
+                measurement_witnesses.add(
+                    ExecutedMeasurementWitness(
+                        rule_name,
+                        json.dumps(case, sort_keys=True),
+                        measurement_evidence,
+                    )
                 )
             witnesses.add((rule_name, f"case:{id(case)}"))
     return witnesses
@@ -21848,6 +22066,7 @@ def _selected_principal_formula_has_exact_source_proof(
 def _formula_leaf_temporal_bindings(
     leaf: str,
     *,
+    measurement_evidence: tuple[MeasurementSourceEvidence, ...] = (),
     case: dict[str, Any],
     branch: SourceStructureBranch,
     interval: _NumericInterval | None,
@@ -21865,6 +22084,7 @@ def _formula_leaf_temporal_bindings(
     computation_occurrences = _formula_branch_computation_occurrences(
         branch,
         interval=interval,
+        measurement_evidence=measurement_evidence,
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
     source_factor_occurrences = tuple(
@@ -22220,12 +22440,13 @@ def _formula_branch_computation_occurrences(
     branch: SourceStructureBranch,
     *,
     annual_evidence: tuple[_AnnualSourceEvidence, ...] = (),
+    measurement_evidence: tuple[MeasurementSourceEvidence, ...] = (),
     interval: _NumericInterval | None,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> tuple[NumericOccurrenceLike, ...]:
     represented_years = tuple(
         (e.start - branch.start, e.end - branch.start)
-        for e in annual_evidence
+        for e in (*annual_evidence, *measurement_evidence)
         if branch.start <= e.start < e.end <= branch.end
         and branch.text[e.start - branch.start : e.end - branch.start] == str(e.year)
     )
@@ -22282,6 +22503,7 @@ def _formula_branch_computation_occurrences(
             branch,
             context=context,
             annual_evidence=annual_evidence,
+            measurement_evidence=measurement_evidence,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
     )
@@ -22293,6 +22515,7 @@ def _chapeau_computation_occurrences(
     *,
     context: tuple[int, int, str],
     annual_evidence: tuple[_AnnualSourceEvidence, ...],
+    measurement_evidence: tuple[MeasurementSourceEvidence, ...] = (),
     extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> tuple[NumericOccurrenceLike, ...]:
     """Preserve one physical cue's operands and coordinates for a child."""
@@ -22308,6 +22531,7 @@ def _chapeau_computation_occurrences(
     cue_occurrences = _formula_branch_computation_occurrences(
         cue,
         annual_evidence=annual_evidence,
+        measurement_evidence=measurement_evidence,
         interval=None,
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
@@ -22428,6 +22652,7 @@ def _formula_execution_is_source_branch_witness(
     case: dict[str, Any],
     principal_rules: dict[str, dict[str, Any]],
     annual_evidence: tuple[_AnnualSourceEvidence, ...] = (),
+    measurement_evidence: tuple[MeasurementSourceEvidence, ...] = (),
     interval: _NumericInterval | None,
     dependency_environment: dict[str, Any],
     require_corroborated_dependencies: bool,
@@ -22485,6 +22710,7 @@ def _formula_execution_is_source_branch_witness(
             ),
             interval=interval,
             annual_evidence=annual_evidence,
+            measurement_evidence=measurement_evidence,
             formula_environment=formula_environment,
             execution_environment=execution_environment,
             extract_numeric_occurrences=extract_numeric_occurrences,
@@ -23711,6 +23937,7 @@ def _formula_execution_matches_source_branch(
     branch: SourceStructureBranch,
     *,
     annual_evidence: tuple[_AnnualSourceEvidence, ...] = (),
+    measurement_evidence: tuple[MeasurementSourceEvidence, ...] = (),
     interval: _NumericInterval | None,
     formula_environment: dict[str, Any],
     execution_environment: dict[str, Any] | None = None,
@@ -23860,6 +24087,7 @@ def _formula_execution_matches_source_branch(
     computation_occurrences = _formula_branch_computation_occurrences(
         branch,
         annual_evidence=annual_evidence,
+        measurement_evidence=measurement_evidence,
         interval=interval,
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
@@ -29824,6 +30052,14 @@ def _source_is_nonoperative_guidance_instruction(text: str) -> bool:
 
     if _source_has_joined_operative_segment(text):
         return False
+    if re.fullmatch(
+        r"If you want to keep a copy for your records, see the guide\.",
+        _collapse_text(text),
+        flags=re.IGNORECASE,
+    ):
+        # Optional copying/referral has no eligibility or calculation effect.
+        # Full matching deliberately excludes mandatory retention and joined rules.
+        return True
     return bool(
         re.match(
             r"State\s+agencies\s+must\s+(?:(?:review|check|contact|follow|use|"

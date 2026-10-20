@@ -110,10 +110,14 @@ from axiom_encode.engine_binding import (
     require_engine_ref_sha,
     resolve_pinned_engine_binary,
 )
+from axiom_encode.form_source_structure import mask_form_display
 from axiom_encode.harness.coverage_exemptions import (
     CoverageDemand,
     filter_coverage_demands,
     has_reviewed_repeal,
+)
+from axiom_encode.harness.strict_compiled_inputs import (
+    compiled_program_has_strict_input_reads,
 )
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.repo_routing import (
@@ -168,11 +172,13 @@ from .proof_validator import (
 )
 from .source_completeness import (
     _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
+    _is_us_manual_citation_path,
     _nested_outline_marker_spans,
     _qualified_parenthesized_legal_outline_markers,
     _us_manual_prose_scope,
     analyze_complete_source_unit,
     collect_artifact_numeric_bindings,
+    manual_outcome_exception_advice,
     source_states_stated_conversion_result,
 )
 
@@ -1283,22 +1289,40 @@ _STRUCTURAL_SOURCE_REVISION_CODE_PATTERN = re.compile(
 _STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN = re.compile(
     r"\b[A-Z]-\d+(?:\.\d+)+(?:\([A-Za-z0-9]+\))*\b"
 )
+# Complete locators only: a partial integer match must not leave a decimal
+# suffix behind or swallow a value carrying currency/rate/arithmetic context.
+_STRUCTURAL_LOCATOR_END = (
+    r"(?![\w-]|[.,]\d)"
+    r"(?!\s*(?:%|percent\b|dollars?\b|euros?\b|pounds?\b|"
+    r"CAD\b|USD\b|EUR\b|years?\b|months?\b|days?\b|hours?\b|weeks?\b|"
+    r"kg\b|kilograms?\b|grams?\b|metres?\b|meters?\b|litres?\b|liters?\b|[+*/=]|-\s*\d))"
+)
 _STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN = re.compile(
-    r"\b(?:Form\s+(?:[A-Z]{1,8}-?\d+[A-Za-z0-9-]*|[A-Z]?\d+[A-Za-z0-9-]*)|"
-    r"[A-Z]{2,8}-\d+[A-Za-z0-9-]*)\b",
+    r"\b(?:Form\s+(?:[A-Z]{1,8}-?\d+[A-Za-z0-9]*(?:\.\d+)*(?:-[A-Za-z0-9]+)*|"
+    r"[A-Z]?\d+[A-Za-z0-9]*(?:\.\d+)*(?:-[A-Za-z0-9]+)*)|"
+    r"[A-Z]{2,8}-\d+[A-Za-z0-9]*(?:\.\d+)*(?:-[A-Za-z0-9]+)*)"
+    + _STRUCTURAL_LOCATOR_END,
     re.IGNORECASE,
 )
+_STRUCTURAL_FORM_LINE_TOKEN = r"\d+(?:\.\d+)?[A-Za-z]?"
 _STRUCTURAL_SOURCE_FORM_LINE_PATTERN = re.compile(
-    r"\bLine\s+\d+[A-Za-z]?\b",
+    r"\bLine\s+" + _STRUCTURAL_FORM_LINE_TOKEN + _STRUCTURAL_LOCATOR_END,
     re.IGNORECASE,
 )
-# Explicit plural form-line references and page counters are coordinates,
-# not amounts to reproduce as RuleSpec parameters. Keep numeric tokens with
-# decimal or monetary/rate suffixes outside this structural grammar.
 _STRUCTURAL_SOURCE_FORM_LINES_PATTERN = re.compile(
-    r"\blines\s+\d+[A-Za-z]?"
-    r"(?:(?:,\s+(?:(?:and|or)\s+)?|\s+(?:and|or|through|to)\s+)\d+[A-Za-z]?)+"
-    r"\b(?![.,]\d)(?!\s*(?:%|percent\b|dollars?\b|euros?\b|pounds?\b))",
+    r"\blines\s+"
+    + _STRUCTURAL_FORM_LINE_TOKEN
+    + r"(?:(?:,\s+(?:(?:and|or)\s+)?|\s+(?:and|or|through|to)\s+)"
+    + _STRUCTURAL_FORM_LINE_TOKEN
+    + r")+"
+    + _STRUCTURAL_LOCATOR_END,
+    re.IGNORECASE,
+)
+# Require the complete explicit slip referral; bare hyphenated numbers remain
+# quantities/operators. Run this before the form-code matcher blanks RL-15.
+_STRUCTURAL_SOURCE_SLIP_BOX_PATTERN = re.compile(
+    r"\bbox\s+\d{1,3}-\d{1,3}\s+of\s+(?:your|the)\s+RL-15\s+slip\b"
+    + _STRUCTURAL_LOCATOR_END,
     re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_PAGE_COUNTER_PATTERN = re.compile(
@@ -12535,6 +12559,7 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             _STRUCTURAL_SOURCE_REVISION_PATTERN,
             _STRUCTURAL_SOURCE_REVISION_CODE_PATTERN,
             _STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN,
+            _STRUCTURAL_SOURCE_SLIP_BOX_PATTERN,
             _STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN,
             _STRUCTURAL_SOURCE_FORM_LINE_PATTERN,
             _STRUCTURAL_SOURCE_FORM_LINES_PATTERN,
@@ -12862,7 +12887,7 @@ def _clean_source_text_for_numeric_extraction_tracked(
         return _TrackedText(masked, list(range(len(masked))))
     # A bare number is scaffolding only when the complete shared outline
     # authenticates it. Uncertain table cells/counts retain their source slots.
-    tracked = _TrackedText.identity(mask_bare_labels(text))
+    tracked = _TrackedText.identity(mask_form_display(mask_bare_labels(text)))
     # A carriage return before a newline becomes a space of its own, so a CRLF
     # line ends in "\n" and keeps its width; one that ends a line by itself
     # (a classic Mac or a mixed-terminator source) becomes the newline it is,
@@ -13124,6 +13149,7 @@ def _clean_source_text_for_numeric_extraction_tracked(
     tracked = tracked.sub(_STRUCTURAL_SOURCE_REVISION_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_REVISION_CODE_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_SLIP_BOX_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_LINE_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_LINES_PATTERN, _blank_match)
@@ -22501,10 +22527,6 @@ _UNSUPPORTED_RELATION_SUM_PATTERN = re.compile(
     r"\bsum\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,",
     flags=re.IGNORECASE,
 )
-_RELATION_FIELD_SUM_PATTERN = re.compile(
-    r"\bsum\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*\)",
-    flags=re.IGNORECASE,
-)
 _RELATION_AGGREGATE_PATTERN = re.compile(
     r"\b(?:count_where|len|sum|sum_where)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\b",
     flags=re.IGNORECASE,
@@ -23085,9 +23107,27 @@ def _mask_household_filing_statuses(text: str) -> str:
     )
 
 
+_PERSON_RESOURCE_TYPE_DESCRIPTION_PATTERN = re.compile(
+    r"\b(?:a|the)\s+person\s+responsible\s+for\s+a\s+"
+    r"(?P<modifier>family)-type\s+resource\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _mask_person_resource_type_description(text: str) -> str:
+    """Hide only the descriptive modifier, preserving all other scope evidence."""
+    characters = list(text)
+    for match in _PERSON_RESOURCE_TYPE_DESCRIPTION_PATTERN.finditer(text):
+        start, end = match.span("modifier")
+        characters[start:end] = " " * (end - start)
+    return "".join(characters)
+
+
 def _classify_source_scope(text: str) -> str | None:
     """Return a clear source scope, or None when the text is mixed/vague."""
-    classification_text = _mask_household_filing_statuses(text)
+    classification_text = _mask_person_resource_type_description(
+        _mask_household_filing_statuses(text)
+    )
     person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(classification_text) is not None
     unit_scoped = (
         _UNIT_SCOPE_SOURCE_PATTERN.search(classification_text) is not None
@@ -23102,7 +23142,9 @@ def _classify_source_scope(text: str) -> str | None:
 
 def _classify_source_unit_entity(text: str) -> str | None:
     """Return a clear unit entity from source text, or None when generic/mixed."""
-    classification_text = _mask_household_filing_statuses(text)
+    classification_text = _mask_person_resource_type_description(
+        _mask_household_filing_statuses(text)
+    )
     if _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(classification_text):
         return "taxunit"
     matches = {
@@ -28455,7 +28497,6 @@ def find_relation_aggregate_syntax_issues(content: str) -> list[str]:
         return []
 
     relation_names = _rulespec_data_relation_names(payload)
-    executable_names = _rulespec_executable_names_from_payload(payload)
     issues: list[str] = []
     for name, _kind, formula in _rulespec_rule_formulas(payload):
         for match in _UNSUPPORTED_RELATION_SUM_PATTERN.finditer(formula):
@@ -28468,30 +28509,9 @@ def find_relation_aggregate_syntax_issues(content: str) -> list[str]:
             issues.append(
                 "Unsupported relation aggregate syntax: "
                 f"`{name}` uses `sum({relation_name}, ...)`. RuleSpec supports "
-                "`sum(relation.amount_fact)` and "
+                "`sum(relation.amount_fact_or_derived)` and "
                 "`sum_where(relation, amount_fact_or_derived, predicate_fact)`; "
                 "move arithmetic into named facts/derived rules before aggregating."
-            )
-        for match in _RELATION_FIELD_SUM_PATTERN.finditer(formula):
-            relation_name = match.group(1)
-            field_name = match.group(2)
-            if (
-                relation_name not in relation_names
-                and not _BROAD_STRUCTURAL_RELATION_PATTERN.search(relation_name)
-            ):
-                continue
-            if field_name not in executable_names:
-                continue
-            issues.append(
-                "Unsupported relation aggregate syntax: "
-                f"`{name}` uses `sum({relation_name}.{field_name})`, but "
-                f"`{field_name}` is a local executable output. RuleSpec treats "
-                "`sum(relation.amount_fact)` as summing a raw relation-row fact. "
-                "Use "
-                f"`sum_where({relation_name}, {field_name}, predicate_fact)` "
-                "for per-related-entity derived outputs, or remove the local "
-                "executable rule and model the value as a direct relation-row "
-                "fact only if the source defines that row fact directly."
             )
     return issues
 
@@ -32344,20 +32364,13 @@ def find_test_input_assignment_issues(
         if isinstance(inputs, dict):
             assigned.update(_input_names_from_mapping(inputs))
         assigned.update(_table_input_names(test_case.get("tables")))
-        if not assigned:
-            issues.append(
-                "Test input assignment missing: "
-                f"`{test_name}` must provide `input` facts or `tables` rows "
-                "assigning every local factual `#input.<fact>` referenced by "
-                "this module's formulas."
-            )
-            continue
         missing = sorted(local_inputs - assigned)
         if not missing:
             continue
-        missing_display = ", ".join(f"#input.{name}" for name in missing[:8])
-        if len(missing) > 8:
-            missing_display += f", and {len(missing) - 8} more"
+        # The apply repair parses this diagnostic to add explicit facts. Report
+        # every missing name, including when a test has no factual inputs, so a
+        # single repair pass can satisfy modules with many local inputs.
+        missing_display = ", ".join(f"#input.{name}" for name in missing)
         issues.append(
             "Test input assignment missing: "
             f"`{test_name}` does not assign {missing_display}. Every test for a "
@@ -35805,6 +35818,49 @@ class ValidatorPipeline:
             f"{declared}."
         ]
 
+    def _manual_outcome_exception_advice(
+        self,
+        content: str,
+        *,
+        validation_source_texts: Mapping[str, str] | None,
+    ) -> tuple[dict[str, Any], ...]:
+        """Collect optional manual advice from the authoritative requested body."""
+
+        try:
+            payload = yaml.safe_load(content)
+            verification = (
+                _source_verification_block(payload)
+                if isinstance(payload, dict)
+                else None
+            )
+            citation_paths, _source_label = (
+                _source_verification_source_fields(verification)
+                if verification is not None
+                else ((), "")
+            )
+            citation_path = self.source_citation_path or (
+                citation_paths[0] if citation_paths else ""
+            )
+            if not _is_us_manual_citation_path(citation_path):
+                return ()
+            source_text = _source_verification_text(
+                citation_paths=(citation_path,),
+                source_label=citation_path,
+                source_texts=(
+                    dict(validation_source_texts)
+                    if validation_source_texts is not None
+                    else None
+                ),
+            )
+            return manual_outcome_exception_advice(
+                source_text or "",
+                corpus_citation_path=citation_path,
+            )
+        except Exception:
+            # An unavailable optional hint must never create a validation failure.
+            logger.debug("Manual outcome advice unavailable", exc_info=True)
+            return ()
+
     @timed_tool(TOOL_SOURCE_COMPLETENESS_CHECKS)
     def _complete_source_unit_issues(
         self,
@@ -38386,7 +38442,14 @@ class ValidatorPipeline:
                                 policy_repo_path=self.policy_repo_path,
                             )
                         )
-                    issues.extend(find_test_input_assignment_issues(content, payload))
+                    # Static unions include facts on unselected branches. For
+                    # recognized strict-read IR, ordinary execution below is
+                    # authoritative about reached missing facts. Unknown/default-
+                    # bearing compiled programs retain the conservative check.
+                    if not compiled_program_has_strict_input_reads(compiled_payload):
+                        issues.extend(
+                            find_test_input_assignment_issues(content, payload)
+                        )
                     issues.extend(find_tax_filing_status_test_input_issues(payload))
                     issues.extend(find_exception_test_coverage_issues(content, payload))
                     issues.extend(
@@ -38413,6 +38476,10 @@ class ValidatorPipeline:
                 rules_file=rules_file,
             )
         )
+        manual_advice = self._manual_outcome_exception_advice(
+            content,
+            validation_source_texts=validation_source_texts,
+        )
 
         duration = int((time.time() - start) * 1000)
         try:
@@ -38423,6 +38490,11 @@ class ValidatorPipeline:
                 duration_ms=duration,
                 error=issues[0] if issues else None,
                 raw_output=raw_output,
+                details=(
+                    {"manual_outcome_exception_advice": list(manual_advice)}
+                    if manual_advice
+                    else {}
+                ),
             )
         finally:
             tmpdir_cm.cleanup()

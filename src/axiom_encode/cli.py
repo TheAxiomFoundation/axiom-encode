@@ -30945,8 +30945,18 @@ def _best_validation_retry_attempt(
         index, attempt = indexed
         unsafe_candidate = (
             any(
-                "[generated-yaml:" in issue or "compile validation" in issue.casefold()
-                for issue in attempt.validation_issues
+                "[generated-yaml:" in issue
+                or "compile validation" in issue.casefold()
+                or re.match(
+                    r"^[^\n:]+\.yaml: (?:compile|ci): "
+                    r"Axiom rules engine compile failed:",
+                    issue,
+                )
+                is not None
+                for issue in (
+                    *attempt.validation_issues,
+                    *attempt.full_validation_issues,
+                )
                 if isinstance(issue, str)
             )
             or "compile validation" in attempt.error.casefold()
@@ -31225,6 +31235,12 @@ def _encode_validation_retry_feedback(
             except StopIteration:
                 break
             add(issue)
+    metrics = getattr(failed_attempt.result, "metrics", None)
+    advice = getattr(metrics, "manual_outcome_exception_advice", ())
+    if isinstance(advice, Sequence) and not isinstance(advice, (str, bytes)):
+        for record in advice[:feedback_limit]:
+            if isinstance(record, dict):
+                add(record.get("message"))
     return tuple(feedback)
 
 
@@ -31307,6 +31323,7 @@ class _EncodeReplacementTarget(NamedTuple):
     context_paths: tuple[Path, ...]
     legacy_replacement: "_LegacyReplacementContract | None" = None
     retired_source_admission: dict[str, Any] | None = None
+    baseline: ValidationRetryCandidate | None = None
 
 
 _LEGACY_REPLACEMENT_ATTR = "_axiom_legacy_replacement_contract"
@@ -33593,8 +33610,9 @@ def _admit_retired_replacement_source_verification(
     source is already covered by the exact requested resolver evidence. Keep
     the original bytes in replacement context. Exact descendant rows may also
     qualify within the same artifact and scope, with replayable containment
-    evidence. External evidence is admitted only for literal scalar parameters
-    whose complete rules must survive unchanged and pass normal validation.
+    evidence. External evidence is admitted only for proved scalar parameters
+    or eligible single-version derived rules whose complete rules must survive
+    unchanged and pass normal validation.
     """
     payload = yaml.load(
         target_bytes.decode("utf-8"), Loader=_LegacyReplacementYamlLoader
@@ -33608,8 +33626,8 @@ def _admit_retired_replacement_source_verification(
     declared_singular = verification.get("corpus_citation_path")
     plural = verification.get("corpus_citation_paths")
     requested = source_unit.resolved_source
-    composed_parent = declared_singular is None
-    singular = source_unit.requested if composed_parent else declared_singular
+    plural_only = declared_singular is None
+    singular = source_unit.requested if plural_only else declared_singular
     if (
         not isinstance(singular, str)
         or singular != source_unit.requested
@@ -33629,25 +33647,39 @@ def _admit_retired_replacement_source_verification(
             )
     if len(set(plural)) != len(plural):
         raise ValueError("replacement legacy source citations must not repeat")
-    if composed_parent:
-        # A bodyless parent can be the sole source of a fresh replacement only
-        # when the historical siblings are exactly its attested text-bearing
-        # components. A partial page list must not silently shed source text.
+    if plural_only:
+        # A plural-only declaration may identify either the exact text-bearing
+        # requested row or every attested component of a bodyless parent. In
+        # the first case, other citations still pass the descendant containment
+        # or unchanged external-proof checks below. In the second case, a
+        # partial page list must not silently shed source text.
         component_paths = [row.citation_path for row in requested.component_rows]
-        if (
-            requested.requested != singular
-            or requested.citation_path != singular
-            or not isinstance(requested.row, CorpusRowIdentity)
-            or requested.row.citation_path != singular
-            or requested.slice_required
-            or not component_paths
-            or len(set(component_paths)) != len(component_paths)
-            or set(plural) != set(component_paths)
-            or any(not path.startswith(singular + "/") for path in plural)
-        ):
+        exact_primary_row = (
+            singular in plural
+            and requested.requested == singular
+            and requested.citation_path == singular
+            and isinstance(requested.row, CorpusRowIdentity)
+            and requested.row.citation_path == singular
+            and not requested.slice_required
+            and not component_paths
+            and any(segment.strip() for segment in requested.proof_evidence_segments)
+        )
+        complete_composed_parent = (
+            requested.requested == singular
+            and requested.citation_path == singular
+            and isinstance(requested.row, CorpusRowIdentity)
+            and requested.row.citation_path == singular
+            and not requested.slice_required
+            and bool(component_paths)
+            and len(set(component_paths)) == len(component_paths)
+            and set(plural) == set(component_paths)
+            and all(path.startswith(singular + "/") for path in plural)
+        )
+        if not (exact_primary_row or complete_composed_parent):
             raise ValueError(
                 "replacement plural-only source verification requires the exact "
-                "complete composed parent and its attested descendant rows"
+                "text-bearing primary row or complete composed parent and its "
+                "attested descendant rows"
             )
 
     # Check other locations without changing the input handed to generation.
@@ -33656,7 +33688,7 @@ def _admit_retired_replacement_source_verification(
     remaining["module"] = dict(module)
     remaining_verification = dict(verification)
     del remaining_verification["corpus_citation_paths"]
-    if composed_parent:
+    if plural_only:
         remaining_verification["corpus_citation_path"] = singular
     remaining["module"]["source_verification"] = remaining_verification
     other_issues = find_plural_corpus_citation_path_issues(remaining)
@@ -33764,7 +33796,7 @@ def _admit_retired_replacement_source_verification(
             )
         )
         exact_composed_descendant = (
-            composed_parent
+            plural_only
             and path != singular
             and isinstance(historical.row, CorpusRowIdentity)
             and historical.requested
@@ -33851,6 +33883,97 @@ def _admit_retired_replacement_source_verification(
         "requested_attestation": requested.to_attestation(),
         "sources": admitted_sources,
     }
+
+
+def _canonical_replacement_baseline(
+    checkout: Path, target: Path, companion: Path, *, source_unit
+) -> ValidationRetryCandidate | None:
+    """Capture current tracked v5-owned bytes, without granting signature trust.
+
+    This is preservation context only. Normal source resolution, signed ownership
+    and apply guards remain authoritative; a manifest's presence is not signature
+    verification. Historical/unmanifested replacement lanes keep their behavior.
+    """
+    relative = target.relative_to(checkout)
+    manifest_path = (
+        checkout / APPLIED_ENCODING_MANIFEST_DIR / relative.with_suffix(".json")
+    )
+    if not manifest_path.exists() and not manifest_path.is_symlink():
+        return None
+    manifest_raw = read_bounded_regular_file(
+        checkout,
+        manifest_path,
+        label="replacement baseline manifest",
+        max_bytes=10 * 1024 * 1024,
+    )
+    manifest = json.loads(manifest_raw)
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA
+    ):
+        return None
+    entries = manifest.get("applied_files")
+    if not isinstance(entries, list):
+        raise ValueError("replacement baseline manifest has no applied files")
+    captured: list[str] = []
+    for path in (target, companion):
+        raw = read_bounded_regular_file(
+            checkout,
+            path,
+            label="replacement baseline file",
+            max_bytes=VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES,
+        )
+        relative_path = path.relative_to(checkout).as_posix()
+        matches = [
+            item
+            for item in entries
+            if isinstance(item, dict) and item.get("path") == relative_path
+        ]
+        if (
+            len(matches) != 1
+            or matches[0].get("sha256") != hashlib.sha256(raw).hexdigest()
+        ):
+            raise ValueError("replacement baseline file is not uniquely hash-bound")
+        if _git_show_bytes(checkout, "HEAD", relative_path) != raw:
+            raise ValueError("replacement baseline file differs from tracked HEAD")
+        captured.append(raw.decode("utf-8", errors="strict"))
+    if (
+        _git_show_bytes(
+            checkout, "HEAD", manifest_path.relative_to(checkout).as_posix()
+        )
+        != manifest_raw
+    ):
+        raise ValueError("replacement baseline manifest differs from tracked HEAD")
+    # A new release may carry identical source bytes; release identity itself
+    # is not a same-source test. Changed-source replacement keeps its old lane.
+    digest = hashlib.sha256(source_unit.body.encode("utf-8")).hexdigest()
+    document = yaml.safe_load(captured[0])
+    verification = (
+        document.get("module", {}).get("source_verification", {})
+        if isinstance(document, dict)
+        else {}
+    )
+    attestation = manifest.get("source_attestation", {})
+    if not isinstance(verification, dict) or not isinstance(attestation, dict):
+        return None
+    if (
+        verification.get("source_sha256") != digest
+        or verification.get("corpus_citation_path") != source_unit.requested
+        or attestation.get("requested_corpus_citation_path") != source_unit.requested
+        or attestation.get("resolved_corpus_citation_path") != source_unit.citation_path
+        or any(
+            attestation.get(key) != digest
+            for key in (
+                "source_sha256",
+                "resolved_text_sha256",
+                "generation_input_sha256",
+            )
+        )
+    ):
+        return None
+    return ValidationRetryCandidate(
+        captured[0], captured[1], context_role="replacement_baseline"
+    )
 
 
 def _resolve_encode_replacement_target(
@@ -34017,6 +34140,16 @@ def _resolve_encode_replacement_target(
         relative_output=relative_output,
         context_paths=tuple(context_paths),
         retired_source_admission=retired_source_admission,
+        baseline=(
+            _canonical_replacement_baseline(
+                policy_checkout_path, target, companion, source_unit=source_unit
+            )
+            if not direct_child_refinement
+            and retired_source_admission is None
+            and not getattr(args, "repair_candidate_root", None)
+            and not getattr(args, "repair_candidate_tests_only", False)
+            else None
+        ),
     )
 
 
@@ -34619,6 +34752,15 @@ def _run_encode_attempt(
             ),
         )
     )
+    if (
+        validation_retry_candidate is None
+        and not prior_attempts
+        and replacement_target is not None
+    ):
+        # Fresh canonical repair uses the complete original pair, not a 6000-char
+        # precedent excerpt. This does not set initial_retry_candidate, so it can
+        # never activate the accept-valid-retry-candidate generation shortcut.
+        validation_retry_candidate = getattr(replacement_target, "baseline", None)
     results = run_model_eval(
         citations=[args.citation],
         runner_specs=[runner],
