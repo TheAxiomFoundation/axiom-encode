@@ -1,3 +1,7 @@
+## 0.2.2233
+
+- Preserve printed form operation rows and inherited conditions during source-clause recognition. Bind complete Add-range proof excerpts to their unique source context while retaining structural ownership and selected-version checks.
+
 ## 0.2.2232
 
 - Distinguish complete slip-box referrals, coordinated printed line labels, and corroborated form footers from numeric policy values, preserving amounts, source offsets, and unrelated completeness checks.
