@@ -35,6 +35,12 @@ _FOOTER = re.compile(
     r"of (?P<total>[1-9]\d?)\)[ \t]*(?:\r?\n)*\Z"
 )
 
+_PARENTHETICAL_REFERRAL = re.compile(
+    r"(?<![()])\((?:complete Schedule (?P<schedule>[1-9]\d{0,2})|"
+    r"see line (?P<line>[1-9]\d{4}) in Step (?P<step>[1-9]\d?))\)"
+    r"(?=[ \t]*(?:\.[ \t]*)?(?:=[ \t]*)?\^[ \t]*$)"
+)
+
 
 def form_numeric_locator_spans(text: str) -> tuple[tuple[int, int], ...]:
     """Return exact spans only for complete, unambiguous locator evidence."""
@@ -79,6 +85,21 @@ def form_numeric_locator_spans(text: str) -> tuple[tuple[int, int], ...]:
     ):
         return tuple(spans)
     for row in rows:
+        # A complete balanced referral is structural only at a printed entry
+        # row's end. Amounts, arithmetic suffixes and nested examples refuse.
+        for referral in _PARENTHETICAL_REFERRAL.finditer(row["caption"]):
+            # The closed scope is one complete referral, not a nested or
+            # partially delimited discussion containing a matching substring.
+            if row["caption"].count("(") != 1 or row["caption"].count(")") != 1:
+                continue
+            start = row.start("caption") + referral.start()
+            end = row.start("caption") + referral.end()
+            if not unquoted(start, end):
+                continue
+            for group in ("schedule", "line", "step"):
+                if referral[group] is not None:
+                    a, b = referral.span(group)
+                    spans.append((row.start("caption") + a, row.start("caption") + b))
         if row["field"] and int(row["row"]) < 1000:
             spans.append(row.span("field"))
     footers = list(_FOOTER.finditer(text))

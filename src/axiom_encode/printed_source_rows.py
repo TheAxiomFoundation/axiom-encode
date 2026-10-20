@@ -32,6 +32,18 @@ _ADD_ROW = re.compile(
     r"(?: Net self-employment income)? = \^"
 )
 
+# Closed terminal referrals in validated printed rows; never arbitrary slash
+# or dash expressions. These spans affect formula classification only.
+_URL_REFERRAL = re.compile(
+    r"\(go to (?P<url>(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
+    r"[A-Za-z]{2,24}/[A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)*)\)"
+    r"(?: \^| Line [1-9]\d{4}: Total \^)?$"
+)
+_OTHER_DESCRIPTOR = re.compile(
+    r"[A-Z][A-Za-z ]+ (?P<dash>-) other "
+    r"\(see the [A-Z]{1,4}\d{1,4}[A-Z]{0,4} slip\) \^"
+)
+
 
 @dataclass(frozen=True)
 class PrintedRowStructure:
@@ -39,6 +51,8 @@ class PrintedRowStructure:
     atomic_spans: tuple[tuple[int, int], ...]
     heading_dash: tuple[int, int]
     additions: tuple[tuple[int, int], ...]
+    typography_spans: tuple[tuple[int, int], ...]
+    ownership_spans: tuple[tuple[int, int], ...]
 
 
 def recognize_printed_rows(text: str) -> PrintedRowStructure | None:
@@ -107,8 +121,63 @@ def recognize_printed_rows(text: str) -> PrintedRowStructure | None:
             return None
     boundaries = {title.start(), title.end(), *(i for m in rows for i in m.span())}
     boundaries.update(i for pair in atomic for i in pair)
+    typography = []
+    for row in rows:
+        caption = row["caption"]
+        referral = _URL_REFERRAL.search(caption)
+        if (
+            referral
+            and "(" not in caption[: referral.start()]
+            and ")" not in caption[: referral.start()]
+            and not re.search(
+                r"[+*/=−–-]|\b(?:add|subtract|multiply|divide|plus|minus|sum|difference|product|ratio)\b",
+                caption[: referral.start()],
+                re.I,
+            )
+        ):
+            a = row.start("caption") + referral.start()
+            b = row.start("caption") + referral.end()
+            if not any(x < b and a < y for x, y in quoted):
+                typography.extend(
+                    (
+                        row.start("caption") + referral.start("url") + m.start(),
+                        row.start("caption") + referral.start("url") + m.end(),
+                    )
+                    for m in re.finditer(r"[-/]", referral["url"])
+                )
+        descriptor = _OTHER_DESCRIPTOR.fullmatch(caption)
+        if (
+            descriptor
+            and row["field"]
+            and not any(x < row.end() and row.start("caption") < y for x, y in quoted)
+        ):
+            typography.append(
+                (
+                    row.start("caption") + descriptor.start("dash"),
+                    row.start("caption") + descriptor.end("dash"),
+                )
+            )
     return PrintedRowStructure(
-        tuple(sorted(boundaries)), tuple(atomic), title.span("dash"), tuple(additions)
+        tuple(sorted(boundaries)),
+        tuple(atomic),
+        title.span("dash"),
+        tuple(additions),
+        tuple(typography),
+        tuple(
+            sorted(
+                {
+                    next(
+                        (
+                            span
+                            for span in atomic
+                            if span[0] <= row.start() and row.end() <= span[1]
+                        ),
+                        row.span(),
+                    )
+                    for row in rows
+                }
+            )
+        ),
     )
 
 
