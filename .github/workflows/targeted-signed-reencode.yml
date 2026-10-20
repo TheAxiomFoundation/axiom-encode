@@ -877,6 +877,7 @@ jobs:
       - name: Validate atomic source inputs
         if: steps.retired_source_metadata_request.outputs.enabled != 'true'
         env:
+          CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           REPAIR_TESTS_ONLY: ${{ steps.repair_candidate.outputs.tests_only }}
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
@@ -915,7 +916,8 @@ jobs:
           if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
              [ "$primary_required_test_cases_json" != "[]" ]; then
             if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
-               [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+               { [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
                [ -n "${REPAIR_RUN_ID:-}" ] || \
                [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
                [ -n "${QUEUE_ID:-}" ] || \
@@ -1397,6 +1399,7 @@ jobs:
       - name: Verify existing signed imports
         if: steps.retired_source_metadata_request.outputs.enabled != 'true'
         env:
+          CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
@@ -1436,7 +1439,8 @@ jobs:
           if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
              [ "$primary_required_test_cases_json" != "[]" ]; then
             if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
-               [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+               { [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
                [ -n "${REPAIR_RUN_ID:-}" ] || \
                [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
                [ -n "${QUEUE_ID:-}" ] || \
@@ -1640,6 +1644,7 @@ jobs:
         id: prepare_encode_apply
         if: steps.retired_source_metadata_request.outputs.enabled != 'true'
         env:
+          CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
           PYTHONUNBUFFERED: "1"
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
@@ -2063,7 +2068,8 @@ jobs:
           if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
              [ "$primary_required_test_cases_json" != "[]" ]; then
             if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
-               [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+               { [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
                [ -n "${REPAIR_RUN_ID:-}" ] || \
                [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
                [ -n "${QUEUE_ID:-}" ] || \

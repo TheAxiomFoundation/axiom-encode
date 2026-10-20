@@ -2113,6 +2113,36 @@ def test_targeted_signed_reencode_reconciles_retired_inventory_before_commits() 
     )
 
 
+def test_transport_legacy_required_cases_keep_all_three_protected_guards() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = {
+        step["name"]: step
+        for step in workflow["jobs"]["encode"]["steps"]
+        if "name" in step
+    }
+    guard = re.compile(
+        re.escape(
+            '{ [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \\'
+        )
+        + r"\n\s+"
+        + re.escape('[ -z "$CORPUS_EXPORT_RUN_ID" ]; }')
+    )
+    for name in (
+        "Validate atomic source inputs",
+        "Verify existing signed imports",
+        "Encode, review, validate, and apply",
+    ):
+        step = steps[name]
+        assert step["env"]["CORPUS_EXPORT_RUN_ID"] == (
+            "${{ steps.corpus_artifact_transport.outputs.run_id }}"
+        )
+        assert guard.search(step["run"])
+        assert '[ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ]' in step["run"]
+        assert '[ "$primary_required_test_cases_json" != "[]" ]' in step["run"]
+
+
 def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
