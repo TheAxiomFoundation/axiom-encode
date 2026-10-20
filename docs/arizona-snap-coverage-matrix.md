@@ -292,6 +292,16 @@ notice](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/2026-03-02_WhatC
 repeats the need to correct August–October countable-month indicators; that
 later operational reminder likewise does not establish geographic authority.
 
+[DES's November 24, 2025 ABAWD bulletin](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/Urgent%20Bulletin%20%2811-24-2025%29%20-%20ABAWD%20Participants%27%20November%20Benefits.pdf)
+records FNS guidance to all states that November 2025 benefits do not count
+toward the ABAWD three-month limit. Arizona's FAA Systems was updating CODF to
+remove November as a countable month; normal countable-month procedures would
+resume in December 2025. This month-specific counting rule neither identifies
+geographically waived areas nor resolves whether any such waiver applied in
+October–February. After source-bound release, test October–December sequences
+separately for month countability and benefit eligibility; do not infer either
+from the other.
+
 The block-9 compile failure is reproducible without another protected attempt.
 Using the archived rejected candidate, pinned RuleSpec US
 `9f38330fb43ffc693c6295b9a17c8d5d96520ad2`, and the failed run's engine
