@@ -1,3 +1,7 @@
+## 0.2.2234
+
+- Bind the authenticated in-place legacy replacement admission to the final encoder-affecting changes after review.
+
 ## 0.2.2231
 
 - Integrate bounded authenticated corpus artifact transport with the current encoder baseline, preserving the reviewed exporter and locked-installation checks.
