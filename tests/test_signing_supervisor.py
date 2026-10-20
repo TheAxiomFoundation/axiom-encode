@@ -1783,16 +1783,19 @@ def test_invalid_external_signer_response_fails_closed(
         # initialization frame, so the broker must report its detailed failure
         # before it sends that frame.
         lines = completed.stderr.splitlines()
+        supervisor_line = (
+            "signing supervisor: External apply signer initialization failed"
+        )
         broker_lines = [
             index
             for index, line in enumerate(lines)
-            if line.startswith("signing broker: ") and broker_detail in line
+            if line.startswith("signing broker: ")
         ]
-        supervisor_line = lines.index(
-            "signing supervisor: External apply signer initialization failed"
-        )
-        assert broker_lines, completed.stderr
-        assert broker_lines[0] < supervisor_line
+        assert supervisor_line in lines, completed.stderr
+        # Exactly one broker line: main must not print a reported failure again.
+        assert len(broker_lines) == 1, completed.stderr
+        assert broker_detail in lines[broker_lines[0]], completed.stderr
+        assert broker_lines[0] < lines.index(supervisor_line), completed.stderr
 
 
 def test_non_socket_signer_descriptor_is_rejected(
