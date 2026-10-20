@@ -336,9 +336,12 @@ def test_encoded_branches_get_companion_test_guidance(render):
     rendered = _normalized(render())
 
     assert "For every branch you newly encode, add its companion cases" in rendered
-    assert "changes only the branch's controlling local input" in rendered
+    assert "changes only that condition's controlling local input" in rendered
+    assert "for each condition, exception, or limitation" in rendered
+    assert "Both cases of a pair assert the same output keys" in rendered
+    assert "that its asserted outputs read" in rendered
     assert "including false and zero facts" in rendered
-    assert "re-emit every existing named companion case with that input" in rendered
+    assert "A re-emitted case replaces the old one whole" in rendered
     assert "never a bare or quoted `YYYY-MM-DD`" in rendered
     assert "one contiguous, verbatim span of `./source.txt`" in rendered
     # Accuracy guards: tests never supply values the model must state, and
@@ -348,7 +351,7 @@ def test_encoded_branches_get_companion_test_guidance(render):
         rendered
     )
     assert "a constant `true` just to cover a branch" in rendered
-    assert "`#input.program_is_separate_child_health_program`" in rendered
+    assert "`#input.<limit_named_in_the_source>`" in rendered
 
 
 def test_repair_block_names_the_deferral_record_shape():
@@ -356,7 +359,7 @@ def test_repair_block_names_the_deferral_record_shape():
         evals._format_completeness_repair_guidance("us:statutes/7/2020")
     )
 
-    assert "omit `source_values` unless every entry is an absolute" in rendered
+    assert "each `source_values` entry is an absolute" in rendered
 
 
 @pytest.mark.parametrize(
@@ -372,7 +375,8 @@ def test_repair_block_names_the_deferral_record_shape():
     ],
 )
 def test_period_guidance_agrees_with_validator(period, accepted):
-    """The forms the guidance allows parse; a quoted full date does not."""
+    """`YYYY-MM` and explicit mappings parse; a quoted full date or bare year
+    does not."""
 
     from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 
