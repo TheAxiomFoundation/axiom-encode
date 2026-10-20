@@ -110,6 +110,10 @@ from axiom_encode.engine_binding import (
     require_engine_ref_sha,
     resolve_pinned_engine_binary,
 )
+from axiom_encode.form_numeric_structure import (
+    form_numeric_locator_spans,
+    mask_form_numeric_locators,
+)
 from axiom_encode.form_source_structure import mask_form_display
 from axiom_encode.harness.coverage_exemptions import (
     CoverageDemand,
@@ -12408,6 +12412,7 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
     mask_spans.extend(
         (label.start, label.marker_end) for label in bare_outline(text) or ()
     )
+    mask_spans.extend(form_numeric_locator_spans(text))
     structural_spans = _structural_numeric_component_spans(text, profile="da-DK")
 
     def masked_text() -> str:
@@ -12887,7 +12892,9 @@ def _clean_source_text_for_numeric_extraction_tracked(
         return _TrackedText(masked, list(range(len(masked))))
     # A bare number is scaffolding only when the complete shared outline
     # authenticates it. Uncertain table cells/counts retain their source slots.
-    tracked = _TrackedText.identity(mask_form_display(mask_bare_labels(text)))
+    tracked = _TrackedText.identity(
+        mask_form_display(mask_bare_labels(mask_form_numeric_locators(text)))
+    )
     # A carriage return before a newline becomes a space of its own, so a CRLF
     # line ends in "\n" and keeps its width; one that ends a line by itself
     # (a classic Mac or a mixed-terminator source) becomes the newline it is,
