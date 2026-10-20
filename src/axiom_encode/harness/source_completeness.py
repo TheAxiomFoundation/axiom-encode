@@ -68,6 +68,10 @@ from axiom_encode.harness.proof_validator import (
 )
 from axiom_encode.harness.reporting_route_evidence import certify_reporting_routes
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
+from axiom_encode.printed_source_rows import (
+    PrintedRowStructure,
+    recognize_printed_rows,
+)
 from axiom_encode.statute import (
     CitationParts,
     normalize_rulespec_path_segment,
@@ -5670,8 +5674,12 @@ def _analyze_rulespec_payload(
         for branch in branches
         if not _path_is_deferred(branch.path, deferred_paths)
     )
+    printed_operations = _printed_operation_context(
+        source_text, branches, corpus_citation_path
+    )
     all_formula_branches = _source_formula_branches(
         source_text,
+        printed_operations=printed_operations,
         corpus_citation_path=corpus_citation_path,
         branches=branches,
         active_branches=branches,
@@ -5679,6 +5687,7 @@ def _analyze_rulespec_payload(
     )
     formula_branches = _source_formula_branches(
         source_text,
+        printed_operations=printed_operations,
         corpus_citation_path=corpus_citation_path,
         branches=branches,
         active_branches=active_branches,
@@ -5699,6 +5708,7 @@ def _analyze_rulespec_payload(
     )
     principal_formula_clause_rules = _principal_formula_clause_rules(
         formula_branches,
+        printed_operations=printed_operations,
         source_text=source_text,
         principal_rules=principal_rules,
         principal_rule_paths=principal_rule_paths,
@@ -5803,6 +5813,7 @@ def _analyze_rulespec_payload(
         companion_issues.extend(
             _companion_test_issues(
                 principal_rules,
+                printed_operations=printed_operations,
                 partnership_content=content,
                 certified_composition=certified_composition,
                 certified_replacement=certified_replacement,
@@ -6068,6 +6079,7 @@ def _principal_formula_clause_rules(
     named_rules: dict[str, dict[str, Any]],
     corpus_citation_path: str,
     deferred_paths: set[tuple[str, ...]] | None = None,
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> dict[SourceStructureBranch, set[str]]:
     """Bind each computation clause to principal output evidence.
 
@@ -6184,7 +6196,12 @@ def _principal_formula_clause_rules(
             )
             or any(
                 excerpt_citation_path.strip("/").lower() == normalized_citation_path
-                and source_states_explicit_computation(excerpt)
+                and (
+                    source_states_explicit_computation(excerpt)
+                    or _printed_operation_proof(
+                        printed_operations, clause, excerpt, excerpt_citation_path
+                    )
+                )
                 and excerpt_covers_clause(excerpt, clause)
                 for excerpt_citation_path, excerpt in (
                     _formula_dependency_source_excerpts(
@@ -18990,6 +19007,7 @@ def _negative_local_input_clamp_test_issues(
     corpus_citation_path: str,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     numeric_value_is_grounded: NumericGroundingPredicate,
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> list[str]:
     """Require negative evidence for direct max(0, local_input) clamps."""
 
@@ -19046,6 +19064,7 @@ def _negative_local_input_clamp_test_issues(
                     for branch in owned_branches
                     if _selected_principal_formula_has_exact_source_proof(
                         principal_rules[name],
+                        printed_operations=printed_operations,
                         case=case,
                         branch=branch,
                         corpus_citation_path=corpus_citation_path,
@@ -19608,6 +19627,7 @@ def _companion_test_issues(
     certified_composition: BoundWorksheetComposition | None = None,
     raw_source_text: str | None = None,
     partnership_content: str | None = None,
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
@@ -19647,6 +19667,7 @@ def _companion_test_issues(
     issues.extend(
         _negative_local_input_clamp_test_issues(
             principal_rules,
+            printed_operations=printed_operations,
             parameter_rules=parameter_rules,
             principal_formula_clause_rules=principal_formula_clause_rules,
             formula_branches=formula_branches,
@@ -19679,6 +19700,7 @@ def _companion_test_issues(
     ]
     missing_formula_branches = _unwitnessed_formula_branches(
         formula_branches,
+        printed_operations=printed_operations,
         operand_declarations={
             **parameter_rules,
             **principal_rules,
@@ -19717,6 +19739,7 @@ def _companion_test_issues(
             )
             _formula_branch_test_witnesses(
                 operation_branch,
+                printed_operations=printed_operations,
                 corpus_citation_path=corpus_citation_path,
                 principal_rules=principal_rules,
                 rule_names={binding.owner},
@@ -19741,6 +19764,7 @@ def _companion_test_issues(
         source_location = f"characters {branch.start}:{branch.end}"
         unbound_diagnostic = _unbound_matching_formula_rules(
             branch,
+            printed_operations=printed_operations,
             corpus_citation_path=corpus_citation_path,
             principal_rules=principal_rules,
             bound_rule_names=principal_formula_clause_rules[branch],
@@ -19757,6 +19781,7 @@ def _companion_test_issues(
         )
         dependency_diagnostic = _uncorroborated_formula_dependency_diagnostic(
             branch,
+            printed_operations=printed_operations,
             principal_rules=principal_rules,
             bound_rule_names=principal_formula_clause_rules[branch],
             asserted_by_rule=asserted_by_rule,
@@ -20155,6 +20180,80 @@ def _case_input_principal_output_collisions(
     )
 
 
+@dataclass(frozen=True)
+class _PrintedOperationContext:
+    source_text: str
+    citation_path: str
+    structure: PrintedRowStructure
+
+    def operation_kinds(self, clause: SourceStructureBranch) -> frozenset[str] | None:
+        if self.source_text[clause.start : clause.end] != clause.text:
+            return None
+        if any(
+            clause.start <= a < b <= clause.end for a, b in self.structure.additions
+        ):
+            return frozenset({"add"})
+        return None
+
+    def covers(self, clause: SourceStructureBranch, excerpt: str) -> bool:
+        if not excerpt or self.source_text.count(excerpt) != 1:
+            return False
+        start = self.source_text.index(excerpt)
+        end = start + len(excerpt)
+        if self.source_text[clause.start : clause.end] != clause.text:
+            return False
+        return any(
+            clause.start <= a < b <= clause.end and start <= a < b <= end
+            for a, b in self.structure.additions
+        )
+
+
+def _printed_operation_context(
+    source_text: str,
+    branches: Sequence[SourceStructureBranch],
+    citation_path: str,
+) -> _PrintedOperationContext | None:
+    structure = _unconflicted_printed_rows(source_text, branches)
+    return (
+        _PrintedOperationContext(
+            source_text, citation_path.strip("/").casefold(), structure
+        )
+        if structure is not None
+        else None
+    )
+
+
+def _printed_operation_proof(
+    context: _PrintedOperationContext | None,
+    clause: SourceStructureBranch,
+    excerpt: str,
+    citation_path: str,
+) -> bool:
+    return (
+        context is not None
+        and context.citation_path == citation_path.strip("/").casefold()
+        and context.covers(clause, excerpt)
+    )
+
+
+def _unconflicted_printed_rows(
+    source_text: str, branches: Sequence[SourceStructureBranch]
+) -> PrintedRowStructure | None:
+    """Printed groups never supersede existing source ownership boundaries."""
+    evidence = recognize_printed_rows(source_text)
+    if evidence is None:
+        return None
+    labels = bare_outline(source_text) or ()
+    structural = {
+        *(point for branch in branches for point in (branch.start, branch.end)),
+        *(point for label in labels for point in (label.start, label.marker_end)),
+        *(start for start, _term in bare_definition_headers(source_text, labels)),
+    }
+    if any(a < point < b for a, b in evidence.atomic_spans for point in structural):
+        return None
+    return evidence
+
+
 def _source_formula_branches(
     source_text: str,
     *,
@@ -20162,17 +20261,35 @@ def _source_formula_branches(
     branches: Sequence[SourceStructureBranch],
     active_branches: Sequence[SourceStructureBranch],
     deferred_paths: set[tuple[str, ...]],
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> tuple[SourceStructureBranch, ...]:
     """Return every explicit computation clause with its structural owner."""
 
+    if printed_operations is None:
+        printed_operations = _printed_operation_context(
+            source_text, branches, corpus_citation_path
+        )
+    printed_rows = (
+        printed_operations.structure
+        if printed_operations is not None
+        and printed_operations.source_text == source_text
+        and printed_operations.citation_path
+        == corpus_citation_path.strip("/").casefold()
+        else None
+    )
     worksheet_labels = tuple(
         sorted(
             {row.span("label") for row in _worksheet_arithmetic_rows(source_text)}
             | set(_corroborated_form_output_label_spans(source_text))
         )
     )
+    heading_text = source_text
+    if printed_rows is not None:
+        a, b = printed_rows.heading_dash
+        heading_text = source_text[:a] + " " * (b - a) + source_text[b:]
     classification_text = _without_precomputed_income_table_percentage_captions(
-        mask_form_display(source_text), corpus_citation_path=corpus_citation_path
+        mask_form_display(heading_text),
+        corpus_citation_path=corpus_citation_path,
     )
     bare_labels = bare_outline(source_text) or ()
     bare_display_text = mask_bare_labels(source_text, bare_labels)
@@ -20273,11 +20390,16 @@ def _source_formula_branches(
             and bool(active_children)
         )
         classification_clause = classification_text[start:end]
-        explicit_computation = source_states_explicit_computation(
-            classification_clause
-        ) or (
-            authenticated_bare_chapeau
-            and bool(_formula_operation_kinds(classification_clause))
+        explicit_computation = (
+            source_states_explicit_computation(classification_clause)
+            or (
+                printed_rows is not None
+                and any(start <= a < b <= end for a, b in printed_rows.additions)
+            )
+            or (
+                authenticated_bare_chapeau
+                and bool(_formula_operation_kinds(classification_clause))
+            )
         )
         if not explicit_computation and (
             not computation_chapeaux
@@ -20806,6 +20928,7 @@ def _source_clause_spans(
 
     # Mask only authenticated structural labels, preserving offsets. The
     # resulting excerpts retain every operative character of the source.
+    printed_rows = _unconflicted_printed_rows(source_text, branches)
     bare_labels = bare_outline(source_text) or ()
     display_text = mask_bare_labels(source_text, bare_labels)
     boundary_text = _mask_spaced_german_sentence_labels(display_text)
@@ -20847,7 +20970,12 @@ def _source_clause_spans(
             for span in _spaced_german_sentence_label_spans(source_text)
             for point in span
         ),
-        *(match.end() for match in boundary_matches),
+        *(
+            match.end()
+            for match in boundary_matches
+            if printed_rows is None
+            or not any(a < match.end() < b for a, b in printed_rows.atomic_spans)
+        ),
         *(
             point
             for row in _worksheet_arithmetic_rows(source_text)
@@ -20876,6 +21004,12 @@ def _source_clause_spans(
             else ()
         ),
     }
+    if printed_rows is not None:
+        split_points.update(
+            point
+            for point in printed_rows.boundaries
+            if not any(a < point < b for a, b in printed_rows.atomic_spans)
+        )
     for start, end in zip(sorted(split_points), sorted(split_points)[1:]):
         raw = boundary_text[start:end]
         left_trimmed = len(raw) - len(raw.lstrip())
@@ -20994,12 +21128,14 @@ def _unwitnessed_formula_branches(
     execution_cache: dict[tuple[str, int], _FormulaExecution | None],
     operand_declarations: Mapping[str, dict[str, Any]] | None = None,
     certified_replacement: BoundWorksheetReplacement | None = None,
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> tuple[SourceStructureBranch, ...]:
     """Consume each executed rule/case witness for at most one source formula."""
 
     candidate_witnesses = {
         branch: _formula_branch_test_witnesses(
             branch,
+            printed_operations=printed_operations,
             operand_declarations=operand_declarations,
             certified_replacement=certified_replacement,
             source_text=source_text,
@@ -21722,6 +21858,7 @@ def _formula_branch_test_witnesses(
     max_cases_per_rule: int | None = None,
     operand_declarations: Mapping[str, dict[str, Any]] | None = None,
     certified_replacement: BoundWorksheetReplacement | None = None,
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> set[tuple[str, str]]:
     # A good execution must never hide another invalid source-owned version,
     # alternative, operand or alias after the closed credit demand removal.
@@ -21787,7 +21924,8 @@ def _formula_branch_test_witnesses(
             )
             if not _formula_execution_is_source_branch_witness(
                 execution,
-                branch,
+                printed_operations=printed_operations,
+                branch=branch,
                 operand_declarations=operand_declarations,
                 source_text=source_text,
                 corpus_citation_path=corpus_citation_path,
@@ -21912,6 +22050,7 @@ def _selected_principal_formula_has_exact_source_proof(
     case: dict[str, Any],
     branch: SourceStructureBranch,
     corpus_citation_path: str,
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> bool:
     """Require normalized same-source formula proof on the selected version."""
 
@@ -21923,7 +22062,12 @@ def _selected_principal_formula_has_exact_source_proof(
         version_index == selected_index
         and citation_path.strip("/").casefold() == normalized_citation_path
         and _formula_source_excerpt_matches(branch, excerpt)
-        and source_states_explicit_computation(excerpt)
+        and (
+            source_states_explicit_computation(excerpt)
+            or _printed_operation_proof(
+                printed_operations, branch, excerpt, citation_path
+            )
+        )
         for path, citation_path, excerpt in _rule_source_excerpt_atoms(rule)
         if (version_index := _formula_proof_version_index(path)) is not None
     )
@@ -22529,6 +22673,7 @@ def _formula_execution_is_source_branch_witness(
     source_text: str = "",
     corpus_citation_path: str = "",
     certified_replacement: BoundWorksheetReplacement | None = None,
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> bool:
     """Return whether one resolved execution proves the exact source branch."""
 
@@ -22557,6 +22702,28 @@ def _formula_execution_is_source_branch_witness(
         return False
 
     def matches(binding_execution: _FormulaExecution) -> bool:
+        replacement_kinds = (
+            certified_replacement.operation_kinds(
+                rule=rule, case=case, branch=branch, execution=binding_execution
+            )
+            if certified_replacement is not None
+            else None
+        )
+        printed_kinds = None
+        if printed_operations is not None:
+            if (
+                printed_operations.source_text != source_text
+                or printed_operations.citation_path
+                != corpus_citation_path.strip("/").casefold()
+            ):
+                return False
+            printed_kinds = printed_operations.operation_kinds(branch)
+        if (
+            printed_kinds is not None
+            and replacement_kinds is not None
+            and printed_kinds != replacement_kinds
+        ):
+            return False
         return _statutory_credit_execution_binds_operands(
             binding_execution,
             branch,
@@ -22568,11 +22735,7 @@ def _formula_execution_is_source_branch_witness(
             binding_execution,
             branch,
             source_operation_kinds=(
-                certified_replacement.operation_kinds(
-                    rule=rule, case=case, branch=branch, execution=binding_execution
-                )
-                if certified_replacement is not None
-                else None
+                printed_kinds if printed_kinds is not None else replacement_kinds
             ),
             interval=interval,
             annual_evidence=annual_evidence,
@@ -22705,6 +22868,7 @@ def _unbound_matching_formula_rules(
     formula_environment: dict[str, Any],
     dependency_cache: dict[int, dict[str, Any]],
     execution_cache: dict[tuple[str, int], _FormulaExecution | None],
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> _UnboundFormulaDiagnostic:
     """Find asserted formulas that match a clause but lack its source binding."""
 
@@ -22720,6 +22884,8 @@ def _unbound_matching_formula_rules(
     )
     witnesses = _formula_branch_test_witnesses(
         branch,
+        printed_operations=printed_operations,
+        source_text=printed_operations.source_text if printed_operations else "",
         corpus_citation_path=corpus_citation_path,
         principal_rules=principal_rules,
         rule_names=set(scanned_rule_names),
@@ -22782,6 +22948,7 @@ def _uncorroborated_formula_dependency_diagnostic(
     strict_execution_cache: dict[tuple[str, int], _FormulaExecution | None],
     permissive_dependency_cache: dict[tuple[str, int], dict[str, Any]],
     permissive_execution_cache: dict[tuple[str, int], _FormulaExecution | None],
+    printed_operations: _PrintedOperationContext | None = None,
 ) -> _UncorroboratedFormulaDependencyDiagnostic:
     """Find reached derived dependencies omitted from candidate assertions."""
 
@@ -22830,7 +22997,14 @@ def _uncorroborated_formula_dependency_diagnostic(
                 )
             if _formula_execution_is_source_branch_witness(
                 strict_execution_cache[execution_key],
-                branch,
+                printed_operations=printed_operations,
+                corpus_citation_path=printed_operations.citation_path
+                if printed_operations
+                else "",
+                source_text=printed_operations.source_text
+                if printed_operations
+                else "",
+                branch=branch,
                 rule=rule,
                 case=case,
                 principal_rules=principal_rules,
@@ -22863,7 +23037,14 @@ def _uncorroborated_formula_dependency_diagnostic(
             permissive_execution = permissive_execution_cache[execution_key]
             if not _formula_execution_is_source_branch_witness(
                 permissive_execution,
-                branch,
+                printed_operations=printed_operations,
+                corpus_citation_path=printed_operations.citation_path
+                if printed_operations
+                else "",
+                source_text=printed_operations.source_text
+                if printed_operations
+                else "",
+                branch=branch,
                 rule=rule,
                 case=case,
                 principal_rules=principal_rules,
