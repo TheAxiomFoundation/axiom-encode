@@ -1558,6 +1558,34 @@ _NEGATION_LANGUAGE = re.compile(
     r")\b|n['’]t\b",
     flags=re.IGNORECASE,
 )
+# The negations, prohibitions and exclusions that negate an ``in accordance
+# with`` link when they precede it in its clause
+# (``_source_link_scope_has_unreset_negation``). The Hebrew reader takes them,
+# with ``_NEGATION_LANGUAGE``, as negating a Hebrew source link
+# (``(א) prohibited מחושב בהתאם לסעיף 2``), as the translation is read.
+_SOURCE_LINK_NEGATION_LANGUAGE = re.compile(
+    r"\b(?:not|never|neither|nor|cannot|nowhere|prohibit\w*|barred|"
+    r"forbidden|precluded|prevented|excluded|denied|except)\b|"
+    r"\b(?:denies?|rejects?|disclaims?)\b|"
+    r"\b(?:false|untrue|impossible)\s+that\b|"
+    r"(?:^|[,;:]\s*|\b(?:and|but|or|that|while|whereas)\s+)"
+    r"no\s+(?:amount|tax|liability|computation|calculation|"
+    r"determination|rate|base|statute|rule|provision|requirement)\b"
+    r"(?:\s+[A-Za-z-]+){0,3}\s+(?:is|are|was|were|shall|may|must|will|"
+    r"would|can|could|does|do|did|states?|provides?|requires?|"
+    r"determines?|calculates?|computes?|applies?|arises?)\b|"
+    r"\b(?:ca|do|does|did|is|are|was|were|"
+    r"shall|will|would|could|should|must|need)n['’]t\b|"
+    r"\b(?:fails?|refuses?|unable)\s+to\b|"
+    r"\bwithout\s+(?:being\s+)?(?:determin\w*|comput\w*|calculat\w*|"
+    r"appl\w*|impos\w*|aris\w*)\b|"
+    r"\b(?:in\s+no\s+(?:case|event)|under\s+no\s+circumstances|"
+    r"at\s+no\s+time|by\s+no\s+means|in\s+no\s+way|"
+    r"on\s+no\s+account|under\s+no\s+conditions?|"
+    r"in\s+no\s+(?:manner|respect))\b|"
+    r"\b(?:rather|other)\s+than\b",
+    flags=re.IGNORECASE,
+)
 _CONTEXTUAL_AUTHORITY_LANGUAGE = re.compile(
     r"\b(?:"
     r"(?:included|mentioned|quoted|summarized|discussed|provided|supplied|known)\s+"
@@ -8894,32 +8922,7 @@ def _louisiana_predicate_is_in_negative_complement(
 def _source_link_scope_has_unreset_negation(governing_scope: str) -> bool:
     """Bind negation to a linker unless a later finite predicate resets it."""
 
-    negative_markers = tuple(
-        re.finditer(
-            r"\b(?:not|never|neither|nor|cannot|nowhere|prohibit\w*|barred|"
-            r"forbidden|precluded|prevented|excluded|denied|except)\b|"
-            r"\b(?:denies?|rejects?|disclaims?)\b|"
-            r"\b(?:false|untrue|impossible)\s+that\b|"
-            r"(?:^|[,;:]\s*|\b(?:and|but|or|that|while|whereas)\s+)"
-            r"no\s+(?:amount|tax|liability|computation|calculation|"
-            r"determination|rate|base|statute|rule|provision|requirement)\b"
-            r"(?:\s+[A-Za-z-]+){0,3}\s+(?:is|are|was|were|shall|may|must|will|"
-            r"would|can|could|does|do|did|states?|provides?|requires?|"
-            r"determines?|calculates?|computes?|applies?|arises?)\b|"
-            r"\b(?:ca|do|does|did|is|are|was|were|"
-            r"shall|will|would|could|should|must|need)n['’]t\b|"
-            r"\b(?:fails?|refuses?|unable)\s+to\b|"
-            r"\bwithout\s+(?:being\s+)?(?:determin\w*|comput\w*|calculat\w*|"
-            r"appl\w*|impos\w*|aris\w*)\b|"
-            r"\b(?:in\s+no\s+(?:case|event)|under\s+no\s+circumstances|"
-            r"at\s+no\s+time|by\s+no\s+means|in\s+no\s+way|"
-            r"on\s+no\s+account|under\s+no\s+conditions?|"
-            r"in\s+no\s+(?:manner|respect))\b|"
-            r"\b(?:rather|other)\s+than\b",
-            governing_scope,
-            flags=re.IGNORECASE,
-        )
-    )
+    negative_markers = tuple(_SOURCE_LINK_NEGATION_LANGUAGE.finditer(governing_scope))
     if not negative_markers:
         return False
 
@@ -9380,6 +9383,7 @@ def _reason_dependency_is_source_bound(
         other_citations=_reason_dependencies,
         masked_citations=_clause_masked_dependencies,
         other_negations=_NEGATION_LANGUAGE.finditer,
+        other_link_negations=_SOURCE_LINK_NEGATION_LANGUAGE.finditer,
     ):
         return True
     for match in re.finditer(

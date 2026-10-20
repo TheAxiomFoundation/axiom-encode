@@ -2410,6 +2410,78 @@ ROUND_13_REPRODUCERS = (
         "Missing section 2.",
         "neither",
     ),
+    # English's own ``in accordance with`` negations, prohibitions and
+    # exclusions (``_SOURCE_LINK_NEGATION_LANGUAGE``) negate a Hebrew link as
+    # they negate its translation.
+    (
+        "(א) prohibited מחושב בהתאם לסעיף 2.",
+        "(a) It is prohibited to compute it in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "(א) It is impossible that מחושב בהתאם לסעיף 2.",
+        "(a) It is impossible that it is computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "(א) without being computed בהתאם לסעיף 2.",
+        "(a) It is paid without being computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "(א) other than מחושב בהתאם לסעיף 2.",
+        "(a) It is computed other than in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "(א) It fails to be מחושב בהתאם לסעיף 2.",
+        "(a) It fails to be computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "(א) In no case מחושב בהתאם לסעיף 2.",
+        "(a) In no case is it computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    # Intended: an English or German negator earlier in the clause refuses the
+    # Hebrew signal even where English admits the word-for-word translation,
+    # since English reads no negation before its own ``missing`` signal; the
+    # ``not`` of the English signal "not yet encoded" counts too. And one
+    # before ``לפי`` negates the link, which English does not check after
+    # ``under``.
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "not חסר סעיף 2",
+        "Not missing section 2.",
+        "hebrew-stricter",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "Not yet encoded: חסר סעיף 2",
+        "Not yet encoded: missing section 2.",
+        "hebrew-stricter",
+    ),
+    (
+        "(א) not ישולם לפי סעיף 2.",
+        "(a) Payment shall not be made under section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "hebrew-stricter",
+    ),
 )
 
 
@@ -2560,6 +2632,142 @@ def test_any_negator_before_an_accepted_signal_refuses_it(
 
     assert _accepted("e1", affirmed)
     assert not _accepted("e1", negated)
+
+
+# A form of each alternative of English's ``in accordance with`` negations
+# (``_SOURCE_LINK_NEGATION_LANGUAGE`` in source_completeness).
+_OTHER_LINK_NEGATORS = (
+    "not",
+    "never",
+    "neither",
+    "nor",
+    "cannot",
+    "nowhere",
+    "prohibited",
+    "prohibits",
+    "barred",
+    "forbidden",
+    "precluded",
+    "prevented",
+    "excluded",
+    "denied",
+    "except",
+    "denies",
+    "rejects",
+    "disclaims",
+    "false that",
+    "untrue that",
+    "impossible that",
+    "no amount is",
+    "and no tax shall",
+    "isn't",
+    "doesn’t",
+    "can't",
+    "mustn't",
+    "fails to",
+    "refuses to",
+    "unable to",
+    "without being computed",
+    "without applying",
+    "in no case",
+    "in no event",
+    "under no circumstances",
+    "at no time",
+    "by no means",
+    "in no way",
+    "on no account",
+    "under no conditions",
+    "in no manner",
+    "in no respect",
+    "rather than",
+    "other than",
+)
+# The Hebrew negations the link guard reads, as ``_NEGATIONS`` reads them.
+_LINK_NEGATORS = ("לא", "אין", "אינו", "בלתי")
+# Words that negate no link in any of the three languages.
+_LINK_NEUTRAL_WORDS = _OTHER_NEUTRAL_WORDS + ("החישוב", "התשלום", "ברור", "נכון")
+
+
+def test_link_negations_use_the_shared_vocabulary():
+    assert (
+        hebrew._OTHER_LINK_NEGATION.pattern
+        == completeness_module._SOURCE_LINK_NEGATION_LANGUAGE.pattern
+    )
+    assert (
+        hebrew._OTHER_LINK_NEGATION.flags
+        == completeness_module._SOURCE_LINK_NEGATION_LANGUAGE.flags
+    )
+
+
+def test_the_link_vocabulary_holds_every_listed_form():
+    negation = completeness_module._SOURCE_LINK_NEGATION_LANGUAGE
+    for word in _OTHER_LINK_NEGATORS:
+        for form in (word, word.upper()):
+            found = negation.search(form)
+            assert found and found.span() == (0, len(form)), form
+    for word in _LINK_NEUTRAL_WORDS + ("without delay", "no", "rather"):
+        assert not negation.search(word), word
+
+
+def test_the_shared_checker_passes_its_link_negators_to_the_hebrew_reader(monkeypatch):
+    """The Hebrew link guard reads English's link vocabulary, not only its copy."""
+
+    source = "(א) nope מחושב בהתאם לסעיף 2."
+    assert _accepted("a", "חסר סעיף 2", source)
+    monkeypatch.setattr(
+        completeness_module,
+        "_SOURCE_LINK_NEGATION_LANGUAGE",
+        re.compile(r"\bnope\b", flags=re.IGNORECASE),
+    )
+    assert not _accepted("a", "חסר סעיף 2", source)
+
+
+@st.composite
+def _link_negations(draw) -> str:
+    """A negation of a link, in any of the three languages.
+
+    A Hebrew negation under any of its prefixes, ``ד`` included, pointed or
+    direction-marked; a word of the shared English and German negators; or a
+    form of English's ``in accordance with`` negations, in any letter case.
+    """
+
+    language = draw(st.sampled_from(("hebrew", "shared", "link")))
+    if language == "hebrew":
+        negation = draw(st.sampled_from(_NEGATION_PREFIXES)) + draw(
+            st.sampled_from(_LINK_NEGATORS)
+        )
+        return draw(_marked(negation))
+    word = draw(
+        st.sampled_from(
+            _OTHER_NEGATORS if language == "shared" else _OTHER_LINK_NEGATORS
+        )
+    )
+    return draw(st.sampled_from((word, word.upper(), word.capitalize())))
+
+
+@settings(max_examples=150, deadline=None)
+@given(_link_negations(), st.lists(st.sampled_from(_LINK_NEUTRAL_WORDS), max_size=4))
+@example("דלא", [])
+@example("ודאינו", ["התשלום"])
+@example("prohibited", [])
+@example("impossible that", ["it", "is"])
+@example("without being computed", [])
+@example("nicht", ["es", "ist"])
+def test_any_negator_before_an_accepted_link_unlinks_it(negation, words):
+    """Polarity: a negator of any of the three languages negates a Hebrew link.
+
+    Placed anywhere earlier in the deferred branch's clause than ``בהתאם ל``,
+    after words of any of the languages, it leaves the cited section
+    inoperative, so the precise missing claim the same words otherwise
+    support is refused.
+    """
+
+    lead = " ".join(words)
+    affirmed = f"(א) {lead} מחושב בהתאם לסעיף 2.".replace("  ", " ")
+    negated = f"(א) {lead} {negation} מחושב בהתאם לסעיף 2.".replace("  ", " ")
+
+    assert _accepted("a", "חסר סעיף 2", affirmed)
+    assert not _accepted("a", "חסר סעיף 2", negated)
 
 
 # `_EXPLICIT_COMPUTATION` as it was before its rate was anchored at the first

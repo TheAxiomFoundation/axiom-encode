@@ -794,6 +794,36 @@ _OTHER_NEGATION = re.compile(
     r")\b|n['’]t\b",
     flags=re.IGNORECASE,
 )
+# The English negations, prohibitions and exclusions that negate an ``in
+# accordance with`` link: ``_SOURCE_LINK_NEGATION_LANGUAGE`` in
+# source_completeness, verbatim, which the shared checker passes in as
+# ``other_link_negations``; ``test_link_negations_use_the_shared_vocabulary``
+# holds them equal. With ``_OTHER_NEGATION`` they negate a Hebrew source
+# link, so ``(א) prohibited מחושב בהתאם לסעיף 2`` links nothing, as its
+# translation does not.
+_OTHER_LINK_NEGATION = re.compile(
+    r"\b(?:not|never|neither|nor|cannot|nowhere|prohibit\w*|barred|"
+    r"forbidden|precluded|prevented|excluded|denied|except)\b|"
+    r"\b(?:denies?|rejects?|disclaims?)\b|"
+    r"\b(?:false|untrue|impossible)\s+that\b|"
+    r"(?:^|[,;:]\s*|\b(?:and|but|or|that|while|whereas)\s+)"
+    r"no\s+(?:amount|tax|liability|computation|calculation|"
+    r"determination|rate|base|statute|rule|provision|requirement)\b"
+    r"(?:\s+[A-Za-z-]+){0,3}\s+(?:is|are|was|were|shall|may|must|will|"
+    r"would|can|could|does|do|did|states?|provides?|requires?|"
+    r"determines?|calculates?|computes?|applies?|arises?)\b|"
+    r"\b(?:ca|do|does|did|is|are|was|were|"
+    r"shall|will|would|could|should|must|need)n['’]t\b|"
+    r"\b(?:fails?|refuses?|unable)\s+to\b|"
+    r"\bwithout\s+(?:being\s+)?(?:determin\w*|comput\w*|calculat\w*|"
+    r"appl\w*|impos\w*|aris\w*)\b|"
+    r"\b(?:in\s+no\s+(?:case|event)|under\s+no\s+circumstances|"
+    r"at\s+no\s+time|by\s+no\s+means|in\s+no\s+way|"
+    r"on\s+no\s+account|under\s+no\s+conditions?|"
+    r"in\s+no\s+(?:manner|respect))\b|"
+    r"\b(?:rather|other)\s+than\b",
+    flags=re.IGNORECASE,
+)
 
 # Words of a compound connective are separated by a space, a maqaf or a hyphen.
 _SEP = rf"(?:\s+|\s*[{_MAQAF}-]\s*)"
@@ -1154,7 +1184,8 @@ _OWNERSHIP_STOP = re.compile(rf";|\.(?!\d)|\n(?=[ \t]*\({OUTLINE_LABEL}\))")
 # takes no reset, as English binds negation to ``in accordance with``. Any
 # other negation stands, so ``מבוטח שלא עבד ישלם לפי`` is read as negating:
 # stricter than English, which does not check ``under``. An English or German
-# negator (``_OTHER_NEGATION``) is a main-clause negation.
+# negator (``_OTHER_NEGATION`` or ``_OTHER_LINK_NEGATION``) is a main-clause
+# negation.
 _NEGATIONS = re.compile(
     rf"{_NOT_HEBREW_BEFORE}(?P<relative>ו?(?:(?:מ|כ|לכ|ב)?ש|ד))?(?:[ומה]{{0,2}})"
     r"(?:אין|לא|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|אסור(?:ה|ים|ות)?|בל|לבל|בלתי"
@@ -1270,33 +1301,39 @@ def _linked_source_instruments(
     source_scope_text: str,
     current_kind: str = "חוק",
     other_negations: Callable[[str], Iterable[re.Match[str]]] | None = None,
+    other_link_negations: Callable[[str], Iterable[re.Match[str]]] | None = None,
 ) -> LinkedIndex:
     """Instruments of the operative citations, by section and fragment prefix.
 
     Each scope citation that a linker makes operative (``לפי סעיף 345ב(א)``)
     is entered under its section with every prefix of its fragments, so a
     reason citing ``345ב`` or ``345ב(א)`` is answered by one lookup. A scan
-    builds this once and passes it down. ``other_negations`` finds the
-    English and German negators, ``_OTHER_NEGATION`` without it.
+    builds this once and passes it down. ``other_negations`` and
+    ``other_link_negations`` find the English and German negators,
+    ``_OTHER_NEGATION`` and ``_OTHER_LINK_NEGATION`` without them.
     """
 
     index: LinkedIndex = {}
     stops = _clause_stops(source_scope_text)
-    # Hebrew and Latin negators never overlap, so in start order their ends
-    # are ordered too.
-    negations = sorted(
-        (
-            *_NEGATIONS.finditer(source_scope_text),
-            *(other_negations or _OTHER_NEGATION.finditer)(source_scope_text),
-        ),
-        key=lambda negation: (negation.start(), negation.end()),
-    )
+    negations = list(_NEGATIONS.finditer(source_scope_text))
     negation_starts = [negation.start() for negation in negations]
     negation_ends = [negation.end() for negation in negations]
     # Main-clause negations among the first ``i``, so a range is counted in O(1).
     main_before = [0]
     for negation in negations:
-        main_before.append(main_before[-1] + (not negation.groupdict().get("relative")))
+        main_before.append(main_before[-1] + (not negation.group("relative")))
+    # Where the English and German negators start. Each is a main-clause
+    # negation, read where it starts: one that starts in the linker's clause
+    # before the linker negates it. The two vocabularies overlap, so only the
+    # starts are kept, in order.
+    other_starts = sorted(
+        negation.start()
+        for finder in (
+            other_negations or _OTHER_NEGATION.finditer,
+            other_link_negations or _OTHER_LINK_NEGATION.finditer,
+        )
+        for negation in finder(source_scope_text)
+    )
     for cited, cited_instrument in _section_citations(source_scope_text, current_kind):
         clause_start = _clause_start(stops, cited.start())
         # The linkers and the displacement guard read at most ~140 characters
@@ -1307,6 +1344,9 @@ def _linked_source_instruments(
             source_scope_text, window_start, cited.end("proclitics")
         )
         if linker is None:
+            continue
+        other = bisect.bisect_left(other_starts, clause_start)
+        if other < len(other_starts) and other_starts[other] < linker.start():
             continue
         first = bisect.bisect_left(negation_starts, clause_start)
         last = bisect.bisect_right(negation_ends, linker.start()) - 1
@@ -1560,6 +1600,7 @@ def reason_names_source_bound_dependency(
     other_citations: Callable[[str], Iterable[re.Match[str]]] | None = None,
     masked_citations: Callable[[str], Iterable[re.Match[str]]] | None = None,
     other_negations: Callable[[str], Iterable[re.Match[str]]] | None = None,
+    other_link_negations: Callable[[str], Iterable[re.Match[str]]] | None = None,
 ) -> bool:
     """Accept a Hebrew reason naming a missing external section the scope applies.
 
@@ -1581,6 +1622,9 @@ def reason_names_source_bound_dependency(
     ``other_negations`` finds the English and German negators
     (``_NEGATION_LANGUAGE``), which negate a Hebrew signal or link as a Hebrew
     negation does; without it ``_OTHER_NEGATION``, its verbatim copy, does.
+    ``other_link_negations`` finds the English negations that negate an ``in
+    accordance with`` link (``_SOURCE_LINK_NEGATION_LANGUAGE``), which also
+    negate a Hebrew link; without it ``_OTHER_LINK_NEGATION`` does.
 
     Reason and scope are read as one folded copy each (``fold_marks``), so
     points and direction marks hide no negation, adversative, signal or
@@ -1640,7 +1684,10 @@ def reason_names_source_bound_dependency(
             continue
         if linked_index is None:
             linked_index = _linked_source_instruments(
-                source_scope_text, current_kind, other_negations
+                source_scope_text,
+                current_kind,
+                other_negations,
+                other_link_negations,
             )
         if _source_scope_links_dependency(linked_index, dependency, instrument):
             return True
