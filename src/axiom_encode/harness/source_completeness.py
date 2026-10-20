@@ -42,6 +42,7 @@ from axiom_encode.bare_structure import (
     bare_outline,
     mask_bare_labels,
 )
+from axiom_encode.form_source_structure import mask_form_display
 from axiom_encode.harness.manual_locator_metadata import (
     MANUAL_CONTENTS_HEADINGS,
     MANUAL_SECTION_CAPTIONS,
@@ -20083,7 +20084,7 @@ def _source_formula_branches(
         )
     )
     classification_text = _without_precomputed_income_table_percentage_captions(
-        source_text, corpus_citation_path=corpus_citation_path
+        mask_form_display(source_text), corpus_citation_path=corpus_citation_path
     )
     bare_labels = bare_outline(source_text) or ()
     bare_display_text = mask_bare_labels(source_text, bare_labels)
