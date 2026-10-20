@@ -20,6 +20,7 @@ from axiom_encode.corpus_materialize import LockEntry, _canonical_lock_bytes
 from axiom_encode.corpus_release import canonical_release_object_bytes
 from axiom_encode.prepare_signed_backfill import (
     immutable_atomic_source_contract,
+    resolve_atomic_repair_mode,
     split_atomic_source_input,
 )
 from tests.test_corpus_release import _signed_release_object
@@ -64,7 +65,6 @@ def test_wrapper_projects_only_source_contract():
         "SECOND_DEPENDENT_CITATION",
         "DEPENDENT_REVIEW_FINDING",
         "SECOND_DEPENDENT_REVIEW_FINDING",
-        "REPLACE_LEGACY_RULESPEC_PATH",
         "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
         "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
         "EXISTING_SIGNED_IMPORTS_JSON",
@@ -74,6 +74,66 @@ def test_wrapper_projects_only_source_contract():
 def test_excluded_dispatch_before_transport(field):
     with pytest.raises(ValueError):
         transport.request_run_id(json.dumps(WRAPPER), {**DISPATCH, field: '["x"]'})
+
+
+def test_single_legacy_replacement_transport_is_bound_to_canonical_destination():
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": (
+            "us-az/policies/des/faa5/na-categorical-eligibility/block-4.yaml"
+        ),
+        "REPLACE_LEGACY_RULESPEC_PATH": (
+            "us-az/policies/des/faa5/na-categorical-eligibility/"
+            "expanded-categorical-eligibility.yaml"
+        ),
+    }
+    assert transport.request_run_id(json.dumps(WRAPPER), dispatch) == "123"
+
+    with_cases = copy.deepcopy(WRAPPER)
+    with_cases["transaction"]["primary_required_test_cases"] = [
+        {
+            "name": "2026 February ECE rate",
+            "period": {
+                "period_kind": "month",
+                "start": "2026-02-01",
+                "end": "2026-02-28",
+            },
+            "input": {},
+            "required_output": {
+                "us-az:policies/des/faa5/na-categorical-eligibility/"
+                "block-4#expanded_categorical_eligibility_fpl_limit_rate": 1.85
+            },
+        }
+    ]
+    assert transport.request_run_id(json.dumps(with_cases), dispatch) == "123"
+    assert resolve_atomic_repair_mode(json.dumps(with_cases), dispatch) == {
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "legacy_source",
+    [
+        "us-az/policies/des/faa5/na-categorical-eligibility/block-4.yaml",
+        "us/policies/des/faa5/na-categorical-eligibility/expanded.yaml",
+        "us-az/../../other.yaml",
+        "us-az/policies/des/faa5//expanded.yaml",
+        "us-az/policies/des/faa5\\expanded.yaml",
+        "us-az/.axiom/expanded.yaml",
+        "us-az/policies/des/faa5/expanded.test.yaml",
+    ],
+)
+def test_legacy_replacement_transport_rejects_unsafe_source(legacy_source):
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": (
+            "us-az/policies/des/faa5/na-categorical-eligibility/block-4.yaml"
+        ),
+        "REPLACE_LEGACY_RULESPEC_PATH": legacy_source,
+    }
+    with pytest.raises(ValueError, match="legacy source must be"):
+        transport.request_run_id(json.dumps(WRAPPER), dispatch)
 
 
 @pytest.mark.parametrize(
@@ -479,7 +539,7 @@ def test_cli_excluded_modes_never_touch_artifact_service(monkeypatch):
         "read_regular",
         lambda *a, **k: pytest.fail("unexpected metadata read"),
     )
-    with pytest.raises(ValueError, match="fresh ordinary"):
+    with pytest.raises(ValueError, match="one fresh primary"):
         transport.main()
 
 

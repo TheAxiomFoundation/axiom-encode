@@ -429,7 +429,6 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         normalized = split_atomic_source_input(json.dumps(inner, allow_nan=False))
         if (
             normalized["require_complete_source_unit"] is not True
-            or normalized["primary_required_test_cases"]
             or normalized["source_bundle"]
             or normalized["canonical_refresh_bundle"]
         ):
@@ -620,12 +619,11 @@ def resolve_atomic_repair_mode(
                 "SECOND_DEPENDENT_CITATION",
                 "DEPENDENT_REVIEW_FINDING",
                 "SECOND_DEPENDENT_REVIEW_FINDING",
-                "REPLACE_LEGACY_RULESPEC_PATH",
                 "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
                 "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
             )
         ):
-            raise ValueError("corpus transport supports only a fresh ordinary primary")
+            raise ValueError("corpus transport supports only one fresh primary")
         for field in (
             "EXISTING_SIGNED_IMPORTS_JSON",
             "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON",
@@ -640,12 +638,43 @@ def resolve_atomic_repair_mode(
             or citation_rulespec_path(dispatch.get("CITATION", "")).as_posix() != target
         ):
             raise ValueError(
-                "corpus transport requires the exact ordinary replacement citation/path"
+                "corpus transport requires the exact canonical replacement citation/path"
             )
+        legacy_source = dispatch.get("REPLACE_LEGACY_RULESPEC_PATH", "")
+        if normalized["primary_required_test_cases"] and not legacy_source:
+            raise ValueError(
+                "corpus transport required cases need a single legacy replacement"
+            )
+        if legacy_source:
+            if not isinstance(legacy_source, str):
+                raise ValueError("corpus transport legacy source must be a path string")
+            legacy_path = PurePosixPath(legacy_source)
+            target_path = PurePosixPath(target)
+            if (
+                legacy_path.as_posix() != legacy_source
+                or legacy_path.is_absolute()
+                or len(legacy_path.parts) < 3
+                or legacy_path.parts[0] != target_path.parts[0]
+                or legacy_path.parts[1] not in RULESPEC_ATOMIC_ROOTS
+                or legacy_path.suffix != ".yaml"
+                or legacy_path.name.endswith(".test.yaml")
+                or legacy_path == target_path
+                or ".." in legacy_path.parts
+                or "\\" in legacy_source
+            ):
+                raise ValueError(
+                    "corpus transport legacy source must be a distinct protected "
+                    "RuleSpec module in the target jurisdiction"
+                )
     explicit = normalized.get("repair_mode")
-    mode = explicit or (
-        "tests_only" if normalized["primary_required_test_cases"] else "full_artifact"
-    )
+    if "corpus_artifact_run_id" in normalized:
+        # Required cases on a fresh legacy migration are a signing contract,
+        # not a request to replay a failed candidate in tests-only mode.
+        mode = "full_artifact"
+    else:
+        mode = explicit or (
+            "tests_only" if normalized["primary_required_test_cases"] else "full_artifact"
+        )
     if explicit is not None:
         run_id = dispatch.get("REPAIR_RUN_ID", "")
         if not re.fullmatch(r"[0-9]+", run_id) or run_id == dispatch.get(
