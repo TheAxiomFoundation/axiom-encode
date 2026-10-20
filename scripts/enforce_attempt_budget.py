@@ -354,6 +354,14 @@ def main() -> int:
     workflow_file = os.environ.get("WORKFLOW_FILE", "targeted-signed-reencode.yml")
     queue_id = os.environ.get("QUEUE_ID", "").strip()
     repair_run_id = os.environ.get("REPAIR_RUN_ID", "").strip()
+    # A reviewed exact patch is deliberately not the replay budget exemption.
+    # This is conservative routing only; the protected parser validates every
+    # wrapper field and registry binding before artifact acquisition.
+    try:
+        source_request = json.loads(os.environ.get("SOURCE_BUNDLE_JSON", ""))
+    except (ValueError, RecursionError):
+        source_request = None
+    reviewed_repair = isinstance(source_request, dict) and source_request.get("schema") == "axiom-encode/reviewed-repair-transaction/v1"
     metadata_migration = is_retired_source_metadata_plan(
         os.environ.get("SOURCE_BUNDLE_JSON", "")
     )
@@ -419,9 +427,9 @@ def main() -> int:
     )
     enforced = (
         queue_id == ""
-        and repair_run_id == ""
+        and (repair_run_id == "" or reviewed_repair)
         and not metadata_migration
-        and override != "true"
+        and (override != "true" or reviewed_repair)
     )
     blocked = enforced and decision.exhausted
     print(
@@ -434,9 +442,11 @@ def main() -> int:
                 decision, citation=citation, enforced=enforced, blocked=blocked
             )
         )
-    if override == "true":
+    if override == "true" and not reviewed_repair:
         print("attempt-budget: override set by dispatcher; not blocking.")
-    if repair_run_id:
+    elif override == "true":
+        print("attempt-budget: reviewed repair does not accept budget override.")
+    if repair_run_id and not reviewed_repair:
         print(
             "attempt-budget: repair replay is authenticated by the protected "
             "resolver; not blocking."
