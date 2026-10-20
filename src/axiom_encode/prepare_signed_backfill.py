@@ -673,7 +673,9 @@ def resolve_atomic_repair_mode(
         mode = "full_artifact"
     else:
         mode = explicit or (
-            "tests_only" if normalized["primary_required_test_cases"] else "full_artifact"
+            "tests_only"
+            if normalized["primary_required_test_cases"]
+            else "full_artifact"
         )
     if explicit is not None:
         run_id = dispatch.get("REPAIR_RUN_ID", "")
