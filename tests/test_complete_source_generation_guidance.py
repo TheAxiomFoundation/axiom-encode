@@ -322,3 +322,62 @@ def test_checklist_non_operative_text_is_gated_on_complete_source_mode():
     assert "satisfy this checklist with\n`module.deferred_outputs[]`" in default
     assert "satisfy this checklist with\n`module.deferred_outputs[]`" not in complete
     assert "a\nnon-operative deferral is rejected" in complete
+
+
+@pytest.mark.parametrize(
+    "render",
+    [
+        lambda: evals._format_branch_coverage_plan("us:statutes/7/2020"),
+        lambda: evals._format_completeness_repair_guidance("us:statutes/7/2020"),
+    ],
+    ids=["first-attempt-plan", "repair-block"],
+)
+def test_encoded_branches_get_companion_test_guidance(render):
+    rendered = _normalized(render())
+
+    assert "For every branch you newly encode, add its companion cases" in rendered
+    assert "changes only the branch's controlling local input" in rendered
+    assert "including false and zero facts" in rendered
+    assert "re-emit every existing named companion case with that input" in rendered
+    assert "never a bare or quoted `YYYY-MM-DD`" in rendered
+    assert "one contiguous, verbatim span of `./source.txt`" in rendered
+    # Accuracy guards: tests never supply values the model must state, and
+    # framing text is not encoded as a constant true output.
+    assert "Never choose an expected value to make a case pass" in rendered
+    assert "never state a source amount, rate, or threshold only in a test" in (
+        rendered
+    )
+    assert "a constant `true` just to cover a branch" in rendered
+    assert "`#input.program_is_separate_child_health_program`" in rendered
+
+
+def test_repair_block_names_the_deferral_record_shape():
+    rendered = _normalized(
+        evals._format_completeness_repair_guidance("us:statutes/7/2020")
+    )
+
+    assert "omit `source_values` unless every entry is an absolute" in rendered
+
+
+@pytest.mark.parametrize(
+    ("period", "accepted"),
+    [
+        ("2026-07", True),
+        (
+            {"period_kind": "month", "start": "2026-07-01", "end": "2026-07-31"},
+            True,
+        ),
+        ("2026-07-01", False),
+        ("2026", False),
+    ],
+)
+def test_period_guidance_agrees_with_validator(period, accepted):
+    """The forms the guidance allows parse; a quoted full date does not."""
+
+    from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+
+    if accepted:
+        assert ValidatorPipeline._coerce_rulespec_period(None, period)
+    else:
+        with pytest.raises(ValueError):
+            ValidatorPipeline._coerce_rulespec_period(None, period)

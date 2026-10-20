@@ -10227,6 +10227,36 @@ _DEFERRAL_GROUNDS = """(1) the branch depends on the determination of another pr
   the rule it governs"""
 
 
+_NO_CONSTANT_FRAMING_OUTPUT = """Do not encode applicability, scope, basis, or purpose text as a
+  derived output whose formula is a constant `true` just to cover a branch.
+  When such text limits who or what the rules apply to, encode it as a
+  condition on a real local input named after that limit (for example
+  `#input.program_is_separate_child_health_program`) and use that condition
+  in the outputs it governs; otherwise cover it through the `source:` or
+  proof excerpt of the rule it governs, or defer it on a ground below"""
+
+_ENCODED_BRANCH_TESTS = """For every branch you newly encode, add its companion cases in the same
+  response:
+  - A positive case and, when the branch states a condition, exception, or
+    limitation, a blocking case that copies the positive case and changes
+    only the branch's controlling local input. Both cases assert the branch's
+    principal output, plus every local derived output that the case reaches.
+  - Every case assigns every local `#input.*` that the module declares,
+    including false and zero facts. When you add an input, re-emit every
+    existing named companion case with that input assigned; a case that you
+    do not re-emit keeps its old inputs and fails the input check.
+  - Assert only outputs that are named rules of this module or exact
+    imports, at a case period where their formula has a version.
+  - Use the period forms in the companion-test rules (`YYYY-MM` or an
+    explicit `period_kind` mapping); never a bare or quoted `YYYY-MM-DD`.
+  - Each expected value must follow from the source text and the encoded
+    formula for that case's inputs. Never choose an expected value to make a
+    case pass, and never state a source amount, rate, or threshold only in a
+    test.
+  - Copy each `source.excerpt` as one contiguous, verbatim span of
+    `./source.txt`: no ellipsis, no paraphrase, no joined fragments."""
+
+
 def _format_branch_coverage_plan(deferral_anchor: str) -> str:
     """Render the complete-source encode-or-defer plan for a first attempt."""
 
@@ -10243,6 +10273,8 @@ def _format_branch_coverage_plan(deferral_anchor: str) -> str:
   their boundary-input or deferral form); do not invent a local fact for it.
   For a branch that states a condition, amount, or computation, a missing
   input, a missing date type, or a missing relation is not a deferral ground.
+  {_NO_CONSTANT_FRAMING_OUTPUT}.
+- {_ENCODED_BRANCH_TESTS}
 - DEFER a branch only when {_DEFERRAL_GROUNDS}. A purpose, basis, or heading
   leaf is covered by the `source:` or proof excerpt of the rule that consumes
   it, not by a deferral. Write each deferred output as
@@ -10276,6 +10308,8 @@ def _format_completeness_repair_guidance(deferral_anchor: str) -> str:
   inventing a local fact. For such a branch, "no input is supplied", "the
   schema has no date input", and "no executable relation is available" are
   not deferral grounds: they name inputs to declare.
+  {_NO_CONSTANT_FRAMING_OUTPUT}.
+- {_ENCODED_BRANCH_TESTS}
 - When you encode a branch whose deferral was rejected, remove that deferral
   with an item that contains only `output: <existing output>` and
   `repair_remove: true`.
@@ -10283,7 +10317,9 @@ def _format_completeness_repair_guidance(deferral_anchor: str) -> str:
 - A deferred output path puts the branch after the module path as
   slash-separated markers: `{deferral_anchor}/<marker>/<marker>#<name>`.
   Never use parentheses such as `a(1)(A)`, another jurisdiction prefix, or the
-  bare module path for a branch.
+  bare module path for a branch. A deferral record holds `output` and
+  `reason`, and `blocked_by` only for exact targets; omit `source_values`
+  unless every entry is an absolute `jurisdiction:path#name` target.
 """
 
 
