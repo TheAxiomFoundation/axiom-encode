@@ -64,6 +64,23 @@ env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" TMPDIR="$out/tmp/" LANG=en_US.U
 - Ctrl-C or `kill` on the supervisor kills the running encodes of every group and exits. Do not kill only the supervisor's Python process with `kill -9`: that leaves orphan encodes, which keep writing into run directories that a resume reuses. If that happens, kill the leftover `local_encode.py` processes before you resume.
 - Do not run two supervisors on one output directory.
 
+## Keeping intermediate results
+
+A run keeps everything it produces. Nothing is deleted:
+
+- Each encode directory `runs/<arm>/r<N>/<citation>/` holds:
+  - `failed_attempts.jsonl`, with the validator issues of every rejected attempt;
+  - `generated/`, with the candidate files of each model and the eval workspaces (`source.txt`, context, manifest);
+  - `final-rejected-candidate/` and `encodings.db`;
+  - `stdout.log`, `stderr.log` and `run.json`.
+- If an encode directory already exists when a run starts (a resume after a crash), `run_one.sh` renames it to `<dir>.discarded-<timestamp>`. The analyzer ignores these directories.
+- Groups discarded for infra reasons move to `discarded/<group>-try<N>-<ts>/`, with both arms intact. `retries.jsonl` records why.
+- The supervisor writes `interim-25pct.md`, `interim-50pct.md` and `interim-75pct.md` when that share of groups is done. Each holds the tally and the per-rule issues at that point. These snapshots are descriptive only. The pre-registered analysis runs once, on the complete run, and the snapshots must not change it.
+- Keep the design file (`DESIGN.txt`), `progress.md`, `load.log` and the order files in the same directory.
+- Pass `--archive-dir <dir>` to copy the whole output tree to a durable place after every group and at the end. The copy uses `rsync -a --backup`: it never deletes, and replaced files are kept under `_versions/<timestamp>/`.
+  - The directory must be outside any git work tree and outside iCloud Drive; the supervisor refuses both. The session scratchpad is not durable. Use a local directory such as `~/axiom-encode-local-ab/<date>-<name>/`.
+  - Never commit run artifacts. They contain generated candidates and model traces, not reviewed RuleSpec.
+
 ## Analysis
 
 `analyze_ab.py <out> --baseline A --treatment B [--classes citations.tsv]` writes `report.md` and `results.json`:

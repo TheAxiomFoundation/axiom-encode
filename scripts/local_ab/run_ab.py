@@ -13,7 +13,14 @@ with ``random.Random(seed)``; orders are written to ``order_r<N>.txt``.
 
 Outputs in ``--out``: ``runs/<arm>/r<N>/<slug>/`` (one encode each),
 ``pairs.jsonl`` (finished groups), ``retries.jsonl`` (infra-discarded groups),
-``discarded/``, ``progress.md`` and ``load.log``.
+``discarded/``, ``progress.md``, ``load.log`` and ``interim-25pct.md`` /
+``interim-50pct.md`` / ``interim-75pct.md`` (descriptive snapshots written when
+that share of groups is done). Nothing is deleted: a run dir that already
+exists is renamed to ``<dir>.discarded-<timestamp>`` by run_one.sh, and
+infra-discarded groups move to ``discarded/``. With ``--archive-dir`` the whole
+``--out`` tree is rsynced (copy only, replaced files kept under
+``_versions/``) to a durable directory after every group and at the end; the
+directory must be outside git work trees and iCloud Drive.
 
 Infra handling: a group with a network or rate-limit error in codex output,
 or a system sleep during the group (``pmset -g log``), is discarded for every
@@ -298,7 +305,69 @@ class Supervisor:
             },
         )
         self.progress(f"pair done: {cit} r{idx} | " + " | ".join(summary))
+        self.after_group()
         return "ok"
+
+    # -- durability ------------------------------------------------------------
+    def after_group(self):
+        """Write interim snapshots at 25/50/75% and copy the run to the archive."""
+
+        with lock:
+            done = sum(
+                1
+                for line in open(self.out / "pairs.jsonl")
+                if isinstance(json.loads(line).get("status"), dict)
+            )
+            due = [
+                pct
+                for pct in (25, 50, 75)
+                if done >= self.total_groups * pct / 100 and pct not in self.snapshots
+            ]
+            self.snapshots.update(due)
+        for pct in due:
+            arms = list(self.arms)
+            result = subprocess.run(
+                [
+                    "python3",
+                    "-I",
+                    str(HERE / "analyze_ab.py"),
+                    str(self.out),
+                    "--baseline",
+                    arms[0],
+                    "--treatment",
+                    arms[1],
+                    "--no-write",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            (self.out / f"interim-{pct:02d}pct.md").write_text(
+                f"Interim snapshot at {done}/{self.total_groups} groups, "
+                f"{time.strftime('%Y-%m-%dT%H:%M:%S')}. Descriptive only; the "
+                "pre-registered analysis runs once, on the complete run.\n\n"
+                + result.stdout
+            )
+            self.progress(f"interim snapshot {pct}% written ({done} groups)")
+        self.archive()
+
+    def archive(self):
+        if not self.args.archive_dir:
+            return
+        dest = Path(self.args.archive_dir)
+        dest.mkdir(parents=True, exist_ok=True)
+        # Copy only; never delete in the archive. Replaced files are kept
+        # under _versions/<timestamp>/.
+        subprocess.run(
+            [
+                "rsync",
+                "-a",
+                "--backup",
+                f"--backup-dir={dest / '_versions' / time.strftime('%Y%m%dT%H%M%S')}",
+                f"{self.out}/",
+                f"{dest}/",
+            ],
+            capture_output=True,
+        )
 
     # -- queue ---------------------------------------------------------------
     def build_queue(self):
@@ -363,12 +432,14 @@ class Supervisor:
         os._exit(130)
 
     def run(self):
+        self.snapshots = set()
         stop_file = self.out / "STOP"
         if stop_file.exists():
             stop_file.unlink()
         signal.signal(signal.SIGINT, self.kill_live)
         signal.signal(signal.SIGTERM, self.kill_live)
         queue, skipped = self.build_queue()
+        self.total_groups = len(queue) + skipped
         self.progress(
             f"START seed={self.args.seed} arms={list(self.arms)} jobs={len(queue)} "
             f"(skipped {skipped} completed) parallel={self.args.parallel}"
@@ -425,6 +496,7 @@ class Supervisor:
         self.progress(
             f"END remaining_jobs={len(queue)} stop_file={(self.out / 'STOP').exists()}"
         )
+        self.archive()
 
 
 def main():
@@ -443,7 +515,29 @@ def main():
     parser.add_argument("--seed", type=int, default=20261020)
     parser.add_argument("--timeout-min", type=float, default=75)
     parser.add_argument("--max-infra-retries", type=int, default=3)
+    parser.add_argument(
+        "--archive-dir",
+        help="durable copy of --out after every group (outside git and iCloud)",
+    )
     args = parser.parse_args()
+    if args.archive_dir:
+        archive = Path(args.archive_dir).expanduser().resolve()
+        if "Mobile Documents" in str(archive) or "CloudDocs" in str(archive):
+            parser.error("--archive-dir must not be in iCloud Drive")
+        probe = archive
+        while not probe.exists():
+            probe = probe.parent
+        inside_git = (
+            subprocess.run(
+                ["git", "-C", str(probe), "rev-parse", "--is-inside-work-tree"],
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            == "true"
+        )
+        if inside_git:
+            parser.error("--archive-dir must not be inside a git work tree")
+        args.archive_dir = str(archive)
     if len(args.arm) < 2:
         parser.error("need at least two --arm name=worktree")
     if not os.environ.get("LOCAL_AB_PINS"):

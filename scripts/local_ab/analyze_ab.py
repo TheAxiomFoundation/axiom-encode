@@ -150,6 +150,11 @@ def main():
     parser.add_argument("--baseline", default="main")
     parser.add_argument("--treatment", default="branch")
     parser.add_argument("--classes")
+    parser.add_argument(
+        "--no-write",
+        action="store_true",
+        help="print only; do not write report.md/results.json",
+    )
     args = parser.parse_args()
     D, A, B = args.run_dir, args.baseline, args.treatment
 
@@ -161,6 +166,8 @@ def main():
 
     runs = {}
     for rj in glob.glob(f"{D}/runs/*/r*/*/run.json"):
+        if ".discarded-" in rj:
+            continue  # an earlier run kept by run_one.sh, not part of the result
         rec = load_run(os.path.dirname(rj))
         # Skip discarded groups and runs the supervisor has not finished
         # (no run_index yet: in progress, or orphaned by a crash).
@@ -350,12 +357,13 @@ def main():
             f"- {rec['t']} {rec['citation']} r{rec['run_index']} try{rec['infra_retry']}: "
             f"{sorted({v[0] for v in rec['errors'].values()})}"
         )
-    open(f"{D}/report.md", "w").write("\n".join(out) + "\n")
-    json.dump(
-        {f"{c}|{i}|{s}": r for (c, i, s), r in runs.items()},
-        open(f"{D}/results.json", "w"),
-        indent=1,
-    )
+    if not args.no_write:
+        open(f"{D}/report.md", "w").write("\n".join(out) + "\n")
+        json.dump(
+            {f"{c}|{i}|{s}": r for (c, i, s), r in runs.items()},
+            open(f"{D}/results.json", "w"),
+            indent=1,
+        )
     print("\n".join(out))
 
 

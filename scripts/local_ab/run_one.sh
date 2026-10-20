@@ -13,7 +13,9 @@ set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 pins="${LOCAL_AB_PINS:?set LOCAL_AB_PINS to the pinned corpus/engine/rulespec-us directory}"
 arm=$1; wt=$2; cit=$3; out=$4
-rm -rf "$out"; mkdir -p "$out/tmp"
+# Never delete an earlier run: keep it (attempts, logs, candidates) beside the new one.
+if [ -e "$out" ]; then mv "$out" "$out.discarded-$(date +%Y%m%dT%H%M%S)"; fi
+mkdir -p "$out/tmp"
 start=$(date +%s)
 env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" TMPDIR="$out/tmp/" LANG=en_US.UTF-8 \
   PATH="$wt/.venv/bin:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" \

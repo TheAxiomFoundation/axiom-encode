@@ -13,8 +13,9 @@ These tools run paired A/B comparisons of the real encoder path on a Mac. Model 
 ```bash
 export LOCAL_AB_PINS=/path/to/pins    # corpus/, engine/, rulespec-us/, 3 public keys
 caffeinate -dimsu python3 -I scripts/local_ab/run_ab.py --out runs/ab1 \
-  --citations citations.txt --arm main=/wt/main --arm branch=/wt/branch --reps 3
+  --citations citations.txt --arm main=/wt/main --arm branch=/wt/branch --reps 3 \
+  --archive-dir ~/axiom-encode-local-ab/2026-10-20-ab1
 python3 -I scripts/local_ab/analyze_ab.py runs/ab1 --baseline main --treatment branch
 ```
 
-The tools hold no credentials. The `*.pub` files in the pins directory are public verification keys.
+Runs never delete their artifacts; see "Keeping intermediate results" in the doc. The tools hold no credentials. The `*.pub` files in the pins directory are public verification keys.
