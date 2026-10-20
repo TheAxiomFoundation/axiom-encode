@@ -17,9 +17,9 @@ from axiom_encode.harness.proof_validator import (
     validate_rulespec_proofs,
 )
 
-CITATION = "uk/manual/example/page-87"
-EXCERPT = "The prescribed daily percentage"
-LABEL = "Interpretation `daily-twenty-per-cent` (module.interpretations[0])"
+CITATION = "zz/manual/fictional-lantern/review-schedule"
+EXCERPT = "Review supplies at the start of each period."
+LABEL = "Interpretation `weekly-review` (module.interpretations[0])"
 CONTRADICTED = (
     ": publisher contradicted this reading; repair the module, "
     "move the old reading into alternatives, and set the new status"
@@ -28,32 +28,32 @@ CONTRADICTED = (
 
 def _entry(status="open"):
     entry = {
-        "id": "daily-twenty-per-cent",
-        "question": "Is the percentage applied once a week or each day?",
+        "id": "weekly-review",
+        "question": "Does the fictional Lantern scheme review weekly or daily?",
         "texts": [{"corpus_citation_path": CITATION, "excerpt": EXCERPT}],
-        "reading": "Apply twenty per cent once a week.",
+        "reading": "Review supplies once a week.",
         "alternatives": [
             {
-                "id": "daily-percentage",
-                "reading": "Apply twenty per cent each day.",
-                "effect": "Less support.",
+                "id": "daily-review",
+                "reading": "Review supplies every day.",
+                "effect": "More frequent reviews.",
             }
         ],
-        "basis": "The weekly table supports this reading.",
+        "basis": "The fictional Lantern schedule supports weekly reviews.",
         "status": status,
-        "affects": ["weekly_taper_rate"],
+        "affects": ["weekly_review_rate"],
     }
     if status != "open":
         entry["ruling"] = {
-            "by": "Axiom Foundation",
-            "date": "2026-10-10",
-            "record": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/449",
+            "by": "Fictional Lantern Scheme Office",
+            "date": "2024-10-10",
+            "record": "https://example.org/fictional-lantern/weekly-review",
         }
     if status in {"confirmed", "contradicted"}:
         entry["confirmation"] = {
-            "by": "Example District Council",
+            "by": "Fictional Lantern Publisher",
             "date": "2026-10-20",
-            "excerpt": "The deduction is applied once a week.",
+            "excerpt": "The fictional scheme reviews supplies once a week.",
             "record": "https://example.org/published-reply",
         }
     return entry
@@ -65,7 +65,7 @@ def _payload(entry):
         "module": {"interpretations": [entry]},
         "rules": [
             {
-                "name": "weekly_taper_rate",
+                "name": "weekly_review_rate",
                 "kind": "parameter",
                 "dtype": "Float",
                 "versions": [{"effective_from": "2026-04-01", "formula": "0.2"}],
@@ -80,6 +80,35 @@ def _validate(payload, source_texts=None, **kwargs):
         source_texts={CITATION: EXCERPT} if source_texts is None else source_texts,
         **kwargs,
     )
+
+
+def _raw_payload(*, entry_id="weekly-review", alternative_id="daily-review"):
+    """Keep scalar spellings intact; safe_dump would quote numeric-looking ids."""
+
+    return f"""format: rulespec/v1
+module:
+  interpretations:
+    - id: {entry_id}
+      question: Does the fictional Lantern scheme review weekly or daily?
+      texts:
+        - corpus_citation_path: {CITATION}
+          excerpt: {EXCERPT}
+      reading: Review supplies once a week.
+      alternatives:
+        - id: {alternative_id}
+          reading: Review supplies every day.
+      basis: The fictional Lantern schedule supports weekly reviews.
+      status: open
+      affects:
+        - weekly_review_rate
+rules:
+  - name: weekly_review_rate
+    kind: parameter
+    dtype: Float
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '0.2'
+"""
 
 
 def _parent(value, path):
@@ -148,9 +177,12 @@ def test_interpretation_strings_are_nonblank_and_typed(path, value):
     _parent(entry, path)[path[-1]] = value
     result = _validate(_payload(entry))
     expected_label = "module.interpretations[0]" if path == ("id",) else LABEL
-    assert result.issues == [
-        f"{expected_label}{_field_label(path)} must be a non-blank string."
-    ]
+    expectation = (
+        "must be a quoted string when YAML reads it as a boolean."
+        if isinstance(value, bool) and path in {("id",), ("alternatives", 0, "id")}
+        else "must be a non-blank string."
+    )
+    assert result.issues == [f"{expected_label}{_field_label(path)} {expectation}"]
 
 
 @pytest.mark.parametrize("field", ["texts", "alternatives", "affects"])
@@ -208,8 +240,8 @@ def test_interpretation_ids_are_unique_within_module():
     payload = _payload(_entry())
     payload["module"]["interpretations"].append(_entry())
     assert _validate(payload).issues == [
-        "Interpretation `daily-twenty-per-cent` (module.interpretations[1]).id "
-        "duplicates interpretation `daily-twenty-per-cent`."
+        "Interpretation `weekly-review` (module.interpretations[1]).id "
+        "duplicates interpretation `weekly-review`."
     ]
     payload["module"]["interpretations"][1]["id"] = "second-reading"
     assert _validate(payload).passed
@@ -277,6 +309,118 @@ def test_interpretation_alternative_ids_can_equal_the_parent_interpretation_id()
     assert _validate(_payload(entry)).passed
 
 
+def test_interpretation_alternative_ids_can_repeat_in_different_interpretations():
+    first = _entry()
+    second = _entry()
+    second["id"] = "second-reading"
+    assert first["alternatives"][0]["id"] == second["alternatives"][0]["id"]
+    payload = _payload(first)
+    payload["module"]["interpretations"].append(second)
+    assert _validate(payload).passed
+
+
+@pytest.mark.parametrize("field", ["entry_id", "alternative_id"])
+@pytest.mark.parametrize("scalar", ["1e5", "1e-5", "2e10", "0o17", "08"])
+def test_interpretation_ids_reject_raw_yaml_core_numeric_scalars(field, scalar):
+    content = _raw_payload(**{field: scalar})
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    label = (
+        f"Interpretation `{scalar}` (module.interpretations[0]).id"
+        if field == "entry_id"
+        else f"{LABEL}.alternatives[0].id"
+    )
+    assert result.issues == [
+        f"{label} must be a non-numeric id; YAML reads this scalar as a number."
+    ]
+
+
+@pytest.mark.parametrize("field", ["entry_id", "alternative_id"])
+@pytest.mark.parametrize("scalar", ['"1e5"', "'0o17'", '"0"', "!!str 123", "!!str 1e5"])
+def test_interpretation_ids_preserve_explicit_yaml_strings(field, scalar):
+    result = validate_rulespec_proofs(
+        _raw_payload(**{field: scalar}), source_texts={CITATION: EXCERPT}
+    )
+    assert result.passed, result.issues
+
+
+def test_interpretation_anchored_numeric_id_is_rejected():
+    result = validate_rulespec_proofs(
+        _raw_payload(alternative_id="&numeric 1e5"),
+        source_texts={CITATION: EXCERPT},
+    )
+    assert result.issues == [
+        f"{LABEL}.alternatives[0].id must be a non-numeric id; "
+        "YAML reads this scalar as a number."
+    ]
+
+
+@pytest.mark.parametrize("field", ["entry_id", "alternative_id"])
+@pytest.mark.parametrize("scalar", ["no", "yes", "on"])
+def test_interpretation_boolean_id_diagnostic_requests_quoting(field, scalar):
+    result = validate_rulespec_proofs(
+        _raw_payload(**{field: scalar}), source_texts={CITATION: EXCERPT}
+    )
+    label = (
+        "module.interpretations[0].id"
+        if field == "entry_id"
+        else f"{LABEL}.alternatives[0].id"
+    )
+    assert result.issues == [
+        f"{label} must be a quoted string when YAML reads it as a boolean."
+    ]
+    quoted = validate_rulespec_proofs(
+        _raw_payload(**{field: f"'{scalar}'"}), source_texts={CITATION: EXCERPT}
+    )
+    assert quoted.passed, quoted.issues
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement", "location"),
+    [
+        (
+            "    - id: weekly-review\n",
+            "    - id: first-reading\n      id: weekly-review\n",
+            "module.interpretations[0]",
+        ),
+        (
+            "        - id: daily-review\n",
+            "        - id: first-reading\n          id: daily-review\n",
+            "module.interpretations[0].alternatives[0]",
+        ),
+    ],
+)
+def test_interpretation_yaml_mappings_reject_duplicate_keys(
+    original, replacement, location
+):
+    content = _raw_payload().replace(original, replacement)
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [f"{location} has duplicate key `id`."]
+
+
+def test_interpretation_yaml_mappings_reject_merge_keys():
+    content = _raw_payload().replace(
+        "        - id: daily-review\n          reading: Review supplies every day.\n",
+        "        - &base\n"
+        "          id: daily-review\n"
+        "          reading: Review supplies every day.\n"
+        "        - <<: *base\n"
+        "          id: monthly-review\n",
+    )
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [
+        "module.interpretations[0].alternatives[1] must not use YAML merge keys."
+    ]
+
+
+def test_interpretation_yaml_constraints_allow_aliases_without_recursing_forever():
+    content = _raw_payload().replace(
+        "      basis: The fictional Lantern schedule supports weekly reviews.\n",
+        "      basis: &cycle [*cycle]\n",
+    )
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [f"{LABEL}.basis must be a non-blank string."]
+
+
 @pytest.mark.parametrize("status", [None, "", "pending", "OPEN", 1, [], {}])
 def test_interpretation_status_is_an_enum(status):
     entry = _entry()
@@ -335,6 +479,7 @@ def test_interpretation_quoted_and_unquoted_dates_pass(value):
     "value",
     [
         "http://example.org/reply",
+        "HTTPS://example.org/reply",
         "https://",
         "https:///reply",
         "https://example.org/a b",
@@ -352,6 +497,25 @@ def test_interpretation_records_require_https_urls(field, value):
     assert _validate(_payload(entry)).issues == [
         f"{LABEL}.{field}.record must be an https URL."
     ]
+
+
+@pytest.mark.parametrize("field", ["ruling", "confirmation"])
+def test_interpretation_record_raw_yaml_requires_literal_https_prefix(field):
+    content = _raw_payload().replace(
+        "      status: open\n",
+        "      status: confirmed\n"
+        "      ruling:\n"
+        "        by: Fictional Lantern Scheme Office\n"
+        "        date: '2024-10-10'\n"
+        f"        record: {'HTTPS' if field == 'ruling' else 'https'}://example.org/ruling\n"
+        "      confirmation:\n"
+        "        by: Fictional Lantern Publisher\n"
+        "        date: '2024-10-20'\n"
+        "        excerpt: Review supplies once a week.\n"
+        f"        record: {'HTTPS' if field == 'confirmation' else 'https'}://example.org/confirmation\n",
+    )
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [f"{LABEL}.{field}.record must be an https URL."]
 
 
 def test_confirmation_record_and_alternative_effect_are_optional():
@@ -373,9 +537,9 @@ def test_interpretation_https_record_positive_examples(record):
 @pytest.mark.parametrize(
     "citation",
     [
-        "uk:manual/example/page-87",
-        " uk/manual/example/page-87 ",
-        "uk/manual/example/page-87#rule",
+        "zz:manual/fictional-lantern/review-schedule",
+        " zz/manual/fictional-lantern/review-schedule ",
+        "zz/manual/fictional-lantern/review-schedule#rule",
     ],
 )
 def test_interpretation_citations_require_exact_canonical_identity(citation):
@@ -425,7 +589,7 @@ def test_missing_interpretation_source_names_id_and_text_index(source_texts):
 @pytest.mark.parametrize("resolved", [False, True])
 def test_interpretation_checks_every_text_with_its_entry_and_text_index(resolved):
     entry = _entry()
-    second_citation = "uk/manual/example/page-88"
+    second_citation = "zz/manual/fictional-lantern/review-details"
     entry["texts"].append({"corpus_citation_path": second_citation, "excerpt": EXCERPT})
     source_texts = {CITATION: EXCERPT}
     if resolved:
@@ -445,18 +609,18 @@ def test_interpretation_checks_every_text_with_its_entry_and_text_index(resolved
 
 
 @pytest.mark.parametrize(
-    "output", ["weekly_taper_rate", "uk:statutes/example#weekly_taper_rate"]
+    "output", ["weekly_review_rate", "uk:statutes/example#weekly_review_rate"]
 )
 def test_interpretation_affects_cannot_name_deferred_outputs(output):
     payload = _payload(_entry())
     payload["module"]["deferred_outputs"] = [{"output": output}]
     assert _validate(payload).issues == [
-        f"{LABEL}.affects[0] must not name deferred output `weekly_taper_rate`."
+        f"{LABEL}.affects[0] must not name deferred output `weekly_review_rate`."
     ]
 
 
 @pytest.mark.parametrize(
-    "name", ["missing_rule", "uk:statutes/example#weekly_taper_rate"]
+    "name", ["missing_rule", "uk:statutes/example#weekly_review_rate"]
 )
 def test_interpretation_affects_must_resolve_inside_document(name):
     entry = _entry()
@@ -551,15 +715,15 @@ def test_interpretation_and_proof_matcher_agree_on_pinned_corpus_fixture(valid_q
     ]
     if not valid_quote:
         assert len(result.issues) == 1
-        assert "daily-twenty-per-cent" in result.issues[0]
+        assert "weekly-review" in result.issues[0]
         assert ".texts[0]" in result.issues[0]
 
 
 @pytest.mark.parametrize(
     ("source", "excerpt", "passed"),
     [
-        ("The prescribed\ndaily percentage", EXCERPT, True),
-        ("The prescribed\n\ndaily percentage", EXCERPT, False),
+        ("Review supplies at the\nstart of each period.", EXCERPT, True),
+        ("Review supplies at the\n\nstart of each period.", EXCERPT, False),
         ("The rate is 120 per cent.", "20 per cent", False),
     ],
 )
@@ -579,7 +743,7 @@ def test_interpretation_citations_are_resolved_once_without_becoming_proofs():
     strict = _validate(payload, require_policy_proofs=True)
     assert strict.atoms_checked == 0
     assert strict.issues == [
-        "Proof missing: rule `weekly_taper_rate` is policy-bearing and must declare `metadata.proof.atoms`."
+        "Proof missing: rule `weekly_review_rate` is policy-bearing and must declare `metadata.proof.atoms`."
     ]
 
 
@@ -587,8 +751,10 @@ def test_interpretation_citations_are_resolved_once_without_becoming_proofs():
 def _valid_entries(draw):
     entry = _entry(draw(st.sampled_from(["open", "ruled", "confirmed"])))
     kebab_id = st.lists(
-        st.text(
-            alphabet=string.ascii_lowercase + string.digits, min_size=1, max_size=8
+        st.builds(
+            lambda first, rest: first + rest,
+            st.sampled_from(string.ascii_lowercase),
+            st.text(alphabet=string.ascii_lowercase + string.digits, max_size=7),
         ),
         min_size=1,
         max_size=4,
@@ -607,7 +773,11 @@ def _valid_entries(draw):
                 {
                     "corpus_citation_path": st.just(CITATION),
                     "excerpt": st.sampled_from(
-                        [EXCERPT, "prescribed daily percentage", "daily percentage"]
+                        [
+                            EXCERPT,
+                            "supplies at the start of each period.",
+                            "start of each period.",
+                        ]
                     ),
                 }
             ),
@@ -632,7 +802,9 @@ def _valid_entries(draw):
                 st.dates(min_value=date(1900, 1, 1), max_value=date(2100, 12, 31))
             ).isoformat()
             entry[field]["by"] = draw(
-                st.sampled_from(["Axiom Foundation", "Example District Council"])
+                st.sampled_from(
+                    ["Fictional Lantern Scheme Office", "Fictional Lantern Publisher"]
+                )
             )
             entry[field]["record"] = draw(
                 st.sampled_from(

@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -245,8 +246,17 @@ def _certify(
         for p, c, ex in atoms
     ):
         return fail("owner lacks complete consequence proof")
+    subset = {**payload, "rules": [owner, parameter]}
+    # Interpretations refer to the full module, not this temporary proof view.
+    # The shared validation gate checks them against the original declarations.
+    if isinstance(subset.get("module"), Mapping):
+        subset["module"] = {
+            key: value
+            for key, value in subset["module"].items()
+            if key != "interpretations"
+        }
     proof = validate_rulespec_proofs(
-        yaml.safe_dump({**payload, "rules": [owner, parameter]}),
+        yaml.safe_dump(subset),
         require_policy_proofs=True,
         source_texts={CITE: source},
     )

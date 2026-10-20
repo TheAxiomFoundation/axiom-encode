@@ -240,10 +240,18 @@ def validate_rulespec_proofs(
 
     module = payload.get("module")
     proof_required = require_policy_proofs or _module_requires_proofs(module)
+    interpretation_yaml_issues, numeric_id_paths = (
+        _interpretation_yaml_constraints(content)
+        if isinstance(module, dict) and "interpretations" in module
+        else ([], set())
+    )
     issues = [
         *find_plural_corpus_citation_path_issues(payload),
         *find_noncanonical_corpus_citation_path_issues(payload),
-        *_validate_module_interpretations(payload, source_texts=source_texts),
+        *interpretation_yaml_issues,
+        *_validate_module_interpretations(
+            payload, source_texts=source_texts, numeric_id_paths=numeric_id_paths
+        ),
     ]
     if isinstance(module, dict) and "source_claims" in module:
         issues.append(
@@ -313,6 +321,95 @@ def _interpretation_string(value: Any, *, label: str, issues: list[str]) -> bool
     return True
 
 
+def _interpretation_yaml_constraints(content: str) -> tuple[list[str], set[str]]:
+    """Inspect raw interpretation nodes before PyYAML discards their spelling.
+
+    The engine uses YAML 1.2 numeric resolution, whereas PyYAML leaves some
+    plain exponent and octal scalars as strings. Composition with the same
+    SafeLoader preserves quoting, explicit string tags, duplicate mapping keys,
+    and merge keys without changing how the rest of the module is loaded.
+    """
+
+    root = yaml.compose(content, Loader=yaml.SafeLoader)
+    issues: list[str] = []
+    numeric_id_paths: set[str] = set()
+    number_pattern = re.compile(
+        r"[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?"
+        r"|0o[0-7]+|0x[0-9a-fA-F]+"
+    )
+    if not isinstance(root, yaml.MappingNode):
+        return issues, numeric_id_paths
+    stack: list[tuple[str, yaml.Node]] = []
+    for key, module in root.value:
+        if not isinstance(key, yaml.ScalarNode) or key.value != "module":
+            continue
+        if isinstance(module, yaml.MappingNode):
+            stack.extend(
+                ("module.interpretations", value)
+                for field, value in module.value
+                if isinstance(field, yaml.ScalarNode)
+                and field.value == "interpretations"
+            )
+    seen_nodes: set[int] = set()
+    while stack:
+        location, node = stack.pop()
+        if id(node) in seen_nodes:
+            continue
+        seen_nodes.add(id(node))
+        if isinstance(node, yaml.SequenceNode):
+            stack.extend(
+                (f"{location}[{index}]", value)
+                for index, value in enumerate(node.value)
+            )
+        elif isinstance(node, yaml.MappingNode):
+            seen_keys: set[str] = set()
+            for key, value in node.value:
+                if not isinstance(key, yaml.ScalarNode):
+                    continue
+                if key.value in seen_keys:
+                    issues.append(f"{location} has duplicate key `{key.value}`.")
+                seen_keys.add(key.value)
+                if key.value == "<<":
+                    issues.append(f"{location} must not use YAML merge keys.")
+                child = f"{location}.{key.value}"
+                if (
+                    key.value == "id"
+                    and isinstance(value, yaml.ScalarNode)
+                    and value.tag == "tag:yaml.org,2002:str"
+                    and value.style is None
+                    and number_pattern.fullmatch(value.value)
+                ):
+                    raw = content[value.start_mark.index : value.end_mark.index]
+                    if not any(
+                        isinstance(token, yaml.tokens.TagToken)
+                        for token in yaml.scan(raw, Loader=yaml.SafeLoader)
+                    ):
+                        numeric_id_paths.add(child)
+                stack.append((child, value))
+    return issues, numeric_id_paths
+
+
+def _interpretation_id(
+    value: Any, *, label: str, numeric_scalar: bool, issues: list[str]
+) -> bool:
+    if isinstance(value, bool):
+        issues.append(
+            f"{label} must be a quoted string when YAML reads it as a boolean."
+        )
+        return False
+    if not _interpretation_string(value, label=label, issues=issues):
+        return False
+    if numeric_scalar:
+        issues.append(
+            f"{label} must be a non-numeric id; YAML reads this scalar as a number."
+        )
+        return False
+    if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", value):
+        issues.append(f"{label} must match [a-z0-9]+(-[a-z0-9]+)*.")
+        return False
+    return True
+
+
 def _interpretation_list(value: Any, *, label: str, issues: list[str]) -> bool:
     if not isinstance(value, list) or not value:
         issues.append(f"{label} must be a non-empty list.")
@@ -346,7 +443,11 @@ def _validate_interpretation_record(
     if not confirmation or "record" in record:
         url = record.get("record")
         valid_url = False
-        if isinstance(url, str) and not re.search(r"\s", url):
+        if (
+            isinstance(url, str)
+            and url.startswith("https://")
+            and not re.search(r"\s", url)
+        ):
             with contextlib.suppress(ValueError):
                 parsed = urlsplit(url)
                 _ = parsed.port
@@ -356,7 +457,10 @@ def _validate_interpretation_record(
 
 
 def _validate_module_interpretations(
-    payload: dict[str, Any], *, source_texts: Mapping[str, str | None] | None
+    payload: dict[str, Any],
+    *,
+    source_texts: Mapping[str, str | None] | None,
+    numeric_id_paths: set[str] | None = None,
 ) -> list[str]:
     """Check inert interpretation metadata, even with a pre-field engine pin.
 
@@ -371,6 +475,7 @@ def _validate_module_interpretations(
     entries = module["interpretations"]
     if not isinstance(entries, list):
         return ["module.interpretations must be a list."]
+    numeric_id_paths = numeric_id_paths or set()
     issues: list[str] = []
     seen_ids: set[str] = set()
     rules = payload.get("rules")
@@ -419,9 +524,12 @@ def _validate_module_interpretations(
             issues=issues,
         ):
             continue
-        if _interpretation_string(entry_id, label=f"{label}.id", issues=issues):
-            if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", entry_id):
-                issues.append(f"{label}.id must match [a-z0-9]+(-[a-z0-9]+)*.")
+        if _interpretation_id(
+            entry_id,
+            label=f"{label}.id",
+            numeric_scalar=f"{location}.id" in numeric_id_paths,
+            issues=issues,
+        ):
             if entry_id in seen_ids:
                 issues.append(f"{label}.id duplicates interpretation `{entry_id}`.")
             seen_ids.add(entry_id)
@@ -475,13 +583,15 @@ def _validate_module_interpretations(
                 ):
                     continue
                 alternative_id = alternative.get("id")
-                if _interpretation_string(
-                    alternative_id, label=f"{alternative_label}.id", issues=issues
+                if _interpretation_id(
+                    alternative_id,
+                    label=f"{alternative_label}.id",
+                    numeric_scalar=(
+                        f"{location}.alternatives[{alternative_index}].id"
+                        in numeric_id_paths
+                    ),
+                    issues=issues,
                 ):
-                    if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", alternative_id):
-                        issues.append(
-                            f"{alternative_label}.id must match [a-z0-9]+(-[a-z0-9]+)*."
-                        )
                     if alternative_id in seen_alternative_ids:
                         issues.append(
                             f"{alternative_label}.id duplicates alternative `{alternative_id}`."

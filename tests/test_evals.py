@@ -7273,7 +7273,7 @@ def test_fresh_encoding_prompts_require_open_interpretations(tmp_path, prompt_ki
             citation=citation,
             runner=parse_runner_spec("codex:gpt-5.4"),
             output_root=tmp_path / "out",
-            source_text="The prescribed daily percentage.",
+            source_text="Review supplies at the start of each period.",
             axiom_rules_path=_canonical_rulespec_content_root(tmp_path, "us"),
             mode="cold",
         )
@@ -7312,18 +7312,18 @@ def test_review_findings_carry_recorded_interpretation_ruling_to_repair_prompt(
     policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
     findings = tmp_path / "interpretation-ruling.md"
     ruling = (
-        "For interpretation daily-twenty-per-cent, use status: ruled and copy:\n"
+        "For interpretation weekly-review, use status: ruled and copy:\n"
         "ruling:\n"
-        "  by: Axiom Foundation\n"
-        "  date: 2026-10-10\n"
-        "  record: https://github.com/TheAxiomFoundation/rulespec-uk/pull/449\n"
+        "  by: Fictional Lantern Scheme Office\n"
+        "  date: 2024-10-10\n"
+        "  record: https://example.org/fictional-lantern/weekly-review\n"
     )
     findings.write_text(ruling)
     workspace = prepare_eval_workspace(
         citation="us/manual/example/block-1",
         runner=parse_runner_spec("codex:gpt-5.4"),
         output_root=tmp_path / "out",
-        source_text="The prescribed daily percentage.",
+        source_text="Review supplies at the start of each period.",
         axiom_rules_path=policy_repo_root,
         mode="cold",
         review_findings_paths=[findings],
