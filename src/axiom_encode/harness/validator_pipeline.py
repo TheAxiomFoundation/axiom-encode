@@ -23107,9 +23107,27 @@ def _mask_household_filing_statuses(text: str) -> str:
     )
 
 
+_PERSON_RESOURCE_TYPE_DESCRIPTION_PATTERN = re.compile(
+    r"\b(?:a|the)\s+person\s+responsible\s+for\s+a\s+"
+    r"(?P<modifier>family)-type\s+resource\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _mask_person_resource_type_description(text: str) -> str:
+    """Hide only the descriptive modifier, preserving all other scope evidence."""
+    characters = list(text)
+    for match in _PERSON_RESOURCE_TYPE_DESCRIPTION_PATTERN.finditer(text):
+        start, end = match.span("modifier")
+        characters[start:end] = " " * (end - start)
+    return "".join(characters)
+
+
 def _classify_source_scope(text: str) -> str | None:
     """Return a clear source scope, or None when the text is mixed/vague."""
-    classification_text = _mask_household_filing_statuses(text)
+    classification_text = _mask_person_resource_type_description(
+        _mask_household_filing_statuses(text)
+    )
     person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(classification_text) is not None
     unit_scoped = (
         _UNIT_SCOPE_SOURCE_PATTERN.search(classification_text) is not None
@@ -23124,7 +23142,9 @@ def _classify_source_scope(text: str) -> str | None:
 
 def _classify_source_unit_entity(text: str) -> str | None:
     """Return a clear unit entity from source text, or None when generic/mixed."""
-    classification_text = _mask_household_filing_statuses(text)
+    classification_text = _mask_person_resource_type_description(
+        _mask_household_filing_statuses(text)
+    )
     if _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(classification_text):
         return "taxunit"
     matches = {

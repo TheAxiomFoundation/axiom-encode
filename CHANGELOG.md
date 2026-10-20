@@ -1,3 +1,7 @@
+## 0.2.2230
+
+- Keep a person responsible for a family-type resource distinct from a Family claimant in source-scope validation, while retaining genuine Family and Household requirements.
+
 ## 0.2.2229
 
 - Validate Schedule L partnership reporting with executed sparse-input evidence and gross/net separation. Recognize complete form locators and corroborated printed table glyphs while preserving substantive values, source operations, and general validation requirements.
