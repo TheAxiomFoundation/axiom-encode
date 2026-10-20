@@ -192,19 +192,23 @@ class Supervisor:
     def run_group(self, job):
         cit, idx, retry = job["citation"], job["run_index"], job["infra_retry"]
         self.wait_ready()
+        if (self.out / "STOP").exists():
+            return "stopped"
         outs = {
             arm: self.out / "runs" / arm / f"r{idx}" / slug(cit) for arm in self.arms
         }
         t0 = time.time()
-        procs = {
-            arm: subprocess.Popen(
-                [str(HERE / "run_one.sh"), arm, wt, cit, str(outs[arm])],
-                start_new_session=True,
-            )
-            for arm, wt in self.arms.items()
-        }
-        with lock:
-            self.live.update({proc.pid: proc for proc in procs.values()})
+        procs = {}
+        for arm, wt in self.arms.items():
+            # Register each encode under the lock as it starts, so an
+            # interrupt can always kill it.
+            with lock:
+                proc = subprocess.Popen(
+                    [str(HERE / "run_one.sh"), arm, wt, cit, str(outs[arm])],
+                    start_new_session=True,
+                )
+                self.live[proc.pid] = proc
+            procs[arm] = proc
         status = {}
         deadline = t0 + self.args.timeout_min * 60
         for arm, proc in procs.items():
@@ -386,6 +390,10 @@ class Supervisor:
                         f"SUPERVISOR ERROR on {job['citation']} r{job['run_index']}: {exc!r}"
                     )
                     continue
+                if result == "stopped":
+                    with qlock:
+                        queue.insert(0, job)
+                    return
                 if result != "retry":
                     continue
                 if job["infra_retry"] + 1 > self.args.max_infra_retries:
