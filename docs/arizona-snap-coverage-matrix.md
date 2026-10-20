@@ -85,7 +85,14 @@ explicitly covers 10/01/2025–09/30/2026 and gives the same instruction; the
 also agrees. For an integer maximum, that yields the same final
 allotment as flooring the maximum minus the unrounded 30% contribution. It
 does not establish when Arizona rounds earned-income or shelter deductions or
-net income. Locate the applicable DES intermediate calculation rule or approved
+net income. DES's [NA child-support expense procedure](https://dbmefaapolicy.azdes.gov/FAA5/NA_Child_Support_Expense.html)
+directs workers averaging three monthly payments to drop digits beyond cents
+without rounding; its $73.33 example is a specific deduction-budgeting rule,
+not a net-income rounding election. DES's [semi-monthly income procedure](https://dbmefaapolicy.azdes.gov/FAA4/Procedure_3a_Anticipating_Semi-Monthly_Income.html)
+likewise drops the third decimal digit when calculating an anticipated pay
+amount. These procedures corroborate cent-level budgeting in particular steps
+but do not establish the statewide choice under 7 CFR 273.10(e)(1)(ii).
+Locate the applicable DES intermediate calculation rule or approved
 state option, then resolve the RuleSpec/PolicyEngine difference through
 source-bound protected generation and matched household tests.
 
