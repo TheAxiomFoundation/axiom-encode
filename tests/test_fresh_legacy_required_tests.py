@@ -78,6 +78,7 @@ def test_fresh_legacy_required_tests_route_all_stages(stage, conflict, version):
         **{
             key: ""
             for key in [
+                "CORPUS_EXPORT_RUN_ID",
                 "REPAIR_RUN_ID",
                 "QUEUE_ID",
                 "DEPENDENT_CITATION",
