@@ -1,3 +1,7 @@
+## 0.2.2233
+
+- Require the current corpus checkout lock to pin authenticated artifact bytes before and immediately at placement, including when its signed release lock is older.
+
 ## 0.2.2232
 
 - Refresh authenticated corpus transport on current main and keep Linux-runner diagnostic archive tests deterministic on macOS.
