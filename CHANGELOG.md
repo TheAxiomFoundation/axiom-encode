@@ -1,3 +1,7 @@
+## 0.2.2232
+
+- Ask complete-source first attempts and completeness repairs for a positive and blocking companion case per newly encoded branch, every read local input assigned, valid period forms and verbatim proof excerpts; keep expected values source-derived and discourage constant-true outputs for framing text. Prompt and retry-feedback text only.
+
 ## 0.2.2231
 
 - Steer complete-source generation and validator-retry repairs to encode omitted operative branches with local fact inputs instead of answering coverage findings with imprecise deferrals; name the deferral grounds and output-path form the completeness validator accepts. Prompt and retry-feedback text only; validator rules and messages are unchanged.
