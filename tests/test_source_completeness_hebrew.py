@@ -2393,7 +2393,9 @@ def test_native_citation_scans_stay_linear():
     """A long whitespace run or many citations cannot make a scan quadratic."""
 
     pattern = hebrew.current_branch_citation_pattern(CITATION, ("c",))
-    started = time.perf_counter()
+    # CPU time, not wall time: a shared host's scheduling cannot fail the
+    # bound, and a quadratic scan still exceeds it.
+    started = time.process_time()
     assert pattern.search("סעיף 14(ג)" + " " * 64_000 + "x")
     many = "חסר " + "סעיף 346 " * 8_000
     assert not hebrew.reason_names_source_bound_dependency(
@@ -2446,9 +2448,9 @@ def test_native_citation_scans_stay_linear():
         "(ה1) " + "".join(f"לפי סעיף 345ב לחוק {name}. " for name in names),
         corpus_citation_path=CITATION,
     )
-    # Quadratic forms of these took tens of seconds; linear ones take well under
-    # a second, so the bound holds on a loaded host.
-    assert time.perf_counter() - started < 5
+    # Quadratic forms of these took tens of seconds of CPU; the linear ones take
+    # about two in all.
+    assert time.process_time() - started < 5
 
 
 @pytest.mark.parametrize(
