@@ -110,6 +110,7 @@ from axiom_encode.engine_binding import (
     require_engine_ref_sha,
     resolve_pinned_engine_binary,
 )
+from axiom_encode.form_source_structure import mask_form_display
 from axiom_encode.harness.coverage_exemptions import (
     CoverageDemand,
     filter_coverage_demands,
@@ -1288,22 +1289,40 @@ _STRUCTURAL_SOURCE_REVISION_CODE_PATTERN = re.compile(
 _STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN = re.compile(
     r"\b[A-Z]-\d+(?:\.\d+)+(?:\([A-Za-z0-9]+\))*\b"
 )
+# Complete locators only: a partial integer match must not leave a decimal
+# suffix behind or swallow a value carrying currency/rate/arithmetic context.
+_STRUCTURAL_LOCATOR_END = (
+    r"(?![\w-]|[.,]\d)"
+    r"(?!\s*(?:%|percent\b|dollars?\b|euros?\b|pounds?\b|"
+    r"CAD\b|USD\b|EUR\b|years?\b|months?\b|days?\b|hours?\b|weeks?\b|"
+    r"kg\b|kilograms?\b|grams?\b|metres?\b|meters?\b|litres?\b|liters?\b|[+*/=]|-\s*\d))"
+)
 _STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN = re.compile(
-    r"\b(?:Form\s+(?:[A-Z]{1,8}-?\d+[A-Za-z0-9-]*|[A-Z]?\d+[A-Za-z0-9-]*)|"
-    r"[A-Z]{2,8}-\d+[A-Za-z0-9-]*)\b",
+    r"\b(?:Form\s+(?:[A-Z]{1,8}-?\d+[A-Za-z0-9]*(?:\.\d+)*(?:-[A-Za-z0-9]+)*|"
+    r"[A-Z]?\d+[A-Za-z0-9]*(?:\.\d+)*(?:-[A-Za-z0-9]+)*)|"
+    r"[A-Z]{2,8}-\d+[A-Za-z0-9]*(?:\.\d+)*(?:-[A-Za-z0-9]+)*)"
+    + _STRUCTURAL_LOCATOR_END,
     re.IGNORECASE,
 )
+_STRUCTURAL_FORM_LINE_TOKEN = r"\d+(?:\.\d+)?[A-Za-z]?"
 _STRUCTURAL_SOURCE_FORM_LINE_PATTERN = re.compile(
-    r"\bLine\s+\d+[A-Za-z]?\b",
+    r"\bLine\s+" + _STRUCTURAL_FORM_LINE_TOKEN + _STRUCTURAL_LOCATOR_END,
     re.IGNORECASE,
 )
-# Explicit plural form-line references and page counters are coordinates,
-# not amounts to reproduce as RuleSpec parameters. Keep numeric tokens with
-# decimal or monetary/rate suffixes outside this structural grammar.
 _STRUCTURAL_SOURCE_FORM_LINES_PATTERN = re.compile(
-    r"\blines\s+\d+[A-Za-z]?"
-    r"(?:(?:,\s+(?:(?:and|or)\s+)?|\s+(?:and|or|through|to)\s+)\d+[A-Za-z]?)+"
-    r"\b(?![.,]\d)(?!\s*(?:%|percent\b|dollars?\b|euros?\b|pounds?\b))",
+    r"\blines\s+"
+    + _STRUCTURAL_FORM_LINE_TOKEN
+    + r"(?:(?:,\s+(?:(?:and|or)\s+)?|\s+(?:and|or|through|to)\s+)"
+    + _STRUCTURAL_FORM_LINE_TOKEN
+    + r")+"
+    + _STRUCTURAL_LOCATOR_END,
+    re.IGNORECASE,
+)
+# Require the complete explicit slip referral; bare hyphenated numbers remain
+# quantities/operators. Run this before the form-code matcher blanks RL-15.
+_STRUCTURAL_SOURCE_SLIP_BOX_PATTERN = re.compile(
+    r"\bbox\s+\d{1,3}-\d{1,3}\s+of\s+(?:your|the)\s+RL-15\s+slip\b"
+    + _STRUCTURAL_LOCATOR_END,
     re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_PAGE_COUNTER_PATTERN = re.compile(
@@ -12540,6 +12559,7 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             _STRUCTURAL_SOURCE_REVISION_PATTERN,
             _STRUCTURAL_SOURCE_REVISION_CODE_PATTERN,
             _STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN,
+            _STRUCTURAL_SOURCE_SLIP_BOX_PATTERN,
             _STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN,
             _STRUCTURAL_SOURCE_FORM_LINE_PATTERN,
             _STRUCTURAL_SOURCE_FORM_LINES_PATTERN,
@@ -12867,7 +12887,7 @@ def _clean_source_text_for_numeric_extraction_tracked(
         return _TrackedText(masked, list(range(len(masked))))
     # A bare number is scaffolding only when the complete shared outline
     # authenticates it. Uncertain table cells/counts retain their source slots.
-    tracked = _TrackedText.identity(mask_bare_labels(text))
+    tracked = _TrackedText.identity(mask_form_display(mask_bare_labels(text)))
     # A carriage return before a newline becomes a space of its own, so a CRLF
     # line ends in "\n" and keeps its width; one that ends a line by itself
     # (a classic Mac or a mixed-terminator source) becomes the newline it is,
@@ -13129,6 +13149,7 @@ def _clean_source_text_for_numeric_extraction_tracked(
     tracked = tracked.sub(_STRUCTURAL_SOURCE_REVISION_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_REVISION_CODE_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_SLIP_BOX_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_LINE_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_LINES_PATTERN, _blank_match)
@@ -23086,9 +23107,27 @@ def _mask_household_filing_statuses(text: str) -> str:
     )
 
 
+_PERSON_RESOURCE_TYPE_DESCRIPTION_PATTERN = re.compile(
+    r"\b(?:a|the)\s+person\s+responsible\s+for\s+a\s+"
+    r"(?P<modifier>family)-type\s+resource\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _mask_person_resource_type_description(text: str) -> str:
+    """Hide only the descriptive modifier, preserving all other scope evidence."""
+    characters = list(text)
+    for match in _PERSON_RESOURCE_TYPE_DESCRIPTION_PATTERN.finditer(text):
+        start, end = match.span("modifier")
+        characters[start:end] = " " * (end - start)
+    return "".join(characters)
+
+
 def _classify_source_scope(text: str) -> str | None:
     """Return a clear source scope, or None when the text is mixed/vague."""
-    classification_text = _mask_household_filing_statuses(text)
+    classification_text = _mask_person_resource_type_description(
+        _mask_household_filing_statuses(text)
+    )
     person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(classification_text) is not None
     unit_scoped = (
         _UNIT_SCOPE_SOURCE_PATTERN.search(classification_text) is not None
@@ -23103,7 +23142,9 @@ def _classify_source_scope(text: str) -> str | None:
 
 def _classify_source_unit_entity(text: str) -> str | None:
     """Return a clear unit entity from source text, or None when generic/mixed."""
-    classification_text = _mask_household_filing_statuses(text)
+    classification_text = _mask_person_resource_type_description(
+        _mask_household_filing_statuses(text)
+    )
     if _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(classification_text):
         return "taxunit"
     matches = {
