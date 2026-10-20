@@ -28,7 +28,10 @@ from dataclasses import dataclass, field
 
 HEBREW_LETTER_CLASS = "א-ת"
 _H = HEBREW_LETTER_CLASS
-_GERESH_MARKS = "׳״'\""
+# Geresh and gershayim, and the marks that stand in for them: ASCII quotes and
+# the typographic quotes a word processor substitutes (``345י”א``). A numeral
+# read without them would lose its last letters and name another section.
+_GERESH_MARKS = "׳״'\"“”‘’"
 _MAQAF = "־"
 _NOT_HEBREW_BEFORE = rf"(?<![{_H}A-Za-z0-9_])"
 _NOT_HEBREW_AFTER = rf"(?![{_H}])"
@@ -516,11 +519,12 @@ def _preposed_other_instrument(
     """Whether an instrument other than this one is named earlier in the clause.
 
     ``חוק הביטוח הלאומי, התשנ״ה–1995, סעיף 14(ב)`` cites that law's section
-    14(b), whatever dates, editions or descriptions sit between. Only ``חוק
-    זה`` ("this law", of the current kind) keeps the current instrument.
+    14(b), whatever dates, editions, descriptions or line breaks sit between.
+    Only ``חוק זה`` ("this law", of the current kind) keeps the current
+    instrument.
     """
 
-    stops = _clause_stops(text)
+    stops = _ownership_stops(text)
     stop = bisect.bisect_left(stops, start)
     clause_start = stops[stop - 1] + 1 if stop else 0
     mentions = _other_instrument_mention_starts(text, current_kind)
@@ -605,9 +609,10 @@ _SIGNAL_PROCLITICS = r"(?:וש|שה|וה|ו|ש|ה)?"
 # A missing signal before its object: missing, not yet encoded and
 # unavailable (``בלתי זמין``), the English signal words. Plain "not encoded"
 # and "not available" are not English signals, so ``אינו מקודד`` and ``אינו
-# זמין`` are not either.
+# זמין`` are not either. With the article, the feminine forms are the noun
+# "subtraction" (``החסרה של הסכום``, plural ``החסרות``), so they are not read.
 _MISSING_SIGNAL = (
-    r"(?:חסר(?:ה|ים|ות)?"
+    r"(?:חסר(?:ים)?|(?<!ה)חסר(?:ה|ות)"
     r"|(?:טרם|עדיין\s+(?:לא|אינו|אינה|אינם|אינן))\s+"
     r"(?:קודד(?:ה|ו)?|מקודד(?:ת|ים|ות)?)"
     r"|בלתי\s+(?:זמין|זמינ(?:ה|ים|ות)))"
@@ -669,6 +674,19 @@ _NEGATED_SIGNAL_PREFIX = re.compile(
     + rf"){_NOT_HEBREW_AFTER}){{0,4}}"
     rf"{_NEGATION_GAP}*$"
 )
+# A negation also governs a signal from anywhere earlier in its clause, through
+# an assertion, evidence or epistemic complement however worded (``לא ניתן
+# לומר שחסרה``, ``אין כל ראיה לכך שחסרה``, ``טרם הוכח שחסרה``, ``לאו דווקא
+# חסרה``), and a negation between a signal and its citation leaves the claim
+# unread (``חסר מידע, לא ברור שחסרה הוראת סעיף 345ב``). A negation inside a
+# signal (``טרם קודד``, ``לא ניתן לחשב``) is that signal's own.
+_REASON_NEGATION = re.compile(
+    rf"{_NOT_HEBREW_BEFORE}(?:ו|ש|וש|כש)?"
+    r"(?:לא|אין|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|טרם|מעולם|לאו)"
+    rf"{_NOT_HEBREW_AFTER}"
+    rf"|{_NOT_HEBREW_BEFORE}(?:ו|ש|וש|כש)?אי[\s{_MAQAF}-]+(?:אפשר|ניתן)"
+    rf"{_NOT_HEBREW_AFTER}"
+)
 
 # Words of a compound connective are separated by a space, a maqaf or a hyphen.
 _SEP = rf"(?:\s+|\s*[{_MAQAF}-]\s*)"
@@ -681,12 +699,35 @@ def _connective(words: str) -> str:
 # Counterparts of ``_ADVERSATIVE_LANGUAGE``: although, but, despite, even
 # though, except, however, nevertheless, nonetheless, notwithstanding,
 # though, unless, whereas, while, yet. Any may take the conjunction ``ו``.
-_ADVERSATIVE_WORDS = 'ברם למרות חרף למעט מלבד ואילו ואולם מאידך מנגד אעפ״כ אעפ"כ'
-# Adversatives that are also ordinary words: ``אולם`` (hall), ``אבל``
-# (mourning), ``להוציא`` (to issue), ``זולת`` (another person), ``בעוד`` (in a
-# stated time). They count only where a clause or a comma-led phrase opens.
-_AMBIGUOUS_ADVERSATIVES = "אולם אבל להוציא זולת בעוד"
-_CLAUSE_OPENING = r"(?:\A|(?<=[,;:.\n(])|(?<=[,;:.\n(]\s)|(?<=[,;:.\n(]\s\s))"
+#
+# Some are also ordinary words: ``אולם`` (hall), ``אבל`` (mourning),
+# ``להוציא`` (to issue), ``זולת`` (another person), ``בעוד`` (in a stated
+# time). Without punctuation the connective and the word read alike (``חסר
+# מידע אולם סעיף 345ב קודד``, "however"), so each counts wherever it stands,
+# except in a form or after a governor that fixes the ordinary word: a prefix
+# other than ``ו`` (``האולם``, ``באבל``, ``הזולת``) is never the connective,
+# ``להוציא`` after a modal (``יש להוציא``, ``כדי להוציא``) is the infinitive,
+# and ``בעוד`` before a span of time (``בעוד שנה``, ``בעוד 30 יום``) is "in".
+# A bare noun such as ``הגדרת אולם`` is refused, stricter than English.
+_ADVERSATIVE_WORDS = (
+    'ברם למרות חרף למעט מלבד ואילו ואולם מאידך מנגד אעפ״כ אעפ"כ אולם אבל זולת'
+)
+_INFINITIVE_GOVERNORS = (
+    "יש צריך צריכה צריכים צריכות חייב חייבת חייבים חייבות רשאי רשאית רשאים "
+    "רשאיות מוסמך מוסמכת מוסמכים מוסמכות יכול יכולה יכולים יכולות ניתן אפשר "
+    "כדי בכדי מנת עליו עליה עליהם עליהן"
+)
+# Each governor is one word, one space before the infinitive; a lookbehind
+# per governor keeps each one fixed-width. The lookahead runs them only where
+# ``להוציא`` follows, so a scan does not pay for them at every word.
+_GOVERNED_INFINITIVE = "(?=להוציא)" + "".join(
+    rf"(?<!(?<![{_H}]){governor} )" for governor in _INFINITIVE_GOVERNORS.split()
+)
+_TIME_SPAN = (
+    r"(?:(?:\d+|כמה|מספר)\s+)?"
+    r"(?:שנה|שנים|שנתיים|חודש|חודשים|חודשיים|שבוע|שבועות|שבועיים|יום|ימים"
+    r"|יומיים|שעה|שעות|שעתיים|דקה|דקות|זמן|מועד)"
+)
 _ADVERSATIVE_PHRASES = (
     "אף כי",
     "אם כי",
@@ -724,9 +765,11 @@ _ADVERSATIVE_GLUED = (
     ("בזמן", "ש"),
 )
 ADVERSATIVE_LANGUAGE = (
-    rf"{_CLAUSE_OPENING}(?:ו)?(?:"
-    + "|".join(_AMBIGUOUS_ADVERSATIVES.split())
-    + rf"){_NOT_HEBREW_AFTER}|"
+    # ``להוציא`` ("except"), unless a modal makes it "to issue".
+    rf"{_NOT_HEBREW_BEFORE}(?:ו)?{_GOVERNED_INFINITIVE}להוציא{_NOT_HEBREW_AFTER}|"
+    # ``בעוד`` ("while"), unless a span of time follows ("in a year").
+    rf"{_NOT_HEBREW_BEFORE}(?:ו)?בעוד{_NOT_HEBREW_AFTER}"
+    rf"(?!{_SEP}{_TIME_SPAN}{_NOT_HEBREW_AFTER})|"
     # ``אך`` ("but"), but not ``אך ורק`` ("only").
     rf"{_NOT_HEBREW_BEFORE}(?:ו)?אך{_NOT_HEBREW_AFTER}(?!{_SEP}ורק{_NOT_HEBREW_AFTER})|"
     rf"{_NOT_HEBREW_BEFORE}(?:ו)?(?:"
@@ -962,6 +1005,22 @@ def _clause_stops(text: str) -> tuple[int, ...]:
     return tuple(match.start() for match in re.finditer(r"[;\n]|\.(?!\d)", text))
 
 
+_OWNERSHIP_STOP = re.compile(rf";|\.(?!\d)|\n(?=[ \t]*\({OUTLINE_LABEL}\))")
+
+
+@functools.lru_cache(maxsize=256)
+def _ownership_stops(text: str) -> tuple[int, ...]:
+    """Where an instrument named earlier stops owning a later citation.
+
+    A clause stop ends ownership, but a line break does so only where the next
+    line opens an outline branch: any other line break wraps one reference
+    (``חוק הביטוח הלאומי\\nסעיף 14(ב)``), and the law named before it still
+    owns the citation after it.
+    """
+
+    return tuple(match.start() for match in _OWNERSHIP_STOP.finditer(text))
+
+
 def _clause_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     """Bound a clause by ``;``, a line break or a sentence period, not ``5.17``."""
 
@@ -991,7 +1050,17 @@ def _clause_bounds(text: str, start: int, end: int) -> tuple[int, int]:
 _NEGATIONS = re.compile(
     rf"{_NOT_HEBREW_BEFORE}(?P<relative>(?:ו)?(?:כ)?ש)?(?:[ומה]{{0,2}})"
     r"(?:אין|לא|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|אסור(?:ה|ים|ות)?|בל|לבל|בלתי"
-    r"|נאסר(?:ה|ו|ים|ות)?|איסור|מנוע(?:ה|ים|ות)?|מסרב(?:ת|ים|ות)?|בלא"
+    r"|נאסר(?:ה|ו|ים|ות)?|איסור|מסרב(?:ת|ים|ות)?|בלא"
+    # Prevented (``מנוע מלפעול``), not the noun "engine" (``מס על מנוע``).
+    rf"|מנוע(?:ה|ים|ות)?(?={_NEGATION_GAP}+מ[{_H}])"
+    # Refuses, will refuse, refused; unable (``נבצר מן המוסד``); fails,
+    # will fail, failed, as English reads "refuses to", "unable to" and
+    # "fails to".
+    r"|יסרב(?:ו)?|תסרב(?:נה|ו)?|סי?רב(?:ה|ו)?|לסרב|נבצר(?:ה)?"
+    r"|כושל(?:ת|ים|ות)?|נכשל(?:ה|ו|ים|ות)?|כשל(?:ה|ו)?|י?יכשל(?:ו)?|תי?כשל(?:נה|ו)?"
+    # A prohibitive imperative (``אל תחשב``); ``אל`` before another word
+    # starting with ``ת`` (``אל תושב``, "to a resident") is refused with it.
+    rf"|אל(?={_NEGATION_GAP}+ת[{_H}])"
     # Excluded, prevented, rejects, denies (not ``דוחות``, "reports").
     r"|הוחרג(?:ה|ו)?|מוחרג(?:ת|ים|ות)?|יוחרג(?:ו)?|תוחרג(?:נה)?"
     r"|נמנע(?:ה|ו|ים|ות)?|יימנע(?:ו)?|תימנע(?:נה)?|דוח(?:ה|ים)"
@@ -1000,7 +1069,10 @@ _NEGATIONS = re.compile(
     r"|מכחיש(?:ה|ים|ות)?|הכחיש(?:ה|ו)?"
     # ``דוחות את הטענה`` ("reject the claim"), not ``דוחות`` ("reports").
     rf"|דוחות(?=\s+את{_NOT_HEBREW_AFTER})"
-    r"|בלי|ללא|מבלי|למעט|מלבד|להוציא|זולת)"
+    # Except, other than: ``להוציא`` but not the infinitive after a modal
+    # (``יש להוציא רישיון``, "a license must be issued"), and ``זולת`` but not
+    # the noun ``הזולת`` ("another person").
+    rf"|בלי|ללא|מבלי|למעט|מלבד|{_GOVERNED_INFINITIVE}להוציא|(?<!ה)זולת)"
     rf"{_NOT_HEBREW_AFTER}"
     rf"|{_NOT_HEBREW_BEFORE}[ושכמה]{{0,2}}אי{_SEP}(?:אפשר|ניתן){_NOT_HEBREW_AFTER}"
     rf"|{_NOT_HEBREW_BEFORE}(?:ו)?(?:פרט{_SEP}?ל|חוץ{_SEP}?מ)(?=[{_H}])"
@@ -1195,23 +1267,47 @@ def _words_back(text: str, end: int, count: int) -> int:
     return start
 
 
-def _signals(text: str) -> list[re.Match[str]]:
-    """Missing-dependency signals of ``text`` that no negation governs.
+def _read_signals(
+    text: str, stops: Iterable[int]
+) -> tuple[list[re.Match[str]], list[int]]:
+    """Unnegated missing-dependency signals, and where the negations start.
 
-    The negation is read over the few words before each signal (``לא אמורה
-    להיות חסרה``), however much whitespace sits between them, so the scan
-    stays linear in the reason's length.
+    A signal is negated by a negation over the few words before it (``לא
+    אמורה להיות חסרה``), however much whitespace sits between them, or by any
+    negation earlier in its clause (``לא ניתן לומר שחסרה``). The negations are
+    those of ``_REASON_NEGATION`` outside every signal. Each lookup is a
+    bisection, so the scan stays linear in the reason's length.
     """
 
+    stops = list(stops)
+    every = list(_SIGNAL.finditer(text))
+    signal_starts = [signal.start() for signal in every]
+    negations = []
+    for negation in _REASON_NEGATION.finditer(text):
+        holder = bisect.bisect_right(signal_starts, negation.start()) - 1
+        if holder < 0 or negation.start() >= every[holder].end():
+            negations.append(negation.start())
     signals = []
-    for signal in _SIGNAL.finditer(text):
+    for signal in every:
         end = signal.start()
         while end and (text[end - 1].isspace() or text[end - 1] in _MAQAF + "-"):
             end -= 1
         start = _words_back(text, end, _NEGATION_REACH_WORDS)
-        if not _NEGATED_SIGNAL_PREFIX.search(text, start, end):
-            signals.append(signal)
-    return signals
+        if _NEGATED_SIGNAL_PREFIX.search(text, start, end):
+            continue
+        stop = bisect.bisect_left(stops, signal.start())
+        clause_start = stops[stop - 1] + 1 if stop else 0
+        first = bisect.bisect_left(negations, clause_start)
+        if first < len(negations) and negations[first] < signal.start():
+            continue
+        signals.append(signal)
+    return signals, negations
+
+
+def _signals(text: str) -> list[re.Match[str]]:
+    """Missing-dependency signals of ``text`` that no negation governs."""
+
+    return _read_signals(text, _clause_stops(text))[0]
 
 
 class _ReasonIndex:
@@ -1227,8 +1323,6 @@ class _ReasonIndex:
         other_citations: Callable[[str], Iterable[re.Match[str]]] | None = None,
         masked_citations: Callable[[str], Iterable[re.Match[str]]] | None = None,
     ) -> None:
-        self.signals = _signals(reason)
-        self.signal_ends = [signal.end() for signal in self.signals]
         self.adversatives = [match.start() for match in _ADVERSATIVE.finditer(reason)]
         # A citation starts at its ``סעיף`` word: its prefix letters may belong
         # to a signal (``תלוי בסעיף``), and the citation is still between that
@@ -1271,6 +1365,8 @@ class _ReasonIndex:
             if not inside:
                 self.stops.append(stop)
         self.length = len(reason)
+        self.signals, self.negations = _read_signals(reason, self.stops)
+        self.signal_ends = [signal.end() for signal in self.signals]
 
     def clause_bounds(self, start: int, end: int) -> tuple[int, int]:
         before = bisect.bisect_left(self.stops, start)
@@ -1291,6 +1387,10 @@ class _ReasonIndex:
         index = bisect.bisect_left(self.adversatives, start)
         return index < len(self.adversatives) and self.adversatives[index] < end
 
+    def has_negation(self, start: int, end: int) -> bool:
+        index = bisect.bisect_left(self.negations, start)
+        return index < len(self.negations) and self.negations[index] < end
+
     def has_citation(self, start: int, end: int) -> bool:
         """Whether a citation lies wholly inside ``[start, end)``."""
 
@@ -1298,6 +1398,15 @@ class _ReasonIndex:
         return (
             first < len(self.citation_starts) and self.earliest_end_from[first] <= end
         )
+
+
+# English refuses a bridge of more than 240 characters between the signal and
+# the citation. English translations of Hebrew legal prose run longer: 1.5
+# times as long at the median of this module's test translations and 1.93
+# times at most, so a Hebrew bridge equal to English's could exceed it in
+# translation. A Hebrew bridge of 100 characters stays within 240 up to 2.4
+# times.
+_BRIDGE_LIMIT = 100
 
 
 def reason_names_source_bound_dependency(
@@ -1357,9 +1466,12 @@ def reason_names_source_bound_dependency(
         if signal is None:
             continue
         # Offsets are compared before anything is sliced, so many citations in
-        # one long clause stay linear.
-        if reference_start - signal.end() > 240 or index.has_citation(
-            signal.end(), reference_start
+        # one long clause stay linear. A negation between the signal and the
+        # citation leaves the missing claim unread.
+        if (
+            reference_start - signal.end() > _BRIDGE_LIMIT
+            or index.has_citation(signal.end(), reference_start)
+            or index.has_negation(signal.end(), reference_start)
         ):
             continue
         if not (signal.group("missing") or signal.group("without")):

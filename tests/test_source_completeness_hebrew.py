@@ -707,6 +707,11 @@ def test_hebrew_missing_dependency_language(text):
         "תלוי ועומד",
         "זמין",
         "מקודד",
+        # "Subtraction" and "subtractions", not "missing".
+        "החסרה של הסכום",
+        "והחסרה",
+        "שהחסרה",
+        "החסרות של סכומים",
     ),
 )
 def test_hebrew_word_boundaries_reject_lookalikes(text):
@@ -1013,6 +1018,70 @@ rules: []
     assert "its reason cites exact source branch (`c`)" in issue
     assert "`us-la:statutes/47/295/c#federal_return_copy`" in issue
     assert "gematria" not in issue
+
+
+def test_the_signal_to_citation_bridge_is_bounded_for_translation():
+    """A bridge is accepted up to `_BRIDGE_LIMIT` characters and refused past it."""
+
+    verdicts = set()
+    for words in range(8, 20):
+        reason = "חסרות הוראות" + " החישוב" * words + " שבסעיף 345ב."
+        bridge = reason.index("סעיף") - len("חסרות")
+        accepted = _accepted("e1", reason)
+        assert accepted is (bridge <= hebrew._BRIDGE_LIMIT), (words, bridge)
+        verdicts.add(accepted)
+    assert verdicts == {True, False}
+    # Within English's 240 characters at twice the Hebrew length.
+    assert hebrew._BRIDGE_LIMIT * 2 <= 240
+
+
+_NEUTRAL_WORDS = (
+    "ברור",
+    "נכון",
+    "ידוע",
+    "הוכח",
+    "נטען",
+    "סביר",
+    "להניח",
+    "לומר",
+    "לקבוע",
+    "כל",
+    "ראיה",
+    "לכך",
+    "מקום",
+    "סיבה",
+    "טענה",
+    "במקרה",
+    "הזה",
+)
+_PRECISE_MISSING_CLAIMS = (
+    "חסרה הוראת סעיף 345ב.",
+    "חסרות הוראות סעיף 345ב לחוק הביטוח הלאומי.",
+    "חסרה הוראת החישוב המדויקת שבסעיף 345ב.",
+)
+
+
+@settings(max_examples=40, deadline=None)
+@given(
+    st.sampled_from(("לא", "אין", "טרם", "מעולם לא", "לאו", "אי אפשר", "ואין")),
+    st.lists(st.sampled_from(_NEUTRAL_WORDS), max_size=8),
+    st.sampled_from(_PRECISE_MISSING_CLAIMS),
+)
+def test_a_negation_earlier_in_the_clause_governs_the_missing_claim(
+    negation, words, claim
+):
+    """Polarity: a precise missing claim under any complement of a negation fails.
+
+    The complement is worded freely, so no list of bridge words decides it; the
+    same complement without the negation leaves the claim precise.
+    """
+
+    complement = " ".join(words)
+    affirmed = f"{complement} ש{claim}".strip()
+    negated = f"{negation} {affirmed}"
+
+    assert _accepted("e1", affirmed)
+    assert not _accepted("e1", negated)
 
 
 # --- The English rule on the same text -----------------------------------------
@@ -1504,6 +1573,158 @@ DIFFERENTIAL_CASES = (
         "may do.",
         "neither",
     ),
+    # Round 11: adversatives that are also ordinary words, with no punctuation.
+    (
+        "e1",
+        "חסר מידע אולם סעיף 345ב קודד.",
+        "Missing information however section 345b is encoded.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסר מידע אבל סעיף 345ב קודד.",
+        "Missing information but section 345b is encoded.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסרות הוראות להוציא סעיף 345ב.",
+        "Missing provisions except section 345b.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסרות הוראות זולת סעיף 345ב.",
+        "Missing provisions except section 345b.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסר מידע בעוד סעיף 345ב קודד.",
+        "Missing information while section 345b is encoded.",
+        "neither",
+    ),
+    (
+        "e1",
+        "חסר מידע,   אולם סעיף 345ב קודד.",
+        "Missing information,   however section 345b is encoded.",
+        "neither",
+    ),
+    # The ordinary words where their form or governor fixes them.
+    (
+        "e1",
+        "חסר מידע כדי להוציא רישיון לפי סעיף 345ב.",
+        "Missing information to issue a license under section 345b.",
+        "both",
+    ),
+    (
+        "e1",
+        "חסרה הוראת סעיף 345ב, שתחול בעוד שנה.",
+        "missing the provision of section 345b, which will apply in a year.",
+        "both",
+    ),
+    # Negated assertion, evidence and epistemic complements.
+    (
+        "e1",
+        "אין סיבה להניח שחסרה הוראת סעיף 345ב.",
+        "There is no reason to assume that the provision of section 345b is missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "אין מקום לקבוע כי חסרה הוראת סעיף 345ב.",
+        "There is no ground to hold that the provision of section 345b is missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "לא ניתן לומר שחסרה הוראת סעיף 345ב.",
+        "It cannot be said that the provision of section 345b is missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "לא ברור שחסרה הוראת סעיף 345ב.",
+        "It is unclear that the provision of section 345b is missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "אין כל ראיה לכך שחסרה הוראת סעיף 345ב.",
+        "There is no evidence that the provision of section 345b is missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "אין טענה שחסרה הוראת סעיף 345ב.",
+        "There is no claim that the provision of section 345b is missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "לא הוכח שחסרה הוראת סעיף 345ב.",
+        "It has not been shown that the provision of section 345b is missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "מעולם לא נטען שחסרה הוראת סעיף 345ב.",
+        "It was never claimed that the provision of section 345b is missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "טרם הוכח שחסרה הוראת סעיף 345ב.",
+        "It has not yet been shown that the provision of section 345b is missing.",
+        "neither",
+    ),
+    (
+        "e1",
+        "לאו דווקא חסרה הוראת סעיף 345ב.",
+        "The provision of section 345b is not necessarily missing.",
+        "neither",
+    ),
+    # A negation between the signal and the citation: refused in Hebrew only.
+    (
+        "e1",
+        "חסר מידע, לא ברור שחסרה הוראת סעיף 345ב.",
+        "Missing information, it is unclear that the provision of section 345b is "
+        "missing.",
+        "hebrew-stricter",
+    ),
+    # A bridge that fits English's 240 characters only before translation.
+    (
+        "e1",
+        "חסרות הוראות החישוב המפורטות לקביעת בסיס ההכנסה החייבת בדמי "
+        "ביטוח בריאות לגבי מבוטח המשתלמת לו פנסיה מוקדמת, לרבות ניכויים, "
+        "פטורים, תקרות, הכנסות נוספות, תקופות ביטוח וסכומי מינימום, "
+        "בהתאם לסעיף 345ב.",
+        "Missing the detailed computation provisions for determining the "
+        "income base subject to health insurance contributions for an insured "
+        "person receiving an early pension, including deductions, exemptions, "
+        "ceilings, additional income, insurance periods and minimum amounts, "
+        "in accordance with section 345b.",
+        "neither",
+    ),
+    # `החסרה` with the article is "subtraction", not "missing".
+    (
+        "e1",
+        "החסרה של הסכום לפי סעיף 345ב אינה נתמכת.",
+        "Subtraction of the amount under section 345b is unsupported.",
+        "neither",
+    ),
+    (
+        "e1",
+        "נדרשת החסרה של סכומים לפי סעיף 345ב.",
+        "A subtraction of amounts under section 345b is required.",
+        "neither",
+    ),
+    (
+        "e1",
+        "פעולת החסרה לפי סעיף 345ב.",
+        "A subtraction operation under section 345b.",
+        "neither",
+    ),
 )
 _DIFFERENTIAL_VERDICTS = {
     "both": (True, True),
@@ -1659,6 +1880,44 @@ def test_the_said_law_with_no_antecedent_binds_no_named_instrument():
         ("(א) הוראה.\n(ה1) תשלום כהגדרתו בסעיף 345ב.", False),
         # A relative clause's negation is read as negating, stricter than English.
         ("(א) הוראה.\n(ה1) מבוטח שלא עבד ישלם לפי סעיף 345ב.", False),
+        # Inability, failure, refusal and prohibition, as English reads
+        # "unable to", "fails to", "refuses to" and "prohibited".
+        ("(א) הוראה.\n(ה1) נבצר מן המוסד לחשב את התשלום בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) נבצר ממנו לחשב את התשלום בהתאם לסעיף 345ב.", False),
+        *(
+            (f"(א) הוראה.\n(ה1) המוסד {verb} לחשב את התשלום בהתאם לסעיף 345ב.", False)
+            for verb in ("יסרב", "תסרב", "יסרבו", "תסרבנה", "סירב", "סירבה")
+        ),
+        *(
+            (f"(א) הוראה.\n(ה1) החישוב {verb} בהתאם לסעיף 345ב.", False)
+            for verb in (
+                "כושל",
+                "כושלת",
+                "כושלים",
+                "כושלות",
+                "ייכשל",
+                "תיכשל",
+                "ייכשלו",
+                "תיכשלנה",
+                "נכשל",
+                "נכשלה",
+            )
+        ),
+        *(
+            (f"(א) הוראה.\n(ה1) {verb} את התשלום בהתאם לסעיף 345ב.", False)
+            for verb in ("אל תחשב", "אל תחשבי", "אל תחשבו", "אל תחשבנה")
+        ),
+        # Ordinary words that the exclusion and prevention markers spell: the
+        # infinitive "to issue" after a modal, "another person", "engine".
+        ("(א) הוראה.\n(ה1) יש להוציא רישיון בהתאם לסעיף 345ב.", True),
+        ("(א) הוראה.\n(ה1) יש להוציא דרכון בהתאם לסעיף 345ב.", True),
+        ("(א) הוראה.\n(ה1) יש לפצות את הזולת בהתאם לסעיף 345ב.", True),
+        ("(א) הוראה.\n(ה1) המס על מנוע ייקבע בהתאם לסעיף 345ב.", True),
+        ("(א) הוראה.\n(ה1) מנועים חשמליים ימוסו בהתאם לסעיף 345ב.", True),
+        # The same words as exclusion and prevention still negate.
+        ("(א) הוראה.\n(ה1) כל התשלומים, להוציא תשלום בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) כל התשלומים, זולת תשלום בהתאם לסעיף 345ב.", False),
+        ("(א) הוראה.\n(ה1) המוסד מנוע מלחשב את התשלום בהתאם לסעיף 345ב.", False),
     ),
 )
 def test_a_negated_source_link_does_not_apply_the_section(source, linked):
@@ -1760,11 +2019,13 @@ def test_the_said_law_follows_a_relative_mention(prefix):
 
 
 @pytest.mark.parametrize("kind", ("חוק", "פקודה", "פקודת", "תקנות", "צו"))
-@pytest.mark.parametrize("separator", (",", ":"))
+@pytest.mark.parametrize("separator", (",", ":", "\n", ",\n", ":\n", " \n\n"))
 @pytest.mark.parametrize(
     "tail", ("", ", התשנ״ה–1995", " [נוסח משולב], התשנ״ה–1995", " (נוסח משולב)")
 )
 def test_a_preposed_law_name_claims_no_branch_of_this_one(kind, separator, tail):
+    """The law named first owns the citation, a line break between them included."""
+
     reference = f"{kind} הביטוח הלאומי{tail}{separator} סעיף 14(ב)"
 
     assert (
@@ -1774,9 +2035,24 @@ def test_a_preposed_law_name_claims_no_branch_of_this_one(kind, separator, tail)
         == set()
     )
     assert not hebrew.cites_current_branch(reference, CITATION, ("b",))
+    assert not hebrew.cites_current_section(reference, CITATION)
     assert hebrew.cites_current_branch(
         f"חוק זה{separator} סעיף 14(ב)", CITATION, ("b",)
     )
+
+
+def test_a_line_that_opens_a_branch_ends_a_laws_ownership():
+    """A line break before an outline label is a structural boundary, not a wrap."""
+
+    wrapped = "(ה) תשלום לפי חוק הביטוח הלאומי\nויחולו ההוראות לפי סעיף 345ב."
+    branch = "(ה) תשלום לפי חוק הביטוח הלאומי\n(ה1) יחולו ההוראות לפי סעיף 345ב."
+
+    assert [
+        instrument for _match, instrument in hebrew._section_citations(wrapped)
+    ] == [hebrew._UNRESOLVED_INSTRUMENT]
+    assert [instrument for _match, instrument in hebrew._section_citations(branch)] == [
+        None
+    ]
 
 
 @pytest.mark.parametrize(
@@ -1864,12 +2140,34 @@ def test_hebrew_omission_labels_leave_english_omissions_alone():
         ("חסרות הוראות סעיף 345י״א.", "(ה1) יש לפעול בהתאם לסעיף 345יא.", True),
         ('חסרות הוראות סעיף 345י"א.', "(ה1) יש לפעול בהתאם לסעיף 345יא.", True),
         ("חסרות הוראות סעיף 345יא.", "(ה1) יש לפעול בהתאם לסעיף 345י׳א.", True),
+        # Typographic quotes a word processor puts for the gershayim.
+        *(
+            (f"חסרות הוראות סעיף 345י{mark}א.", source, linked)
+            for mark in "“”‘’"
+            for source, linked in (
+                ("(ה1) יש לפעול בהתאם לסעיף 345י.", False),
+                ("(ה1) יש לפעול בהתאם לסעיף 345יא.", True),
+            )
+        ),
+        ("חסרות הוראות סעיף 345יא.", "(ה1) יש לפעול בהתאם לסעיף 345י”א.", True),
     ),
 )
 def test_a_marked_section_suffix_is_read_whole(reason, source, linked):
     issues = _analyze(_deferral_content("e1", reason), "(א) הוראה.\n" + source)
 
     assert (_deferral_issue(issues, 0) is None) is linked
+
+
+@pytest.mark.parametrize("mark", "׳״'\"“”‘’")
+def test_a_marked_suffix_is_another_section_than_the_current_one(mark):
+    """`סעיף 14”א` is section 14יא, not section 14."""
+
+    assert not hebrew.cites_current_section(f"סעיף 14{mark}א", CITATION)
+    assert hebrew.cites_current_section("סעיף 14", CITATION)
+    assert [
+        hebrew._dependency_identity(match)
+        for match, _instrument in hebrew._section_citations(f"סעיף 345י{mark}א")
+    ] == [("345יא", ())]
 
 
 @pytest.mark.parametrize(
@@ -1888,17 +2186,39 @@ def test_a_parenthetical_qualifier_distinguishes_laws_of_one_name(qualifier, lin
 @pytest.mark.parametrize(
     ("reason", "accepted"),
     (
-        # Ordinary words that are adversatives only where a clause opens.
-        ("חסרות ההוראות להוציא רישיון לפי סעיף 345ב.", True),
-        ("חסרה הגדרת אולם שבסעיף 345ב.", True),
-        ("חסרים נתוני האבל לפי סעיף 345ב.", True),
+        # Adversatives that are also ordinary words count wherever they stand,
+        # punctuated or not and however much whitespace follows a comma.
         ("חסר מידע, אולם סעיף 345ב קודד.", False),
         ("חסר מידע. אולם סעיף 345ב קודד.", False),
         ("חסר מידע, להוציא סעיף 345ב.", False),
         ("חסר מידע, בעוד שסעיף 345ב קודד.", False),
+        ("חסר מידע אולם סעיף 345ב קודד.", False),
+        ("חסר מידע ואבל סעיף 345ב קודד.", False),
+        ("חסרות הוראות זולת סעיף 345ב.", False),
+        ("חסר מידע בעוד סעיף 345ב קודד.", False),
+        ("חסר מידע,   אולם סעיף 345ב קודד.", False),
+        ("חסר מידע,\t\t\tאבל סעיף 345ב קודד.", False),
+        # A form or governor that fixes the ordinary word: an article or
+        # preposition, a modal before the infinitive, a span of time after
+        # ``בעוד``.
+        ("חסרים נתוני האבל לפי סעיף 345ב.", True),
+        ("חסרה הגדרת האולם שבסעיף 345ב.", True),
+        ("חסר מידע כדי להוציא רישיון לפי סעיף 345ב.", True),
+        ("חסר מידע, יש להוציא רישיון לפי סעיף 345ב.", True),
+        ("חסרה הוראת סעיף 345ב, שתחול בעוד שנה.", True),
+        ("חסרה הוראת סעיף 345ב, שתחול בעוד 30 יום.", True),
+        # The bare noun, the ungoverned infinitive and a governor with a
+        # prefix (``שיש``) read as the connective, stricter than English ("the
+        # definition of a hall").
+        ("חסרה הגדרת אולם שבסעיף 345ב.", False),
+        ("חסרות ההוראות להוציא רישיון לפי סעיף 345ב.", False),
+        ("חסר מידע שיש להוציא לפי סעיף 345ב.", False),
+        ("חסר מידע ויש להוציא רישיון לפי סעיף 345ב.", False),
     ),
 )
-def test_ambiguous_adversatives_count_where_a_clause_opens(reason, accepted):
+def test_ambiguous_adversatives_count_unless_their_form_fixes_the_word(
+    reason, accepted
+):
     source = "(א) הוראה.\n(ה1) רישיון העסק לאולם יינתן לפי סעיף 345ב."
     issues = _analyze(_deferral_content("e1", reason), source)
 
