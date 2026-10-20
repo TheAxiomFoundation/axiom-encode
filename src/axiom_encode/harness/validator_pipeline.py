@@ -110,6 +110,7 @@ from axiom_encode.engine_binding import (
     require_engine_ref_sha,
     resolve_pinned_engine_binary,
 )
+from axiom_encode.form_source_structure import mask_form_display
 from axiom_encode.harness.coverage_exemptions import (
     CoverageDemand,
     filter_coverage_demands,
@@ -12867,7 +12868,7 @@ def _clean_source_text_for_numeric_extraction_tracked(
         return _TrackedText(masked, list(range(len(masked))))
     # A bare number is scaffolding only when the complete shared outline
     # authenticates it. Uncertain table cells/counts retain their source slots.
-    tracked = _TrackedText.identity(mask_bare_labels(text))
+    tracked = _TrackedText.identity(mask_form_display(mask_bare_labels(text)))
     # A carriage return before a newline becomes a space of its own, so a CRLF
     # line ends in "\n" and keeps its width; one that ends a line by itself
     # (a classic Mac or a mixed-terminator source) becomes the newline it is,
