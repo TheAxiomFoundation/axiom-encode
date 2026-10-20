@@ -1860,6 +1860,14 @@ DIFFERENTIAL_CASES = (
         "And it is implausible that the provision of section 345b is missing.",
         "neither",
     ),
+    # ``בלתי`` between the signal and the citation leaves the claim unread,
+    # as ``לא ברור`` does: refused in Hebrew, though English admits "unclear".
+    (
+        "e1",
+        "חסרה הוראה בלתי ברורה של סעיף 345ב.",
+        "Missing an unclear provision of section 345b.",
+        "hebrew-stricter",
+    ),
     # A word spelled with a negation's prefix letters negates nothing.
     (
         "e1",
