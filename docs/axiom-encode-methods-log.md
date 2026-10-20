@@ -944,6 +944,39 @@ As of 2026-04-10:
   - [judge-stages.md](judge-stages.md)
   - The reported pilot figures will be linked to published evidence when the pilot artifacts are released.
 
+### 2026-10-19 to 2026-10-20: Local subscription A/B runs of complete-source generator guidance
+
+- Hypothesis:
+  - US complete-source encodes fail mostly on model omissions, not validator false positives. If that is true, generator guidance that makes the model encode omitted operative branches, instead of deferring them, raises the final pass rate without lowering accuracy.
+- Method:
+  - All runs used the local process in [local-encoder-ab.md](local-encoder-ab.md), with the tools in `scripts/local_ab/`.
+  - Each encode ran the real `encode --mode repo-augmented --require-complete-source-unit` path on the Codex ChatGPT and `claude` CLI logins. There were no API keys, no signing and no sync.
+  - Arms were paired, the order was randomized, and the primary test was a McNemar test on final pass.
+  - All runs used the same pins: rulespec-us `d8511cca7`, axiom-corpus `46054978`, the signed corpus release `us-rulespec-2026-10-13-snap-fy2026-memo-source-corrected`, and axiom-rules-engine `89571cc2`.
+- Effect:
+  - **Pilot 2** (main `ab11c25e1` vs a validator-fix swarm branch; 30 US citations × 2 reps; 120 encodes):
+    - final pass 10.0% vs 13.3% (McNemar p=0.73); first-attempt pass 3–5%;
+    - failing runs ended on a deferral blocker in 52 of 106 cases;
+    - between attempt 1 and the final attempt, structure findings fell from 175 to 53 while deferral findings rose from 55 to 190. The retry loop turned omitted branches into imprecise deferrals.
+  - **#1966** (encode-first retry block, first-attempt branch coverage plan, and a checklist without "prefer deferral"; prompt text only; main `68ab3f399` vs `bfd4c3f2f`; 20 citations × 2 reps):
+    - final pass 18.4% vs 21.1% on 38 groups without timeout (McNemar p=1.0);
+    - final-attempt deferral findings fell from 131 to 27, and structure findings from 94 to 23;
+    - the remaining blockers moved to companion tests;
+    - mean wall time rose from 9.8 to 14.1 min;
+    - a completeness replay over 106 saved candidates was byte-identical between the arms, so the validators were unchanged.
+  - **Step 2** (companion-test guidance for newly encoded branches, plus a guard against constant-`true` framing outputs, stacked on #1966; main `15aa35772` vs `90f156f18`, which applies both changes to that main; 25 citations × 3 reps):
+    - final pass 19.2% vs 12.3% on 73 groups without timeout (McNemar p=0.33; per-citation sign test p=0.18);
+    - manual pages fell from 46.7% to 13.3% (p=0.06; cluster bootstrap 95% interval −53% to −13%);
+    - final-attempt test-case failures rose from 51 to 200. Most of the rise is "output missing from execution response" (26 to 128): the model asserted more derived outputs per case;
+    - deferral findings fell from 174 to 54, and structure findings from 164 to 69;
+    - there were no constant-`true` encodings among the step-2-only passes;
+    - result: not adopted.
+  - Separate main issue: `artifact_repair` on some 42 CFR and NM sources takes 10–41 min and causes 75-min timeouts. The timeouts occurred in both arms, and NM 7-2-18.13 timed out more often with the guidance.
+- Primary evidence paths:
+  - #1966 and its stacked step-2 PR (the PR bodies hold the A/B tables, the review cycles and the accuracy audits).
+  - [local-encoder-ab.md](local-encoder-ab.md) and `scripts/local_ab/`.
+  - Run archives, outside git: `~/axiom-encode-local-ab/2026-10-19-pilot2-validator-swarm`, `2026-10-19-ab1-pr1966`, `2026-10-19-ab1-aborted-9aad40a91`, `2026-10-20-ab2-step2`. Each has a `DESIGN` file, `report.md`, and per-encode `failed_attempts.jsonl`, candidates and logs; ab2 also has interim snapshots.
+
 ## Open Documentation Debt
 
 - Add before/after metric snapshots for every kept harness change rather than relying on commit messages.
