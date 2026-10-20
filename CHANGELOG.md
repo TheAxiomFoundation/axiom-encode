@@ -1,3 +1,7 @@
+## 0.2.2229
+
+- Validate Schedule L partnership reporting with executed sparse-input evidence and gross/net separation. Recognize complete form locators and corroborated printed table glyphs while preserving substantive values, source operations, and general validation requirements.
+
 ## 0.2.2228
 
 - Bind student-loan reporting routes to executed, source-owned sparse facts and canonical module assertions; preserve unrelated condition checks.
