@@ -1,3 +1,7 @@
+## 0.2.2231
+
+- Steer complete-source generation and validator-retry repairs to encode omitted operative branches with local fact inputs instead of answering coverage findings with imprecise deferrals; name the deferral grounds and output-path form the completeness validator accepts. Prompt and retry-feedback text only; validator rules and messages are unchanged.
+
 ## 0.2.2230
 
 - Keep a person responsible for a family-type resource distinct from a Family claimant in source-scope validation, while retaining genuine Family and Household requirements.
