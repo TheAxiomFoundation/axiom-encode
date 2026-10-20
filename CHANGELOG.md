@@ -1,3 +1,7 @@
+## 0.2.2227
+
+- Bind student-loan measurement periods to exact source roles, factual declarations, annual proofs, and ordinary executed witnesses without treating historical years as arithmetic operands; preserve unresolved conditions and unknown numeric obligations. Recognize the exact optional copy-for-records guide referral as nonoperative guidance.
+
 ## 0.2.2226
 
 - Recognize correlated printed form titles, complete form identifiers, and corroborated terminal line coordinates without treating them as computations or scalar amounts; preserve substantive years and source offsets.
