@@ -47,11 +47,15 @@ def main() -> int:
     bad = [
         key
         for key in os.environ
-        if key in FORBIDDEN or key.endswith("_API_KEY") or "SUPABASE" in key
+        if key in FORBIDDEN
+        or key.endswith(("_API_KEY", "_TOKEN"))
+        or any(part in key for part in ("SUPABASE", "SECRET", "PRIVATE_KEY"))
+        or key.startswith("R2_")
     ]
     if bad:
         sys.exit(f"refusing: provider/sync credentials in env: {bad}")
-    if "--apply" in sys.argv:
+    # Refuse --apply in every spelling argparse accepts (--apply=x, --appl).
+    if any(arg.startswith("--ap") for arg in sys.argv[1:]):
         sys.exit("refusing: --apply is not allowed")
     if len(sys.argv) < 3 or sys.argv[2] != "--":
         sys.exit(__doc__)

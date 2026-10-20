@@ -22,8 +22,14 @@ timeout is measured on the wall clock and polled, because
 ``Popen.wait(timeout)`` uses a monotonic clock that stops while macOS sleeps.
 Timeouts are recorded (``"timeout": true`` in run.json), not retried.
 
-Stop at a clean group boundary with ``touch <out>/STOP``. Re-running the same
-command resumes: finished groups in ``pairs.jsonl`` are skipped.
+Stop at a clean group boundary with ``touch <out>/STOP``. Ctrl-C or SIGTERM
+kills the running encodes of every group and exits. Re-running the same
+command removes STOP and resumes: finished and given-up groups in
+``pairs.jsonl`` are skipped. Do not run two supervisors on one ``--out``.
+
+Infra detection reads codex ``error=`` lines in stdout.log, codex JSON error
+events in leftover temp files, and stderr.log. Errors that the ``claude``
+reviewer CLI reports inside a completed encode are not detected.
 """
 
 import argparse
@@ -67,6 +73,8 @@ class Supervisor:
         self.arms = dict(item.split("=", 1) for item in args.arm)
         self.args = args
         self.out.mkdir(parents=True, exist_ok=True)
+        self.pause_until = 0.0
+        self.live = {}  # pid -> process group of running encodes
 
     # -- logging -----------------------------------------------------------
     def log_jsonl(self, name, rec):
@@ -112,6 +120,8 @@ class Supervisor:
             return False
 
     def wait_ready(self):
+        while time.time() < self.pause_until and not (self.out / "STOP").exists():
+            time.sleep(30)
         if self.on_battery():
             self.progress(
                 "WARNING on battery power; caffeinate cannot prevent clamshell sleep"
@@ -143,6 +153,16 @@ class Supervisor:
 
     @staticmethod
     def infra_errors(run_dir: Path):
+        # Codex errors reach stdout.log as `error=...` lines (the runner deletes
+        # its temp files after each completed call); only those lines are
+        # scanned there, so source text in the log cannot match.
+        stdout = run_dir / "stdout.log"
+        if stdout.is_file():
+            for line in stdout.read_text(errors="replace").splitlines():
+                if line.strip().startswith("error="):
+                    for rx, kind in INFRA_PATTERNS:
+                        if rx.search(line):
+                            return kind, line.strip()[:300]
         files = list((run_dir / "tmp").glob("tmp*")) + [run_dir / "stderr.log"]
         for path in files:
             if not path.is_file():
@@ -183,6 +203,8 @@ class Supervisor:
             )
             for arm, wt in self.arms.items()
         }
+        with lock:
+            self.live.update({proc.pid: proc for proc in procs.values()})
         status = {}
         deadline = t0 + self.args.timeout_min * 60
         for arm, proc in procs.items():
@@ -199,6 +221,9 @@ class Supervisor:
                 time.sleep(10)
             proc.wait()
             status[arm] = "timeout"
+        with lock:
+            for proc in procs.values():
+                self.live.pop(proc.pid, None)
         infra = {}
         slept = self.slept_between(t0, time.time())
         if slept:
@@ -249,8 +274,9 @@ class Supervisor:
             kinds = sorted({v[0] for v in infra.values()})
             self.progress(f"RETRY {cit} r{idx} (infra {kinds}, try {retry})")
             if "rate_limit" in kinds:
-                self.progress("rate limit; pausing 30 min")
-                time.sleep(1800)
+                self.progress("rate limit; pausing all workers for 30 min")
+                with lock:
+                    self.pause_until = max(self.pause_until, time.time() + 1800)
             return "retry"
         summary = []
         for arm in self.arms:
@@ -290,7 +316,10 @@ class Supervisor:
         if (self.out / "pairs.jsonl").exists():
             for line in open(self.out / "pairs.jsonl"):
                 rec = json.loads(line)
-                if isinstance(rec.get("status"), dict):
+                if (
+                    isinstance(rec.get("status"), dict)
+                    or rec.get("status") == "infra_gave_up"
+                ):
                     done.add((rec["citation"], rec["run_index"]))
         if (self.out / "retries.jsonl").exists():
             for line in open(self.out / "retries.jsonl"):
@@ -315,7 +344,26 @@ class Supervisor:
                 handle.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {up}\n")
             stop.wait(600)
 
+    def kill_live(self, *_args):
+        with lock:
+            live = list(self.live.values())
+        for proc in live:
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.killpg(proc.pid, sig)
+                except OSError:
+                    pass
+        self.progress(
+            f"INTERRUPTED: killed {len(live)} running encodes; resume with the same command"
+        )
+        os._exit(130)
+
     def run(self):
+        stop_file = self.out / "STOP"
+        if stop_file.exists():
+            stop_file.unlink()
+        signal.signal(signal.SIGINT, self.kill_live)
+        signal.signal(signal.SIGTERM, self.kill_live)
         queue, skipped = self.build_queue()
         self.progress(
             f"START seed={self.args.seed} arms={list(self.arms)} jobs={len(queue)} "

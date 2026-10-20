@@ -9,8 +9,13 @@ For every ``final-rejected-candidate`` in ``<run dir>/runs/*/r*/*``, the script
 runs ``analyze_complete_source_unit`` with that run's workspace ``source.txt``
 and companion tests, and writes the issues per candidate. Comparing two
 outputs shows whether a change moved validator behaviour. A generator-only
-change must compare identical. Imports are not resolved (both sides share this
-limit), so absolute counts can exceed production; compare runs, not
+change must compare identical. This check is necessary, not sufficient: unlike
+the production call in validator_pipeline.py, the replay passes no proof source
+texts (``source_context``), imported symbol contents, resolved dependency
+outputs or authenticated same-Act aliases, and it reads the workspace
+``source.txt`` and ``source-metadata.json`` instead of the resolver. A
+validator change that acts only through those inputs still compares
+identical. Absolute counts can exceed production; compare runs, not
 absolutes.
 """
 
@@ -48,7 +53,13 @@ def replay(checkout: str, run_dir: str, out_path: str) -> None:
         if not sources:
             continue
         source_text = open(sources[0]).read()
-        meta = json.load(open(sources[0].replace("source.txt", "source-metadata.json")))
+        try:
+            meta = json.load(
+                open(sources[0].replace("source.txt", "source-metadata.json"))
+            )
+        except (OSError, ValueError) as exc:
+            out[cand.split("/runs/", 1)[1]] = [f"EXC metadata: {exc}"[:300]]
+            continue
         citation = (meta.get("source_attestation") or {}).get(
             "requested_corpus_citation_path"
         ) or meta.get("citation_path")

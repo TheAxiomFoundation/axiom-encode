@@ -11,6 +11,7 @@ This document tells how to measure an encoder change with the real encoder path 
 ## Prerequisites
 
 1. **Logins.** Run `codex login status`; it must report "Logged in using ChatGPT". Check that `claude` runs with the claude.ai login. Keep `OPENAI_API_KEY` unset.
+   - `env -i` keeps `HOME`, so the CLI config files still apply. Check that `~/.codex/auth.json` holds no API key and that `~/.claude/settings.json` sets no `apiKeyHelper` and no provider key under `env`. The guard in `local_encode.py` cannot see these files.
 2. **Pins directory (`LOCAL_AB_PINS`).** Use one directory for every arm:
    - `rulespec-us/`: a `rulespec-us` worktree at a fixed commit.
    - `corpus/`: an `axiom-corpus` worktree at the commit that matches that `rulespec-us` pin.
@@ -46,7 +47,7 @@ env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" TMPDIR="$out/tmp/" LANG=en_US.U
 
 1. **Write the design file first.** Record the arms and their commits, the pins, the citations, the reps, the seed, the primary metric and the secondary metrics. Do not change them after the first run.
 2. **Unit.** The unit is a group: one citation and one rep. All arms of a group start at the same moment, so machine load and time of day are shared.
-3. **Order.** `run_ab.py` shuffles each round independently with `random.Random(seed)` and writes `order_r<N>.txt`. A stop therefore leaves whole groups.
+3. **Order.** `run_ab.py` shuffles each round independently with `random.Random(seed)` and writes `order_r<N>.txt`. Each round covers every citation once, so a stop at a group boundary (the supervisor checks `STOP` between groups) leaves complete rounds plus whole groups.
 4. **Size.** Use 3 or more reps per citation. Single runs are noisy: in pilot 2, 4 of 30 citations passed in one rep and failed in the other on the same arm.
    - One encode takes about 10–20 min. Three groups in parallel (six encodes) is the tested load.
 5. **Citations.** Choose citations that fail on the rule the change targets, plus some that pass, to detect regressions. Avoid citations that stall in `artifact_repair` (see the pitfalls) unless they are the target.
@@ -55,16 +56,23 @@ env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" TMPDIR="$out/tmp/" LANG=en_US.U
 
 - Run the supervisor under `caffeinate -dimsu`. That stops idle sleep on AC only. On battery, a closed lid still sleeps the Mac. `run_ab.py` logs a warning when `pmset -g batt` shows battery power.
 - After each group, the supervisor reads `pmset -g log`. A group with a system sleep inside its window is discarded for every arm and retried, because hung network calls make its runs unusable.
-- Network errors, DNS errors and rate limits in codex output are also infra errors. A rate limit pauses the run for 30 min. After 3 retries, the group is marked `infra_gave_up`.
+- Network errors, DNS errors and rate limits in codex output are also infra errors. The supervisor reads codex `error=` lines in `stdout.log`, codex error events in leftover temp files, and `stderr.log`. A rate limit pauses all workers for 30 min. After 3 retries, the group is marked `infra_gave_up`.
+- Errors from the `claude` reviewer CLI inside a completed encode are not detected. Look for reviewer errors in `stdout.log` when one arm fails much more often than expected.
 - The timeout (default 75 min) is measured on the wall clock and polled. `Popen.wait(timeout)` uses a monotonic clock that stops while macOS sleeps, so a hung run could outlive its timeout.
 - A timeout is recorded with `"timeout": true` and is not retried. The report lists each timeout with the encode phase where it stopped.
-- To stop at a group boundary, `touch <out>/STOP`. To resume, run the same command again; finished groups are skipped.
+- To stop at a group boundary, `touch <out>/STOP`. To resume, run the same command again: it removes `STOP` and skips finished and given-up groups.
+- Ctrl-C or `kill` on the supervisor kills the running encodes of every group and exits. Do not kill only the supervisor's Python process with `kill -9`: that leaves orphan encodes, which keep writing into run directories that a resume reuses. If that happens, kill the leftover `local_encode.py` processes before you resume.
+- Do not run two supervisors on one output directory.
 
 ## Analysis
 
 `analyze_ab.py <out> --baseline A --treatment B [--classes citations.tsv]` writes `report.md` and `results.json`:
 
 - **Primary statistic.** Final pass (`outcome.final_success`) with a paired exact McNemar test on groups where no arm timed out.
+  - With several reps per citation, the groups are clustered. McNemar and the Wald interval treat them as independent, so they are anti-conservative. Report the per-citation sign test and the citation-clustered bootstrap next to them; those are the cluster-valid checks.
+  - Excluding timeout groups is informative censoring if one arm causes the timeouts. Always report the timeouts-as-fail row too.
+  - The analyzer also excludes groups whose `stdout.log` shows a codex network or rate-limit `error=` line, and lists them. This catches infra errors that an older supervisor missed.
+  - You can run the analyzer during a run. It skips runs that the supervisor has not finished.
 - **Secondary statistics:**
   - final pass with timeouts counted as fails;
   - first-attempt pass;
@@ -94,6 +102,7 @@ Report every finding, including "none found".
 - **Nondeterminism.** Codex output varies between runs. Use 3 or more reps and paired tests, and do not compare unpaired pass counts.
 - **Pin drift.** Some rulespec-us pins hold modules that newer encoders reject, for example plural `corpus_citation_paths` in an import. Both arms see this; note it in the report.
 - **Machine load.** Other agents and jobs slow both arms. `load.log` records `uptime` every 10 min.
+- **Timed-out runs have no database row.** They report 0 tries, and the analyzer leaves them out of the tries and wall-time means. `run_one.sh` runs Python unbuffered, so `stdout.log` shows the phase where a timed-out run stopped.
 
 ## Reporting in a PR
 

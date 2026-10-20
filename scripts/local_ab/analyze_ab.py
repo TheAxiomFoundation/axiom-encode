@@ -32,6 +32,13 @@ import sqlite3
 
 RULE = re.compile(r"\[([a-z][a-z0-9_.-]*(?::[a-z0-9_.-]+)+)\]")
 PHASE = re.compile(r"try=(\d) phase=([a-z_]+)")
+# Same patterns as run_ab.py; applied post hoc to codex `error=` lines.
+INFRA = re.compile(
+    r"nodename nor servname|failed to lookup address|Network is unreachable"
+    r"|waiting for network|Connection refused|error sending request"
+    r"|rate.?limit|usage limit|Too Many Requests|\b429\b|quota",
+    re.I,
+)
 
 
 def classify(issue: str) -> list[str]:
@@ -106,6 +113,12 @@ def load_run(run_dir: str) -> dict:
         attempt["rules"] = dict(
             collections.Counter(r for issue in issues for r in classify(issue))
         )
+    stdout_path = f"{run_dir}/stdout.log"
+    if os.path.exists(stdout_path):
+        for line in open(stdout_path, errors="replace"):
+            if line.strip().startswith("error=") and INFRA.search(line):
+                rec["infra_posthoc"] = line.strip()[:200]
+                break
     rec["first_pass"] = bool(
         rec["attempts"] and rec["attempts"][0]["success"]
     ) and not rec.get("timeout")
@@ -149,13 +162,21 @@ def main():
     runs = {}
     for rj in glob.glob(f"{D}/runs/*/r*/*/run.json"):
         rec = load_run(os.path.dirname(rj))
-        if rec.get("infra_error"):
+        # Skip discarded groups and runs the supervisor has not finished
+        # (no run_index yet: in progress, or orphaned by a crash).
+        if rec.get("infra_error") or "run_index" not in rec:
             continue
         runs[(rec["citation"], rec["run_index"], rec["side"])] = rec
     groups = sorted(
         {(c, i) for (c, i, s) in runs if (c, i, A) in runs and (c, i, B) in runs},
         key=lambda g: (g[1], g[0]),
     )
+    posthoc_infra = [
+        g
+        for g in groups
+        if runs[(*g, A)].get("infra_posthoc") or runs[(*g, B)].get("infra_posthoc")
+    ]
+    groups = [g for g in groups if g not in posthoc_infra]
     no_timeout = [
         g
         for g in groups
@@ -204,7 +225,22 @@ def main():
         return f"{B} better={pos} {A} better={neg} ties={len(per) - pos - neg} p={binom_two_sided(min(pos, neg), pos + neg):.3f}"
 
     P(f"# Local encoder A/B: {A} vs {B}\n")
-    P(f"groups with both arms: {len(groups)}; without any timeout: {len(no_timeout)}\n")
+    P(
+        f"groups with both arms: {len(groups)}; without any timeout: {len(no_timeout)}; "
+        f"excluded for post-hoc infra errors: {len(posthoc_infra)}\n"
+    )
+    for g in posthoc_infra:
+        arm = A if runs[(*g, A)].get("infra_posthoc") else B
+        P(
+            f"- post-hoc infra: {g[0]} r{g[1]} ({arm}): {runs[(*g, arm)]['infra_posthoc']}"
+        )
+    P(
+        "\nNote: reps of one citation are clustered, so McNemar and Wald treat "
+        "them as independent and are anti-conservative; the per-citation sign "
+        "test and the cluster bootstrap are the cluster-valid checks. Excluding "
+        "timeout groups is informative if an arm causes timeouts; compare the "
+        "timeouts-as-fail row.\n"
+    )
     P("## Primary: final pass, groups without timeout\n")
     P(paired("final_success", no_timeout))
     P(f"\nSign test per citation: {sign_test('final_success', no_timeout)}\n")
@@ -255,13 +291,14 @@ def main():
 
     P("## Tries, time, timeouts\n")
     for arm in (A, B):
-        rs = [runs[(*g, arm)] for g in groups]
+        rs = [runs[(*g, arm)] for g in groups if not runs[(*g, arm)].get("timeout")]
         passes = [r["tries"] for r in rs if r["final_success"]]
         P(
             f"- {arm}: runs={len(rs)} mean tries={sum(r['tries'] for r in rs) / max(len(rs), 1):.2f} "
             f"tries-to-pass mean={(sum(passes) / len(passes)) if passes else 0:.2f} "
             f"mean wall={sum(r['wall_s'] for r in rs) / max(len(rs), 1) / 60:.1f} min "
-            f"timeouts={sum(1 for r in rs if r.get('timeout'))}"
+            f"timeouts={sum(1 for g in groups if runs[(*g, arm)].get('timeout'))} "
+            "(tries and wall exclude timed-out runs)"
         )
     for (cit, i, arm), rec in sorted(runs.items()):
         if rec.get("timeout") and (cit, i) in groups:

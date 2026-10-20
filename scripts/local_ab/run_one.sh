@@ -18,7 +18,7 @@ start=$(date +%s)
 env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" TMPDIR="$out/tmp/" LANG=en_US.UTF-8 \
   PATH="$wt/.venv/bin:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
   LOCAL_AB_ATTEMPT_LOG="$out/failed_attempts.jsonl" \
-  "$wt/.venv/bin/python" -I "$here/local_encode.py" "$pins" -- encode "$cit" \
+  "$wt/.venv/bin/python" -I -u "$here/local_encode.py" "$pins" -- encode "$cit" \
     --backend codex \
     --corpus-path "$pins/corpus" \
     --axiom-rules-engine-path "$pins/engine" \
