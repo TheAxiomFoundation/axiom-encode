@@ -58,6 +58,9 @@ from axiom_encode.harness.measurement_role_evidence import (
     MeasurementSourceEvidence,
     bind_measurement_roles,
 )
+from axiom_encode.harness.partnership_reporting_evidence import (
+    certify_partnership_reporting,
+)
 from axiom_encode.harness.proof_validator import (
     _normalize_atom_path,
     _source_proof_evidence_spans,
@@ -5799,6 +5802,7 @@ def _analyze_rulespec_payload(
         companion_issues.extend(
             _companion_test_issues(
                 principal_rules,
+                partnership_content=content,
                 certified_composition=certified_composition,
                 certified_replacement=certified_replacement,
                 represented_annual_spans=represented_annual_spans,
@@ -19601,6 +19605,7 @@ def _companion_test_issues(
     certified_replacement: BoundWorksheetReplacement | None = None,
     certified_composition: BoundWorksheetComposition | None = None,
     raw_source_text: str | None = None,
+    partnership_content: str | None = None,
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
@@ -19932,6 +19937,18 @@ def _companion_test_issues(
         )
         if reporting_routes is not None:
             missing_exception_branches = reporting_routes.unmatched(
+                missing_exception_branches
+            )
+        partnership = certify_partnership_reporting(
+            partnership_content,
+            source_text,
+            corpus_citation_path,
+            cases,
+            principal_rules=principal_rules,
+            formula_environment=formula_environment,
+        )
+        if partnership is not None:
+            missing_exception_branches = partnership.unmatched(
                 missing_exception_branches
             )
         if missing_exception_branches:
