@@ -1,5 +1,7 @@
 ## 0.2.2227
 
+- Bind student-loan reporting routes to executed, source-owned sparse facts and canonical module assertions; preserve unrelated condition checks.
+
 - Bind student-loan measurement periods to exact source roles, factual declarations, annual proofs, and ordinary executed witnesses without treating historical years as arithmetic operands; preserve unresolved conditions and unknown numeric obligations. Recognize the exact optional copy-for-records guide referral as nonoperative guidance.
 
 ## 0.2.2226

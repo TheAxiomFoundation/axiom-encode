@@ -211,9 +211,7 @@ def current_material():
 def test_current_roles_need_their_own_ordinary_principal_execution():
     doc, cases, source = current_material()
     found = issues(doc, cases, source)
-    assert len(found) == 1
-    assert "paired positive/blocking" in found[0]
-    assert not any("numeric-recall" in issue for issue in found)
+    assert found == ()  # Separately certified sparse reporting routes also execute.
 
 
 @pytest.mark.parametrize("index", [1, 2])

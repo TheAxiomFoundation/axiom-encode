@@ -27,6 +27,15 @@ class MeasurementSourceEvidence:
 
 
 @dataclass(frozen=True)
+class ExecutedMeasurementWitness:
+    """Internal record emitted only after the full ordinary witness succeeds."""
+
+    owner: str
+    case_json: str
+    evidence: tuple[MeasurementSourceEvidence, ...]
+
+
+@dataclass(frozen=True)
 class _Role:
     name: str
     text: str

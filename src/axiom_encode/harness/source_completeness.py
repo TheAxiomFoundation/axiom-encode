@@ -54,6 +54,7 @@ from axiom_encode.harness.manual_locator_metadata import (
 )
 from axiom_encode.harness.measurement_role_evidence import (
     BoundMeasurementRoles,
+    ExecutedMeasurementWitness,
     MeasurementSourceEvidence,
     bind_measurement_roles,
 )
@@ -61,6 +62,7 @@ from axiom_encode.harness.proof_validator import (
     _normalize_atom_path,
     _source_proof_evidence_spans,
 )
+from axiom_encode.harness.reporting_route_evidence import certify_reporting_routes
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.statute import (
     CitationParts,
@@ -5770,6 +5772,7 @@ def _analyze_rulespec_payload(
         payload, source_text, corpus_citation_path
     )
     represented_measurement_spans: set[tuple[int, int]] = set()
+    measurement_witnesses: set[ExecutedMeasurementWitness] = set()
     companion_issues: list[str] = []
     if principal_rules:
         imported_parameters = _resolved_imported_parameter_rules(
@@ -5801,6 +5804,7 @@ def _analyze_rulespec_payload(
                 represented_annual_spans=represented_annual_spans,
                 measurement_roles=measurement_roles,
                 represented_measurement_spans=represented_measurement_spans,
+                measurement_witnesses=measurement_witnesses,
                 certified_paths=certified_paths,
                 certified_operations=certified_operations,
                 certified_transfers=certified_transfers,
@@ -19587,6 +19591,7 @@ def _companion_test_issues(
     represented_annual_spans: set[tuple[int, int]] | None = None,
     measurement_roles: BoundMeasurementRoles | None = None,
     represented_measurement_spans: set[tuple[int, int]] | None = None,
+    measurement_witnesses: set[ExecutedMeasurementWitness] | None = None,
     calendar_date_declarations: Mapping[str, bool] | None = None,
     deferred_clauses: Sequence[SourceStructureBranch] = (),
     input_declarations: Mapping[str, dict[str, Any]] | None = None,
@@ -19677,6 +19682,7 @@ def _companion_test_issues(
         represented_annual_spans=represented_annual_spans,
         measurement_roles=measurement_roles,
         represented_measurement_spans=represented_measurement_spans,
+        measurement_witnesses=measurement_witnesses,
         corpus_citation_path=corpus_citation_path,
         principal_rules=principal_rules,
         principal_formula_clause_rules=principal_formula_clause_rules,
@@ -19716,6 +19722,7 @@ def _companion_test_issues(
                 source_text=source_text,
                 measurement_roles=measurement_roles,
                 represented_measurement_spans=represented_measurement_spans,
+                measurement_witnesses=measurement_witnesses,
                 operand_declarations={
                     **parameter_rules,
                     **principal_rules,
@@ -19917,6 +19924,16 @@ def _companion_test_issues(
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
+        reporting_routes = certify_reporting_routes(
+            measurement_roles,
+            measurement_witnesses or set(),
+            principal_rules=principal_rules,
+            formula_environment=formula_environment,
+        )
+        if reporting_routes is not None:
+            missing_exception_branches = reporting_routes.unmatched(
+                missing_exception_branches
+            )
         if missing_exception_branches:
             unsupported_row_outputs = [
                 f"case `{case.get('name') or '<unnamed>'}` output `{key}` "
@@ -20946,6 +20963,7 @@ def _unwitnessed_formula_branches(
     represented_annual_spans: set[tuple[int, int]] | None = None,
     measurement_roles: BoundMeasurementRoles | None = None,
     represented_measurement_spans: set[tuple[int, int]] | None = None,
+    measurement_witnesses: set[ExecutedMeasurementWitness] | None = None,
     corpus_citation_path: str,
     principal_rules: dict[str, dict[str, Any]],
     principal_formula_clause_rules: dict[SourceStructureBranch, set[str]],
@@ -20969,6 +20987,7 @@ def _unwitnessed_formula_branches(
             represented_annual_spans=represented_annual_spans,
             measurement_roles=measurement_roles,
             represented_measurement_spans=represented_measurement_spans,
+            measurement_witnesses=measurement_witnesses,
             corpus_citation_path=corpus_citation_path,
             principal_rules=principal_rules,
             rule_names=principal_formula_clause_rules[branch],
@@ -21680,6 +21699,7 @@ def _formula_branch_test_witnesses(
     represented_annual_spans: set[tuple[int, int]] | None = None,
     measurement_roles: BoundMeasurementRoles | None = None,
     represented_measurement_spans: set[tuple[int, int]] | None = None,
+    measurement_witnesses: set[ExecutedMeasurementWitness] | None = None,
     max_cases_per_rule: int | None = None,
     operand_declarations: Mapping[str, dict[str, Any]] | None = None,
     certified_replacement: BoundWorksheetReplacement | None = None,
@@ -21806,6 +21826,16 @@ def _formula_branch_test_witnesses(
                     represented_measurement_spans.update(
                         (e.start, e.end) for e in measurement_evidence
                     )
+                if measurement_witnesses is not None and measurement_evidence:
+                    import json
+
+                    measurement_witnesses.add(
+                        ExecutedMeasurementWitness(
+                            rule_name,
+                            json.dumps(case, sort_keys=True),
+                            measurement_evidence,
+                        )
+                    )
                 witnesses.add((rule_name, witness))
                 continue
             if represented_annual_spans is not None:
@@ -21815,6 +21845,16 @@ def _formula_branch_test_witnesses(
             if represented_measurement_spans is not None:
                 represented_measurement_spans.update(
                     (e.start, e.end) for e in measurement_evidence
+                )
+            if measurement_witnesses is not None and measurement_evidence:
+                import json
+
+                measurement_witnesses.add(
+                    ExecutedMeasurementWitness(
+                        rule_name,
+                        json.dumps(case, sort_keys=True),
+                        measurement_evidence,
+                    )
                 )
             witnesses.add((rule_name, f"case:{id(case)}"))
     return witnesses
