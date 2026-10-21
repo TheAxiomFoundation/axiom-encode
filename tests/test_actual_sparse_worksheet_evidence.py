@@ -531,3 +531,70 @@ def test_closure_unsupported_parameter_literals_decline(pair, value):
     )
     _provider_rebind(pair, payload)
     assert not sparse.witnesses(**pair)
+
+
+def _descriptive_role(pair, source, *, remove_proof=False, semantic=False):
+    record = pair["imported_exports"][1]
+    provider = yaml.safe_load(record.content)
+    rule = next(r for r in provider["rules"] if r["name"] == record.export_name)
+    frames = sparse._versions(rule, pair["source_context"])
+    rule["source"] = source
+    if remove_proof:
+        rule["metadata"]["proof"]["atoms"] = [
+            a for a in rule["metadata"]["proof"]["atoms"] if a["kind"] != "predicate"
+        ]
+    if semantic:
+        rule["default"] = True
+    content = yaml.safe_dump(provider)
+    record = replace(
+        record,
+        content=content,
+        content_sha256=hashlib.sha256(content.encode()).hexdigest(),
+    )
+    return sparse.bind_direct_entered_role(record, pair["source_context"], frames)
+
+
+@pytest.mark.parametrize("source", [None, "", "  ", [], {}, True, 7])
+def test_direct_role_malformed_descriptive_source_refuses(pair, source):
+    assert _descriptive_role(pair, source) is None
+
+
+def test_direct_role_description_is_not_proof(pair):
+    assert _descriptive_role(pair, "Descriptive source only.") is not None
+    assert (
+        _descriptive_role(pair, "Descriptive source only.", remove_proof=True) is None
+    )
+    assert _descriptive_role(pair, "Descriptive source only.", semantic=True) is None
+
+
+def test_exact_native_supplements_wrapper_description_binds(pair):
+    fixtures = Path(__file__).parent / "fixtures/form-numeric-locators"
+    provider = yaml.safe_load(
+        (fixtures / "native-entered-observations.yaml").read_text()
+    )
+    base = "ca/policy/cra/t1-2025/t1-income-net-taxable-income"
+    context = {
+        base + "/step-2": (fixtures / "step-2.txt").read_text(),
+        base + "/step-3": (fixtures / "step-3.txt").read_text(),
+        base + "/primary-document": "T1 2025",
+    }
+    rule = next(r for r in provider["rules"] if "14600" in r["name"])
+    content = yaml.safe_dump(provider)
+    uri = base.replace("/policy/", ":policies/") + "/step-2#" + rule["name"]
+    root = Path(pair["imported_exports"][1].jurisdiction_root)
+    record = replace(
+        pair["imported_exports"][1],
+        import_uri=uri,
+        canonical_target=uri,
+        export_name=rule["name"],
+        resolved_path=str(
+            root / "policies/cra/t1-2025/t1-income-net-taxable-income/step-2.yaml"
+        ),
+        content=content,
+        content_sha256=hashlib.sha256(content.encode()).hexdigest(),
+        consumer_imports=(uri,),
+    )
+    role = sparse.bind_direct_entered_role(
+        record, context, sparse._versions(rule, context)
+    )
+    assert role is not None and role.coordinate == 14600

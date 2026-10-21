@@ -2,7 +2,7 @@
 
 - Verify a closed printed net-income row using independently executed floored and retained signed values with authenticated informational referral identities. Preserve source operands, version frames, and refusal for missing or conflicting evidence; do not infer loss eligibility or execute downstream policies.
 
-- Accept an optional nonempty descriptive `source` on imported entered-amount observations without treating that text as proof or changing canonical identity, formula, type, frame, or proof checks.
+- Accept an optional nonempty descriptive `source` on imported entered-amount observations and direct worksheet entered-condition wrappers without treating that text as proof or changing canonical identity, formula, type, frame, or proof checks.
 
 ## 0.2.2243
 
