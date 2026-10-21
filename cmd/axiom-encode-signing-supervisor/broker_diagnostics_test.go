@@ -265,7 +265,18 @@ func initializeTestBroker(
 	broker, supervisor := brokerTestConnection(t)
 	probe = &peerProbe{t: t, peer: int(supervisor.Fd())}
 	result := make(chan error, 1)
-	go func() { result <- serveBrokerConnection(broker, options, probe) }()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		result <- serveBrokerConnection(broker, options, probe)
+	}()
+	// If the test stops early, end the broker before the test ends, so the
+	// probe never reports after the test has finished. Shutdown (not Close)
+	// keeps the descriptor valid for the probe.
+	t.Cleanup(func() {
+		_ = unix.Shutdown(int(supervisor.Fd()), unix.SHUT_RDWR)
+		<-done
+	})
 
 	if err := sendFrame(supervisor, testInitialization(applyKey, evalKey)); err != nil {
 		t.Fatal(err)

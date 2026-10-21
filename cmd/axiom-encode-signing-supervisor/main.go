@@ -1637,9 +1637,9 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 }
 
 // serveBrokerConnection runs the broker protocol on connection, then closes it.
-// Every failure is written to diagnostics before the peer can observe it, as an
-// error reply or as EOF when the connection closes. The supervisor kills the
-// broker as soon as it reads an initialization failure, and the
+// Every returned error is written to diagnostics before the peer can observe
+// it, as an error reply or as EOF when the connection closes. The supervisor
+// kills the broker as soon as it reads an initialization failure, and the
 // Codex-subscription supervisor kills it once the child exits, so a diagnostic
 // written after the peer has seen the failure can be lost.
 func serveBrokerConnection(
