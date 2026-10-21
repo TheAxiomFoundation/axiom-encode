@@ -19990,6 +19990,27 @@ def _companion_test_issues(
             extract_numeric_occurrences=extract_numeric_occurrences,
         ):
             continue
+        if execution_evidence is not None and partnership_content is not None:
+            from .actual_repayment_boundary_evidence import (
+                witnesses as actual_boundary_witnesses,
+            )
+
+            if actual_boundary_witnesses(
+                execution_evidence,
+                branch,
+                boundary,
+                content=partnership_content,
+                source_text=source_text,
+                corpus_citation_path=corpus_citation_path,
+                imported_exports=floor_imported_exports,
+                source_context=floor_source_context,
+                principal_rules=principal_rules,
+                asserted_by_rule=asserted_by_rule,
+                formula_environment=formula_environment,
+                boundary_branches=boundary_branches,
+                source_branches=branches,
+            ):
+                continue
         missing_boundaries.append((branch, boundary))
     if missing_boundaries:
         rendered = ", ".join(
