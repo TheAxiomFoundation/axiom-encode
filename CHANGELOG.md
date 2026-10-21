@@ -1,3 +1,7 @@
+## 0.2.2244
+
+- Admit the independently reviewed Canadian repair head 94789006 for artifact-only signed work. Keep publication-base restrictions, exact identity checks, validation and signing requirements unchanged.
+
 ## 0.2.2243
 
 - Verify a complete source repayment alternative group only when every top-level alternative and every owner version has its own executed threshold pair. Preserve partial conditions, leaf-level coverage, and separate floor/advisory obligations.
