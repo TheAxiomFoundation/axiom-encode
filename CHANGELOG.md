@@ -1,3 +1,7 @@
+## 0.2.2247
+
+- Add bounded authenticated corpus artifact transport for fresh complete-source replacements, binding the official reviewed exporter, run and artifact metadata, archive bytes, signed release, immutable and current scope locks, and protected signing workflow without granting source authority.
+
 ## 0.2.2246
 
 - Verify a closed printed net-income row using independently executed floored and retained signed values with authenticated informational referral identities. Preserve source operands, version frames, and refusal for missing or conflicting evidence; do not infer loss eligibility or execute downstream policies.
