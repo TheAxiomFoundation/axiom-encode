@@ -159,7 +159,12 @@ def bind_direct_entered_role(
             "versions",
             "metadata",
             "description",
+            "source",
         }
+        or (
+            "source" in rule
+            and (not isinstance(rule["source"], str) or not rule["source"].strip())
+        )
         or (rule.get("kind"), rule.get("dtype"), rule.get("entity"), rule.get("period"))
         != ("derived", "Judgment", "Person", "Year")
         or _versions(rule, context) != frames
