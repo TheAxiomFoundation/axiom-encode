@@ -1,4 +1,4 @@
-## 0.2.2245
+## 0.2.2246
 
 - Verify a closed printed net-income row using independently executed floored and retained signed values with authenticated informational referral identities. Preserve source operands, version frames, and refusal for missing or conflicting evidence; do not infer loss eligibility or execute downstream policies.
 
