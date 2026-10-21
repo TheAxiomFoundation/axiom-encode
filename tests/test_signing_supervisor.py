@@ -2398,8 +2398,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         "RULESPEC_CHECKOUT": "rulespec-${{ inputs.country }}",
         "QUEUE_ID": "${{ inputs.queue_id }}",
         "QUEUE_MANIFEST_SHA256": "${{ inputs.queue_manifest_sha256 }}",
-        "R2_ACCESS_KEY_ID": "${{ secrets.R2_ACCESS_KEY_ID }}",
-        "R2_SECRET_ACCESS_KEY": "${{ secrets.R2_SECRET_ACCESS_KEY }}",
+        "EXPORT_RUN": "${{ steps.corpus_artifact_transport.outputs.run_id }}",
     }
     release_command = release_step["run"]
     assert "materialize_corpus_release.py" in release_command
@@ -2420,11 +2419,24 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert "--corpus-root axiom-corpus" in release_command
     assert 'merge-base --is-ancestor "$release_commit" HEAD' in release_command
-    assert "if [ -d axiom-corpus/.axiom/corpus-locks ]; then" in release_command
-    assert 'select(.artifact_class == "provisions")' in release_command
-    provision_filter = release_command.split("provision_paths_json=", 1)[1].split(
-        "'", 2
-    )[1]
+    assert "axiom_encode.corpus_artifact_transport materialize" in release_command
+    fetch_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Fetch pinned corpus provision objects"
+    )
+    assert fetch_step["env"] == {
+        "RELEASE_OBJECT": "${{ steps.pinned_corpus_release.outputs.release_object }}",
+        "R2_ACCESS_KEY_ID": "${{ secrets.R2_ACCESS_KEY_ID }}",
+        "R2_SECRET_ACCESS_KEY": "${{ secrets.R2_SECRET_ACCESS_KEY }}",
+    }
+    fetch_command = fetch_step["run"]
+    assert "axiom_encode.corpus_artifact_transport" not in fetch_command
+    assert "if [ -d axiom-corpus/.axiom/corpus-locks ]; then" in fetch_command
+    assert 'select(.artifact_class == "provisions")' in fetch_command
+    provision_filter = fetch_command.split("provision_paths_json=", 1)[1].split("'", 2)[
+        1
+    ]
     assert "\\" not in provision_filter
     if jq_binary := shutil.which("jq"):
         sample_release = {
@@ -2456,9 +2468,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
             check=False,
         )
         assert missing.returncode != 0
-    assert "axiom-corpus-ingest corpus fetch --repo axiom-corpus" in release_command
-    assert '--no-cache --verify "${fetch_args[@]}"' in release_command
-    assert "test -d axiom-corpus/data/corpus/provisions" in release_command
+    assert "axiom-corpus-ingest corpus fetch --repo axiom-corpus" in fetch_command
+    assert '--no-cache --verify "${fetch_args[@]}"' in fetch_command
+    assert "test -d axiom-corpus/data/corpus/provisions" in fetch_command
 
     repair_step = next(
         step
