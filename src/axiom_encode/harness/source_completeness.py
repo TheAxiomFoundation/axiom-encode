@@ -5850,6 +5850,8 @@ def _analyze_rulespec_payload(
             _companion_test_issues(
                 principal_rules,
                 execution_evidence=execution_evidence,
+                floor_imported_exports=imported_export_bindings,
+                floor_source_context=imported_proof_source_context,
                 printed_operations=printed_operations,
                 partnership_content=content,
                 certified_composition=certified_composition,
@@ -19719,6 +19721,8 @@ def _companion_test_issues(
     partnership_content: str | None = None,
     printed_operations: _PrintedOperationContext | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    floor_imported_exports: Sequence[ResolvedImportedExport] = (),
+    floor_source_context: Mapping[str, str | None] | None = None,
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
@@ -20049,6 +20053,39 @@ def _companion_test_issues(
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
+        if execution_evidence is not None and partnership_content is not None:
+            from .actual_floor_evidence import witnesses as actual_floor_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: actual_floor_witnesses(
+                        execution_evidence,
+                        branch,
+                        content=partnership_content,
+                        imported_exports=floor_imported_exports,
+                        source_context=floor_source_context,
+                        source_text=source_text,
+                        corpus_citation_path=corpus_citation_path,
+                        principal_rules=principal_rules,
+                        asserted_by_rule=asserted_by_rule,
+                        formula_environment=formula_environment,
+                        extract_numeric_occurrences=extract_numeric_occurrences,
+                        numeric_value_is_grounded=numeric_value_is_grounded,
+                        operand_declarations={
+                            **parameter_rules,
+                            **principal_rules,
+                            **(input_declarations or {}),
+                        },
+                        certified_replacement=certified_replacement,
+                        printed_operations=printed_operations,
+                        represented_annual_spans=represented_annual_spans,
+                        measurement_roles=measurement_roles,
+                        represented_measurement_spans=represented_measurement_spans,
+                        measurement_witnesses=measurement_witnesses,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
         reporting_routes = certify_reporting_routes(
             measurement_roles,
             measurement_witnesses or set(),

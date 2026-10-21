@@ -37931,7 +37931,14 @@ class ValidatorPipeline:
         try:
             mapped = self._rulespec_outputs_by_reference(outputs)
             if execution_capture is not None:
-                execution_capture.stage(case, request, response, binary, compiled_path)
+                execution_capture.stage(
+                    case,
+                    request,
+                    response,
+                    binary,
+                    compiled_path,
+                    case_index=case_index,
+                )
             return mapped, []
         except ValueError as exc:
             return None, [f"Test case `{case_name}`: {exc}"]

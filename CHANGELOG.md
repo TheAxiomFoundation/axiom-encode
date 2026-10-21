@@ -1,3 +1,7 @@
+## 0.2.2238
+
+- Verify source-bound subtraction floors using separate actual negative and positive cases, canonical imported operand proofs and exact execution receipts. Preserve legacy paired-condition and boundary checks, including unresolved sparse worksheet branches.
+
 ## 0.2.2237
 
 - Verify imported formula witnesses against pinned, isolated compilation and exact-case Explain execution, while retaining original repository checks and separate boundary and paired-condition obligations.
