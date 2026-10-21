@@ -1,3 +1,7 @@
+## 0.2.2239
+
+- Verify sparse worksheet choices using exact source-bound entered observations and separately executed cases. Require the selected-only worksheet fact, preserve canonical ownership and unchanged common facts, and keep generic paired-condition and boundary checks unchanged.
+
 ## 0.2.2238
 
 - Verify source-bound subtraction floors using separate actual negative and positive cases, canonical imported operand proofs and exact execution receipts. Preserve legacy paired-condition and boundary checks, including unresolved sparse worksheet branches.
