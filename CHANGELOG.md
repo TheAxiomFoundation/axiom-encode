@@ -1,3 +1,7 @@
+## 0.2.2241
+
+- Verify signed numeric representation of exact printed bracket-format instructions using authenticated operand ownership and separate actual negative and nonnegative executions. Preserve floor, advisory, repayment and boundary obligations.
+
 ## 0.2.2240
 
 - Recognize referral URLs inside verified printed arithmetic rows without treating URL punctuation as calculation operators. Require exact source-bound local operand order, all-version proofs and matching executed formulas; preserve advisory text and separate condition checks.

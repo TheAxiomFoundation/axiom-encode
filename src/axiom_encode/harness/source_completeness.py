@@ -20058,6 +20058,42 @@ def _companion_test_issues(
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
         if execution_evidence is not None and partnership_content is not None:
+            from .printed_signed_format_evidence import (
+                witnesses as signed_format_witnesses,
+            )
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: signed_format_witnesses(
+                        execution_evidence,
+                        branch,
+                        content=partnership_content,
+                        imported_exports=floor_imported_exports,
+                        source_context=floor_source_context,
+                        source_text=source_text,
+                        source_branches=branches,
+                        corpus_citation_path=corpus_citation_path,
+                        principal_rules=principal_rules,
+                        asserted_by_rule=asserted_by_rule,
+                        formula_environment=formula_environment,
+                        extract_numeric_occurrences=extract_numeric_occurrences,
+                        numeric_value_is_grounded=numeric_value_is_grounded,
+                        operand_declarations={
+                            **parameter_rules,
+                            **principal_rules,
+                            **(input_declarations or {}),
+                        },
+                        certified_replacement=certified_replacement,
+                        printed_operations=printed_operations,
+                        represented_annual_spans=represented_annual_spans,
+                        measurement_roles=measurement_roles,
+                        represented_measurement_spans=represented_measurement_spans,
+                        measurement_witnesses=measurement_witnesses,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
+        if execution_evidence is not None and partnership_content is not None:
             from .actual_floor_evidence import witnesses as actual_floor_witnesses
 
             missing_exception_branches = _unmatched_evidence_obligations(
