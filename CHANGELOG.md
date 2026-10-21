@@ -1,3 +1,7 @@
+## 0.2.2240
+
+- Recognize referral URLs inside verified printed arithmetic rows without treating URL punctuation as calculation operators. Require exact source-bound local operand order, all-version proofs and matching executed formulas; preserve advisory text and separate condition checks.
+
 ## 0.2.2239
 
 - Verify sparse worksheet choices using exact source-bound entered observations and separately executed cases. Require the selected-only worksheet fact, preserve canonical ownership and unchanged common facts, and keep generic paired-condition and boundary checks unchanged.
