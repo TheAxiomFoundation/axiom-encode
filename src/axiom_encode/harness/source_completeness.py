@@ -5314,6 +5314,7 @@ def analyze_complete_source_unit(
     resolved_dependency_outputs: Sequence[str] = (),
     source_context: Mapping[str, str | None] | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    referral_context: Any = None,
 ) -> CompleteSourceUnitAnalysis:
     """Analyze one artifact against its authoritative, resolver-owned body."""
 
@@ -5334,6 +5335,7 @@ def analyze_complete_source_unit(
                     payload,
                     content=content,
                     execution_evidence=execution_evidence,
+                    referral_context=referral_context,
                     source_text=source_text,
                     raw_source_text=authoritative_source_text,
                     corpus_citation_path=corpus_citation_path,
@@ -5458,6 +5460,7 @@ def _analyze_rulespec_payload(
     source_context: Mapping[str, str | None] | None = None,
     raw_source_text: str | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    referral_context: Any = None,
 ) -> CompleteSourceUnitAnalysis:
     if execution_evidence is not None and not execution_evidence.bound(
         content, imported_export_bindings
@@ -5854,6 +5857,7 @@ def _analyze_rulespec_payload(
             _companion_test_issues(
                 principal_rules,
                 execution_evidence=execution_evidence,
+                referral_context=referral_context,
                 floor_imported_exports=imported_export_bindings,
                 floor_source_context=imported_proof_source_context,
                 printed_operations=printed_operations,
@@ -19727,6 +19731,7 @@ def _companion_test_issues(
     execution_evidence: SameCaseEvidence | None = None,
     floor_imported_exports: Sequence[ResolvedImportedExport] = (),
     floor_source_context: Mapping[str, str | None] | None = None,
+    referral_context: Any = None,
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
@@ -20078,6 +20083,46 @@ def _companion_test_issues(
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
+        if execution_evidence is not None and partnership_content is not None:
+            from .floor_retained_referral_evidence import (
+                witnesses as referral_witnesses,
+            )
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: referral_witnesses(
+                        execution_evidence,
+                        branch,
+                        content=partnership_content,
+                        source_text=source_text,
+                        corpus_citation_path=corpus_citation_path,
+                        principal_rules=principal_rules,
+                        asserted_by_rule=asserted_by_rule,
+                        formula_environment=formula_environment,
+                        referral_context=referral_context,
+                        source_context=(
+                            dict(printed_operations.proof_sources)
+                            if printed_operations is not None
+                            else None
+                        ),
+                        imported_exports=floor_imported_exports,
+                        printed_operations=printed_operations,
+                        extract_numeric_occurrences=extract_numeric_occurrences,
+                        numeric_value_is_grounded=numeric_value_is_grounded,
+                        operand_declarations={
+                            **parameter_rules,
+                            **principal_rules,
+                            **(input_declarations or {}),
+                        },
+                        certified_replacement=certified_replacement,
+                        represented_annual_spans=represented_annual_spans,
+                        measurement_roles=measurement_roles,
+                        represented_measurement_spans=represented_measurement_spans,
+                        measurement_witnesses=measurement_witnesses,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
         if execution_evidence is not None and partnership_content is not None:
             from .actual_repayment_group_evidence import witnesses as group_witnesses
 

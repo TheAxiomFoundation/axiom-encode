@@ -349,7 +349,12 @@ def bind_entered_observations(
                 "versions",
                 "metadata",
                 "description",
+                "source",
             }
+            or (
+                "source" in rule
+                and (not isinstance(rule["source"], str) or not rule["source"].strip())
+            )
             or rule.get("kind") != "derived"
             or rule.get("dtype") != "Judgment"
             or rule.get("entity") != "Person"
