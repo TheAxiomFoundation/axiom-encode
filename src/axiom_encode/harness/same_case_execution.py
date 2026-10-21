@@ -173,6 +173,7 @@ class CaseExecution:
     case_sha256: str
     request_json: str
     response_json: str
+    case_index: int | None = None
 
 
 @dataclass
@@ -222,6 +223,7 @@ class ExecutionCapture:
         response: dict[str, Any],
         binary: Path,
         artifact: Path,
+        case_index: int | None = None,
     ) -> None:
         if binary != self.binary or artifact != self.artifact or not self.fresh():
             return
@@ -262,6 +264,7 @@ class ExecutionCapture:
                 key,
                 json.dumps(request, sort_keys=True),
                 json.dumps(response, sort_keys=True),
+                case_index if type(case_index) is int and case_index > 0 else None,
             )
         )
 
