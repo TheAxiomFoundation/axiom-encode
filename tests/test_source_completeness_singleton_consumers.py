@@ -58,6 +58,7 @@ def _reader_callsites():
 
 CALLSITES = _reader_callsites()
 EXPECTED_CONSUMERS = {
+    ("printed_signed_format_evidence", "witnesses"): 1,
     ("actual_floor_evidence", "witnesses"): 1,
     ("actual_sparse_worksheet_evidence", "witnesses"): 1,
     ("same_case_execution", "formula_witnesses"): 1,
