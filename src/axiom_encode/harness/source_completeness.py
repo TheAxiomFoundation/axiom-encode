@@ -20079,6 +20079,29 @@ def _companion_test_issues(
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
         if execution_evidence is not None and partnership_content is not None:
+            from .actual_repayment_group_evidence import witnesses as group_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: group_witnesses(
+                        execution_evidence,
+                        branch,
+                        content=partnership_content,
+                        source_text=source_text,
+                        corpus_citation_path=corpus_citation_path,
+                        imported_exports=floor_imported_exports,
+                        source_context=floor_source_context,
+                        principal_rules=principal_rules,
+                        asserted_by_rule=asserted_by_rule,
+                        formula_environment=formula_environment,
+                        boundary_obligations=boundary_obligations,
+                        boundary_branches=boundary_branches,
+                        source_branches=branches,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
+        if execution_evidence is not None and partnership_content is not None:
             from .printed_signed_format_evidence import (
                 witnesses as signed_format_witnesses,
             )

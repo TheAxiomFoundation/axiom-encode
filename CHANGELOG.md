@@ -1,3 +1,7 @@
+## 0.2.2243
+
+- Verify a complete source repayment alternative group only when every top-level alternative and every owner version has its own executed threshold pair. Preserve partial conditions, leaf-level coverage, and separate floor/advisory obligations.
+
 ## 0.2.2242
 
 - Verify exact source repayment thresholds using separately executed equality and above-threshold cases, authenticated entered observations and branch-required worksheet facts. Preserve generic boundary evaluation and separate compound-condition and advisory obligations.
