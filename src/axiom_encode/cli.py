@@ -109,6 +109,15 @@ from axiom_encode.companion_entities import (
 from axiom_encode.companion_relations import executable_relation_directions
 
 from . import validation_waivers as _validation_waivers
+from .checks import (
+    ISSUE_SCHEMA_VERSION as VALIDATION_ISSUE_SCHEMA_VERSION,
+)
+from .checks import (
+    issues_from_document,
+    registry_document,
+    retype,
+    typed_issue_document,
+)
 from .codex_cli import (
     DEFAULT_CODEX_REASONING_EFFORT,
     codex_auth_error,
@@ -2633,6 +2642,25 @@ def main():
         "--json", action="store_true", help="Output inventory as JSON"
     )
 
+    checks_parser = subparsers.add_parser(
+        "checks",
+        help=(
+            "List the declared validator checks (id, requirement, why, fix, "
+            "cause, code site) of this encoder version"
+        ),
+    )
+    checks_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the axiom-encode/check-registry/v1 document",
+    )
+    checks_parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Write the JSON document to this path instead of stdout",
+    )
+
     manifest_census_parser = subparsers.add_parser(
         "manifest-census",
         help=(
@@ -3847,6 +3875,8 @@ def main():
         cmd_promote_reviewed_candidate(args)
     elif args.command == "signed-import-inventory":
         cmd_signed_import_inventory(args)
+    elif args.command == "checks":
+        cmd_checks(args)
     elif args.command == "manifest-census":
         cmd_manifest_census(args)
     elif args.command == "encode":
@@ -10664,6 +10694,24 @@ def _manifest_census_badge(census: dict[str, object]) -> dict[str, object]:
         "message": f"{pct}% ({census.get('encoder', 0)}/{total})",
         "color": color,
     }
+
+
+def cmd_checks(args):
+    """Print the declared validator checks of this encoder version."""
+    document = registry_document()
+    if args.json or args.out is not None:
+        text = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True)
+        if args.out is not None:
+            args.out.write_text(text + "\n", encoding="utf-8")
+        else:
+            print(text)
+        return
+    print(
+        f"{len(document['checks'])} checks, encoder {document['encoder_version']}, "
+        f"registry {document['registry_sha256'][:12]}"
+    )
+    for check in document["checks"]:
+        print(f"{check['id']}  [{check['cause']}]  {check['title']}")
 
 
 def cmd_manifest_census(args):
@@ -30511,6 +30559,9 @@ _FAILED_ENCODE_CANDIDATE_METADATA_FIELDS = {
     "encoder_version",
     "attempt_count",
 }
+#: Optional ``issues.json`` field: the ``validation-issue/v2`` document of the
+#: typed issues (with their checks' definitions). Absent when no issue is typed.
+_FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD = "typed_issues"
 _FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES = FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES
 _FAILED_ENCODE_CANDIDATE_MAX_ISSUES = 4096
 _FAILED_ENCODE_CANDIDATE_EMPTY_TESTS = "[]\n"
@@ -30700,6 +30751,20 @@ def _emit_final_rejected_candidate(
     ).encode("utf-8")
     if len(metadata_raw) > _FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES:
         raise ValueError("Final rejected candidate issues.json exceeds its size limit")
+    typed_issues = typed_issue_document([(None, issues)])
+    if typed_issues is not None:
+        typed_raw = (
+            json.dumps(
+                {**metadata, _FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD: typed_issues},
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+        # The typed list is diagnostic; it never makes a valid bundle oversize.
+        if len(typed_raw) <= _FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES:
+            metadata_raw = typed_raw
 
     _secure_atomic_eval_write(
         resolved_destination,
@@ -30835,10 +30900,18 @@ def _load_initial_validation_retry_feedback(args: Any) -> tuple[str, ...]:
         ) from exc
     if (
         not isinstance(metadata, dict)
-        or set(metadata) != _FAILED_ENCODE_CANDIDATE_METADATA_FIELDS
+        or set(metadata) - {_FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD}
+        != _FAILED_ENCODE_CANDIDATE_METADATA_FIELDS
         or metadata.get("schema") != _FAILED_ENCODE_CANDIDATE_SCHEMA
     ):
         raise ValueError("preserved repair candidate issues.json has an invalid shape")
+    typed_issues = metadata.get(_FAILED_ENCODE_CANDIDATE_TYPED_ISSUES_FIELD)
+    if typed_issues is not None and (
+        not isinstance(typed_issues, dict)
+        or typed_issues.get("schema") != VALIDATION_ISSUE_SCHEMA_VERSION
+        or not isinstance(typed_issues.get("issues"), list)
+    ):
+        raise ValueError("preserved repair candidate typed issues are invalid")
 
     expected_path = Path(getattr(args, "repair_candidate_path")).as_posix()
     expected_rulespec_sha256 = getattr(args, "repair_candidate_rulespec_sha256", None)
@@ -30872,7 +30945,9 @@ def _load_initial_validation_retry_feedback(args: Any) -> tuple[str, ...]:
         or any(not isinstance(issue, str) or not issue for issue in issues)
     ):
         raise ValueError("preserved repair candidate issues are invalid")
-    return _finite_validation_retry_issue_snapshot(issues)
+    return _finite_validation_retry_issue_snapshot(
+        issues_from_document(issues, typed_issues)
+    )
 
 
 def _validate_tests_only_repair_contract(
@@ -61510,7 +61585,7 @@ def _full_overlay_validator_issues(
         else ()
     )
     issues = tuple(
-        f"{prefix}{raw_issue}"
+        retype(raw_issue, f"{prefix}{raw_issue}")
         for raw_issue in candidates
         if isinstance(raw_issue, str) and raw_issue
     )
@@ -65399,6 +65474,9 @@ def _log_eval_result(
                     IterationError(
                         error_type="validation",
                         message=failed_attempt.error,
+                        issues=_safe_typed_issue_document(
+                            [(None, failed_attempt.full_validation_issues)]
+                        ),
                     )
                 ],
                 success=False,
@@ -65413,10 +65491,16 @@ def _log_eval_result(
         final_error = final_attempt_error
     final_errors = []
     if isinstance(final_error, str) and final_error:
+        final_metrics = getattr(result, "metrics", None)
         final_errors.append(
             IterationError(
                 error_type="validation",
                 message=final_error,
+                issues=(
+                    _safe_typed_issue_document(_eval_metric_issue_groups(final_metrics))
+                    if final_metrics is not None and not resolved_final_success
+                    else None
+                ),
             )
         )
     iterations.append(
@@ -65577,22 +65661,37 @@ def _initial_encode_outcome(result, *, apply_requested: bool) -> dict:
     metrics = getattr(result, "metrics", None)
     if metrics is not None and not standalone_success:
         try:
-            labeled_issues = [
-                (gate, issues)
-                for gate, attribute in (
-                    ("compile", "compile_issues"),
-                    ("ci", "ci_issues"),
-                    ("numeric_occurrence", "numeric_occurrence_issues"),
-                    ("generalist_review", "generalist_review_issues"),
-                    ("policyengine", "policyengine_issues"),
-                    ("taxsim", "taxsim_issues"),
-                )
-                if (issues := getattr(metrics, attribute, None))
-            ]
+            labeled_issues = _eval_metric_issue_groups(metrics)
             outcome.update(summarize_validation_failures(labeled_issues))
         except Exception:
             outcome["validation_failure_counts"] = {"telemetry:error": 1}
     return outcome
+
+
+def _safe_typed_issue_document(
+    labeled_issues: Sequence[tuple[str | None, Sequence[str]]],
+) -> dict[str, Any] | None:
+    """The typed issue document, or ``None``; telemetry never fails a run log."""
+    try:
+        return typed_issue_document(labeled_issues)
+    except Exception:
+        return None
+
+
+def _eval_metric_issue_groups(metrics: Any) -> list[tuple[str, Sequence[str]]]:
+    """The non-empty ``(gate, issues)`` lists of one attempt's metrics."""
+    return [
+        (gate, issues)
+        for gate, attribute in (
+            ("compile", "compile_issues"),
+            ("ci", "ci_issues"),
+            ("numeric_occurrence", "numeric_occurrence_issues"),
+            ("generalist_review", "generalist_review_issues"),
+            ("policyengine", "policyengine_issues"),
+            ("taxsim", "taxsim_issues"),
+        )
+        if (issues := getattr(metrics, attribute, None))
+    ]
 
 
 def _replace_overlay_validation_failures(outcome: dict, issues: Sequence[str]) -> None:
@@ -65605,6 +65704,7 @@ def _replace_overlay_validation_failures(outcome: dict, issues: Sequence[str]) -
         "validation_failures",
         "validation_failures_truncated",
         "validation_failure_counts",
+        "validation_issues",
     ):
         outcome.pop(key, None)
     try:

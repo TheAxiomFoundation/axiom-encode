@@ -25,6 +25,7 @@ from typing import Any, Mapping
 
 import yaml
 
+from ..checks import IssueSubject, ValidationIssue, declare_check
 from ..corpus_resolver import (
     PROOF_EVIDENCE_SEGMENT_SEPARATOR,
     InvalidCorpusCitationError,
@@ -493,9 +494,19 @@ def _validate_source_proof_atom(
                     evidence_text=evidence_text,
                 ):
                     issues.append(
-                        "Proof source evidence not found: "
-                        f"{label} `source.{field}` does not appear in "
-                        f"`{citation_path}`."
+                        ValidationIssue(
+                            "Proof source evidence not found: "
+                            f"{label} `source.{field}` does not appear in "
+                            f"`{citation_path}`.",
+                            check=CHECK_PROOF_EVIDENCE_NOT_FOUND,
+                            subject=IssueSubject(
+                                citation=citation_path,
+                                field=f"{label} source.{field}",
+                            ),
+                            expected=f"excerpt present in {citation_path}",
+                            found="excerpt not in the resolved source text",
+                            evidence=evidence_text,
+                        )
                     )
                 else:
                     issues.extend(
@@ -1515,6 +1526,67 @@ def _rule_source_numeric_parent_alpha_scope(
     return {parent: frozenset(markers) for parent, markers in scope.items()}
 
 
+_SITE_PROOF_ATOM = "axiom_encode/harness/proof_validator.py:_validate_source_proof_atom"
+_PROOF_EVIDENCE_WHY = (
+    "A proof atom ties a rule to the exact source words it implements. An "
+    "excerpt that is not in the cited provision, or not in the rule's own "
+    "subsection, proves nothing and can hide an invented value or condition."
+)
+CHECK_PROOF_EVIDENCE_NOT_FOUND = declare_check(
+    "proof:source-evidence/not-found",
+    title="Proof excerpt does not appear in the cited provision",
+    requires=(
+        "Each proof atom `source.excerpt` / `source.quote` is a contiguous "
+        "verbatim span of the provision named by its `corpus_citation_path`."
+    ),
+    why=_PROOF_EVIDENCE_WHY,
+    fix=(
+        "Copy a short contiguous excerpt verbatim from the cited provision "
+        "(no ellipsis, paraphrase or joined fragments), or cite the provision "
+        "that holds the text."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_PROOF_ATOM,
+)
+CHECK_PROOF_EVIDENCE_OUT_OF_SCOPE = declare_check(
+    "proof:source-evidence/out-of-scope",
+    title="Proof excerpt lies outside the rule's declared subsection",
+    requires=(
+        "A proof excerpt that starts with a subsection marker lies inside the "
+        "subsection scope of the rule's own `source`."
+    ),
+    why=_PROOF_EVIDENCE_WHY,
+    fix=(
+        "Take the excerpt from inside the rule's declared subsection, or "
+        "correct the rule's `source` to the subsection the excerpt is from."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site="axiom_encode/harness/proof_validator.py:_proof_excerpt_subsection_scope_issues",
+)
+
+
+def _out_of_scope_issue(
+    *,
+    label: str,
+    field: str,
+    rule_source: str,
+    marker: str,
+    evidence_text: str,
+) -> ValidationIssue:
+    return ValidationIssue(
+        "Proof source evidence not found: "
+        f"{label} `source.{field}` appears outside the rule's declared "
+        f"subsection scope `{rule_source}` (excerpt begins at `({marker})`).",
+        check=CHECK_PROOF_EVIDENCE_OUT_OF_SCOPE,
+        subject=IssueSubject(clause=rule_source, field=f"{label} source.{field}"),
+        expected=f"excerpt inside {rule_source}",
+        found=f"excerpt begins at ({marker})",
+        evidence=evidence_text,
+    )
+
+
 def _proof_excerpt_subsection_scope_issues(
     *,
     source_text: str,
@@ -1567,9 +1639,13 @@ def _proof_excerpt_subsection_scope_issues(
         ):
             return []
         return [
-            "Proof source evidence not found: "
-            f"{label} `source.{field}` appears outside the rule's declared "
-            f"subsection scope `{rule_source}` (excerpt begins at `({marker})`)."
+            _out_of_scope_issue(
+                label=label,
+                field=field,
+                rule_source=rule_source,
+                marker=marker,
+                evidence_text=evidence_text,
+            )
         ]
     if marker is not None and marker in parent_scoped_markers and marker not in scope:
         if _is_alpha_marker_in_declared_numeric_parent_scope(
@@ -1580,9 +1656,13 @@ def _proof_excerpt_subsection_scope_issues(
         ):
             return []
         return [
-            "Proof source evidence not found: "
-            f"{label} `source.{field}` appears outside the rule's declared "
-            f"subsection scope `{rule_source}` (excerpt begins at `({marker})`)."
+            _out_of_scope_issue(
+                label=label,
+                field=field,
+                rule_source=rule_source,
+                marker=marker,
+                evidence_text=evidence_text,
+            )
         ]
     deeper_roman_scope = _rule_source_deeper_roman_scope(rule_source)
     deeper_roman_parents = frozenset(
@@ -1658,10 +1738,13 @@ def _proof_excerpt_subsection_scope_issues(
         )
         if not broad_roman_parent and not roman_marker_is_owned:
             return [
-                "Proof source evidence not found: "
-                f"{label} `source.{field}` appears outside the rule's declared "
-                f"subsection scope `{rule_source}` "
-                f"(excerpt begins at `({roman_marker})`)."
+                _out_of_scope_issue(
+                    label=label,
+                    field=field,
+                    rule_source=rule_source,
+                    marker=roman_marker,
+                    evidence_text=evidence_text,
+                )
             ]
         roman_marker_is_authorized = True
     if (
@@ -1671,9 +1754,13 @@ def _proof_excerpt_subsection_scope_issues(
         and not roman_marker_is_authorized
     ):
         return [
-            "Proof source evidence not found: "
-            f"{label} `source.{field}` appears outside the rule's declared "
-            f"subsection scope `{rule_source}` (excerpt begins at `({marker})`)."
+            _out_of_scope_issue(
+                label=label,
+                field=field,
+                rule_source=rule_source,
+                marker=marker,
+                evidence_text=evidence_text,
+            )
         ]
     if declared and marker is not None and marker not in declared:
         has_explicit_deeper_alpha_coordinate = (
@@ -1689,9 +1776,13 @@ def _proof_excerpt_subsection_scope_issues(
         ):
             return []
         return [
-            "Proof source evidence not found: "
-            f"{label} `source.{field}` appears outside the rule's declared "
-            f"subsection scope `{rule_source}` (excerpt begins at `({marker})`)."
+            _out_of_scope_issue(
+                label=label,
+                field=field,
+                rule_source=rule_source,
+                marker=marker,
+                evidence_text=evidence_text,
+            )
         ]
 
     numeric_marker = re.match(r"^\s*\((?P<marker>\d+)\)(?:\s|$)", evidence_text)
@@ -1709,9 +1800,13 @@ def _proof_excerpt_subsection_scope_issues(
     if numeric in declared_numeric:
         return []
     return [
-        "Proof source evidence not found: "
-        f"{label} `source.{field}` appears outside the rule's declared "
-        f"subsection scope `{rule_source}` (excerpt begins at `({numeric})`)."
+        _out_of_scope_issue(
+            label=label,
+            field=field,
+            rule_source=rule_source,
+            marker=numeric,
+            evidence_text=evidence_text,
+        )
     ]
 
 

@@ -35,6 +35,10 @@ METADATA_FIELDS = {
     "encoder_version",
     "attempt_count",
 }
+#: ``typed_issues`` carries the bundle's typed validator issues
+#: (``axiom-encode/validation-issue/v2``); bundles without typed issues omit it.
+OPTIONAL_METADATA_FIELDS = frozenset({"typed_issues"})
+TYPED_ISSUES_SCHEMA = "axiom-encode/validation-issue/v2"
 
 
 def _canonical_candidate_path(raw_path: object) -> PurePosixPath:
@@ -199,8 +203,18 @@ def verify_candidate_directory(
         raise ValueError(
             "failed candidate issues.json is not valid UTF-8 JSON"
         ) from exc
-    if not isinstance(metadata, dict) or set(metadata) != METADATA_FIELDS:
+    if (
+        not isinstance(metadata, dict)
+        or set(metadata) - OPTIONAL_METADATA_FIELDS != METADATA_FIELDS
+    ):
         raise ValueError("failed candidate issues.json has an invalid shape")
+    typed_issues = metadata.get("typed_issues")
+    if typed_issues is not None and (
+        not isinstance(typed_issues, dict)
+        or typed_issues.get("schema") != TYPED_ISSUES_SCHEMA
+        or not isinstance(typed_issues.get("issues"), list)
+    ):
+        raise ValueError("failed candidate typed issues are invalid")
     if metadata.get("schema") != SCHEMA:
         raise ValueError("failed candidate issues.json schema is invalid")
     metadata_citation = metadata.get("citation")

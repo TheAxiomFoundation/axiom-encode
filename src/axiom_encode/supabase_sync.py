@@ -173,6 +173,11 @@ def sync_run_to_supabase(
                         "message": e.message,
                         "variable": e.variable,
                         "fix_applied": e.fix_applied,
+                        **(
+                            {"issues": e.issues}
+                            if getattr(e, "issues", None) is not None
+                            else {}
+                        ),
                     }
                     for e in it.errors
                 ],

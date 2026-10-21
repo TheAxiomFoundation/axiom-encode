@@ -85,10 +85,12 @@ def _add_retained_candidate(
     citation: str = "us/statute/42/1437c\u20131",
     module: str = "statutes/42/1437c-1.yaml",
     issue_text: str = "best candidate still needs one repair",
+    extra_fields: dict | None = None,
 ) -> Path:
     root = "target/final-rejected-candidate"
     issues = json.dumps(
         {
+            **(extra_fields or {}),
             "schema": "axiom-encode/failed-encode-candidate/v1",
             "citation": citation,
             "path": module,
@@ -309,6 +311,44 @@ def test_prefers_integrity_bound_retained_best_candidate(tmp_path):
     root = Path(result["root"])
     assert result["runner"] == "retained-best"
     assert (root / result["path"]).read_bytes() == retained
+
+
+def test_accepts_retained_candidate_with_typed_issues(tmp_path):
+    archive, metadata = _archive(tmp_path, candidate=b"final regression\n")
+    retained = b"strongest retained candidate\n"
+    replacement = _add_retained_candidate(
+        archive,
+        tmp_path / "retained.tar",
+        metadata,
+        candidate=retained,
+        extra_fields={
+            "typed_issues": {
+                "schema": "axiom-encode/validation-issue/v2",
+                "total": 1,
+                "typed": 1,
+                "issues": [],
+            }
+        },
+    )
+
+    result = extract_candidate(_args(tmp_path, replacement))
+
+    assert result["runner"] == "retained-best"
+    assert (Path(result["root"]) / result["path"]).read_bytes() == retained
+
+
+def test_rejects_retained_candidate_with_malformed_typed_issues(tmp_path):
+    archive, metadata = _archive(tmp_path, candidate=b"final regression\n")
+    replacement = _add_retained_candidate(
+        archive,
+        tmp_path / "retained.tar",
+        metadata,
+        candidate=b"strongest retained candidate\n",
+        extra_fields={"typed_issues": {"schema": "other", "issues": []}},
+    )
+
+    with pytest.raises(ValueError, match="retained repair candidate metadata"):
+        extract_candidate(_args(tmp_path, replacement))
 
 
 def test_extracts_dependent_candidate_for_atomic_repair(tmp_path):

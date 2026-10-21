@@ -224,6 +224,7 @@ jobs:
               [ "$GITHUB_RUN_ATTEMPT" != "1" ] || \
               [[ ! "$QUEUE_DISPATCHER_RUN_ID" =~ ^[0-9]+$ ]]; then
               echo "queue target must be created by an authenticated dispatcher" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:validate-country-routing-input "queue target must be created by an authenticated dispatcher" || true
               exit 1
             fi
             python axiom-encode/scripts/prepare_signed_queue.py \
@@ -378,16 +379,19 @@ jobs:
             local checkout="$3"
             if [[ ! "$requested" =~ $sha_pattern ]]; then
               echo "$label ref must be a full lowercase commit SHA" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:verify-immutable-checkout-identities "$label ref must be a full lowercase commit SHA" || true
               exit 1
             fi
             actual="$(git -C "$checkout" rev-parse HEAD)"
             if [ "$actual" != "$requested" ]; then
               echo "$label checkout resolved to $actual, expected $requested" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:verify-immutable-checkout-identities "$label checkout resolved to $actual, expected $requested" || true
               exit 1
             fi
           }
           if [[ ! "$GITHUB_SHA" =~ $sha_pattern ]]; then
             echo "GITHUB_SHA must be a full lowercase commit SHA" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:verify-immutable-checkout-identities "GITHUB_SHA must be a full lowercase commit SHA" || true
             exit 1
           fi
           test "$(git -C axiom-encode rev-parse HEAD)" = "$GITHUB_SHA"
@@ -625,6 +629,7 @@ jobs:
                ! jq -e 'type == "array" and length == 0' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
                ! jq -e 'type == "array" and length == 0' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
               echo "signed tests-only revision is limited to the reviewed memo head and exact target" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:resolve-trusted-prior-run-repair-candidate "signed tests-only revision is limited to the reviewed memo head and exact target" || true
               exit 1
             fi
             candidate_tests_path="${REPLACE_RULESPEC_PATH%.yaml}.test.yaml"
@@ -649,6 +654,7 @@ jobs:
           if [[ ! "$REPAIR_RUN_ID" =~ ^[0-9]+$ ]] || \
              [ "$REPAIR_RUN_ID" = "$GITHUB_RUN_ID" ]; then
             echo "repair_run_id must identify a different decimal workflow run" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:resolve-trusted-prior-run-repair-candidate "repair_run_id must identify a different decimal workflow run" || true
             exit 1
           fi
           # The supported transaction determines the replay lane. Derive its
@@ -689,6 +695,7 @@ jobs:
                <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" \
                > /dev/null; then
             echo "repair replay is limited to one non-legacy target and at most two fresh direct dependents, with at most one exact source or test bundle, artifact-bound imports, and without refreshes or queue authorization" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:resolve-trusted-prior-run-repair-candidate "repair replay is limited to one non-legacy target and at most two fresh direct dependents, with at most one exact source or test bundle, artifact-bound imports, and without refreshes or queue authorization" || true
             exit 1
           fi
 
@@ -797,6 +804,7 @@ jobs:
           if [ "$retained_primary" != "true" ]; then
             if [ -n "${SECOND_DEPENDENT_CITATION:-}" ]; then
               echo "two fresh dependents require an authenticated single-target primary candidate" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:resolve-trusted-prior-run-repair-candidate "two fresh dependents require an authenticated single-target primary candidate" || true
               exit 1
             fi
             extract_authenticated_repair \
@@ -906,6 +914,7 @@ jobs:
                ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
                ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
               echo "required tests on fresh legacy replacements cannot mix transaction modes" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:validate-atomic-source-inputs "required tests on fresh legacy replacements cannot mix transaction modes" || true
               exit 1
             fi
             canonical_refresh_primary_required_test_cases_json="[]"
@@ -935,6 +944,7 @@ jobs:
                ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
                ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
               echo "required tests on fresh ordinary replacements cannot mix transaction modes" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:validate-atomic-source-inputs "required tests on fresh ordinary replacements cannot mix transaction modes" || true
               exit 1
             fi
             axiom-encode/.venv/bin/python axiom-encode/scripts/prepare_signed_backfill.py \
@@ -993,6 +1003,7 @@ jobs:
             | jq -e 'type == "array" and all(.[]; type == "string" and length > 0)' \
               > /dev/null; then
             echo "retained successor paths must be a JSON array of non-empty strings" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:validate-atomic-source-inputs "retained successor paths must be a JSON array of non-empty strings" || true
             exit 1
           fi
           retained_successor_paths=()
@@ -1025,11 +1036,13 @@ jobs:
               [ -n "$REPAIR_RUN_ID" ] || \
               [ -n "$QUEUE_ID" ]; }; then
             echo "canonical refresh bundles cannot mix with imports, composition bundles, legacy/dependent migration, repair replay, or queue authorization" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:validate-atomic-source-inputs "canonical refresh bundles cannot mix with imports, composition bundles, legacy/dependent migration, repair replay, or queue authorization" || true
             exit 1
           fi
           if [ "$normalized_source_bundle" != "[]" ] && \
              [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
             echo "source bundles require legacy replacements to merge first" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:validate-atomic-source-inputs "source bundles require legacy replacements to merge first" || true
             exit 1
           fi
           if [ "$normalized_source_bundle" != "[]" ] && \
@@ -1040,6 +1053,7 @@ jobs:
                [ -n "$SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
                [ "${#retained_successor_paths[@]}" -gt 0 ]; }; then
             echo "source-bundle replacements cannot include dependent migrations" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:validate-atomic-source-inputs "source-bundle replacements cannot include dependent migrations" || true
             exit 1
           fi
           if [ -n "$QUEUE_ID" ] && \
@@ -1047,6 +1061,7 @@ jobs:
               [ "$normalized_source_bundle" != "[]" ] || \
               [ "$normalized_existing_imports" != "[]" ]; }; then
             echo "queue-authorized re-encodes cannot add source inputs until queue generation identity binds them" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:validate-atomic-source-inputs "queue-authorized re-encodes cannot add source inputs until queue generation identity binds them" || true
             exit 1
           fi
 
@@ -1068,6 +1083,7 @@ jobs:
           )
           if [ "${#release_pin[@]}" -ne 2 ]; then
             echo "RuleSpec toolchain did not yield exactly one corpus release pin" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-signed-corpus-release-object "RuleSpec toolchain did not yield exactly one corpus release pin" || true
             exit 1
           fi
           release_name="${release_pin[0]}"
@@ -1096,10 +1112,12 @@ jobs:
           trap - EXIT
           if [[ ! "$release_commit" =~ ^[0-9a-f]{40}$ ]]; then
             echo "Signed release provenance is not a full lowercase commit SHA" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-signed-corpus-release-object "Signed release provenance is not a full lowercase commit SHA" || true
             exit 1
           fi
           git -C axiom-corpus merge-base --is-ancestor "$release_commit" HEAD || {
             echo "Pinned corpus checkout predates signed release provenance" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-signed-corpus-release-object "Pinned corpus checkout predates signed release provenance" || true
             exit 1
           }
           if [ -d axiom-corpus/.axiom/corpus-locks ]; then
@@ -1113,7 +1131,7 @@ jobs:
             for path in "${provision_paths[@]}"; do
               case "$path" in
                 data/corpus/provisions/*) fetch_args+=(--path "$path") ;;
-                *) echo "Unsafe corpus provision artifact path: $path" >&2; exit 1 ;;
+                *) echo "Unsafe corpus provision artifact path: $path" >&2; python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-signed-corpus-release-object "Unsafe corpus provision artifact path: $path" || true; exit 1 ;;
               esac
             done
             uv run --project axiom-corpus --locked --python 3.14 \
@@ -1122,6 +1140,7 @@ jobs:
           else
             test -d axiom-corpus/data/corpus/provisions || {
               echo "Pinned corpus checkout has neither locks nor provisions" >&2
+              python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-signed-corpus-release-object "Pinned corpus checkout has neither locks nor provisions" || true
               exit 1
             }
           fi
