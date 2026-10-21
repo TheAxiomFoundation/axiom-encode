@@ -35942,10 +35942,17 @@ class ValidatorPipeline:
             extract_typed_numeric_occurrences_from_text,
             profile=numeric_profile,
         )
+        from .floor_retained_referral_evidence import collect_referral_context
+
         completeness = analyze_complete_source_unit(
             content,
             authoritative_source_text or "",
             execution_evidence=execution_evidence,
+            referral_context=collect_referral_context(
+                self, content, rules_file, proof_source_texts
+            )
+            if execution_evidence is not None
+            else None,
             corpus_citation_path=corpus_citation_path,
             source_context=proof_source_texts,
             test_cases=test_cases,

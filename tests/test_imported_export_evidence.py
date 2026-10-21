@@ -419,3 +419,61 @@ def test_source_refusals(world, mutation):
             "corpus_citation_path"
         ] = BASE + "/foreign"
     assert not bind(world)
+
+
+@pytest.mark.parametrize("source", [None, "", "  \n", [], {}, True, 7])
+def test_malformed_optional_descriptive_source_refuses(world, source):
+    world[1]["rules"][0]["source"] = source
+    assert not bind(world)
+
+
+def test_optional_source_text_does_not_replace_role_proof(world):
+    world[1]["rules"][0]["source"] = "A descriptive statement, not an ownership proof."
+    assert len(bind(world)) == 1
+    world[1]["rules"][0]["metadata"]["proof"]["atoms"] = frame()
+    assert not bind(world)
+
+
+def test_unknown_semantic_key_still_refuses_with_description(world):
+    world[1]["rules"][0].update(source="Descriptive text.", default=True)
+    assert not bind(world)
+
+
+def test_exact_native_three_wrappers_with_source_descriptions_bind(world):
+    native_base = "ca/policy/cra/t1-2025/t1-income-net-taxable-income"
+    module = native_base.replace("/policy/", ":policies/") + "/step-2"
+    provider = yaml.safe_load(
+        (FIXTURES / "native-entered-observations.yaml").read_text()
+    )
+    consumer = yaml.safe_load(
+        dump(world[0]).replace(BASE, native_base).replace("2031", "2025")
+    )
+    consumer["imports"] = [module + "#" + r["name"] for r in provider["rules"]]
+    context = {
+        k.replace(BASE, native_base): v.replace("2031", "2025")
+        for k, v in world[2].items()
+    }
+    root = world[3]
+    path = root / "policies/cra/t1-2025/t1-income-net-taxable-income/step-2.yaml"
+    content = dump(provider)
+    bound_records = tuple(
+        ResolvedImportedExport(
+            uri,
+            uri,
+            r["name"],
+            str(path),
+            str(root),
+            hashlib.sha256(content.encode()).hexdigest(),
+            content,
+            tuple(consumer["imports"]),
+        )
+        for uri, r in zip(consumer["imports"], provider["rules"])
+    )
+    observations = bind_entered_observations(
+        dump(consumer),
+        owner="repayment",
+        consumer_citation=native_base + "/step-3",
+        source_context=context,
+        imported_exports=bound_records,
+    )
+    assert len(observations) == 3
