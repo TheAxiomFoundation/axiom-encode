@@ -30751,7 +30751,7 @@ def _emit_final_rejected_candidate(
     ).encode("utf-8")
     if len(metadata_raw) > _FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES:
         raise ValueError("Final rejected candidate issues.json exceeds its size limit")
-    typed_issues = typed_issue_document([(None, issues)])
+    typed_issues = _safe_typed_issue_document([(None, issues)])
     if typed_issues is not None:
         typed_raw = (
             json.dumps(

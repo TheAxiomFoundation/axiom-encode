@@ -265,6 +265,18 @@
       "why": "Companion tests are the executed evidence that the encoding behaves as the source says. A source-stated output, branch, boundary, exception or rounding rule without a test can be wrong without any gate noticing."
     },
     {
+      "category": "infra:fetch-pinned-corpus-provision-objects",
+      "cause": "infra",
+      "fix": "Check the signed release object's provision artifact paths and the axiom-corpus ref; publish or pin a release whose corpus checkout has `.axiom/corpus-locks` or `data/corpus/provisions`, then retry.",
+      "gate": "workflow",
+      "id": "infra:fetch-pinned-corpus-provision-objects",
+      "requires": "The signed release object lists provision artifacts only under `data/corpus/provisions/`, or the pinned corpus checkout holds the provisions directory itself.",
+      "severity": "important",
+      "site": ".github/workflows/targeted-signed-reencode.yml:Fetch pinned corpus provision objects",
+      "title": "The pinned corpus provisions cannot be fetched safely",
+      "why": "Encoding reads source text only from verified provision objects; a path outside the provisions tree or a checkout with neither locks nor provisions gives the run no authenticated source."
+    },
+    {
       "category": "infra:fetch-pinned-signed-corpus-release-object",
       "cause": "infra",
       "fix": "Check the RuleSpec repo's toolchain pin and the axiom-corpus ref: the corpus checkout must include the signed release provenance and its locks or provisions. Retry after the release is published.",
@@ -349,6 +361,6 @@
       "why": "A proof atom ties a rule to the exact source words it implements. An excerpt that is not in the cited provision, or not in the rule's own subsection, proves nothing and can hide an invented value or condition."
     }
   ],
-  "registry_sha256": "2505ed8a42016b4ce8e9ad050ea9fce9d320a0df51e46f2d318ae6a16cc056e0",
+  "registry_sha256": "811c3d942686ae433c1b95be6b73ec483306cef73b5c7cd9cc9a432f40550a54",
   "schema": "axiom-encode/check-registry/v1"
 }

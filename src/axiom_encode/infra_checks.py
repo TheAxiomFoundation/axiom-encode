@@ -114,6 +114,26 @@ INFRA_CHECK_DEFINITIONS: tuple[dict[str, str], ...] = (
         ),
         "site": f"{_WORKFLOW}:Fetch pinned signed corpus release object",
     },
+    {
+        "id": "infra:fetch-pinned-corpus-provision-objects",
+        "title": "The pinned corpus provisions cannot be fetched safely",
+        "requires": (
+            "The signed release object lists provision artifacts only under "
+            "`data/corpus/provisions/`, or the pinned corpus checkout holds "
+            "the provisions directory itself."
+        ),
+        "why": (
+            "Encoding reads source text only from verified provision objects; "
+            "a path outside the provisions tree or a checkout with neither "
+            "locks nor provisions gives the run no authenticated source."
+        ),
+        "fix": (
+            "Check the signed release object's provision artifact paths and the "
+            "axiom-corpus ref; publish or pin a release whose corpus checkout "
+            "has `.axiom/corpus-locks` or `data/corpus/provisions`, then retry."
+        ),
+        "site": f"{_WORKFLOW}:Fetch pinned corpus provision objects",
+    },
 )
 
 

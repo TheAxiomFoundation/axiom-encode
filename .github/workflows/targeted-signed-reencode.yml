@@ -1243,7 +1243,7 @@ jobs:
             for path in "${provision_paths[@]}"; do
               case "$path" in
                 data/corpus/provisions/*) fetch_args+=(--path "$path") ;;
-                *) echo "Unsafe corpus provision artifact path: $path" >&2; python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-signed-corpus-release-object "Unsafe corpus provision artifact path: $path" || true; exit 1 ;;
+                *) echo "Unsafe corpus provision artifact path: $path" >&2; python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-corpus-provision-objects "Unsafe corpus provision artifact path: $path" || true; exit 1 ;;
               esac
             done
             uv run --project axiom-corpus --locked --python 3.14 \
@@ -1252,7 +1252,7 @@ jobs:
           else
             test -d axiom-corpus/data/corpus/provisions || {
               echo "Pinned corpus checkout has neither locks nor provisions" >&2
-              python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-signed-corpus-release-object "Pinned corpus checkout has neither locks nor provisions" || true
+              python axiom-encode/scripts/infra_issue.py record infra:fetch-pinned-corpus-provision-objects "Pinned corpus checkout has neither locks nor provisions" || true
               exit 1
             }
           fi

@@ -465,6 +465,17 @@ def test_workflow_refusals_use_declared_infra_checks():
         indent, message = match.groups()
         assert lines[index - 1] == f"{indent}echo {message} >&2", index + 1
         assert lines[index + 1] == f"{indent}exit 1", index + 1
+    # Steps after the signing supervisor is provisioned run a trusted
+    # interpreter with ``-I``; the PATH ``python`` helper stays out of them.
+    supervisor = text.index("      - name: Provision protected signing supervisor\n")
+    assert "infra_issue.py" not in text[supervisor:]
+    # Each record names the check of the step it is in.
+    step = None
+    for line in lines:
+        if line.startswith("      - name: "):
+            step = line.removeprefix("      - name: ")
+        for check_id in re.findall(r"infra_issue\.py record (infra:[a-z0-9-]+) ", line):
+            assert load_checks()[check_id].site.endswith(f":{step}"), line
     bare = sum(
         1
         for previous, line in zip(lines, lines[1:])
