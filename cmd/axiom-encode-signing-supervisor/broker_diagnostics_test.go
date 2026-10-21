@@ -253,6 +253,51 @@ func TestBrokerReportsInitializationFailureBeforeItsPeerSeesIt(t *testing.T) {
 	}
 }
 
+// initializeTestBroker serves the broker protocol in the background and reads
+// its successful initialization reply. The broker then waits for peer
+// authentication (on Linux) and requests; its result arrives on served.
+func initializeTestBroker(
+	t *testing.T,
+	options brokerOptions,
+	applyKey, evalKey ed25519.PrivateKey,
+) (supervisor *os.File, probe *peerProbe, served <-chan error) {
+	t.Helper()
+	broker, supervisor := brokerTestConnection(t)
+	probe = &peerProbe{t: t, peer: int(supervisor.Fd())}
+	result := make(chan error, 1)
+	go func() { result <- serveBrokerConnection(broker, options, probe) }()
+
+	if err := sendFrame(supervisor, testInitialization(applyKey, evalKey)); err != nil {
+		t.Fatal(err)
+	}
+	var status receivedBrokerResponse
+	if err := receiveFrame(supervisor, &status); err != nil || !status.OK {
+		t.Fatalf("broker initialization failed: %+v, %v", status, err)
+	}
+	return supervisor, probe, result
+}
+
+func TestBrokerReportsUndecodableRequestBeforeItsPeerSeesIt(t *testing.T) {
+	supervisor, probe, served := initializeTestBroker(
+		t,
+		brokerOptions{applySignerFD: -1, evalSignerFD: -1},
+		testSigningKey(0x11), testSigningKey(0x22),
+	)
+	completeTestBrokerPeerAuthentication(t, supervisor)
+	// No reply: the peer learns of this failure only from EOF.
+	if err := sendFrame(supervisor, map[string]any{
+		"version": protocolVersion, "id": 1, "op": "status", "unexpected": true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	err := <-served
+	assertReportedFirst(
+		t, err, probe, supervisor,
+		`signing broker: signing broker frame is malformed: json: unknown field "unexpected"`,
+		0, "",
+	)
+}
+
 func TestBrokerReportsSigningFailureBeforeItsPeerSeesIt(t *testing.T) {
 	for _, label := range []string{"apply", "eval"} {
 		t.Run(label, func(t *testing.T) {
@@ -264,18 +309,7 @@ func TestBrokerReportsSigningFailureBeforeItsPeerSeesIt(t *testing.T) {
 			} else {
 				options.evalSignerFD = startTestSigner(t, evalKey, wrongSignSignature)
 			}
-			broker, supervisor := brokerTestConnection(t)
-			probe := &peerProbe{t: t, peer: int(supervisor.Fd())}
-			served := make(chan error, 1)
-			go func() { served <- serveBrokerConnection(broker, options, probe) }()
-
-			if err := sendFrame(supervisor, testInitialization(applyKey, evalKey)); err != nil {
-				t.Fatal(err)
-			}
-			var status receivedBrokerResponse
-			if err := receiveFrame(supervisor, &status); err != nil || !status.OK {
-				t.Fatalf("broker initialization failed: %+v, %v", status, err)
-			}
+			supervisor, probe, served := initializeTestBroker(t, options, applyKey, evalKey)
 			completeTestBrokerPeerAuthentication(t, supervisor)
 			// Leave the reply unread until the broker returns, so a reply sent
 			// before the diagnostic is still pending when the probe looks.

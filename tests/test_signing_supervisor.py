@@ -1795,9 +1795,14 @@ def test_invalid_external_signer_response_fails_closed(
     assert completed.returncode != 0
     # The broker sends its peer only the generic error and writes the detail to
     # stderr first, so the detail survives the supervisor killing the broker
-    # and always precedes the generic error.
+    # and always precedes the generic error. main() must not print it again.
     diagnostic = f"signing broker: {detail}\n"
-    assert diagnostic in completed.stderr
+    broker_lines = [
+        line
+        for line in completed.stderr.splitlines()
+        if line.startswith("signing broker: ")
+    ]
+    assert broker_lines == [diagnostic.rstrip("\n")], completed.stderr
     assert expected in completed.stderr
     assert completed.stderr.index(diagnostic) < completed.stderr.index(expected)
 
