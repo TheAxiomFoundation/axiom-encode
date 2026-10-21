@@ -110,12 +110,17 @@ from axiom_encode.engine_binding import (
     require_engine_ref_sha,
     resolve_pinned_engine_binary,
 )
+from axiom_encode.form_numeric_structure import (
+    form_numeric_locator_spans,
+    mask_form_numeric_locators,
+)
 from axiom_encode.form_source_structure import mask_form_display
 from axiom_encode.harness.coverage_exemptions import (
     CoverageDemand,
     filter_coverage_demands,
     has_reviewed_repeal,
 )
+from axiom_encode.harness.imported_export_evidence import ResolvedImportedExport
 from axiom_encode.harness.strict_compiled_inputs import (
     compiled_program_has_strict_input_reads,
 )
@@ -169,6 +174,11 @@ from .proof_validator import (
     find_plural_corpus_citation_path_issues,
     find_rulespec_proof_issues,
     validate_rulespec_proofs,
+)
+from .same_case_execution import (
+    ExecutionCapture,
+    SameCaseEvidence,
+    compilation_snapshot,
 )
 from .source_completeness import (
     _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
@@ -12408,6 +12418,7 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
     mask_spans.extend(
         (label.start, label.marker_end) for label in bare_outline(text) or ()
     )
+    mask_spans.extend(form_numeric_locator_spans(text))
     structural_spans = _structural_numeric_component_spans(text, profile="da-DK")
 
     def masked_text() -> str:
@@ -12887,7 +12898,9 @@ def _clean_source_text_for_numeric_extraction_tracked(
         return _TrackedText(masked, list(range(len(masked))))
     # A bare number is scaffolding only when the complete shared outline
     # authenticates it. Uncertain table cells/counts retain their source slots.
-    tracked = _TrackedText.identity(mask_form_display(mask_bare_labels(text)))
+    tracked = _TrackedText.identity(
+        mask_form_display(mask_bare_labels(mask_form_numeric_locators(text)))
+    )
     # A carriage return before a newline becomes a space of its own, so a CRLF
     # line ends in "\n" and keeps its width; one that ends a line by itself
     # (a classic Mac or a mixed-terminator source) becomes the newline it is,
@@ -35870,6 +35883,7 @@ class ValidatorPipeline:
         test_cases: Sequence[object] | None,
         rules_file: Path | None = None,
         proof_source_texts: Mapping[str, str | None] | None = None,
+        execution_evidence: SameCaseEvidence | None = None,
     ) -> list[str]:
         """Apply opt-in completeness checks to the resolver-owned corpus body."""
 
@@ -35905,8 +35919,11 @@ class ValidatorPipeline:
         corpus_citation_path = self.source_citation_path or (
             citation_paths[0] if citation_paths else ""
         )
-        imported_symbol_contents = self._complete_source_unit_import_symbol_contents(
+        imported_export_bindings = self._complete_source_unit_import_bindings(
             rules_file
+        )
+        imported_symbol_contents = self._complete_source_import_numeric_projection(
+            imported_export_bindings
         )
         artifact_numeric_bindings = collect_artifact_numeric_bindings(
             content,
@@ -35925,9 +35942,17 @@ class ValidatorPipeline:
             extract_typed_numeric_occurrences_from_text,
             profile=numeric_profile,
         )
+        from .floor_retained_referral_evidence import collect_referral_context
+
         completeness = analyze_complete_source_unit(
             content,
             authoritative_source_text or "",
+            execution_evidence=execution_evidence,
+            referral_context=collect_referral_context(
+                self, content, rules_file, proof_source_texts
+            )
+            if execution_evidence is not None
+            else None,
             corpus_citation_path=corpus_citation_path,
             source_context=proof_source_texts,
             test_cases=test_cases,
@@ -35940,6 +35965,10 @@ class ValidatorPipeline:
             artifact_numeric_values=artifact_numeric_values,
             artifact_numeric_bindings=artifact_numeric_bindings,
             imported_symbol_contents=imported_symbol_contents,
+            imported_export_bindings=imported_export_bindings,
+            imported_proof_source_context=self._complete_source_import_proof_context(
+                imported_export_bindings, proof_source_texts
+            ),
             resolved_dependency_outputs=self._complete_source_unit_deferred_outputs(
                 content, rules_file
             ),
@@ -36024,8 +36053,31 @@ class ValidatorPipeline:
         self,
         rules_file: Path | None,
     ) -> tuple[tuple[str, str], ...]:
-        """Bind every directly imported symbol to its exact resolved artifact."""
+        """Preserve the existing numeric-import projection and deduplication."""
+        return self._complete_source_import_numeric_projection(
+            self._complete_source_unit_import_bindings(rules_file)
+        )
 
+    @staticmethod
+    def _complete_source_import_numeric_projection(
+        records: Sequence[ResolvedImportedExport],
+    ) -> tuple[tuple[str, str], ...]:
+        seen: set[tuple[str, str]] = set()
+        result: list[tuple[str, str]] = []
+        for record in records:
+            key = (record.resolved_path, record.export_name)
+            if key not in seen:
+                seen.add(key)
+                # Path.read_text previously performed universal newline conversion.
+                content = record.content.replace("\r\n", "\n").replace("\r", "\n")
+                result.append((record.export_name, content))
+        return tuple(result)
+
+    def _complete_source_unit_import_bindings(
+        self,
+        rules_file: Path | None,
+    ) -> tuple[ResolvedImportedExport, ...]:
+        """Retain exact direct resolver identity; never evaluate provider rules."""
         if rules_file is None:
             return ()
         try:
@@ -36033,8 +36085,8 @@ class ValidatorPipeline:
             import_items = self._extract_import_items(rules_file.read_text())
         except (OSError, ValueError, UnsafeRulespecContextPath):
             return ()
-        seen: set[tuple[Path, str]] = set()
-        bindings: list[tuple[str, str]] = []
+        bindings: list[ResolvedImportedExport] = []
+        snapshots: dict[Path, str] = {}
         for import_item in import_items:
             _target, separator, imported_symbol = import_item.rpartition("#")
             imported_symbol = imported_symbol.strip()
@@ -36049,14 +36101,76 @@ class ValidatorPipeline:
                 )
                 if dependency is None:
                     continue
-                binding_key = (dependency.resolve(), imported_symbol)
-                if binding_key in seen:
-                    continue
-                seen.add(binding_key)
-                bindings.append((imported_symbol, dependency.read_text()))
+                dependency = dependency.resolve()
+                if dependency not in snapshots:
+                    snapshots[dependency] = dependency.read_bytes().decode("utf-8")
+                content = snapshots[dependency]
+                jurisdiction_root = _rulespec_repo_root(dependency)
+                bindings.append(
+                    ResolvedImportedExport(
+                        import_uri=import_item,
+                        canonical_target=_canonical_rulespec_file_target(
+                            policy_repo_path=source_root,
+                            rules_file=dependency,
+                            symbol=imported_symbol,
+                        ),
+                        export_name=imported_symbol,
+                        resolved_path=str(dependency),
+                        jurisdiction_root=str(jurisdiction_root)
+                        if jurisdiction_root is not None
+                        else None,
+                        content_sha256=hashlib.sha256(content.encode()).hexdigest(),
+                        content=content,
+                        consumer_imports=tuple(import_items),
+                    )
+                )
             except (OSError, ValueError, UnsafeRulespecContextPath):
                 continue
         return tuple(bindings)
+
+    def _complete_source_import_proof_context(
+        self,
+        records: Sequence[ResolvedImportedExport],
+        consumer_context: Mapping[str, str | None] | None,
+    ) -> dict[str, str | None] | None:
+        """Resolve direct snapshot proofs only for typed import evidence.
+
+        This separate map cannot widen ordinary consumer proof/numeric scope.
+        Authentication errors propagate through the existing resolver.
+        """
+        if (
+            not records
+            or not isinstance(self.local_corpus_release, LocalCorpusRelease)
+            or _AUTHORITATIVE_CORPUS_RELEASE.get() is not self.local_corpus_release
+        ):
+            return None
+        snapshots: dict[str, tuple[str, str]] = {}
+        modules: dict[str, str] = {}
+        for record in records:
+            snapshot = (record.content_sha256, record.content)
+            if (
+                hashlib.sha256(record.content.encode()).hexdigest()
+                != record.content_sha256
+                or snapshots.setdefault(record.resolved_path, snapshot) != snapshot
+            ):
+                return None
+            if record.canonical_target is None:
+                return None
+            module = record.canonical_target.rsplit("#", 1)[0]
+            if modules.setdefault(module, record.resolved_path) != record.resolved_path:
+                return None
+        combined = dict(consumer_context or {})
+        for _digest, content in snapshots.values():
+            provider = self._proof_source_texts_for_rulespec_content(
+                content, source_texts=None
+            )
+            for citation, body in provider.items():
+                if not isinstance(body, str) or (
+                    citation in combined and combined[citation] != body
+                ):
+                    return None
+                combined[citation] = body
+        return combined
 
     def _rulespec_compile_roots(self) -> tuple[Path, ...]:
         """Return the exact country checkouts authorized for engine compilation."""
@@ -37612,6 +37726,7 @@ class ValidatorPipeline:
         declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
         compiled_relations: list[dict] | None = None,
         input_entities: dict[str, str] | None = None,
+        execution_capture: ExecutionCapture | None = None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
         """Execute one compact RuleSpec test case through `run-compiled`."""
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
@@ -37821,7 +37936,17 @@ class ValidatorPipeline:
         if not isinstance(outputs, dict):
             return None, [f"Test case `{case_name}` returned no output map."]
         try:
-            return self._rulespec_outputs_by_reference(outputs), []
+            mapped = self._rulespec_outputs_by_reference(outputs)
+            if execution_capture is not None:
+                execution_capture.stage(
+                    case,
+                    request,
+                    response,
+                    binary,
+                    compiled_path,
+                    case_index=case_index,
+                )
+            return mapped, []
         except ValueError as exc:
             return None, [f"Test case `{case_name}`: {exc}"]
 
@@ -37867,6 +37992,7 @@ class ValidatorPipeline:
         compiled_path: Path,
         compiled_payload: dict[str, Any],
         cases: list[Any],
+        execution_capture: ExecutionCapture | None = None,
     ) -> list[str]:
         """Run compact RuleSpec `.test.yaml` cases against the compiled artifact."""
         issues: list[str] = []
@@ -38026,6 +38152,11 @@ class ValidatorPipeline:
                 response_outputs, execution_issues = (
                     self._run_rulespec_derived_test_case(
                         binary=binary,
+                        **(
+                            {"execution_capture": execution_capture}
+                            if execution_capture is not None
+                            else {}
+                        ),
                         compiled_path=compiled_path,
                         case=case,
                         case_name=case_name,
@@ -38090,6 +38221,8 @@ class ValidatorPipeline:
                 if mismatch:
                     issues.append(mismatch)
 
+        if issues and execution_capture is not None:
+            execution_capture.records.clear()
         return issues
 
     def _rulespec_companion_input_entities(
@@ -38139,6 +38272,19 @@ class ValidatorPipeline:
         )
 
     def _run_rulespec_ci(self, rules_file: Path) -> ValidationResult:
+        with compilation_snapshot(self, rules_file) as capture:
+            result = self._run_rulespec_ci_impl(rules_file, execution_capture=capture)
+            if capture is not None:
+                result.details["same_case_snapshot"] = {
+                    "clone_seconds": capture.clone_seconds,
+                    "closure_files": len(capture.files),
+                    "executed_cases": len(capture.records),
+                }
+            return result
+
+    def _run_rulespec_ci_impl(
+        self, rules_file: Path, *, execution_capture: ExecutionCapture | None = None
+    ) -> ValidationResult:
         """Run RuleSpec compile, executable tests, and source-grounding checks."""
         start = time.time()
         issues: list[str] = []
@@ -38147,6 +38293,17 @@ class ValidatorPipeline:
         raw_output: str | None = None
         compiled_payload: dict[str, Any] | None = None
         compiled_path: Path | None = None
+        execution_pipeline = self
+        execution_file = rules_file
+        if execution_capture is not None:
+            execution_pipeline = copy.copy(self)
+            execution_pipeline.policy_repo_path = (
+                execution_capture.snapshot_root / self.policy_repo_path.name
+            )
+            execution_pipeline.rulespec_dependency_roots = ()
+            execution_file = (
+                execution_capture.snapshot_root / execution_capture.root_relative
+            )
 
         issues.extend(find_source_table_row_scalar_parameter_issues(content))
         issues.extend(find_interval_table_reencoding_issues(content))
@@ -38157,8 +38314,8 @@ class ValidatorPipeline:
         self._register_validation_temporary_root(tmpdir)
         try:
             compiled_path = tmpdir / "compiled.json"
-            compile_result, payload = self._compile_rulespec_to_artifact(
-                rules_file, compiled_path
+            compile_result, payload = execution_pipeline._compile_rulespec_to_artifact(
+                execution_file, compiled_path
             )
             raw_output = compile_result.stdout + compile_result.stderr
             if compile_result.returncode != 0:
@@ -38166,6 +38323,8 @@ class ValidatorPipeline:
                 issues.append(f"Axiom rules engine compile failed: {detail}")
             elif isinstance(payload, dict):
                 compiled_payload = payload
+                if execution_capture is not None:
+                    execution_capture.compiled(compiled_path)
                 raw_output = self._rulespec_compile_success_output(payload)
             else:
                 issues.append(
@@ -38457,11 +38616,16 @@ class ValidatorPipeline:
                     )
                     if len(issues) == pre_test_issue_count:
                         issues.extend(
-                            self._run_rulespec_test_cases(
-                                rules_file=rules_file,
+                            execution_pipeline._run_rulespec_test_cases(
+                                rules_file=execution_file,
                                 compiled_path=compiled_path,
                                 compiled_payload=compiled_payload,
                                 cases=payload,
+                                **(
+                                    {"execution_capture": execution_capture}
+                                    if execution_capture is not None
+                                    else {}
+                                ),
                             )
                         )
         elif not issues and not self._is_nonassertable_rulespec_artifact(rules_file):
@@ -38473,6 +38637,9 @@ class ValidatorPipeline:
                 validation_source_texts=validation_source_texts,
                 proof_source_texts=proof_source_texts,
                 test_cases=complete_source_unit_test_cases,
+                execution_evidence=execution_capture.evidence()
+                if execution_capture
+                else None,
                 rules_file=rules_file,
             )
         )

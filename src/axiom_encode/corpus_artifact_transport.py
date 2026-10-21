@@ -50,7 +50,7 @@ def request_run_id(raw: str, dispatch: dict[str, str]) -> str:
     # All old inputs, including the separate metadata lane, retain their route.
     try:
         schema = json.loads(raw).get("schema")
-    except (AttributeError, ValueError):
+    except (AttributeError, ValueError, RecursionError):
         return ""
     if schema != "axiom-encode/corpus-artifact-transport/v1":
         return ""

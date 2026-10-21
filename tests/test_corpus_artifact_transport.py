@@ -52,6 +52,24 @@ def test_wrapper_projects_only_source_contract():
 
 
 @pytest.mark.parametrize(
+    "run_id",
+    ["123;id", "123\n", "$(id)", "0", "1" * 21, "１２３"],
+)
+def test_transport_run_id_must_be_ascii_canonical_decimal(run_id):
+    wrapper = {**WRAPPER, "corpus_artifact_run_id": run_id}
+    with pytest.raises(ValueError, match="run|transport"):
+        transport.request_run_id(json.dumps(wrapper), DISPATCH)
+
+
+def test_recursive_request_is_rejected(monkeypatch):
+    def recurse(_raw):
+        raise RecursionError("nested transport")
+
+    monkeypatch.setattr(transport.json, "loads", recurse)
+    assert transport.request_run_id("{}", DISPATCH) == ""
+
+
+@pytest.mark.parametrize(
     "field",
     [
         "QUEUE_ID",
@@ -249,6 +267,75 @@ def test_signed_member_lock_and_placement(signed):
         transport.place_member(signed["corpus"], path, b"different")
 
 
+def _resign_fixture(signed):
+    release = signed["release"]
+    release["content_sha256"] = hashlib.sha256(
+        json.dumps(
+            release["content"], sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode()
+    ).hexdigest()
+    signed["receipt"]["content_sha256"] = release["content_sha256"]
+    signed["receipt"]["source_commit"] = release["content"]["git"]["commit"]
+    signed["pin"] = (release["release"], release["content_sha256"])
+    key = Ed25519PrivateKey.generate()
+    signed["public_key"] = b64encode(
+        key.public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw
+        )
+    ).decode()
+    release["signature"]["value"] = b64encode(
+        key.sign(canonical_release_object_bytes(release))
+    ).decode()
+
+
+def _historical_lock_commit(signed, lock_sha):
+    repo = signed["corpus"]
+    path = signed["receipt"]["path"]
+    lock = repo / transport.lock_path_for(path)
+    original = lock.read_bytes()
+    lock.write_bytes(
+        _canonical_lock_bytes(
+            ("nz", "statute", "2026-07-10-nz-rulespec"),
+            {path: LockEntry(lock_sha, len(signed["payload"]))},
+        )
+    )
+    transport.git(repo, "add", ".")
+    transport.git(
+        repo, "-c", "commit.gpgsign=false", "commit", "-qm", "historical-lock"
+    )
+    historical = transport.git(repo, "rev-parse", "HEAD")
+    lock.write_bytes(original)
+    transport.git(repo, "add", ".")
+    transport.git(repo, "-c", "commit.gpgsign=false", "commit", "-qm", "current-lock")
+    signed["release"]["content"]["git"]["commit"] = historical
+    _resign_fixture(signed)
+
+
+def test_payload_must_match_signed_member_even_when_current_lock_agrees(signed):
+    different = hashlib.sha256(b"y" * len(signed["payload"])).hexdigest()
+    _historical_lock_commit(signed, different)
+    member = next(
+        item
+        for item in signed["release"]["content"]["artifacts"]
+        if item["artifact_class"] == "provisions"
+    )
+    member["sha256"] = different
+    member["r2_key"] = f"objects/sha256/{different[:2]}/{different}"
+    signed["release"]["content"]["validation"]["r2_readback"]["verified_keys"] = [
+        item["r2_key"] for item in signed["release"]["content"]["artifacts"]
+    ]
+    signed["receipt"]["sha256"] = different
+    _resign_fixture(signed)
+    with pytest.raises(ValueError, match="payload differs from signed member"):
+        transport.verify_member(**signed)
+
+
+def test_release_commit_lock_must_match_signed_member(signed):
+    _historical_lock_commit(signed, "f" * 64)
+    with pytest.raises(ValueError, match="immutable lock disagrees"):
+        transport.verify_member(**signed)
+
+
 def test_reingested_checkout_lock_refuses_historical_member(signed):
     path = transport.verify_member(**signed)
     repo = signed["corpus"]
@@ -437,6 +524,62 @@ def test_artifact_metadata_exact_binding_and_negatives():
             transport.select_artifact({"total_count": 1, "artifacts": [bad]}, run)
     with pytest.raises(ValueError):
         transport.select_artifact({"total_count": 2, "artifacts": [good]}, run)
+    bad_head = copy.deepcopy(good)
+    bad_head["workflow_run"]["head_sha"] = "b" * 40
+    with pytest.raises(ValueError, match="bound"):
+        transport.select_artifact({"total_count": 1, "artifacts": [bad_head]}, run)
+
+
+def test_run_head_must_descend_from_reviewed_exporter(signed, monkeypatch):
+    repo = signed["corpus"]
+    for path in transport.REVIEWED_BLOBS:
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("reviewed fixture " + path)
+    transport.git(repo, "add", ".")
+    transport.git(repo, "-c", "commit.gpgsign=false", "commit", "-qm", "same-blobs")
+    prior_head = transport.git(repo, "rev-parse", "HEAD")
+    transport.git(
+        repo,
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "reviewed-exporter-marker",
+    )
+    reviewed_head = transport.git(repo, "rev-parse", "HEAD")
+    transport.git(
+        repo,
+        "remote",
+        "add",
+        "origin",
+        f"https://github.com/{transport.REPOSITORY}.git",
+    )
+    transport.git(repo, "update-ref", "refs/remotes/origin/main", reviewed_head)
+    monkeypatch.setattr(transport, "REVIEWED_EXPORTER", reviewed_head)
+    monkeypatch.setattr(
+        transport,
+        "REVIEWED_BLOBS",
+        {
+            path: transport.git(repo, "rev-parse", f"{prior_head}:{path}")
+            for path in transport.REVIEWED_BLOBS
+        },
+    )
+    run = {
+        "id": 123,
+        "event": "workflow_dispatch",
+        "status": "completed",
+        "conclusion": "success",
+        "path": transport.WORKFLOW,
+        "head_branch": "main",
+        "repository": {"full_name": transport.REPOSITORY},
+        "head_repository": {"full_name": transport.REPOSITORY},
+        "head_sha": prior_head,
+        "run_attempt": 1,
+    }
+    with pytest.raises(subprocess.CalledProcessError):
+        transport.validate_run(run, "123", repo)
 
 
 @pytest.mark.parametrize("changed_path", tuple(transport.REVIEWED_BLOBS))

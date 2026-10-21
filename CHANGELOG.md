@@ -1,14 +1,60 @@
+## 0.2.2247
+
+- Add bounded authenticated corpus artifact transport for fresh complete-source replacements, binding the official reviewed exporter, run and artifact metadata, archive bytes, signed release, immutable and current scope locks, and protected signing workflow without granting source authority.
+
+## 0.2.2246
+
+- Verify a closed printed net-income row using independently executed floored and retained signed values with authenticated informational referral identities. Preserve source operands, version frames, and refusal for missing or conflicting evidence; do not infer loss eligibility or execute downstream policies.
+
+- Accept an optional nonempty descriptive `source` on imported entered-amount observations and direct worksheet entered-condition wrappers without treating that text as proof or changing canonical identity, formula, type, frame, or proof checks.
+
+## 0.2.2243
+
+- Verify a complete source repayment alternative group only when every top-level alternative and every owner version has its own executed threshold pair. Preserve partial conditions, leaf-level coverage, and separate floor/advisory obligations.
+
+## 0.2.2242
+
+- Verify exact source repayment thresholds using separately executed equality and above-threshold cases, authenticated entered observations and branch-required worksheet facts. Preserve generic boundary evaluation and separate compound-condition and advisory obligations.
+
+## 0.2.2241
+
+- Verify signed numeric representation of exact printed bracket-format instructions using authenticated operand ownership and separate actual negative and nonnegative executions. Preserve floor, advisory, repayment and boundary obligations.
+
+## 0.2.2240
+
+- Recognize referral URLs inside verified printed arithmetic rows without treating URL punctuation as calculation operators. Require exact source-bound local operand order, all-version proofs and matching executed formulas; preserve advisory text and separate condition checks.
+
+## 0.2.2239
+
+- Verify sparse worksheet choices using exact source-bound entered observations and separately executed cases. Require the selected-only worksheet fact, preserve canonical ownership and unchanged common facts, and keep generic paired-condition and boundary checks unchanged.
+
+## 0.2.2238
+
+- Verify source-bound subtraction floors using separate actual negative and positive cases, canonical imported operand proofs and exact execution receipts. Preserve legacy paired-condition and boundary checks, including unresolved sparse worksheet branches.
+
+## 0.2.2237
+
+- Verify imported formula witnesses against pinned, isolated compilation and exact-case Explain execution, while retaining original repository checks and separate boundary and paired-condition obligations.
+
+## 0.2.2236
+
+- Bind imported entered-line observations to their canonical providers and authenticated source proofs. Check complete repayment alternative trees, strict thresholds and result branches before treating their conditions as explicit, while preserving ordinary execution and source checks.
+
+## 0.2.2235
+
+- Preserve verified whole-form reference locations when extracting computation clauses, so a referral such as Step 4 is not mistaken for an arithmetic operand. Keep real amounts and malformed references subject to the existing checks.
+
+## 0.2.2234
+
+- Recognize complete printed-form referrals and label typography without treating them as arithmetic. Keep condition proofs within their source rows while preserving inherited repayment guards and conditional branches.
+
 ## 0.2.2233
 
-- Require the current corpus checkout lock to pin authenticated artifact bytes before and immediately at placement, including when its signed release lock is older.
+- Preserve printed form operation rows and inherited conditions during source-clause recognition. Bind complete Add-range proof excerpts to their unique source context while retaining structural ownership and selected-version checks.
 
 ## 0.2.2232
 
-- Refresh authenticated corpus transport on current main and keep Linux-runner diagnostic archive tests deterministic on macOS.
-
-## 0.2.2231
-
-- Integrate bounded authenticated corpus artifact transport with the current encoder baseline, preserving the reviewed exporter and locked-installation checks.
+- Distinguish complete slip-box referrals, coordinated printed line labels, and corroborated form footers from numeric policy values, preserving amounts, source offsets, and unrelated completeness checks.
 
 ## 0.2.2230
 
@@ -29,18 +75,6 @@
 ## 0.2.2226
 
 - Recognize correlated printed form titles, complete form identifiers, and corroborated terminal line coordinates without treating them as computations or scalar amounts; preserve substantive years and source offsets.
-
-## 0.2.2223
-
-- Integrate the current relation-only fixture repair and name the authenticated transport checkout explicitly, preserving source verification and workflow input guards.
-
-## 0.2.2222
-
-- Bind corpus artifact transport to the reviewed exporter and its locked installation files, rejecting changes to the workflow, exporter, installer, uv requirements, package metadata or dependency lock.
-
-## 0.2.2221
-
-- Allow bounded authenticated corpus artifact transport for fresh complete-source replacements, verifying the official exporter, archive, signed release and immutable scope lock without granting source authority or exposing repository credentials to helper code.
 
 ## 0.2.2220
 

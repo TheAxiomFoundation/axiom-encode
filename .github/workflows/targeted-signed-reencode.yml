@@ -1129,6 +1129,7 @@ jobs:
           gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/corpus-export.zip"
 
       - name: Fetch pinned signed corpus release object
+        id: pinned_corpus_release
         shell: bash
         env:
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
@@ -1152,8 +1153,7 @@ jobs:
           TRUST_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
           RELEASE_BASE_URL: https://pub-a8952f8657fc49fda358146ac001366c.r2.dev
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          EXPORT_RUN: ${{ steps.corpus_artifact_transport.outputs.run_id }}
         run: |
           set -euo pipefail
           materializer=axiom-encode/scripts/materialize_corpus_release.py
@@ -1197,7 +1197,7 @@ jobs:
             echo "Pinned corpus checkout predates signed release provenance" >&2
             exit 1
           }
-          if [ -n "${{ steps.corpus_artifact_transport.outputs.run_id }}" ]; then
+          if [ -n "$EXPORT_RUN" ]; then
             axiom-encode/.venv/bin/python -m axiom_encode.corpus_artifact_transport materialize \
               --corpus-checkout axiom-corpus --toolchain "$toolchain" \
               --run-metadata "$RUNNER_TEMP/corpus-export-run.json" \
@@ -1205,12 +1205,21 @@ jobs:
               --archive "$RUNNER_TEMP/corpus-export.zip" \
               --release-object "axiom-corpus/releases/${release_name}/${release_sha}.json"
           fi
+          echo "release_object=axiom-corpus/releases/${release_name}/${release_sha}.json" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch pinned corpus provision objects
+        shell: bash
+        env:
+          RELEASE_OBJECT: ${{ steps.pinned_corpus_release.outputs.release_object }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
           if [ -d axiom-corpus/.axiom/corpus-locks ]; then
-            release_object="axiom-corpus/releases/${release_name}/${release_sha}.json"
             provision_paths_json="$(jq -e \
               '[.content.artifacts[] | select(.artifact_class == "provisions") | .path]
                | if length > 0 then . else error("no provision artifacts") end' \
-              "$release_object")"
+              "$RELEASE_OBJECT")"
             mapfile -t provision_paths < <(jq -r '.[]' <<< "$provision_paths_json")
             fetch_args=()
             for path in "${provision_paths[@]}"; do
