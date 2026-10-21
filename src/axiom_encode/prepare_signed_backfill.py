@@ -408,6 +408,36 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         raise ValueError("atomic source JSON exceeds the maximum input size")
     payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
     if isinstance(payload, dict) and payload.get("schema") == (
+        "axiom-encode/corpus-artifact-transport/v1"
+    ):
+        if set(payload) != {"schema", "transaction", "corpus_artifact_run_id"}:
+            raise ValueError(
+                "transport requires exactly transaction and corpus_artifact_run_id"
+            )
+        run_id = payload["corpus_artifact_run_id"]
+        if (
+            not isinstance(run_id, str)
+            or re.fullmatch(r"[1-9][0-9]{0,19}", run_id) is None
+        ):
+            raise ValueError("transport run must be a positive decimal run ID")
+        inner = payload["transaction"]
+        if (
+            not isinstance(inner, dict)
+            or inner.get("schema") != "axiom-encode/atomic-source-transaction/v3"
+        ):
+            raise ValueError("transport requires an exact v3 transaction")
+        normalized = split_atomic_source_input(json.dumps(inner, allow_nan=False))
+        if (
+            normalized["require_complete_source_unit"] is not True
+            or normalized["primary_required_test_cases"]
+            or normalized["source_bundle"]
+            or normalized["canonical_refresh_bundle"]
+        ):
+            raise ValueError(
+                "transport requires a fresh complete-source primary without other modes"
+            )
+        return {**normalized, "corpus_artifact_run_id": run_id}
+    if isinstance(payload, dict) and payload.get("schema") == (
         "axiom-encode/atomic-source-transaction/v6"
     ):
         if set(payload) != {"schema", "transaction", "repair_mode"}:
@@ -557,13 +587,13 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
 
 
 def immutable_atomic_source_contract(atomic_source_json: str) -> dict[str, object]:
-    """Project only a validated v6 envelope onto its exact older transaction.
+    """Project validated repair or transport envelopes onto their source transaction.
 
     In particular, absent historical v4/v5 flags are not invented or discarded.
     Unknown keys and nested wrappers fail before this projection is available.
     """
     normalized = split_atomic_source_input(atomic_source_json)
-    if "repair_mode" not in normalized:
+    if "repair_mode" not in normalized and "corpus_artifact_run_id" not in normalized:
         return normalized
     payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
     return split_atomic_source_input(
@@ -576,6 +606,42 @@ def resolve_atomic_repair_mode(
 ) -> dict[str, object]:
     """Select execution mode; old envelopes retain historical inference."""
     normalized = split_atomic_source_input(atomic_source_json)
+    if "corpus_artifact_run_id" in normalized:
+        if any(
+            dispatch.get(field, "")
+            for field in (
+                "REPAIR_RUN_ID",
+                "QUEUE_ID",
+                "QUEUE_ITEM_ID",
+                "QUEUE_MANIFEST_SHA256",
+                "QUEUE_ITEM_GENERATION_SHA256",
+                "QUEUE_DISPATCHER_RUN_ID",
+                "DEPENDENT_CITATION",
+                "SECOND_DEPENDENT_CITATION",
+                "DEPENDENT_REVIEW_FINDING",
+                "SECOND_DEPENDENT_REVIEW_FINDING",
+                "REPLACE_LEGACY_RULESPEC_PATH",
+                "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+                "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+            )
+        ):
+            raise ValueError("corpus transport supports only a fresh ordinary primary")
+        for field in (
+            "EXISTING_SIGNED_IMPORTS_JSON",
+            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON",
+        ):
+            if _load_unambiguous_json(dispatch.get(field) or "[]", label=field) != []:
+                raise ValueError(
+                    "corpus transport cannot include imports or retained successors"
+                )
+        target = dispatch.get("REPLACE_RULESPEC_PATH", "")
+        if (
+            not target
+            or citation_rulespec_path(dispatch.get("CITATION", "")).as_posix() != target
+        ):
+            raise ValueError(
+                "corpus transport requires the exact ordinary replacement citation/path"
+            )
     explicit = normalized.get("repair_mode")
     mode = explicit or (
         "tests_only" if normalized["primary_required_test_cases"] else "full_artifact"
