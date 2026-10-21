@@ -175,6 +175,11 @@ from .proof_validator import (
     find_rulespec_proof_issues,
     validate_rulespec_proofs,
 )
+from .same_case_execution import (
+    ExecutionCapture,
+    SameCaseEvidence,
+    compilation_snapshot,
+)
 from .source_completeness import (
     _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
     _is_us_manual_citation_path,
@@ -35878,6 +35883,7 @@ class ValidatorPipeline:
         test_cases: Sequence[object] | None,
         rules_file: Path | None = None,
         proof_source_texts: Mapping[str, str | None] | None = None,
+        execution_evidence: SameCaseEvidence | None = None,
     ) -> list[str]:
         """Apply opt-in completeness checks to the resolver-owned corpus body."""
 
@@ -35939,6 +35945,7 @@ class ValidatorPipeline:
         completeness = analyze_complete_source_unit(
             content,
             authoritative_source_text or "",
+            execution_evidence=execution_evidence,
             corpus_citation_path=corpus_citation_path,
             source_context=proof_source_texts,
             test_cases=test_cases,
@@ -37712,6 +37719,7 @@ class ValidatorPipeline:
         declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
         compiled_relations: list[dict] | None = None,
         input_entities: dict[str, str] | None = None,
+        execution_capture: ExecutionCapture | None = None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
         """Execute one compact RuleSpec test case through `run-compiled`."""
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
@@ -37921,7 +37929,10 @@ class ValidatorPipeline:
         if not isinstance(outputs, dict):
             return None, [f"Test case `{case_name}` returned no output map."]
         try:
-            return self._rulespec_outputs_by_reference(outputs), []
+            mapped = self._rulespec_outputs_by_reference(outputs)
+            if execution_capture is not None:
+                execution_capture.stage(case, request, response, binary, compiled_path)
+            return mapped, []
         except ValueError as exc:
             return None, [f"Test case `{case_name}`: {exc}"]
 
@@ -37967,6 +37978,7 @@ class ValidatorPipeline:
         compiled_path: Path,
         compiled_payload: dict[str, Any],
         cases: list[Any],
+        execution_capture: ExecutionCapture | None = None,
     ) -> list[str]:
         """Run compact RuleSpec `.test.yaml` cases against the compiled artifact."""
         issues: list[str] = []
@@ -38126,6 +38138,11 @@ class ValidatorPipeline:
                 response_outputs, execution_issues = (
                     self._run_rulespec_derived_test_case(
                         binary=binary,
+                        **(
+                            {"execution_capture": execution_capture}
+                            if execution_capture is not None
+                            else {}
+                        ),
                         compiled_path=compiled_path,
                         case=case,
                         case_name=case_name,
@@ -38190,6 +38207,8 @@ class ValidatorPipeline:
                 if mismatch:
                     issues.append(mismatch)
 
+        if issues and execution_capture is not None:
+            execution_capture.records.clear()
         return issues
 
     def _rulespec_companion_input_entities(
@@ -38239,6 +38258,19 @@ class ValidatorPipeline:
         )
 
     def _run_rulespec_ci(self, rules_file: Path) -> ValidationResult:
+        with compilation_snapshot(self, rules_file) as capture:
+            result = self._run_rulespec_ci_impl(rules_file, execution_capture=capture)
+            if capture is not None:
+                result.details["same_case_snapshot"] = {
+                    "clone_seconds": capture.clone_seconds,
+                    "closure_files": len(capture.files),
+                    "executed_cases": len(capture.records),
+                }
+            return result
+
+    def _run_rulespec_ci_impl(
+        self, rules_file: Path, *, execution_capture: ExecutionCapture | None = None
+    ) -> ValidationResult:
         """Run RuleSpec compile, executable tests, and source-grounding checks."""
         start = time.time()
         issues: list[str] = []
@@ -38247,6 +38279,17 @@ class ValidatorPipeline:
         raw_output: str | None = None
         compiled_payload: dict[str, Any] | None = None
         compiled_path: Path | None = None
+        execution_pipeline = self
+        execution_file = rules_file
+        if execution_capture is not None:
+            execution_pipeline = copy.copy(self)
+            execution_pipeline.policy_repo_path = (
+                execution_capture.snapshot_root / self.policy_repo_path.name
+            )
+            execution_pipeline.rulespec_dependency_roots = ()
+            execution_file = (
+                execution_capture.snapshot_root / execution_capture.root_relative
+            )
 
         issues.extend(find_source_table_row_scalar_parameter_issues(content))
         issues.extend(find_interval_table_reencoding_issues(content))
@@ -38257,8 +38300,8 @@ class ValidatorPipeline:
         self._register_validation_temporary_root(tmpdir)
         try:
             compiled_path = tmpdir / "compiled.json"
-            compile_result, payload = self._compile_rulespec_to_artifact(
-                rules_file, compiled_path
+            compile_result, payload = execution_pipeline._compile_rulespec_to_artifact(
+                execution_file, compiled_path
             )
             raw_output = compile_result.stdout + compile_result.stderr
             if compile_result.returncode != 0:
@@ -38266,6 +38309,8 @@ class ValidatorPipeline:
                 issues.append(f"Axiom rules engine compile failed: {detail}")
             elif isinstance(payload, dict):
                 compiled_payload = payload
+                if execution_capture is not None:
+                    execution_capture.compiled(compiled_path)
                 raw_output = self._rulespec_compile_success_output(payload)
             else:
                 issues.append(
@@ -38557,11 +38602,16 @@ class ValidatorPipeline:
                     )
                     if len(issues) == pre_test_issue_count:
                         issues.extend(
-                            self._run_rulespec_test_cases(
-                                rules_file=rules_file,
+                            execution_pipeline._run_rulespec_test_cases(
+                                rules_file=execution_file,
                                 compiled_path=compiled_path,
                                 compiled_payload=compiled_payload,
                                 cases=payload,
+                                **(
+                                    {"execution_capture": execution_capture}
+                                    if execution_capture is not None
+                                    else {}
+                                ),
                             )
                         )
         elif not issues and not self._is_nonassertable_rulespec_artifact(rules_file):
@@ -38573,6 +38623,9 @@ class ValidatorPipeline:
                 validation_source_texts=validation_source_texts,
                 proof_source_texts=proof_source_texts,
                 test_cases=complete_source_unit_test_cases,
+                execution_evidence=execution_capture.evidence()
+                if execution_capture
+                else None,
                 rules_file=rules_file,
             )
         )

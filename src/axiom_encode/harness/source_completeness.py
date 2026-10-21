@@ -83,6 +83,8 @@ from axiom_encode.statute import (
     parse_usc_citation,
 )
 
+from .same_case_execution import SameCaseEvidence, formula_witnesses
+
 if TYPE_CHECKING:
     from axiom_encode.harness.worksheet_composition_evidence import (
         BoundWorksheetComposition,
@@ -5311,6 +5313,7 @@ def analyze_complete_source_unit(
     imported_proof_source_context: Mapping[str, str | None] | None = None,
     resolved_dependency_outputs: Sequence[str] = (),
     source_context: Mapping[str, str | None] | None = None,
+    execution_evidence: SameCaseEvidence | None = None,
 ) -> CompleteSourceUnitAnalysis:
     """Analyze one artifact against its authoritative, resolver-owned body."""
 
@@ -5330,6 +5333,7 @@ def analyze_complete_source_unit(
                 return _analyze_rulespec_payload(
                     payload,
                     content=content,
+                    execution_evidence=execution_evidence,
                     source_text=source_text,
                     raw_source_text=authoritative_source_text,
                     corpus_citation_path=corpus_citation_path,
@@ -5453,7 +5457,12 @@ def _analyze_rulespec_payload(
     imported_proof_source_context: Mapping[str, str | None] | None = None,
     source_context: Mapping[str, str | None] | None = None,
     raw_source_text: str | None = None,
+    execution_evidence: SameCaseEvidence | None = None,
 ) -> CompleteSourceUnitAnalysis:
+    if execution_evidence is not None and not execution_evidence.bound(
+        content, imported_export_bindings
+    ):
+        execution_evidence = None
     local_names = {
         str(rule.get("name") or "").strip()
         for rule in payload.get("rules", [])
@@ -5840,6 +5849,7 @@ def _analyze_rulespec_payload(
         companion_issues.extend(
             _companion_test_issues(
                 principal_rules,
+                execution_evidence=execution_evidence,
                 printed_operations=printed_operations,
                 partnership_content=content,
                 certified_composition=certified_composition,
@@ -19708,6 +19718,7 @@ def _companion_test_issues(
     raw_source_text: str | None = None,
     partnership_content: str | None = None,
     printed_operations: _PrintedOperationContext | None = None,
+    execution_evidence: SameCaseEvidence | None = None,
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
@@ -19780,6 +19791,8 @@ def _companion_test_issues(
     ]
     missing_formula_branches = _unwitnessed_formula_branches(
         formula_branches,
+        execution_evidence=execution_evidence,
+        execution_content=partnership_content,
         printed_operations=printed_operations,
         operand_declarations={
             **parameter_rules,
@@ -21214,6 +21227,8 @@ def _unwitnessed_formula_branches(
     operand_declarations: Mapping[str, dict[str, Any]] | None = None,
     certified_replacement: BoundWorksheetReplacement | None = None,
     printed_operations: _PrintedOperationContext | None = None,
+    execution_evidence: SameCaseEvidence | None = None,
+    execution_content: str | None = None,
 ) -> tuple[SourceStructureBranch, ...]:
     """Consume each executed rule/case witness for at most one source formula."""
 
@@ -21240,6 +21255,30 @@ def _unwitnessed_formula_branches(
         )
         for branch in branches
     }
+    if execution_evidence is not None and execution_content is not None:
+        for branch in branches:
+            candidate_witnesses[branch].update(
+                formula_witnesses(
+                    execution_evidence,
+                    branch,
+                    content=execution_content,
+                    printed_operations=printed_operations,
+                    operand_declarations=operand_declarations,
+                    certified_replacement=certified_replacement,
+                    source_text=source_text,
+                    represented_annual_spans=represented_annual_spans,
+                    measurement_roles=measurement_roles,
+                    represented_measurement_spans=represented_measurement_spans,
+                    measurement_witnesses=measurement_witnesses,
+                    corpus_citation_path=corpus_citation_path,
+                    principal_rules=principal_rules,
+                    rule_names=principal_formula_clause_rules[branch],
+                    asserted_by_rule=asserted_by_rule,
+                    extract_numeric_occurrences=extract_numeric_occurrences,
+                    numeric_value_is_grounded=numeric_value_is_grounded,
+                    formula_environment=formula_environment,
+                )
+            )
     return _unmatched_evidence_obligations(candidate_witnesses)
 
 
