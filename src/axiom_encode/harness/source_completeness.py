@@ -20086,6 +20086,27 @@ def _companion_test_issues(
                     for branch in missing_exception_branches
                 }
             )
+        if execution_evidence is not None and partnership_content is not None:
+            from .actual_sparse_worksheet_evidence import witnesses as sparse_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                {
+                    branch: sparse_witnesses(
+                        execution_evidence,
+                        branch,
+                        content=partnership_content,
+                        imported_exports=floor_imported_exports,
+                        source_context=floor_source_context,
+                        source_text=source_text,
+                        source_branches=branches,
+                        corpus_citation_path=corpus_citation_path,
+                        principal_rules=principal_rules,
+                        asserted_by_rule=asserted_by_rule,
+                        formula_environment=formula_environment,
+                    )
+                    for branch in missing_exception_branches
+                }
+            )
         reporting_routes = certify_reporting_routes(
             measurement_roles,
             measurement_witnesses or set(),
