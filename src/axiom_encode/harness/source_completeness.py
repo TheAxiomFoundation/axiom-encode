@@ -5711,7 +5711,11 @@ def _analyze_rulespec_payload(
         if not _path_is_deferred(branch.path, deferred_paths)
     )
     printed_operations = _printed_operation_context(
-        source_text, branches, corpus_citation_path
+        source_text,
+        branches,
+        corpus_citation_path,
+        consumer_content=content,
+        proof_sources=source_context,
     )
     all_formula_branches = _source_formula_branches(
         source_text,
@@ -20332,10 +20336,268 @@ def _case_input_principal_output_collisions(
 
 
 @dataclass(frozen=True)
+class _PrintedArithmeticProjection:
+    operation_text: str
+    numeric_spans: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True)
 class _PrintedOperationContext:
     source_text: str
     citation_path: str
     structure: PrintedRowStructure
+    source_branches: tuple[SourceStructureBranch, ...] = ()
+    consumer_content: str = ""
+    proof_sources: tuple[tuple[str, str | None], ...] = ()
+
+    def local_operands_bind(
+        self,
+        clause: SourceStructureBranch,
+        *,
+        rule: Mapping[str, Any] | None,
+        principal_rules: Mapping[str, dict[str, Any]] | None,
+        case: Mapping[str, Any] | None,
+        execution: _FormulaExecution,
+    ) -> bool:
+        from .imported_export_evidence import (
+            _URI,
+            _atoms,
+            _frame,
+            _named,
+            _payload,
+            _source,
+        )
+
+        if rule is None or principal_rules is None or case is None:
+            return False
+        payload = _payload(self.consumer_content)
+        if payload is None:
+            return False
+        rules, inputs, units = (
+            _named(payload, key) for key in ("rules", "inputs", "units")
+        )
+        module = payload.get("module")
+        verification = (
+            module.get("source_verification") if isinstance(module, dict) else None
+        )
+        imports = payload.get("imports", [])
+        if (
+            rules is None
+            or inputs is None
+            or units is None
+            or set(rules) & set(inputs)
+            or any(rules.get(name) != value for name, value in principal_rules.items())
+            or not isinstance(verification, dict)
+            or verification.get("corpus_citation_path") != self.citation_path
+            or not isinstance(imports, list)
+            or any(
+                not isinstance(ref, str) or _URI.fullmatch(ref) is None
+                for ref in imports
+            )
+        ):
+            return False
+        aliases = [ref.rsplit("#", 1)[1] for ref in imports]
+        if len(set(aliases)) != len(aliases) or set(aliases) & (
+            set(rules) | set(inputs)
+        ):
+            return False
+        context = dict(self.proof_sources)
+        raw = context.get(self.citation_path)
+        if not isinstance(raw, str) or raw.strip() != self.source_text:
+            return False
+        owner = rule.get("name")
+        if (
+            not isinstance(owner, str)
+            or rules.get(owner) != rule
+            or principal_rules.get(owner) != rule
+        ):
+            return False
+        head = re.match(
+            r"Line (?P<target>[1-9]\d{0,2}) and line [1-9]\d{4}: "
+            r"(?P<operative>Line (?P<left>[1-9]\d{0,2}) minus line (?P<right>[1-9]\d{0,2}) "
+            r'\(if negative, enter "0"\))',
+            clause.text,
+        )
+        if head is None:
+            return False
+        expected_owner = clause.text[: head.end()]
+        row_matches = tuple(
+            re.finditer(
+                r"(?m)^Line (?P<row>[1-9]\d{0,4})(?: and (?:line )?[1-9]\d{4})?:[^\r\n]+",
+                self.source_text,
+            )
+        )
+        coordinates = [int(m["row"]) for m in row_matches]
+        if len(set(coordinates)) != len(coordinates):
+            return False
+        rows = dict(zip(coordinates, row_matches))
+        target, left, right = (int(head[k]) for k in ("target", "left", "right"))
+        if any(n not in rows for n in (target, left, right)) or rows[target].span() != (
+            clause.start,
+            clause.end,
+        ):
+            return False
+        right_groups = [
+            span
+            for span in self.structure.ownership_spans
+            if span[0] <= rows[right].start() and rows[right].end() <= span[1]
+        ]
+        if len(right_groups) != 1:
+            return False
+        right_start, right_end = right_groups[0]
+        expected = (rows[left].group(), self.source_text[right_start:right_end])
+        versions = rule.get("versions")
+        if not isinstance(versions, list) or not versions:
+            return False
+        operands = []
+        for version in versions:
+            if not isinstance(version, dict) or not isinstance(
+                version.get("formula"), str
+            ):
+                return False
+            try:
+                expression = ast.parse(version["formula"].strip(), mode="eval").body
+            except (SyntaxError, ValueError, RecursionError):
+                return False
+            if (
+                not isinstance(expression, ast.Call)
+                or not isinstance(expression.func, ast.Name)
+                or expression.func.id != "max"
+                or expression.keywords
+                or len(expression.args) != 2
+                or not isinstance(expression.args[0], ast.Constant)
+                or type(expression.args[0].value) not in (int, float)
+                or expression.args[0].value != 0
+                or not isinstance(expression.args[1], ast.BinOp)
+                or not isinstance(expression.args[1].op, ast.Sub)
+                or not isinstance(expression.args[1].left, ast.Name)
+                or not isinstance(expression.args[1].right, ast.Name)
+            ):
+                return False
+            operands.append((expression.args[1].left.id, expression.args[1].right.id))
+        if len(set(operands)) != 1:
+            return False
+        try:
+            reached = ast.parse(execution.leaf.strip(), mode="eval").body
+        except (SyntaxError, ValueError, RecursionError):
+            return False
+        if execution.trace or ast.dump(reached) != ast.dump(expression):
+            return False
+        names = (owner, *operands[0])
+        if len(set(names)) != 3 or any(
+            name not in principal_rules or name not in rules for name in names
+        ):
+            return False
+        unit = rule.get("unit")
+        if not isinstance(unit, str) or units.get(unit, {}).get("kind") != "currency":
+            return False
+        all_frames, selected = [], []
+        for position, name in enumerate(names):
+            current = rules[name]
+            if (
+                current.get("kind"),
+                current.get("dtype"),
+                current.get("entity"),
+                current.get("period"),
+                current.get("unit"),
+            ) != ("derived", "Money", "Person", "Year", unit):
+                return False
+            current_versions = current.get("versions")
+            if not isinstance(current_versions, list) or len(current_versions) != len(
+                versions
+            ):
+                return False
+            frames = []
+            for i, version in enumerate(current_versions):
+                if (
+                    not isinstance(version, dict)
+                    or set(version) - {"formula", "effective_from", "effective_to"}
+                    or not isinstance(version.get("formula"), str)
+                ):
+                    return False
+                frame = _frame(current, i, version, context)
+                if (
+                    frame is None
+                    or frame[1].rsplit("/", 1)[0]
+                    != self.citation_path.rsplit("/", 1)[0]
+                ):
+                    return False
+                atoms = _atoms(current, f"versions[{i}].formula", "formula")
+                source = _source(atoms[0], context) if len(atoms) == 1 else None
+                if (
+                    source is None
+                    or source[0] != self.citation_path
+                    or source[1] != raw
+                ):
+                    return False
+                quote = source[2]
+                if position == 0:
+                    if quote not in (expected_owner, clause.text):
+                        return False
+                elif quote.strip() != expected[position - 1].strip():
+                    return False
+                frames.append(frame)
+            if len(set(frames)) != len(frames):
+                return False
+            all_frames.append(tuple(frames))
+            selected.append(_selected_rule_formula_version_index(current, dict(case)))
+        period = _normalized_case_period(dict(case))
+        return (
+            _is_iso_calendar_date(period)
+            and len(set(all_frames)) == 1
+            and None not in selected
+            and len(set(selected)) == 1
+            and versions[selected[0]]["effective_from"]
+            <= period
+            <= versions[selected[0]]["effective_to"]
+        )
+
+    def operation_projection(
+        self,
+        clause: SourceStructureBranch,
+        *,
+        source_text: str,
+        citation_path: str,
+    ) -> _PrintedArithmeticProjection | None:
+        # Re-derive spans from the complete source; stored spans are not authority.
+        if (
+            source_text != self.source_text
+            or citation_path.strip("/").casefold() != self.citation_path
+            or not 0 <= clause.start < clause.end <= len(source_text)
+            or source_text[clause.start : clause.end] != clause.text
+            or clause.computation_text != clause.text
+        ):
+            return None
+        labels = bare_outline(source_text) or ()
+        structural = {
+            *(
+                point
+                for owner in self.source_branches
+                for point in (owner.start, owner.end)
+            ),
+            *(point for label in labels for point in (label.start, label.marker_end)),
+            *(start for start, _term in bare_definition_headers(source_text, labels)),
+        }
+        if any(clause.start < point < clause.end for point in structural):
+            return None
+        structure = _unconflicted_printed_rows(source_text, self.source_branches)
+        if (
+            structure is None
+            or structure != self.structure
+            or (clause.start, clause.end) not in structure.ownership_spans
+        ):
+            return None
+        spans = tuple(
+            (a - clause.start, b - clause.start)
+            for a, b in structure.arithmetic_referral_spans
+            if clause.start <= a < b <= clause.end
+        )
+        if len(spans) != 1:
+            return None
+        projected = list(clause.text)
+        for a, b in spans:
+            projected[a:b] = _TYPOGRAPHY_MASK * (b - a)
+        return _PrintedArithmeticProjection("".join(projected), spans)
 
     def operation_kinds(self, clause: SourceStructureBranch) -> frozenset[str] | None:
         if self.source_text[clause.start : clause.end] != clause.text:
@@ -20363,11 +20625,19 @@ def _printed_operation_context(
     source_text: str,
     branches: Sequence[SourceStructureBranch],
     citation_path: str,
+    *,
+    consumer_content: str = "",
+    proof_sources: Mapping[str, str | None] | None = None,
 ) -> _PrintedOperationContext | None:
     structure = _unconflicted_printed_rows(source_text, branches)
     return (
         _PrintedOperationContext(
-            source_text, citation_path.strip("/").casefold(), structure
+            source_text,
+            citation_path.strip("/").casefold(),
+            structure,
+            tuple(branches),
+            consumer_content,
+            tuple(proof_sources.items()) if proof_sources is not None else (),
         )
         if structure is not None
         else None
@@ -22919,6 +23189,12 @@ def _formula_execution_is_source_branch_witness(
             source_operation_kinds=(
                 printed_kinds if printed_kinds is not None else replacement_kinds
             ),
+            printed_operations=printed_operations,
+            source_text=source_text,
+            corpus_citation_path=corpus_citation_path,
+            source_rule=rule,
+            principal_rules=principal_rules,
+            case=case,
             interval=interval,
             annual_evidence=annual_evidence,
             measurement_evidence=measurement_evidence,
@@ -24173,10 +24449,51 @@ def _formula_execution_matches_source_branch(
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     numeric_value_is_grounded: NumericGroundingPredicate,
     source_operation_kinds: frozenset[str] | None = None,
+    printed_operations: _PrintedOperationContext | None = None,
+    source_text: str = "",
+    corpus_citation_path: str = "",
+    source_rule: Mapping[str, Any] | None = None,
+    principal_rules: Mapping[str, dict[str, Any]] | None = None,
+    case: Mapping[str, Any] | None = None,
 ) -> bool:
     """Bind a reached leaf to numeric evidence in its exact source formula."""
 
-    operation_text = branch.computation_text
+    projection = (
+        printed_operations.operation_projection(
+            branch, source_text=source_text, citation_path=corpus_citation_path
+        )
+        if printed_operations is not None
+        else None
+    )
+    if projection is not None and not printed_operations.local_operands_bind(
+        branch,
+        rule=source_rule,
+        principal_rules=principal_rules,
+        case=case,
+        execution=execution,
+    ):
+        return False
+    operation_text = (
+        projection.operation_text if projection is not None else branch.computation_text
+    )
+    if (
+        projection is not None
+        and source_operation_kinds is not None
+        and set(source_operation_kinds) != _formula_operation_kinds(operation_text)
+    ):
+        return False
+    numeric_branch = (
+        replace(
+            branch,
+            structural_numeric_spans=tuple(
+                sorted(
+                    set(branch.structural_numeric_spans) | set(projection.numeric_spans)
+                )
+            ),
+        )
+        if projection is not None
+        else branch
+    )
     source_operations = (
         set(source_operation_kinds)
         if source_operation_kinds is not None
@@ -24314,7 +24631,7 @@ def _formula_execution_matches_source_branch(
         ):
             return False
     computation_occurrences = _formula_branch_computation_occurrences(
-        branch,
+        numeric_branch,
         annual_evidence=annual_evidence,
         measurement_evidence=measurement_evidence,
         interval=interval,

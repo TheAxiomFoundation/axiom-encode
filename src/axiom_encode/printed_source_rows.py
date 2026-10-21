@@ -39,6 +39,17 @@ _URL_REFERRAL = re.compile(
     r"[A-Za-z]{2,24}/[A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)*)\)"
     r"(?: \^| Line [1-9]\d{4}: Total \^)?$"
 )
+# A separate closed operative row: preserve all arithmetic and advisory text.
+_ARITHMETIC_URL_REFERRAL = re.compile(
+    r"Line (?P<left>[1-9]\d{0,2}) minus line (?P<right>[1-9]\d{0,2}) "
+    r'\(if negative, enter "0"\) If negative, you may have a non-capital loss '
+    r"\(see Form [A-Z][A-Z0-9]{1,9}\) and the negative amount is to be used "
+    r"for certain calculations \(go to "
+    r"(?P<url>(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
+    r"[A-Za-z]{2,24}/[A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)*)\) "
+    r"[A-Z][A-Za-z ]* = \^"
+)
+
 _OTHER_DESCRIPTOR = re.compile(
     r"[A-Z][A-Za-z ]+ (?P<dash>-) other "
     r"\(see the [A-Z]{1,4}\d{1,4}[A-Z]{0,4} slip\) \^"
@@ -53,6 +64,7 @@ class PrintedRowStructure:
     additions: tuple[tuple[int, int], ...]
     typography_spans: tuple[tuple[int, int], ...]
     ownership_spans: tuple[tuple[int, int], ...]
+    arithmetic_referral_spans: tuple[tuple[int, int], ...] = ()
 
 
 def recognize_printed_rows(text: str) -> PrintedRowStructure | None:
@@ -122,8 +134,17 @@ def recognize_printed_rows(text: str) -> PrintedRowStructure | None:
     boundaries = {title.start(), title.end(), *(i for m in rows for i in m.span())}
     boundaries.update(i for pair in atomic for i in pair)
     typography = []
+    arithmetic_referrals = []
     for row in rows:
         caption = row["caption"]
+        arithmetic_referral = _ARITHMETIC_URL_REFERRAL.fullmatch(caption)
+        if arithmetic_referral and row["field"]:
+            left, right = (int(arithmetic_referral[k]) for k in ("left", "right"))
+            if left in display and right in display and left < right < int(row["row"]):
+                a = row.start("caption") + arithmetic_referral.start("url")
+                b = row.start("caption") + arithmetic_referral.end("url")
+                if not any(x < b and a < y for x, y in quoted):
+                    arithmetic_referrals.append((a, b))
         referral = _URL_REFERRAL.search(caption)
         if (
             referral
@@ -178,6 +199,7 @@ def recognize_printed_rows(text: str) -> PrintedRowStructure | None:
                 }
             )
         ),
+        tuple(arithmetic_referrals),
     )
 
 
