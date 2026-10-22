@@ -25,6 +25,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -1633,6 +1634,11 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 	if connection == nil {
 		return errors.New("broker descriptor is invalid")
 	}
+	// The broker writes each diagnostic before its peer can see the failure.
+	// Go ends a process that writes to a closed stderr pipe, which would end
+	// the broker before it sends its peer the error reply; with SIGPIPE
+	// ignored, that write fails with EPIPE instead.
+	signal.Ignore(syscall.SIGPIPE)
 	return serveBrokerConnection(connection, parsed, os.Stderr)
 }
 
