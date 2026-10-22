@@ -2396,8 +2396,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert fetch_step["env"] == {
         "RELEASE_OBJECT": "${{ steps.pinned_corpus_release.outputs.release_object }}",
-        "R2_ACCESS_KEY_ID": "${{ secrets.R2_ACCESS_KEY_ID }}",
-        "R2_SECRET_ACCESS_KEY": "${{ secrets.R2_SECRET_ACCESS_KEY }}",
+        "R2_ACCESS_KEY_ID": "${{ secrets.R2_CORPUS_READ_ACCESS_KEY_ID }}",
+        "R2_SECRET_ACCESS_KEY": "${{ secrets.R2_CORPUS_READ_SECRET_ACCESS_KEY }}",
     }
     fetch_command = fetch_step["run"]
     assert "axiom_encode.corpus_artifact_transport" not in fetch_command
