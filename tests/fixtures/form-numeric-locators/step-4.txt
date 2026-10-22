@@ -1,0 +1,29 @@
+Step 4 - Taxable income
+
+Line 57: Enter the amount from line 56 of the previous page. ^
+
+Line 58 and line 24400: Canadian Armed Forces personnel and police deduction (box 43 of all T4 slips) ^
+
+Line 59 and line 24900: Security options deductions (boxes 39, 41, 91 and 92 of all T4 slips or see Form T1212) ^
+
+Line 60 and line 25000: Other payments deduction (enter the amount from line 14700 if you did not enter an amount on line 14600; otherwise, use Federal Worksheet) ^
+
+Line 61 and line 25100: Limited partnership losses of other years ^
+
+Line 62 and line 25200: Non-capital losses of other years ^
+
+Line 63 and line 25300: Net capital losses of other years ^
+
+Line 64 and line 25395: Capital gains deduction for qualifying business transfers or qualifying cooperative conversions (complete Form T2048) ^
+
+Line 65 and line 25400: Capital gains deduction (complete Form T657) ^
+
+Line 66 and line 25500: Northern residents deductions (complete Form T2222) ^
+
+Line 67 and line 25600: Additional deductions ^
+(specify): ^
+
+Line 68 and line 25700: Add lines 58 to 67. = ^
+
+Line 69: Line 57 minus line 68 (if negative, enter "0") Taxable income = ^
+

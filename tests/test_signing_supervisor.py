@@ -2175,7 +2175,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["pr_base_branch"]["default"] == "main"
     assert inputs["source_bundle_json"] == {
         "description": (
-            "Atomic source input: legacy citation array/refresh object, v2-v5 contract, "
+            "Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3; "
+            "legacy citation array/refresh object, v2-v5 contract, "
             "or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} "
             "for an authenticated failed ordinary single-target repair"
         ),
@@ -2345,12 +2346,28 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         if step.get("name") == "Fetch pinned signed corpus release object"
     )
     assert release_step["env"] == {
+        "ATOMIC_SOURCE_JSON": "${{ inputs.source_bundle_json }}",
+        "CITATION": "${{ inputs.citation }}",
+        "REPLACE_RULESPEC_PATH": "${{ inputs.replace_rulespec_path }}",
+        "REPAIR_RUN_ID": "${{ inputs.repair_run_id }}",
+        "QUEUE_ITEM_ID": "${{ inputs.queue_item_id }}",
+        "QUEUE_ITEM_GENERATION_SHA256": "${{ inputs.queue_item_generation_sha256 }}",
+        "QUEUE_DISPATCHER_RUN_ID": "${{ inputs.queue_dispatcher_run_id }}",
+        "DEPENDENT_CITATION": "${{ inputs.dependent_citation }}",
+        "SECOND_DEPENDENT_CITATION": "${{ inputs.second_dependent_citation }}",
+        "DEPENDENT_REVIEW_FINDING": "${{ inputs.dependent_review_finding }}",
+        "SECOND_DEPENDENT_REVIEW_FINDING": "${{ inputs.second_dependent_review_finding }}",
+        "REPLACE_LEGACY_RULESPEC_PATH": "${{ inputs.replace_legacy_rulespec_path }}",
+        "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "${{ inputs.legacy_exact_dependent_rulespec_path }}",
+        "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "${{ inputs.second_legacy_exact_dependent_rulespec_path }}",
+        "EXISTING_SIGNED_IMPORTS_JSON": "${{ inputs.existing_signed_imports_json }}",
+        "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "${{ inputs.legacy_retained_successor_rulespec_paths_json }}",
+        "TRUST_CORPUS_RELEASE_ROOT": "${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}",
         "RELEASE_BASE_URL": ("https://pub-a8952f8657fc49fda358146ac001366c.r2.dev"),
         "RULESPEC_CHECKOUT": "rulespec-${{ inputs.country }}",
         "QUEUE_ID": "${{ inputs.queue_id }}",
         "QUEUE_MANIFEST_SHA256": "${{ inputs.queue_manifest_sha256 }}",
-        "R2_ACCESS_KEY_ID": "${{ secrets.R2_ACCESS_KEY_ID }}",
-        "R2_SECRET_ACCESS_KEY": "${{ secrets.R2_SECRET_ACCESS_KEY }}",
+        "EXPORT_RUN": "${{ steps.corpus_artifact_transport.outputs.run_id }}",
     }
     release_command = release_step["run"]
     assert "materialize_corpus_release.py" in release_command
@@ -2371,11 +2388,24 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert "--corpus-root axiom-corpus" in release_command
     assert 'merge-base --is-ancestor "$release_commit" HEAD' in release_command
-    assert "if [ -d axiom-corpus/.axiom/corpus-locks ]; then" in release_command
-    assert 'select(.artifact_class == "provisions")' in release_command
-    provision_filter = release_command.split("provision_paths_json=", 1)[1].split(
-        "'", 2
-    )[1]
+    assert "axiom_encode.corpus_artifact_transport materialize" in release_command
+    fetch_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Fetch pinned corpus provision objects"
+    )
+    assert fetch_step["env"] == {
+        "RELEASE_OBJECT": "${{ steps.pinned_corpus_release.outputs.release_object }}",
+        "R2_ACCESS_KEY_ID": "${{ secrets.R2_ACCESS_KEY_ID }}",
+        "R2_SECRET_ACCESS_KEY": "${{ secrets.R2_SECRET_ACCESS_KEY }}",
+    }
+    fetch_command = fetch_step["run"]
+    assert "axiom_encode.corpus_artifact_transport" not in fetch_command
+    assert "if [ -d axiom-corpus/.axiom/corpus-locks ]; then" in fetch_command
+    assert 'select(.artifact_class == "provisions")' in fetch_command
+    provision_filter = fetch_command.split("provision_paths_json=", 1)[1].split("'", 2)[
+        1
+    ]
     assert "\\" not in provision_filter
     if jq_binary := shutil.which("jq"):
         sample_release = {
@@ -2407,9 +2437,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
             check=False,
         )
         assert missing.returncode != 0
-    assert "axiom-corpus-ingest corpus fetch --repo axiom-corpus" in release_command
-    assert '--no-cache --verify "${fetch_args[@]}"' in release_command
-    assert "test -d axiom-corpus/data/corpus/provisions" in release_command
+    assert "axiom-corpus-ingest corpus fetch --repo axiom-corpus" in fetch_command
+    assert '--no-cache --verify "${fetch_args[@]}"' in fetch_command
+    assert "test -d axiom-corpus/data/corpus/provisions" in fetch_command
 
     repair_step = next(
         step
@@ -3918,6 +3948,9 @@ def test_targeted_signed_reencode_packages_bounded_failure_diagnostics(
     (tmp_path / "repair-candidate.json").write_text("")
     env = {
         **os.environ,
+        # The protected workflow runs on Linux; macOS tar otherwise adds
+        # AppleDouble entries that are unrelated to these diagnostic bounds.
+        "COPYFILE_DISABLE": "1",
         "CITATION": "us/statute/42/1437c-1",
         "CORPUS_REF": "corpus-ref",
         "COUNTRY": "us",
@@ -4396,6 +4429,7 @@ def test_targeted_signed_reencode_packages_noncontract_checkpoint_failure(
         ["bash", "-c", package_command],
         env={
             **os.environ,
+            "COPYFILE_DISABLE": "1",
             "CITATION": "us-la/statute/47:294",
             "CORPUS_REF": "corpus-ref",
             "COUNTRY": "us",
