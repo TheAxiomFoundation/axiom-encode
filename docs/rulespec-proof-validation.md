@@ -43,7 +43,7 @@ Each alternative requires a non-blank string `id` matching
 `^[a-z0-9]+(-[a-z0-9]+)*$`, unique within that interpretation; its only allowed
 keys are `id`, `reading`, and optional `effect`.
 
-New entries use `status: open`. A repair may carry recorded human rulings and
+The encoder is instructed to create new entries with `status: open`. A repair may carry recorded human rulings and
 publisher replies supplied through mandatory review findings into `ruling` and
 `confirmation`, attributed only to organisations. A supplied ruling permits
 `status: ruled`; `confirmed` and `contradicted` require both blocks. The model
