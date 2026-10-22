@@ -13,6 +13,7 @@ from hypothesis import strategies as st
 
 from axiom_encode.harness.proof_validator import (
     _validate_source_proof_atom,
+    find_interpretation_yaml_issues,
     proof_source_citation_paths,
     validate_rulespec_proofs,
 )
@@ -83,7 +84,10 @@ def _validate(payload, source_texts=None, **kwargs):
 
 
 def _raw_payload(*, entry_id="weekly-review", alternative_id="daily-review"):
-    """Keep spellings intact because safe_dump does not quote numeric-looking ids."""
+    """Keep YAML spellings intact.
+
+    safe_dump leaves some YAML 1.2 numeric-looking strings unquoted.
+    """
 
     return f"""format: rulespec/v1
 module:
@@ -409,11 +413,26 @@ def test_interpretation_strings_reject_raw_yaml_core_numeric_scalars(path, scala
 
 @pytest.mark.parametrize("path", [path for path in STRING_PATHS if path[-1] != "id"])
 @pytest.mark.parametrize("value", ["1e5", "-0o17", "+.5", "2e10"])
-@pytest.mark.parametrize("style", ["quoted", "explicit-string-tag"])
+@pytest.mark.parametrize(
+    "style",
+    ["quoted", "explicit-string-tag", "canonical-string-tag", "string-tag-handle"],
+)
 def test_interpretation_strings_preserve_explicit_yaml_strings(path, value, style):
-    scalar = f"'{value}'" if style == "quoted" else f"!!str {value}"
+    scalar = {
+        "quoted": f"'{value}'",
+        "explicit-string-tag": f"!!str {value}",
+        "canonical-string-tag": f"!<tag:yaml.org,2002:str> {value}",
+        "string-tag-handle": f"!s!str {value}",
+    }[style]
+    if style == "string-tag-handle":
+        content = _raw_string_payload(path, f"!!str {value}").replace(
+            f"!!str {value}", scalar, 1
+        )
+        content = "%TAG !s! tag:yaml.org,2002:\n---\n" + content
+    else:
+        content = _raw_string_payload(path, scalar)
     result = validate_rulespec_proofs(
-        _raw_string_payload(path, scalar),
+        content,
         source_texts={CITATION: f"{EXCERPT} {value}"},
     )
     assert result.passed, result.issues
@@ -426,6 +445,119 @@ def test_interpretation_ids_preserve_explicit_yaml_strings(field, scalar):
         _raw_payload(**{field: scalar}), source_texts={CITATION: EXCERPT}
     )
     assert result.passed, result.issues
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        *STRING_PATHS,
+        ("texts", 0, "corpus_citation_path"),
+        ("status",),
+        ("ruling", "date"),
+        ("ruling", "record"),
+        ("confirmation", "date"),
+        ("confirmation", "record"),
+    ],
+)
+def test_interpretation_scalars_reject_nonspecific_tags_at_every_field(path):
+    entry = _entry("confirmed")
+    original = _parent(entry, path)[path[-1]]
+    _parent(entry, path)[path[-1]] = "unsupported-tag-probe"
+    content = yaml.safe_dump(_payload(entry)).replace(
+        "unsupported-tag-probe", f"! {json.dumps(original)}"
+    )
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert not result.passed
+    assert result.issues == [
+        f"module.interpretations[0]{_field_label(path)} has unsupported YAML tag `!`; "
+        "only the canonical string tag `!!str` (`tag:yaml.org,2002:str`) is supported."
+    ]
+
+
+@pytest.mark.parametrize(
+    "scalar",
+    [
+        "! 1e5",
+        "! -0o17",
+        "! +.5",
+        "! '1e5'",
+        "! ordinary prose",
+        "!!int 123",
+        "!!float 1e5",
+        "!!bool true",
+        "!!null null",
+        "!!timestamp 2024-10-10",
+        "!local prose",
+        "!<tag:example.org,2026:prose> prose",
+        "!<str> prose",
+    ],
+)
+def test_interpretation_scalars_reject_every_noncanonical_string_tag(scalar):
+    result = validate_rulespec_proofs(
+        _raw_string_payload(("question",), scalar), source_texts={CITATION: EXCERPT}
+    )
+    assert not result.passed
+    assert any(
+        issue.startswith("module.interpretations[0].question has unsupported YAML tag")
+        for issue in result.issues
+    ), result.issues
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement", "location"),
+    [
+        ("  interpretations:", "  ! interpretations:", "module key `interpretations`"),
+        (
+            "      question:",
+            "      ! question:",
+            "module.interpretations[0] key `question`",
+        ),
+    ],
+)
+def test_interpretation_scalars_reject_nonspecific_tags_on_mapping_keys(
+    original, replacement, location
+):
+    content = _raw_payload().replace(original, replacement, 1)
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [
+        f"{location} has unsupported YAML tag `!`; only the canonical string tag "
+        "`!!str` (`tag:yaml.org,2002:str`) is supported."
+    ]
+
+
+@pytest.mark.parametrize("tag", ["!", "!!seq", "!!str", "!local"])
+def test_interpretation_collections_reject_explicit_sequence_tags(tag):
+    content = _raw_payload().replace(
+        "  interpretations:\n", f"  interpretations: {tag}\n"
+    )
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [
+        "module.interpretations must not use YAML tags on interpretation collections."
+    ]
+
+
+@pytest.mark.parametrize("tag", ["!", "!!map", "!!str", "!local"])
+def test_interpretation_collections_reject_explicit_mapping_tags(tag):
+    content = _raw_payload().replace(
+        "    - id: weekly-review\n", f"    - {tag}\n      id: weekly-review\n"
+    )
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [
+        "module.interpretations[0] must not use YAML tags on interpretation collections."
+    ]
+
+
+@pytest.mark.parametrize("field", ["entry_id", "alternative_id"])
+def test_raw_interpretation_guard_reports_numeric_id_paths_before_loading(field):
+    content = _raw_payload(**{field: "1e5"})
+    location = (
+        "module.interpretations[0].id"
+        if field == "entry_id"
+        else "module.interpretations[0].alternatives[0].id"
+    )
+    assert find_interpretation_yaml_issues(content) == [
+        f"{location} must be a quoted string when YAML reads this scalar as a number."
+    ]
 
 
 def test_interpretation_anchored_numeric_id_is_rejected():

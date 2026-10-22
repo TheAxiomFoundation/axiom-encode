@@ -13,8 +13,6 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Sequence
 
-import yaml
-
 from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness import source_path_shadow as paths
 from axiom_encode.harness.proof_validator import validate_rulespec_proofs
@@ -23,6 +21,7 @@ from axiom_encode.harness.source_path_evidence import (
     _same_world,
     path_input_identity,
 )
+from axiom_encode.yaml_serialization import safe_dump_yaml
 
 # Closed authenticated operation grammar. These literals describe supported
 # source operations; matching proof metadata alone never certifies computation.
@@ -757,7 +756,7 @@ def certify_worksheet_operations(
         }
     errors.extend(
         validate_rulespec_proofs(
-            yaml.safe_dump(subset),
+            safe_dump_yaml(subset),
             require_policy_proofs=True,
             source_texts=source_context,
         ).issues

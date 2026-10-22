@@ -19,6 +19,7 @@ from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness import source_path_evidence as pe
 from axiom_encode.harness import worksheet_operation_evidence as op
 from axiom_encode.harness.proof_validator import validate_rulespec_proofs
+from axiom_encode.yaml_serialization import safe_dump_yaml
 
 OWNER = "separate_country_forms_required"
 COUNT = "foreign_countries_taxed_count"
@@ -256,7 +257,7 @@ def _certify(
             if key != "interpretations"
         }
     proof = validate_rulespec_proofs(
-        yaml.safe_dump(subset),
+        safe_dump_yaml(subset),
         require_policy_proofs=True,
         source_texts={CITE: source},
     )

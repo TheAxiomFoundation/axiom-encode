@@ -224,9 +224,13 @@ def validate_rulespec_proofs(
     try:
         payload = yaml.safe_load(content)
     except (yaml.YAMLError, ValueError) as exc:
+        interpretation_yaml_issues = []
+        with contextlib.suppress(yaml.YAMLError, ValueError):
+            interpretation_yaml_issues = find_interpretation_yaml_issues(content)
         return ProofValidationResult(
             passed=False,
-            issues=[f"RuleSpec proof YAML parse failed: {exc}"],
+            issues=interpretation_yaml_issues
+            or [f"RuleSpec proof YAML parse failed: {exc}"],
             atoms_checked=0,
             proof_required=False,
         )
@@ -322,6 +326,24 @@ def _interpretation_string(value: Any, *, label: str, issues: list[str]) -> bool
     return True
 
 
+def find_interpretation_yaml_issues(content: str) -> list[str]:
+    """Check interpretation syntax before any YAML load-and-dump rewrite.
+
+    YAML parse errors propagate so callers can retain their parser diagnostics.
+    Unlike safe loading, this preserves duplicate keys and explicit tag spelling.
+    """
+
+    issues, numeric_id_paths = _interpretation_yaml_constraints(content)
+    return [
+        *issues,
+        *(
+            f"{location} must be a quoted string when YAML reads this scalar "
+            "as a number."
+            for location in sorted(numeric_id_paths)
+        ),
+    ]
+
+
 def _interpretation_yaml_constraints(content: str) -> tuple[list[str], set[str]]:
     """Inspect raw interpretation nodes before PyYAML discards their spelling.
 
@@ -332,6 +354,19 @@ def _interpretation_yaml_constraints(content: str) -> tuple[list[str], set[str]]
     """
 
     root = yaml.compose(content, Loader=yaml.SafeLoader)
+    explicit_node_tags = {
+        event.start_mark.index: event.tag
+        for event in yaml.parse(content, Loader=yaml.SafeLoader)
+        if isinstance(
+            event,
+            (
+                yaml.events.ScalarEvent,
+                yaml.events.SequenceStartEvent,
+                yaml.events.MappingStartEvent,
+            ),
+        )
+        and event.tag is not None
+    }
     issues: list[str] = []
     numeric_id_paths: set[str] = set()
     number_pattern = re.compile(
@@ -354,12 +389,23 @@ def _interpretation_yaml_constraints(content: str) -> tuple[list[str], set[str]]
             if len(interpretations) > 1:
                 issues.append("module has duplicate key `interpretations`.")
             stack.extend(("module.interpretations", value) for value in interpretations)
+            stack.extend(
+                ("module key `interpretations`", field)
+                for field, _value in module.value
+                if isinstance(field, yaml.ScalarNode)
+                and field.value == "interpretations"
+            )
     seen_nodes: set[int] = set()
     while stack:
         location, node = stack.pop()
         if id(node) in seen_nodes:
             continue
         seen_nodes.add(id(node))
+        explicit_tag = explicit_node_tags.get(node.start_mark.index)
+        if explicit_tag is not None and not isinstance(node, yaml.ScalarNode):
+            issues.append(
+                f"{location} must not use YAML tags on interpretation collections."
+            )
         if isinstance(node, yaml.SequenceNode):
             stack.extend(
                 (f"{location}[{index}]", value)
@@ -376,17 +422,20 @@ def _interpretation_yaml_constraints(content: str) -> tuple[list[str], set[str]]
                 if key.value == "<<":
                     issues.append(f"{location} must not use YAML merge keys.")
                 child = f"{location}.{key.value}"
+                stack.append((f"{location} key `{key.value}`", key))
                 stack.append((child, value))
-        elif (
-            isinstance(node, yaml.ScalarNode)
-            and node.tag == "tag:yaml.org,2002:str"
-            and node.style is None
-            and number_pattern.fullmatch(node.value)
-        ):
-            raw = content[node.start_mark.index : node.end_mark.index]
-            if not any(
-                isinstance(token, yaml.tokens.TagToken)
-                for token in yaml.scan(raw, Loader=yaml.SafeLoader)
+        elif isinstance(node, yaml.ScalarNode):
+            if explicit_tag is not None and explicit_tag != "tag:yaml.org,2002:str":
+                issues.append(
+                    f"{location} has unsupported YAML tag `{explicit_tag}`; "
+                    "only the canonical string tag `!!str` "
+                    "(`tag:yaml.org,2002:str`) is supported."
+                )
+            elif (
+                explicit_tag is None
+                and node.tag == "tag:yaml.org,2002:str"
+                and node.style is None
+                and number_pattern.fullmatch(node.value)
             ):
                 if location.endswith(".id"):
                     numeric_id_paths.add(location)

@@ -102,6 +102,7 @@ from axiom_encode.toolchain import (
     load_rulespec_toolchain,
     verify_rulespec_validation_waiver_set,
 )
+from axiom_encode.yaml_serialization import safe_dump_yaml
 
 from .coverage_index import format_coverage_index
 from .dependency_stubs import (
@@ -136,6 +137,7 @@ from .policyengine_runtime import (
     PolicyEngineRuntimeError,
 )
 from .pricing import estimate_usage_cost_usd
+from .proof_validator import find_interpretation_yaml_issues
 from .source_completeness import (
     _rulespec_target_base,
     collect_artifact_numeric_values,
@@ -16215,7 +16217,7 @@ def _repair_misplaced_module_inputs(content: str) -> tuple[str, tuple[str, ...]]
         for item in nested_inputs
         if isinstance(item, dict) and isinstance(item.get("name"), str)
     )
-    return yaml.safe_dump(payload, sort_keys=False).strip() + "\n", names
+    return safe_dump_yaml(payload, sort_keys=False).strip() + "\n", names
 
 
 def _normalize_main_eval_content(
@@ -16229,6 +16231,11 @@ def _normalize_main_eval_content(
     if target_path.suffix != RULESPEC_FILE_SUFFIX:
         raise ValueError("RuleSpec artifacts must use canonical .yaml paths")
     content = _clean_generated_file_content(content)
+    try:
+        if find_interpretation_yaml_issues(content):
+            return content
+    except (yaml.YAMLError, RecursionError):
+        pass
     normalized = _normalize_rulespec_content(content)
     normalized, _lifted_inputs = _repair_misplaced_module_inputs(normalized)
     normalized, _repaired_rules = repair_source_table_band_scalar_parameters(
@@ -16334,7 +16341,7 @@ def _strip_test_outputs_for_rule_names(
 
     if not changed:
         return content
-    return yaml.safe_dump(cases, sort_keys=False).strip() + "\n"
+    return safe_dump_yaml(cases, sort_keys=False).strip() + "\n"
 
 
 def _rulespec_output_key_name(key: object) -> str | None:
@@ -16653,7 +16660,7 @@ def _normalize_single_amount_row_test_content(
                 or should_keep(case.get("name"))
             )
         ]
-        return yaml.safe_dump(filtered, sort_keys=False).strip() + "\n"
+        return safe_dump_yaml(filtered, sort_keys=False).strip() + "\n"
 
     return normalized
 
@@ -17126,7 +17133,7 @@ def _normalize_test_periods_to_effective_dates(
                 continue
             filtered_cases.append(case)
         return (
-            yaml.safe_dump(
+            safe_dump_yaml(
                 [normalize_case(case) for case in filtered_cases],
                 sort_keys=False,
             ).strip()
@@ -17397,7 +17404,7 @@ def _complete_oracle_hint_test_outputs(
         changed = True
     if not changed:
         return content
-    return yaml.safe_dump(normalized_cases, sort_keys=False).strip() + "\n"
+    return safe_dump_yaml(normalized_cases, sort_keys=False).strip() + "\n"
 
 
 def _materialize_eval_artifact(
@@ -17777,11 +17784,31 @@ def _overlay_validation_retry_candidate(
 ) -> tuple[str, ...]:
     """Overlay partial repair output onto its integrity-bound prior candidate."""
 
+    try:
+        preserved_interpretation_issues = find_interpretation_yaml_issues(
+            candidate.rulespec
+        )
+    except (yaml.YAMLError, RecursionError):
+        preserved_interpretation_issues = []
+    if preserved_interpretation_issues:
+        raise _PreservedRepairOverlayError(
+            "preserved repair overlay has invalid interpretation syntax: "
+            + "; ".join(preserved_interpretation_issues)
+        )
     base_issue = _repair_overlay_candidate_base_issue(candidate)
     if base_issue is not None:
         raise _PreservedRepairOverlayError(base_issue)
     try:
-        generated = yaml.safe_load(rulespec_file.read_text(encoding="utf-8"))
+        generated_content = rulespec_file.read_text(encoding="utf-8")
+        generated_interpretation_issues = find_interpretation_yaml_issues(
+            generated_content
+        )
+        if generated_interpretation_issues:
+            raise ValueError(
+                "generated repair overlay has invalid interpretation syntax: "
+                + "; ".join(generated_interpretation_issues)
+            )
+        generated = yaml.safe_load(generated_content)
     except (OSError, UnicodeError, yaml.YAMLError, RecursionError) as exc:
         raise ValueError(
             "generated repair overlay RuleSpec must be valid UTF-8 YAML"
@@ -18020,13 +18047,13 @@ def _overlay_validation_retry_candidate(
     if merged_test_payload is not None:
         _write_eval_artifact_text(
             test_file,
-            yaml.safe_dump(merged_test_payload, sort_keys=False, allow_unicode=True),
+            safe_dump_yaml(merged_test_payload, sort_keys=False, allow_unicode=True),
             artifact_root,
         )
 
     _write_eval_artifact_text(
         rulespec_file,
-        yaml.safe_dump(generated, sort_keys=False, allow_unicode=True),
+        safe_dump_yaml(generated, sort_keys=False, allow_unicode=True),
         artifact_root,
     )
     return tuple(repairs)

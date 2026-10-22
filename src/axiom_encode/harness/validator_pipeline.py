@@ -139,6 +139,7 @@ from axiom_encode.statute import (
     normalize_rulespec_path_segment,
     parse_usc_citation,
 )
+from axiom_encode.yaml_serialization import safe_dump_yaml
 
 from .dependency_stubs import (
     UnsafeRulespecContextPath,
@@ -18518,7 +18519,7 @@ def repair_source_table_band_scalar_parameters(
         ]
         changed_rules.update(migratable_bound_names)
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -18882,7 +18883,7 @@ def repair_unsupported_chained_conditionals(content: str) -> tuple[str, list[str
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -18919,7 +18920,7 @@ def repair_formula_let_bindings(content: str) -> tuple[str, list[str]]:
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -19052,7 +19053,7 @@ def repair_source_table_open_ended_bound_sentinels(
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -19182,7 +19183,7 @@ def repair_source_table_interval_row_alignment(
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -19247,7 +19248,7 @@ def repair_source_table_interval_tests(
 
     if not changed_cases:
         return content, []
-    repaired_content = yaml.safe_dump(cases, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(cases, sort_keys=False).strip() + "\n"
     return repaired_content, changed_cases
 
 
@@ -19300,7 +19301,7 @@ def repair_copied_cross_reference_summary(
         return content, []
 
     module["summary"] = repaired_summary.strip()
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, repaired_imports
 
 
