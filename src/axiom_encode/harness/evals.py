@@ -100,6 +100,7 @@ from axiom_encode.toolchain import (
     verify_rulespec_validation_waiver_set,
 )
 
+from .amendment_timing import amendment_timing_issues
 from .coverage_index import format_coverage_index
 from .dependency_stubs import (
     ResolvedCanonicalConcept,
@@ -1024,6 +1025,7 @@ class CorpusSourceUnit:
     resolved_source: _corpus_resolver.ResolvedCorpusSource
     provision_metadata: dict[str, object] = field(default_factory=dict)
     amendment_documents: tuple["CorpusAmendmentDocument", ...] = ()
+    amendment_request: str | None = None
 
 
 @dataclass(frozen=True)
@@ -2297,7 +2299,7 @@ def _discover_amendment_documents(
         if structured_candidates
         else name_candidates
     )
-    return tuple(
+    documents = tuple(
         CorpusAmendmentDocument(
             citation_path=row.row.citation_path,
             title=str(
@@ -2310,6 +2312,19 @@ def _discover_amendment_documents(
         )
         for row in selected_rows
     )
+    # A principal request with ingest-bound section evidence uses the same
+    # dated path as a directly routed amendment. Put the operative sections
+    # before full-Act context so they survive bounded context rendering.
+    bound_documents: dict[str, CorpusAmendmentDocument] = {}
+    for row, _tier in marked_rows:
+        if row.metadata.get("commencement_date") and row.metadata.get(
+            "commencement_citation_path"
+        ):
+            for document in _amendment_commencement_evidence(row, rows):
+                bound_documents.setdefault(document.citation_path, document)
+    for document in documents:
+        bound_documents.setdefault(document.citation_path, document)
+    return tuple(bound_documents.values())
 
 
 def _render_amendment_document(
@@ -2450,6 +2465,41 @@ class _RenderedInjectedContext:
     dropped_amendment_documents: tuple[dict[str, object], ...] = ()
 
 
+def _require_bound_amendment_context(
+    documents: Sequence[CorpusAmendmentDocument],
+    rendered: _RenderedInjectedContext,
+) -> None:
+    """Never generate from a partial ingest-bound amendment/commencement pair."""
+    original = {item.citation_path: item for item in documents}
+    visible = {
+        item.citation_path: (item, text)
+        for item, text in zip(
+            rendered.amendment_documents, rendered.amendment_texts, strict=True
+        )
+    }
+    for document in documents:
+        commencement = document.metadata.get("commencement_date")
+        citation = document.metadata.get("commencement_citation_path")
+        if not commencement or not citation:
+            continue
+        prefix = f"Unresolved amendment context for {document.citation_path}: "
+        for required in (document.citation_path, str(citation)):
+            retained = visible.get(required)
+            if (
+                required not in original
+                or retained is None
+                or retained[0].body != original[required].body
+            ):
+                raise ValueError(
+                    prefix
+                    + "required amendment/commencement evidence exceeds the context budget or is missing"
+                )
+        if str(commencement) not in visible[document.citation_path][1]:
+            raise ValueError(
+                prefix + "required commencement metadata exceeds the context budget"
+            )
+
+
 def _render_injected_context(
     provision_metadata: dict[str, object],
     amendment_documents: Sequence[CorpusAmendmentDocument],
@@ -2475,12 +2525,14 @@ def _render_injected_context(
                 strict=True,
             )
         )
-        return _RenderedInjectedContext(
+        result = _RenderedInjectedContext(
             provision_text=provision_text,
             amendment_documents=visible_documents,
             amendment_texts=tuple(amendment_texts),
             dropped_amendment_documents=dropped,
         )
+        _require_bound_amendment_context(amendment_documents, result)
+        return result
 
     provision_text = _render_provision_metadata(provision_metadata)
 
@@ -2542,7 +2594,7 @@ def _render_injected_context(
         retained_size() > _INJECTED_CONTEXT_LIMIT
     ):  # pragma: no cover - defensive invariant
         raise AssertionError("Structured amendment context cap was not enforced")
-    return _RenderedInjectedContext(
+    result = _RenderedInjectedContext(
         provision_text=provision_text,
         amendment_documents=tuple(
             replace(
@@ -2557,6 +2609,8 @@ def _render_injected_context(
         amendment_texts=tuple(text for _, text in retained),
         dropped_amendment_documents=tuple(dropped),
     )
+    _require_bound_amendment_context(amendment_documents, result)
+    return result
 
 
 def _expected_eval_source_attestation(
@@ -6405,9 +6459,203 @@ def _shallowest_active_source_path_row(
     )
 
 
+def _is_direct_amendment_request(
+    row: _corpus_resolver.ActiveCorpusBodyRow,
+    parent: _corpus_resolver.ActiveCorpusBodyRow | None,
+) -> bool:
+    """Recognize operative amendments even before ingest supplies Act markers."""
+    if _is_amendment_row(row):
+        return True
+    if any(key in row.metadata for key in ("amendment_target", "amendment_targets")):
+        return True
+    # If ingest marks the parent as amending, an unclassified child cannot
+    # safely become a standalone historical rule. Require explicit routing
+    # context rather than assuming an unfamiliar language/form is harmless.
+    if parent is not None and _is_amendment_row(parent):
+        return True
+    # English operation headings are language evidence, not a jurisdiction
+    # switch. Do not classify a mere reference to another amendment as one.
+    heading = row.heading or ""
+    operation = re.search(
+        r"\b(?:amended|amendments?|substituted|repealed|replaced)\b",
+        heading,
+        flags=re.IGNORECASE,
+    ) or re.match(
+        r"\s*In\b[^\n:]{0,240}\b(?:replace|insert|omit|repeal|substitute)\b",
+        row.body,
+        flags=re.IGNORECASE,
+    )
+    return bool(operation) or bool(
+        re.match(
+            r"\s*(?:(?:For|In)\s+)?(?:section|schedule|article|paragraph|clause|§)\s+"
+            r"[^\n]{0,160}\b(?:amended|replace[sd]?|replacing|substitute[sd]?|substituting|insert(?:ed)?|repeal(?:ed)?)\b",
+            row.body,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _amendment_commencement_evidence(
+    row: _corpus_resolver.ActiveCorpusBodyRow,
+    rows: Sequence[_corpus_resolver.ActiveCorpusBodyRow],
+) -> tuple[CorpusAmendmentDocument, CorpusAmendmentDocument]:
+    """Bind an ingest-declared provision date to same-document legal evidence.
+
+    A provision-level date is required: an Act's general date cannot resolve
+    Part-specific exceptions without authenticated membership metadata.
+    """
+    prefix = f"Unresolved amendment context for {row.row.citation_path}: "
+    raw_date = row.metadata.get("commencement_date")
+    try:
+        commencement = date.fromisoformat(str(raw_date))
+        if str(raw_date) != commencement.isoformat():
+            raise ValueError("not an ISO date")
+    except (ValueError, TypeError):
+        raise ValueError(
+            prefix + "missing or invalid provision-level metadata.commencement_date "
+            "(applicable commencement/Part membership must be resolved)"
+        ) from None
+    citation = row.metadata.get("commencement_citation_path")
+    evidence = next(
+        (
+            item
+            for item in rows
+            if item.row.citation_path == citation
+            and item.row.source_path == row.row.source_path
+            and item.row.version == row.row.version
+        ),
+        None,
+    )
+    if not row.row.source_path or evidence is None:
+        raise ValueError(
+            prefix
+            + "missing authenticated same-Act metadata.commencement_citation_path "
+            "in the same source_path and version"
+        )
+    # The structured date selects the applicable scope; the cited legal body
+    # must actually state it. Assent/capture dates are never substitutes.
+    date_forms = (
+        re.escape(commencement.isoformat()),
+        rf"0?{commencement.day}\s+{commencement.strftime('%B')}\s+{commencement.year:04d}",
+        rf"{commencement.strftime('%B')}\s+0?{commencement.day},?\s+{commencement.year:04d}",
+    )
+    if not re.search(
+        r"(?<!\w)(?:" + "|".join(date_forms) + r")(?!\w)", evidence.body, re.IGNORECASE
+    ):
+        raise ValueError(
+            prefix + "commencement evidence does not state metadata.commencement_date"
+        )
+
+    def document(item: _corpus_resolver.ActiveCorpusBodyRow) -> CorpusAmendmentDocument:
+        return CorpusAmendmentDocument(
+            citation_path=item.row.citation_path,
+            title=str(
+                item.heading or item.metadata.get("title") or item.row.citation_path
+            ),
+            expression_date=item.row.expression_date,
+            metadata=_curated_provision_metadata(item),
+            body=item.body,
+            match_tier="structured",
+        )
+
+    return document(row), document(evidence)
+
+
+def _route_amending_source_unit(
+    row: _corpus_resolver.ActiveCorpusBodyRow,
+    *,
+    requested: str,
+    rows: Sequence[_corpus_resolver.ActiveCorpusBodyRow],
+    release: _corpus_resolver.LocalCorpusRelease,
+    ancestors: frozenset[str],
+) -> CorpusSourceUnit:
+    """Use the principal identity, with amendment and commencement as proofs."""
+    prefix = f"Unresolved amendment context for {requested}: "
+    targets = tuple(
+        dict.fromkeys(
+            value
+            for key in ("amendment_target", "amendment_targets")
+            for value in _metadata_scalar_values(row.metadata.get(key))
+        )
+    )
+    missing = []
+    if len(targets) != 1:
+        missing.append(
+            "metadata.amendment_target (one exact canonical principal provision)"
+        )
+    for key in ("commencement_date", "commencement_citation_path"):
+        if not row.metadata.get(key):
+            missing.append(f"metadata.{key}")
+    if missing:
+        raise ValueError(
+            prefix
+            + "missing or ambiguous "
+            + ", ".join(missing)
+            + "; resolve applicable commencement/Part membership before encoding"
+        )
+    try:
+        target = _corpus_resolver.require_canonical_corpus_citation_path(targets[0])
+    except ValueError:
+        raise ValueError(
+            prefix + "metadata.amendment_target must be canonical"
+        ) from None
+    if target.split("/")[:2] != row.row.citation_path.split("/")[:2]:
+        raise ValueError(
+            prefix
+            + "principal target must be in the same jurisdiction and document class"
+        )
+    target_row = next((item for item in rows if item.row.citation_path == target), None)
+    if target_row is None or target_row.row.source_path == row.row.source_path:
+        raise ValueError(
+            prefix + "principal target must resolve to a different authenticated Act"
+        )
+    evidence = _amendment_commencement_evidence(row, rows)
+    principal = resolve_corpus_source_unit(
+        target, release, _amendment_ancestors=ancestors
+    )
+    # Do not silently lose a route's required evidence to the context budget.
+    if any(len(item.body) > _AMENDMENT_BODY_LIMIT for item in evidence):
+        raise ValueError(
+            prefix + "amendment or commencement evidence exceeds the context body limit"
+        )
+    by_citation = {item.citation_path: item for item in evidence}
+    for item in principal.amendment_documents:
+        by_citation.setdefault(item.citation_path, item)
+    provision_metadata = {
+        **principal.provision_metadata,
+        "amendment_request": requested,
+    }
+    rendered = _render_injected_context(provision_metadata, tuple(by_citation.values()))
+    visible = {
+        item.citation_path: (item, text)
+        for item, text in zip(
+            rendered.amendment_documents, rendered.amendment_texts, strict=True
+        )
+    }
+    for item in evidence:
+        retained = visible.get(item.citation_path)
+        if retained is None or retained[0].body != item.body:
+            raise ValueError(
+                prefix
+                + "required amendment/commencement evidence exceeds the context budget"
+            )
+    if str(row.metadata["commencement_date"]) not in visible[row.row.citation_path][1]:
+        raise ValueError(
+            prefix + "required commencement metadata exceeds the context budget"
+        )
+    return replace(
+        principal,
+        amendment_request=requested,
+        provision_metadata=provision_metadata,
+        amendment_documents=tuple(by_citation.values()),
+    )
+
+
 def resolve_corpus_source_unit(
     identifier: str,
     release: _corpus_resolver.LocalCorpusRelease,
+    *,
+    _amendment_ancestors: frozenset[str] = frozenset(),
 ) -> CorpusSourceUnit:
     """Resolve an encode target to normalized corpus.provisions text.
 
@@ -6420,6 +6668,10 @@ def resolve_corpus_source_unit(
     Resolution is always local and bound to the caller's named release.
     """
     citation_path = _corpus_resolver.normalize_corpus_identifier(identifier)
+    if citation_path in _amendment_ancestors:
+        raise ValueError(
+            f"Unresolved amendment context for {citation_path}: cyclic principal target"
+        )
     local_text = _fetch_local_corpus_source_text_from_repo(
         citation_path,
         release,
@@ -6457,6 +6709,16 @@ def resolve_corpus_source_unit(
             parent_document_row.row.citation_path.split("/")
         ):
             parent_document_row = None
+        if target_row is not None and _is_direct_amendment_request(
+            target_row, parent_document_row
+        ):
+            return _route_amending_source_unit(
+                target_row,
+                requested=citation_path,
+                rows=active_rows,
+                release=release,
+                ancestors=_amendment_ancestors | {citation_path},
+            )
         return CorpusSourceUnit(
             requested=resolved.requested,
             citation_path=resolved.citation_path,
@@ -6519,8 +6781,14 @@ def _validate_corpus_source_unit(
             )
         except _corpus_resolver.CorpusResolutionError:
             pass
+    lookup = normalized_target or source_unit.amendment_request or resolved.requested
+    if source_unit.amendment_request and lookup in {
+        source_unit.amendment_request,
+        resolved.requested,
+    }:
+        lookup = source_unit.amendment_request
     trusted_source_unit = resolve_corpus_source_unit(
-        normalized_target or resolved.requested,
+        lookup,
         release,
     )
     if source_unit != trusted_source_unit:
@@ -7594,6 +7862,15 @@ def _evaluate_artifact_in_scope(
             existing_target_oracle_contract=existing_target_oracle_contract,
         )
         compile_result = pipeline._run_compile_check(validation_file)
+        timing_issues = amendment_timing_issues(
+            validation_file.read_text(), amendment_documents
+        )
+        if timing_issues:
+            compile_result.passed = False
+            compile_result.issues.extend(timing_issues)
+            compile_result.error = "\n".join(
+                ([compile_result.error] if compile_result.error else []) + timing_issues
+            )
         _add_attached_amendment_import_retry_guidance(
             compile_result,
             amendment_documents,
@@ -9025,6 +9302,8 @@ def _run_single_eval(
         corpus_release,
         target_identifier=citation,
     )
+    if source_unit.amendment_request:
+        citation = source_unit.requested
     source_text = source_unit.body
     source_metadata_payload = _source_metadata_with_attestation(
         source_unit,
@@ -10475,6 +10754,13 @@ def _build_rulespec_eval_prompt(
     if repair_candidate_tests_only and validation_retry_candidate is None:
         raise ValueError("Tests-only repair requires a validation retry candidate")
     source_text = workspace.source_text_file.read_text()
+    if not include_corpus_context_injection and any(
+        document.metadata.get("commencement_date")
+        for document in workspace.amendment_documents
+    ):
+        raise ValueError(
+            "Unresolved amendment context: bound commencement evidence cannot be disabled"
+        )
     corpus_citation_path = _workspace_corpus_citation_path(workspace)
     backend_section = ""
     if runner_backend == "openai":
@@ -11032,7 +11318,11 @@ Preferred principal output:
         guidance_parts.append(render_rate_only_source_boundary_guidance())
     if _is_single_amount_table_slice(source_text):
         guidance_parts.append(render_single_amount_row_guidance())
-    if not re.search(r"\b\d{4}-\d{2}-\d{2}\b", source_text) and not scaffold_dates:
+    if (
+        not re.search(r"\b\d{4}-\d{2}-\d{2}\b", source_text)
+        and not scaffold_dates
+        and not workspace.amendment_documents
+    ):
         guidance_parts.append(render_date_silent_scaffold_guidance())
     additional_guidance = "\n".join(
         part.strip() for part in guidance_parts if part.strip()
@@ -11067,6 +11357,13 @@ Preferred principal output:
   encoded provision and gives its commencement date, encode the affected value
   as a dated parameter with one version for each era. The later version's proof
   atoms must cite the amending document's corpus citation path.
+- Amendment-supplied behavior must never take effect before its applicable
+  commencement. Cite the commencement provision as well as the amending
+  provision. Preserve the principal rule's supported precommencement behavior
+  and test immediately before and at commencement; amendment-rate cases must
+  use periods on or after commencement. If applicable commencement or the
+  principal target is unresolved, stop with an explicit unresolved-context
+  blocker rather than using a neutral date or guessing a rate.
 """
 
     mandatory_review_findings_section = _format_mandatory_review_findings(workspace)
@@ -14595,6 +14892,10 @@ def _collect_scaffold_dates(
     """Collect usable temporal scaffold dates from copied precedent files."""
     dates: set[str] = set()
     for item in context_files:
+        if item.kind == "corpus_amendment_act":
+            # Legal commencement evidence is not a copied RuleSpec precedent;
+            # its capture/expression dates cannot seed historical behavior.
+            continue
         path = workspace.root / item.workspace_path
         try:
             text = path.read_text()

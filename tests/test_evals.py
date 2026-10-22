@@ -1571,9 +1571,21 @@ def test_target_source_document_is_not_its_own_amendment_context(tmp_path):
         ],
     )
 
-    source_unit = resolve_corpus_source_unit("dk/statute/benefit/section-1", release)
-
-    assert source_unit.amendment_documents == ()
+    rows = tuple(corpus_resolver.iter_active_local_corpus_rows(release))
+    target = next(row for row in rows if row.row.citation_path.endswith("section-1"))
+    assert (
+        evals_module._discover_amendment_documents(
+            rows,
+            target_row=target,
+            parent_document_row=None,
+            target_citation_path=target.row.citation_path,
+            target_source_path=target.row.source_path,
+            version=target.row.version,
+        )
+        == ()
+    )
+    with pytest.raises(ValueError, match="Unresolved amendment context"):
+        resolve_corpus_source_unit("dk/statute/benefit/section-1", release)
 
 
 def test_provision_inherits_document_identifiers_for_de_amendment_discovery(tmp_path):

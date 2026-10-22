@@ -1,0 +1,1 @@
+Route directly requested amending provisions to authenticated principal targets with same-Act commencement evidence, and block unresolved targets, dates, or omitted evidence. Reject amendment-backed rule versions before commencement while preserving principal history, and document the d1832 workflow and corpus metadata contract.
