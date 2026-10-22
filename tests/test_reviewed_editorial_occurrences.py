@@ -12,10 +12,17 @@ from axiom_encode.harness import coverage_exemptions as ce
 from axiom_encode.harness import validator_pipeline as vp
 
 ROOT = Path(__file__).parents[1]
-REVIEW = json.loads(
-    (ROOT / "docs/coverage-exemptions/four-editorial-leaves-review.json").read_text()
-)
-TARGETS = [row["target"] for row in REVIEW["occurrences"]]
+# Each reviewed batch records the registry it extended. Batches are appended in
+# order, so each baseline is a byte prefix of the current registry.
+REVIEWS = [
+    json.loads((ROOT / "docs/coverage-exemptions" / name).read_text())
+    for name in (
+        "four-editorial-leaves-review.json",
+        "three-repealed-leaves-review.json",
+    )
+]
+OCCURRENCES = [row for review in REVIEWS for row in review["occurrences"]]
+TARGETS = [row["target"] for row in OCCURRENCES]
 ENTRIES = tuple(
     e
     for e in ce.load_coverage_exemptions()
@@ -44,13 +51,28 @@ def test_previous_registry_bytes_and_all_other_entries_preserved():
         .read_bytes()
         .splitlines(keepends=True)
     )
-    assert len(lines) == 349
-    assert (
-        hashlib.sha256(b"".join(lines[:345])).hexdigest()
-        == REVIEW["baseline_registry_sha256"]
-    )
-    assert len(ENTRIES) == 4
+    assert len(lines) == 352
+    for review in REVIEWS:
+        assert (
+            hashlib.sha256(b"".join(lines[: review["baseline_entries"]])).hexdigest()
+            == review["baseline_registry_sha256"]
+        )
+    # Each batch appends exactly its own occurrences after its baseline.
+    for review, following in zip(REVIEWS, REVIEWS[1:]):
+        assert (
+            review["baseline_entries"] + len(review["occurrences"])
+            == following["baseline_entries"]
+        )
+    last = REVIEWS[-1]
+    assert last["baseline_entries"] + len(last["occurrences"]) == len(lines)
+    appended = [
+        json.loads(line)["owner_evidence"]["citation_path"]
+        for line in lines[REVIEWS[0]["baseline_entries"] :]
+    ]
+    assert sorted(appended) == sorted(TARGETS)
+    assert len(ENTRIES) == 7
     assert {e.owner_evidence["citation_path"] for e in ENTRIES} == set(TARGETS)
+    assert {e.reason for e in ENTRIES} == {"repealed_tombstone"}
 
 
 @pytest.mark.parametrize(
@@ -59,9 +81,7 @@ def test_previous_registry_bytes_and_all_other_entries_preserved():
 def test_actual_source_notice_and_exact_scoped_consumer(entry, monkeypatch):
     text = source(entry)
     row = next(
-        r
-        for r in REVIEW["occurrences"]
-        if r["target"] == entry.owner_evidence["citation_path"]
+        r for r in OCCURRENCES if r["target"] == entry.owner_evidence["citation_path"]
     )
     start, end = row["notice_span"]
     assert text[start:end] == row["exact_notice"]

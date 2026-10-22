@@ -1,0 +1,103 @@
+Step 2 - Total income
+
+As a resident of Canada, you need to report your income from all sources inside and outside Canada.
+
+Line 1 and line 10100: Employment income (box 14 of all T4 slips) ^
+
+Line 10105: Tax-exempt income for emergency services volunteers ^
+
+Line 10120: Commissions included on line 10100 (box 42 of all T4 slips) ^
+
+Line 10130: Wage-loss replacement contributions ^
+
+Line 2 and line 10400: Other employment income ^
+
+Line 3 and line 11300: Old age security (OAS) pension (box 18 of the T4A(OAS) slip) ^
+
+Line 4 and line 11400: CPP or QPP benefits (box 20 of the T4A(P) slip) ^
+
+Line 11410: Disability benefits included on line 11400 (box 16 of the T4A(P) slip) ^
+
+Line 5 and line 11500: Other pensions and superannuation ^
+
+Line 6 and line 11600: Elected split-pension amount (complete Form T1032)
+
+Line 7 and line 11700: Universal child care benefit (UCCB) (see the RC62 slip)
+
+Line 11701: UCCB amount designated to a dependant ^
+
+Line 8 and line 11900: Employment insurance (EI) and other benefits (box 14 of the T4E slip) ^
+
+Line 11905: EI maternity and parental benefits, and provincial parental insurance plan (PPIP) benefits ^
+
+Taxable amount of dividends from taxable Canadian corporations (use Federal Worksheet):
+Line 9 and line 12000: Amount of dividends (eligible and other than eligible) ^
+
+Line 12010: Amount of dividends (other than eligible) ^
+
+Line 10 and line 12100: Interest and other investment income (use Federal Worksheet) ^
+
+Line 11 and line 12200: Net partnership income (limited or non-active partners only) ^
+
+Line 12 and line 12500: Registered disability savings plan (RDSP) income (box 131 of the T4A slip) ^
+
+Line 13: Rental income (complete Form T776)
+Line 12599: Gross ^
+Line 12600: Net ^
+
+Line 14 and line 12700: Taxable capital gains (complete Schedule 3) ^
+
+Line 15: Support payments received (go to canada.ca/taxes-support-payments) Line 12799: Total ^
+Line 12800: Taxable amount ^
+
+Line 16 and line 12900: Registered retirement savings plan (RRSP) income (from all T4RSP slips) ^
+
+Line 17 and line 12905: Taxable first home savings account (FHSA) income (see the T4FHSA slip) ^
+
+Line 18 and line 12906: Taxable FHSA income - other (see the T4FHSA slip) ^
+
+Line 19 and line 13000: Other income ^
+(specify): ^
+
+Line 20 and line 13010: Taxable scholarships, fellowships, bursaries and artists' project grants ^
+
+Line 21: Add lines 1 to 20. = ^
+
+Self-employment income (see Guide T4002):
+
+Line 22: Business income
+Line 13499: Gross ^
+Line 13500: Net ^
+
+Line 23: Professional income
+Line 13699: Gross^
+Line 13700: Net^
+
+Line 24: Commission income
+Line 13899: Gross ^
+Line 13900: Net ^
+
+Line 25: Farming income
+Line 14099: Gross ^
+Line 14100: Net ^
+
+Line 26: Fishing income
+Line 14299: Gross ^
+Line 14300: Net ^
+
+Line 27: Add lines 22 to 26. Net self-employment income = ^
+
+Line 28: Line 21 plus line 27 = ^
+
+Line 29 and line 14400: Workers' compensation benefits (box 10 of the T5007 slip) ^
+
+Line 30 and line 14500: Social assistance payments ^
+
+Line 31 and line 14600: Net federal supplements paid (box 21 of the T4A(OAS) slip) ^
+
+Line 32 and line 14700: Add lines 29 to 31 (see line 25000 in Step 4). = ^
+
+Line 33 and line 15000: Line 28 plus line 32 Total income = ^
+
+5000-R (Page 4 of 8)
+
