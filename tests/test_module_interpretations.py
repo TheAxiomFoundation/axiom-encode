@@ -83,7 +83,7 @@ def _validate(payload, source_texts=None, **kwargs):
 
 
 def _raw_payload(*, entry_id="weekly-review", alternative_id="daily-review"):
-    """Keep scalar spellings intact; safe_dump would quote numeric-looking ids."""
+    """Keep spellings intact because safe_dump does not quote numeric-looking ids."""
 
     return f"""format: rulespec/v1
 module:
@@ -140,6 +140,63 @@ STRING_PATHS = [
 ]
 
 
+def _raw_string_payload(path, scalar):
+    """Exercise raw YAML scalars without a load-and-dump normalization step."""
+
+    values = {
+        ("question",): "Which review period applies?",
+        ("reading",): "Review supplies once a week.",
+        ("basis",): "The fictional schedule supports weekly reviews.",
+        ("texts", 0, "excerpt"): EXCERPT,
+        ("alternatives", 0, "reading"): "Review supplies every day.",
+        ("alternatives", 0, "effect"): "More frequent reviews.",
+        ("affects", 0): "weekly_review_rate",
+        ("ruling", "by"): "Fictional Lantern Scheme Office",
+        ("confirmation", "by"): "Fictional Lantern Publisher",
+        ("confirmation", "excerpt"): "The fictional scheme reviews weekly.",
+    }
+    values[path] = scalar
+    rule_name = (
+        f"'{yaml.safe_load(scalar)}'"
+        if path == ("affects", 0)
+        else "weekly_review_rate"
+    )
+    return f"""format: rulespec/v1
+module:
+  interpretations:
+    - id: weekly-review
+      question: {values[("question",)]}
+      texts:
+        - corpus_citation_path: {CITATION}
+          excerpt: {values[("texts", 0, "excerpt")]}
+      reading: {values[("reading",)]}
+      alternatives:
+        - id: daily-review
+          reading: {values[("alternatives", 0, "reading")]}
+          effect: {values[("alternatives", 0, "effect")]}
+      basis: {values[("basis",)]}
+      status: confirmed
+      affects:
+        - {values[("affects", 0)]}
+      ruling:
+        by: {values[("ruling", "by")]}
+        date: '2024-10-10'
+        record: https://example.org/fictional-lantern/weekly-review
+      confirmation:
+        by: {values[("confirmation", "by")]}
+        date: '2026-10-20'
+        excerpt: {values[("confirmation", "excerpt")]}
+        record: https://example.org/published-reply
+rules:
+  - name: {rule_name}
+    kind: parameter
+    dtype: Float
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '0.2'
+"""
+
+
 @pytest.mark.parametrize("status", ["open", "ruled", "confirmed"])
 def test_valid_interpretation_statuses_pass_without_counting_atoms(status):
     result = _validate(_payload(_entry(status)))
@@ -177,11 +234,14 @@ def test_interpretation_strings_are_nonblank_and_typed(path, value):
     _parent(entry, path)[path[-1]] = value
     result = _validate(_payload(entry))
     expected_label = "module.interpretations[0]" if path == ("id",) else LABEL
-    expectation = (
-        "must be a quoted string when YAML reads it as a boolean."
-        if isinstance(value, bool) and path in {("id",), ("alternatives", 0, "id")}
-        else "must be a non-blank string."
-    )
+    expectation = "must be a non-blank string."
+    if path in {("id",), ("alternatives", 0, "id")}:
+        if isinstance(value, bool):
+            expectation = "must be a quoted string when YAML reads it as a boolean."
+        elif value is None:
+            expectation = "must be a quoted string when YAML reads it as null."
+        elif isinstance(value, (int, float)):
+            expectation = "must be a quoted string when YAML reads it as a number."
     assert result.issues == [f"{expected_label}{_field_label(path)} {expectation}"]
 
 
@@ -330,8 +390,33 @@ def test_interpretation_ids_reject_raw_yaml_core_numeric_scalars(field, scalar):
         else f"{LABEL}.alternatives[0].id"
     )
     assert result.issues == [
-        f"{label} must be a non-numeric id; YAML reads this scalar as a number."
+        f"{label} must be a quoted string when YAML reads this scalar as a number."
     ]
+
+
+@pytest.mark.parametrize("path", [path for path in STRING_PATHS if path[-1] != "id"])
+@pytest.mark.parametrize("scalar", ["1e5", "-0o17", "+.5", "2e10"])
+def test_interpretation_strings_reject_raw_yaml_core_numeric_scalars(path, scalar):
+    content = _raw_string_payload(path, scalar)
+    result = validate_rulespec_proofs(
+        content, source_texts={CITATION: f"{EXCERPT} {scalar}"}
+    )
+    assert result.issues == [
+        f"module.interpretations[0]{_field_label(path)} "
+        "must be a quoted string when YAML reads this scalar as a number."
+    ]
+
+
+@pytest.mark.parametrize("path", [path for path in STRING_PATHS if path[-1] != "id"])
+@pytest.mark.parametrize("value", ["1e5", "-0o17", "+.5", "2e10"])
+@pytest.mark.parametrize("style", ["quoted", "explicit-string-tag"])
+def test_interpretation_strings_preserve_explicit_yaml_strings(path, value, style):
+    scalar = f"'{value}'" if style == "quoted" else f"!!str {value}"
+    result = validate_rulespec_proofs(
+        _raw_string_payload(path, scalar),
+        source_texts={CITATION: f"{EXCERPT} {value}"},
+    )
+    assert result.passed, result.issues
 
 
 @pytest.mark.parametrize("field", ["entry_id", "alternative_id"])
@@ -349,8 +434,37 @@ def test_interpretation_anchored_numeric_id_is_rejected():
         source_texts={CITATION: EXCERPT},
     )
     assert result.issues == [
-        f"{LABEL}.alternatives[0].id must be a non-numeric id; "
-        "YAML reads this scalar as a number."
+        f"{LABEL}.alternatives[0].id must be a quoted string "
+        "when YAML reads this scalar as a number."
+    ]
+
+
+@pytest.mark.parametrize("field", ["entry_id", "alternative_id"])
+@pytest.mark.parametrize(
+    ("scalar", "yaml_type"),
+    [
+        ("0123", "a number"),
+        ("0x1f", "a number"),
+        ("0b101", "a number"),
+        ("+1", "a number"),
+        (".5", "a number"),
+        ("1.0", "a number"),
+        ("Null", "null"),
+    ],
+)
+def test_interpretation_nonstring_id_diagnostic_names_yaml_type(
+    field, scalar, yaml_type
+):
+    result = validate_rulespec_proofs(
+        _raw_payload(**{field: scalar}), source_texts={CITATION: EXCERPT}
+    )
+    label = (
+        "module.interpretations[0].id"
+        if field == "entry_id"
+        else f"{LABEL}.alternatives[0].id"
+    )
+    assert result.issues == [
+        f"{label} must be a quoted string when YAML reads it as {yaml_type}."
     ]
 
 
@@ -395,6 +509,14 @@ def test_interpretation_yaml_mappings_reject_duplicate_keys(
     content = _raw_payload().replace(original, replacement)
     result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
     assert result.issues == [f"{location} has duplicate key `id`."]
+
+
+def test_interpretation_yaml_rejects_duplicate_module_interpretations_keys():
+    content = _raw_payload().replace(
+        "  interpretations:\n", "  interpretations: []\n  interpretations:\n", 1
+    )
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == ["module has duplicate key `interpretations`."]
 
 
 def test_interpretation_yaml_mappings_reject_merge_keys():
@@ -495,7 +617,7 @@ def test_interpretation_records_require_https_urls(field, value):
     entry = _entry("confirmed")
     entry[field]["record"] = value
     assert _validate(_payload(entry)).issues == [
-        f"{LABEL}.{field}.record must be an https URL."
+        f"{LABEL}.{field}.record must be an https URL beginning with literal `https://`."
     ]
 
 
@@ -515,7 +637,9 @@ def test_interpretation_record_raw_yaml_requires_literal_https_prefix(field):
         f"        record: {'HTTPS' if field == 'confirmation' else 'https'}://example.org/confirmation\n",
     )
     result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
-    assert result.issues == [f"{LABEL}.{field}.record must be an https URL."]
+    assert result.issues == [
+        f"{LABEL}.{field}.record must be an https URL beginning with literal `https://`."
+    ]
 
 
 def test_confirmation_record_and_alternative_effect_are_optional():
@@ -855,7 +979,9 @@ def test_generated_valid_entries_pass_and_each_missing_required_field_has_one_fi
         expectations[(field, "by")] = "must be a non-blank string."
         expectations[(field, "date")] = "must be a real YYYY-MM-DD date."
         if field == "ruling":
-            expectations[(field, "record")] = "must be an https URL."
+            expectations[(field, "record")] = (
+                "must be an https URL beginning with literal `https://`."
+            )
         else:
             expectations[(field, "excerpt")] = "must be a non-blank string."
     for path, expectation in expectations.items():

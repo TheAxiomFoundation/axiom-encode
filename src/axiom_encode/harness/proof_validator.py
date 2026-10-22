@@ -64,6 +64,7 @@ PROOF_ATOM_KINDS = frozenset(
     }
 )
 POLICY_RULE_KINDS = frozenset({"derived", "derived_relation", "parameter"})
+_MISSING_INTERPRETATION_ID = object()
 
 
 def find_plural_corpus_citation_path_issues(payload: object) -> list[str]:
@@ -335,7 +336,7 @@ def _interpretation_yaml_constraints(content: str) -> tuple[list[str], set[str]]
     numeric_id_paths: set[str] = set()
     number_pattern = re.compile(
         r"[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?"
-        r"|0o[0-7]+|0x[0-9a-fA-F]+"
+        r"|[-+]?0o[0-7]+|[-+]?0x[0-9a-fA-F]+"
     )
     if not isinstance(root, yaml.MappingNode):
         return issues, numeric_id_paths
@@ -344,12 +345,15 @@ def _interpretation_yaml_constraints(content: str) -> tuple[list[str], set[str]]
         if not isinstance(key, yaml.ScalarNode) or key.value != "module":
             continue
         if isinstance(module, yaml.MappingNode):
-            stack.extend(
-                ("module.interpretations", value)
+            interpretations = [
+                value
                 for field, value in module.value
                 if isinstance(field, yaml.ScalarNode)
                 and field.value == "interpretations"
-            )
+            ]
+            if len(interpretations) > 1:
+                issues.append("module has duplicate key `interpretations`.")
+            stack.extend(("module.interpretations", value) for value in interpretations)
     seen_nodes: set[int] = set()
     while stack:
         location, node = stack.pop()
@@ -372,20 +376,25 @@ def _interpretation_yaml_constraints(content: str) -> tuple[list[str], set[str]]
                 if key.value == "<<":
                     issues.append(f"{location} must not use YAML merge keys.")
                 child = f"{location}.{key.value}"
-                if (
-                    key.value == "id"
-                    and isinstance(value, yaml.ScalarNode)
-                    and value.tag == "tag:yaml.org,2002:str"
-                    and value.style is None
-                    and number_pattern.fullmatch(value.value)
-                ):
-                    raw = content[value.start_mark.index : value.end_mark.index]
-                    if not any(
-                        isinstance(token, yaml.tokens.TagToken)
-                        for token in yaml.scan(raw, Loader=yaml.SafeLoader)
-                    ):
-                        numeric_id_paths.add(child)
                 stack.append((child, value))
+        elif (
+            isinstance(node, yaml.ScalarNode)
+            and node.tag == "tag:yaml.org,2002:str"
+            and node.style is None
+            and number_pattern.fullmatch(node.value)
+        ):
+            raw = content[node.start_mark.index : node.end_mark.index]
+            if not any(
+                isinstance(token, yaml.tokens.TagToken)
+                for token in yaml.scan(raw, Loader=yaml.SafeLoader)
+            ):
+                if location.endswith(".id"):
+                    numeric_id_paths.add(location)
+                else:
+                    issues.append(
+                        f"{location} must be a quoted string when YAML reads "
+                        "this scalar as a number."
+                    )
     return issues, numeric_id_paths
 
 
@@ -397,11 +406,23 @@ def _interpretation_id(
             f"{label} must be a quoted string when YAML reads it as a boolean."
         )
         return False
+    if value is None or isinstance(value, (int, float, date)):
+        scalar_type = (
+            "null"
+            if value is None
+            else "a timestamp"
+            if isinstance(value, date)
+            else "a number"
+        )
+        issues.append(
+            f"{label} must be a quoted string when YAML reads it as {scalar_type}."
+        )
+        return False
     if not _interpretation_string(value, label=label, issues=issues):
         return False
     if numeric_scalar:
         issues.append(
-            f"{label} must be a non-numeric id; YAML reads this scalar as a number."
+            f"{label} must be a quoted string when YAML reads this scalar as a number."
         )
         return False
     if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", value):
@@ -453,7 +474,9 @@ def _validate_interpretation_record(
                 _ = parsed.port
                 valid_url = parsed.scheme == "https" and bool(parsed.hostname)
         if not valid_url:
-            issues.append(f"{label}.record must be an https URL.")
+            issues.append(
+                f"{label}.record must be an https URL beginning with literal `https://`."
+            )
 
 
 def _validate_module_interpretations(
@@ -500,7 +523,11 @@ def _validate_module_interpretations(
     )
     for index, entry in enumerate(entries):
         location = f"module.interpretations[{index}]"
-        entry_id = entry.get("id") if isinstance(entry, dict) else None
+        entry_id = (
+            entry.get("id", _MISSING_INTERPRETATION_ID)
+            if isinstance(entry, dict)
+            else None
+        )
         label = (
             f"Interpretation `{entry_id}` ({location})"
             if isinstance(entry_id, str) and entry_id.strip()
@@ -582,7 +609,7 @@ def _validate_module_interpretations(
                     issues=issues,
                 ):
                     continue
-                alternative_id = alternative.get("id")
+                alternative_id = alternative.get("id", _MISSING_INTERPRETATION_ID)
                 if _interpretation_id(
                     alternative_id,
                     label=f"{alternative_label}.id",
