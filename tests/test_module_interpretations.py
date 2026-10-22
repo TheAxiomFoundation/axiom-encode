@@ -17,6 +17,7 @@ from axiom_encode.harness.proof_validator import (
     proof_source_citation_paths,
     validate_rulespec_proofs,
 )
+from axiom_encode.yaml_serialization import safe_dump_yaml
 
 CITATION = "zz/manual/fictional-lantern/review-schedule"
 EXCERPT = "Review supplies at the start of each period."
@@ -77,7 +78,7 @@ def _payload(entry):
 
 def _validate(payload, source_texts=None, **kwargs):
     return validate_rulespec_proofs(
-        yaml.safe_dump(payload),
+        safe_dump_yaml(payload),
         source_texts={CITATION: EXCERPT} if source_texts is None else source_texts,
         **kwargs,
     )

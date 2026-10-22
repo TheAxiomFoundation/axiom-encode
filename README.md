@@ -441,9 +441,11 @@ date), and `record` (an https URL to a public PR, issue, or comment).
 `confirmation` contains `by` (the publisher organisation), `date`, and the
 publisher's verbatim `excerpt`, plus an optional public https `record`.
 Quote dates in YAML. Use organisations, never people's names, and omit private
-decision identifiers, session identifiers, and local paths. The encoder creates
-`open` entries only; repair rounds may copy a recorded human ruling supplied
-through `--review-findings` and set `status: ruled`. A supplied publisher reply
+decision identifiers, session identifiers, and local paths. The encoder is
+instructed to create `open` entries only, and repair rounds to copy a recorded
+human ruling only when it is supplied through `--review-findings` (then
+`status: ruled`). Validation checks the shape of `ruling` and `confirmation`
+blocks, not where a ruling came from. A supplied publisher reply
 permits `confirmed` or `contradicted` only with both evidence blocks. A
 `contradicted` entry blocks validation: repair the module, move the old reading
 into `alternatives`, and set the new reading's status.

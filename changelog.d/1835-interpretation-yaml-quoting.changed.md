@@ -1,0 +1,1 @@
+The encoder now writes every YAML document through a YAML 1.2-safe dumper, so strings that YAML 1.2 would read as numbers, booleans or null (for example `1e5`, `-0o17`, `+.5`) stay quoted. Re-dumping existing modules can change quote style (`'1356'` becomes `"1356"`) without changing parsed data; apply manifests hash the bytes written to disk, so signed modules are unaffected.
