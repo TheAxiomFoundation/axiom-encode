@@ -1,0 +1,186 @@
+- name: employee_contribution_reduced_and_ordinary_income_parts
+  period: 2025-01
+  input:
+    il:statutes/national-health-insurance-law-1994/section-14#input.employee_health_insurance_income: 10000
+    il:statutes/national-health-insurance-law-1994/section-14#input.reduced_income_amount: 6000
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_employee: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.employer_owes_national_insurance_for_employee: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_is_exempt_under_subsection_z: false
+  output:
+    il:statutes/national-health-insurance-law-1994/section-14#employee_health_insurance_contribution: 400.6
+- name: employee_contribution_negative_income_is_clamped
+  period: 2025-01
+  input:
+    il:statutes/national-health-insurance-law-1994/section-14#input.employee_health_insurance_income: -100
+    il:statutes/national-health-insurance-law-1994/section-14#input.reduced_income_amount: 6000
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_employee: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.employer_owes_national_insurance_for_employee: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_is_exempt_under_subsection_z: false
+  output:
+    il:statutes/national-health-insurance-law-1994/section-14#employee_health_insurance_contribution: 0
+- name: self_employed_contribution_reduced_and_ordinary_income_parts
+  period: 2025-01
+  input:
+    il:statutes/national-health-insurance-law-1994/section-14#input.self_employment_health_insurance_income: 10000
+    il:statutes/national-health-insurance-law-1994/section-14#input.reduced_income_amount: 6000
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_self_employed: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.employee_owes_national_insurance_for_self: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_is_exempt_under_subsection_z: false
+  output:
+    il:statutes/national-health-insurance-law-1994/section-14#self_employed_health_insurance_contribution: 400.6
+- name: self_employed_contribution_negative_income_is_clamped
+  period: 2025-01
+  input:
+    il:statutes/national-health-insurance-law-1994/section-14#input.self_employment_health_insurance_income: -100
+    il:statutes/national-health-insurance-law-1994/section-14#input.reduced_income_amount: 6000
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_self_employed: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.employee_owes_national_insurance_for_self: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_is_exempt_under_subsection_z: false
+  output:
+    il:statutes/national-health-insurance-law-1994/section-14#self_employed_health_insurance_contribution: 0
+- name: other_contributor_minimum_applies
+  period: 2025-01
+  input:
+    il:statutes/national-health-insurance-law-1994/section-14#input.nonreduced_income_amount: 100
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_other_contributor: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_is_exempt_under_subsection_z: false
+  output:
+    il:statutes/national-health-insurance-law-1994/section-14#other_insured_person_health_insurance_contribution: 47
+- name: other_contributor_negative_income_uses_minimum
+  period: 2025-01
+  input:
+    il:statutes/national-health-insurance-law-1994/section-14#input.nonreduced_income_amount: -100
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_other_contributor: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_is_exempt_under_subsection_z: false
+  output:
+    il:statutes/national-health-insurance-law-1994/section-14#other_insured_person_health_insurance_contribution: 47
+- name: old_age_pension_partnered_amount
+  period: 2025-01
+  input:
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_is_exempt_under_subsection_z: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_minimum_premium_category_under_subsection_e_1: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_old_age_pension_without_income_supplement: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_partner_addition_or_partner_pension: true
+  output:
+    il:statutes/national-health-insurance-law-1994/section-14#old_age_pension_health_insurance_contribution: 128
+- name: old_age_pension_unpartnered_amount
+  period: 2025-01
+  input:
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_is_exempt_under_subsection_z: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_minimum_premium_category_under_subsection_e_1: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_old_age_pension_without_income_supplement: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_partner_addition_or_partner_pension: false
+  output:
+    il:statutes/national-health-insurance-law-1994/section-14#old_age_pension_health_insurance_contribution: 88
+- name: employee_exemption_blocks_contribution
+  period: 2025-01
+  input:
+    il:statutes/national-health-insurance-law-1994/section-14#input.employee_health_insurance_income: 10000
+    il:statutes/national-health-insurance-law-1994/section-14#input.reduced_income_amount: 6000
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_employee: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.employer_owes_national_insurance_for_employee: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_is_exempt_under_subsection_z: true
+  output:
+    il:statutes/national-health-insurance-law-1994/section-14#employee_health_insurance_contribution: 0
+- name: self_employed_exemption_blocks_contribution
+  period: 2025-01
+  input:
+    il:statutes/national-health-insurance-law-1994/section-14#input.self_employment_health_insurance_income: 10000
+    il:statutes/national-health-insurance-law-1994/section-14#input.reduced_income_amount: 6000
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_self_employed: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.employee_owes_national_insurance_for_self: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_is_exempt_under_subsection_z: true
+  output:
+    il:statutes/national-health-insurance-law-1994/section-14#self_employed_health_insurance_contribution: 0
+- name: other_contributor_exemption_blocks_contribution
+  period: 2025-01
+  input:
+    il:statutes/national-health-insurance-law-1994/section-14#input.nonreduced_income_amount: 100
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_other_contributor: true
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_is_exempt_under_subsection_z: true
+  output:
+    il:statutes/national-health-insurance-law-1994/section-14#other_insured_person_health_insurance_contribution: 0
+- name: auto_zero_employee_health_insurance_contribution
+  period:
+    period_kind: month
+    start: '2025-01-01'
+    end: '2025-01-31'
+  input:
+    il:statutes/national-health-insurance-law-1994/section-14#input.employee_health_insurance_income: 0
+    il:statutes/national-health-insurance-law-1994/section-14#input.employee_owes_national_insurance_for_self: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.employer_owes_national_insurance_for_employee: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_employee: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_other_contributor: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_self_employed: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.nonreduced_income_amount: 0
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_minimum_premium_category_under_subsection_e_1: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_old_age_pension_without_income_supplement: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_partner_addition_or_partner_pension: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_is_exempt_under_subsection_z: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.reduced_income_amount: 0
+    il:statutes/national-health-insurance-law-1994/section-14#input.self_employment_health_insurance_income: 0
+  output:
+    il:statutes/national-health-insurance-law-1994/section-14#employee_health_insurance_contribution: 0
+- name: auto_zero_self_employed_health_insurance_contribution
+  period:
+    period_kind: month
+    start: '2025-01-01'
+    end: '2025-01-31'
+  input:
+    il:statutes/national-health-insurance-law-1994/section-14#input.employee_health_insurance_income: 0
+    il:statutes/national-health-insurance-law-1994/section-14#input.employee_owes_national_insurance_for_self: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.employer_owes_national_insurance_for_employee: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_employee: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_other_contributor: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_self_employed: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.nonreduced_income_amount: 0
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_minimum_premium_category_under_subsection_e_1: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_old_age_pension_without_income_supplement: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_partner_addition_or_partner_pension: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_is_exempt_under_subsection_z: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.reduced_income_amount: 0
+    il:statutes/national-health-insurance-law-1994/section-14#input.self_employment_health_insurance_income: 0
+  output:
+    il:statutes/national-health-insurance-law-1994/section-14#self_employed_health_insurance_contribution: 0
+- name: auto_zero_other_insured_person_health_insurance_contribution
+  period:
+    period_kind: month
+    start: '2026-01-01'
+    end: '2026-01-31'
+  input:
+    il:statutes/national-health-insurance-law-1994/section-14#input.employee_health_insurance_income: 0
+    il:statutes/national-health-insurance-law-1994/section-14#input.employee_owes_national_insurance_for_self: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.employer_owes_national_insurance_for_employee: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_employee: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_other_contributor: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_self_employed: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.nonreduced_income_amount: 0
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_minimum_premium_category_under_subsection_e_1: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_old_age_pension_without_income_supplement: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_partner_addition_or_partner_pension: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_is_exempt_under_subsection_z: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.reduced_income_amount: 0
+    il:statutes/national-health-insurance-law-1994/section-14#input.self_employment_health_insurance_income: 0
+  output:
+    il:statutes/national-health-insurance-law-1994/section-14#other_insured_person_health_insurance_contribution: 0
+- name: auto_zero_old_age_pension_health_insurance_contribution
+  period:
+    period_kind: month
+    start: '2026-01-01'
+    end: '2026-01-31'
+  input:
+    il:statutes/national-health-insurance-law-1994/section-14#input.employee_health_insurance_income: 0
+    il:statutes/national-health-insurance-law-1994/section-14#input.employee_owes_national_insurance_for_self: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.employer_owes_national_insurance_for_employee: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_employee: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_other_contributor: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.insured_person_is_self_employed: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.nonreduced_income_amount: 0
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_minimum_premium_category_under_subsection_e_1: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_old_age_pension_without_income_supplement: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_has_partner_addition_or_partner_pension: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.person_is_exempt_under_subsection_z: false
+    il:statutes/national-health-insurance-law-1994/section-14#input.reduced_income_amount: 0
+    il:statutes/national-health-insurance-law-1994/section-14#input.self_employment_health_insurance_income: 0
+  output:
+    il:statutes/national-health-insurance-law-1994/section-14#old_age_pension_health_insurance_contribution: 0
