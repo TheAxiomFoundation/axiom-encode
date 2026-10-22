@@ -148,7 +148,8 @@ jobs:
 
       # Before the production-signing gate: a run that cannot fetch its pinned
       # corpus would fail after approval and waste the signing review. Only the
-      # presence of the secrets is evaluated here; no value reaches this job.
+      # presence of the secrets is evaluated here; no step's environment or log
+      # receives a value.
       - name: Require corpus read credentials before the signing gate
         env:
           HAS_CORPUS_READ: ${{ secrets.R2_CORPUS_READ_ACCESS_KEY_ID != '' && secrets.R2_CORPUS_READ_SECRET_ACCESS_KEY != '' }}

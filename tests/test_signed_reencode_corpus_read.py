@@ -46,19 +46,72 @@ def test_fetch_step_uses_the_read_only_corpus_secrets():
     assert env["R2_SECRET_ACCESS_KEY"] == READ_SECRET
 
 
-def test_only_the_fetch_step_holds_r2_credentials():
-    """The preflight may test that the secrets are set; only the fetch step gets values."""
-    holders = []
-    for job_id, _, step in _steps(_workflow()):
-        for key, value in (step.get("env") or {}).items():
-            if isinstance(value, str) and R2_SECRET.search(value):
-                holders.append((job_id, step.get("name"), key, value))
-    value_holders = {
-        (job, name) for job, name, _, value in holders if "!=" not in value
+PRESENCE = (
+    "${{ secrets.R2_CORPUS_READ_ACCESS_KEY_ID != '' "
+    "&& secrets.R2_CORPUS_READ_SECRET_ACCESS_KEY != '' }}"
+)
+# Any spelling of a reference to an R2 secret: dot or bracket access, any case.
+R2_REFERENCE = re.compile(r"\bsecrets\s*(?:\.\s*R2_|\[\s*['\"]R2_)", re.IGNORECASE)
+
+
+def _strings(value: object, path: tuple = ()):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            yield from _strings(child, (*path, key))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from _strings(child, (*path, index))
+    elif isinstance(value, str):
+        yield path, value
+
+
+def test_r2_secrets_appear_only_at_the_two_sanctioned_places():
+    """Walk the whole workflow: R2 secret values reach only the fetch step's two
+    env entries, and the preflight's single env entry tests presence only."""
+    workflow = _workflow()
+    _, fetch_index, _ = _step(workflow, FETCH_STEP)
+    _, preflight_index, _ = _step(workflow, PREFLIGHT_STEP)
+    expected = {
+        ("jobs", "encode", "steps", fetch_index, "env", "R2_ACCESS_KEY_ID"): READ_ID,
+        (
+            "jobs",
+            "encode",
+            "steps",
+            fetch_index,
+            "env",
+            "R2_SECRET_ACCESS_KEY",
+        ): READ_SECRET,
+        (
+            "jobs",
+            "attempt_budget",
+            "steps",
+            preflight_index,
+            "env",
+            "HAS_CORPUS_READ",
+        ): PRESENCE,
     }
-    presence_checks = {(job, name) for job, name, _, value in holders if "!=" in value}
-    assert value_holders == {("encode", FETCH_STEP)}
-    assert presence_checks == {("attempt_budget", PREFLIGHT_STEP)}
+    found = {
+        path: value for path, value in _strings(workflow) if R2_REFERENCE.search(value)
+    }
+    assert found == expected
+
+
+def test_the_preflight_env_is_exactly_the_presence_check_and_cannot_be_skipped():
+    workflow = _workflow()
+    _, _, step = _step(workflow, PREFLIGHT_STEP)
+    assert step["env"] == {"HAS_CORPUS_READ": PRESENCE}
+    assert "continue-on-error" not in step
+    assert "if" not in step
+    assert "continue-on-error" not in workflow["jobs"]["attempt_budget"]
+
+
+def test_encode_is_admitted_only_after_a_successful_or_skipped_preflight():
+    condition = _workflow()["jobs"]["encode"]["if"]
+    results = re.findall(
+        r"needs\.attempt_budget\.result\s*(==|!=)\s*'([a-z]+)'", condition
+    )
+    assert sorted(results) == [("==", "skipped"), ("==", "success")]
+    assert "always()" not in condition
 
 
 def test_the_preflight_runs_before_the_gate_and_before_the_budget():
