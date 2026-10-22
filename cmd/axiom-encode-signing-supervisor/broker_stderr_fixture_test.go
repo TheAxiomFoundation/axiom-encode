@@ -29,16 +29,23 @@ func TestBrokerRepliesWhenItsStderrIsClosed(t *testing.T) {
 	if executable, err = filepath.EvalSymlinks(executable); err != nil {
 		t.Fatal(err)
 	}
-	applyKey := testSigningKey(0x11)
-	broker, supervisor := brokerTestConnection(t)
-	signer := os.NewFile(
-		uintptr(startTestSigner(t, applyKey, wrongChallengeSignature)), "test-apply-signer",
-	)
 	stderrReader, stderrWriter, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = stderrReader.Close()
+	applyKey := testSigningKey(0x11)
+	broker, supervisor := brokerTestConnection(t)
+	signer := os.NewFile(
+		uintptr(startTestSigner(t, applyKey, wrongChallengeSignature)), "test-apply-signer",
+	)
+	// These are closed below once the child holds them; closing an *os.File
+	// again is a no-op, so this only matters if the test stops first.
+	t.Cleanup(func() {
+		_ = stderrWriter.Close()
+		_ = broker.Close()
+		_ = signer.Close()
+	})
 
 	command := exec.Command(executable, "-test.run=^TestBrokerRepliesWhenItsStderrIsClosed$")
 	command.Env = []string{closedStderrBrokerEnv + "=1"}

@@ -115,6 +115,10 @@ func startTestSigner(t *testing.T, key ed25519.PrivateKey, behavior testSignerBe
 		}
 	}()
 	t.Cleanup(func() {
+		// Close alone does not interrupt the signer's blocking read, which
+		// waits forever if the test stops before the broker takes (and later
+		// closes) the other descriptor. Shutdown ends that read.
+		_ = unix.Shutdown(descriptors[0], unix.SHUT_RDWR)
 		_ = signer.Close()
 		<-done
 	})
