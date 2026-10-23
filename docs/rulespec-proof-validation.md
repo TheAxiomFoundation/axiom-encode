@@ -47,7 +47,9 @@ Raw YAML is checked before any load-and-dump rewrite, because loading resolves
 duplicate keys, tags and merge keys silently. Interpretation scalars may carry
 only the canonical string tag `!!str`, interpretation collections carry no
 tags, and interpretation mapping keys must be unique. A document may have only
-one root `module` key, and YAML merge keys must not supply `module` or
+one root `module` key, and neither the root nor `module` may carry a tag other
+than `!!map` (PyYAML loads a `!!set` mapping as a set, which the engine reads as
+the mapping). YAML merge keys must not supply `module` or
 `module.interpretations`: the engine does not apply merge keys, so it would
 read different interpretations from the encoder.
 

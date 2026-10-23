@@ -215,6 +215,16 @@ INVALID_RAW = [
         "duplicate key `module`",
         id="duplicate-root-module",
     ),
+    pytest.param(
+        _raw_payload().replace("module:\n", "module: !!set\n", 1),
+        "module has unsupported YAML tag `tag:yaml.org,2002:set`",
+        id="set-tagged-module",
+    ),
+    pytest.param(
+        "--- !!set\n" + _raw_payload(),
+        "RuleSpec root has unsupported YAML tag `tag:yaml.org,2002:set`",
+        id="set-tagged-root",
+    ),
 ]
 
 

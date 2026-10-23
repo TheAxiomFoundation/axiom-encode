@@ -242,6 +242,15 @@ def validate_rulespec_proofs(
             proof_required=False,
         )
 
+    if not isinstance(payload, dict) and interpretation_yaml_issues:
+        # A tagged root mapping can load as a set, which would otherwise skip
+        # every check below while the engine still reads the mapping.
+        return ProofValidationResult(
+            passed=False,
+            issues=interpretation_yaml_issues,
+            atoms_checked=0,
+            proof_required=False,
+        )
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return ProofValidationResult(
             passed=True,
@@ -348,6 +357,7 @@ def find_interpretation_yaml_issues(content: str) -> list[str]:
 
 
 _YAML_STR_TAG = "tag:yaml.org,2002:str"
+_YAML_MAP_TAG = "tag:yaml.org,2002:map"
 _YAML_MERGE_TAG = "tag:yaml.org,2002:merge"
 
 
@@ -413,6 +423,24 @@ def _mapping_fields(
     ]
 
 
+def _mapping_tag_issue(
+    node: yaml.MappingNode, label: str, explicit_tags: Mapping[int, str]
+) -> str | None:
+    """Reject tags that make PyYAML construct a mapping as something else.
+
+    `!!set` loads a mapping as a set, which hides it from validation, while the
+    engine ignores the tag and reads the mapping.
+    """
+
+    tag = explicit_tags.get(id(node))
+    if tag is None or tag in {"!", _YAML_MAP_TAG}:
+        return None
+    return (
+        f"{label} has unsupported YAML tag `{tag}`; only an untagged mapping "
+        "or `!!map` is supported."
+    )
+
+
 def _merge_keys_supply(node: yaml.MappingNode, name: str) -> bool:
     """Whether a merge key in ``node`` would copy ``name`` into it on load.
 
@@ -458,6 +486,8 @@ def _interpretation_node_constraints(
     )
     if not isinstance(root, yaml.MappingNode):
         return issues, numeric_id_paths
+    if tag_issue := _mapping_tag_issue(root, "RuleSpec root", explicit_tags):
+        issues.append(tag_issue)
     modules = _mapping_fields(root, "module")
     if len(modules) > 1:
         issues.append("RuleSpec root has duplicate key `module`.")
@@ -472,6 +502,8 @@ def _interpretation_node_constraints(
     for _key, module in modules:
         if not isinstance(module, yaml.MappingNode):
             continue
+        if tag_issue := _mapping_tag_issue(module, "module", explicit_tags):
+            issues.append(tag_issue)
         interpretations = _mapping_fields(module, "interpretations")
         if len(interpretations) > 1:
             issues.append("module has duplicate key `interpretations`.")

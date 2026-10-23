@@ -808,6 +808,74 @@ def test_interpretation_yaml_rejects_merge_tags_that_hide_interpretations_on_loa
     assert result.issues == [message]
 
 
+def _with_unknown_interpretation_key(content):
+    return content.replace(
+        "      status: open\n", "      status: open\n      unreviewed: true\n", 1
+    )
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement", "label"),
+    [
+        ("module:\n", "module: !!set\n", "module"),
+        ("format: rulespec/v1\n", "--- !!set\nformat: rulespec/v1\n", "RuleSpec root"),
+        (
+            "format: rulespec/v1\n",
+            "%TAG !y! tag:yaml.org,2002:\n--- !y!set\nformat: rulespec/v1\n",
+            "RuleSpec root",
+        ),
+    ],
+)
+def test_interpretation_yaml_rejects_set_tags_that_hide_mappings_on_load(
+    original, replacement, label
+):
+    # PyYAML loads a `!!set` mapping as a set of its keys, so the interpretation
+    # below is never validated; the engine ignores the tag and reads the mapping.
+    content = _with_unknown_interpretation_key(
+        _raw_payload().replace(original, replacement, 1)
+    )
+    loaded = yaml.safe_load(content)
+    assert isinstance(loaded if label == "RuleSpec root" else loaded["module"], set)
+    message = (
+        f"{label} has unsupported YAML tag `tag:yaml.org,2002:set`; only an "
+        "untagged mapping or `!!map` is supported."
+    )
+    assert find_interpretation_yaml_issues(content) == [message]
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [message]
+
+
+def test_rulespec_root_set_tag_no_longer_skips_proof_validation():
+    content = "--- !!set\n" + _raw_payload().replace(
+        "module:\n", "module:\n  proof_validation:\n    required: true\n", 1
+    )
+    assert not validate_rulespec_proofs(content.removeprefix("--- !!set\n")).passed
+    result = validate_rulespec_proofs(content)
+    assert result.issues == [
+        "RuleSpec root has unsupported YAML tag `tag:yaml.org,2002:set`; only an "
+        "untagged mapping or `!!map` is supported."
+    ]
+
+
+@pytest.mark.parametrize("tag", ["!", "!!map", "!<tag:yaml.org,2002:map>"])
+@pytest.mark.parametrize(
+    ("original", "replacement"),
+    [("module:\n", "module: {tag}\n"), ("format:", "--- {tag}\nformat:")],
+)
+def test_interpretation_yaml_allows_map_tags_on_root_and_module(
+    tag, original, replacement
+):
+    content = _raw_payload().replace(original, replacement.format(tag=tag), 1)
+    assert isinstance(yaml.safe_load(content)["module"], dict)
+    assert find_interpretation_yaml_issues(content) == []
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.passed, result.issues
+    invalid = validate_rulespec_proofs(
+        _with_unknown_interpretation_key(content), source_texts={CITATION: EXCERPT}
+    )
+    assert invalid.issues == [f"{LABEL} has unknown key `unreviewed`."]
+
+
 FIRST_KEYS = [
     "    - id: weekly-review\n",
     "        - corpus_citation_path:",
@@ -920,6 +988,8 @@ def _assert_single_pass_load_matches_safe_load(content):
         "format: rulespec/v1\nx-defaults: &defaults\n"
         f"{RAW_SHADOWED_INTERPRETATIONS}module:\n  <<: [*defaults]\n{RAW_RULES}",
         _raw_payload().replace("module:\n", "!!merge module:\n", 1),
+        "--- !!set\n" + _raw_payload(),
+        _raw_payload().replace("module:\n", "module: !!set\n", 1),
         "x: &a {b: &c [1, *c]}\ny: *a\n",
         "--- !!map\n? outer\n: {<<: [{k: v}, {j: u}], k: w}\n",
     ],
