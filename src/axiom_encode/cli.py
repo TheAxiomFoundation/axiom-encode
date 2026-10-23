@@ -601,6 +601,16 @@ _GENERATED_RULESPEC_TAG_ISSUE_PREFIX = (
 _GENERATED_TEST_TAG_ISSUE_PREFIX = (
     "Cannot apply companion test YAML with unsupported tags: "
 )
+# PyYAML raises a plain ValueError, not a YAML error, for a double-quoted escape
+# beyond U+10FFFF or an impossible implicit date, so the repairs would crash.
+_GENERATED_RULESPEC_YAML_VALUE_ISSUE = (
+    "[generated-yaml:value] invalid YAML: a scalar cannot be loaded, such as a "
+    "double-quoted escape beyond U+10FFFF or an impossible date"
+)
+_GENERATED_TEST_YAML_VALUE_ISSUE = (
+    "[generated-yaml:value] invalid companion test YAML: a scalar cannot be "
+    "loaded, such as a double-quoted escape beyond U+10FFFF or an impossible date"
+)
 _GENERATED_RULESPEC_NONRETRYABLE_PREFIXES = (
     "[generated-yaml:io]",
     "[generated-yaml:decode]",
@@ -56437,17 +56447,23 @@ def _generated_rulespec_yaml_nonparser_issue(
         return _GENERATED_RULESPEC_YAML_IO_ISSUE
     except UnicodeError:
         return _GENERATED_RULESPEC_YAML_DECODE_ISSUE
+    except ValueError:
+        return _GENERATED_RULESPEC_YAML_VALUE_ISSUE
     test_file = _rulespec_test_path(output_file)
     try:
         test_content = test_file.read_text() if test_file.is_file() else ""
         duplicate_key_issues = find_duplicate_mapping_key_issues(test_content)
         tag_issues = find_unsupported_yaml_tag_issues(test_content)
+        if not (duplicate_key_issues or tag_issues):
+            yaml.safe_load(test_content)
     except RecursionError:
         # An unscanned test could still lose entries to a repair's rewrite.
         return _GENERATED_RULESPEC_YAML_RESOURCE_ISSUE
     except (OSError, UnicodeError, yaml.YAMLError):
         # Companion test read and parse failures keep their validation errors.
         return None
+    except ValueError:
+        return _GENERATED_TEST_YAML_VALUE_ISSUE
     if duplicate_key_issues:
         return _GENERATED_TEST_DUPLICATE_KEY_ISSUE_PREFIX + "; ".join(
             duplicate_key_issues
@@ -56492,6 +56508,8 @@ def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> 
         raise RuntimeError(_GENERATED_RULESPEC_YAML_IO_ISSUE) from None
     except UnicodeError:
         raise RuntimeError(_GENERATED_RULESPEC_YAML_DECODE_ISSUE) from None
+    except ValueError:
+        raise RuntimeError(_GENERATED_RULESPEC_YAML_VALUE_ISSUE) from None
     if not isinstance(payload, dict):
         return
     module = payload.get("module")

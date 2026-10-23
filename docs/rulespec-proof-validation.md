@@ -82,7 +82,10 @@ and PyYAML resolves `! '0.1'` as the number 0.1. Proof validation and the
 validator pipeline's preflight report each such tag with its location. The
 apply preflight and stamping and the retry overlay refuse the file before any
 rewrite, and the eval repairs and materialization keep its raw text for
-validation to report.
+validation to report. They treat text that PyYAML cannot load because it raises
+a plain `ValueError` the same way. A double-quoted escape beyond U+10FFFF, such
+as `"\U00110000"`, or an impossible unquoted date such as `2024-13-01`, raises
+one. The engine rejects the escape, and an impossible `effective_from`.
 
 The encoder is instructed to create new entries with `status: open`. A repair may carry recorded human rulings and
 publisher replies supplied through mandatory review findings into `ruling` and
