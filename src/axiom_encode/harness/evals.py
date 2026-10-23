@@ -1043,6 +1043,9 @@ class CorpusAmendmentDocument:
     metadata: dict[str, object]
     body: str
     match_tier: Literal["structured", "name"] = "name"
+    # None preserves legacy document-tier rendering. Discovery binds this role
+    # to the principal request rather than inferring it from an Act-wide match.
+    required_for_target: bool | None = None
 
 
 def _amendment_documents_visible_in_context_manifest(
@@ -2174,6 +2177,55 @@ def _amendment_has_structured_document_target(
     return False
 
 
+def _amendment_provision_targets(
+    metadata: Mapping[str, Any],
+) -> Iterator[tuple[str, ...]]:
+    """Read provision targets separately from broad document declarations."""
+    for key in ("amendment_target", "amendment_targets"):
+        for value in _metadata_scalar_values(metadata.get(key)):
+            segments = _normalized_citation_path_segments(value)
+            if segments:
+                yield segments
+
+
+def _amendment_targets_provision(
+    metadata: Mapping[str, Any], target_citation_path: str
+) -> bool:
+    requested = _normalized_citation_path_segments(target_citation_path)
+    return bool(requested) and any(
+        target[: len(requested)] == requested or requested[: len(target)] == target
+        for target in _amendment_provision_targets(metadata)
+    )
+
+
+def _amendment_shares_target_scope(
+    metadata: Mapping[str, Any], target_citation_path: str
+) -> bool:
+    requested = _normalized_citation_path_segments(target_citation_path)
+    scopes = [
+        requested[: index + 2]
+        for index, segment in enumerate(requested[:-1])
+        if segment in {"part", "schedule"}
+    ]
+    return any(
+        target[: len(scope)] == scope
+        for target in _amendment_provision_targets(metadata)
+        for scope in scopes
+    )
+
+
+def _amendment_document_order(citation_path: str) -> tuple[tuple[int, object], ...]:
+    """Order main provisions before supplements, and locator numbers naturally."""
+    return tuple(
+        (0, int(token))
+        if token.isdigit()
+        else (2, token)
+        if token in {"schedule", "annex", "appendix"}
+        else (1, token)
+        for token in re.findall(r"\d+|[^\d/]+|/", citation_path)
+    )
+
+
 def _amendment_relates_to_target(
     row: _corpus_resolver.ActiveCorpusBodyRow,
     target_identifiers: _AmendmentTargetIdentifiers,
@@ -2291,9 +2343,10 @@ def _discover_amendment_documents(
         row_document_key = row.row.source_path or row.row.citation_path
         if row_document_key == target_document_key or not _is_amendment_row(row):
             continue
-        structured_match = _amendment_has_structured_document_target(
-            row,
-            target_document_citation_path=target_document_path,
+        structured_match = _amendment_targets_provision(
+            row.metadata, target_citation_path
+        ) or _amendment_has_structured_document_target(
+            row, target_document_citation_path=target_document_path
         )
         if structured_match:
             marked_rows.append((evidence_row(row), "structured"))
@@ -2349,8 +2402,11 @@ def _discover_amendment_documents(
         if structured_candidates
         else name_candidates
     )
-    documents = tuple(
-        CorpusAmendmentDocument(
+
+    def context_document(
+        row: _corpus_resolver.ActiveCorpusBodyRow,
+    ) -> CorpusAmendmentDocument:
+        return CorpusAmendmentDocument(
             citation_path=row.row.citation_path,
             title=str(
                 row.metadata.get("title") or row.heading or row.row.citation_path
@@ -2360,29 +2416,119 @@ def _discover_amendment_documents(
             body=row.body,
             match_tier=tiers_by_document[row.row.source_path or row.row.citation_path],
         )
-        for row in selected_rows
-    )
-    # A principal request with ingest-bound section evidence uses the same
-    # dated path as a directly routed amendment. Put the operative sections
-    # before full-Act context so they survive bounded context rendering.
+
+    documents = tuple(context_document(row) for row in selected_rows)
+    # Document matching discovers the timeline, but only provision targets bind
+    # evidence to this request. Reserve the exact/ancestor/descendant amendments
+    # and their commencement rows; other bound rows remain optional context.
     bound_documents: dict[str, CorpusAmendmentDocument] = {}
+    required_citations: set[str] = set()
     for row, _tier in marked_rows:
-        if row.metadata.get("commencement_date") and row.metadata.get(
-            "commencement_citation_path"
-        ):
+        required = _amendment_targets_provision(row.metadata, target_citation_path)
+        citation = row.metadata.get("commencement_citation_path")
+        if required:
+            required_citations.add(row.row.citation_path)
+            bound_documents.setdefault(row.row.citation_path, context_document(row))
+            if citation:
+                required_citations.add(str(citation))
+        if citation:
             evidence_rows = tuple(
                 evidence_row(item)
-                if item.row.citation_path == row.metadata["commencement_citation_path"]
+                if item.row.citation_path
+                == row.metadata.get("commencement_citation_path")
                 and item.row.source_path == row.row.source_path
                 and item.row.version == row.row.version
                 else item
                 for item in rows
             )
-            for document in _amendment_commencement_evidence(row, evidence_rows):
-                bound_documents.setdefault(document.citation_path, document)
+            if required and row.metadata.get("commencement_date"):
+                evidence = _amendment_commencement_evidence(row, evidence_rows)
+                required_citations.update(item.citation_path for item in evidence)
+            else:
+                # Optional rows cannot make their unrelated commencement pair
+                # mandatory. Keep available context without routing through it.
+                evidence = tuple(
+                    context_document(item)
+                    for item in (
+                        row,
+                        *(
+                            item
+                            for item in evidence_rows
+                            if item.row.citation_path
+                            == row.metadata.get("commencement_citation_path")
+                            and item.row.source_path == row.row.source_path
+                            and item.row.version == row.row.version
+                        ),
+                    )
+                )
+            for document in evidence:
+                if required:
+                    bound_documents[document.citation_path] = document
+                else:
+                    bound_documents.setdefault(document.citation_path, document)
     for document in documents:
         bound_documents.setdefault(document.citation_path, document)
-    return tuple(bound_documents.values())
+    if (
+        not required_citations
+        and not any(
+            tuple(_amendment_provision_targets(row.metadata))
+            for row, _tier in marked_rows
+        )
+        and not any(
+            item.metadata.get("commencement_date")
+            and item.metadata.get("commencement_citation_path")
+            for item in bound_documents.values()
+        )
+    ):
+        # Broad document/name discovery keeps its established root selection
+        # and rendering contract when there is no provision-bound evidence.
+        return tuple(bound_documents.values())
+    for row, tier in marked_rows:
+        if tier == "structured":
+            bound_documents.setdefault(row.row.citation_path, context_document(row))
+    if not bound_documents or all(
+        item.match_tier == "name" for item in bound_documents.values()
+    ):
+        return tuple(bound_documents.values())
+    # Across Acts preserve timeline order; within each Act prefer the requested
+    # Part/schedule, followed by document order. Rendering reserves required
+    # evidence before considering this optional sequence.
+    document_order = {
+        row.row.source_path or row.row.citation_path: index
+        for index, row in enumerate(selected_rows)
+    }
+    owners = {
+        row.row.citation_path: row.row.source_path or row.row.citation_path
+        for row in rows
+    }
+    required_documents = sorted(
+        (
+            item
+            for item in bound_documents.values()
+            if item.citation_path in required_citations
+        ),
+        key=lambda item: document_order.get(
+            owners[item.citation_path], len(document_order)
+        ),
+    )
+    optional_documents = sorted(
+        (
+            item
+            for item in bound_documents.values()
+            if item.citation_path not in required_citations
+        ),
+        key=lambda item: (
+            document_order.get(owners[item.citation_path], len(document_order)),
+            not _amendment_shares_target_scope(item.metadata, target_citation_path),
+            _amendment_document_order(item.citation_path),
+        ),
+    )
+    return tuple(
+        replace(
+            document, required_for_target=document.citation_path in required_citations
+        )
+        for document in (*required_documents, *optional_documents)
+    )
 
 
 def _render_amendment_document(
@@ -2536,12 +2682,17 @@ def _require_bound_amendment_context(
         )
     }
     for document in documents:
+        if document.required_for_target is False:
+            continue
         commencement = document.metadata.get("commencement_date")
         citation = document.metadata.get("commencement_citation_path")
-        if not commencement or not citation:
+        if document.required_for_target is None and (not commencement or not citation):
             continue
         prefix = f"Unresolved amendment context for {document.citation_path}: "
-        for required in (document.citation_path, str(citation)):
+        required_citations = (document.citation_path,) + (
+            (str(citation),) if citation else ()
+        )
+        for required in required_citations:
             retained = visible.get(required)
             if (
                 required not in original
@@ -2551,11 +2702,89 @@ def _require_bound_amendment_context(
                 raise ValueError(
                     prefix
                     + "required amendment/commencement evidence exceeds the context budget or is missing"
+                    + f": {required}"
                 )
-        if str(commencement) not in visible[document.citation_path][1]:
+        if commencement and str(commencement) not in visible[document.citation_path][1]:
             raise ValueError(
                 prefix + "required commencement metadata exceeds the context budget"
             )
+
+
+def _render_target_amendment_context(
+    provision_metadata: dict[str, object],
+    amendment_documents: Sequence[CorpusAmendmentDocument],
+) -> _RenderedInjectedContext:
+    """Reserve full required evidence, then admit optional rows in ranked order."""
+    provision_text = _render_provision_metadata(provision_metadata)
+    texts = {
+        item.citation_path: _render_amendment_document(item, body=item.body)
+        for item in amendment_documents
+    }
+    required = [
+        item
+        for item in amendment_documents
+        if item.required_for_target is True
+        or (
+            item.required_for_target is None
+            and item.metadata.get("commencement_date")
+            and item.metadata.get("commencement_citation_path")
+        )
+    ]
+    required_paths = {item.citation_path for item in required}
+    for item in required:
+        if len(item.body) > _AMENDMENT_BODY_LIMIT:
+            raise ValueError(
+                f"Unresolved amendment context for {item.citation_path}: "
+                "required amendment/commencement evidence exceeds the context budget "
+                "(context body limit)"
+            )
+    size = (
+        len(provision_text.encode("utf-8"))
+        + sum(len(texts[item.citation_path].encode("utf-8")) for item in required)
+        + max(0, len(required) - 1) * len(_AMENDMENT_CONTEXT_SEPARATOR.encode("utf-8"))
+    )
+    if size > _INJECTED_CONTEXT_LIMIT:
+        raise ValueError(
+            "Unresolved amendment context for "
+            + ", ".join(item.citation_path for item in required)
+            + ": required amendment/commencement evidence exceeds the context budget"
+        )
+    admitted = set(required_paths)
+    dropped: list[dict[str, object]] = []
+    separator_bytes = len(_AMENDMENT_CONTEXT_SEPARATOR.encode("utf-8"))
+    for item in amendment_documents:
+        if item.citation_path in required_paths:
+            continue
+        extra_bytes = len(texts[item.citation_path].encode("utf-8")) + (
+            separator_bytes if admitted else 0
+        )
+        if len(item.body) > _AMENDMENT_BODY_LIMIT:
+            reason = "body_context_limit"
+        elif size + extra_bytes > _INJECTED_CONTEXT_LIMIT:
+            reason = "aggregate_context_limit"
+        else:
+            admitted.add(item.citation_path)
+            size += extra_bytes
+            continue
+        dropped.append(
+            {
+                "citation_path": item.citation_path,
+                "expression_date": item.expression_date,
+                "match_tier": item.match_tier,
+                "reason": reason,
+            }
+        )
+    retained = tuple(
+        item for item in amendment_documents if item.citation_path in admitted
+    )
+    result = _RenderedInjectedContext(
+        provision_text=provision_text,
+        amendment_documents=retained,
+        amendment_texts=tuple(texts[item.citation_path] for item in retained),
+        dropped_amendment_documents=tuple(dropped),
+    )
+    _require_bound_amendment_context(amendment_documents, result)
+    return result
 
 
 def _render_injected_context(
@@ -2563,6 +2792,9 @@ def _render_injected_context(
     amendment_documents: Sequence[CorpusAmendmentDocument],
 ) -> _RenderedInjectedContext:
     """Render admitted context, dropping whole documents by binding tier order."""
+
+    if any(item.required_for_target is not None for item in amendment_documents):
+        return _render_target_amendment_context(provision_metadata, amendment_documents)
 
     if not any(document.match_tier == "structured" for document in amendment_documents):
         provision_text, amendment_texts, dropped = _render_legacy_name_tier_context(
@@ -6694,6 +6926,7 @@ def _amendment_commencement_evidence(
             prefix
             + "missing authenticated same-Act metadata.commencement_citation_path "
             "in the same source_path and version"
+            + (f": {citation}" if citation else "")
         )
     # The structured date selects the applicable scope; the cited legal body
     # must actually state it. Assent/capture dates are never substitutes.
@@ -6719,6 +6952,7 @@ def _amendment_commencement_evidence(
             metadata=_curated_provision_metadata(item),
             body=item.body,
             match_tier="structured",
+            required_for_target=True,
         )
 
     return document(row), document(evidence)

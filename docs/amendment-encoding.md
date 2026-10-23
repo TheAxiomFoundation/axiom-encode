@@ -69,8 +69,17 @@ Discovery excludes the requested target's own document from this
 principal-target attachment path. The rendered eval bundle lists attached evidence as
 `kind: corpus_amendment_act` in `context-manifest.json`; check that the retained
 context contains both the change and the applicable commencement provision.
-Context has size limits, so discovery alone does not guarantee that every
-provision's text is visible.
+For principal requests, rows whose `amendment_target` or `amendment_targets`
+names the requested citation, an ancestor, or a descendant are required evidence,
+along with each row's `commencement_citation_path` provision. Their complete
+bodies must fit the 12,000-character per-body and 32,000-byte aggregate context
+limits; missing or oversized required evidence blocks encoding and identifies
+the affected citation. Other amendment rows are optional context: rows targeting
+the same Part or schedule come first, then document order. They are included
+whole while both limits allow, and omitted rows are recorded in
+`dropped_amendment_documents` in the context manifest. The complete amendment
+timeline remains visible when it fits. Direct amending-provision routing retains
+its required amendment and commencement checks.
 
 ## Direct amending-provision requests
 
