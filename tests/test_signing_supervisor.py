@@ -2145,6 +2145,71 @@ def test_targeted_signed_reencode_reconciles_retired_inventory_before_commits() 
     )
 
 
+def test_provision_prefetch_is_authenticated_before_release_fetch() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = workflow["jobs"]["encode"]["steps"]
+    names = [step.get("name") for step in steps]
+    release = names.index("Fetch pinned signed corpus release object")
+    select = names.index("Select authenticated signed provision export runs")
+    metadata = names.index("Download authenticated provision export metadata")
+    validate = names.index("Validate authenticated provision export metadata")
+    archives = names.index("Download authenticated provision export archives")
+    prefetch = names.index("Prefetch authenticated signed provision members")
+    fetch = names.index("Fetch pinned corpus provision objects")
+    assert release < select < metadata < validate < archives < prefetch < fetch
+    assert "provision-run-ids" in steps[select]["run"]
+    assert "GH_TOKEN" not in steps[select].get("env", {})
+    assert "validate-export \\" in steps[validate]["run"]
+    assert '--provision-run-id "$export_run"' in steps[validate]["run"]
+    assert "GH_TOKEN" not in steps[validate].get("env", {})
+    assert steps[validate]["env"]["ATOMIC_SOURCE_JSON"] == (
+        "${{ inputs.source_bundle_json }}"
+    )
+    assert "materialize \\" in steps[prefetch]["run"]
+    assert "env -u GH_TOKEN" in steps[prefetch]["run"]
+    assert "GH_TOKEN" not in steps[prefetch].get("env", {})
+    assert steps[prefetch]["env"]["ATOMIC_SOURCE_JSON"] == (
+        "${{ inputs.source_bundle_json }}"
+    )
+    assert "GH_TOKEN" in steps[metadata]["env"]
+    assert "GH_TOKEN" in steps[archives]["env"]
+    assert steps[prefetch]["env"]["TRUST_CORPUS_RELEASE_ROOT"] == (
+        "${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}"
+    )
+
+
+def test_transport_legacy_required_cases_keep_all_three_protected_guards() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = {
+        step["name"]: step
+        for step in workflow["jobs"]["encode"]["steps"]
+        if "name" in step
+    }
+    guard = re.compile(
+        re.escape(
+            '{ [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \\'
+        )
+        + r"\n\s+"
+        + re.escape('[ -z "$CORPUS_EXPORT_RUN_ID" ]; }')
+    )
+    for name in (
+        "Validate atomic source inputs",
+        "Verify existing signed imports",
+        "Encode, review, validate, and apply",
+    ):
+        step = steps[name]
+        assert step["env"]["CORPUS_EXPORT_RUN_ID"] == (
+            "${{ steps.corpus_artifact_transport.outputs.run_id }}"
+        )
+        assert guard.search(step["run"])
+        assert '[ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ]' in step["run"]
+        assert '[ "$primary_required_test_cases_json" != "[]" ]' in step["run"]
+
+
 def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
@@ -2207,7 +2272,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["pr_base_branch"]["default"] == "main"
     assert inputs["source_bundle_json"] == {
         "description": (
-            "Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3; "
+            "Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3 "
+            "for an ordinary or in-place legacy replacement; "
             "legacy citation array/refresh object, v2-v5 contract, "
             "or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} "
             "for an authenticated failed ordinary single-target repair"
@@ -2754,6 +2820,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset"' in command
     assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain"' in command
     assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain"' in command
+    assert 'DEPENDENT_CASCADE_MODE:-}" = "source-bound-proof-alias"' in command
+    assert 'scheduled_dependent_paths_json="$(' in command
+    assert '--arg first "$dependent_rulespec_path"' in command
     assert '"$DEPENDENT_CITATION" "$DEPENDENT_REVIEW_FINDING" \\\n' in command
     assert '"$REPLACE_RULESPEC_PATH" "$REPLACE_LEGACY_RULESPEC_PATH"' in command
     assert '"$CITATION" "$REVIEW_FINDING" false \\\n' in command

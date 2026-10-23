@@ -1,3 +1,19 @@
+## 0.2.2255
+
+- Prefetch authenticated signed corpus provision exports for protected runs whose release provisions are R2-only, with exact exporter, archive, release, and provision-byte checks.
+
+## 0.2.2254
+
+- Accept the exact reviewed corpus exporter dependency-file pair for the current PyMuPDF minimum-version update, while rejecting mixed or otherwise changed exporter checkouts.
+
+## 0.2.2253
+
+- Regenerate Arizona ECE's proof-pinned dependent from its own signed FAA5 source in the same protected legacy replacement transaction, and verify both source bindings and the updated proof hash before publication.
+
+## 0.2.2252
+
+- Admit authenticated in-place legacy Arizona ECE replacement from a signed corpus artifact while preserving the existing RuleSpec identity and dependent references; keep distinct-path moves and unsupported transport modes rejected.
+
 ## 0.2.2248
 
 - Add reviewed `repealed_tombstone` coverage exemptions for the exact repealed leaf scopes 26 USC 3121(a)(3), 3121(a)(17) and 3306(b)(3), bound to the signed corpus bytes, with their review evidence. The operative parent paragraphs and every other scope keep their coverage demands.

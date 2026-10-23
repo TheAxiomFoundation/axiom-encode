@@ -8,6 +8,7 @@ import io
 import json
 import stat
 import subprocess
+import sys
 import zipfile
 from base64 import b64encode
 
@@ -20,6 +21,7 @@ from axiom_encode.corpus_materialize import LockEntry, _canonical_lock_bytes
 from axiom_encode.corpus_release import canonical_release_object_bytes
 from axiom_encode.prepare_signed_backfill import (
     immutable_atomic_source_contract,
+    resolve_atomic_repair_mode,
     split_atomic_source_input,
 )
 from tests.test_corpus_release import _signed_release_object
@@ -36,6 +38,11 @@ WRAPPER = {
     "transaction": INNER,
     "corpus_artifact_run_id": "123",
 }
+PREFETCH = {
+    "schema": "axiom-encode/corpus-provision-prefetch/v1",
+    "transaction": INNER,
+    "provision_export_run_ids": ["123", "456", "789"],
+}
 DISPATCH = {
     "CITATION": "us/regulation/7/273/4",
     "REPLACE_RULESPEC_PATH": "us/regulations/7-cfr/273/4.yaml",
@@ -49,6 +56,68 @@ def test_wrapper_projects_only_source_contract():
         json.dumps(INNER)
     )
     assert json.loads(raw)["corpus_artifact_run_id"] == "123"
+
+
+def test_provision_prefetch_projects_only_source_contract():
+    raw = json.dumps(PREFETCH)
+    assert transport.request_run_id(raw, DISPATCH) == ""
+    assert transport.provision_run_ids(raw) == ["123", "456", "789"]
+    assert immutable_atomic_source_contract(raw) == split_atomic_source_input(
+        json.dumps(INNER)
+    )
+
+
+def test_provision_run_ids_cli_emits_no_blank_run(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["corpus_artifact_transport", "provision-run-ids"])
+    monkeypatch.setenv("ATOMIC_SOURCE_JSON", "[]")
+    transport.main()
+    assert capsys.readouterr().out == ""
+    monkeypatch.setenv("ATOMIC_SOURCE_JSON", json.dumps(PREFETCH))
+    transport.main()
+    assert capsys.readouterr().out == "123\n456\n789\n"
+
+
+def test_provision_materialization_rejects_unlisted_run_before_any_io(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["corpus_artifact_transport", "materialize", "--provision-run-id", "999"],
+    )
+    monkeypatch.setenv("ATOMIC_SOURCE_JSON", json.dumps(PREFETCH))
+    with pytest.raises(ValueError, match="not authorized"):
+        transport.main()
+
+
+@pytest.mark.parametrize(
+    "ids",
+    [[], ["0"], ["01"], ["123", "123"], [123], ["1" * 21], ["1"] * 9],
+)
+def test_provision_prefetch_rejects_invalid_run_ids(ids):
+    with pytest.raises(ValueError, match="run IDs"):
+        transport.provision_run_ids(
+            json.dumps({**PREFETCH, "provision_export_run_ids": ids})
+        )
+
+
+@pytest.mark.parametrize(
+    "change", ["extra", "nested", "repair", "not_object", "v4", "v5"]
+)
+def test_provision_prefetch_rejects_mixed_or_unknown_envelopes(change):
+    wrapper = copy.deepcopy(PREFETCH)
+    if change == "extra":
+        wrapper["unknown"] = True
+    elif change == "nested":
+        wrapper["transaction"] = copy.deepcopy(WRAPPER)
+    elif change == "repair":
+        wrapper["transaction"]["schema"] = "axiom-encode/atomic-source-transaction/v6"
+    elif change in {"v4", "v5"}:
+        wrapper["transaction"]["schema"] = (
+            f"axiom-encode/atomic-source-transaction/{change}"
+        )
+    else:
+        wrapper["transaction"] = []
+    with pytest.raises(ValueError):
+        transport.provision_run_ids(json.dumps(wrapper))
 
 
 @pytest.mark.parametrize(
@@ -82,7 +151,6 @@ def test_recursive_request_is_rejected(monkeypatch):
         "SECOND_DEPENDENT_CITATION",
         "DEPENDENT_REVIEW_FINDING",
         "SECOND_DEPENDENT_REVIEW_FINDING",
-        "REPLACE_LEGACY_RULESPEC_PATH",
         "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
         "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
         "EXISTING_SIGNED_IMPORTS_JSON",
@@ -92,6 +160,157 @@ def test_recursive_request_is_rejected(monkeypatch):
 def test_excluded_dispatch_before_transport(field):
     with pytest.raises(ValueError):
         transport.request_run_id(json.dumps(WRAPPER), {**DISPATCH, field: '["x"]'})
+
+
+def test_in_place_legacy_replacement_transport_preserves_ece_dependents():
+    legacy_path = (
+        "us-az/policies/des/faa5/na-categorical-eligibility/"
+        "expanded-categorical-eligibility.yaml"
+    )
+    legacy_identity = (
+        "us-az:policies/des/faa5/na-categorical-eligibility/"
+        "expanded-categorical-eligibility"
+    )
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": legacy_path,
+        "REPLACE_LEGACY_RULESPEC_PATH": legacy_path,
+    }
+    assert transport.request_run_id(json.dumps(WRAPPER), dispatch) == "123"
+
+    with_cases = copy.deepcopy(WRAPPER)
+    with_cases["transaction"]["primary_required_test_cases"] = [
+        {
+            "name": "2026 February ECE rate",
+            "period": {
+                "period_kind": "month",
+                "start": "2026-02-01",
+                "end": "2026-02-28",
+            },
+            "input": {},
+            "required_output": {
+                f"{legacy_identity}#expanded_categorical_eligibility_fpl_limit_rate": 1.85
+            },
+        },
+        {
+            "name": "2026 March ECE rate and deemed tests",
+            "period": {
+                "period_kind": "month",
+                "start": "2026-03-01",
+                "end": "2026-03-31",
+            },
+            "input": {
+                f"{legacy_identity}#input.gross_income": 1900,
+                f"{legacy_identity}#input.current_federal_poverty_level_amount": 1000,
+                f"{legacy_identity}#input.budgetary_unit_meets_basic_categorical_eligibility_requirements": False,
+                f"{legacy_identity}#input.resources_of_participants_with_certain_disqualifications_are_not_over_na_resource_limit": True,
+                f"{legacy_identity}#input.budgetary_unit_has_participant_with_disqualification": False,
+            },
+            "required_output": {
+                f"{legacy_identity}#expanded_categorical_eligibility_fpl_limit_rate": 2.0,
+                f"{legacy_identity}#expanded_categorical_eligibility_deems_resources_met": "holds",
+            },
+        },
+    ]
+    assert transport.request_run_id(json.dumps(with_cases), dispatch) == "123"
+    assert resolve_atomic_repair_mode(json.dumps(with_cases), dispatch) == {
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
+
+
+def test_transport_admits_one_reviewed_source_bound_dependent():
+    legacy_path = (
+        "us-az/policies/des/faa5/na-categorical-eligibility/"
+        "expanded-categorical-eligibility.yaml"
+    )
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": legacy_path,
+        "REPLACE_LEGACY_RULESPEC_PATH": legacy_path,
+        "DEPENDENT_CITATION": (
+            "us-az/manual/des/faa5/na-categorical-eligibility/block-5"
+        ),
+        "DEPENDENT_REVIEW_FINDING": (
+            "Regenerate the benefit calculation against the signed 200% "
+            "block-5 source and update its proof import."
+        ),
+    }
+    assert transport.request_run_id(json.dumps(WRAPPER), dispatch) == "123"
+    assert resolve_atomic_repair_mode(json.dumps(WRAPPER), dispatch) == {
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
+
+    with pytest.raises(ValueError, match="reviewed in-place"):
+        transport.request_run_id(
+            json.dumps(WRAPPER), {**dispatch, "DEPENDENT_REVIEW_FINDING": ""}
+        )
+    with pytest.raises(ValueError, match="only one fresh primary"):
+        transport.request_run_id(
+            json.dumps(WRAPPER),
+            {**dispatch, "SECOND_DEPENDENT_CITATION": "us-az/manual/another"},
+        )
+
+
+def test_corpus_transport_rejects_arbitrary_legacy_path_move():
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": (
+            "us-az/policies/des/faa5/na-categorical-eligibility/block-4.yaml"
+        ),
+        "REPLACE_LEGACY_RULESPEC_PATH": (
+            "us-az/policies/des/faa5/na-categorical-eligibility/"
+            "expanded-categorical-eligibility.yaml"
+        ),
+    }
+    with pytest.raises(ValueError, match="in-place protected RuleSpec target"):
+        transport.request_run_id(json.dumps(WRAPPER), dispatch)
+
+
+def test_corpus_transport_rejects_even_normalizable_legacy_path_move():
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": (
+            "us-az/policies/des/faa5/na-categorical-eligibility/block-4.yaml"
+        ),
+        "REPLACE_LEGACY_RULESPEC_PATH": (
+            "us-az/policies/des/faa5/na-categorical-eligibility/Block 4.yaml"
+        ),
+    }
+    with pytest.raises(ValueError, match="in-place protected RuleSpec target"):
+        transport.request_run_id(json.dumps(WRAPPER), dispatch)
+
+
+@pytest.mark.parametrize(
+    "legacy_source",
+    [
+        "us-az/../../other.yaml",
+        "us-az/policies/des/faa5//expanded.yaml",
+        "us-az/policies/des/faa5\\expanded.yaml",
+        "us-az/.axiom/expanded.yaml",
+        "us-az/policies/des/faa5/expanded.test.yaml",
+    ],
+)
+def test_legacy_replacement_transport_rejects_unsafe_in_place_path(legacy_source):
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": legacy_source,
+        "REPLACE_LEGACY_RULESPEC_PATH": legacy_source,
+    }
+    with pytest.raises(ValueError):
+        transport.request_run_id(json.dumps(WRAPPER), dispatch)
+
+
+def test_legacy_replacement_transport_rejects_other_jurisdiction():
+    legacy_source = "us/policies/des/faa5/na-categorical-eligibility/expanded.yaml"
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": legacy_source,
+        "REPLACE_LEGACY_RULESPEC_PATH": legacy_source,
+    }
+    with pytest.raises(ValueError, match="legacy source must be"):
+        transport.request_run_id(json.dumps(WRAPPER), dispatch)
 
 
 @pytest.mark.parametrize(
@@ -638,6 +857,66 @@ def test_reviewed_exporter_ancestry_and_exact_blobs(signed, monkeypatch, changed
         transport.validate_run(run, "123", repo)
 
 
+def test_reviewed_exporter_runtime_pairs_are_atomic(signed, monkeypatch):
+    repo = signed["corpus"]
+    for path in transport.REVIEWED_BLOBS:
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("reviewed fixture " + path)
+    transport.git(repo, "add", ".")
+    transport.git(repo, "-c", "commit.gpgsign=false", "commit", "-qm", "reviewed")
+    reviewed_head = transport.git(repo, "rev-parse", "HEAD")
+    original_lock = (repo / "uv.lock").read_text()
+    baseline_blobs = {
+        path: transport.git(repo, "rev-parse", f"HEAD:{path}")
+        for path in transport.REVIEWED_BLOBS
+    }
+    transport.git(
+        repo,
+        "remote",
+        "add",
+        "origin",
+        f"https://github.com/{transport.REPOSITORY}.git",
+    )
+    monkeypatch.setattr(transport, "REVIEWED_EXPORTER", reviewed_head)
+    monkeypatch.setattr(transport, "REVIEWED_BLOBS", baseline_blobs)
+    run = {
+        "id": 123,
+        "event": "workflow_dispatch",
+        "status": "completed",
+        "conclusion": "success",
+        "path": transport.WORKFLOW,
+        "head_branch": "main",
+        "repository": {"full_name": transport.REPOSITORY},
+        "head_repository": {"full_name": transport.REPOSITORY},
+        "head_sha": reviewed_head,
+        "run_attempt": 1,
+    }
+    transport.git(repo, "update-ref", "refs/remotes/origin/main", reviewed_head)
+    transport.validate_run(run, "123", repo)
+
+    (repo / "pyproject.toml").write_text("second reviewed pyproject")
+    (repo / "uv.lock").write_text("second reviewed lock")
+    transport.git(repo, "add", "pyproject.toml", "uv.lock")
+    transport.git(repo, "-c", "commit.gpgsign=false", "commit", "-qm", "second pair")
+    second_head = transport.git(repo, "rev-parse", "HEAD")
+    second_pair = (
+        transport.git(repo, "rev-parse", "HEAD:pyproject.toml"),
+        transport.git(repo, "rev-parse", "HEAD:uv.lock"),
+    )
+    monkeypatch.setattr(transport, "REVIEWED_PYMUPDF_RUNTIME_BLOB_PAIR", second_pair)
+    transport.git(repo, "update-ref", "refs/remotes/origin/main", second_head)
+    transport.validate_run({**run, "head_sha": second_head}, "123", repo)
+
+    (repo / "uv.lock").write_text(original_lock)
+    transport.git(repo, "add", "uv.lock")
+    transport.git(repo, "-c", "commit.gpgsign=false", "commit", "-qm", "mixed pair")
+    mixed_head = transport.git(repo, "rev-parse", "HEAD")
+    transport.git(repo, "update-ref", "refs/remotes/origin/main", mixed_head)
+    with pytest.raises(ValueError, match="reviewed blobs"):
+        transport.validate_run({**run, "head_sha": mixed_head}, "123", repo)
+
+
 def test_destination_link_rejected(signed, tmp_path):
     path = signed["receipt"]["path"]
     target = signed["corpus"] / path
@@ -661,7 +940,7 @@ def test_cli_excluded_modes_never_touch_artifact_service(monkeypatch):
         "read_regular",
         lambda *a, **k: pytest.fail("unexpected metadata read"),
     )
-    with pytest.raises(ValueError, match="fresh ordinary"):
+    with pytest.raises(ValueError, match="one fresh primary"):
         transport.main()
 
 
