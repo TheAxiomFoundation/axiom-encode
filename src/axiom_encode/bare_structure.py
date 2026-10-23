@@ -66,14 +66,6 @@ _NUMERIC_SCOPE_INTRO = re.compile(r"^in\s+this\s+section,\s+", re.IGNORECASE)
 _NUMERIC_NAMED_MAIN_CLAUSE = re.compile(
     r"^[A-Z]{2,16}\s+(?:must|shall|may|can|cannot|will)\s+"
 )
-_NUMERIC_LEGAL_SUBJECT = re.compile(
-    r"^(?:sections?|subsections?|paragraphs?|clauses?|subclauses?|parts?|"
-    r"schedules?|chapters?|regulations?|articles?)\s+"
-    r"[1-9]\d*[A-Z]*(?:\([A-Za-z0-9]+\))*"
-    r"(?:\s*(?:,\s*(?:(?:and|or)\s+)?|(?:and|or|to)\s+)"
-    r"[1-9]\d*[A-Z]*(?:\([A-Za-z0-9]+\))*)*\s+",
-    re.IGNORECASE,
-)
 _NUMERIC_RELATIVE_SUBJECT = re.compile(
     r"\b(?:which|that|who|whom|whose|where|when)\b", re.IGNORECASE
 )
@@ -115,12 +107,6 @@ _QUANTITY_ASSIGNMENT = re.compile(
     _QUANTITY_NOUN + r"(?:\s+of\s+[A-Za-z ’'-]{1,120})?"
     r"\s+(?:is|are|equals?|totals?)\s+\$?\d+(?:\.\d+)?(?:%|\b)",
     re.IGNORECASE,
-)
-_QUANTITY_COMPLEMENT = re.compile(
-    r"\b(?:at|by|with|for|on)\s+(?:a|an|the)\s+$", re.IGNORECASE
-)
-_QUANTITY_PRESCRIBED = re.compile(
-    r"\s+(?:prescribed|specified|approved|provided|payable)\b", re.IGNORECASE
 )
 _LINE_ENDINGS = "\r\n\v\f\x1c\x1d\x1e\x85\u2028\u2029"
 _VARIABLE_INTRO = re.compile(
@@ -221,9 +207,6 @@ def _numeric_main_clause_has_subject(text: str) -> bool:
 
 def _numeric_follower_is_independent_prose(text: str) -> bool:
     """Require a subject, not a quantity's noun or relative continuation."""
-    legal_subject = _NUMERIC_LEGAL_SUBJECT.match(text)
-    if legal_subject is not None:
-        return bool(_NUMERIC_LOCAL_PREDICATE.match(text, legal_subject.end()))
     possession = _NUMERIC_DISTRIBUTIVE_POSSESSION.match(text)
     if possession is not None:
         subject = possession.group("subject")
@@ -255,18 +238,6 @@ def _numeric_follower_is_independent_prose(text: str) -> bool:
                 or _NUMERIC_NAMED_MAIN_CLAUSE.match(remainder)
             )
     return False
-
-
-def _quantity_is_resolved(text: str, quantity: re.Match[str]) -> bool:
-    """A prescribed rate in a prepositional complement is not a pending value."""
-    return bool(
-        _QUANTITY_ASSIGNMENT.match(text, quantity.start())
-        or re.match(r"\s+of\s+\$?\d+(?:\.\d+)?(?:%|\b)", text[quantity.end() :])
-        or (
-            _QUANTITY_COMPLEMENT.search(text[: quantity.start()])
-            and _QUANTITY_PRESCRIBED.match(text, quantity.end())
-        )
-    )
 
 
 def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
@@ -390,7 +361,7 @@ def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
                         _VALUE_INTRO.search(before)
                         or _VALUE_CONTEXT.search(before)
                         or any(
-                            not _quantity_is_resolved(before, quantity)
+                            not _QUANTITY_ASSIGNMENT.match(before, quantity.start())
                             for quantity in _UNRESOLVED_QUANTITY.finditer(before)
                         )
                         or _ROW_CAPTION.match(before)
@@ -421,9 +392,6 @@ def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
     if len(labels) < 2:
         return None
     if root_kind == "number" and not any(len(label.path) > 1 for label in labels):
-        # Ordered numbers and complete prose do not establish legal identity.
-        # Retain base obligations for detached numeric-only lists; explicit
-        # parenthesized subsections belong to the ordinary marker parser.
         return None
     labelled_text_lines = {index + 1 for index in candidates}
     for index, line in enumerate(lines):

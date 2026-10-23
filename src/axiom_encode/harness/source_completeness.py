@@ -17232,21 +17232,6 @@ def _source_conjunctive_fact_gates(
     if conditional is None:
         return ()
     body = conditional.group("body")
-    if conditional.group("cue").casefold() == "if" and re.search(
-        r"\bwould\s+(?:otherwise\s+)?apply\b[^.!?;]*$",
-        text[: conditional.start()],
-        flags=re.IGNORECASE,
-    ):
-        # A cross-referenced rate evaluated under a hypothetical status does
-        # not require a second fact saying that every other circumstance was
-        # unchanged. This terminal parenthesis holds the comparison fixed.
-        body = re.sub(
-            r"\s*\(\s*and\s+(?:their|his|her|its)\s+other\s+circumstances"
-            r"\s+were\s+unchanged\s*\)\s*\.?\s*$",
-            "",
-            body,
-            flags=re.IGNORECASE,
-        )
     if conditional.group("cue").strip().casefold() != "unless":
         trailing_exception = re.search(
             r"\b(?:unless|except(?:\s+(?:if|when))?)\b",

@@ -40,6 +40,27 @@ MSD is satisfied that those days of those absences do not affect the beneficiary
 3
 Sections 219 and 436 do not apply to the winter energy payment."""
 
+NESTED_COUNT_SOURCES = {
+    "amount-of": (
+        "Family size.\n1\nThe household is entitled to an amount of $450.\n"
+        "2\nThe household is entitled to $700 if:\n"
+        "a\nthe applicant is resident; and\n"
+        "b\nthe applicant has no income."
+    ),
+    "prescribed-rate": (
+        "Family size.\n1\nThe household is entitled to $450 at the rate prescribed.\n"
+        "2\nThe household is entitled to $700 if:\n"
+        "a\nthe applicant is resident; and\n"
+        "b\nthe applicant has no income."
+    ),
+    "legal-subject": (
+        "Family size.\n1\nThe household is entitled to $450 if:\n"
+        "a\nthe applicant is resident; and\n"
+        "b\nthe applicant has no income.\n"
+        "2\nSections 72 and 73 apply."
+    ),
+}
+
 RATES_TABLE = """1 | The rates of winter energy payment are as follows:
 (a) | to a person who is single and has no dependent children | $ 450 per winter period (b) | to a person who is single and has 1 or more dependent children | $ 700 per winter period (c) | to a person who is in a relationship, and who is the 1 spouse or partner who is entitled under section 72(3) | $ 700 per winter period 2 | For the purposes of clause 1(a) and (b), dependent child , in relation to a person, means any other person who— (a) | is a child— (i) | whose care is primarily the responsibility of the person; and (ii) | who is being maintained as a member of that person’s family; and (iii) | who is financially dependent on that person; and (b) | may be, but need not be, a child in respect of whom payments are being made under section 363 of the Oranga Tamariki Act 1989 ; and (c) | may be, but need not be, a child in respect of whom an orphan’s benefit or an unsupported child’s benefit is being paid; and (d) | is not a child in respect of whom a young parent payment is being paid in relation to a person who is not the child’s parent or step-parent."""
 
@@ -82,20 +103,23 @@ def test_parenthesized_s73_markers_keep_authenticated_subsection_ownership():
     assert vp.extract_numeric_occurrences_from_text(cleaned) == []
 
 
-def test_legal_sections_subject_does_not_invalidate_local_subsections():
-    outline = bare_outline(S220)
-    assert outline is not None
-    assert [label.path for label in outline] == [
-        ("1",),
-        ("2",),
-        ("2", "a"),
-        ("2", "b"),
-        ("3",),
+def test_s220_outline_retains_base_obligations_after_authentication_reversion():
+    # Recognizing a legal subject also authenticated operative count keys.
+    # Full s220 ownership is LOST until independent legal identity is proved.
+    assert bare_outline(S220) is None
+    assert mask_bare_labels(S220) == S220
+    cleaned = sc.authoritative_numeric_recall_text(
+        S220, corpus_citation_path="nz/statute/act/public/2018/0032/section/220"
+    )
+    assert vp.extract_numeric_occurrences_from_text(cleaned) == [
+        1,
+        1,
+        2,
+        28,
+        1,
+        3,
+        436,
     ]
-    exception = next(label for label in outline if label.path == ("2", "b"))
-    assert "section 72" in S220[exception.marker_end : exception.end]
-    assert "Sections 219" not in S220[exception.start : exception.end]
-    assert "Sections 219 and 436 do not apply" in mask_bare_labels(S220, outline)
 
 
 @settings(max_examples=20, deadline=None)
@@ -342,6 +366,22 @@ def test_detached_count_axes_keep_counts_even_with_complete_prose(
     )
     assert vp.extract_numeric_occurrences_from_text(cleaned) == [1, 450, 2, 700]
     assert not any(branch.path for branch in sc.recognize_source_structure(source))
+
+
+@pytest.mark.parametrize("jurisdiction", JURISDICTIONS)
+@pytest.mark.parametrize("heading", ("Family size.", "Age."))
+@pytest.mark.parametrize("case", NESTED_COUNT_SOURCES, ids=NESTED_COUNT_SOURCES)
+def test_nested_detached_count_axes_keep_roots_after_authentication_reversion(
+    jurisdiction, heading, case
+):
+    source = NESTED_COUNT_SOURCES[case].replace("Family size.", heading, 1)
+    expected = [1, 450, 2, 73] if case == "legal-subject" else [1, 450, 2, 700]
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+    cleaned = sc.authoritative_numeric_recall_text(
+        source, corpus_citation_path=f"{jurisdiction}/statute/example/section/220"
+    )
+    assert vp.extract_numeric_occurrences_from_text(cleaned) == expected
 
 
 @pytest.mark.parametrize("jurisdiction", JURISDICTIONS)

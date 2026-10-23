@@ -71,12 +71,12 @@ def test_unsupported_amendment_value_table_retains_numeric_row_obligations():
     assert numeric_values(source, NZ_AMENDMENT) == [4, 305, 220, 5, 160]
 
 
-def test_counterfactual_rate_does_not_require_unchanged_circumstances_as_a_fact():
+def test_counterfactual_rate_retains_base_gates_pending_positive_evidence():
     source = (
         "The rate is the rate in clauses 1 to 6AA that would apply to them "
         "if they were single (and their other circumstances were unchanged)."
     )
-    assert sc._source_conjunctive_fact_gates(source) == ()
+    assert len(sc._source_conjunctive_fact_gates(source)) == 2
     assert (
         len(
             sc._source_conjunctive_fact_gates(
@@ -85,6 +85,63 @@ def test_counterfactual_rate_does_not_require_unchanged_circumstances_as_a_fact(
         )
         == 2
     )
+
+
+def test_unrelated_would_apply_clause_retains_actual_eligibility_gates():
+    source = (
+        "Although the ordinary rate would apply, the claimant was eligible only "
+        "if the claimant was single (and their other circumstances were unchanged)."
+    )
+    assert sc._source_conjunctive_fact_gates(source) == (
+        (frozenset({"claimant"}), frozenset({"single"})),
+        (frozenset({"claimant"}), frozenset({"circumstance", "other", "unchanged"})),
+    )
+    citation = "nz/statute/example/1"
+    rule = {
+        "name": "claimant_eligible",
+        "kind": "derived",
+        "dtype": "Judgment",
+        "source": citation,
+        "metadata": {
+            "proof": {
+                "atoms": [
+                    {
+                        "path": "versions[0].formula",
+                        "kind": "formula",
+                        "source": {
+                            "corpus_citation_path": citation,
+                            "excerpt": source,
+                        },
+                    }
+                ]
+            }
+        },
+        "versions": [
+            {"effective_from": "2026-01-01", "formula": "claimant_conditions_hold"}
+        ],
+    }
+    payload = {
+        "format": "rulespec/v1",
+        "module": {"source_verification": {"corpus_citation_path": citation}},
+        "inputs": [
+            {
+                "name": "claimant_conditions_hold",
+                "dtype": "Boolean",
+                "description": "The claimant conditions hold.",
+            }
+        ],
+        "rules": [rule],
+    }
+    issues = sc._opaque_same_source_condition_input_issues(
+        payload,
+        source_text=source,
+        branches=(),
+        principal_rules={"claimant_eligible": rule},
+        corpus_citation_path=citation,
+    )
+    assert len(issues) == 1
+    assert "[complete-source-unit:source-explicit-conditions]" in issues[0]
+    assert "`claimant_conditions_hold` for 2 source gates" in issues[0]
 
 
 @pytest.mark.parametrize(
@@ -548,6 +605,44 @@ def test_ambiguous_hyphenated_locator_never_leaves_a_partial_arithmetic_tail(
     )
     assert locator in cleaned
     assert sc._explicit_source_arithmetic_topology(cleaned) is None
+
+
+@pytest.mark.parametrize("variant", ["amount-of", "prescribed-rate", "legal-subject"])
+@pytest.mark.parametrize("heading", ["Family size.", "Age."])
+def test_nested_count_axes_retain_actual_missing_scalar_obligations(variant, heading):
+    from tests.test_bare_structure_nz_harness import NESTED_COUNT_SOURCES
+    from tests.test_source_completeness import EN_NUMERIC_OCCURRENCE_EXTRACTOR, _analyze
+
+    citation = f"{NZ_ACT}/section/220"
+    source = NESTED_COUNT_SOURCES[variant].replace("Family size.", heading)
+    content = yaml.safe_dump(
+        {
+            "format": "rulespec/v1",
+            "module": {"source_verification": {"corpus_citation_path": citation}},
+            "rules": [
+                {
+                    "name": "payment",
+                    "kind": "derived",
+                    "dtype": "Money",
+                    "source": citation,
+                    "versions": [{"formula": "450 + 700"}],
+                }
+            ],
+        }
+    )
+    result = _analyze(
+        content,
+        source,
+        corpus_citation_path=citation,
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+    )
+    expected = [1, 450, 2, 73] if variant == "legal-subject" else [1, 450, 2, 700]
+    assert numeric_values(source, citation) == expected
+    for value in expected:
+        assert any(
+            "numeric-recall" in issue and f"value {value} has" in issue
+            for issue in result.issues
+        )
 
 
 @pytest.mark.parametrize("instrument", [NZ_ACT])
