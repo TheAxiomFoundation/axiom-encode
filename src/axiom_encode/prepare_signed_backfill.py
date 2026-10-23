@@ -72,6 +72,11 @@ DEFERRED_OUTPUT_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v1"
 STRUCTURED_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v2"
 REVIEWED_RULESPEC_REFS = frozenset(
     {
+        # rulespec-us commit on branch codex/issue233-only-related-consumer (no PR):
+        # pins the merge commits of axiom-encode#1946 and axiom-rules-engine#261.
+        # Neither GitHub records a review or CI run for this commit itself.
+        # Artifact-only, no policy clearance.
+        ("us", "953974517465e51c9f25c4f5fd21dc4d306af174"),
         # rulespec-ca#28: reviewed toolchain preparation; artifact-only.
         ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
         (
