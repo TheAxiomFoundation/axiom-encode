@@ -20,6 +20,8 @@ from tests.test_cli import (
 from tests.test_module_interpretations import (
     CITATION,
     EXCERPT,
+    RAW_RULES,
+    RAW_SHADOWED_INTERPRETATIONS,
     _raw_payload,
     _raw_string_payload,
 )
@@ -189,6 +191,29 @@ INVALID_RAW = [
         _raw_payload(entry_id="1e5"),
         "must be a quoted string",
         id="plain-numeric-id",
+    ),
+    pytest.param(
+        "format: rulespec/v1\nx-defaults: &defaults\n"
+        f"{RAW_SHADOWED_INTERPRETATIONS}module:\n  <<: *defaults\n{RAW_RULES}",
+        "must not supply `interpretations` through YAML merge keys",
+        id="module-merge",
+    ),
+    pytest.param(
+        "format: rulespec/v1\nx-base: &base\n  module:\n"
+        + "".join("  " + line for line in RAW_SHADOWED_INTERPRETATIONS.splitlines(True))
+        + f"<<: *base\n{RAW_RULES}",
+        "must not supply `module` through YAML merge keys",
+        id="root-merge",
+    ),
+    pytest.param(
+        _raw_payload().replace("  interpretations:", "  !!merge interpretations:", 1),
+        "unsupported YAML tag `tag:yaml.org,2002:merge`",
+        id="merge-tagged-interpretations-key",
+    ),
+    pytest.param(
+        _raw_payload() + "module: {}\n",
+        "duplicate key `module`",
+        id="duplicate-root-module",
     ),
 ]
 
