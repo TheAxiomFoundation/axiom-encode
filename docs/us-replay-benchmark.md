@@ -39,7 +39,7 @@ The set has 32 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, and state statutes, manuals and guidance. It includes every
 completeness rule and the recorded failure classes `compile`, `oracle`,
 `proof:excerpt-not-found`, `tests:wrong-expected-value`, `tests:missing-input`
-and `grounding:literal`. Eight fixtures replay clean. They failed for other
+and `grounding:literal`. Five fixtures replay clean at 0.2.2250. They failed for other
 reasons (compile, oracle, proof excerpts, test inputs), or later validator fixes
 removed their completeness issues. The snapshot keeps them clean. The fixtures
 total about 1.4 MB.

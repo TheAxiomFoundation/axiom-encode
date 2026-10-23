@@ -3,15 +3,16 @@
  "context": "workspace",
  "totals": {
   "cases": 32,
-  "clean": 8,
+  "clean": 5,
   "issues": 503,
   "rules": {
-   "complete-source-unit:deferral": 139,
+   "complete-source-unit:declaration-collision": 2,
+   "complete-source-unit:deferral": 138,
    "complete-source-unit:formula-output": 44,
    "complete-source-unit:numeric-recall": 141,
    "complete-source-unit:source-explicit-conditions": 4,
    "complete-source-unit:structure": 112,
-   "complete-source-unit:tests": 63
+   "complete-source-unit:tests": 62
   }
  },
  "cases": {
@@ -34,10 +35,10 @@
   },
   "34892655726": {
    "citation": "us/guidance/irs/rev-proc-2025-32/page-15",
-   "issues": 41,
+   "issues": 42,
    "rules": {
     "complete-source-unit:deferral": 20,
-    "complete-source-unit:numeric-recall": 20,
+    "complete-source-unit:numeric-recall": 21,
     "complete-source-unit:tests": 1
    },
    "error": null
@@ -63,18 +64,20 @@
   },
   "35863402410": {
    "citation": "us/guidance/irs/notice-2025-67/page-4",
-   "issues": 13,
+   "issues": 14,
    "rules": {
     "complete-source-unit:deferral": 6,
     "complete-source-unit:formula-output": 1,
-    "complete-source-unit:numeric-recall": 6
+    "complete-source-unit:numeric-recall": 7
    },
    "error": null
   },
   "35891119107": {
    "citation": "us/guidance/irs/rev-proc-2025-32/page-13",
-   "issues": 0,
-   "rules": {},
+   "issues": 1,
+   "rules": {
+    "complete-source-unit:numeric-recall": 1
+   },
    "error": null
   },
   "35898279912": {
@@ -99,18 +102,21 @@
   },
   "36072201077": {
    "citation": "us/guidance/irs/rev-proc-2025-32/page-18",
-   "issues": 5,
+   "issues": 6,
    "rules": {
     "complete-source-unit:deferral": 2,
     "complete-source-unit:formula-output": 2,
+    "complete-source-unit:numeric-recall": 1,
     "complete-source-unit:structure": 1
    },
    "error": null
   },
   "36174590343": {
    "citation": "us/guidance/irs/rev-proc-2025-32/page-14",
-   "issues": 0,
-   "rules": {},
+   "issues": 1,
+   "rules": {
+    "complete-source-unit:numeric-recall": 1
+   },
    "error": null
   },
   "36550604743": {
@@ -254,8 +260,10 @@
   },
   "37717137328": {
    "citation": "us/statute/7/2012/j",
-   "issues": 0,
-   "rules": {},
+   "issues": 1,
+   "rules": {
+    "complete-source-unit:declaration-collision": 1
+   },
    "error": null
   },
   "37936331759": {
@@ -275,19 +283,18 @@
   },
   "38083442606": {
    "citation": "us-nm/statute/7-2-39",
-   "issues": 2,
+   "issues": 1,
    "rules": {
-    "complete-source-unit:deferral": 1,
-    "complete-source-unit:tests": 1
+    "complete-source-unit:declaration-collision": 1
    },
    "error": null
   },
   "38131544124": {
    "citation": "us-va/statute/58.1/58.1-339.8",
-   "issues": 21,
+   "issues": 16,
    "rules": {
     "complete-source-unit:formula-output": 1,
-    "complete-source-unit:numeric-recall": 7,
+    "complete-source-unit:numeric-recall": 2,
     "complete-source-unit:structure": 6,
     "complete-source-unit:tests": 7
    },
