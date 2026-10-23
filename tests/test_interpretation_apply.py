@@ -225,6 +225,11 @@ INVALID_RAW = [
         "RuleSpec root has unsupported YAML tag `tag:yaml.org,2002:set`",
         id="set-tagged-root",
     ),
+    pytest.param(
+        _raw_string_payload(("question",), '"\\uD800 review"'),
+        "must not contain UTF-16 surrogate code points",
+        id="surrogate-escape",
+    ),
 ]
 
 

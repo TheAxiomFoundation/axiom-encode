@@ -876,6 +876,65 @@ def test_interpretation_yaml_allows_map_tags_on_root_and_module(
     assert invalid.issues == [f"{LABEL} has unknown key `unreviewed`."]
 
 
+def _surrogate_message(location):
+    return (
+        f"{location} must not contain UTF-16 surrogate code points (U+D800 to "
+        "U+DFFF); the engine accepts only Unicode scalar values."
+    )
+
+
+# PyYAML decodes these escapes to lone surrogates (a pair is not combined);
+# the engine rejects each as an invalid Unicode escape.
+SURROGATE_SCALARS = [
+    '"\\uD800 review"',
+    '"\\uDC00 review"',
+    '"\\U0000DFFF review"',
+    '"\\uD83D\\uDE00 review"',
+    '!!str "\\uD800 review"',
+]
+
+
+@pytest.mark.parametrize("scalar", SURROGATE_SCALARS)
+@pytest.mark.parametrize(
+    "path", [("question",), ("alternatives", 0, "reading"), ("ruling", "by")]
+)
+def test_interpretation_yaml_rejects_surrogate_escapes(path, scalar):
+    content = _raw_string_payload(path, scalar)
+    message = _surrogate_message(f"module.interpretations[0]{_field_label(path)}")
+    assert find_interpretation_yaml_issues(content) == [message]
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [message]
+
+
+def test_interpretation_yaml_allows_escaped_supplementary_characters():
+    content = _raw_string_payload(("question",), '"\\U0001F600 review"')
+    assert yaml.safe_load(content)["module"]["interpretations"][0]["question"] == (
+        "\U0001f600 review"
+    )
+    assert find_interpretation_yaml_issues(content) == []
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.passed, result.issues
+
+
+def test_interpretation_surrogate_diagnostics_stay_encodable():
+    content = _raw_payload(entry_id='"weekly-\\uD800"').replace(
+        "      status: open\n", '      status: open\n      "un\\uDC00known": 1\n', 1
+    )
+    raw_issues = find_interpretation_yaml_issues(content)
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert not result.passed
+    for issue in [*raw_issues, *result.issues]:
+        issue.encode("utf-8")
+    assert _surrogate_message("module.interpretations[0].id") in result.issues
+    assert (
+        _surrogate_message("module.interpretations[0] key `un\\udc00known`")
+        in result.issues
+    )
+    assert raw_issues == [
+        issue for issue in result.issues if issue.startswith("module.")
+    ]
+
+
 FIRST_KEYS = [
     "    - id: weekly-review\n",
     "        - corpus_citation_path:",
