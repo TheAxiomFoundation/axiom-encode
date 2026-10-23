@@ -1,3 +1,7 @@
+## 0.2.2253
+
+- Regenerate Arizona ECE's proof-pinned dependent from its own signed FAA5 source in the same protected legacy replacement transaction, and verify both source bindings and the updated proof hash before publication.
+
 ## 0.2.2252
 
 - Admit authenticated in-place legacy Arizona ECE replacement from a signed corpus artifact while preserving the existing RuleSpec identity and dependent references; keep distinct-path moves and unsupported transport modes rejected.

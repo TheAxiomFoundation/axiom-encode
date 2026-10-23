@@ -615,9 +615,7 @@ def resolve_atomic_repair_mode(
                 "QUEUE_MANIFEST_SHA256",
                 "QUEUE_ITEM_GENERATION_SHA256",
                 "QUEUE_DISPATCHER_RUN_ID",
-                "DEPENDENT_CITATION",
                 "SECOND_DEPENDENT_CITATION",
-                "DEPENDENT_REVIEW_FINDING",
                 "SECOND_DEPENDENT_REVIEW_FINDING",
                 "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
                 "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
@@ -634,6 +632,20 @@ def resolve_atomic_repair_mode(
                 )
         target = dispatch.get("REPLACE_RULESPEC_PATH", "")
         legacy_source = dispatch.get("REPLACE_LEGACY_RULESPEC_PATH", "")
+        dependent_citation = dispatch.get("DEPENDENT_CITATION", "")
+        if dependent_citation and (
+            not legacy_source
+            or target != legacy_source
+            or not dispatch.get("DEPENDENT_REVIEW_FINDING", "")
+        ):
+            raise ValueError(
+                "corpus transport dependent requires one reviewed in-place "
+                "legacy replacement"
+            )
+        if dispatch.get("DEPENDENT_REVIEW_FINDING", "") and not dependent_citation:
+            raise ValueError(
+                "corpus transport dependent review requires its source citation"
+            )
         if not target or (
             not legacy_source
             and citation_rulespec_path(dispatch.get("CITATION", "")).as_posix()
@@ -1902,6 +1914,7 @@ def validate_dependent_cascade(
     *dependent_citations: str,
     target_rulespec_path: str | None = None,
     allow_proof_import_subset: bool = False,
+    allow_source_bound_dependent_alias: bool = False,
 ) -> tuple[PurePosixPath, ...]:
     """Require all direct dependents or an exact source-bound proof chain."""
 
@@ -1911,6 +1924,7 @@ def validate_dependent_cascade(
         *dependent_citations,
         target_rulespec_path=target_rulespec_path,
         allow_proof_import_subset=allow_proof_import_subset,
+        allow_source_bound_dependent_alias=allow_source_bound_dependent_alias,
     )
     return dependents
 
@@ -1921,6 +1935,7 @@ def _classify_dependent_cascade(
     *dependent_citations: str,
     target_rulespec_path: str | None = None,
     allow_proof_import_subset: bool = False,
+    allow_source_bound_dependent_alias: bool = False,
 ) -> tuple[tuple[PurePosixPath, ...], str]:
     """Authenticate a complete cascade and identify its safe scheduling mode."""
 
@@ -1983,6 +1998,8 @@ def _classify_dependent_cascade(
         if index == 1 and source_parent_second:
             continue
         if not _is_regular_file_beneath(content_root, dependent_relative):
+            if allow_source_bound_dependent_alias and len(dependent_relatives) == 1:
+                continue
             raise ValueError(
                 "dependent citation has no regular baseline RuleSpec module"
             )
@@ -1993,6 +2010,7 @@ def _classify_dependent_cascade(
     proof_import_dependents: set[PurePosixPath] = set()
     first_dependent_proof: set[PurePosixPath] = set()
     first_dependent_payloads: dict[PurePosixPath, dict[str, object]] = {}
+    proof_source_by_candidate: dict[PurePosixPath, str] = {}
     first_relative = dependent_relatives[0]
     first_import = first_relative.with_suffix("").as_posix()
     canonical_first_import = f"{target_jurisdiction}:{first_import}"
@@ -2034,6 +2052,18 @@ def _classify_dependent_cascade(
                     canonical_target_import=canonical_target_import,
                 ):
                     proof_import_dependents.add(relative_candidate)
+                    module = payload.get("module")
+                    verification = (
+                        module.get("source_verification")
+                        if isinstance(module, dict)
+                        else None
+                    )
+                    if isinstance(verification, dict) and isinstance(
+                        verification.get("corpus_citation_path"), str
+                    ):
+                        proof_source_by_candidate[relative_candidate] = verification[
+                            "corpus_citation_path"
+                        ]
             if candidate != content_root / first_relative and any(
                 isinstance(raw_import, str)
                 and raw_import.split("#", 1)[0].strip().strip("/")
@@ -2050,6 +2080,25 @@ def _classify_dependent_cascade(
                 ):
                     first_dependent_proof.add(relative_candidate)
                     first_dependent_payloads[relative_candidate] = payload
+
+    source_bound_alias = False
+    if (
+        allow_source_bound_dependent_alias
+        and len(dependent_relatives) == 1
+        and not _is_regular_file_beneath(content_root, dependent_relatives[0])
+    ):
+        matching = {
+            relative
+            for relative, citation in proof_source_by_candidate.items()
+            if citation == dependent_citations[0]
+        }
+        if len(matching) != 1:
+            raise ValueError(
+                "source-bound dependent alias must identify exactly one "
+                "proof-pinned direct importer"
+            )
+        dependent_relatives[0] = next(iter(matching))
+        source_bound_alias = True
 
     if source_parent_second:
         source_parent = dependent_relatives[1].with_suffix("")
@@ -2075,6 +2124,8 @@ def _classify_dependent_cascade(
 
     expected = set(dependent_relatives)
     if direct_dependents == expected:
+        if source_bound_alias and proof_import_dependents == expected:
+            return tuple(dependent_relatives), "source-bound-proof-alias"
         if len(dependent_relatives) == 2 and first_dependent_proof == {
             dependent_relatives[1]
         }:
@@ -3436,6 +3487,8 @@ def authorized_changed_paths(
     *,
     corpus_root: Path | None = None,
 ) -> set[PurePosixPath]:
+    from axiom_encode.legacy_replacement import source_bound_dependent_proof_imports
+
     corpus_release = None
     if corpus_root is not None:
         from axiom_encode.toolchain import load_rulespec_local_corpus_release
@@ -4371,11 +4424,32 @@ def authorized_changed_paths(
                         f"legacy replacement deleted file base differs: {deleted_path}"
                     )
             for index, dependent in enumerate(scheduled_dependents):
+                source_bound_citation = (
+                    dependent.get("source_citation")
+                    if isinstance(dependent, dict)
+                    else None
+                )
+                source_bound = source_bound_citation is not None
                 if (
                     not isinstance(dependent, dict)
-                    or set(dependent) != {"primary", "files"}
+                    or set(dependent)
+                    != (
+                        {"primary", "files", "source_citation"}
+                        if source_bound
+                        else {"primary", "files"}
+                    )
                     or not isinstance(dependent.get("files"), list)
                     or not dependent["files"]
+                    or (
+                        source_bound
+                        and (
+                            receipt_replacement.get("source")
+                            != receipt_replacement.get("destination")
+                            or not isinstance(source_bound_citation, str)
+                            or not source_bound_citation
+                            or len(dependent["files"]) != 1
+                        )
+                    )
                 ):
                     raise ValueError(
                         f"legacy scheduled dependent[{index}] is malformed"
@@ -4414,11 +4488,64 @@ def authorized_changed_paths(
                         f"legacy scheduled dependent lacks a fresh model manifest: "
                         f"{primary}"
                     )
+                if source_bound:
+                    attestation = dependent_payload.get("source_attestation")
+                    if (
+                        not isinstance(attestation, dict)
+                        or attestation.get("requested_corpus_citation_path")
+                        != source_bound_citation
+                    ):
+                        raise ValueError(
+                            "source-bound dependent lacks its own signed "
+                            f"source attestation: {primary}"
+                        )
+                    if corpus_release is not None:
+                        from axiom_encode.harness.evals import (
+                            resolve_corpus_source_unit,
+                        )
+
+                        signed_source = resolve_corpus_source_unit(
+                            source_bound_citation, corpus_release
+                        )
+                        expected_source = signed_source.source_attestation
+                        normalized_source = signed_source.body.replace(
+                            "\r\n", "\n"
+                        ).replace("\r", "\n")
+                        expected_generation_sha256 = hashlib.sha256(
+                            normalized_source.encode("utf-8")
+                        ).hexdigest()
+                        if (
+                            any(
+                                attestation.get(field) != value
+                                for field, value in expected_source.items()
+                            )
+                            or attestation.get("generation_input_sha256")
+                            != expected_generation_sha256
+                            or attestation.get("rulespec_root")
+                            != f"{repo.name}/{primary.parts[0]}"
+                            or set(attestation)
+                            != {
+                                *expected_source,
+                                "generation_input_sha256",
+                                "rulespec_root",
+                            }
+                        ):
+                            raise ValueError(
+                                "source-bound dependent source attestation "
+                                f"differs from signed corpus: {primary}"
+                            )
                 for file_index, evidence in enumerate(dependent["files"]):
                     if (
                         not isinstance(evidence, dict)
                         or set(evidence) != {"path", "before_sha256", "replacements"}
                         or not isinstance(evidence.get("replacements"), list)
+                        or (
+                            source_bound
+                            and (
+                                evidence.get("path") != primary.as_posix()
+                                or evidence["replacements"] != []
+                            )
+                        )
                     ):
                         raise ValueError(
                             f"legacy scheduled dependent file is malformed: {primary}"
@@ -4441,20 +4568,41 @@ def authorized_changed_paths(
                         raise ValueError(
                             f"legacy scheduled dependent base differs: {pending_path}"
                         )
-                    if _strict_legacy_replacement_map(evidence["replacements"]) is None:
+                    if (
+                        not source_bound
+                        and _strict_legacy_replacement_map(evidence["replacements"])
+                        is None
+                    ):
                         raise ValueError(
                             "legacy scheduled dependent replacement records "
                             f"are malformed: {primary} file {file_index}"
                         )
-                    try:
-                        _base_rewritten, observed_counts = rewrite_exact_references(
-                            base_raw,
-                            authoritative_replacements,
+                    if source_bound:
+                        primary_source = _safe_relative_path(
+                            receipt_replacement.get("source"),
+                            label="source-bound primary",
                         )
-                    except PathMigrationPlanError as exc:
-                        raise ValueError(
-                            f"legacy scheduled dependent is unreadable: {pending_path}"
-                        ) from exc
+                        old_primary_raw = _git(
+                            repo, "show", f"HEAD:{primary_source.as_posix()}"
+                        )
+                        source_bound_dependent_proof_imports(
+                            base_raw,
+                            primary=Path(primary_source.as_posix()),
+                            primary_sha256=hashlib.sha256(old_primary_raw).hexdigest(),
+                            source_citation=source_bound_citation,
+                        )
+                        observed_counts = []
+                    else:
+                        try:
+                            _base_rewritten, observed_counts = rewrite_exact_references(
+                                base_raw,
+                                authoritative_replacements,
+                            )
+                        except PathMigrationPlanError as exc:
+                            raise ValueError(
+                                "legacy scheduled dependent is unreadable: "
+                                f"{pending_path}"
+                            ) from exc
                     live_raw = _read_bounded_regular(
                         repo,
                         pending_path,
@@ -4469,15 +4617,31 @@ def authorized_changed_paths(
                             "legacy scheduled dependent model manifest does not "
                             f"bind live file: {pending_path}"
                         )
-                    try:
-                        _live_rewritten, remaining = rewrite_exact_references(
-                            live_raw,
-                            authoritative_replacements,
+                    if source_bound:
+                        new_primary_raw = _read_bounded_regular(
+                            repo,
+                            primary_source,
+                            label="source-bound primary",
+                            max_bytes=16 * 1024 * 1024,
                         )
-                    except PathMigrationPlanError as exc:
-                        raise ValueError(
-                            f"legacy scheduled dependent is unreadable: {pending_path}"
-                        ) from exc
+                        source_bound_dependent_proof_imports(
+                            live_raw,
+                            primary=Path(primary_source.as_posix()),
+                            primary_sha256=hashlib.sha256(new_primary_raw).hexdigest(),
+                            source_citation=source_bound_citation,
+                        )
+                        remaining = []
+                    else:
+                        try:
+                            _live_rewritten, remaining = rewrite_exact_references(
+                                live_raw,
+                                authoritative_replacements,
+                            )
+                        except PathMigrationPlanError as exc:
+                            raise ValueError(
+                                "legacy scheduled dependent is unreadable: "
+                                f"{pending_path}"
+                            ) from exc
                     if list(observed_counts) != evidence["replacements"]:
                         raise ValueError(
                             f"legacy scheduled dependent exact base proof differs: "
@@ -4742,6 +4906,9 @@ def main() -> None:
     cascade_parser.add_argument("target_citation")
     cascade_parser.add_argument("--target-rulespec-path")
     cascade_parser.add_argument("--allow-proof-import-subset", action="store_true")
+    cascade_parser.add_argument(
+        "--allow-source-bound-dependent-alias", action="store_true"
+    )
     cascade_parser.add_argument("--json", action="store_true")
     cascade_parser.add_argument("dependent_citations", nargs="+")
     citation_path_parser = subparsers.add_parser("citation-rulespec-path")
@@ -4905,6 +5072,9 @@ def main() -> None:
                 *args.dependent_citations,
                 target_rulespec_path=args.target_rulespec_path,
                 allow_proof_import_subset=args.allow_proof_import_subset,
+                allow_source_bound_dependent_alias=(
+                    args.allow_source_bound_dependent_alias
+                ),
             )
             if args.json:
                 jurisdiction, _target = _citation_rulespec_path(args.target_citation)
