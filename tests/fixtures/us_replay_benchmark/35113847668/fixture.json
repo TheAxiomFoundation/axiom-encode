@@ -1,0 +1,39 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "35113847668",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/35113847668",
+  "bundle_citation": "us/guidance/usda/fns/snap-obbb-alien-eligibility-implementation-memo",
+  "citation": "us/guidance/usda/fns/snap-obbb-alien-eligibility-implementation-memo",
+  "lane": "target",
+  "runner": "openai-gpt-5.6-sol",
+  "module_path": "policies/usda/fns/snap-obbb-alien-eligibility-implementation-memo.yaml",
+  "policy_prefix": "us",
+  "encoder_commit": "f66c96cae27fe02f4a755fdf36c9d2862b5904fb",
+  "encoder_version": "0.2.1999",
+  "attempt_count": 4,
+  "corpus_ref": "aad094d00e42b2766b12393e662473bda81411b0",
+  "rulespec_ref": "297aec1691edf7b3a21781c8a825690db1e7c988",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:formula-output": 1,
+    "complete-source-unit:tests": 1
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "expected_class": "unknown",
+  "class_evidence": "Validator demands paired cases for administrative memo prose; cannot tell whether this is a validator over-demand or an out-of-scope memo target.",
+  "class_source": "hand",
+  "files": {
+    "candidate.test.yaml": "7c42824576a2734512ef03914920a6da550ebe28679553a42f8f97bedb0c5af5",
+    "candidate.yaml": "0bf973581647e3f30b48a3ef69fcc19376f88daf34b2292543f18c5982bf03ef",
+    "issues.json": "9c69e8971d6b7379823a1962f57bf5dce567db5ed499b3541184c603a1c14742",
+    "source-metadata.json": "1c32ef36380237df1d98f101b0f5991e589f6517e4d637d5f26c7d26b18163b2",
+    "source.txt": "0be8e3e6891999b0f1e4a6dca6dc459063797d22a7b8f9fd5a8294213b7d655c"
+  }
+}

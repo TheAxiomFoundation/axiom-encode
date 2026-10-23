@@ -1,0 +1,39 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "37526146015",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37526146015",
+  "bundle_citation": "us/guidance/usda/fns/snap-fy2026-cola/page-2",
+  "citation": "us/guidance/usda/fns/snap-fy2026-cola/page-2",
+  "lane": "target",
+  "runner": null,
+  "module_path": "policies/usda/snap/fy-2026-cola/deductions.yaml",
+  "policy_prefix": "us",
+  "encoder_commit": "3aef70b799084ab07e8d23e6d041250086277cce",
+  "encoder_version": "0.2.2112",
+  "attempt_count": 4,
+  "corpus_ref": "fedd45cc101e71d92c91b43fdd8d333fc387869e",
+  "rulespec_ref": "a9dc38fb003ca88d52f91187434c15c530f26076",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:numeric-recall": 1,
+    "proof:excerpt-not-found": 5
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "expected_class": "validator_fp",
+  "class_evidence": "Recorded proof excerpts ($744, $1,189 and others) are found in the attested source by the current matcher; 48 is the '48 States' label.",
+  "class_source": "hand",
+  "files": {
+    "candidate.test.yaml": "0c6a21604c093401f14bfe46c0d9af9c9669c19d459ea3aeaccc2c88d4062883",
+    "candidate.yaml": "49a0321138b4de4f275590aeb7ffd16eed9bcb6c8beb141c18971d9ad11405e2",
+    "issues.json": "be0da3581ac0570efcfc053fd1a534cd2c008c54f94052c1afba0ad5849e0ae9",
+    "source-metadata.json": "55196b4ab2e55c9f274405d8a7a0de1409b23baca12b832d034c64fc42f83fb3",
+    "source.txt": "383fb23991e51f62a2a649ee5970254c06cea7091e7b63ebb17530d838880148"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "38131544124",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/38131544124",
+  "bundle_citation": "us-va/statute/58.1/58.1-339.8",
+  "citation": "us-va/statute/58.1/58.1-339.8",
+  "lane": "target",
+  "runner": "openai-gpt-6-sol",
+  "module_path": "statutes/58.1/58/1-339/8.yaml",
+  "policy_prefix": "us-va",
+  "encoder_commit": "d9dec0483a78da4cf41ae438d897e04736e99560",
+  "encoder_version": "0.2.2161",
+  "attempt_count": 4,
+  "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "rulespec_ref": "16a6677190194da2431a78fcaa5b6548cd0e2845",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:numeric-recall": 7,
+    "complete-source-unit:structure": 6,
+    "complete-source-unit:tests": 7,
+    "other": 3
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "expected_class": "encoder",
+  "class_evidence": "Unit-scope mismatch (TaxUnit vs family), missing positive test coverage and unencoded definition branches are all encoder errors.",
+  "class_source": "hand",
+  "files": {
+    "candidate.test.yaml": "0756e834edd594fbf2761f3f1bf0c0e77a976e819362c40c6cca23e5e448532c",
+    "candidate.yaml": "f0d540f013465608a094121d2312e3c6c40ebe0ad820c081dbe1041be827c721",
+    "issues.json": "41c07700653c7ce77455646518d0613e9d8972d1b049cf62ce01773918ad93cf",
+    "source-metadata.json": "758dfa7e46ef63d13981ea5e8c85ea0705b20f3293b908a8af00337e45898afd",
+    "source.txt": "4582d9ff2acb93004542304421cb067265b93d4748919fbeb0cfc5ad90092ebd"
+  }
+}

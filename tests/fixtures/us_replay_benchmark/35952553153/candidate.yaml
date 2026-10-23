@@ -1,0 +1,503 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/4
+    source_sha256: 846140bd0e210be0f69a81dc1006c3914c81b0dd7faebedcdd978be7526601b3
+  summary: 'No person is eligible to participate in the Program unless that person
+    meets
+
+    a listed citizenship or alien-status category. State agencies must classify
+
+    persons lacking required alien-status documentation as ineligible. For an
+
+    eligible sponsored alien, sponsor income and resources are generally deemed
+
+    available, subject to the stated exemptions, reductions, allocations,
+
+    verification duties, and indigence rules.'
+  deferred_outputs:
+  - output: us:regulations/7-cfr/273/4/a/1#citizen_status_determination
+    reason: 7 CFR 273.4(a)(1) requires a United States citizenship determination;
+      the source-stated citizenship evidence and adjudication record are not represented
+      beyond the preserved aggregate status input.
+  - output: us:regulations/7-cfr/273/4/a/2#noncitizen_national_status_determination
+    reason: 7 CFR 273.4(a)(2) requires a United States non-citizen-national determination;
+      the source-stated nationality evidence and adjudication record are not represented
+      beyond the preserved aggregate status input.
+  - output: us:regulations/7-cfr/273/4/a/3#american_indian_status_determination
+    reason: 7 CFR 273.4(a)(3) requires either the 7 CFR 273.4(a)(3)(i) Canadian-birth,
+      blood-quantum, and INA section 289 determination or the 7 CFR 273.4(a)(3)(ii)
+      recognized-tribe-membership determination; those distinct adjudicative facts
+      are not represented by the preserved aggregate status input.
+  - output: us:regulations/7-cfr/273/4/a/3/i#american_indian_born_in_canada_status_determination
+    reason: 7 CFR 273.4(a)(3)(i) requires Canadian birth, at least 50 per centum American-Indian
+      blood, and INA section 289 applicability; the required distinct adjudicative
+      facts are not represented by the preserved aggregate status input.
+  - output: us:regulations/7-cfr/273/4/a/3/ii#recognized_indian_tribe_member_status_determination
+    reason: 7 CFR 273.4(a)(3)(ii) requires membership in an Indian tribe recognized
+      as eligible for United States special programs and services because of Indian
+      status; the required tribal-recognition determination is not represented by
+      the preserved aggregate status input.
+  - output: us:regulations/7-cfr/273/4/a/4#hmong_or_highland_laotian_status_determination
+    reason: 7 CFR 273.4(a)(4) requires the 7 CFR 273.4(a)(4)(i) tribal-service determination
+      or the relationship and child determinations in clauses (ii) and (iii); those
+      distinct adjudicative facts are not represented by the preserved aggregate status
+      input.
+  - output: us:regulations/7-cfr/273/4/a/4/i#qualifying_hmong_or_highland_laotian_tribal_member_determination
+    reason: 7 CFR 273.4(a)(4)(i) requires lawful United States residence, Hmong-or-Highland-Laotian
+      tribal membership, and Vietnam-era assistance in a military or rescue operation;
+      the required distinct residence, tribal, service, and historical-operation facts
+      are not represented by the preserved aggregate status input.
+  - output: us:regulations/7-cfr/273/4/a/4/ii#qualifying_hmong_or_highland_laotian_spouse_or_surviving_spouse_determination
+    reason: 7 CFR 273.4(a)(4)(ii) requires determining whether the individual is the
+      spouse or surviving spouse of a deceased Hmong or Highland Laotian described
+      in 7 CFR 273.4(a)(4)(i); the required relationship, death, lawful-residence,
+      tribal-membership, and Vietnam-era assistance facts are not represented by the
+      preserved aggregate status input.
+  - output: us:regulations/7-cfr/273/4/a/4/iii#qualifying_hmong_or_highland_laotian_child_determination
+    reason: 7 CFR 273.4(a)(4)(iii) requires determining whether the individual is
+      a legally adopted or biological unmarried dependent child under age 18, a full-time
+      student under age 22, a child dependent upon a deceased qualifying person at
+      death, or an unmarried disabled adult child who was disabled and dependent before
+      the child's 18th birthday; the required relationship, dependency, death, student,
+      disability, and event-timing facts are not represented by the preserved aggregate
+      status input.
+  - output: us:regulations/7-cfr/273/4/a/5#trafficking_status_determination
+    reason: 7 CFR 273.4(a)(5) requires severe-trafficking-victim status, HHS certification
+      where applicable, victim age, specified family relationships, and derivative-T-visa
+      determinations; those distinct adjudicative facts are not represented by the
+      preserved aggregate status input.
+  - output: us:regulations/7-cfr/273/4/a/5/i#certified_severe_trafficking_victim_determination
+    reason: 7 CFR 273.4(a)(5)(i) requires determining whether an alien was subjected
+      to a severe form of trafficking in persons and was certified by the Department
+      of Health and Human Services; the separate trafficking and certification facts
+      are not represented by the preserved aggregate status input.
+  - output: us:regulations/7-cfr/273/4/a/5/ii#minor_severe_trafficking_victim_determination
+    reason: 7 CFR 273.4(a)(5)(ii) requires determining whether an alien under age
+      18 was subjected to a severe form of trafficking in persons; the separate trafficking
+      and age facts are not represented by the preserved aggregate status input.
+  - output: us:regulations/7-cfr/273/4/a/5/iii#derivative_t_visa_family_member_of_victim_under_twenty_one_determination
+    reason: 7 CFR 273.4(a)(5)(iii) requires a spouse, child, parent, or unmarried
+      minor sibling relationship to a trafficking victim under age 21 and receipt
+      of a derivative T visa; the required relationship, victim-age, and visa facts
+      are not represented by the preserved aggregate status input.
+  - output: us:regulations/7-cfr/273/4/a/5/iv#derivative_t_visa_spouse_or_child_of_older_victim_determination
+    reason: 7 CFR 273.4(a)(5)(iv) requires a spouse-or-child relationship to a trafficking
+      victim age 21 or older and receipt of a derivative T visa; the required relationship,
+      victim-age, and visa facts are not represented by the preserved aggregate status
+      input.
+  - output: us:regulations/7-cfr/273/4/b#state_agency_illegal_alien_reporting_and_documentation_administration
+    reason: 7 CFR 273.4(b)(1)-(2) requires StateAgency certification or recertification
+      event processing, local USCIS routing, notification timing, and administrative
+      documentation workflow not represented by this Person-status artifact.
+  - output: us:regulations/7-cfr/273/4/c#sponsored_alien_income_resource_deeming_and_administration
+    reason: 7 CFR 273.4(c)(1)-(6) requires sponsor-to-alien and sponsor-spouse relations,
+      household membership, affidavit, income and resource allocation, notices and
+      consent, verification, recertification, reported-change, and restitution workflow
+      relations not represented by this Person-status artifact.
+inputs:
+- name: indigence_determination_has_been_made
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: eligible_sponsored_alien_household_own_monthly_income
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: USD
+- name: monthly_cash_contributions_from_sponsor_and_others
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: USD
+- name: monthly_value_of_in_kind_assistance_from_sponsor_and_others
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: USD
+- name: poverty_income_guideline_for_household_size
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: USD
+- name: sponsor_monthly_unearned_income
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: USD
+- name: sponsor_spouse_monthly_earned_income
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: USD
+- name: sponsor_spouse_monthly_unearned_income
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: USD
+- name: sponsor_spouse_executed_uscis_form_i_864_or_i_864a
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: sponsor_household_monthly_gross_income_eligibility_limit
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: USD
+- name: member_is_lawful_permanent_resident
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_lawfully_residing_in_united_states_under_compact_of_free_association
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_has_eligibility_based_on_earlier_less_rigorous_alien_status
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_subsequently_adjusted_to_more_limited_alien_status
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: sponsor_monthly_earned_income
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: USD
+- name: alien_status_documentation_missing_or_unwilling
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_us_citizen
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_us_noncitizen_national
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_american_indian_born_in_canada_or_recognized_indian_tribe_member
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_hmong_or_highland_laotian_qualifying_person_or_family_member
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_trafficking_victim_or_qualifying_family_member
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_qualified_alien
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_qualified_alien_with_forty_qualifying_quarters
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_refugee
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_asylee
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_has_deportation_or_removal_withheld
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_cuban_or_haitian_entrant
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_amerasian_immigrant
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_has_eligible_military_connection
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_receives_blindness_or_disability_benefits
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_was_lawfully_residing_on_1996_08_22_and_born_on_or_before_1931_08_22
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_under_age_eighteen
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_is_qualified_alien_subject_to_five_year_wait
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: qualified_alien_five_year_status_period_met
+  entity: Person
+  dtype: Boolean
+  period: Month
+rules:
+- name: minimum_parole_period_years
+  kind: parameter
+  dtype: Count
+  source: 7 CFR 273.4(a)(6)(i)(D)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: for a period of at least 1 year
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '1'
+- name: indigence_income_limit_rate
+  kind: parameter
+  dtype: Rate
+  source: 7 CFR 273.4(c)(3)(iv)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: does not exceed 130 percent of the poverty income guideline
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '1.30'
+- name: indigent_sponsored_alien_unable_to_obtain_food_and_shelter
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: 7 CFR 273.4(c)(3)(iv)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: For purposes of this paragraph (c)(3)(iv), the phrase “is unable
+            to obtain food and shelter” means that the sum of the eligible sponsored
+            alien's household's own income, the cash contributions of the sponsor
+            and others, and the value of any in-kind assistance the sponsor and others
+            provide, does not exceed 130 percent of the poverty income guideline for
+            the household's size.
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:regulations/7-cfr/273/4#indigence_income_limit_rate
+          output: indigence_income_limit_rate
+          hash: sha256:local
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'eligible_sponsored_alien_household_own_monthly_income
+
+      + monthly_cash_contributions_from_sponsor_and_others
+
+      + monthly_value_of_in_kind_assistance_from_sponsor_and_others
+
+      <= poverty_income_guideline_for_household_size * indigence_income_limit_rate'
+- name: alien_is_indigent
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 CFR 273.4(c)(3)(iv)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: (iv) An indigent alien that the State agency has determined is
+            unable to obtain food and shelter taking into account the alien's own
+            income plus any cash, food, housing, or other assistance provided by other
+            individuals, including the sponsor(s).
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:regulations/7-cfr/273/4#indigent_sponsored_alien_unable_to_obtain_food_and_shelter
+          output: indigent_sponsored_alien_unable_to_obtain_food_and_shelter
+          hash: sha256:local
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'indigence_determination_has_been_made
+
+      and indigent_sponsored_alien_unable_to_obtain_food_and_shelter'
+- name: american_indian_blood_fraction_threshold
+  kind: parameter
+  dtype: Rate
+  source: 7 CFR 273.4(a)(3)(i)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: possesses at least 50 per centum of blood of the American Indian
+            race
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '0.5'
+- name: sponsored_alien_monthly_deemed_income
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: USD
+  source: 7 CFR 273.4(c)(2)(i)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: 'The monthly income of the sponsor and sponsor''s spouse (if he
+            or she has executed USCIS Form I-864 or I-864A) deemed as that of the
+            eligible sponsored alien must be the total monthly earned and unearned
+            income, as defined in § 273.9(b) with the exclusions provided in § 273.9(c)
+            of the sponsor and sponsor''s spouse at the time the household containing
+            the sponsored alien member applies or is recertified for participation,
+            reduced by:'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: A 20 percent earned income amount for that portion of the income
+            determined as earned income of the sponsor and the sponsor's spouse
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: An amount equal to the Program's monthly gross income eligibility
+            limit for a household equal in size to the sponsor, the sponsor's spouse,
+            and any other person who is claimed or could be claimed by the sponsor
+            or the sponsor's spouse as a dependent for Federal income tax purposes.
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:regulations/7-cfr/273/4#sponsor_earned_income_reduction_rate
+          output: sponsor_earned_income_reduction_rate
+          hash: sha256:local
+  versions:
+  - effective_from: '0001-01-01'
+    formula: "sponsor_monthly_earned_income\n+ sponsor_monthly_unearned_income\n+\
+      \ (if sponsor_spouse_executed_uscis_form_i_864_or_i_864a:\n    sponsor_spouse_monthly_earned_income\n\
+      \    + sponsor_spouse_monthly_unearned_income\n  else: 0)\n- (\n    (\n    \
+      \  sponsor_monthly_earned_income\n      + (if sponsor_spouse_executed_uscis_form_i_864_or_i_864a:\n\
+      \          sponsor_spouse_monthly_earned_income\n        else: 0)\n    )\n \
+      \   * sponsor_earned_income_reduction_rate\n  )\n- sponsor_household_monthly_gross_income_eligibility_limit"
+- name: sponsor_earned_income_reduction_rate
+  kind: parameter
+  dtype: Rate
+  source: 7 CFR 273.4(c)(2)(i)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: A 20 percent earned income amount
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '0.2'
+- name: sponsor_earned_income_reduction
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: USD
+  source: 7 CFR 273.4(c)(2)(i)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: A 20 percent earned income amount for that portion of the income
+            determined as earned income
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:regulations/7-cfr/273/4#sponsor_earned_income_reduction_rate
+          output: sponsor_earned_income_reduction_rate
+          hash: sha256:local
+  versions:
+  - effective_from: '0001-01-01'
+    formula: sponsor_monthly_earned_income * sponsor_earned_income_reduction_rate
+- name: eligibility_based_on_earlier_less_rigorous_alien_status_preserved
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 CFR 273.4(a)(6)(iv)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: Subsequent adjustment to a more limited status does not override
+            eligibility based on an earlier less rigorous status.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'member_has_eligibility_based_on_earlier_less_rigorous_alien_status
+
+      and member_subsequently_adjusted_to_more_limited_alien_status'
+- name: snap_member_citizenship_or_alien_status_eligible
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 CFR 273.4(a)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: No person is eligible to participate in the Program unless that
+            person is
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: must be in a qualified status for 5 years before being eligible
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/7/273/4
+          excerpt: Subsequent adjustment to a more limited status does not override
+            eligibility based on an earlier less rigorous status.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: "not alien_status_documentation_missing_or_unwilling\nand (\n  member_is_us_citizen\n\
+      \  or member_is_us_noncitizen_national\n  or member_is_american_indian_born_in_canada_or_recognized_indian_tribe_member\n\
+      \  or member_is_hmong_or_highland_laotian_qualifying_person_or_family_member\n\
+      \  or member_is_trafficking_victim_or_qualifying_family_member\n  or eligibility_based_on_earlier_less_rigorous_alien_status_preserved\n\
+      \  or (\n    member_is_qualified_alien\n    and (\n      member_is_qualified_alien_with_forty_qualifying_quarters\n\
+      \      or member_is_refugee\n      or member_is_asylee\n      or member_has_deportation_or_removal_withheld\n\
+      \      or member_is_cuban_or_haitian_entrant\n      or member_is_amerasian_immigrant\n\
+      \      or member_has_eligible_military_connection\n      or member_receives_blindness_or_disability_benefits\n\
+      \      or member_was_lawfully_residing_on_1996_08_22_and_born_on_or_before_1931_08_22\n\
+      \      or member_is_under_age_eighteen\n      or (\n        member_is_qualified_alien_subject_to_five_year_wait\n\
+      \        and qualified_alien_five_year_status_period_met\n      )\n    )\n \
+      \ )\n)"
