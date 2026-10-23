@@ -27,6 +27,10 @@
   "context_imports": {},
   "context_origins": {},
   "provider_git_blob_sha1": {},
+  "expected_class": "encoder",
+  "expected_subclass": "test",
+  "class_evidence": "Paired cases for the (a)(2) rate exception are missing and deferrals lack exact blocked_by; adjudication rates this citation encoder.",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "28ad8c0b0786138bd101f7be59577d7b821608bb61001d1fe394d9daf1ff2cc3",
     "candidate.yaml": "d06b80d40a8b33bb29e668e871c8c946f7d21199bb12fae4ab1f2b427db762ef",

@@ -4,7 +4,8 @@ Each directory is one rejected US candidate from the
 `targeted-reencode-failure-<run_id>-<attempt>` artifact of the named workflow
 run. `fixture.json` records the run, citation, lane, encoder commit and version,
 corpus and RuleSpec refs, recorded failure classes, the origin of each context
-module and the SHA-256 of every file in the directory.
+module, the SHA-256 of every file in the directory, and a hand label of the
+root-cause failure class (`expected_class`, see `docs/us-replay-benchmark.md`).
 `scripts/replay_us_failure_bundles.py` refuses a fixture whose bytes or file
 list differ from `fixture.json`.
 

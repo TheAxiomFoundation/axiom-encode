@@ -33,6 +33,9 @@
   "provider_git_blob_sha1": {
     "providers/us/statutes/26/32.yaml": "5a3a9c910f8293fce3ed8de4840fda11b2303ec6"
   },
+  "expected_class": "validator_fp",
+  "class_evidence": "Only issue demands paired cases for section 3.06(1) term definitions that the candidate correctly defers to 26 USC 32 and page-15 providers.",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "25f48526967a3d9db2d4c7bb6ac320b210f5481a82bc59085e4af84fd73a2151",
     "candidate.yaml": "cd2a236092a8c4356b90ead8b053614d2921ecd527acf99b6a01794327843cf1",

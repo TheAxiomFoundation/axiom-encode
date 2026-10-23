@@ -27,6 +27,9 @@
   "context_imports": {},
   "context_origins": {},
   "provider_git_blob_sha1": {},
+  "expected_class": "dependency",
+  "class_evidence": "Branch (d) needs the IRC 152 dependent definition, which is not encoded; adjudication and the deferral sample rate it upstream-dependency.",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "14d3b5b7caa395d7261d389041a87835214a8a184cf05c571dbc65e7f8561c34",
     "candidate.yaml": "4bdd08d93f7d6ab2c6b7255f9d1b8eb50393f8410ea524bdb80579f7bdb4be17",

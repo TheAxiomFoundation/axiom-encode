@@ -26,6 +26,9 @@
   "context_imports": {},
   "context_origins": {},
   "provider_git_blob_sha1": {},
+  "expected_class": "validator_fp",
+  "class_evidence": "Numeric recall demands the policy heading numbers 770, 2 and 3; adjudication rates this citation validator-FP.",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "b36a9f997fb98dfcb28fc239385dcf745314b22294cc18beda04c6a7a24b020e",
     "candidate.yaml": "c3f638cf43ac0fd3d3e3b15ac9bc84a83d72cac65583b7e526d362370cf5d456",

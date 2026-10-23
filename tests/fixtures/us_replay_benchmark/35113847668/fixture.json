@@ -26,6 +26,9 @@
   "context_imports": {},
   "context_origins": {},
   "provider_git_blob_sha1": {},
+  "expected_class": "unknown",
+  "class_evidence": "Validator demands paired cases for administrative memo prose; cannot tell whether this is a validator over-demand or an out-of-scope memo target.",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "7c42824576a2734512ef03914920a6da550ebe28679553a42f8f97bedb0c5af5",
     "candidate.yaml": "0bf973581647e3f30b48a3ef69fcc19376f88daf34b2292543f18c5982bf03ef",

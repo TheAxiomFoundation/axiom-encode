@@ -26,6 +26,9 @@
   "context_imports": {},
   "context_origins": {},
   "provider_git_blob_sha1": {},
+  "expected_class": "validator_fp",
+  "class_evidence": "Numeric recall reads WAC locators (388-406, -414, -416, -450, -470) as values; adjudication rates this citation validator-FP.",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "f1fab774706f42629852ddc45c90ca2d391c737acbc27d9a9a518f810422aaef",
     "candidate.yaml": "6c0413310d948771e0912a4fbd6d7ce393838fe4f7d8298359aa5cef266909aa",

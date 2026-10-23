@@ -17,6 +17,7 @@ PR. See ``docs/us-replay-benchmark.md``.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import re
@@ -26,6 +27,7 @@ import pytest
 
 from scripts.replay_us_failure_bundles import (
     DEFAULT_FIXTURE_ROOT,
+    FAILURE_CLASSES,
     FIXTURE_FILE,
     SNAPSHOT_FILE,
     ReplayCase,
@@ -38,7 +40,9 @@ from scripts.replay_us_failure_bundles import (
     discover_bundle_modules,
     extract_fixture,
     fixture_directories,
+    fixture_label_errors,
     format_comparison,
+    format_summary,
     import_symbol_contents,
     load_bundle_cases,
     load_fixture,
@@ -201,6 +205,114 @@ def test_unlisted_fixture_files_are_rejected(tmp_path):
 
     with pytest.raises(ValueError, match="files on disk differ"):
         load_fixture(copy)
+
+
+def _copy_fixture(source: Path, tmp_path: Path) -> Path:
+    copy = tmp_path / source.name
+    for path in source.rglob("*"):
+        if path.is_file():
+            target = copy / path.relative_to(source)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(path.read_bytes())
+    return copy
+
+
+def test_committed_fixtures_carry_valid_failure_class_labels():
+    expected_codes = {
+        "encoder": {"omission", "formula", "test", "harness"},
+        "validator_fp": set(),
+        "corpus": {"content", "metadata"},
+        "dependency": set(),
+        "selection": set(),
+        "engine": set(),
+        "migration": {"schema", "elided_excerpt"},
+        "process": set(),
+        "infra": set(),
+        "unknown": set(),
+    }
+    assert {code: set(subs) for code, subs in FAILURE_CLASSES.items()} == (
+        expected_codes
+    )
+    for directory in fixture_directories(FIXTURES):
+        metadata = json.loads((directory / FIXTURE_FILE).read_text())
+        # fixture.json holds the hashes, so it never lists itself; adding a
+        # label therefore leaves every recorded file hash valid.
+        assert FIXTURE_FILE not in metadata["files"]
+        assert metadata["expected_class"] in FAILURE_CLASSES, directory.name
+        assert metadata["class_source"] == "hand", directory.name
+        assert fixture_label_errors(metadata) == [], directory.name
+        assert len(metadata["class_evidence"]) <= 200, directory.name
+
+
+@pytest.mark.parametrize(
+    ("label", "message"),
+    [
+        ({"expected_class": "bogus"}, "unknown expected_class 'bogus'"),
+        (
+            {"expected_class": "selection", "expected_subclass": "schema"},
+            "expected_subclass 'schema' is not a subclass of 'selection'",
+        ),
+        ({"class_evidence": ""}, "needs a non-empty class_evidence"),
+        ({"class_source": "guess"}, "class_source must be one of"),
+    ],
+)
+def test_invalid_failure_class_labels_are_rejected(tmp_path, label, message):
+    copy = _copy_fixture(fixture_directories(FIXTURES)[0], tmp_path)
+    metadata = json.loads((copy / FIXTURE_FILE).read_text())
+    metadata.update(label)
+    (copy / FIXTURE_FILE).write_text(json.dumps(metadata, indent=2) + "\n")
+
+    with pytest.raises(ValueError, match=re.escape(message)):
+        load_fixture(copy)
+
+
+def test_unlabeled_fixtures_still_load_but_orphan_label_keys_do_not(tmp_path):
+    copy = _copy_fixture(fixture_directories(FIXTURES)[0], tmp_path)
+    metadata = json.loads((copy / FIXTURE_FILE).read_text())
+    for key in ("expected_class", "expected_subclass", "class_evidence"):
+        metadata.pop(key, None)
+    (copy / FIXTURE_FILE).write_text(json.dumps(metadata, indent=2) + "\n")
+    with pytest.raises(ValueError, match="class_source without expected_class"):
+        load_fixture(copy)
+
+    metadata.pop("class_source")
+    (copy / FIXTURE_FILE).write_text(json.dumps(metadata, indent=2) + "\n")
+    assert "expected_class" not in load_fixture(copy).provenance
+
+
+def test_replay_reports_expected_class_per_fixture_and_in_total():
+    labeled = [load_fixture(directory) for directory in fixture_directories(FIXTURES)]
+    by_class: dict[str, ReplayCase] = {}
+    for case in labeled:
+        by_class.setdefault(case.provenance["expected_class"], case)
+    first, second = list(by_class.values())[:2]
+    unlabeled = dataclasses.replace(first, case_id="unlabeled-copy", provenance={})
+
+    report = build_report([first, second, unlabeled])
+
+    rows = {row["id"]: row for row in report["cases"]}
+    assert rows[first.case_id]["expected_class"] == first.provenance["expected_class"]
+    assert rows[first.case_id]["expected_subclass"] == first.provenance.get(
+        "expected_subclass"
+    )
+    assert rows["unlabeled-copy"]["expected_class"] is None
+    expected_counts = {
+        first.provenance["expected_class"]: 1,
+        second.provenance["expected_class"]: 1,
+        "unlabeled": 1,
+    }
+    assert report["summary"]["expected_classes"] == dict(
+        sorted(expected_counts.items())
+    )
+    summary = format_summary(report)
+    assert "expected class (hand label)" in summary
+    assert re.search(
+        rf"^  {re.escape(second.provenance['expected_class'])} +1$",
+        summary,
+        re.MULTILINE,
+    )
+    # Labels never enter the pinned snapshot: the ratchet stays per-rule.
+    assert "expected_classes" not in snapshot_from_report(report)["totals"]
 
 
 def _report(cases):

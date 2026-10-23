@@ -32,6 +32,10 @@
     "us:statutes/7/2014/e/6/A": "workspace"
   },
   "provider_git_blob_sha1": {},
+  "expected_class": "encoder",
+  "expected_subclass": "test",
+  "class_evidence": "Companion tests miss both allotment clauses and the rounding rule; the formula also embeds a 0.5 rounding literal.",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "f3fd50dc895c502943064dcbd7575d3ec047b9255e0f6096c2fb9f4bf7cc399d",
     "candidate.yaml": "78539ec135b11893066dee6d1345e0c2dfd56f78b05196cf32bd54c040a14908",

@@ -27,6 +27,9 @@
   "context_imports": {},
   "context_origins": {},
   "provider_git_blob_sha1": {},
+  "expected_class": "validator_fp",
+  "class_evidence": "Numeric recall demands manual section numbers 214.2, 214.3 and 214.4 (cf. axiom-encode#1815); adjudication rates this citation validator-FP.",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "1883f317be030b2e08b38b24e0809d17c5a7ab04a897fd4052242ba560e86386",
     "candidate.yaml": "4e1e5448944a1c29030ba05eff76d38c41313e55c4920844b5bb5526786b15a4",

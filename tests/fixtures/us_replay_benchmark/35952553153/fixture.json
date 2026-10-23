@@ -28,6 +28,10 @@
   "context_imports": {},
   "context_origins": {},
   "provider_git_blob_sha1": {},
+  "expected_class": "encoder",
+  "expected_subclass": "omission",
+  "class_evidence": "63 source branches of 7 CFR 273.4 are neither encoded nor deferred; the target is an operative eligibility rule.",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "f7e9ed93443711e37ce1f31cf443437662da89c7962f4c3cf514da64ee972808",
     "candidate.yaml": "3604b92c453a2ed0b39af300b79cbffcc2d2c2098fe3b635ae0e2e905ded93d4",

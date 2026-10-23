@@ -25,6 +25,9 @@
   "context_imports": {},
   "context_origins": {},
   "provider_git_blob_sha1": {},
+  "expected_class": "encoder",
+  "class_evidence": "Candidate encodes history-note years as rules and wraps their proof excerpts in curly quotes that do not appear in the source.",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "aba8ab0ba8a8f953f75aaf1fac2d150a709ecd6cf4c927c0403bd8f8279b7790",
     "candidate.yaml": "8094b65fa51b1ab11078df86b6f4a60bb50850ca30e8bf459fb2289f6f89cae7",

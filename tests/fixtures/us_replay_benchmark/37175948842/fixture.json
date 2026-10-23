@@ -25,6 +25,9 @@
   "context_imports": {},
   "context_origins": {},
   "provider_git_blob_sha1": {},
+  "expected_class": "unknown",
+  "class_evidence": "Tests exist for the 2000 and 2017 transitions but the validator says branches (B) and (D) are not demonstrated; cannot tell which side is wrong.",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "af8c57a115d5c08585808f711e6d8fdef46ac991a217c100b66274e7e14d8e7c",
     "candidate.yaml": "0f3d4ef6d7c04b583b573b10343c39f8583ac637c74f83389ad205faf8dd091e",

@@ -26,6 +26,10 @@
   "context_imports": {},
   "context_origins": {},
   "provider_git_blob_sha1": {},
+  "expected_class": "encoder",
+  "expected_subclass": "omission",
+  "class_evidence": "Real EITC table omissions ($4,427, $58,863, $12,200 and others); hand adjudication of this citation rates it encoder.",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "e4e04d78addbf5a1ed45532f806cc207f470da41c37f48661f1ceaf8d9cc895c",
     "candidate.yaml": "555c0254e77248dc8e016e8ae729ae5fbe28fcda2e737f1670232fe089c7b31a",

@@ -77,6 +77,23 @@ SAFE_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 CONTEXT_WORKSPACE = "workspace"
 CONTEXT_NONE = "none"
 ORIGIN_RULESPEC_REF = "rulespec_ref"
+UNLABELED = "unlabeled"
+# Failure classes v1 (design: encode failure classes and the pre-encode gate).
+# A fixture may carry a hand label: ``expected_class``, an optional
+# ``expected_subclass``, ``class_evidence`` and ``class_source``.
+FAILURE_CLASSES: Mapping[str, frozenset[str]] = {
+    "encoder": frozenset({"omission", "formula", "test", "harness"}),
+    "validator_fp": frozenset(),
+    "corpus": frozenset({"content", "metadata"}),
+    "dependency": frozenset(),
+    "selection": frozenset(),
+    "engine": frozenset(),
+    "migration": frozenset({"schema", "elided_excerpt"}),
+    "process": frozenset(),
+    "infra": frozenset(),
+    "unknown": frozenset(),
+}
+CLASS_SOURCES = frozenset({"hand", "rule", "triage"})
 
 
 class UnsafeBundlePath(ValueError):
@@ -440,6 +457,8 @@ def replay_case(case: ReplayCase, *, use_context: bool = True) -> dict[str, Any]
         "imports_unresolved": unresolved_imports,
         "deferral_providers_resolved": list(deferral_outputs),
         "deferral_providers_unresolved": unresolved_deferrals,
+        "expected_class": case.provenance.get("expected_class"),
+        "expected_subclass": case.provenance.get("expected_subclass"),
     }
     try:
         profile = _numeric_profile_for_citation_path(case.citation)
@@ -480,12 +499,41 @@ def replay_case(case: ReplayCase, *, use_context: bool = True) -> dict[str, Any]
 # --------------------------------------------------------------------------
 
 
+def fixture_label_errors(metadata: Mapping[str, Any]) -> list[str]:
+    """Problems with the optional failure-class label of one fixture."""
+
+    label_keys = ("expected_subclass", "class_evidence", "class_source")
+    if "expected_class" not in metadata:
+        present = [key for key in label_keys if key in metadata]
+        return [f"{key} without expected_class" for key in present]
+    errors: list[str] = []
+    expected_class = metadata["expected_class"]
+    if expected_class not in FAILURE_CLASSES:
+        return [f"unknown expected_class {expected_class!r}"]
+    if "expected_subclass" in metadata:
+        subclass = metadata["expected_subclass"]
+        if subclass not in FAILURE_CLASSES[expected_class]:
+            errors.append(
+                f"expected_subclass {subclass!r} is not a subclass of "
+                f"{expected_class!r}"
+            )
+    evidence = metadata.get("class_evidence")
+    if not isinstance(evidence, str) or not evidence.strip():
+        errors.append("expected_class needs a non-empty class_evidence")
+    if metadata.get("class_source") not in CLASS_SOURCES:
+        errors.append(f"class_source must be one of {sorted(CLASS_SOURCES)}")
+    return errors
+
+
 def load_fixture(directory: Path) -> ReplayCase:
     """Load and authenticate one committed fixture directory."""
 
     metadata = _json_object(_read_inside(directory, FIXTURE_FILE), FIXTURE_FILE)
     if metadata.get("schema") != FIXTURE_SCHEMA:
         raise ValueError(f"{directory}: unexpected fixture schema")
+    label_errors = fixture_label_errors(metadata)
+    if label_errors:
+        raise ValueError(f"{directory}: {'; '.join(label_errors)}")
     files: Mapping[str, str] = metadata["files"]
     raw: dict[str, bytes] = {}
     for relative, digest in files.items():
@@ -965,9 +1013,11 @@ def build_report(
         results.append(result)
     rule_totals: collections.Counter[str] = collections.Counter()
     cases_with_rule: collections.Counter[str] = collections.Counter()
+    expected_classes: collections.Counter[str] = collections.Counter()
     for result in results:
         rule_totals.update(result["rules"])
         cases_with_rule.update(result["rules"].keys())
+        expected_classes[result.get("expected_class") or UNLABELED] += 1
     summary = {
         "cases": len(results),
         "clean": sum(1 for r in results if not r["issues"] and not r["error"]),
@@ -980,6 +1030,7 @@ def build_report(
         ),
         "rules": dict(sorted(rule_totals.items())),
         "cases_with_rule": dict(sorted(cases_with_rule.items())),
+        "expected_classes": dict(sorted(expected_classes.items())),
     }
     return {
         "schema": REPORT_SCHEMA,
@@ -1004,6 +1055,13 @@ def format_summary(report: Mapping[str, Any]) -> str:
     ]
     for rule, count in sorted(summary["rules"].items(), key=lambda kv: (-kv[1], kv[0])):
         lines.append(f"  {rule:48} {count:7} {summary['cases_with_rule'][rule]:8}")
+    expected_classes = summary.get("expected_classes") or {}
+    if set(expected_classes) - {UNLABELED}:
+        lines.append(f"  {'expected class (hand label)':48} {'modules':>7}")
+        for name, count in sorted(
+            expected_classes.items(), key=lambda kv: (-kv[1], kv[0])
+        ):
+            lines.append(f"  {name:48} {count:7}")
     return "\n".join(lines)
 
 

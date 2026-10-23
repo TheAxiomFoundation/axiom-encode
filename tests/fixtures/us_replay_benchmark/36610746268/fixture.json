@@ -26,6 +26,9 @@
   "context_imports": {},
   "context_origins": {},
   "provider_git_blob_sha1": {},
+  "expected_class": "selection",
+  "class_evidence": "42 CFR 435.927 is a state data-reporting regulation, not a household rule; adjudication rates this citation target-selection.",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
     "candidate.yaml": "1d01b26e513bc62a0d7eea4022897ce8ec705af7fb8cefb92c672fd00dfa324c",

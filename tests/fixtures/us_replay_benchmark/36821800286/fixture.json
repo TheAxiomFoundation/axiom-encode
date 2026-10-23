@@ -27,6 +27,9 @@
   "context_imports": {},
   "context_origins": {},
   "provider_git_blob_sha1": {},
+  "expected_class": "selection",
+  "class_evidence": "Source is the OPEN manual introduction and table-of-contents page, with no operative rule.",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "32fbc447d278470ecbd0f6b5afac209076293dea91ecf7c12a2a6d76792debdd",
     "candidate.yaml": "2da5030db388c1d2409e910391f84bffa3aebe367fe162f8686a0232cafdb470",

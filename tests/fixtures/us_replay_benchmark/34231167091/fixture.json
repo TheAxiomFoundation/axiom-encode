@@ -42,6 +42,10 @@
     "us:regulations/7-cfr/273/7": "workspace"
   },
   "provider_git_blob_sha1": {},
+  "expected_class": "encoder",
+  "expected_subclass": "omission",
+  "class_evidence": "None of the 64 Table 1 allotment amounts are encoded; the candidate adds unrelated SNAP eligibility rules instead.",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "93ccbeab5fa4a1e45507da48dd088a138e3bffb7678050c36b90bbfc4ce5a905",
     "candidate.yaml": "41718b51a5fceb342f83042291718b41d4ef114bbb2ab39f24908c02c7cc8028",

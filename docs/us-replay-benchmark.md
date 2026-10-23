@@ -44,6 +44,31 @@ reasons (compile, oracle, proof excerpts, test inputs), or later validator fixes
 removed their completeness issues. The snapshot keeps them clean. The fixtures
 total about 1.4 MB.
 
+## Failure-class labels
+
+Each `fixture.json` also carries a hand label of the root cause of the
+failure, from the failure-class design (v1):
+
+- `expected_class`: one of `encoder`, `validator_fp`, `corpus`, `dependency`,
+  `selection`, `engine`, `migration`, `process`, `infra` or `unknown`.
+- `expected_subclass` (optional): `encoder` takes `omission`, `formula`,
+  `test` or `harness`; `corpus` takes `content` or `metadata`; `migration`
+  takes `schema` or `elided_excerpt`.
+- `class_evidence`: one sentence that names the deciding evidence.
+- `class_source`: `hand` for these labels.
+
+A label names the root cause, not the symptom. A fixture whose blocker no
+candidate can fix (an unencoded upstream concept, a non-operative target, a
+removed schema field in a context module) takes that class, even when the
+candidate also has encoder errors. `unknown` means that the evidence does not
+decide between two classes. `load_fixture` refuses an unknown class, a
+subclass of another class, or a label without evidence. `fixture.json` is not
+in its own hash list, so a label change does not change any file hash.
+
+`replay` prints the number of fixtures per class and puts `expected_class`
+and `expected_subclass` on each fixture row of the JSON report. The labels do
+not enter `snapshot.json`; the ratchet stays per rule.
+
 ## Fidelity
 
 Replayed with the encoder source of their own run, 11 of 12 sampled fixtures

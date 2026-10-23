@@ -38,6 +38,9 @@
     "us-az:policies/des/faa6/utility-allowance-current-amount": "workspace"
   },
   "provider_git_blob_sha1": {},
+  "expected_class": "selection",
+  "class_evidence": "Target overlaps an already-encoded sibling benefit-calculation module; adjudication rates this citation target-selection (overlap).",
+  "class_source": "hand",
   "files": {
     "candidate.test.yaml": "f4dc838d083277c6d194376c40a03c1865951e076707cf79d0336e085ab806ca",
     "candidate.yaml": "fad3d824f24fe1b246b1056ecaaae1cfbe38fd6f948555c6a2f73b9911cd0629",
