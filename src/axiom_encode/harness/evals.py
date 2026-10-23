@@ -69,7 +69,10 @@ from axiom_encode.legacy_replacement_overlay import (
     scope_canonical_replacement_overlay,
     stage_legacy_replacement_overlay,
 )
-from axiom_encode.prompts.encoder import SOURCE_SCOPE_PROTOCOL
+from axiom_encode.prompts.encoder import (
+    INTERPRETATIONS_PROTOCOL,
+    SOURCE_SCOPE_PROTOCOL,
+)
 from axiom_encode.repair_candidate_contract import (
     VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES,
     VALIDATION_RETRY_CANDIDATE_MAX_TOTAL_BYTES,
@@ -99,6 +102,7 @@ from axiom_encode.toolchain import (
     load_rulespec_toolchain,
     verify_rulespec_validation_waiver_set,
 )
+from axiom_encode.yaml_serialization import safe_dump_yaml
 
 from .amendment_timing import amendment_timing_issues
 from .coverage_index import format_coverage_index
@@ -134,6 +138,7 @@ from .policyengine_runtime import (
     PolicyEngineRuntimeError,
 )
 from .pricing import estimate_usage_cost_usd
+from .proof_validator import find_interpretation_yaml_issues
 from .source_completeness import (
     _rulespec_target_base,
     collect_artifact_numeric_values,
@@ -10466,6 +10471,13 @@ Mandatory independent-review corrections:
 - If a finding conflicts with the source evidence, do not invent semantics to
   satisfy it. Keep the source-faithful behavior and record only the genuinely
   blocked output using RuleSpec's typed deferred-output mechanism.
+- For `module.interpretations`, copy only recorded human rulings or publisher
+  replies supplied below. A supplied ruling permits `status: ruled` with its
+  exact `ruling` block; a publisher reply permits `confirmed` or `contradicted`
+  with the recorded ruling and confirmation. Never invent either block. Repair
+  contradicted readings, moving the old reading into `alternatives` with a
+  required non-blank kebab-case `id` unique within that interpretation, and
+  setting the new status; otherwise create `status: open` entries.
 
 {chr(10).join(rendered_files)}
 """
@@ -11514,6 +11526,7 @@ Primary legal authority:
 {source_metadata_section}{provision_metadata_section}{amendment_section}{context_section}{missing_cited_source_section}{mandatory_review_findings_section}{required_deferred_output_contract_section}{required_test_case_contract_section}{required_import_section}
 {backend_section}
 {canonical_concept_section}{complete_source_unit_section}
+{INTERPRETATIONS_PROTOCOL}
 RuleSpec requirements:
 - The RuleSpec file must begin with `format: rulespec/v1`.
 - Include `module.summary: |-` with a concise exact audit excerpt, not the full source text when the source is more than a short paragraph. Corpus-backed validation reads the authoritative source from `corpus.provisions`; use the summary only to orient reviewers to the encoded provisions.
@@ -16509,7 +16522,7 @@ def _repair_misplaced_module_inputs(content: str) -> tuple[str, tuple[str, ...]]
         for item in nested_inputs
         if isinstance(item, dict) and isinstance(item.get("name"), str)
     )
-    return yaml.safe_dump(payload, sort_keys=False).strip() + "\n", names
+    return safe_dump_yaml(payload, sort_keys=False).strip() + "\n", names
 
 
 def _normalize_main_eval_content(
@@ -16523,6 +16536,11 @@ def _normalize_main_eval_content(
     if target_path.suffix != RULESPEC_FILE_SUFFIX:
         raise ValueError("RuleSpec artifacts must use canonical .yaml paths")
     content = _clean_generated_file_content(content)
+    try:
+        if find_interpretation_yaml_issues(content):
+            return content
+    except (yaml.YAMLError, RecursionError):
+        pass
     normalized = _normalize_rulespec_content(content)
     normalized, _lifted_inputs = _repair_misplaced_module_inputs(normalized)
     normalized, _repaired_rules = repair_source_table_band_scalar_parameters(
@@ -16628,7 +16646,7 @@ def _strip_test_outputs_for_rule_names(
 
     if not changed:
         return content
-    return yaml.safe_dump(cases, sort_keys=False).strip() + "\n"
+    return safe_dump_yaml(cases, sort_keys=False).strip() + "\n"
 
 
 def _rulespec_output_key_name(key: object) -> str | None:
@@ -16947,7 +16965,7 @@ def _normalize_single_amount_row_test_content(
                 or should_keep(case.get("name"))
             )
         ]
-        return yaml.safe_dump(filtered, sort_keys=False).strip() + "\n"
+        return safe_dump_yaml(filtered, sort_keys=False).strip() + "\n"
 
     return normalized
 
@@ -17420,7 +17438,7 @@ def _normalize_test_periods_to_effective_dates(
                 continue
             filtered_cases.append(case)
         return (
-            yaml.safe_dump(
+            safe_dump_yaml(
                 [normalize_case(case) for case in filtered_cases],
                 sort_keys=False,
             ).strip()
@@ -17691,7 +17709,7 @@ def _complete_oracle_hint_test_outputs(
         changed = True
     if not changed:
         return content
-    return yaml.safe_dump(normalized_cases, sort_keys=False).strip() + "\n"
+    return safe_dump_yaml(normalized_cases, sort_keys=False).strip() + "\n"
 
 
 def _materialize_eval_artifact(
@@ -18071,11 +18089,31 @@ def _overlay_validation_retry_candidate(
 ) -> tuple[str, ...]:
     """Overlay partial repair output onto its integrity-bound prior candidate."""
 
+    try:
+        preserved_interpretation_issues = find_interpretation_yaml_issues(
+            candidate.rulespec
+        )
+    except (yaml.YAMLError, RecursionError):
+        preserved_interpretation_issues = []
+    if preserved_interpretation_issues:
+        raise _PreservedRepairOverlayError(
+            "preserved repair overlay has invalid interpretation syntax: "
+            + "; ".join(preserved_interpretation_issues)
+        )
     base_issue = _repair_overlay_candidate_base_issue(candidate)
     if base_issue is not None:
         raise _PreservedRepairOverlayError(base_issue)
     try:
-        generated = yaml.safe_load(rulespec_file.read_text(encoding="utf-8"))
+        generated_content = rulespec_file.read_text(encoding="utf-8")
+        generated_interpretation_issues = find_interpretation_yaml_issues(
+            generated_content
+        )
+        if generated_interpretation_issues:
+            raise ValueError(
+                "generated repair overlay has invalid interpretation syntax: "
+                + "; ".join(generated_interpretation_issues)
+            )
+        generated = yaml.safe_load(generated_content)
     except (OSError, UnicodeError, yaml.YAMLError, RecursionError) as exc:
         raise ValueError(
             "generated repair overlay RuleSpec must be valid UTF-8 YAML"
@@ -18314,13 +18352,13 @@ def _overlay_validation_retry_candidate(
     if merged_test_payload is not None:
         _write_eval_artifact_text(
             test_file,
-            yaml.safe_dump(merged_test_payload, sort_keys=False, allow_unicode=True),
+            safe_dump_yaml(merged_test_payload, sort_keys=False, allow_unicode=True),
             artifact_root,
         )
 
     _write_eval_artifact_text(
         rulespec_file,
-        yaml.safe_dump(generated, sort_keys=False, allow_unicode=True),
+        safe_dump_yaml(generated, sort_keys=False, allow_unicode=True),
         artifact_root,
     )
     return tuple(repairs)

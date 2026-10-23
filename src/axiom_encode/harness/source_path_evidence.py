@@ -13,11 +13,10 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Sequence
 
-import yaml
-
 from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness import source_path_shadow as paths
 from axiom_encode.harness.proof_validator import validate_rulespec_proofs
+from axiom_encode.yaml_serialization import safe_dump_yaml
 
 _LINE2 = "provincial_territorial_2025_t2036_federal_credit_line_2"
 _TAX = "provincial_or_territorial_tax_otherwise_payable"
@@ -398,6 +397,14 @@ def certify_worksheet_paths(
             **payload,
             "rules": [rules[name] for name in sorted(selected_names)],
         }
+        # Interpretations refer to the full module, not this temporary proof view.
+        # The shared validation gate checks them against the original declarations.
+        if isinstance(proof_payload.get("module"), Mapping):
+            proof_payload["module"] = {
+                key: value
+                for key, value in proof_payload["module"].items()
+                if key != "interpretations"
+            }
         intro = re.search(
             r"(?m)^Use this form to calculate the foreign non-business income tax credit\s+for (?P<year>20[0-9]{2}) that you can deduct from the income tax",
             source_text,
@@ -451,7 +458,7 @@ def certify_worksheet_paths(
             global_errors.extend(date_errors)
             continue
         proof = validate_rulespec_proofs(
-            yaml.safe_dump(proof_payload),
+            safe_dump_yaml(proof_payload),
             require_policy_proofs=True,
             source_texts={corpus_citation_path: source_text},
         )
