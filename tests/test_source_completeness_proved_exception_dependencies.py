@@ -1,11 +1,13 @@
-"""Composite exception selectors retain the meaning of their source proof."""
+"""Composite exception selectors abstain without complete definition semantics."""
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode.harness import source_completeness as sc
@@ -113,14 +115,16 @@ def _matches(rules, cases, *, source=SOURCE, condition=CONDITION, paths=None):
     )
 
 
-def test_source_proved_composite_revocation_supplies_blocking_witness():
+def test_composite_revocation_keeps_base_obligation_despite_four_witnesses():
     rules, cases = _fixture()
+    witnesses = sc._toggled_formula_boolean_selectors(
+        rules, asserted_by_rule={name: cases for name in rules}, formula_environment={}
+    )
 
-    matches = _matches(rules, cases)
-
-    assert {
-        (w.rule_name, w.selector_name, w.active_value, w.blocks) for w in matches
-    } == {(OUTPUT, SELECTOR, True, True)}
+    # The s 73 short fixture still exercises the formulas, but the unparsed
+    # definition cannot authenticate the composite selector's source meaning.
+    assert len(witnesses) == 4
+    assert not _matches(rules, cases)
 
 
 @pytest.mark.parametrize("citation", JURISDICTION_CITATIONS)
@@ -210,7 +214,9 @@ def test_dependency_cannot_borrow_revocation_for_other_predicate(
 
 
 @pytest.mark.parametrize("citation", JURISDICTION_CITATIONS)
-def test_dependency_authenticates_event_with_correct_polarity(monkeypatch, citation):
+def test_composite_dependency_abstains_even_with_source_positive_event(
+    monkeypatch, citation
+):
     monkeypatch.setitem(globals(), "CITATION", citation)
     rules, cases = _fixture()
     witnesses = sc._toggled_formula_boolean_selectors(
@@ -218,10 +224,7 @@ def test_dependency_authenticates_event_with_correct_polarity(monkeypatch, citat
     )
 
     assert len(witnesses) == 4
-    assert {
-        (w.rule_name, w.selector_name, w.active_value, w.blocks)
-        for w in _matches(rules, cases)
-    } == {(OUTPUT, SELECTOR, True, True)}
+    assert not _matches(rules, cases)
 
 
 @pytest.mark.parametrize("rule_name", [SELECTOR, OUTPUT])
@@ -282,7 +285,7 @@ def test_composite_dependency_cannot_borrow_unrelated_revocation(
 
 
 @pytest.mark.parametrize("subject", ["application", "permit", "payment election"])
-def test_pronoun_dependency_binds_the_source_subject(subject):
+def test_pronoun_dependency_keeps_unresolved_composite_obligation(subject):
     rules, cases = _fixture()
     source = SOURCE.replace("The election", "The " + subject).replace(
         "the election", "the " + subject
@@ -296,7 +299,7 @@ def test_pronoun_dependency_binds_the_source_subject(subject):
         )
     matches = _matches(rules, cases, source=source, condition=source.split("\n")[1])
 
-    assert any(w.selector_name == SELECTOR and w.blocks for w in matches)
+    assert not matches
 
 
 def test_source_proved_dependency_keeps_output_ownership():
@@ -325,11 +328,41 @@ def test_dependency_proof_from_inactive_version_cannot_supply_meaning():
     st.lists(
         st.sampled_from(["winter", "energy", "payment", "election"]),
         min_size=3,
-        max_size=8,
+        max_size=4,
     )
 )
 @settings(max_examples=20, deadline=None)
-def test_source_proved_dependency_relevance_does_not_depend_on_context_prefix(words):
+@example(words=["payment", "payment", "payment"])
+def test_composite_dependency_context_prefix_equals_base_snapshot(words):
+    # Base's existing lexical route can accept some names (including repeated
+    # "payment"). Withdrawing composite proof credit must preserve that result.
+    snapshots = json.loads(
+        (
+            Path(__file__).parent / "fixtures/source_completeness/fail_closed_base.json"
+        ).read_text()
+    )["context_prefix_match_counts"]
     selector = "_".join(words) + "_revocation_valid"
     rules, cases = _fixture(selector)
-    assert any(w.selector_name == selector and w.blocks for w in _matches(rules, cases))
+    assert len(_matches(rules, cases)) == snapshots["_".join(words)]
+
+
+@pytest.mark.parametrize("citation", JURISDICTION_CITATIONS)
+@pytest.mark.parametrize(
+    "definition",
+    [
+        "The election is revoked only if it has been approved by the court.",
+        "The election may be revoked if the person has given consent.",
+        "The election must be made, and may be revoked, only after the board has approved it.",
+        "The election is revoked but the revocation is ineffective.",
+    ],
+)
+def test_unparsed_definition_tail_cannot_authenticate_composite_dependency(
+    monkeypatch, citation, definition
+):
+    # A prefix ending in 'revoked' does not resolve the complete proposition.
+    # All selected excerpts are authentic, and assertions agree with formula;
+    # neither fact proves the omitted qualifier or its scope.
+    monkeypatch.setitem(globals(), "CITATION", citation)
+    rules, cases = _fixture()
+    rules[SELECTOR]["metadata"]["proof"]["atoms"][0]["source"]["excerpt"] = definition
+    assert not _matches(rules, cases, source=definition + "\n" + CONDITION)

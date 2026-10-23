@@ -1,4 +1,8 @@
-"""Defined numeric-plus categories do not invent arithmetic obligations."""
+"""Unresolved numeric-plus phrases preserve base arithmetic obligations.
+
+A definition reference alone cannot authenticate a category rather than an
+addition operand, so this withdrawn relaxation keeps the original source text.
+"""
 
 import functools
 
@@ -23,15 +27,15 @@ SOURCE = (
 )
 
 
-def test_defined_single_person_category_is_not_a_computation():
+def test_unresolved_single_person_category_retains_base_computation_obligation():
     assert [m.group() for m in sc._ARITHMETIC_EXPRESSION.finditer(SOURCE)] == [
         "50+ single"
     ]
-    assert not sc.source_states_explicit_computation(SOURCE)
-    assert not sc._source_states_nonrounding_computation(SOURCE)
-    assert sc._formula_operation_kinds(SOURCE) == set()
+    assert sc.source_states_explicit_computation(SOURCE)
+    assert sc._source_states_nonrounding_computation(SOURCE)
+    assert sc._formula_operation_kinds(SOURCE) == {"add"}
     branches = sc.recognize_source_structure(SOURCE, corpus_citation_path=CITATION)
-    assert not sc._source_formula_branches(
+    assert sc._source_formula_branches(
         SOURCE,
         corpus_citation_path=CITATION,
         branches=branches,
@@ -40,7 +44,7 @@ def test_defined_single_person_category_is_not_a_computation():
     )
 
 
-def test_boolean_care_eligibility_satisfies_formula_gate_and_keeps_age_bounds():
+def test_boolean_care_eligibility_keeps_age_bounds_and_unresolved_formula_gate():
     rule = {
         "name": "single_residential_care_disqualification",
         "kind": "derived",
@@ -130,7 +134,7 @@ def test_boolean_care_eligibility_satisfies_formula_gate_and_keeps_age_bounds():
         extract_named_scalars=vp.extract_named_scalar_occurrences,
         numeric_value_is_grounded=vp.numeric_value_is_grounded,
     )
-    assert not [issue for issue in result.issues if "formula branch" in issue]
+    assert [issue for issue in result.issues if "formula branch" in issue]
 
 
 @given(
@@ -141,22 +145,17 @@ def test_boolean_care_eligibility_satisfies_formula_gate_and_keeps_age_bounds():
     ),
 )
 @settings(max_examples=35, deadline=None)
-def test_defined_category_mask_preserves_scalars_and_separate_arithmetic(
+def test_unresolved_category_preserves_scalars_and_separate_arithmetic(
     threshold, category, definition
 ):
     source = f"The person is a {threshold}+ {category} {definition} section 21."
-    masked = sc._without_defined_category_operators(source)
-    assert len(masked) == len(source)
-    assert masked.replace(sc._TYPOGRAPHY_MASK, "+") == source
-    assert str(threshold) in masked
-    assert not sc.source_states_explicit_computation(source)
-    assert sc._formula_operation_kinds(source) == set()
+    assert str(threshold) in sc.authoritative_numeric_recall_text(source)
+    assert sc.source_states_explicit_computation(source)
+    assert sc._formula_operation_kinds(source) == {"add"}
     arithmetic = " The amount is (income + 2) * 3."
     assert sc.source_states_explicit_computation(source + arithmetic)
     assert sc._formula_operation_kinds(source + arithmetic) == {"add", "multiply"}
-    assert sc._explicit_source_arithmetic_topology(
-        source + arithmetic
-    ) == sc._explicit_source_arithmetic_topology(arithmetic)
+    assert sc._explicit_source_arithmetic_topology(arithmetic) is not None
 
 
 @pytest.mark.parametrize(
@@ -171,13 +170,39 @@ def test_defined_category_mask_preserves_scalars_and_separate_arithmetic(
         "The amount is 50 + 20.",
     ),
 )
-def test_category_recognition_keeps_actual_addition(source):
+def test_unresolved_category_keeps_actual_addition(source):
     assert sc.source_states_explicit_computation(source)
     assert "add" in sc._formula_operation_kinds(source)
 
 
-def test_category_mask_preserves_independently_stated_age_conditions():
-    masked = sc._without_defined_category_operators(SOURCE)
-    assert "the person is aged 50 to 64 years" in masked
-    assert sc.authoritative_numeric_recall_text(masked).count("50") == 2
-    assert "64" in sc.authoritative_numeric_recall_text(masked)
+def test_unresolved_category_preserves_independently_stated_age_conditions():
+    assert "the person is aged 50 to 64 years" in SOURCE
+    assert sc.authoritative_numeric_recall_text(SOURCE).count("50") == 2
+    assert "64" in sc.authoritative_numeric_recall_text(SOURCE)
+
+
+@pytest.mark.parametrize("jurisdiction", ("uk", "us", "de", "fr", "nz"))
+@pytest.mark.parametrize(
+    "phrase",
+    (
+        "a 50+ income as defined in section 21",
+        "a 50+ supplement as defined by section 21",
+        "the 50+ increment within the meaning of section 21",
+    ),
+)
+def test_definition_reference_does_not_resolve_numeric_phrase_as_category(
+    jurisdiction, phrase
+):
+    source = f"The amount is {phrase}."
+    citation = f"{jurisdiction}/statute/2020/1/section/72"
+    assert sc.source_states_explicit_computation(source)
+    assert "add" in sc._formula_operation_kinds(source)
+    assert "50" in sc.authoritative_numeric_recall_text(source)
+    branches = sc.recognize_source_structure(source, corpus_citation_path=citation)
+    assert sc._source_formula_branches(
+        source,
+        corpus_citation_path=citation,
+        branches=branches,
+        active_branches=branches,
+        deferred_paths=set(),
+    )
