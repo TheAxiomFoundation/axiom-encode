@@ -2221,9 +2221,37 @@ def _structured_phrase_in_relation(
     return False
 
 
+def _resolve_discovered_amendment_evidence(
+    row: _corpus_resolver.ActiveCorpusBodyRow,
+    *,
+    release: _corpus_resolver.LocalCorpusRelease,
+) -> _corpus_resolver.ActiveCorpusBodyRow:
+    """Compose a matched container's text without changing its metadata owner."""
+
+    if row.row.body_sha256 is not None:
+        return row
+    prefix = f"Unresolved amendment context for {row.row.citation_path}: "
+    try:
+        resolved = _corpus_resolver.resolve_local_corpus_source(
+            row.row.citation_path, release, _exact_only=True
+        )
+    except _corpus_resolver.CorpusResolutionError as exc:
+        raise ValueError(
+            prefix
+            + "cannot resolve authenticated amendment evidence from this container"
+        ) from exc
+    if resolved.row != row.row or not resolved.body.strip():
+        raise ValueError(
+            prefix
+            + "missing authenticated amendment evidence for the selected container"
+        )
+    return replace(row, body=resolved.body)
+
+
 def _discover_amendment_documents(
     rows: Sequence[_corpus_resolver.ActiveCorpusBodyRow],
     *,
+    release: _corpus_resolver.LocalCorpusRelease,
     target_row: _corpus_resolver.ActiveCorpusBodyRow | None,
     parent_document_row: _corpus_resolver.ActiveCorpusBodyRow | None,
     target_citation_path: str,
@@ -2246,6 +2274,19 @@ def _discover_amendment_documents(
     marked_rows: list[
         tuple[_corpus_resolver.ActiveCorpusBodyRow, Literal["structured", "name"]]
     ] = []
+    resolved_evidence: dict[
+        _corpus_resolver.CorpusRowIdentity, _corpus_resolver.ActiveCorpusBodyRow
+    ] = {}
+
+    def evidence_row(
+        row: _corpus_resolver.ActiveCorpusBodyRow,
+    ) -> _corpus_resolver.ActiveCorpusBodyRow:
+        if row.row not in resolved_evidence:
+            resolved_evidence[row.row] = _resolve_discovered_amendment_evidence(
+                row, release=release
+            )
+        return resolved_evidence[row.row]
+
     for row in rows:
         row_document_key = row.row.source_path or row.row.citation_path
         if row_document_key == target_document_key or not _is_amendment_row(row):
@@ -2255,7 +2296,7 @@ def _discover_amendment_documents(
             target_document_citation_path=target_document_path,
         )
         if structured_match:
-            marked_rows.append((row, "structured"))
+            marked_rows.append((evidence_row(row), "structured"))
         # Rows already belong to the verified release. Explicit canonical
         # targets can cross its capture scopes; scope versions are not legal
         # applicability dates. Keep fuzzy name matching within the target's
@@ -2263,7 +2304,7 @@ def _discover_amendment_documents(
         elif row.row.version == version and _amendment_relates_to_target(
             row, target_identifiers
         ):
-            marked_rows.append((row, "name"))
+            marked_rows.append((evidence_row(row), "name"))
 
     roots_by_document: dict[str, _corpus_resolver.ActiveCorpusBodyRow] = {}
     tiers_by_document: dict[str, Literal["structured", "name"]] = {}
@@ -2329,7 +2370,15 @@ def _discover_amendment_documents(
         if row.metadata.get("commencement_date") and row.metadata.get(
             "commencement_citation_path"
         ):
-            for document in _amendment_commencement_evidence(row, rows):
+            evidence_rows = tuple(
+                evidence_row(item)
+                if item.row.citation_path == row.metadata["commencement_citation_path"]
+                and item.row.source_path == row.row.source_path
+                and item.row.version == row.row.version
+                else item
+                for item in rows
+            )
+            for document in _amendment_commencement_evidence(row, evidence_rows):
                 bound_documents.setdefault(document.citation_path, document)
     for document in documents:
         bound_documents.setdefault(document.citation_path, document)
@@ -6542,13 +6591,22 @@ def _is_direct_amendment_request(
     parent: _corpus_resolver.ActiveCorpusBodyRow | None,
 ) -> bool:
     """Recognize operative amendments even before ingest supplies Act markers."""
-    if _is_amendment_row(row):
+    if _is_amendment_row(row) or any(
+        key in row.metadata for key in ("amendment_target", "amendment_targets")
+    ):
         return True
     # If ingest marks the parent as amending, an unclassified child cannot
     # safely become a standalone historical rule. Require explicit routing
     # context rather than assuming an unfamiliar language/form is harmless.
     if parent is not None and _is_amendment_row(parent):
         return True
+    return _has_operative_amendment_text(row)
+
+
+def _has_operative_amendment_text(
+    row: _corpus_resolver.ActiveCorpusBodyRow,
+) -> bool:
+    """Classify legal text without borrowing another record's routing metadata."""
     # Require a named provision and an operative instruction. Interpretive,
     # savings, and transitional references to repeal are ordinary legal text.
     number = (
@@ -6804,6 +6862,10 @@ def resolve_corpus_source_unit(
         # The resolver retains the authenticated selected container's metadata
         # alongside composed text. A sibling's body row cannot stand in for it.
         target_row = resolved.selected_record
+        component_identities = frozenset(resolved.component_rows)
+        component_rows = [
+            item for item in active_rows if item.row in component_identities
+        ]
         parent_document_row = _shallowest_active_source_path_row(
             active_records,
             source_path=resolved.row.source_path,
@@ -6827,8 +6889,14 @@ def resolve_corpus_source_unit(
             ),
             parent_document_row,
         )
-        if target_row is not None and _is_direct_amendment_request(
-            target_row, amendment_parent_row
+        if target_row is not None and (
+            _is_direct_amendment_request(target_row, amendment_parent_row)
+            # Composition prefixes each contributing body with its heading.
+            # Inspect those authenticated bodies directly, including later
+            # contributors, while the selected record still owns all routing
+            # metadata. Unused descendants and sibling records cannot classify
+            # this source.
+            or any(_has_operative_amendment_text(item) for item in component_rows)
         ):
             return _route_amending_source_unit(
                 target_row,
@@ -6844,16 +6912,9 @@ def resolve_corpus_source_unit(
             # A sole composed child represents this container's legal text,
             # unlike a sibling from the same source. Preserve its descriptive
             # metadata only for ordinary provisions; selected keys win.
-            component_identities = frozenset(resolved.component_rows)
-            component_rows = [
-                item
-                for item in active_rows
-                if item.row in component_identities
-                and item.row.source_path == resolved.row.source_path
-                and item.row.version == resolved.row.version
-            ]
-            if len(component_rows) == 1 and not _is_direct_amendment_request(
-                component_rows[0], None
+            if len(component_rows) == 1 and not (
+                _is_amendment_row(component_rows[0])
+                or _has_operative_amendment_text(component_rows[0])
             ):
                 provision_metadata = {
                     **{
@@ -6875,7 +6936,8 @@ def resolve_corpus_source_unit(
             resolved_source=resolved,
             provision_metadata=provision_metadata,
             amendment_documents=_discover_amendment_documents(
-                active_rows,
+                active_records,
+                release=release,
                 target_row=target_row,
                 parent_document_row=parent_document_row,
                 target_citation_path=resolved.citation_path,

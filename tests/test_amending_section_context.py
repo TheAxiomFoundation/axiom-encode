@@ -181,6 +181,137 @@ def test_bodyless_amending_section_without_context_blocks_instead_of_borrowing_s
         evals.resolve_corpus_source_unit(_AMENDING_SECTION, release)
 
 
+@pytest.mark.parametrize("missing_context", [False, True])
+@pytest.mark.parametrize("leading_ordinary_child", [False, True])
+@pytest.mark.parametrize("child_source", ["selected", "different"])
+def test_heading_prefixed_amendment_contributor_routes_or_blocks(
+    tmp_path, missing_context, leading_ordinary_child, child_source
+):
+    rows = _amendment_rows()
+    rows[1].update(body=None, heading="Accommodation supplement")
+    rows[1]["metadata"].pop("document_type")
+    if missing_context:
+        rows[1]["metadata"] = {}
+    # Complete sibling and child metadata must never repair missing context on
+    # the selected container or replace its applicable commencement date.
+    rows[2]["metadata"] = dict(_amendment_rows()[1]["metadata"])
+    if leading_ordinary_child:
+        rows.append(
+            {
+                "citation_path": f"{_AMENDING_SECTION}/1",
+                "source_path": rows[1]["source_path"],
+                "heading": "Accommodation supplement",
+                "body": "This section concerns accommodation supplement rates.",
+            }
+        )
+    child_source_path = {
+        "selected": rows[1]["source_path"],
+        "different": "sources/nz/statute/amendment-fragment.xml",
+    }[child_source]
+    rows.append(
+        {
+            "citation_path": f"{_AMENDING_SECTION}/2",
+            "source_path": child_source_path,
+            "heading": "New maximum rate",
+            "body": _AMENDMENT_BODY,
+            "metadata": {
+                "amendment_target": _PRINCIPAL_TARGET,
+                "commencement_date": "2028-01-01",
+            },
+        }
+    )
+    release = _write_test_corpus_release(tmp_path, rows)
+    composed = evals._corpus_resolver.resolve_local_corpus_source(
+        _AMENDING_SECTION, release
+    )
+    contributor = next(
+        item
+        for item in composed.component_rows
+        if item.citation_path == f"{_AMENDING_SECTION}/2"
+    )
+    assert contributor.source_path == child_source_path
+
+    if missing_context:
+        with pytest.raises(
+            ValueError, match="Unresolved amendment context.*metadata.amendment_target"
+        ):
+            evals.resolve_corpus_source_unit(_AMENDING_SECTION, release)
+        return
+
+    source = evals.resolve_corpus_source_unit(_AMENDING_SECTION, release)
+
+    assert source.citation_path == _PRINCIPAL_TARGET
+    assert source.amendment_request == _AMENDING_SECTION
+    evidence = {item.citation_path: item for item in source.amendment_documents}
+    assert "New maximum rate\n\n" + _AMENDMENT_BODY in evidence[_AMENDING_SECTION].body
+    assert evidence[_AMENDING_SECTION].metadata["commencement_date"] == "2027-04-01"
+    _, prompt = _workspace_prompt_for_source_unit(tmp_path, source)
+    assert _AMENDMENT_BODY in prompt
+    assert "effective_from: '0001-01-01'" not in prompt
+
+
+@pytest.mark.parametrize("target_key", ["amendment_target", "amendment_targets"])
+def test_retained_structured_target_classifies_without_an_operation_or_act_marker(
+    tmp_path, target_key
+):
+    metadata = dict(_amendment_rows()[1]["metadata"])
+    metadata.pop("document_type")
+    metadata.pop("amendment_target")
+    metadata[target_key] = (
+        [_PRINCIPAL_TARGET] if target_key == "amendment_targets" else _PRINCIPAL_TARGET
+    )
+    rows = _amendment_rows(metadata=metadata)
+    rows[1].update(
+        heading="Accommodation supplement",
+        body="The maximum accommodation supplement rate is $305 a week.",
+    )
+    release = _write_test_corpus_release(tmp_path, rows)
+
+    source = evals.resolve_corpus_source_unit(_AMENDING_SECTION, release)
+
+    assert source.citation_path == _PRINCIPAL_TARGET
+    assert source.amendment_request == _AMENDING_SECTION
+    assert _AMENDING_SECTION in {
+        item.citation_path for item in source.amendment_documents
+    }
+
+
+@pytest.mark.parametrize("bodyless_container", [False, True])
+def test_noncontributing_operative_descendant_cannot_classify_container(
+    tmp_path, bodyless_container
+):
+    rows = _amendment_rows(metadata={})
+    rows[1].update(
+        heading="Accommodation supplement",
+        body=None if bodyless_container else "The ordinary benefit rate is $200.",
+    )
+    if bodyless_container:
+        rows.append(
+            {
+                "citation_path": f"{_AMENDING_SECTION}/1",
+                "source_path": rows[1]["source_path"],
+                "body": "The ordinary benefit rate is $200.",
+            }
+        )
+    rows.append(
+        {
+            "citation_path": f"{_AMENDING_SECTION}/1/1",
+            "source_path": rows[1]["source_path"],
+            "heading": "New maximum rate",
+            "body": _AMENDMENT_BODY,
+            "metadata": dict(_amendment_rows()[1]["metadata"]),
+        }
+    )
+    release = _write_test_corpus_release(tmp_path, rows)
+
+    source = evals.resolve_corpus_source_unit(_AMENDING_SECTION, release)
+
+    assert source.citation_path == _AMENDING_SECTION
+    assert source.amendment_request is None
+    assert source.body == "The ordinary benefit rate is $200."
+    assert _AMENDMENT_BODY not in source.body
+
+
 def test_bodyless_principal_container_does_not_borrow_marked_sibling(tmp_path):
     rows = _amendment_rows(metadata={})
     rows[1].update(body=None, heading="Rates")
@@ -377,17 +508,14 @@ def test_unmarked_named_provision_operation_requires_amendment_context(
         min_size=1,
         max_size=12,
     ),
-    target_metadata=st.booleans(),
 )
-def test_unmarked_nonoperative_text_is_never_an_amendment(
-    heading, subject, nouns, target_metadata
-):
-    # Target declarations alone are not ingest amendment markers. No generated
-    # text contains an instruction applying an amendment to a named provision.
+def test_unmarked_nonoperative_text_is_never_an_amendment(heading, subject, nouns):
+    # No structured amendment marker is present, and no generated text contains
+    # an instruction applying an amendment to a named provision.
     row = SimpleNamespace(
         heading=heading,
         body=subject + " " + " and ".join(nouns) + ".",
-        metadata={"amendment_target": _PRINCIPAL_TARGET} if target_metadata else {},
+        metadata={},
     )
 
     assert evals._is_direct_amendment_request(row, None) is False

@@ -1577,6 +1577,7 @@ def test_target_source_document_is_not_its_own_amendment_context(tmp_path):
     assert (
         evals_module._discover_amendment_documents(
             rows,
+            release=release,
             target_row=target,
             parent_document_row=None,
             target_citation_path=target.row.citation_path,

@@ -4,8 +4,7 @@ An enacted amendment that has not yet commenced belongs in a dated version of
 the affected principal-Act rule. Ground that version in the amending provision
 and its commencement provision, preserving the principal rule's supported
 precommencement behavior. Once the official consolidation incorporates the
-change, re-point its evidence to the principal Act. This follows the
-maintainer's ruling of 21 October 2026.
+change, re-point its evidence to the principal Act.
 
 Request the **principal provision's corpus citation**, with the amending text
 and commencement evidence attached from the same signed corpus release. The
@@ -19,9 +18,10 @@ after commencement.
 ## Corpus metadata for amendment discovery
 
 Discovery runs over active rows of the target's jurisdiction and document class
-in the pinned release. Ingest must retain the amendment body and identify the
-amending document and its target. The fields below describe the existing
-discovery contract in `src/axiom_encode/harness/evals.py`
+in the pinned release. Ingest must retain the operative text on the marked row
+or its authenticated children and identify the amending document and its target.
+The fields below describe the existing discovery contract in
+`src/axiom_encode/harness/evals.py`
 (`_is_amendment_row`, `_amendment_target_values`,
 `_target_document_identifiers`, and `_discover_amendment_documents`).
 
@@ -58,12 +58,15 @@ requires an explicit target field. Names require at least two distinctive
 tokens in a contiguous phrase. Do not depend on a document's title or body
 mentioning the principal Act without target metadata.
 
-Rows sharing a `source_path` form one amendment document; discovery attaches
-the shallowest matching row's body and metadata. Put the marker, target
-declaration, operative text, and commencement evidence on the attached document
-or otherwise supply their authoritative provision context. Discovery excludes
-the requested target's own document from this principal-target attachment
-path. The rendered eval bundle lists attached evidence as
+Rows sharing a `source_path` form one amendment document; discovery selects
+the shallowest matching row and retains its metadata. For a marked bodyless
+container, discovery resolves its authenticated children into composed evidence
+before attachment. If that evidence cannot be resolved, encoding stops with an
+explicit blocker; an empty container body is not sufficient evidence. Put the
+marker, target declaration, operative text, and commencement evidence on the
+attached document or otherwise supply their authoritative provision context.
+Discovery excludes the requested target's own document from this
+principal-target attachment path. The rendered eval bundle lists attached evidence as
 `kind: corpus_amendment_act` in `context-manifest.json`; check that the retained
 context contains both the change and the applicable commencement provision.
 Context has size limits, so discovery alone does not guarantee that every
@@ -86,16 +89,20 @@ must supply these fields on the requested provision's `metadata`:
 | `commencement_date` | The applicable commencement date in `YYYY-MM-DD` format, scoped to this amending provision. |
 | `commencement_citation_path` | An exact citation for a commencement provision in the same amending document (`source_path`) and capture `version`. Its body must state the supplied date in ISO or English long-date form. Other forms currently produce an unresolved-context blocker. |
 
-The requested row or its ancestor document must carry an amendment marker
-(`metadata.amends` or an amendment `metadata.document_type`). An operation
-heading such as `Schedule 4 amended` also identifies an amending provision, so
-missing amendment ingest markers cannot silently enable the neutral scaffold.
-An Act-level `amends` declaration helps discovery but does not choose the exact
+An amendment marker on the requested row or its ancestor document
+(`metadata.amends` or an amendment `metadata.document_type`) identifies an
+amending provision. A retained `amendment_target` or `amendment_targets` field
+also classifies the row. An operation heading such as `Schedule 4 amended` or
+an operative instruction in the authenticated body also identifies an amending
+provision, so missing amendment ingest markers cannot silently enable the neutral
+scaffold. An Act-level `amends` declaration helps discovery but does not choose the exact
 principal provision for a direct request.
 
 A bodyless container is classified using its own authenticated metadata and
-the text composed from its children. A sibling's metadata cannot stand in for
-the selected record. Its principal target may also be a composed provision.
+the operative text in its authenticated contributing children, including when
+child headings precede that text in the composed body. Routing fields remain
+owned by the selected record; a sibling's metadata cannot stand in for them.
+Its principal target may also be a composed provision.
 Headings or text that merely discuss repeal, savings, transitional effects, or
 the meaning of an enactment do not themselves establish an amendment operation.
 
