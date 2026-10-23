@@ -144,6 +144,7 @@ from axiom_encode.statute import (
     normalize_rulespec_path_segment,
     parse_usc_citation,
 )
+from axiom_encode.yaml_serialization import safe_dump_yaml
 
 from .dependency_stubs import (
     UnsafeRulespecContextPath,
@@ -173,6 +174,7 @@ from .proof_validator import (
     collapse_evidence_whitespace,
     find_plural_corpus_citation_path_issues,
     find_rulespec_proof_issues,
+    interpretation_source_citation_paths,
     validate_rulespec_proofs,
 )
 from .same_case_execution import (
@@ -18575,7 +18577,7 @@ def repair_source_table_band_scalar_parameters(
         ]
         changed_rules.update(migratable_bound_names)
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -18939,7 +18941,7 @@ def repair_unsupported_chained_conditionals(content: str) -> tuple[str, list[str
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -18976,7 +18978,7 @@ def repair_formula_let_bindings(content: str) -> tuple[str, list[str]]:
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -19109,7 +19111,7 @@ def repair_source_table_open_ended_bound_sentinels(
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -19239,7 +19241,7 @@ def repair_source_table_interval_row_alignment(
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -19304,7 +19306,7 @@ def repair_source_table_interval_tests(
 
     if not changed_cases:
         return content, []
-    repaired_content = yaml.safe_dump(cases, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(cases, sort_keys=False).strip() + "\n"
     return repaired_content, changed_cases
 
 
@@ -19357,7 +19359,7 @@ def repair_copied_cross_reference_summary(
         return content, []
 
     module["summary"] = repaired_summary.strip()
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, repaired_imports
 
 
@@ -35912,6 +35914,14 @@ class ValidatorPipeline:
             return resolved
         if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
             return resolved
+        # Interpretation quotes need the same release-bound evidence as proof
+        # atoms. They are excluded from the numeric-grounding source pool.
+        if proof_evidence:
+            for citation_path in interpretation_source_citation_paths(payload):
+                try:
+                    resolved[citation_path] = fetch_source(citation_path)
+                except InvalidCorpusCitationError:
+                    resolved[citation_path] = None
         rules = payload.get("rules")
         if not isinstance(rules, list):
             return resolved

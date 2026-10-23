@@ -8,7 +8,16 @@ import yaml
 
 from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness import validator_pipeline as v
-from tests.test_worksheet_country_evidence import SOURCE, c, certify, fixture, owns
+from axiom_encode.harness.proof_validator import validate_rulespec_proofs
+from tests.test_worksheet_country_evidence import (
+    SOURCE,
+    c,
+    certify,
+    fixture,
+    interpretation,
+    owns,
+    rule,
+)
 
 
 def analyze(payload, cases):
@@ -55,6 +64,37 @@ def test_normal_analyzer_country_evidence_is_local():
         "[complete-source-unit:tests]" in x or "[complete-source-unit:numeric" in x
         for x in issues
     )
+
+
+@pytest.mark.parametrize("case", ["second_citation", "omitted_rule"])
+def test_normal_analyzer_interpretations_do_not_add_country_findings(case):
+    payload, cases = fixture()
+    if case == "second_citation":
+        entry = interpretation(
+            c.OWNER,
+            citation="zz/manual/lantern/worksheet-notes",
+            excerpt="Lantern notes describe a separate review.",
+        )
+    else:
+        payload["rules"].append(rule("unrelated_flag", f"{c.COUNT} > 5"))
+        entry = interpretation("unrelated_flag")
+    assert not country_findings(analyze(payload, cases))
+    payload["module"]["interpretations"] = [entry]
+    metadata_validation = validate_rulespec_proofs(
+        yaml.safe_dump(
+            {
+                "format": payload["format"],
+                "module": {"interpretations": [entry]},
+                "rules": [{"name": rule["name"]} for rule in payload["rules"]],
+            }
+        ),
+        source_texts={
+            c.CITE: SOURCE,
+            entry["texts"][0]["corpus_citation_path"]: entry["texts"][0]["excerpt"],
+        },
+    )
+    assert metadata_validation.passed, metadata_validation.issues
+    assert not country_findings(analyze(payload, cases))
 
 
 @pytest.mark.parametrize(
