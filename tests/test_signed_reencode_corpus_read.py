@@ -9,9 +9,11 @@ stops the run before the production-signing gate rather than after it.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -146,15 +148,99 @@ def test_the_preflight_fails_unless_both_secrets_are_set():
         assert "R2_CORPUS_READ_ACCESS_KEY_ID" in result.stderr
 
 
-def test_the_fetch_step_stops_before_fetching_without_credentials(tmp_path):
+def _fetch_sandbox(tmp_path, *, locks: bool, provisions: bool):
+    """A working directory for the fetch step, with a stub `uv` that records any fetch."""
+    corpus = tmp_path / "axiom-corpus"
+    if locks:
+        (corpus / ".axiom" / "corpus-locks").mkdir(parents=True)
+    if provisions:
+        (corpus / "data" / "corpus" / "provisions").mkdir(parents=True)
+    release = tmp_path / "release.json"
+    release.write_text(
+        '{"content": {"artifacts": [{"artifact_class": "provisions",'
+        ' "path": "data/corpus/provisions/us/statute/x.jsonl"}]}}'
+    )
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    marker = tmp_path / "fetched"
+    (stub / "uv").write_text(f'#!/bin/sh\necho "$@" > "{marker}"\n')
+    (stub / "uv").chmod(0o755)
+    jq = shutil.which("jq")
+    assert jq, "jq is required to run the fetch step"
+    path = f"{stub}:{Path(jq).parent}:/usr/bin:/bin"
+    return release, marker, path
+
+
+def _bash4() -> str | None:
+    """A bash with mapfile (4+). CI's Ubuntu runners have one; macOS /bin/bash is 3.2."""
+    for candidate in (
+        shutil.which("bash"),
+        "/opt/homebrew/bin/bash",
+        "/usr/local/bin/bash",
+    ):
+        if candidate and Path(candidate).exists():
+            out = subprocess.run(
+                [candidate, "-c", "echo ${BASH_VERSINFO[0]}"],
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            if out.isdigit() and int(out) >= 4:
+                return candidate
+    return None
+
+
+def _run_fetch(step, tmp_path, release, path, env, bash="bash"):
+    return subprocess.run(
+        [bash, "-c", step["run"]],
+        env={"PATH": path, "RELEASE_OBJECT": str(release), **env},
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_a_locked_pin_stops_before_fetching_without_credentials(tmp_path):
     _, _, step = _step(_workflow(), FETCH_STEP)
-    # Run only the guard: everything before the first corpus-lock branch.
-    guard = step["run"].split("if [ -d axiom-corpus/.axiom/corpus-locks ]", 1)[0]
+    release, marker, path = _fetch_sandbox(tmp_path, locks=True, provisions=False)
     for env in ({}, {"R2_ACCESS_KEY_ID": "id"}, {"R2_SECRET_ACCESS_KEY": "s"}):
-        result = _run(guard, env)
+        result = _run_fetch(step, tmp_path, release, path, env)
         assert result.returncode == 1
         assert "R2 corpus read credentials" in result.stderr
-    assert (
-        _run(guard, {"R2_ACCESS_KEY_ID": "id", "R2_SECRET_ACCESS_KEY": "s"}).returncode
-        == 0
+        assert not marker.exists()
+
+
+def test_a_locked_pin_with_credentials_fetches_its_provisions(tmp_path):
+    bash = _bash4()
+    if bash is None:
+        pytest.skip("the fetch step needs bash 4+ (mapfile); CI runs it on Ubuntu")
+    _, _, step = _step(_workflow(), FETCH_STEP)
+    release, marker, path = _fetch_sandbox(tmp_path, locks=True, provisions=False)
+    result = _run_fetch(
+        step,
+        tmp_path,
+        release,
+        path,
+        {"R2_ACCESS_KEY_ID": "id", "R2_SECRET_ACCESS_KEY": "s"},
+        bash=bash,
     )
+    assert result.returncode == 0, result.stderr
+    assert "--path data/corpus/provisions/us/statute/x.jsonl" in marker.read_text()
+
+
+def test_a_lockless_pin_needs_no_credentials(tmp_path):
+    # A git-history pin carries its provisions in the checkout and never reads R2.
+    _, _, step = _step(_workflow(), FETCH_STEP)
+    release, marker, path = _fetch_sandbox(tmp_path, locks=False, provisions=True)
+    result = _run_fetch(step, tmp_path, release, path, {})
+    assert result.returncode == 0, result.stderr
+    assert "R2 corpus read credentials" not in result.stderr
+    assert not marker.exists()
+
+
+def test_a_pin_with_neither_locks_nor_provisions_fails(tmp_path):
+    _, _, step = _step(_workflow(), FETCH_STEP)
+    release, marker, path = _fetch_sandbox(tmp_path, locks=False, provisions=False)
+    result = _run_fetch(step, tmp_path, release, path, {})
+    assert result.returncode == 1
+    assert "neither locks nor provisions" in result.stderr
+    assert not marker.exists()

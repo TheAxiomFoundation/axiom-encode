@@ -1231,11 +1231,13 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_CORPUS_READ_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
-            echo "::error::R2 corpus read credentials are not available to this workflow; locked corpus scopes stored only in R2 cannot be fetched. Grant axiom-encode access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials." >&2
-            exit 1
-          fi
           if [ -d axiom-corpus/.axiom/corpus-locks ]; then
+            # Only a lock-pinned corpus fetches from R2; a lockless (git-history)
+            # pin reads its provisions from the checkout and needs no credential.
+            if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
+              echo "::error::R2 corpus read credentials are not available to this workflow; locked corpus scopes stored only in R2 cannot be fetched. Grant axiom-encode access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials." >&2
+              exit 1
+            fi
             provision_paths_json="$(jq -e \
               '[.content.artifacts[] | select(.artifact_class == "provisions") | .path]
                | if length > 0 then . else error("no provision artifacts") end' \
