@@ -102,6 +102,10 @@ class InvalidActiveCorpusSourceError(CorpusResolutionError):
     """An active corpus record exists but cannot produce a valid source body."""
 
 
+class RepealedCorpusSourceError(InvalidActiveCorpusSourceError):
+    """The requested active corpus row is marked repealed."""
+
+
 class CorpusRowStructureError(CorpusResolutionError):
     """A matching corpus row is missing required scope or release metadata."""
 
@@ -702,7 +706,7 @@ def resolve_local_corpus_source(
         selected = records[0]
         candidate = by_path[selected.row.citation_path]
         if selected.status == "repealed":
-            raise InvalidActiveCorpusSourceError(
+            raise RepealedCorpusSourceError(
                 f"Active corpus source {selected.row.citation_path!r} is repealed"
             )
         component_rows: tuple[CorpusRowIdentity, ...] = ()
