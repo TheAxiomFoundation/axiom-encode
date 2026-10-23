@@ -921,7 +921,8 @@ jobs:
                [ -n "${REPAIR_RUN_ID:-}" ] || \
                [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
                [ -n "${QUEUE_ID:-}" ] || \
-               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               { [ -n "${DEPENDENT_CITATION:-}" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
                [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
                [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
                [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
@@ -1493,6 +1494,7 @@ jobs:
           REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
           SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
+          CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
           set -euo pipefail
@@ -1521,6 +1523,13 @@ jobs:
              [ -z "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
             cascade_args+=(--allow-proof-import-subset)
           fi
+          if [ -n "$CORPUS_EXPORT_RUN_ID" ] && \
+             [ -n "$DEPENDENT_CITATION" ] && \
+             [ -z "$SECOND_DEPENDENT_CITATION" ] && \
+             [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
+             [ "$REPLACE_RULESPEC_PATH" = "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
+            cascade_args+=(--allow-source-bound-dependent-alias)
+          fi
           cascade_args+=(--json)
           cascade_args+=("${dependent_citations[@]}")
           cascade_result="$("${cascade_args[@]}")"
@@ -1530,7 +1539,7 @@ jobs:
             'type == "array" and length == $count and all(.[]; type == "string" and length > 0)' \
             <<< "$dependent_paths_json" > /dev/null
           case "$cascade_mode" in
-            all-direct|all-direct-proof-chain|proof-import-subset|proof-import-subset-chain|proof-import-chain) ;;
+            all-direct|all-direct-proof-chain|proof-import-subset|proof-import-subset-chain|proof-import-chain|source-bound-proof-alias) ;;
             *)
               echo "dependent cascade returned an invalid scheduling mode" >&2
               exit 1
@@ -1587,7 +1596,8 @@ jobs:
                [ -n "${REPAIR_RUN_ID:-}" ] || \
                [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
                [ -n "${QUEUE_ID:-}" ] || \
-               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               { [ -n "${DEPENDENT_CITATION:-}" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
                [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
                [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
                [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
@@ -2162,7 +2172,8 @@ jobs:
           scheduled_dependent_paths_json="[]"
           if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ] || \
              [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain" ] || \
-             [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ]; then
+             [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ] || \
+             [ "${DEPENDENT_CASCADE_MODE:-}" = "source-bound-proof-alias" ]; then
             scheduled_dependent_paths_json="$(
               jq -cn \
                 --arg first "$dependent_rulespec_path" \
@@ -2216,7 +2227,8 @@ jobs:
                [ -n "${REPAIR_RUN_ID:-}" ] || \
                [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
                [ -n "${QUEUE_ID:-}" ] || \
-               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               { [ -n "${DEPENDENT_CITATION:-}" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
                [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
                [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
                [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
@@ -2655,7 +2667,8 @@ jobs:
               primary_target_only=true
               if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ] || \
                  [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain" ] || \
-                 [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ]; then
+                 [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ] || \
+                 [ "${DEPENDENT_CASCADE_MODE:-}" = "source-bound-proof-alias" ]; then
                 primary_target_only=false
               fi
               queue_operation encode \
@@ -2680,6 +2693,8 @@ jobs:
               dependent_replacement_path=""
               if [ -n "${REPAIR_CANDIDATE_ROOT:-}" ] && \
                  [ "$REPAIR_RUN_LANE" = "dependent" ]; then
+                dependent_replacement_path="$dependent_rulespec_path"
+              elif [ "${DEPENDENT_CASCADE_MODE:-}" = "source-bound-proof-alias" ]; then
                 dependent_replacement_path="$dependent_rulespec_path"
               fi
               queue_operation encode \

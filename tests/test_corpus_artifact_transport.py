@@ -219,6 +219,40 @@ def test_in_place_legacy_replacement_transport_preserves_ece_dependents():
     }
 
 
+def test_transport_admits_one_reviewed_source_bound_dependent():
+    legacy_path = (
+        "us-az/policies/des/faa5/na-categorical-eligibility/"
+        "expanded-categorical-eligibility.yaml"
+    )
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": legacy_path,
+        "REPLACE_LEGACY_RULESPEC_PATH": legacy_path,
+        "DEPENDENT_CITATION": (
+            "us-az/manual/des/faa5/na-categorical-eligibility/block-5"
+        ),
+        "DEPENDENT_REVIEW_FINDING": (
+            "Regenerate the benefit calculation against the signed 200% "
+            "block-5 source and update its proof import."
+        ),
+    }
+    assert transport.request_run_id(json.dumps(WRAPPER), dispatch) == "123"
+    assert resolve_atomic_repair_mode(json.dumps(WRAPPER), dispatch) == {
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
+
+    with pytest.raises(ValueError, match="reviewed in-place"):
+        transport.request_run_id(
+            json.dumps(WRAPPER), {**dispatch, "DEPENDENT_REVIEW_FINDING": ""}
+        )
+    with pytest.raises(ValueError, match="only one fresh primary"):
+        transport.request_run_id(
+            json.dumps(WRAPPER),
+            {**dispatch, "SECOND_DEPENDENT_CITATION": "us-az/manual/another"},
+        )
+
+
 def test_corpus_transport_rejects_arbitrary_legacy_path_move():
     dispatch = {
         "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",

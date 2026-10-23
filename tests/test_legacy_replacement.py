@@ -31,6 +31,7 @@ from axiom_encode.legacy_replacement import (
     legacy_v1_manifest_issues,
     receipt_identity_payload,
     receipt_identity_sha256,
+    source_bound_dependent_proof_imports,
 )
 from axiom_encode.legacy_replacement_overlay import (
     LegacyReplacementOverlayError,
@@ -39,6 +40,47 @@ from axiom_encode.legacy_replacement_overlay import (
     stage_legacy_replacement_overlay,
 )
 from axiom_encode.rulespec_path_migration import PlannedMove
+
+
+def test_source_bound_dependent_requires_own_source_and_exact_primary_proof() -> None:
+    primary = Path("us-az/policies/des/faa5/expanded-categorical-eligibility.yaml")
+    target = "us-az:policies/des/faa5/expanded-categorical-eligibility#limit"
+    digest = "a" * 64
+    source = "us-az/manual/des/faa5/na-categorical-eligibility/block-5"
+    body = (
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        f"    corpus_citation_path: {source}\n"
+        "imports:\n"
+        f"  - {target}\n"
+        "rules:\n"
+        "  - name: benefit_limit\n"
+        "    metadata:\n"
+        "      proof:\n"
+        "        atoms:\n"
+        "          - kind: import\n"
+        "            import:\n"
+        f"              target: {target}\n"
+        f"              hash: sha256:{digest}\n"
+    ).encode()
+    assert source_bound_dependent_proof_imports(
+        body, primary=primary, primary_sha256=digest, source_citation=source
+    ) == (target,)
+    with pytest.raises(ValueError, match="proof hash differs"):
+        source_bound_dependent_proof_imports(
+            body.replace(digest.encode(), ("b" * 64).encode()),
+            primary=primary,
+            primary_sha256=digest,
+            source_citation=source,
+        )
+    with pytest.raises(ValueError, match="source citation differs"):
+        source_bound_dependent_proof_imports(
+            body,
+            primary=primary,
+            primary_sha256=digest,
+            source_citation=source + "-other",
+        )
 
 
 def test_canonical_replacement_overlay_omits_only_active_colon_paths(tmp_path) -> None:
@@ -1343,6 +1385,54 @@ def _in_place_legacy_checkout(
     return checkout, content_root, source
 
 
+def test_in_place_contract_admits_one_distinct_source_bound_proof_import(
+    tmp_path: Path,
+) -> None:
+    checkout, content_root, source = _in_place_legacy_checkout(tmp_path)
+    primary = Path("us-me/policies/income_tax/pilot_liability_pipeline.yaml")
+    dependent = Path("us-me/policies/income_tax/pilot_benefit.yaml")
+    target = "us-me:policies/income_tax/pilot_liability_pipeline#rate"
+    source_citation = "us-me/guidance/revenue/pilot-benefit"
+    digest = hashlib.sha256((checkout / primary).read_bytes()).hexdigest()
+    path = checkout / dependent
+    path.write_text(
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        f"    corpus_citation_path: {source_citation}\n"
+        "imports:\n"
+        f"  - {target}\n"
+        "rules:\n"
+        "  - name: benefit\n"
+        "    metadata:\n"
+        "      proof:\n"
+        "        atoms:\n"
+        "          - kind: import\n"
+        "            import:\n"
+        f"              target: {target}\n"
+        f"              hash: sha256:{digest}\n"
+    )
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "source-bound dependent")
+    with patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source):
+        contract = _resolve_legacy_replacement_contract(
+            source_raw=primary,
+            destination_raw=primary,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source,
+            corpus_release=SimpleNamespace(),
+            scheduled_dependent_paths=(dependent,),
+        )
+    assert len(contract.scheduled_dependents) == 1
+    scheduled = contract.scheduled_dependents[0]
+    assert scheduled.primary == dependent
+    assert scheduled.source_citation == source_citation
+    assert len(scheduled.files) == 1
+    assert scheduled.files[0].path == dependent
+    assert scheduled.files[0].replacements == ()
+
+
 def test_contract_binds_in_place_plural_source_and_unmarked_v1(
     tmp_path: Path,
 ) -> None:
@@ -1389,12 +1479,12 @@ def test_contract_rejects_in_place_source_choice_outside_first_legacy_slot(
         )
 
 
-def test_contract_rejects_in_place_path_dependents(tmp_path: Path) -> None:
+def test_contract_rejects_missing_in_place_dependent(tmp_path: Path) -> None:
     checkout, content_root, source = _in_place_legacy_checkout(tmp_path)
     relative = Path("us-me/policies/income_tax/pilot_liability_pipeline.yaml")
     with (
         patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source),
-        pytest.raises(ValueError, match="cannot schedule path dependents"),
+        pytest.raises(ValueError, match="unique tracked 0644"),
     ):
         _resolve_legacy_replacement_contract(
             source_raw=relative,

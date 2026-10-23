@@ -1,6 +1,14 @@
-## 0.2.2253
+## 0.2.2255
+
+- Prefetch authenticated signed corpus provision exports for protected runs whose release provisions are R2-only, with exact exporter, archive, release, and provision-byte checks.
+
+## 0.2.2254
 
 - Accept the exact reviewed corpus exporter dependency-file pair for the current PyMuPDF minimum-version update, while rejecting mixed or otherwise changed exporter checkouts.
+
+## 0.2.2253
+
+- Regenerate Arizona ECE's proof-pinned dependent from its own signed FAA5 source in the same protected legacy replacement transaction, and verify both source bindings and the updated proof hash before publication.
 
 ## 0.2.2252
 

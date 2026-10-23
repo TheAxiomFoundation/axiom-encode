@@ -2820,6 +2820,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset"' in command
     assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain"' in command
     assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain"' in command
+    assert 'DEPENDENT_CASCADE_MODE:-}" = "source-bound-proof-alias"' in command
+    assert 'scheduled_dependent_paths_json="$(' in command
+    assert '--arg first "$dependent_rulespec_path"' in command
     assert '"$DEPENDENT_CITATION" "$DEPENDENT_REVIEW_FINDING" \\\n' in command
     assert '"$REPLACE_RULESPEC_PATH" "$REPLACE_LEGACY_RULESPEC_PATH"' in command
     assert '"$CITATION" "$REVIEW_FINDING" false \\\n' in command
