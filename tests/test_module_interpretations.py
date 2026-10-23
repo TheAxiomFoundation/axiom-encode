@@ -12,6 +12,8 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from axiom_encode.harness.proof_validator import (
+    _interpretation_yaml_constraints,
+    _safe_load_with_interpretation_constraints,
     _validate_source_proof_atom,
     find_interpretation_yaml_issues,
     proof_source_citation_paths,
@@ -665,6 +667,436 @@ def test_interpretation_yaml_mappings_reject_merge_keys():
     assert result.issues == [
         "module.interpretations[0].alternatives[1] must not use YAML merge keys."
     ]
+
+
+RAW_RULES = """rules:
+  - name: weekly_review_rate
+    kind: parameter
+    dtype: Float
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '0.2'
+"""
+
+# Safe loading would resolve the duplicate `question` and turn `! 1e5` into
+# the string "1e5", so only the raw guard can see these two defects.
+RAW_SHADOWED_INTERPRETATIONS = f"""  interpretations:
+    - id: weekly-review
+      question: Discarded when YAML resolves the duplicate key
+      question: ! 1e5
+      texts:
+        - corpus_citation_path: {CITATION}
+          excerpt: {EXCERPT}
+      reading: Review supplies once a week.
+      alternatives:
+        - id: daily-review
+          reading: Review supplies every day.
+      basis: The fictional Lantern schedule supports weekly reviews.
+      status: open
+      affects:
+        - weekly_review_rate
+"""
+
+MODULE_MERGE_MESSAGE = (
+    "module must not supply `interpretations` through YAML merge keys; "
+    "the engine does not apply them."
+)
+
+
+@pytest.mark.parametrize(
+    ("anchors", "module"),
+    [
+        pytest.param("", "module:\n  <<: *defaults\n", id="mapping"),
+        pytest.param("", "module:\n  <<: [*defaults]\n", id="sequence"),
+        pytest.param(
+            "x-outer: &outer\n  <<: *defaults\n",
+            "module:\n  <<: *outer\n",
+            id="nested",
+        ),
+        pytest.param(
+            "x-title: &title\n  title: Fictional Lantern review schedule\n",
+            "module:\n  <<: [*title, *defaults]\n",
+            id="second-of-two",
+        ),
+        pytest.param(
+            "",
+            "module:\n  <<: *defaults\n  interpretations: []\n",
+            id="overridden-by-explicit-key",
+        ),
+    ],
+)
+def test_interpretation_yaml_rejects_interpretations_supplied_by_module_merge_keys(
+    anchors, module
+):
+    content = (
+        "format: rulespec/v1\n"
+        "x-defaults: &defaults\n"
+        f"{RAW_SHADOWED_INTERPRETATIONS}{anchors}{module}{RAW_RULES}"
+    )
+    assert find_interpretation_yaml_issues(content) == [MODULE_MERGE_MESSAGE]
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [MODULE_MERGE_MESSAGE]
+
+
+def test_interpretation_yaml_rejects_module_supplied_by_root_merge_keys():
+    module = "  module:\n" + "".join(
+        "  " + line for line in RAW_SHADOWED_INTERPRETATIONS.splitlines(True)
+    )
+    content = f"format: rulespec/v1\nx-base: &base\n{module}<<: *base\n{RAW_RULES}"
+    message = (
+        "RuleSpec root must not supply `module` through YAML merge keys; "
+        "the engine does not apply them."
+    )
+    assert find_interpretation_yaml_issues(content) == [message]
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [message]
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param(
+            _raw_payload().replace(
+                "module:\n",
+                "x-title: &title\n  title: Fictional Lantern review schedule\n"
+                "module:\n  <<: *title\n",
+                1,
+            ),
+            id="merge-supplies-other-metadata",
+        ),
+        # A quoted `<<` is an ordinary key to PyYAML and to the engine alike.
+        pytest.param(
+            "format: rulespec/v1\nx-defaults: &defaults\n"
+            f"{RAW_SHADOWED_INTERPRETATIONS}module:\n  '<<': *defaults\n{RAW_RULES}",
+            id="quoted-merge-spelling",
+        ),
+    ],
+)
+def test_interpretation_yaml_allows_module_merges_that_cannot_supply_interpretations(
+    content,
+):
+    assert find_interpretation_yaml_issues(content) == []
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.passed, result.issues
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement", "location"),
+    [
+        (
+            "  interpretations:\n",
+            "  !!merge interpretations:\n",
+            "module key `interpretations`",
+        ),
+        ("module:\n", "!!merge module:\n", "RuleSpec root key `module`"),
+    ],
+)
+def test_interpretation_yaml_rejects_merge_tags_that_hide_interpretations_on_load(
+    original, replacement, location
+):
+    # PyYAML merges the tagged value into its parent, so the loaded module has
+    # no `interpretations`; the engine reads the key by name and validates it.
+    content = _raw_payload().replace(original, replacement, 1)
+    loaded = yaml.safe_load(content)
+    assert "interpretations" not in (loaded.get("module") or {})
+    message = (
+        f"{location} has unsupported YAML tag `tag:yaml.org,2002:merge`; only the "
+        "canonical string tag `!!str` (`tag:yaml.org,2002:str`) is supported."
+    )
+    assert find_interpretation_yaml_issues(content) == [message]
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [message]
+
+
+def _with_unknown_interpretation_key(content):
+    return content.replace(
+        "      status: open\n", "      status: open\n      unreviewed: true\n", 1
+    )
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement", "label"),
+    [
+        ("module:\n", "module: !!set\n", "module"),
+        ("format: rulespec/v1\n", "--- !!set\nformat: rulespec/v1\n", "RuleSpec root"),
+        (
+            "format: rulespec/v1\n",
+            "%TAG !y! tag:yaml.org,2002:\n--- !y!set\nformat: rulespec/v1\n",
+            "RuleSpec root",
+        ),
+    ],
+)
+def test_interpretation_yaml_rejects_set_tags_that_hide_mappings_on_load(
+    original, replacement, label
+):
+    # PyYAML loads a `!!set` mapping as a set of its keys, so the interpretation
+    # below is never validated; the engine ignores the tag and reads the mapping.
+    content = _with_unknown_interpretation_key(
+        _raw_payload().replace(original, replacement, 1)
+    )
+    loaded = yaml.safe_load(content)
+    assert isinstance(loaded if label == "RuleSpec root" else loaded["module"], set)
+    message = (
+        f"{label} has unsupported YAML tag `tag:yaml.org,2002:set`; only an "
+        "untagged mapping or `!!map` is supported."
+    )
+    assert find_interpretation_yaml_issues(content) == [message]
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [message]
+
+
+def test_rulespec_root_set_tag_no_longer_skips_proof_validation():
+    content = "--- !!set\n" + _raw_payload().replace(
+        "module:\n", "module:\n  proof_validation:\n    required: true\n", 1
+    )
+    assert not validate_rulespec_proofs(content.removeprefix("--- !!set\n")).passed
+    result = validate_rulespec_proofs(content)
+    assert result.issues == [
+        "RuleSpec root has unsupported YAML tag `tag:yaml.org,2002:set`; only an "
+        "untagged mapping or `!!map` is supported."
+    ]
+
+
+@pytest.mark.parametrize("tag", ["!", "!!map", "!<tag:yaml.org,2002:map>"])
+@pytest.mark.parametrize(
+    ("original", "replacement"),
+    [("module:\n", "module: {tag}\n"), ("format:", "--- {tag}\nformat:")],
+)
+def test_interpretation_yaml_allows_map_tags_on_root_and_module(
+    tag, original, replacement
+):
+    content = _raw_payload().replace(original, replacement.format(tag=tag), 1)
+    assert isinstance(yaml.safe_load(content)["module"], dict)
+    assert find_interpretation_yaml_issues(content) == []
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.passed, result.issues
+    invalid = validate_rulespec_proofs(
+        _with_unknown_interpretation_key(content), source_texts={CITATION: EXCERPT}
+    )
+    assert invalid.issues == [f"{LABEL} has unknown key `unreviewed`."]
+
+
+def _surrogate_message(location):
+    return (
+        f"{location} must not contain UTF-16 surrogate code points (U+D800 to "
+        "U+DFFF); the engine accepts only Unicode scalar values."
+    )
+
+
+# PyYAML decodes these escapes to lone surrogates (a pair is not combined);
+# the engine rejects each as an invalid Unicode escape.
+SURROGATE_SCALARS = [
+    '"\\uD800 review"',
+    '"\\uDC00 review"',
+    '"\\U0000DFFF review"',
+    '"\\uD83D\\uDE00 review"',
+    '!!str "\\uD800 review"',
+]
+
+
+@pytest.mark.parametrize("scalar", SURROGATE_SCALARS)
+@pytest.mark.parametrize(
+    "path", [("question",), ("alternatives", 0, "reading"), ("ruling", "by")]
+)
+def test_interpretation_yaml_rejects_surrogate_escapes(path, scalar):
+    content = _raw_string_payload(path, scalar)
+    message = _surrogate_message(f"module.interpretations[0]{_field_label(path)}")
+    assert find_interpretation_yaml_issues(content) == [message]
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [message]
+
+
+def test_interpretation_yaml_allows_escaped_supplementary_characters():
+    content = _raw_string_payload(("question",), '"\\U0001F600 review"')
+    assert yaml.safe_load(content)["module"]["interpretations"][0]["question"] == (
+        "\U0001f600 review"
+    )
+    assert find_interpretation_yaml_issues(content) == []
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.passed, result.issues
+
+
+def test_interpretation_surrogate_diagnostics_stay_encodable():
+    content = _raw_payload(entry_id='"weekly-\\uD800"').replace(
+        "      status: open\n", '      status: open\n      "un\\uDC00known": 1\n', 1
+    )
+    raw_issues = find_interpretation_yaml_issues(content)
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert not result.passed
+    for issue in [*raw_issues, *result.issues]:
+        issue.encode("utf-8")
+    assert _surrogate_message("module.interpretations[0].id") in result.issues
+    assert (
+        _surrogate_message("module.interpretations[0] key `un\\udc00known`")
+        in result.issues
+    )
+    assert raw_issues == [
+        issue for issue in result.issues if issue.startswith("module.")
+    ]
+
+
+FIRST_KEYS = [
+    "    - id: weekly-review\n",
+    "        - corpus_citation_path:",
+    "        - id: daily-review\n",
+]
+
+
+@pytest.mark.parametrize("original", FIRST_KEYS)
+@pytest.mark.parametrize("tag", ["!!str", "!<tag:yaml.org,2002:str>"])
+def test_interpretation_yaml_accepts_string_tag_on_first_mapping_key(original, tag):
+    # A block mapping starts where its first key starts; the key's tag belongs
+    # to the key, not to the mapping.
+    content = _raw_payload().replace(original, original.replace("- ", f"- {tag} "))
+    assert content != _raw_payload()
+    assert find_interpretation_yaml_issues(content) == []
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.passed, result.issues
+
+
+@pytest.mark.parametrize(
+    ("original", "location"),
+    [
+        ("    - id: weekly-review\n", "module.interpretations[0] key `id`"),
+        (
+            "        - corpus_citation_path:",
+            "module.interpretations[0].texts[0] key `corpus_citation_path`",
+        ),
+        (
+            "        - id: daily-review\n",
+            "module.interpretations[0].alternatives[0] key `id`",
+        ),
+    ],
+)
+def test_interpretation_yaml_reports_first_key_tags_on_the_key(original, location):
+    content = _raw_payload().replace(original, original.replace("- ", "- ! "))
+    message = (
+        f"{location} has unsupported YAML tag `!`; only the canonical string tag "
+        "`!!str` (`tag:yaml.org,2002:str`) is supported."
+    )
+    assert find_interpretation_yaml_issues(content) == [message]
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [message]
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param(_raw_payload() + "module: {}\n", id="empty-last"),
+        pytest.param(
+            _raw_payload().replace(
+                "format: rulespec/v1\n", "format: rulespec/v1\nmodule: {}\n"
+            ),
+            id="empty-first",
+        ),
+        pytest.param(_raw_payload() + '"module": {}\n', id="quoted"),
+        pytest.param(_raw_payload() + "? module\n: {}\n", id="explicit-key"),
+        pytest.param(
+            _raw_payload().replace(
+                "rules:\n",
+                "module:\n"
+                + _raw_payload().split("module:\n")[1].split("rules:\n")[0]
+                + "rules:\n",
+            ),
+            id="identical",
+        ),
+    ],
+)
+def test_interpretation_yaml_rejects_duplicate_root_module_keys(content):
+    message = "RuleSpec root has duplicate key `module`."
+    assert find_interpretation_yaml_issues(content) == [message]
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [message]
+
+
+def test_interpretation_yaml_scans_every_root_module_block():
+    content = (
+        _raw_payload().replace(
+            "      question: Does the fictional Lantern scheme review weekly or "
+            "daily?\n",
+            "      question: ! 1e5\n",
+        )
+        + "module: {}\n"
+    )
+    assert yaml.safe_load(content)["module"] == {}
+    issues = [
+        "RuleSpec root has duplicate key `module`.",
+        "module.interpretations[0].question has unsupported YAML tag `!`; only the "
+        "canonical string tag `!!str` (`tag:yaml.org,2002:str`) is supported.",
+    ]
+    assert find_interpretation_yaml_issues(content) == issues
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == issues
+
+
+def _assert_single_pass_load_matches_safe_load(content):
+    payload, issues, numeric_id_paths = _safe_load_with_interpretation_constraints(
+        content
+    )
+    assert payload == yaml.safe_load(content)
+    assert (issues, numeric_id_paths) == _interpretation_yaml_constraints(content)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        _raw_payload(),
+        _raw_payload(entry_id="1e5", alternative_id="! daily-review"),
+        _raw_payload().replace("    - id: weekly-review\n", "    - !!str id: x\n"),
+        _raw_payload() + "module: {}\n",
+        "format: rulespec/v1\nx-defaults: &defaults\n"
+        f"{RAW_SHADOWED_INTERPRETATIONS}module:\n  <<: [*defaults]\n{RAW_RULES}",
+        _raw_payload().replace("module:\n", "!!merge module:\n", 1),
+        "--- !!set\n" + _raw_payload(),
+        _raw_payload().replace("module:\n", "module: !!set\n", 1),
+        "x: &a {b: &c [1, *c]}\ny: *a\n",
+        "--- !!map\n? outer\n: {<<: [{k: v}, {j: u}], k: w}\n",
+    ],
+)
+def test_single_pass_interpretation_load_matches_safe_load(content):
+    if "*c" in content:
+        # Recursive values cannot be compared with ==; compare the raw view only.
+        assert _safe_load_with_interpretation_constraints(content)[1:] == (
+            _interpretation_yaml_constraints(content)
+        )
+        return
+    _assert_single_pass_load_matches_safe_load(content)
+
+
+_YAML_SCALARS = (
+    st.none()
+    | st.booleans()
+    | st.integers()
+    | st.floats(allow_nan=False)
+    | st.text(max_size=12)
+    | st.dates()
+)
+_YAML_VALUES = st.recursive(
+    _YAML_SCALARS,
+    lambda children: (
+        st.lists(children, max_size=4)
+        | st.dictionaries(st.text(max_size=8), children, max_size=4)
+    ),
+    max_leaves=16,
+)
+
+
+@settings(max_examples=200, deadline=None)
+@given(
+    value=_YAML_VALUES,
+    under_interpretations=st.booleans(),
+    flow_style=st.sampled_from([None, True, False]),
+)
+def test_single_pass_interpretation_load_matches_safe_load_for_generated_yaml(
+    value, under_interpretations, flow_style
+):
+    module = {"interpretations": value} if under_interpretations else value
+    content = yaml.safe_dump(
+        {"format": "rulespec/v1", "module": module},
+        default_flow_style=flow_style,
+        allow_unicode=True,
+    )
+    _assert_single_pass_load_matches_safe_load(content)
 
 
 def test_interpretation_yaml_constraints_allow_aliases_without_recursing_forever():
