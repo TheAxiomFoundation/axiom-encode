@@ -22999,7 +22999,7 @@ def test_guidance_glossary_dash_heading_is_not_arithmetic_policy(dash: str):
     assert not completeness_module._source_exception_requires_paired_witness(source)
 
 
-def test_nonoperative_parolee_glossary_duration_is_not_a_boundary_obligation():
+def test_parolee_glossary_keeps_boundary_when_cleaned_locator_is_unauthenticated():
     source = (
         "Parolees Paroled into the U.S. under section 212(d)(5) of the INA for "
         "a period of at least 1 year."
@@ -23013,7 +23013,11 @@ def test_nonoperative_parolee_glossary_duration_is_not_a_boundary_obligation():
         extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
     )
 
-    assert obligations == ()
+    # Full citation cleanup removes the locator that the base glossary veto
+    # required. Retain the duration rather than broaden that exemption to
+    # prose whose legal identity can no longer be positively authenticated.
+    assert len(obligations) == 1
+    assert obligations[0][1].value == 1
 
 
 def test_operative_parolee_duration_remains_a_boundary_obligation():

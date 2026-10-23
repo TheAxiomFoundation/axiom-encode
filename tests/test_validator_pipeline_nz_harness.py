@@ -126,13 +126,13 @@ def test_local_french_and_dutch_year_durations_keep_month_conversion(source, mon
     assert months in vp.extract_numeric_occurrences_from_text(source)
 
 
-# Synthetic clause caption authenticates this positive layout control.
+# Synthetic marker-only layout: value-column separators are unsupported.
 FLATTENED_RATE_TABLE = (
     "Clause | Provision\n1 | The rates of winter energy payment are as follows:\n"
-    "(a) | to a person who is single and has no dependent children | $ 450 per winter period "
-    "(b) | to a person who is single and has 1 or more dependent children | $ 700 per winter period "
+    "(a) | to a person who is single and has no dependent children receives $ 450 per winter period "
+    "(b) | to a person who is single and has 1 or more dependent children receives $ 700 per winter period "
     "(c) | to a person who is in a relationship, and who is the 1 spouse or partner "
-    "who is entitled under section 72(3) | $ 700 per winter period "
+    "who is entitled under section 72(3) receives $ 700 per winter period "
     "2 | For the purposes of clause 1(a) and (b), dependent child means any other person who— "
     "(a) | is a child; and (b) | may be, but need not be, a child in respect of whom "
     "payments are made under section 363."
@@ -143,7 +143,7 @@ def test_flattened_table_coverage_preserves_row_and_enclosing_clause_boundaries(
     segments = vp._top_level_source_subparagraph_segments(FLATTENED_RATE_TABLE)
     assert [label for label, _ in segments] == ["a", "b", "c", "a", "b"]
     assert segments[0][1] == (
-        "to a person who is single and has no dependent children | $ 450 per winter period"
+        "to a person who is single and has no dependent children receives $ 450 per winter period"
     )
     assert all("dependent child means" not in body for _, body in segments)
     assert vp._high_signal_top_level_coverage_demands(FLATTENED_RATE_TABLE) == []

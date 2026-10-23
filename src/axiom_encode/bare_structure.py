@@ -145,6 +145,11 @@ _TABLE_REPLACEMENT_INTRO = re.compile(
     r"(?:\s+(?:to|through|and)\s+[1-9]\d*[A-Z]*)?\s+with\s*[:—-]\s*$",
     re.IGNORECASE,
 )
+_TABLE_CLAUSE_CAPTION = re.compile(
+    r"[ \t|]*(?:clauses?|sections?|subsections?|subclauses?|paragraphs?)"
+    r"[ \t]*\|[ \t]*[^|\r\n]+?[ \t]*\|?[ \t]*",
+    re.IGNORECASE,
+)
 _TABLE_RECIPIENT = re.compile(r"^To\s+(?:a|an|the|any)\s+", re.IGNORECASE)
 _TABLE_SCOPE = re.compile(
     r"^(?:For\s+the\s+purposes?\s+of|In\s+(?:sections?|subsections?|clauses?|"
@@ -321,9 +326,11 @@ def _table_number_successor(previous: str, current: str) -> bool:
 def table_outline(text: str) -> tuple[BareLabel, ...] | None:
     """Authenticate prose-headed clause rows in a flattened pipe table.
 
-    Pipe separators authenticate physical cell boundaries, not numeric labels
-    on their own. Numeric siblings must be ordered and head complete statutory
-    prose or recipient descriptions; ordinary count/amount tables abstain.
+    Only marker-to-prose cells are supported. Every pipe in the region must
+    belong to a supported marker, except a leading border before that marker.
+    Additional value cells and unknown child cells abstain: their ownership is
+    ambiguous in flattened text. An immediate legal caption or replacement
+    locator must identify this region, rather than an earlier outer table.
     Parenthetical children retain the same nesting and source offsets as the
     surrounding clauses, including when several rows share a physical line.
     """
@@ -347,15 +354,42 @@ def table_outline(text: str) -> tuple[BareLabel, ...] | None:
     roots = [marker for marker in markers if marker.group("number")]
     if not roots:
         return None
-    for line in text[: roots[0].start()].splitlines():
-        column, separator, _rest = line.lstrip(" \t|").partition("|")
-        if separator and (
-            _ROW_CAPTION.match(column) or _QUANTITY_SUBJECT.match(column)
-        ):
-            # Nested eligibility conditions can occur in an ordinary count or
-            # amount table. An explicit value-column caption outweighs those
-            # children as evidence that its numbers are statutory locators.
+    prefix = text[: roots[0].start()].rstrip(" \t|")
+    heading_lines = prefix.rstrip().splitlines()
+    caption = heading_lines[-1] if heading_lines else ""
+    introduction = _TABLE_REPLACEMENT_INTRO.search(prefix)
+    if not _TABLE_CLAUSE_CAPTION.fullmatch(caption) and (
+        introduction is None or introduction["first"] != roots[0]["number"]
+    ):
+        return None
+    if any(_DEFINITION_HEADER.match(line.lstrip(" \t|")) for line in text.splitlines()):
+        # Borders are layout, not ownership. A detached definition needs its
+        # own branch even when a leading pipe precedes its head.
+        return None
+    marker_pipes = {text.index("|", marker.start(), marker.end()) for marker in markers}
+    line_start = roots[0].start()
+    for line in text[line_start:].splitlines(keepends=True):
+        leading = len(line) - len(line.lstrip(" \t"))
+        if leading < len(line) and line[leading] == "|":
+            leading += 1
+            while leading < len(line) and line[leading] in " \t":
+                leading += 1
+        if line.strip() and line_start + leading not in marker_starts:
+            # Wrapped prose and unmarked headings do not positively identify
+            # this region's rows. Either might begin an embedded table.
             return None
+        for pipe in re.finditer(r"\|", line):
+            position = line_start + pipe.start()
+            if position < roots[0].start() or position in marker_pipes:
+                continue
+            following = position + 1
+            while following < len(text) and text[following] in " \t":
+                following += 1
+            if line[: pipe.start()].strip() or following not in marker_starts:
+                # A new heading, bare child, detached cell or extra value
+                # column cannot borrow the current table's legal identity.
+                return None
+        line_start += len(line)
     labels: list[BareLabel] = []
     stack: list[str] = []
     for index, marker in enumerate(markers):
@@ -403,22 +437,6 @@ def table_outline(text: str) -> tuple[BareLabel, ...] | None:
             BareLabel(token, tuple(stack), marker.start(), marker.end(), len(text))
         )
     if len(roots) == 1 and not any(len(label.path) > 1 for label in labels):
-        return None
-    introduction = _TABLE_REPLACEMENT_INTRO.search(text[: roots[0].start()])
-    clause_heading = re.search(
-        r"(?im)^[ \t|]*(?:clauses?|sections?|subsections?|subclauses?|paragraphs?)"
-        r"[ \t]*\|",
-        text[: roots[0].start()],
-    )
-    if not clause_heading and (
-        introduction is None or introduction["first"] != roots[0]["number"]
-    ):
-        # Count-keyed tables can contain complete prose and nested eligibility
-        # conditions. Only an explicit legal locator authenticates the roots.
-        return None
-    if any(_DEFINITION_HEADER.match(line) for line in text.splitlines()):
-        # Independent definitions need boundaries beyond pipe markers. Retain
-        # all obligations until this layout has an authenticated ownership walk.
         return None
     next_at_depth = [len(text)] * 3
     result: list[BareLabel] = []

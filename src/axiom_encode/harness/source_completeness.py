@@ -2241,15 +2241,30 @@ _EXPLICIT_LEGAL_SECTION_REFERENCE = re.compile(
     r"(?P<section>\d+[a-z]?)",
     flags=re.IGNORECASE,
 )
+# A locator atom must finish before known layout or terminal punctuation.
+# Consume its supported child chain before testing this boundary.
+_LEGAL_LOCATOR_ATOM_BOUNDARY = r"(?!\s*\()(?=$|\s|[;:!?)}\]]|[.,](?=\s|$))"
+# Canonical dependency paths below represent sections. A paragraph may be a
+# different legal container with the same number, so the general blocker alias
+# grammar cannot prove its kind. Require positively typed section syntax.
+_CANONICAL_SECTION_REFERENCE = re.compile(
+    r"(?:§{1,2}\s*|\bsections?\s+)(?P<section>\d+[a-z]*)"
+    r"(?:\s*\([A-Za-z0-9]+\))*" + _LEGAL_LOCATOR_ATOM_BOUNDARY,
+    # Consume every supported child and prove the atom's boundary. An unknown
+    # attached suffix cannot be silently dropped, including by backtracking.
+    flags=re.IGNORECASE,
+)
 _ENGLISH_LEGAL_LOCATOR = (
     r"\d+[A-Za-z]*(?:\.\d+)*(?:\s*\([A-Za-z0-9]+\))*"
-    r"(?![A-Za-z0-9]|[.,]\d)"
+    # A complete opaque atom must end before known layout or punctuation.
+    # Never clean a prefix of an attached unsupported identifier or child.
+    + _LEGAL_LOCATOR_ATOM_BOUNDARY
 )
 _ENGLISH_LEGAL_LIST_LOCATOR = (
     rf"(?:{_ENGLISH_LEGAL_LOCATOR}|"
     # A coordinated parenthetical continues the preceding named provision:
     # `sections 311(1), (2), and 338` keeps every locator in the citation.
-    r"\([A-Za-z0-9]+\)(?:\s*\([A-Za-z0-9]+\))*(?![A-Za-z0-9]))"
+    r"\([A-Za-z0-9]+\)(?:\s*\([A-Za-z0-9]+\))*" + _LEGAL_LOCATOR_ATOM_BOUNDARY + r")"
     # The unit check must see the end of the whole chain; otherwise optional
     # suffix backtracking can leave `(a)` between an amount and its unit.
     r"(?!\s*\([A-Za-z0-9]+\))"
@@ -2264,6 +2279,12 @@ _ENGLISH_LEGAL_LIST_LOCATOR = (
     rf"(?:{_RECALL_UNIT_WORD}|seconds?|minutes?|fortnights?|quarters?|"
     r"per\s+cent|euros?|pounds?|rand|"
     r"USD|EUR|GBP|CAD|AUD|NZD|ZAR)\b)"
+    # Bare continuations need a positive list boundary. An arbitrary word
+    # after a number supplies no evidence that the number is a locator.
+     + rf"(?=\s*(?:[.;:)]|$|{_ENGLISH_LEGAL_LOCATOR}|"
+    rf"\([A-Za-z0-9]+\)|"
+    rf"(?:,\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)"
+    rf"(?:{_ENGLISH_LEGAL_LOCATOR}|\([A-Za-z0-9]+\))))"
 )
 _ENGLISH_LEGAL_CITATION = re.compile(
     r"\b(?:articles?|sections?|secs?\.?|regulations?|paragraphs?|"
@@ -2271,6 +2292,14 @@ _ENGLISH_LEGAL_CITATION = re.compile(
     + _ENGLISH_LEGAL_LOCATOR
     + r"(?:\s*(?:,\s*(?:(?:and|or)\s+)?|"
     r"(?:through|to|and|or)\s+|[-–—]\s*)" + _ENGLISH_LEGAL_LIST_LOCATOR + r")*",
+    flags=re.IGNORECASE,
+)
+# A possible locator must not prove a substantive conversion base. Retain the
+# inherited lexical grammar for this conservative veto; numeric-recall cleanup
+# above separately requires positive evidence before deleting a continuation.
+_POSSIBLE_ENGLISH_LEGAL_CITATION = re.compile(
+    r"\b(?:articles?|sections?|secs?\.?|regulations?|paragraphs?)\s+"
+    r"\d+(?:\.\d+)*(?:\s*(?:through|to|[-–—]|and|,)\s*\d+(?:\.\d+)*)*",
     flags=re.IGNORECASE,
 )
 # A complete parenthesis containing only a Statutes at Large volume/page
@@ -5137,6 +5166,7 @@ def _looks_like_temporal_or_structural_number(
     for pattern in (
         _STATED_CONVERSION_DATE,
         _GERMAN_LEGAL_CITATION,
+        _POSSIBLE_ENGLISH_LEGAL_CITATION,
         _ENGLISH_LEGAL_CITATION,
         _STRUCTURAL_REFERENCE,
     ):
@@ -7338,6 +7368,7 @@ def _source_scope_identifies_blocker(
     blocker: str,
     *,
     corpus_citation_path: str,
+    reference_pattern: re.Pattern[str] | None = None,
 ) -> bool:
     """Reject citations expressly described as unrelated to the source rule."""
 
@@ -7351,11 +7382,13 @@ def _source_scope_identifies_blocker(
     section = target_path.rstrip("/").rsplit("/", 1)[-1]
     references = tuple(
         match
-        for match in _EXPLICIT_LEGAL_SECTION_REFERENCE.finditer(source_scope_text)
+        for match in (reference_pattern or _EXPLICIT_LEGAL_SECTION_REFERENCE).finditer(
+            source_scope_text
+        )
         if match.group("section").lower() == section.lower()
     )
     if not references:
-        return True
+        return reference_pattern is None
     for reference in references:
         clause_start = (
             max(
@@ -9530,21 +9563,45 @@ def _reason_dependency_is_source_bound(
                 # authenticated branch or corpus document. Bare numeric tails
                 # can instead be Act metadata and establish no section.
                 implicit_section_index = 3
-            section_index = next(
+            explicit_locator_index = next(
                 (
-                    index + 1
+                    index
                     for index, component in enumerate(components[:-1])
                     if index >= 3
                     and component.casefold() in {"section", "article", "regulation"}
                 ),
-                implicit_section_index,
+                None,
             )
+            # Source binding below recognizes sections only. Keeping a numeric
+            # identifier while discarding an unsupported kind would bind an
+            # article or regulation to prose about a different kind of locator.
+            if explicit_locator_index is not None:
+                if components[explicit_locator_index].casefold() != "section":
+                    continue
+                section_index = explicit_locator_index + 1
+            else:
+                section_index = implicit_section_index
             if (
                 section_index is None
                 or section_index >= len(current_components)
                 or [part.casefold() for part in components[:section_index]]
                 != [part.casefold() for part in current_components[:section_index]]
             ):
+                continue
+            if any(
+                tail
+                and not re.fullmatch(
+                    rf"{descendant_locator}(?:/{descendant_locator})*",
+                    "/".join(tail),
+                    flags=re.IGNORECASE,
+                )
+                for tail in (
+                    components[section_index + 1 :],
+                    current_components[section_index + 1 :],
+                )
+            ):
+                # Explicit and implicit section paths share the same supported
+                # descendant grammar; an unknown terminal kind cannot disappear.
                 continue
             section = components[section_index]
             if (
@@ -9565,6 +9622,9 @@ def _reason_dependency_is_source_bound(
                 source_scope_text,
                 f"{corpus_instrument_target}/{section}#dependency",
                 corpus_citation_path=corpus_citation_path,
+                reference_pattern=(
+                    _CANONICAL_SECTION_REFERENCE if canonical is not None else None
+                ),
             ):
                 return True
             continue
@@ -25080,6 +25140,12 @@ def _explicit_source_arithmetic_topology(text: str) -> Any | None:
     result is a nested tuple of immutable scalars that callers only compare.
     """
 
+    # Possible citation identifiers cannot prove arithmetic. This inherited
+    # lexical veto is deliberately separate from numeric-recall cleanup: an
+    # ambiguous reference retains its quantities without inventing a formula.
+    text = _POSSIBLE_ENGLISH_LEGAL_CITATION.sub(
+        lambda match: " " * len(match.group(0)), text
+    )
     tokens = tuple(_SYMBOLIC_ARITHMETIC_TOKEN.finditer(text))
     candidates: list[tuple[int, int, str]] = []
     for start_index, start_token in enumerate(tokens):
@@ -37804,9 +37870,7 @@ def _source_boundary_is_nonoperative_guidance_definition(
             flags=re.IGNORECASE,
         )
         and re.search(
-            # Complete legal-citation cleanup removes the locator; legacy
-            # numeric views retained its parenthetical subsection suffix.
-            r"\bunder\s+(?:\([a-z]\)\(\d+\)\s+)?of\s+the\s+INA\s+for\s+a\s+"
+            r"\bunder\s+\([a-z]\)\(\d+\)\s+of\s+the\s+INA\s+for\s+a\s+"
             r"period\s+of\s+at\s+least\s+\d+(?:\.\d+)?\s+years?\b",
             collapsed,
             flags=re.IGNORECASE,

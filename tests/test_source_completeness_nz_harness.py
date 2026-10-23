@@ -7,6 +7,7 @@ Source: New Zealand Legislation (legislation.govt.nz), Crown copyright, CC BY 4.
 from __future__ import annotations
 
 import pytest
+import yaml
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
@@ -30,7 +31,10 @@ def test_completed_prose_subsections_mask_only_structural_numbers():
         "2\nThe winter energy payment is payable for up to a maximum of 28 days.\n"
         "3\nSections 219 and 436 do not apply to the winter energy payment.\n"
     )
-    assert numeric_values(source, f"{NZ_ACT}/section/220") == [1, 28]
+    # The terminal prose "do not apply" does not authenticate a bare final
+    # list item. Keep its conservative numeric obligation while retaining all
+    # three positively identified subsection branches.
+    assert numeric_values(source, f"{NZ_ACT}/section/220") == [1, 28, 436]
     assert {branch.path for branch in sc.recognize_source_structure(source)} == {
         ("1",),
         ("2",),
@@ -38,8 +42,8 @@ def test_completed_prose_subsections_mask_only_structural_numbers():
     }
 
 
-def test_flattened_table_keeps_numeric_clause_labels_out_of_recall():
-    # Synthetic clause caption supplies the evidence absent from the NZ excerpt.
+def test_unsupported_value_table_retains_numeric_clause_label_obligations():
+    # Even a legal caption cannot authenticate extra value-cell ownership.
     source = (
         "Clause | Provision\n1 | The rates of winter energy payment are as follows:\n"
         "(a) | to a person who is single and has no dependent children | $ 450 "
@@ -49,28 +53,31 @@ def test_flattened_table_keeps_numeric_clause_labels_out_of_recall():
         "any other person who is a child.\n"
     )
     assert numeric_values(source, f"{NZ_ACT}/schedule/4/part/8/clause/lms118454") == [
+        1,
         450,
         1,
         700,
+        2,
     ]
 
 
-def test_amendment_locator_numbers_are_not_policy_values():
+def test_unsupported_amendment_value_table_retains_numeric_row_obligations():
     source = (
         "In Schedule 4 , Part 7, replace clauses 4 to 6A with:\n"
         "4 | To a person | $305 a week\n"
         "4A | To a specified person | $220 a week\n"
         "5 | To any other person | $160 a week\n"
     )
-    assert numeric_values(source, NZ_AMENDMENT) == [305, 220, 160]
+    assert numeric_values(source, NZ_AMENDMENT) == [4, 305, 220, 5, 160]
 
 
 def test_table_alternatives_have_independent_source_gate_ownership():
     source = (
         "In Schedule 4, Part 7, replace clauses 4 to 5 with:\n"
-        "4 | To a person who has dependent children and is in a relationship | "
+        # Synthetic marker-only rows have no ambiguous value-cell boundary.
+        "4 | To a person who has dependent children and is in a relationship "
         "$305 a week, if the applicant resides in Area 1\n"
-        "5 | To any other person | $235 a week, if the applicant resides in Area 2\n"
+        "5 | To any other person $235 a week, if the applicant resides in Area 2\n"
     )
     clauses, ambiguous = sc._source_condition_clauses_owned_by_excerpt(
         "$305 a week",
@@ -287,8 +294,9 @@ def test_german_grammatical_prose_authenticates_fallback_without_corpus_path():
 def test_clause_reference_stays_in_owning_table_row():
     source = (
         "In Schedule 4, Part 7, replace clauses 6 to 6B with:\n"
-        "6 | To any other person | $165 a week\n"
-        "6AA | To any other specified person | $105 a week\n"
+        # Synthetic marker-only rows retain the independent clause owner.
+        "6 | To any other person $165 a week\n"
+        "6AA | To any other specified person $105 a week\n"
         "6A | The rate is the rate in clauses 1 to 6AA that would apply "
         "if they were single.\n"
         "6B | In clauses 4 to 6AA, specified person means a person receiving a benefit.\n"
@@ -565,3 +573,354 @@ def test_unsupported_canonical_locator_kinds_fail_closed(kind):
         f"The payment depends on {kind} 72.",
         corpus_citation_path=f"{NZ_ACT}/{kind}/220",
     )
+
+
+CITATION_CONTROL_INSTRUMENTS = [
+    NZ_ACT,
+    "uk/statute/example",
+    "us/statute/example",
+    "de/statute/example",
+    "fr/statute/example",
+]
+
+
+@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize(
+    ("source", "amount"),
+    [
+        (
+            "This section overrides sections 297, 311(1), and 338, and 450 is payable each week.",
+            450,
+        ),
+        (
+            "The supplement is the sum of the allowance under clauses 1 to 6AA and 20 times the weekly amount.",
+            20,
+        ),
+        (
+            "The supplement is the sum of the allowance under clauses 1 to 6AA and 20 basis points of earnings.",
+            20,
+        ),
+    ],
+)
+def test_citation_cleanup_keeps_round_two_operative_quantities(
+    instrument: str, source: str, amount: int
+):
+    from tests.test_source_completeness import (
+        EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        _analyze,
+    )
+
+    citation = f"{instrument}/section/74"
+    assert numeric_values(source, citation) == [amount]
+    content = yaml.safe_dump(
+        {
+            "format": "rulespec/v1",
+            "module": {"source_verification": {"corpus_citation_path": citation}},
+            "rules": [
+                {
+                    "name": "payment",
+                    "kind": "derived",
+                    "dtype": "Money",
+                    "source": citation,
+                    "versions": [{"formula": "0"}],
+                }
+            ],
+        }
+    )
+    result = _analyze(
+        content,
+        source,
+        corpus_citation_path=citation,
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+    )
+    assert any(
+        "numeric-recall" in issue and f"value {amount} has" in issue
+        for issue in result.issues
+    )
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    amount=st.integers(1, 999),
+    word=st.text(alphabet="abcdefghijklmnopqrstuvwxyz", min_size=1, max_size=16),
+)
+def test_citation_continuation_never_consumes_a_number_before_a_nonlocator_word(
+    amount: int, word: str
+):
+    source = (
+        f"The payment under sections 297, 311(1), and 338, and {amount} {word} applies."
+    )
+    assert numeric_values(source, f"{NZ_ACT}/section/74") == [amount]
+
+
+@pytest.mark.parametrize("terminal", [".", ";", ":", ")", ""])
+def test_citation_continuation_requires_a_positive_terminal(terminal: str):
+    assert (
+        numeric_values(
+            f"This section overrides sections 297, 311(1), and 338{terminal}",
+            f"{NZ_ACT}/section/74",
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize("kind", ["article", "regulation"])
+@pytest.mark.parametrize("prose_kind", ["section", "article", "regulation"])
+def test_unsupported_locator_never_binds_section_prose_or_defers_a_branch(
+    instrument: str, kind: str, prose_kind: str
+):
+    citation = f"{instrument}/{kind}/220"
+    reason = f"Cannot be computed until {instrument}/{kind}/72 is encoded."
+    source = f"(1) The payment depends on {prose_kind} 72."
+    assert not sc._reason_dependency_is_source_bound(
+        reason, source, corpus_citation_path=citation
+    )
+    covered, issues = sc._deferred_coverage(
+        {
+            "module": {
+                "deferred_outputs": [
+                    {
+                        "output": sc._rulespec_target_base(citation) + "/1#payment",
+                        "reason": reason,
+                    }
+                ]
+            }
+        },
+        corpus_citation_path=citation,
+        source_text=source,
+        branches=sc.recognize_source_structure(source, corpus_citation_path=citation),
+    )
+    assert covered == set()
+    assert any("does not name an exact missing dependency" in issue for issue in issues)
+
+
+@pytest.mark.parametrize("kind", ["article", "regulation"])
+def test_unsupported_outer_locator_cannot_be_rescued_by_a_nested_section(kind: str):
+    assert not sc._reason_dependency_is_source_bound(
+        f"Cannot be computed until {NZ_ACT}/{kind}/72/section/5 is encoded.",
+        "The payment depends on section 5.",
+        corpus_citation_path=f"{NZ_ACT}/{kind}/72/section/220",
+    )
+
+
+@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+def test_embedded_count_table_retains_actual_completeness_obligations(instrument: str):
+    from tests.test_source_completeness import (
+        EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        _analyze,
+    )
+
+    citation = f"{instrument}/section/74"
+    source = (
+        "Clause | Provision\n"
+        "1 | The rates are specified in the following table:\n"
+        "Number of children | Eligibility\n"
+        "2 | The household is eligible if— (a) | its income is below $450.\n"
+        "3 | The household is eligible if— (a) | its income is below $700."
+    )
+    content = yaml.safe_dump(
+        {
+            "format": "rulespec/v1",
+            "module": {"source_verification": {"corpus_citation_path": citation}},
+            "rules": [
+                {
+                    "name": "payment",
+                    "kind": "derived",
+                    "dtype": "Money",
+                    "source": citation,
+                    "versions": [{"formula": "0"}],
+                }
+            ],
+        }
+    )
+    result = _analyze(
+        content,
+        source,
+        corpus_citation_path=citation,
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+    )
+    for count in (2, 3):
+        assert any(
+            "numeric-recall" in issue and f"value {count} has" in issue
+            for issue in result.issues
+        )
+
+
+@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+def test_ambiguous_hyphenated_locator_retains_quantities_without_inventing_topology(
+    instrument: str,
+):
+    source = "Section 40-18-2 shall apply. The payment is $450."
+    cleaned = sc.authoritative_numeric_recall_text(
+        source, corpus_citation_path=f"{instrument}/section/74"
+    )
+    assert "40-18-2" in cleaned
+    assert 450 in numeric_values(source, f"{instrument}/section/74")
+    assert sc._explicit_source_arithmetic_topology(cleaned) is None
+
+
+@settings(max_examples=50, deadline=None)
+@given(components=st.lists(st.integers(1, 999), min_size=2, max_size=8))
+def test_ambiguous_hyphenated_locator_never_leaves_a_partial_arithmetic_tail(
+    components,
+):
+    locator = "-".join(str(component) for component in components)
+    source = f"Section {locator} shall apply. The payment is $450."
+    cleaned = sc.authoritative_numeric_recall_text(
+        source, corpus_citation_path=f"{NZ_ACT}/section/74"
+    )
+    assert locator in cleaned
+    assert sc._explicit_source_arithmetic_topology(cleaned) is None
+
+
+@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize("prose_kind", ["paragraph", "article", "regulation", "clause"])
+def test_canonical_section_dependency_requires_the_same_prose_locator_kind(
+    instrument: str, prose_kind: str
+):
+    assert not sc._reason_dependency_is_source_bound(
+        f"Cannot be computed until {instrument}/section/72 is encoded.",
+        f"The payment depends on {prose_kind} 72.",
+        corpus_citation_path=f"{instrument}/section/220",
+    )
+
+
+@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize("alias", ["section", "§", "§§"])
+def test_canonical_section_dependency_keeps_typed_section_references(instrument, alias):
+    assert sc._reason_dependency_is_source_bound(
+        f"Cannot be computed until {instrument}/section/72 is encoded.",
+        f"The payment depends on {alias} 72.",
+        corpus_citation_path=f"{instrument}/section/220",
+    )
+
+
+@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize("tail", ["article/73", "regulation/73", "unknown/73"])
+@pytest.mark.parametrize("location", ["dependency", "current"])
+def test_explicit_canonical_section_uses_supported_descendant_grammar(
+    instrument: str, tail: str, location: str
+):
+    dependency = f"{instrument}/section/72"
+    current = f"{instrument}/section/220"
+    if location == "dependency":
+        dependency += f"/{tail}"
+    else:
+        current += f"/{tail}"
+    assert not sc._reason_dependency_is_source_bound(
+        f"Cannot be computed until {dependency} is encoded.",
+        "The payment depends on section 72.",
+        corpus_citation_path=current,
+    )
+
+
+@pytest.mark.parametrize(
+    "source_kind", ["Articles", "Sections", "Regulations", "Paragraphs"]
+)
+def test_ambiguous_citation_number_cannot_authenticate_a_conversion_base(source_kind):
+    source = f"Under {source_kind} 10 to 12, converted monthly, it is 6150 dollars."
+    # Keep the conservative recall demand while refusing to infer that a
+    # possible locator is the monetary base of the converted result.
+    assert numeric_values(source, f"{NZ_ACT}/section/74") == [12, 6150]
+    assert not sc.source_states_stated_conversion_result(source)
+
+
+@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize(
+    "section_prose",
+    ["Section 72 remains unaffected.", "Section 72 has a heading."],
+)
+def test_canonical_dependency_kind_and_link_must_belong_to_the_same_reference(
+    instrument: str, section_prose: str
+):
+    source = f"(1) {section_prose} The payment depends on paragraph 72."
+    assert not sc._reason_dependency_is_source_bound(
+        f"Cannot be computed until {instrument}/section/72 is encoded.",
+        source,
+        corpus_citation_path=f"{instrument}/section/220",
+    )
+
+
+@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize("suffix", ["times the weekly amount", "is payable each week"])
+def test_unproven_attached_hyphen_range_retains_the_whole_identifier(
+    instrument, suffix
+):
+    source = f"The payment under sections 1-20 {suffix}."
+    cleaned = sc.authoritative_numeric_recall_text(
+        source, corpus_citation_path=f"{instrument}/section/74"
+    )
+    assert "1-20" in cleaned
+
+
+@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize(
+    "locator",
+    [
+        "72.5",
+        "72-5",
+        "72,5",
+        "72/5",
+        "72_5",
+        "72.foo",
+        "72-foo",
+        "72(foo-bar)",
+        "72 (5.1)",
+        "72-A",
+        "72/other",
+        "72–5",
+    ],
+)
+def test_canonical_section_dependency_never_binds_a_locator_prefix(instrument, locator):
+    assert not sc._reason_dependency_is_source_bound(
+        f"Cannot be computed until {instrument}/section/72 is encoded.",
+        f"The payment depends on section {locator}.",
+        corpus_citation_path=f"{instrument}/section/220",
+    )
+
+
+@pytest.mark.parametrize("locator", ["72", "72.", "72(5)", "72 (5)(a)"])
+def test_canonical_section_atom_keeps_terminal_punctuation_and_supported_children(
+    locator,
+):
+    assert sc._reason_dependency_is_source_bound(
+        f"Cannot be computed until {NZ_ACT}/section/72 is encoded.",
+        f"The payment depends on section {locator}",
+        corpus_citation_path=f"{NZ_ACT}/section/220",
+    )
+
+
+@pytest.mark.parametrize("suffix", [".5", "_x", "/5", "-a"])
+def test_parenthetical_locator_fragment_never_cleans_an_unsupported_atom_prefix(suffix):
+    source = f"The payment under sections 297, 311(1), and (450){suffix} is payable."
+    cleaned = sc.authoritative_numeric_recall_text(
+        source, corpus_citation_path=f"{NZ_ACT}/section/74"
+    )
+    assert f"(450){suffix}" in cleaned
+
+
+@settings(max_examples=50, deadline=None)
+@given(
+    amount=st.integers(1, 999),
+    suffix=st.one_of(
+        st.integers(1, 999).map(lambda value: f".{value}"),
+        st.integers(1, 999).map(lambda value: f"/{value}"),
+        st.text(alphabet="abcdefghijklmnopqrstuvwxyz", min_size=1, max_size=8).map(
+            lambda value: f"_{value}"
+        ),
+        st.text(alphabet="abcdefghijklmnopqrstuvwxyz", min_size=1, max_size=8).map(
+            lambda value: f"-{value}"
+        ),
+    ),
+)
+def test_generated_unsupported_parenthetical_atoms_abstain_from_prefix_cleanup(
+    amount, suffix
+):
+    source = (
+        f"The payment under sections 297, 311(1), and ({amount}){suffix} is payable."
+    )
+    cleaned = sc.authoritative_numeric_recall_text(
+        source, corpus_citation_path=f"{NZ_ACT}/section/74"
+    )
+    assert f"({amount}){suffix}" in cleaned
