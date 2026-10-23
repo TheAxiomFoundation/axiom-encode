@@ -15197,6 +15197,30 @@ def _contiguous_states_numeric_recall_spans(
             yield identifier.span()
 
 
+_IRS_PAGED_GUIDANCE_CITATION = re.compile(
+    r"us/guidance/irs/(?:rev-proc|notice)-\d{4}-\d+/page-(?P<page>[1-9]\d{0,3})"
+)
+_LEADING_PAGE_NUMBER_LINE = re.compile(r"[ \t]*(?P<page>[0-9]{1,4})[ \t]*\r?\n")
+
+
+def _irs_page_locator_numeric_recall_spans(
+    source_text: str, *, corpus_citation_path: str
+) -> Iterable[tuple[int, int]]:
+    """Prove an IRS PDF page's printed page number, never a leading amount.
+
+    Revenue procedure and notice pages start with the printed page number
+    alone on the first line. Only that exact line, equal to the citation's own
+    page index, is a locator; any other leading number stays demanded.
+    """
+
+    citation = _IRS_PAGED_GUIDANCE_CITATION.fullmatch(corpus_citation_path)
+    if citation is None:
+        return
+    line = _LEADING_PAGE_NUMBER_LINE.match(source_text)
+    if line is not None and line.group("page") == citation.group("page"):
+        yield line.span("page")
+
+
 def authoritative_numeric_recall_text(
     source_text: str,
     *,
@@ -15215,6 +15239,12 @@ def authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path
     )
     source_text = mask(source_text, form_numeric_locator_spans(source_text))
+    source_text = mask(
+        source_text,
+        _irs_page_locator_numeric_recall_spans(
+            source_text, corpus_citation_path=corpus_citation_path
+        ),
+    )
     source_text = mask_bare_labels(source_text)
     source_text = mask(
         source_text, _english_subdivision_numeric_recall_spans(source_text)
