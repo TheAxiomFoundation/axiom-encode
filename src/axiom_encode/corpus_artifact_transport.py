@@ -66,6 +66,13 @@ def request_run_id(raw: str, dispatch: dict[str, str]) -> str:
     return str(normalized["corpus_artifact_run_id"])
 
 
+def provision_run_ids(raw: str) -> list[str]:
+    """Return only strictly validated export IDs; the wrapper adds no source authority."""
+
+    normalized = split_atomic_source_input(raw)
+    return list(normalized.get("provision_export_run_ids", []))
+
+
 def git(repo: Path, *args: str) -> str:
     return subprocess.check_output(["git", "-C", str(repo), *args]).decode().strip()
 
@@ -333,7 +340,11 @@ def read_regular(path: Path, limit: int) -> bytes:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["request", "validate-export", "materialize"])
+    parser.add_argument(
+        "mode",
+        choices=["request", "provision-run-ids", "validate-export", "materialize"],
+    )
+    parser.add_argument("--provision-run-id")
     parser.add_argument("--corpus-checkout", type=Path)
     parser.add_argument("--toolchain", type=Path)
     parser.add_argument("--release-object", type=Path)
@@ -341,9 +352,19 @@ def main() -> None:
     parser.add_argument("--artifact-metadata", type=Path)
     parser.add_argument("--archive", type=Path)
     args = parser.parse_args()
-    run_id = request_run_id(
-        os.environ.get("ATOMIC_SOURCE_JSON") or "[]", dict(os.environ)
-    )
+    raw = os.environ.get("ATOMIC_SOURCE_JSON") or "[]"
+    if args.mode == "provision-run-ids":
+        for run_id in provision_run_ids(raw):
+            print(run_id)
+        return
+    if args.provision_run_id:
+        if args.mode not in {"validate-export", "materialize"}:
+            raise ValueError("provision run ID is not valid for this mode")
+        if args.provision_run_id not in provision_run_ids(raw):
+            raise ValueError("run ID is not authorized by exact provision wrapper")
+        run_id = args.provision_run_id
+    else:
+        run_id = request_run_id(raw, dict(os.environ))
     if args.mode == "request":
         print(run_id)
         return

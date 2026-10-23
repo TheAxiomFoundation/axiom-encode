@@ -8,6 +8,7 @@ import io
 import json
 import stat
 import subprocess
+import sys
 import zipfile
 from base64 import b64encode
 
@@ -37,6 +38,11 @@ WRAPPER = {
     "transaction": INNER,
     "corpus_artifact_run_id": "123",
 }
+PREFETCH = {
+    "schema": "axiom-encode/corpus-provision-prefetch/v1",
+    "transaction": INNER,
+    "provision_export_run_ids": ["123", "456", "789"],
+}
 DISPATCH = {
     "CITATION": "us/regulation/7/273/4",
     "REPLACE_RULESPEC_PATH": "us/regulations/7-cfr/273/4.yaml",
@@ -50,6 +56,68 @@ def test_wrapper_projects_only_source_contract():
         json.dumps(INNER)
     )
     assert json.loads(raw)["corpus_artifact_run_id"] == "123"
+
+
+def test_provision_prefetch_projects_only_source_contract():
+    raw = json.dumps(PREFETCH)
+    assert transport.request_run_id(raw, DISPATCH) == ""
+    assert transport.provision_run_ids(raw) == ["123", "456", "789"]
+    assert immutable_atomic_source_contract(raw) == split_atomic_source_input(
+        json.dumps(INNER)
+    )
+
+
+def test_provision_run_ids_cli_emits_no_blank_run(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["corpus_artifact_transport", "provision-run-ids"])
+    monkeypatch.setenv("ATOMIC_SOURCE_JSON", "[]")
+    transport.main()
+    assert capsys.readouterr().out == ""
+    monkeypatch.setenv("ATOMIC_SOURCE_JSON", json.dumps(PREFETCH))
+    transport.main()
+    assert capsys.readouterr().out == "123\n456\n789\n"
+
+
+def test_provision_materialization_rejects_unlisted_run_before_any_io(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["corpus_artifact_transport", "materialize", "--provision-run-id", "999"],
+    )
+    monkeypatch.setenv("ATOMIC_SOURCE_JSON", json.dumps(PREFETCH))
+    with pytest.raises(ValueError, match="not authorized"):
+        transport.main()
+
+
+@pytest.mark.parametrize(
+    "ids",
+    [[], ["0"], ["01"], ["123", "123"], [123], ["1" * 21], ["1"] * 9],
+)
+def test_provision_prefetch_rejects_invalid_run_ids(ids):
+    with pytest.raises(ValueError, match="run IDs"):
+        transport.provision_run_ids(
+            json.dumps({**PREFETCH, "provision_export_run_ids": ids})
+        )
+
+
+@pytest.mark.parametrize(
+    "change", ["extra", "nested", "repair", "not_object", "v4", "v5"]
+)
+def test_provision_prefetch_rejects_mixed_or_unknown_envelopes(change):
+    wrapper = copy.deepcopy(PREFETCH)
+    if change == "extra":
+        wrapper["unknown"] = True
+    elif change == "nested":
+        wrapper["transaction"] = copy.deepcopy(WRAPPER)
+    elif change == "repair":
+        wrapper["transaction"]["schema"] = "axiom-encode/atomic-source-transaction/v6"
+    elif change in {"v4", "v5"}:
+        wrapper["transaction"]["schema"] = (
+            f"axiom-encode/atomic-source-transaction/{change}"
+        )
+    else:
+        wrapper["transaction"] = []
+    with pytest.raises(ValueError):
+        transport.provision_run_ids(json.dumps(wrapper))
 
 
 @pytest.mark.parametrize(

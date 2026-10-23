@@ -2145,6 +2145,41 @@ def test_targeted_signed_reencode_reconciles_retired_inventory_before_commits() 
     )
 
 
+def test_provision_prefetch_is_authenticated_before_release_fetch() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = workflow["jobs"]["encode"]["steps"]
+    names = [step.get("name") for step in steps]
+    release = names.index("Fetch pinned signed corpus release object")
+    select = names.index("Select authenticated signed provision export runs")
+    metadata = names.index("Download authenticated provision export metadata")
+    validate = names.index("Validate authenticated provision export metadata")
+    archives = names.index("Download authenticated provision export archives")
+    prefetch = names.index("Prefetch authenticated signed provision members")
+    fetch = names.index("Fetch pinned corpus provision objects")
+    assert release < select < metadata < validate < archives < prefetch < fetch
+    assert "provision-run-ids" in steps[select]["run"]
+    assert "GH_TOKEN" not in steps[select].get("env", {})
+    assert "validate-export \\" in steps[validate]["run"]
+    assert '--provision-run-id "$export_run"' in steps[validate]["run"]
+    assert "GH_TOKEN" not in steps[validate].get("env", {})
+    assert steps[validate]["env"]["ATOMIC_SOURCE_JSON"] == (
+        "${{ inputs.source_bundle_json }}"
+    )
+    assert "materialize \\" in steps[prefetch]["run"]
+    assert "env -u GH_TOKEN" in steps[prefetch]["run"]
+    assert "GH_TOKEN" not in steps[prefetch].get("env", {})
+    assert steps[prefetch]["env"]["ATOMIC_SOURCE_JSON"] == (
+        "${{ inputs.source_bundle_json }}"
+    )
+    assert "GH_TOKEN" in steps[metadata]["env"]
+    assert "GH_TOKEN" in steps[archives]["env"]
+    assert steps[prefetch]["env"]["TRUST_CORPUS_RELEASE_ROOT"] == (
+        "${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}"
+    )
+
+
 def test_transport_legacy_required_cases_keep_all_three_protected_guards() -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()

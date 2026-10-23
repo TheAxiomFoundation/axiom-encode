@@ -1209,6 +1209,140 @@ jobs:
           fi
           echo "release_object=axiom-corpus/releases/${release_name}/${release_sha}.json" >> "$GITHUB_OUTPUT"
 
+      - name: Select authenticated signed provision export runs
+        env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+        run: |
+          set -euo pipefail
+          axiom-encode/.venv/bin/python -m axiom_encode.corpus_artifact_transport \
+            provision-run-ids > "$RUNNER_TEMP/corpus-provision-run-ids.txt"
+          jq -R -s 'split("\n") | map(select(length > 0))' \
+            "$RUNNER_TEMP/corpus-provision-run-ids.txt" > "$RUNNER_TEMP/corpus-provision-run-ids.json"
+
+      - name: Download authenticated provision export metadata
+        env:
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          export_run_0="$(jq -r '.[0] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_0" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_0" > "$RUNNER_TEMP/corpus-provision-0-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_0/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-0-artifacts.json"
+          fi
+          export_run_1="$(jq -r '.[1] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_1" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_1" > "$RUNNER_TEMP/corpus-provision-1-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_1/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-1-artifacts.json"
+          fi
+          export_run_2="$(jq -r '.[2] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_2" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_2" > "$RUNNER_TEMP/corpus-provision-2-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_2/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-2-artifacts.json"
+          fi
+          export_run_3="$(jq -r '.[3] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_3" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_3" > "$RUNNER_TEMP/corpus-provision-3-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_3/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-3-artifacts.json"
+          fi
+          export_run_4="$(jq -r '.[4] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_4" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_4" > "$RUNNER_TEMP/corpus-provision-4-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_4/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-4-artifacts.json"
+          fi
+          export_run_5="$(jq -r '.[5] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_5" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_5" > "$RUNNER_TEMP/corpus-provision-5-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_5/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-5-artifacts.json"
+          fi
+          export_run_6="$(jq -r '.[6] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_6" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_6" > "$RUNNER_TEMP/corpus-provision-6-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_6/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-6-artifacts.json"
+          fi
+          export_run_7="$(jq -r '.[7] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_7" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_7" > "$RUNNER_TEMP/corpus-provision-7-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_7/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-7-artifacts.json"
+          fi
+
+      - name: Validate authenticated provision export metadata
+        env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+        run: |
+          set -euo pipefail
+          : > "$RUNNER_TEMP/corpus-provision-artifact-ids.txt"
+          mapfile -t export_runs < "$RUNNER_TEMP/corpus-provision-run-ids.txt"
+          for index in "${!export_runs[@]}"; do
+            export_run="${export_runs[$index]}"
+            artifact_id="$(env -u GH_TOKEN axiom-encode/.venv/bin/python \
+              -m axiom_encode.corpus_artifact_transport validate-export \
+              --provision-run-id "$export_run" --corpus-checkout axiom-corpus \
+              --run-metadata "$RUNNER_TEMP/corpus-provision-${index}-run.json" \
+              --artifact-metadata "$RUNNER_TEMP/corpus-provision-${index}-artifacts.json")"
+            printf '%s\n' "$artifact_id" >> "$RUNNER_TEMP/corpus-provision-artifact-ids.txt"
+          done
+          jq -R -s 'split("\n") | map(select(length > 0))' \
+            "$RUNNER_TEMP/corpus-provision-artifact-ids.txt" > "$RUNNER_TEMP/corpus-provision-artifact-ids.json"
+
+      - name: Download authenticated provision export archives
+        env:
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          artifact_id_0="$(jq -r '.[0] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_0" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_0/zip" > "$RUNNER_TEMP/corpus-provision-0.zip"
+          fi
+          artifact_id_1="$(jq -r '.[1] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_1" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_1/zip" > "$RUNNER_TEMP/corpus-provision-1.zip"
+          fi
+          artifact_id_2="$(jq -r '.[2] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_2" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_2/zip" > "$RUNNER_TEMP/corpus-provision-2.zip"
+          fi
+          artifact_id_3="$(jq -r '.[3] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_3" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_3/zip" > "$RUNNER_TEMP/corpus-provision-3.zip"
+          fi
+          artifact_id_4="$(jq -r '.[4] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_4" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_4/zip" > "$RUNNER_TEMP/corpus-provision-4.zip"
+          fi
+          artifact_id_5="$(jq -r '.[5] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_5" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_5/zip" > "$RUNNER_TEMP/corpus-provision-5.zip"
+          fi
+          artifact_id_6="$(jq -r '.[6] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_6" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_6/zip" > "$RUNNER_TEMP/corpus-provision-6.zip"
+          fi
+          artifact_id_7="$(jq -r '.[7] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_7" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_7/zip" > "$RUNNER_TEMP/corpus-provision-7.zip"
+          fi
+
+      - name: Prefetch authenticated signed provision members
+        env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+          TRUST_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
+          RELEASE_OBJECT: ${{ steps.pinned_corpus_release.outputs.release_object }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          mapfile -t export_runs < "$RUNNER_TEMP/corpus-provision-run-ids.txt"
+          for index in "${!export_runs[@]}"; do
+            export_run="${export_runs[$index]}"
+            env -u GH_TOKEN axiom-encode/.venv/bin/python \
+              -m axiom_encode.corpus_artifact_transport materialize \
+              --provision-run-id "$export_run" --corpus-checkout axiom-corpus \
+              --toolchain "$RULESPEC_CHECKOUT/.axiom/toolchain.toml" \
+              --release-object "$RELEASE_OBJECT" \
+              --run-metadata "$RUNNER_TEMP/corpus-provision-${index}-run.json" \
+              --artifact-metadata "$RUNNER_TEMP/corpus-provision-${index}-artifacts.json" \
+              --archive "$RUNNER_TEMP/corpus-provision-${index}.zip"
+          done
+
       - name: Fetch pinned corpus provision objects
         shell: bash
         env:
