@@ -10,7 +10,8 @@ module) may classify those with a lower confidence.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -50,6 +51,57 @@ PRE_ENCODE_BLOCKED_STATUS = "pre_encode_blocked"
 _HARNESS_ISSUE_PREFIXES = ("[generated-yaml:io]", "[generated-yaml:decode]")
 _MAX_EVIDENCE = 8
 _MAX_EVIDENCE_CHARS = 200
+
+# Classes whose owner is not the encoder: a repair retry of the same target
+# with the same checkout, corpus and dispatch cannot fix them.
+NON_ENCODER_RETRY_STOP_CLASSES = frozenset({MIGRATION, PROCESS, INFRA, CORPUS})
+
+# An overlay or validator issue may carry a ``<file>.yaml: <gate>: `` or a
+# ``<file>.yaml: `` prefix; the classified text follows it.
+_ISSUE_FILE_PREFIX = re.compile(r"^[^\s:`]+\.ya?ml: (?:[a-z][a-z0-9_-]*: )?")
+
+# Per-issue rules. Each prefix names an issue whose inputs do not come from
+# the generated candidate, so every retry of the same invocation reports it
+# again. The list is deliberately short: an issue whose text could come from
+# the candidate (for example a compile error in an imported legacy module,
+# which a candidate can stop importing) stays unknown.
+_ISSUE_RULES: tuple[tuple[str, str, str | None, str], ...] = (
+    (
+        # The rules engine refuses the RuleSpec checkout root itself (an old
+        # root-level content directory), before it loads any module.
+        "Axiom rules engine compile failed: invalid RuleSpec repository root "
+        "configuration: root-level `",
+        MIGRATION,
+        "schema",
+        "rulespec-root-layout",
+    ),
+    (
+        # The resolver-owned corpus body is empty.
+        "[complete-source-unit:authoritative-source] The authoritative corpus "
+        "body is required",
+        CORPUS,
+        "content",
+        "complete-source-unit:authoritative-source",
+    ),
+    (
+        # The invocation's citation is not the one the signed dispatch
+        # contract names.
+        "[required-deferred-output-contract] generated citation does not "
+        "match the signed dispatch review contract",
+        PROCESS,
+        None,
+        "required-deferred-output-contract:citation",
+    ),
+    (
+        # The harness-chosen target path is not the one the signed dispatch
+        # contract names.
+        "[required-deferred-output-contract] generated RuleSpec path does not "
+        "match the signed dispatch review contract",
+        PROCESS,
+        None,
+        "required-deferred-output-contract:path",
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -127,6 +179,92 @@ def _blocking_gate_finding(outcome: Mapping[str, Any]) -> Mapping[str, Any] | No
     return None
 
 
+def classify_issue(text: object) -> FailureClassRecord:
+    """Classify one validator issue string from certain signals only.
+
+    An issue that no rule names is ``unknown``. No rule yields ``encoder``
+    or ``validator_fp``: issue text alone never assigns that fault.
+    """
+
+    if not isinstance(text, str):
+        return _unknown("issue:not-a-string")
+    body = _ISSUE_FILE_PREFIX.sub("", text.lstrip(), count=1)
+    for prefix, failure_class, subclass, tag in _ISSUE_RULES:
+        if body.startswith(prefix):
+            return _rule(failure_class, subclass, f"issue:{tag}")
+    return _unknown()
+
+
+RETRY_STOPPED_SCHEMA = "axiom-encode/retry-stopped/v1"
+
+
+def retry_stop_record(issues: Sequence[object]) -> dict[str, Any] | None:
+    """Return a ``retry_stopped`` record when no repair retry can help.
+
+    Every residual blocking issue must classify with ``certain`` confidence
+    into a class the encoder does not own. One unknown or encoder issue, or
+    no issues at all, returns ``None`` and the caller retries as before.
+    """
+
+    if isinstance(issues, (str, bytes)) or not isinstance(issues, Sequence):
+        return None
+    if not issues:
+        return None
+    records = [classify_issue(issue) for issue in issues]
+    if any(
+        record.confidence != "certain"
+        or record.failure_class not in NON_ENCODER_RETRY_STOP_CLASSES
+        for record in records
+    ):
+        return None
+    first = records[0]
+    classes: list[str] = []
+    tags: list[str] = []
+    for record in records:
+        label = (
+            record.failure_class
+            if record.subclass is None
+            else f"{record.failure_class}/{record.subclass}"
+        )
+        if label not in classes:
+            classes.append(label)
+        for item in record.evidence:
+            if item not in tags:
+                tags.append(item)
+    return {
+        "schema": RETRY_STOPPED_SCHEMA,
+        "class": first.failure_class,
+        "subclass": first.subclass,
+        "reason": (
+            "every residual blocking issue is certain non-encoder class "
+            + ", ".join(classes)
+        ),
+        "evidence": list(_evidence(*tags, *issues)),
+        "issue_count": len(records),
+    }
+
+
+def _retry_stopped_record(outcome: Mapping[str, Any]) -> FailureClassRecord | None:
+    stopped = outcome.get("retry_stopped")
+    if not isinstance(stopped, Mapping):
+        return None
+    failure_class = stopped.get("class")
+    subclass = stopped.get("subclass")
+    if failure_class not in NON_ENCODER_RETRY_STOP_CLASSES or (
+        subclass is not None
+        and subclass not in FAILURE_CLASSES.get(str(failure_class), ())
+    ):
+        return None
+    evidence = stopped.get("evidence")
+    return _rule(
+        str(failure_class),
+        subclass if isinstance(subclass, str) else None,
+        f"status:{outcome.get('status')}",
+        "retry_stopped",
+        *(evidence if isinstance(evidence, list) else ()),
+    )
+
+
 def classify_outcome(outcome: Mapping[str, Any]) -> FailureClassRecord | None:
     """Classify one recorded encode outcome from certain signals only.
 
@@ -157,6 +295,9 @@ def classify_outcome(outcome: Mapping[str, Any]) -> FailureClassRecord | None:
             f"status:{status}",
             f"pre_encode_gate:{finding.get('check')}",
         )
+    stopped = _retry_stopped_record(outcome)
+    if stopped is not None:
+        return stopped
     if outcome.get("timed_out") is True or outcome.get("failure_kind") == "timeout":
         return _rule(INFRA, None, f"status:{status}", "timeout")
     for key in ("apply_error", "primary_error"):
