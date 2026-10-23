@@ -1917,17 +1917,19 @@ def _is_amendment_row(row: _corpus_resolver.ActiveCorpusBodyRow) -> bool:
     return isinstance(document_type, str) and "amendment" in document_type.casefold()
 
 
-_AMENDMENT_TARGET_KEYS = {
-    "amended_act",
-    "amended_acts",
-    "amendment_target",
-    "amendment_targets",
-    "amends",
-    "amends_eli",
-    "target_act",
-    "target_acts",
-    "target_eli",
-}
+_AMENDMENT_PROVISION_TARGET_KEYS = frozenset({"amendment_target", "amendment_targets"})
+_AMENDMENT_TARGET_KEYS = frozenset(
+    {
+        "amended_act",
+        "amended_acts",
+        *_AMENDMENT_PROVISION_TARGET_KEYS,
+        "amends",
+        "amends_eli",
+        "target_act",
+        "target_acts",
+        "target_eli",
+    }
+)
 # Generic legal vocabulary cannot make an otherwise ambiguous name distinctive.
 _AMENDMENT_NAME_STOPWORDS = frozenset(
     {
@@ -2149,13 +2151,18 @@ def _target_document_identifiers(
     )
 
 
-def _amendment_target_values(metadata: Mapping[str, Any]) -> Iterator[str]:
+def _amendment_target_values(
+    metadata: Mapping[str, Any],
+    *,
+    target_keys: frozenset[str] = _AMENDMENT_TARGET_KEYS,
+) -> Iterator[str]:
+    """Read accepted target spellings and nesting for discovery and reservation."""
     for key, value in metadata.items():
         normalized_key = key.casefold().replace("-", "_")
-        if normalized_key in _AMENDMENT_TARGET_KEYS:
+        if normalized_key in target_keys:
             yield from _metadata_scalar_values(value)
         elif normalized_key == "amendment" and isinstance(value, dict):
-            yield from _amendment_target_values(value)
+            yield from _amendment_target_values(value, target_keys=target_keys)
 
 
 def _amendment_has_structured_document_target(
@@ -2181,11 +2188,12 @@ def _amendment_provision_targets(
     metadata: Mapping[str, Any],
 ) -> Iterator[tuple[str, ...]]:
     """Read provision targets separately from broad document declarations."""
-    for key in ("amendment_target", "amendment_targets"):
-        for value in _metadata_scalar_values(metadata.get(key)):
-            segments = _normalized_citation_path_segments(value)
-            if segments:
-                yield segments
+    for value in _amendment_target_values(
+        metadata, target_keys=_AMENDMENT_PROVISION_TARGET_KEYS
+    ):
+        segments = _normalized_citation_path_segments(value)
+        if segments:
+            yield segments
 
 
 def _amendment_targets_provision(

@@ -1,6 +1,7 @@
 """Amending provisions cannot supply executable behavior before commencement."""
 
 from datetime import date
+from hashlib import sha256
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +10,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from axiom_encode.harness.amendment_timing import amendment_timing_issues
+from axiom_encode.harness.proof_validator import validate_rulespec_proofs
 
 AMENDMENT = "nz/statute/act/public/2026/0054/section/15"
 COMMENCEMENT = "nz/statute/act/public/2026/0054/section/2"
@@ -267,3 +269,196 @@ def test_no_amendment_derived_rule_can_predate_commencement(effective, commencem
         _content(effective.isoformat()), [_document(commencement.isoformat())]
     )
     assert bool(issues) is (effective < commencement)
+
+
+_INDEXED_ANCHOR_FIELDS = [
+    "effective_from",
+    "effective_to",
+    "formula",
+    "formula.if.condition",
+    "values.household_size_1",
+    "condition",
+    "metadata",
+    "",
+]
+
+
+def _indexed_boolean_content(path, *, version_count=1):
+    payload = yaml.safe_load(_content("0001-01-01"))
+    rule = payload["rules"][0]
+    rule["name"] = "eligible"
+    rule["kind"] = "derived"
+    rule["metadata"]["proof"] = _proof(AMENDMENT, path)
+    rule["metadata"]["proof"]["atoms"][0]["kind"] = "effective_period"
+    rule["versions"] = [
+        {"effective_from": "0001-01-01", "formula": True} for _ in range(version_count)
+    ]
+    return yaml.safe_dump(payload)
+
+
+def test_authenticated_amendment_missing_version_index_is_rejected(tmp_path):
+    """The round-3 authenticated Boolean-rule probe cannot lose its bound."""
+    from axiom_encode.corpus_resolver import resolve_local_corpus_source
+    from axiom_encode.harness.evals import resolve_corpus_source_unit
+    from tests.test_amending_section_context import (
+        _AMENDING_SECTION,
+        _AMENDMENT_BODY,
+        _amendment_rows,
+    )
+    from tests.test_evals import _write_test_corpus_release
+
+    release = _write_test_corpus_release(tmp_path, _amendment_rows())
+    source = resolve_corpus_source_unit(_AMENDING_SECTION, release)
+    document = next(
+        item
+        for item in source.amendment_documents
+        if item.citation_path == _AMENDING_SECTION
+    )
+    resolved = resolve_local_corpus_source(_AMENDING_SECTION, release)
+    assert document.body == resolved.body == _AMENDMENT_BODY
+    assert (
+        resolved.to_attestation()["source_sha256"]
+        == sha256(document.body.encode()).hexdigest()
+    )
+
+    payload = yaml.safe_load(_indexed_boolean_content("versions[999].effective_from"))
+    atom = payload["rules"][0]["metadata"]["proof"]["atoms"][0]
+    atom["source"] = {
+        "corpus_citation_path": document.citation_path,
+        "excerpt": document.body,
+    }
+    content = yaml.safe_dump(payload)
+    proof = validate_rulespec_proofs(
+        content,
+        require_policy_proofs=True,
+        source_texts={document.citation_path: resolved.body},
+    )
+    timing = amendment_timing_issues(content, source.amendment_documents)
+    assert not proof.passed
+    assert any("no such version" in issue for issue in proof.issues)
+    assert any("no such version" in issue for issue in timing)
+
+
+@pytest.mark.parametrize("field", _INDEXED_ANCHOR_FIELDS)
+@pytest.mark.parametrize("index", [-1, 1, 999])
+def test_missing_version_index_rejected_for_every_anchor_kind(field, index):
+    path = f"versions[{index}]" + (f".{field}" if field else "")
+    content = _indexed_boolean_content(path)
+    proof = validate_rulespec_proofs(content, require_policy_proofs=True)
+    assert not proof.passed
+    assert any("no such version" in issue for issue in proof.issues)
+    timing = amendment_timing_issues(content, [_document()])
+    assert any("no such version" in issue for issue in timing)
+
+
+@pytest.mark.parametrize("proof_key", ["metadata", "proof"])
+@pytest.mark.parametrize("field", ["effective_from", "effective_to", "formula"])
+def test_missing_version_index_in_version_proof_is_rejected(proof_key, field):
+    payload = yaml.safe_load(_indexed_boolean_content("formula"))
+    version = payload["rules"][0]["versions"][0]
+    proof = _proof(AMENDMENT, f"versions[999].{field}")
+    if proof_key == "metadata":
+        version["metadata"] = {"proof": proof}
+    else:
+        version["proof"] = proof
+    content = yaml.safe_dump(payload)
+    proof_result = validate_rulespec_proofs(content, require_policy_proofs=True)
+    assert not proof_result.passed
+    assert any("no such version" in issue for issue in proof_result.issues)
+    issues = amendment_timing_issues(content, [_document()])
+    assert any("no such version" in issue for issue in issues)
+
+
+@pytest.mark.parametrize("versions", [None, [], {}, "invalid"])
+def test_indexed_proof_requires_an_explicit_version_list(versions):
+    payload = yaml.safe_load(_indexed_boolean_content("versions[0].effective_from"))
+    payload["rules"][0]["versions"] = versions
+    content = yaml.safe_dump(payload)
+    proof = validate_rulespec_proofs(content, require_policy_proofs=True)
+    assert not proof.passed
+    assert any("no such version" in issue for issue in proof.issues)
+    assert any(
+        "no such version" in issue
+        for issue in amendment_timing_issues(content, [_document()])
+    )
+
+
+@pytest.mark.parametrize("version", [None, "invalid", []])
+def test_indexed_proof_cannot_anchor_a_malformed_version(version):
+    payload = yaml.safe_load(_indexed_boolean_content("versions[0].effective_to"))
+    payload["rules"][0]["versions"] = [version]
+    content = yaml.safe_dump(payload)
+    proof = validate_rulespec_proofs(content, require_policy_proofs=True)
+    assert not proof.passed
+    assert any("version is malformed" in issue for issue in proof.issues)
+    assert any(
+        "version is malformed" in issue
+        for issue in amendment_timing_issues(content, [_document()])
+    )
+
+
+@given(
+    version_count=st.integers(min_value=1, max_value=8),
+    offset=st.integers(min_value=0, max_value=10**12),
+    negative=st.booleans(),
+    field=st.sampled_from(_INDEXED_ANCHOR_FIELDS),
+    spaced=st.booleans(),
+    owner=st.sampled_from(
+        ["rule_metadata", "rule_proof", "version_metadata", "version_proof"]
+    ),
+)
+@settings(max_examples=100, deadline=None)
+def test_no_proof_path_naming_a_missing_version_index_passes(
+    version_count, offset, negative, field, spaced, owner
+):
+    index = -offset - 1 if negative else version_count + offset
+    path = f"versions[{index}]" + (f".{field}" if field else "")
+    if spaced:
+        path = path.replace("[", " [ ").replace("]", " ] ").replace(".", " . ")
+    payload = yaml.safe_load(
+        _indexed_boolean_content(path, version_count=version_count)
+    )
+    rule = payload["rules"][0]
+    invalid_proof = rule["metadata"].pop("proof")
+    if owner == "rule_metadata":
+        rule["metadata"]["proof"] = invalid_proof
+    elif owner == "rule_proof":
+        rule["proof"] = invalid_proof
+    else:
+        rule["metadata"]["proof"] = _proof(PRINCIPAL)
+        rule["metadata"]["proof"]["atoms"][0]["kind"] = "effective_period"
+        if owner == "version_metadata":
+            rule["versions"][0]["metadata"] = {"proof": invalid_proof}
+        else:
+            rule["versions"][0]["proof"] = invalid_proof
+    content = yaml.safe_dump(payload)
+    proof = validate_rulespec_proofs(content, require_policy_proofs=True)
+    assert not proof.passed
+    assert any("no such version" in issue for issue in proof.issues)
+    timing = amendment_timing_issues(content, [_document()])
+    assert any("no such version" in issue for issue in timing)
+
+
+def test_valid_indexed_boolean_history_and_cutoff_proofs_are_preserved():
+    payload = yaml.safe_load(_indexed_boolean_content("formula"))
+    rule = payload["rules"][0]
+    rule["versions"] = [
+        {
+            "effective_from": "2018-11-26",
+            "effective_to": "2027-03-31",
+            "formula": False,
+        },
+        {"effective_from": "2027-04-01", "formula": True},
+    ]
+    atoms = [
+        _proof(PRINCIPAL, "versions[0].formula")["atoms"][0],
+        _proof(AMENDMENT, "versions[0].effective_to")["atoms"][0],
+        _proof(AMENDMENT, "versions[1].effective_from")["atoms"][0],
+        _proof(AMENDMENT, "versions[1].formula")["atoms"][0],
+    ]
+    for atom in atoms:
+        atom["kind"] = "effective_period"
+    rule["metadata"]["proof"]["atoms"] = atoms
+    content = yaml.safe_dump(payload)
+    assert validate_rulespec_proofs(content, require_policy_proofs=True).passed
+    assert amendment_timing_issues(content, [_document()]) == []

@@ -19,6 +19,34 @@ _REQUIRED = f"{_AMENDING_ACT}/section/4"
 _COMMENCEMENT = f"{_AMENDING_ACT}/section/2"
 _EXACT_BODY = "In Schedule 4, Part 7, clause 4, replace the amount with 305 euros."
 _COMMENCEMENT_BODY = "This Act comes into force on 1 April 2027."
+_TARGET_FIELD_VARIANTS = [
+    pytest.param("amendment_target", (), id="canonical-singular"),
+    pytest.param("amendment_targets", (), id="canonical-plural"),
+    pytest.param("AMENDMENT_TARGET", (), id="uppercase-singular"),
+    pytest.param("AMENDMENT_TARGETS", (), id="uppercase-plural"),
+    pytest.param("amendment-target", (), id="hyphenated-singular"),
+    pytest.param("Amendment-Targets", (), id="mixed-case-hyphenated-plural"),
+    pytest.param("amendment_target", ("amendment",), id="nested-singular"),
+    pytest.param("amendment_targets", ("amendment",), id="nested-plural"),
+    pytest.param("Amendment-Target", ("Amendment",), id="nested-mixed-case-hyphen"),
+    pytest.param(
+        "AMENDMENT-TARGETS", ("AMENDMENT", "amendment"), id="deeply-nested-plural"
+    ),
+]
+
+
+def _target_field_metadata(target_key, nesting, target):
+    value = [target] if target_key.casefold().endswith("targets") else target
+    metadata = {target_key: value}
+    for key in reversed(nesting):
+        metadata = {key: metadata}
+    return metadata
+
+
+def _replace_required_target_spelling(rows, target_key, nesting):
+    row = next(item for item in rows if item["citation_path"] == _REQUIRED)
+    row["metadata"].pop("amendment_target")
+    row["metadata"].update(_target_field_metadata(target_key, nesting, _TARGET))
 
 
 def _large_amendment_rows():
@@ -137,6 +165,48 @@ def test_principal_required_body_over_limit_blocks_and_names_evidence(
     tmp_path, required_path
 ):
     rows = _large_amendment_rows()
+    row = next(item for item in rows if item["citation_path"] == required_path)
+    row["body"] = str(row["body"]) + "x" * 12_001
+    release = _write_test_corpus_release(tmp_path, rows)
+    source = evals.resolve_corpus_source_unit(_TARGET, release)
+
+    with pytest.raises(ValueError, match="Unresolved amendment context") as error:
+        _workspace_prompt_for_source_unit(tmp_path, source)
+
+    assert required_path in str(error.value)
+
+
+@pytest.mark.parametrize(("target_key", "nesting"), _TARGET_FIELD_VARIANTS)
+def test_supported_target_spellings_preserve_required_evidence(
+    tmp_path, target_key, nesting
+):
+    rows = _large_amendment_rows()
+    _replace_required_target_spelling(rows, target_key, nesting)
+    release = _write_test_corpus_release(tmp_path, rows)
+    source = evals.resolve_corpus_source_unit(_TARGET, release)
+
+    workspace, _ = _workspace_prompt_for_source_unit(tmp_path, source)
+
+    assert {
+        item.citation_path
+        for item in source.amendment_documents
+        if item.required_for_target
+    } == {_REQUIRED, _COMMENCEMENT}
+    visible = {item.citation_path: item for item in workspace.amendment_documents}
+    assert visible[_REQUIRED].body == _EXACT_BODY
+    assert visible[_COMMENCEMENT].body == _COMMENCEMENT_BODY
+    assert {_REQUIRED, _COMMENCEMENT}.isdisjoint(
+        item["citation_path"] for item in workspace.dropped_amendment_documents
+    )
+
+
+@pytest.mark.parametrize(("target_key", "nesting"), _TARGET_FIELD_VARIANTS)
+@pytest.mark.parametrize("required_path", [_REQUIRED, _COMMENCEMENT])
+def test_supported_target_spellings_block_oversized_required_evidence(
+    tmp_path, target_key, nesting, required_path
+):
+    rows = _large_amendment_rows()
+    _replace_required_target_spelling(rows, target_key, nesting)
     row = next(item for item in rows if item["citation_path"] == required_path)
     row["body"] = str(row["body"]) + "x" * 12_001
     release = _write_test_corpus_release(tmp_path, rows)
@@ -442,6 +512,63 @@ def _targets_requested_provision(target):
         requested[: len(candidate)] == candidate
         or candidate[: len(requested)] == requested
     )
+
+
+def _case_and_separator_spellings(key):
+    return st.tuples(
+        *(
+            st.sampled_from(("_", "-"))
+            if character == "_"
+            else st.sampled_from((character, character.upper()))
+            for character in key
+        )
+    ).map("".join)
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    target_key=st.one_of(
+        _case_and_separator_spellings("amendment_target"),
+        _case_and_separator_spellings("amendment_targets"),
+    ),
+    nesting=st.lists(_case_and_separator_spellings("amendment"), max_size=4),
+    target=st.sampled_from(_TARGET_CHOICES),
+)
+def test_discovery_and_required_selection_share_supported_provision_spellings(
+    target_key, nesting, target
+):
+    metadata = _target_field_metadata(target_key, nesting, target)
+
+    assert list(evals._amendment_target_values(metadata)) == [target]
+    assert list(evals._amendment_provision_targets(metadata)) == [
+        evals._normalized_citation_path_segments(target)
+    ]
+    assert evals._amendment_targets_provision(
+        metadata, _TARGET
+    ) == _targets_requested_provision(target)
+
+
+@pytest.mark.parametrize(
+    "target_key",
+    [
+        "amended_act",
+        "amended_acts",
+        "amends",
+        "amends_eli",
+        "target_act",
+        "target_acts",
+        "target_eli",
+    ],
+)
+@pytest.mark.parametrize("nesting", [(), ("Amendment",)])
+def test_document_target_fields_do_not_reserve_provision_evidence(target_key, nesting):
+    metadata = _target_field_metadata(
+        target_key.upper().replace("_", "-"), nesting, _TARGET
+    )
+
+    assert list(evals._amendment_target_values(metadata)) == [_TARGET]
+    assert list(evals._amendment_provision_targets(metadata)) == []
+    assert evals._amendment_targets_provision(metadata, _TARGET) is False
 
 
 @settings(

@@ -11,7 +11,7 @@ import yaml
 _EXECUTABLE_KINDS = frozenset(
     {"parameter", "derived", "derived_relation", "data_relation"}
 )
-_VERSION_PATH = re.compile(r"^versions\[(\d+)\](?:\.|$)")
+_VERSION_PATH = re.compile(r"^versions\[(-?\d+)\](?:\.|$)")
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
 
 
@@ -26,7 +26,8 @@ def amendment_timing_issues(
     than commencement bounds; direct amendment requests require a bound
     before context assembly admits them.
     Principal-only versions remain free to retain their historical dates.
-    Rule-level proof atoms naming a version apply only to that version;
+    Indexed proof paths must name an existing version before any evidence
+    is scoped or excluded. Rule-level atoms naming a version apply only there;
     use these indexed paths to anchor principal history separately from
     amendment-derived behavior. Version proof adds evidence conservatively
     and never erases authenticated rule-level evidence.
@@ -76,6 +77,24 @@ def amendment_timing_issues(
         rule_name = str(rule.get("name") or f"rules[{rule_index}]")
         rule_atoms = _proof_atoms(rule)
         versions = rule.get("versions")
+        proof_owners = [(f"rule `{rule_name}`", rule)]
+        if isinstance(versions, list):
+            proof_owners.extend(
+                (f"rule `{rule_name}` versions[{index}]", version)
+                for index, version in enumerate(versions)
+                if isinstance(version, dict)
+            )
+        for owner_label, owner in proof_owners:
+            for atom_index, atom in enumerate(_proof_atoms(owner)):
+                if not isinstance(atom, Mapping):
+                    continue
+                issue = indexed_proof_path_issue(
+                    str(atom.get("path") or ""),
+                    versions=versions,
+                    label=f"{owner_label} proof atom {atom_index}",
+                )
+                if issue is not None:
+                    issues.append(issue)
         if not isinstance(versions, list) or not versions:
             versions = [rule]
         for version_index, version in enumerate(versions):
@@ -145,6 +164,30 @@ def _proof_atoms(value: Mapping[str, object]) -> list[object]:
         proof = value.get("proof")
     atoms = proof.get("atoms") if isinstance(proof, Mapping) else None
     return atoms if isinstance(atoms, list) else []
+
+
+def indexed_proof_path_issue(path: str, *, versions: object, label: str) -> str | None:
+    """Reject an indexed proof location before its index can exclude evidence.
+
+    This applies to every anchor field, including dates and Boolean formulas.
+    Field-specific shape checks remain the responsibility of proof validation.
+    """
+    normalized = re.sub(r"\s+", "", path).rstrip(".")
+    match = _VERSION_PATH.match(normalized)
+    if match is None:
+        return None
+    version_index = int(match.group(1))
+    if not isinstance(versions, list) or not 0 <= version_index < len(versions):
+        return (
+            f"Proof atom anchor invalid: {label} anchors `{normalized}`, "
+            "but the rule has no such version."
+        )
+    if not isinstance(versions[version_index], Mapping):
+        return (
+            f"Proof atom anchor invalid: {label} anchors `{normalized}`, "
+            "but that version is malformed."
+        )
+    return None
 
 
 def _atom_applies_to_version(atom: object, version_index: int) -> bool:
