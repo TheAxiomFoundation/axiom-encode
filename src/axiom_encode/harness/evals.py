@@ -196,6 +196,10 @@ _DUPLICATE_KEY_SCAN_RESOURCE_ISSUE = (
     "YAML nesting is too deep to check for duplicate mapping keys, so the "
     "file is not rewritten."
 )
+_TAG_SCAN_RESOURCE_ISSUE = (
+    "YAML nesting is too deep to check for unsupported tags, so the file is "
+    "not rewritten."
+)
 
 
 class _PreservedRepairOverlayError(ValueError):
@@ -17067,9 +17071,11 @@ def _rewrite_duplicate_key_issues(content: str) -> list[str]:
     """Why rewriting ``content`` through a YAML load could erase entries.
 
     Text that does not compose cannot load either, so callers keep their own
-    handling of it. The scan composes with one more frame per level than
-    ``yaml.safe_load``, so nesting can exhaust it where loading still works;
-    that text is reported too, since its duplicate keys cannot be ruled out.
+    handling of it, except PyYAML's plain ValueError, which their loaders let
+    escape and which is reported. The scan composes with one more frame per
+    level than ``yaml.safe_load``, so nesting can exhaust it where loading still
+    works; that text is reported too, since its duplicate keys cannot be ruled
+    out.
     """
 
     try:
@@ -17083,13 +17089,19 @@ def _rewrite_duplicate_key_issues(content: str) -> list[str]:
 
 
 def _rewrite_unsupported_tag_issues(content: str) -> list[str]:
-    """Tags that loading ``content`` would construct apart from the engine."""
+    """Tags that loading ``content`` would construct apart from the engine.
+
+    Like the duplicate-key check, text too deeply nested to scan is reported,
+    since its tags cannot be ruled out.
+    """
 
     try:
         return find_unsupported_yaml_tag_issues(content)
-    except (yaml.YAMLError, RecursionError):
+    except yaml.YAMLError:
         # Callers keep their own handling of unparseable text.
         return []
+    except RecursionError:
+        return [_TAG_SCAN_RESOURCE_ISSUE]
     except ValueError:
         return [_UNLOADABLE_YAML_ISSUE]
 

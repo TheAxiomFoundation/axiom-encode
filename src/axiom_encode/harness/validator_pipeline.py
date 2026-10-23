@@ -422,6 +422,10 @@ def _yaml_tag_issue(path: Path, issues: list[str]) -> str:
     return f"{path.name} has unsupported YAML tags: " + "; ".join(issues)
 
 
+def _yaml_nesting_issue(path: Path) -> str:
+    return f"{path.name} YAML nesting is too deep to check."
+
+
 def run_claude_code(
     prompt: str,
     model: str = REVIEWER_CLI_MODEL,
@@ -36466,6 +36470,10 @@ class ValidatorPipeline:
             return f"RuleSpec YAML read failed: {exc}"
         except (yaml.YAMLError, ValueError) as exc:
             return _yaml_parse_issue(rules_file, exc)
+        except RecursionError:
+            # The raw scans compose with one more frame per level than loading;
+            # the engine rejects nesting this deep as well.
+            return _yaml_nesting_issue(rules_file)
         if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
             return "RuleSpec YAML artifacts are required."
         return None
@@ -38616,6 +38624,8 @@ class ValidatorPipeline:
                 )
             except (yaml.YAMLError, ValueError) as exc:
                 issues.append(_yaml_parse_issue(test_path, exc))
+            except RecursionError:
+                issues.append(_yaml_nesting_issue(test_path))
             else:
                 if test_tag_issues:
                     issues.append(_yaml_tag_issue(test_path, test_tag_issues))

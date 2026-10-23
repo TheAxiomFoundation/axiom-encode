@@ -35,6 +35,7 @@ from axiom_encode.harness.evals import (
     _materialize_eval_artifact,
     _normalize_main_eval_content,
     _overlay_validation_retry_candidate,
+    _rewrite_unsupported_tag_issues,
 )
 from axiom_encode.harness.proof_validator import (
     _safe_load_with_raw_constraints,
@@ -1656,3 +1657,68 @@ def test_engine_rejects_the_texts_pyyaml_cannot_load(real_engine, tmp_path, cont
 
     assert run.returncode != 0
     assert "yaml parse error" in run.stderr
+
+
+# The raw scans compose with one more frame per level than yaml.safe_load, so
+# nesting this deep exhausts them while plain loading still succeeds. The engine
+# rejects anything past 127 levels.
+DEEP = 400
+DEEP_MODULE = APPLY_CLEAN.replace(
+    "rules:\n", "x-deep: " + "[" * DEEP + "]" * DEEP + "\nrules:\n", 1
+)
+DEEP_TESTS = TESTS.replace(
+    "  input: {}\n", "  input: " + "[" * DEEP + "]" * DEEP + "\n"
+)
+
+
+def test_deep_nesting_exhausts_the_scan_but_not_loading():
+    assert yaml.safe_load(DEEP_MODULE)["x-deep"]
+    with pytest.raises(RecursionError):
+        find_unsupported_yaml_tag_issues(DEEP_MODULE)
+
+
+def test_pipeline_reports_nesting_too_deep_to_scan(tmp_path, monkeypatch):
+    rules_file = _pipeline_module(tmp_path, DEEP_MODULE)
+    pipeline = _pipeline(tmp_path)
+
+    compile_result = pipeline._run_compile_check(rules_file)
+
+    assert not compile_result.passed
+    assert compile_result.issues == ["1.yaml YAML nesting is too deep to check."]
+
+    rules_file.write_text(APPLY_CLEAN)
+    rules_file.with_name("1.test.yaml").write_text(DEEP_TESTS)
+
+    def fake_compile(rules_file, output_path):
+        return (
+            subprocess.CompletedProcess(["axiom-rules-engine"], 0, "", ""),
+            {"program": {"parameters": [], "derived": [], "relations": []}},
+        )
+
+    monkeypatch.setattr(pipeline, "_compile_rulespec_to_artifact", fake_compile)
+    ci_result = pipeline._run_rulespec_ci(rules_file)
+
+    assert "1.test.yaml YAML nesting is too deep to check." in ci_result.issues
+
+
+@pytest.mark.parametrize("delivery", ["bundle", "workspace"])
+def test_materialization_keeps_tests_too_deep_to_scan(tmp_path, delivery):
+    _main, materialized_tests = _materialize(
+        tmp_path, APPLY_CLEAN, delivery, DEEP_TESTS
+    )
+
+    assert materialized_tests == DEEP_TESTS
+
+
+def test_rewrite_tag_check_reports_text_too_deep_to_scan():
+    assert _rewrite_unsupported_tag_issues(DEEP_MODULE) == [
+        "YAML nesting is too deep to check for unsupported tags, so the file is "
+        "not rewritten."
+    ]
+
+
+def test_engine_rejects_nesting_too_deep_to_scan(real_engine, tmp_path):
+    run, _program = _engine_compile(real_engine.binary, tmp_path, DEEP_MODULE)
+
+    assert run.returncode != 0
+    assert "recursion limit exceeded" in run.stderr
