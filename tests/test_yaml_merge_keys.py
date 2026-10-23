@@ -30,11 +30,13 @@ from axiom_encode.cli import (
     _validate_generated_encoding_in_policy_overlay,
 )
 from axiom_encode.harness.evals import (
+    _UNLOADABLE_YAML_ISSUE,
     ValidationRetryCandidate,
     _apply_generated_eval_repairs,
     _materialize_eval_artifact,
     _normalize_main_eval_content,
     _overlay_validation_retry_candidate,
+    _rewrite_merge_key_issues,
 )
 from axiom_encode.harness.proof_validator import (
     _safe_load_with_raw_constraints,
@@ -1246,3 +1248,13 @@ def test_pipeline_ci_accepts_merged_companion_tests(tmp_path, monkeypatch):
     result = pipeline._run_rulespec_ci(rules_file)
 
     assert not any("merge key" in issue for issue in result.issues), result.issues
+
+
+def test_the_rewrite_merge_check_reports_text_pyyaml_cannot_load():
+    """Like its sibling checks, it reports a plain ValueError instead of raising."""
+
+    assert _rewrite_merge_key_issues('summary: "\\U00110000"\n') == [
+        _UNLOADABLE_YAML_ISSUE
+    ]
+    assert _rewrite_merge_key_issues("rules: [\n") == []
+    assert _rewrite_merge_key_issues(APPLY_METADATA_MERGE) == []
