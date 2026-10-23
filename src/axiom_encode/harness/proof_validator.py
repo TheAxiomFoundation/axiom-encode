@@ -379,15 +379,16 @@ def find_interpretation_yaml_issues(content: str) -> list[str]:
 def find_unsupported_yaml_tag_issues(content: str) -> list[str]:
     """Report explicit YAML tags that PyYAML and the engine read differently.
 
-    Engine ``1aabc8383`` ignores `!!set`, `!!omap`, `!!pairs` and local tags on
+    The engine ignores `!!set`, `!!omap`, `!!pairs` and local tags on
     collections and reads the mapping or sequence as written, whereas
     ``yaml.safe_load`` turns a `!!set` mapping into a set of its keys and an
     `!!omap` or `!!pairs` sequence into a list of key-value tuples. Validators
     then skip those rules, versions or proofs while the engine compiles them,
     and a load-and-dump rewrite mangles them. Scalar tags other than `!!str`
     diverge too: `!!binary` loads as bytes and `!!timestamp` as a date where
-    the engine reads the text, `!!null` loads as null whatever the text, and
-    `!!bool` or `!!timestamp` on other text makes loading raise.
+    the engine reads the text, `!!null` loads as null whatever the text,
+    PyYAML resolves a `!`-tagged scalar as if it were plain even when quoted,
+    and `!!bool` or `!!timestamp` on other text makes loading raise.
 
     Every node is checked, including nodes reached only through aliases, once
     each. YAML parse errors propagate so callers can keep their parser
