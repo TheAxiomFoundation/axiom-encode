@@ -63,7 +63,8 @@ silently drop the first `rules` block, rule field or test output, and the
 engine, which rejects the raw file, would compile what was left. Keys are
 compared as `yaml.safe_load` constructs them, so `rules`, `"rules"`,
 `!!str rules` and an aliased key collide, and so do `1`, `0x1`, `1.0` and
-`true`. Merge keys keep their override semantics.
+`true`. Merge keys keep their override semantics. A file nested too deeply to
+scan is not rewritten either, since its duplicates cannot be ruled out.
 
 The encoder is instructed to create new entries with `status: open`. A repair may carry recorded human rulings and
 publisher replies supplied through mandatory review findings into `ruling` and
