@@ -20,7 +20,7 @@ The immediate intended use is byte-preserving M/L manifest refresh, followed by 
 
 The [committed workflow toolchain](https://github.com/TheAxiomFoundation/rulespec-ca/blob/94789006ce372a1967c258ef47c12b15a1fe511e/.axiom/workflow-toolchain.toml) is **0.2.2230 / `15aa35772aa186c2b663d544c2b3bc400ebc164a`**, not 2242. Consumer 2242 alignment is a proposed later change, conditional on compatible M/L receipts and fresh validation. It is not included here.
 
-Historical local diagnostics found M/L ordinary source validation passing with 2243 and Step 2 with 2242. Those are local diagnostic results, not hosted consumer CI clearance or full policy readiness. In particular, the older consumer parser and M/L receipt compatibility remain separate publication prerequisites. The native Step 2 run above is publicly addressable evidence; the local diagnostics are not substituted for a hosted run.
+Unverified author report: historical local diagnostics found M/L ordinary source validation passing with 2243 and Step 2 with 2242. Their logs and the author-reported independent frozen-diff review are held locally, without immutable records linked here; these claims are not independently verifiable from this record. They are not hosted consumer CI clearance or full policy readiness. In particular, the older consumer parser and M/L receipt compatibility remain separate publication prerequisites. The native Step 2 run above is publicly addressable evidence; the local diagnostics are not substituted for a hosted run.
 
 ## Exact tracked artifacts
 
