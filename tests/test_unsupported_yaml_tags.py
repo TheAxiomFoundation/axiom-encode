@@ -28,6 +28,7 @@ from axiom_encode.cli import (
     _stamp_generated_source_attestation_for_apply,
     _validate_generated_encoding_in_policy_overlay,
 )
+from axiom_encode.harness.amendment_timing import amendment_timing_issues
 from axiom_encode.harness.evals import (
     ValidationRetryCandidate,
     _apply_generated_eval_repairs,
@@ -1359,3 +1360,19 @@ def test_pipeline_ci_reports_companion_test_tags(
         issue.startswith("1.test.yaml has unsupported YAML tags: " + diagnostic)
         for issue in result.issues
     ), result.issues
+
+
+@pytest.mark.parametrize("tag", ["!!bool", "!!timestamp"])
+def test_amendment_timing_leaves_raising_tags_to_the_yaml_preflight(tag):
+    """The pipeline runs this before its preflight when amendments are bound."""
+
+    content = APPLY_CLEAN.replace(
+        "    kind: parameter\n", f"    kind: {tag} parameter\n"
+    )
+    document = SimpleNamespace(
+        citation_path=CITATION, metadata={"commencement_date": "2027-04-01"}
+    )
+    with pytest.raises((KeyError, AttributeError)):
+        yaml.safe_load(content)
+
+    assert amendment_timing_issues(content, [document]) == []
