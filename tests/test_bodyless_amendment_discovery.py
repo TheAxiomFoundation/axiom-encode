@@ -64,9 +64,8 @@ def test_principal_request_retains_bodyless_amendment_composed_evidence(
         "expression_date": "2026-01-01",
         "source_as_of": "2026-01-01",
     }
-    if not composed_commencement:
-        direct = evals.resolve_corpus_source_unit(_AMENDING_SECTION, release)
-        assert direct.amendment_documents == source.amendment_documents
+    direct = evals.resolve_corpus_source_unit(_AMENDING_SECTION, release)
+    assert direct.amendment_documents == source.amendment_documents
     _, prompt = _workspace_prompt_for_source_unit(tmp_path, source)
     assert _AMENDMENT_BODY in prompt
     assert _COMMENCEMENT_BODY in prompt

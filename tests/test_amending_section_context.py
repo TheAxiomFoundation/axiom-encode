@@ -710,8 +710,9 @@ def test_amending_section_accepts_one_plural_target(tmp_path):
 
 
 @pytest.mark.parametrize("mismatch", ["source_path", "version", "body_date"])
+@pytest.mark.parametrize("composed_commencement", [False, True])
 def test_amending_section_requires_same_act_authenticated_commencement(
-    tmp_path, mismatch
+    tmp_path, mismatch, composed_commencement
 ):
     rows = _amendment_rows()
     if mismatch == "source_path":
@@ -720,6 +721,15 @@ def test_amending_section_requires_same_act_authenticated_commencement(
         rows[2]["version"] = "another-capture"
     else:
         rows[2]["body"] = _COMMENCEMENT_BODY.replace("1 April 2027", "1 April 2028")
+    if composed_commencement:
+        rows.append(
+            {
+                **rows[2],
+                "citation_path": f"{_COMMENCEMENT_SECTION}/1",
+                "metadata": {},
+            }
+        )
+        rows[2]["body"] = None
     release = _write_test_corpus_release(tmp_path, rows)
 
     with pytest.raises(ValueError, match="Unresolved amendment context"):

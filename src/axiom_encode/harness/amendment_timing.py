@@ -29,10 +29,12 @@ def amendment_timing_issues(
     Indexed proof paths must name an existing version before any evidence
     is scoped or excluded. Rule-level atoms naming a version apply only there;
     use these indexed paths to anchor principal history separately from
-    amendment-derived behavior. Version proof adds evidence conservatively
-    and never erases authenticated rule-level evidence.
-    An amendment proof for ``effective_to`` establishes the end of an era,
-    rather than deriving that era's earlier behavior. Ambiguous
+    amendment-derived behavior. Version-owned indexed paths must name their
+    owning version. Both proof blocks add evidence conservatively and never
+    erase authenticated evidence through ownership or block precedence.
+    An amendment proof for a real, valid ``effective_to`` before commencement
+    establishes the end of a historical era. Other cutoff spellings retain
+    the amendment bound. Ambiguous
     Act-level proof inherits the commencement bound of a contained amendment;
     exact citations to unrelated provisions avoid that ambiguity.
 
@@ -77,14 +79,14 @@ def amendment_timing_issues(
         rule_name = str(rule.get("name") or f"rules[{rule_index}]")
         rule_atoms = _proof_atoms(rule)
         versions = rule.get("versions")
-        proof_owners = [(f"rule `{rule_name}`", rule)]
+        proof_owners = [(f"rule `{rule_name}`", rule, None)]
         if isinstance(versions, list):
             proof_owners.extend(
-                (f"rule `{rule_name}` versions[{index}]", version)
+                (f"rule `{rule_name}` versions[{index}]", version, index)
                 for index, version in enumerate(versions)
                 if isinstance(version, dict)
             )
-        for owner_label, owner in proof_owners:
+        for owner_label, owner, owner_index in proof_owners:
             for atom_index, atom in enumerate(_proof_atoms(owner)):
                 if not isinstance(atom, Mapping):
                     continue
@@ -92,6 +94,7 @@ def amendment_timing_issues(
                     str(atom.get("path") or ""),
                     versions=versions,
                     label=f"{owner_label} proof atom {atom_index}",
+                    owner_version_index=owner_index,
                 )
                 if issue is not None:
                     issues.append(issue)
@@ -99,19 +102,22 @@ def amendment_timing_issues(
             versions = [rule]
         for version_index, version in enumerate(versions):
             version_mapping = version if isinstance(version, dict) else {}
-            version_atoms = [
-                atom
-                for atom in _proof_atoms(version_mapping)
-                if _atom_applies_to_version(atom, version_index)
-            ]
+            # A mismatched local index is rejected above. Keep its evidence
+            # at the owner too, so even malformed ownership cannot erase it.
+            version_atoms = _proof_atoms(version_mapping)
             atoms = version_atoms + [
                 atom
                 for atom in rule_atoms
                 if _atom_applies_to_version(atom, version_index)
             ]
-            cited_paths = _source_paths(atoms)
             label = f"rule `{rule_name}` versions[{version_index}]"
             for citation, commencement, commencement_citation in bounds:
+                cited_paths = _source_paths(
+                    atoms,
+                    version=version_mapping,
+                    version_index=version_index,
+                    commencement=commencement,
+                )
                 if not any(
                     path == citation
                     or path.startswith(citation + "/")
@@ -159,20 +165,37 @@ def _parse_date(value: object) -> date | None:
 
 def _proof_atoms(value: Mapping[str, object]) -> list[object]:
     metadata = value.get("metadata")
-    proof = metadata.get("proof") if isinstance(metadata, Mapping) else None
-    if not isinstance(proof, Mapping):
-        proof = value.get("proof")
-    atoms = proof.get("atoms") if isinstance(proof, Mapping) else None
-    return atoms if isinstance(atoms, list) else []
+    proofs = [
+        metadata.get("proof") if isinstance(metadata, Mapping) else None,
+        value.get("proof"),
+    ]
+    return [
+        atom
+        for proof in proofs
+        if isinstance(proof, Mapping) and isinstance(proof.get("atoms"), list)
+        for atom in proof["atoms"]
+    ]
 
 
-def indexed_proof_path_issue(path: str, *, versions: object, label: str) -> str | None:
+def normalize_proof_location(path: str) -> str:
+    """Share proof validation's single-version shorthand with timing checks."""
+    normalized = re.sub(r"\s+", "", path).rstrip(".")
+    return re.sub(r"^versions\.", "versions[0].", normalized)
+
+
+def indexed_proof_path_issue(
+    path: str,
+    *,
+    versions: object,
+    label: str,
+    owner_version_index: int | None = None,
+) -> str | None:
     """Reject an indexed proof location before its index can exclude evidence.
 
     This applies to every anchor field, including dates and Boolean formulas.
     Field-specific shape checks remain the responsibility of proof validation.
     """
-    normalized = re.sub(r"\s+", "", path).rstrip(".")
+    normalized = normalize_proof_location(path)
     match = _VERSION_PATH.match(normalized)
     if match is None:
         return None
@@ -187,13 +210,18 @@ def indexed_proof_path_issue(path: str, *, versions: object, label: str) -> str 
             f"Proof atom anchor invalid: {label} anchors `{normalized}`, "
             "but that version is malformed."
         )
+    if owner_version_index is not None and version_index != owner_version_index:
+        return (
+            f"Proof atom anchor invalid: {label} anchors `{normalized}`, "
+            f"but its owning version is versions[{owner_version_index}]."
+        )
     return None
 
 
 def _atom_applies_to_version(atom: object, version_index: int) -> bool:
     if not isinstance(atom, Mapping):
         return False
-    path = re.sub(r"\s+", "", str(atom.get("path") or ""))
+    path = normalize_proof_location(str(atom.get("path") or ""))
     match = _VERSION_PATH.match(path)
     return match is None or int(match.group(1)) == version_index
 
@@ -201,19 +229,50 @@ def _atom_applies_to_version(atom: object, version_index: int) -> bool:
 def _local_atom_path(atom: object) -> str | None:
     if not isinstance(atom, Mapping) or not isinstance(atom.get("path"), str):
         return None
-    path = re.sub(r"\s+", "", atom["path"]).rstrip(".")
+    path = normalize_proof_location(atom["path"])
     match = _VERSION_PATH.match(path)
     if match:
         path = path[match.end() :]
-    elif path.startswith("versions."):
-        path = path.removeprefix("versions.")
     return path or None
 
 
-def _source_paths(atoms: Sequence[object]) -> list[str]:
+def _is_principal_history_cutoff(
+    atom: object,
+    *,
+    version: Mapping[str, object],
+    version_index: int,
+    commencement: date | None,
+) -> bool:
+    if (
+        _local_atom_path(atom) != "effective_to"
+        or not _atom_applies_to_version(atom, version_index)
+        or commencement is None
+    ):
+        return False
+    effective_from = _parse_date(version.get("effective_from"))
+    effective_to = _parse_date(version.get("effective_to"))
+    return (
+        effective_from is not None
+        and effective_to is not None
+        and effective_from <= effective_to < commencement
+    )
+
+
+def _source_paths(
+    atoms: Sequence[object],
+    *,
+    version: Mapping[str, object],
+    version_index: int,
+    commencement: date | None,
+) -> list[str]:
     paths: list[str] = []
     for atom in atoms:
-        if _local_atom_path(atom) == "effective_to":
+        if _is_principal_history_cutoff(
+            atom,
+            version=version,
+            version_index=version_index,
+            commencement=commencement,
+        ):
             continue
         if path := _source_citation_path(atom):
             paths.append(path)

@@ -33,7 +33,11 @@ from ..corpus_resolver import (
     require_canonical_corpus_citation_path,
     split_proof_evidence_text,
 )
-from .amendment_timing import indexed_proof_path_issue
+from .amendment_timing import (
+    _proof_atoms,
+    indexed_proof_path_issue,
+    normalize_proof_location,
+)
 
 
 @dataclass(frozen=True)
@@ -772,11 +776,7 @@ def _version_proof_location_issues(rule: dict[str, Any], rule_name: str) -> list
     for version_index, version in enumerate(versions):
         if not isinstance(version, dict):
             continue
-        proof = _rule_proof(version)
-        atoms = proof.get("atoms") if proof is not None else None
-        if not isinstance(atoms, list):
-            continue
-        for atom_index, atom in enumerate(atoms):
+        for atom_index, atom in enumerate(_proof_atoms(version)):
             if not isinstance(atom, dict):
                 continue
             issue = indexed_proof_path_issue(
@@ -786,6 +786,7 @@ def _version_proof_location_issues(rule: dict[str, Any], rule_name: str) -> list
                     f"rule `{rule_name}` versions[{version_index}] "
                     f"proof atom {atom_index}"
                 ),
+                owner_version_index=version_index,
             )
             if issue is not None:
                 issues.append(issue)
@@ -909,9 +910,7 @@ def _atom_anchor_issue(
     A ``.values`` anchor additionally requires a ``values`` table; a ``.formula``
     anchor requires a ``formula``. Bare fields remain available to other checks.
     """
-    normalized = re.sub(r"\s+", "", str(path))
-    normalized = _ATOM_PATH_INDEX_PATTERN.sub(r"[\1]", normalized)
-    normalized = re.sub(r"^versions\.", "versions[0].", normalized)
+    normalized = normalize_proof_location(path)
     location_issue = indexed_proof_path_issue(
         normalized, versions=rule.get("versions"), label=label
     )

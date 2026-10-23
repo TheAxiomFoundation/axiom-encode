@@ -462,3 +462,111 @@ def test_valid_indexed_boolean_history_and_cutoff_proofs_are_preserved():
     content = yaml.safe_dump(payload)
     assert validate_rulespec_proofs(content, require_policy_proofs=True).passed
     assert amendment_timing_issues(content, [_document()]) == []
+
+
+@pytest.mark.parametrize("boolean", [False, True])
+@pytest.mark.parametrize("path", ["effective_to", "versions[0].effective_to"])
+@pytest.mark.parametrize(
+    "cutoff",
+    ["absent", None, "invalid", "2027-02-30", "2027-04-01", "2028-01-01"],
+)
+def test_cutoff_spelling_cannot_erase_commencement_without_real_history(
+    boolean, path, cutoff
+):
+    payload = yaml.safe_load(_indexed_boolean_content(path))
+    rule = payload["rules"][0]
+    if not boolean:
+        rule.update(kind="parameter", dtype="Money")
+        rule["versions"][0]["formula"] = "42"
+    if cutoff != "absent":
+        rule["versions"][0]["effective_to"] = cutoff
+    content = yaml.safe_dump(payload)
+    # Base proof validation permits these date locations. Timing must resolve
+    # the actual field, rather than treating its spelling as evidence of history.
+    assert validate_rulespec_proofs(content, require_policy_proofs=True).passed
+    issues = amendment_timing_issues(content, [_document()])
+    assert any(
+        "0001-01-01 predates commencement 2027-04-01" in issue for issue in issues
+    )
+
+
+@pytest.mark.parametrize("boolean", [False, True])
+@pytest.mark.parametrize("path", ["effective_to", "versions[0].effective_to"])
+@pytest.mark.parametrize(
+    "owner", ["rule_metadata", "rule_proof", "version_metadata", "version_proof"]
+)
+def test_real_principal_history_cutoff_remains_exempt(boolean, path, owner):
+    payload = yaml.safe_load(_indexed_boolean_content("versions[0].formula"))
+    rule = payload["rules"][0]
+    rule["metadata"]["proof"] = _proof(PRINCIPAL, "versions[0].formula")
+    rule["metadata"]["proof"]["atoms"][0]["kind"] = "effective_period"
+    version = rule["versions"][0]
+    version.update(effective_from="2018-11-26", effective_to="2027-03-31")
+    if not boolean:
+        rule.update(kind="parameter", dtype="Money")
+        version["formula"] = "42"
+    cutoff_proof = _proof(AMENDMENT, path)
+    cutoff_proof["atoms"][0]["kind"] = "effective_period"
+    if owner == "rule_metadata":
+        rule["metadata"]["proof"]["atoms"].extend(cutoff_proof["atoms"])
+    elif owner == "rule_proof":
+        rule["proof"] = rule["metadata"].pop("proof")
+        rule["proof"]["atoms"].extend(cutoff_proof["atoms"])
+    elif owner == "version_metadata":
+        version["metadata"] = {"proof": cutoff_proof}
+    else:
+        version["proof"] = cutoff_proof
+    content = yaml.safe_dump(payload)
+    assert validate_rulespec_proofs(content, require_policy_proofs=True).passed
+    assert amendment_timing_issues(content, [_document()]) == []
+
+
+@pytest.mark.parametrize("proof_key", ["metadata", "proof"])
+@pytest.mark.parametrize("boolean", [False, True])
+def test_version_owned_proof_cannot_name_another_existing_version(proof_key, boolean):
+    payload = yaml.safe_load(_indexed_boolean_content("versions[0].formula"))
+    rule = payload["rules"][0]
+    rule["metadata"]["proof"] = _proof(PRINCIPAL, "versions[0].formula")
+    rule["metadata"]["proof"]["atoms"][0]["kind"] = "effective_period"
+    rule["versions"] = [
+        {
+            "effective_from": "2018-11-26",
+            "effective_to": "2025-12-31",
+            "formula": "false" if boolean else "20",
+        },
+        {"effective_from": "2026-01-01", "formula": "true" if boolean else "42"},
+    ]
+    if not boolean:
+        rule.update(kind="parameter", dtype="Money")
+    misplaced = _proof(AMENDMENT, "versions[1].formula")
+    misplaced["atoms"][0]["kind"] = "effective_period"
+    if proof_key == "metadata":
+        rule["versions"][0]["metadata"] = {"proof": misplaced}
+    else:
+        rule["versions"][0]["proof"] = misplaced
+    content = yaml.safe_dump(payload)
+    proof = validate_rulespec_proofs(content, require_policy_proofs=True)
+    assert not proof.passed
+    assert any("owning version is versions[0]" in issue for issue in proof.issues)
+    issues = amendment_timing_issues(content, [_document()])
+    assert any("owning version is versions[0]" in issue for issue in issues)
+    assert any("predates commencement 2027-04-01" in issue for issue in issues)
+
+    # The review's rule-owned copy control still guards the changed version;
+    # its presence must not make the conflicting local ownership acceptable.
+    rule["metadata"]["proof"]["atoms"].extend(misplaced["atoms"])
+    copied = yaml.safe_dump(payload)
+    assert not validate_rulespec_proofs(copied, require_policy_proofs=True).passed
+    assert any(
+        "versions[1] effective_from 2026-01-01 predates commencement" in issue
+        for issue in amendment_timing_issues(copied, [_document()])
+    )
+
+    # Moving (rather than copying) the atom to rule ownership is valid and
+    # enforces the bound at its named version, leaving principal history alone.
+    rule["versions"][0].pop(proof_key)
+    moved = yaml.safe_dump(payload)
+    assert validate_rulespec_proofs(moved, require_policy_proofs=True).passed
+    issues = amendment_timing_issues(moved, [_document()])
+    assert len(issues) == 1
+    assert "versions[1] effective_from 2026-01-01 predates commencement" in issues[0]

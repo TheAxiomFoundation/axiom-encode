@@ -7021,7 +7021,18 @@ def _route_amending_source_unit(
         raise ValueError(
             prefix + "principal target must resolve to a different authenticated Act"
         )
-    evidence = _amendment_commencement_evidence(row, rows)
+    # Direct requests need the same authenticated container composition as
+    # principal discovery. Resolve only the exact commencement record owned by
+    # this amendment's source and version; child metadata cannot replace it.
+    evidence_rows = tuple(
+        _resolve_discovered_amendment_evidence(item, release=release)
+        if item.row.citation_path == row.metadata["commencement_citation_path"]
+        and item.row.source_path == row.row.source_path
+        and item.row.version == row.row.version
+        else item
+        for item in rows
+    )
+    evidence = _amendment_commencement_evidence(row, evidence_rows)
     principal = resolve_corpus_source_unit(
         target, release, _amendment_ancestors=ancestors
     )
@@ -7143,7 +7154,7 @@ def resolve_corpus_source_unit(
             return _route_amending_source_unit(
                 target_row,
                 requested=citation_path,
-                rows=active_rows,
+                rows=active_records,
                 release=release,
                 ancestors=_amendment_ancestors | {citation_path},
             )
