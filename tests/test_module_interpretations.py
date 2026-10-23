@@ -17,6 +17,7 @@ from axiom_encode.harness.proof_validator import (
     _validate_source_proof_atom,
     find_interpretation_yaml_issues,
     find_unsupported_yaml_tag_issues,
+    find_yaml_merge_key_issues,
     proof_source_citation_paths,
     validate_rulespec_proofs,
 )
@@ -664,10 +665,13 @@ def test_interpretation_yaml_mappings_reject_merge_keys():
         "        - <<: *base\n"
         "          id: monthly-review\n",
     )
+    issue = _merge_key_issue(
+        content, "module.interpretations[0].alternatives[1] key `<<`", "<<: *base"
+    )
+    assert find_interpretation_yaml_issues(content) == []
+    assert find_yaml_merge_key_issues(content) == [issue]
     result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
-    assert result.issues == [
-        "module.interpretations[0].alternatives[1] must not use YAML merge keys."
-    ]
+    assert result.issues == [issue]
 
 
 RAW_RULES = """rules:
@@ -698,10 +702,30 @@ RAW_SHADOWED_INTERPRETATIONS = f"""  interpretations:
         - weekly_review_rate
 """
 
-MODULE_MERGE_MESSAGE = (
-    "module must not supply `interpretations` through YAML merge keys; "
-    "the engine does not apply them."
+# The same entry without the shadowed defects, so a merge key is its only issue.
+RAW_INTERPRETATIONS = RAW_SHADOWED_INTERPRETATIONS.replace(
+    "      question: Discarded when YAML resolves the duplicate key\n"
+    "      question: ! 1e5\n",
+    "      question: Does the fictional Lantern scheme review weekly or daily?\n",
 )
+MERGE_KEY_REASON = (
+    "PyYAML copies the merged keys into this mapping, but the engine does not "
+    "apply merge keys and reads only the keys written here. Write the merged "
+    "keys out; merge keys are allowed only inside a rule's `metadata`, which "
+    "the engine does not read."
+)
+
+
+def _merge_key_issue(content, location, written, *, occurrence=0, tagged=False):
+    """The merge-scan issue for the ``occurrence``-th ``written`` key."""
+
+    index = -1
+    for _ in range(occurrence + 1):
+        index = content.index(written, index + 1)
+    line = content.count("\n", 0, index) + 1
+    column = index - content.rfind("\n", 0, index)
+    spelling = "is tagged as a YAML merge key" if tagged else "is a YAML merge key"
+    return f"{location} {spelling} at line {line}, column {column}: {MERGE_KEY_REASON}"
 
 
 def _shadowed_tag_issue(content, location):
@@ -712,105 +736,132 @@ def _shadowed_tag_issue(content, location):
     return issue
 
 
-@pytest.mark.parametrize(
-    ("anchors", "module"),
-    [
-        pytest.param("", "module:\n  <<: *defaults\n", id="mapping"),
-        pytest.param("", "module:\n  <<: [*defaults]\n", id="sequence"),
-        pytest.param(
-            "x-outer: &outer\n  <<: *defaults\n",
-            "module:\n  <<: *outer\n",
-            id="nested",
-        ),
-        pytest.param(
-            "x-title: &title\n  title: Fictional Lantern review schedule\n",
-            "module:\n  <<: [*title, *defaults]\n",
-            id="second-of-two",
-        ),
-        pytest.param(
-            "",
-            "module:\n  <<: *defaults\n  interpretations: []\n",
-            id="overridden-by-explicit-key",
-        ),
-    ],
-)
+MODULE_MERGES = [
+    pytest.param("", "module:\n  <<: *defaults\n", ["module"], id="mapping"),
+    pytest.param("", "module:\n  <<: [*defaults]\n", ["module"], id="sequence"),
+    pytest.param(
+        "x-outer: &outer\n  <<: *defaults\n",
+        "module:\n  <<: *outer\n",
+        ["x-outer", "module"],
+        id="nested",
+    ),
+    pytest.param(
+        "x-title: &title\n  title: Fictional Lantern review schedule\n",
+        "module:\n  <<: [*title, *defaults]\n",
+        ["module"],
+        id="second-of-two",
+    ),
+    pytest.param(
+        "",
+        "module:\n  <<: *defaults\n  interpretations: []\n",
+        ["module"],
+        id="overridden-by-explicit-key",
+    ),
+]
+
+
+@pytest.mark.parametrize(("anchors", "module", "holders"), MODULE_MERGES)
 def test_interpretation_yaml_rejects_interpretations_supplied_by_module_merge_keys(
-    anchors, module
+    anchors, module, holders
 ):
+    content = (
+        "format: rulespec/v1\n"
+        "x-defaults: &defaults\n"
+        f"{RAW_INTERPRETATIONS}{anchors}{module}{RAW_RULES}"
+    )
+    issues = [
+        _merge_key_issue(content, f"{holder} key `<<`", "<<: ", occurrence=index)
+        for index, holder in enumerate(holders)
+    ]
+    # The engine reads no interpretations here; one scan owns every merge key.
+    assert find_interpretation_yaml_issues(content) == []
+    assert find_yaml_merge_key_issues(content) == issues
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == issues
+
+
+@pytest.mark.parametrize(("anchors", "module", "holders"), MODULE_MERGES)
+def test_shadowed_interpretations_behind_a_module_merge_fail_on_their_tag_first(
+    anchors, module, holders
+):
+    """The raw scans see the defects safe loading would resolve.
+
+    The tag scan reports the shadowed `! 1e5` wherever it is written, and a
+    document with an unsupported tag is not constructed, so the gate reports
+    that tag; the merge scan still finds every merge key.
+    """
+
     content = (
         "format: rulespec/v1\n"
         "x-defaults: &defaults\n"
         f"{RAW_SHADOWED_INTERPRETATIONS}{anchors}{module}{RAW_RULES}"
     )
-    assert find_interpretation_yaml_issues(content) == [MODULE_MERGE_MESSAGE]
+    assert len(find_yaml_merge_key_issues(content)) == len(holders)
     result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
     assert result.issues == [
-        MODULE_MERGE_MESSAGE,
-        _shadowed_tag_issue(content, "x-defaults.interpretations[0].question"),
+        _shadowed_tag_issue(content, "x-defaults.interpretations[0].question")
     ]
 
 
 def test_interpretation_yaml_rejects_module_supplied_by_root_merge_keys():
     module = "  module:\n" + "".join(
-        "  " + line for line in RAW_SHADOWED_INTERPRETATIONS.splitlines(True)
+        "  " + line for line in RAW_INTERPRETATIONS.splitlines(True)
     )
     content = f"format: rulespec/v1\nx-base: &base\n{module}<<: *base\n{RAW_RULES}"
-    message = (
-        "RuleSpec root must not supply `module` through YAML merge keys; "
-        "the engine does not apply them."
-    )
-    assert find_interpretation_yaml_issues(content) == [message]
-    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
-    assert result.issues == [
-        message,
-        _shadowed_tag_issue(content, "x-base.module.interpretations[0].question"),
-    ]
-
-
-@pytest.mark.parametrize(
-    "content",
-    [
-        pytest.param(
-            _raw_payload().replace(
-                "module:\n",
-                "x-title: &title\n  title: Fictional Lantern review schedule\n"
-                "module:\n  <<: *title\n",
-                1,
-            ),
-            id="merge-supplies-other-metadata",
-        ),
-        # A quoted `<<` is an ordinary key to PyYAML and to the engine alike.
-        # (The shadowed `! 1e5` is quoted here, since the whole-document tag
-        # scan rejects a non-specific tag on any scalar.)
-        pytest.param(
-            "format: rulespec/v1\nx-defaults: &defaults\n"
-            + RAW_SHADOWED_INTERPRETATIONS.replace("! 1e5", "'1e5'")
-            + f"module:\n  '<<': *defaults\n{RAW_RULES}",
-            id="quoted-merge-spelling",
-        ),
-    ],
-)
-def test_interpretation_yaml_allows_module_merges_that_cannot_supply_interpretations(
-    content,
-):
+    issue = _merge_key_issue(content, "document root key `<<`", "<<: *base")
     assert find_interpretation_yaml_issues(content) == []
+    assert find_yaml_merge_key_issues(content) == [issue]
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [issue]
+
+
+def test_module_merges_that_supply_other_metadata_are_rejected():
+    """The engine reads `module.title`, so this merge hides it from the engine."""
+
+    content = _raw_payload().replace(
+        "module:\n",
+        "x-title: &title\n  title: Fictional Lantern review schedule\n"
+        "module:\n  <<: *title\n",
+        1,
+    )
+    issue = _merge_key_issue(content, "module key `<<`", "<<: *title")
+    assert find_interpretation_yaml_issues(content) == []
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+    assert result.issues == [issue]
+
+
+def test_interpretation_yaml_allows_a_quoted_merge_spelling():
+    # A quoted `<<` is an ordinary key to PyYAML and to the engine alike.
+    content = (
+        "format: rulespec/v1\nx-defaults: &defaults\n"
+        + RAW_INTERPRETATIONS
+        + f"module:\n  '<<': *defaults\n{RAW_RULES}"
+    )
+    assert find_interpretation_yaml_issues(content) == []
+    assert find_yaml_merge_key_issues(content) == []
     result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
     assert result.passed, result.issues
 
 
 @pytest.mark.parametrize(
-    ("original", "replacement", "location"),
+    ("original", "replacement", "location", "merge_location"),
     [
         (
             "  interpretations:\n",
             "  !!merge interpretations:\n",
             "module key `interpretations`",
+            "module key `interpretations`",
         ),
-        ("module:\n", "!!merge module:\n", "RuleSpec root key `module`"),
+        (
+            "module:\n",
+            "!!merge module:\n",
+            "RuleSpec root key `module`",
+            "document root key `module`",
+        ),
     ],
 )
 def test_interpretation_yaml_rejects_merge_tags_that_hide_interpretations_on_load(
-    original, replacement, location
+    original, replacement, location, merge_location
 ):
     # PyYAML merges the tagged value into its parent, so the loaded module has
     # no `interpretations`; the engine reads the key by name and validates it.
@@ -821,9 +872,11 @@ def test_interpretation_yaml_rejects_merge_tags_that_hide_interpretations_on_loa
         f"{location} has unsupported YAML tag `tag:yaml.org,2002:merge`; only the "
         "canonical string tag `!!str` (`tag:yaml.org,2002:str`) is supported."
     )
+    merge_issue = _merge_key_issue(content, merge_location, "!!merge", tagged=True)
     assert find_interpretation_yaml_issues(content) == [message]
+    assert find_yaml_merge_key_issues(content) == [merge_issue]
     result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
-    assert result.issues == [message]
+    assert result.issues == [message, merge_issue]
 
 
 def _with_unknown_interpretation_key(content):
@@ -1048,10 +1101,11 @@ def test_interpretation_yaml_scans_every_root_module_block():
 
 
 def _assert_single_pass_load_matches_safe_load(content):
-    payload, issues, numeric_id_paths, tag_issues = _safe_load_with_raw_constraints(
-        content
+    payload, issues, numeric_id_paths, tag_issues, merge_issues = (
+        _safe_load_with_raw_constraints(content)
     )
     assert (issues, numeric_id_paths) == _interpretation_yaml_constraints(content)
+    assert merge_issues == find_yaml_merge_key_issues(content)
     if tag_issues:
         # A document with unsupported tags is reported, never constructed.
         assert payload is None

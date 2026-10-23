@@ -492,7 +492,9 @@ def test_interpretation_tags_are_reported_once_by_the_interpretation_scan():
     )
 
     assert find_interpretation_yaml_issues(content) == [interpretation_issue]
-    payload, _issues, _paths, tag_issues = _safe_load_with_raw_constraints(content)
+    payload, _issues, _paths, tag_issues, _merges = _safe_load_with_raw_constraints(
+        content
+    )
     assert tag_issues == []
     assert payload == yaml.safe_load(content)
     assert interpretation_issue in _gate(content).issues
@@ -693,8 +695,8 @@ def test_raw_guard_matches_the_parser_events_and_safe_load(root, block):
         issues = issues[:-1]
         positions = positions[:10]
     assert [_reported_position(issue) for issue in issues] == positions
-    payload, _interpretation, _paths, tag_issues = _safe_load_with_raw_constraints(
-        content
+    payload, _interpretation, _paths, tag_issues, _merges = (
+        _safe_load_with_raw_constraints(content)
     )
     assert tag_issues == find_unsupported_yaml_tag_issues(content)
     if not tag_issues:
