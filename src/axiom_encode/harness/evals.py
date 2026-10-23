@@ -189,6 +189,12 @@ EvalOracleMode = Literal["none", "policyengine"]
 EvalFailureKind = Literal["timeout", "validation", "error"]
 
 
+_DUPLICATE_KEY_SCAN_RESOURCE_ISSUE = (
+    "YAML nesting is too deep to check for duplicate mapping keys, so the "
+    "file is not rewritten."
+)
+
+
 class _PreservedRepairOverlayError(ValueError):
     """The retained retry candidate cannot serve as an overlay base."""
 
@@ -17012,12 +17018,12 @@ def _normalize_main_eval_content(
         # resolve these; keep the raw text so validation reports them.
         if find_interpretation_yaml_issues(content):
             return content
-        if find_duplicate_mapping_key_issues(content):
-            # Textual normalization only: it keeps every key and still
-            # refuses text that is not RuleSpec.
-            return _normalize_rulespec_content(content)
     except (yaml.YAMLError, RecursionError):
         pass
+    if _rewrite_duplicate_key_issues(content):
+        # Textual normalization only: it keeps every key and still refuses
+        # text that is not RuleSpec.
+        return _normalize_rulespec_content(content)
     normalized = _normalize_rulespec_content(content)
     normalized, _lifted_inputs = _repair_misplaced_module_inputs(normalized)
     normalized, _repaired_rules = repair_source_table_band_scalar_parameters(
@@ -17044,13 +17050,20 @@ def _normalize_main_eval_content(
 
 
 def _rewrite_duplicate_key_issues(content: str) -> list[str]:
-    """Duplicate keys that rewriting ``content`` through a YAML load would erase."""
+    """Why rewriting ``content`` through a YAML load could erase entries.
+
+    Text that does not compose cannot load either, so callers keep their own
+    handling of it. The scan composes with one more frame per level than
+    ``yaml.safe_load``, so nesting can exhaust it where loading still works;
+    that text is reported too, since its duplicate keys cannot be ruled out.
+    """
 
     try:
         return find_duplicate_mapping_key_issues(content)
-    except (yaml.YAMLError, RecursionError):
-        # Callers keep their own handling of unparseable text.
+    except yaml.YAMLError:
         return []
+    except RecursionError:
+        return [_DUPLICATE_KEY_SCAN_RESOURCE_ISSUE]
 
 
 def _rulespec_rule_names(content: str) -> set[str]:
@@ -18595,14 +18608,15 @@ def _overlay_validation_retry_candidate(
     preserved_duplicate_key_issues = _rewrite_duplicate_key_issues(candidate.rulespec)
     if preserved_duplicate_key_issues:
         raise _PreservedRepairOverlayError(
-            "preserved repair overlay has duplicate YAML mapping keys: "
-            + "; ".join(preserved_duplicate_key_issues)
+            "preserved repair overlay cannot be rewritten without losing YAML "
+            "mapping entries: " + "; ".join(preserved_duplicate_key_issues)
         )
     if candidate.tests is not None:
         preserved_duplicate_key_issues = _rewrite_duplicate_key_issues(candidate.tests)
         if preserved_duplicate_key_issues:
             raise _PreservedRepairOverlayError(
-                "preserved repair overlay tests have duplicate YAML mapping keys: "
+                "preserved repair overlay tests cannot be rewritten without "
+                "losing YAML mapping entries: "
                 + "; ".join(preserved_duplicate_key_issues)
             )
     base_issue = _repair_overlay_candidate_base_issue(candidate)

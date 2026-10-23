@@ -34995,14 +34995,15 @@ def _run_encode_attempt(
             outcome["final_success"] = False
             print(f"  apply=blocked_generation:{detail}")
         else:
-            yaml_preflight_issue = _generated_rulespec_yaml_nonparser_issue(
-                result,
-                Path(str(getattr(result, "output_file", "") or "")),
-                output_root=args.output,
-            )
-            if yaml_preflight_issue is not None:
-                full_validation_issues = (yaml_preflight_issue,)
-                retry_validation_issues = (yaml_preflight_issue,)
+
+            def _yaml_preflight_block() -> _EncodeAttemptExecution | None:
+                yaml_preflight_issue = _generated_rulespec_yaml_nonparser_issue(
+                    result,
+                    Path(str(getattr(result, "output_file", "") or "")),
+                    output_root=args.output,
+                )
+                if yaml_preflight_issue is None:
+                    return None
                 outcome["status"] = "apply_blocked_validation"
                 outcome["overlay_validation_success"] = False
                 outcome["apply_error"] = yaml_preflight_issue
@@ -35017,9 +35018,13 @@ def _run_encode_attempt(
                     outcome=outcome,
                     apply_passed=False,
                     logged_run=logged_run,
-                    validation_issues=full_validation_issues,
-                    validation_retry_issues=retry_validation_issues,
+                    validation_issues=(yaml_preflight_issue,),
+                    validation_retry_issues=(yaml_preflight_issue,),
                 )
+
+            yaml_preflight_block = _yaml_preflight_block()
+            if yaml_preflight_block is not None:
+                return yaml_preflight_block
 
             def _retry_generated_unsafe_formula_output_deferrals() -> list[str]:
                 nonlocal can_apply, apply_issues, supplemental_files
@@ -35113,6 +35118,11 @@ def _run_encode_attempt(
                     "  apply=auto_repaired_unquoted_source_scalars:"
                     + ",".join(repaired_unquoted_source_scalars)
                 )
+                # Quoting can make a module parse that the preflight could not
+                # scan; check it before any later repair loads and dumps it.
+                yaml_preflight_block = _yaml_preflight_block()
+                if yaml_preflight_block is not None:
+                    return yaml_preflight_block
             repaired_deferred_scope = (
                 _try_repair_generated_out_of_scope_deferred_outputs_for_apply(
                     result,
@@ -56406,7 +56416,9 @@ def _generated_rulespec_yaml_nonparser_issue(
             )
         yaml.safe_load(content)
     except yaml.YAMLError:
-        return None
+        # Keep the module's normal validation error; a text repair may still
+        # make it parse, and the companion test is rewritten regardless.
+        pass
     except RecursionError:
         return _GENERATED_RULESPEC_YAML_RESOURCE_ISSUE
     except OSError:
@@ -56417,7 +56429,10 @@ def _generated_rulespec_yaml_nonparser_issue(
     try:
         test_content = test_file.read_text() if test_file.is_file() else ""
         duplicate_key_issues = find_duplicate_mapping_key_issues(test_content)
-    except (OSError, UnicodeError, yaml.YAMLError, RecursionError):
+    except RecursionError:
+        # An unscanned test could still lose entries to a repair's rewrite.
+        return _GENERATED_RULESPEC_YAML_RESOURCE_ISSUE
+    except (OSError, UnicodeError, yaml.YAMLError):
         # Companion test read and parse failures keep their validation errors.
         return None
     if duplicate_key_issues:
