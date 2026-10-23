@@ -392,7 +392,8 @@ def find_unsupported_yaml_tag_issues(content: str) -> list[str]:
 
     Every node is checked, including nodes reached only through aliases, once
     each. YAML parse errors propagate so callers can keep their parser
-    diagnostics.
+    diagnostics, as does the plain ValueError PyYAML raises while composing a
+    double-quoted escape beyond U+10FFFF.
     """
 
     loader = _ExplicitTagComposer(content)

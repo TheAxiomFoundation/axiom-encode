@@ -1376,3 +1376,283 @@ def test_amendment_timing_leaves_raising_tags_to_the_yaml_preflight(tag):
         yaml.safe_load(content)
 
     assert amendment_timing_issues(content, [document]) == []
+
+
+# PyYAML raises a plain ValueError, not a yaml.YAMLError, while composing a
+# double-quoted escape beyond U+10FFFF and while constructing an impossible
+# implicit date. Callers that caught only YAML errors crashed on such text.
+VALUE_ERROR_MODULES = [
+    pytest.param(
+        APPLY_CLEAN.replace(
+            "  summary: Fictional lantern review rates.\n",
+            '  summary: "\\U00110000"\n',
+        ),
+        id="escape-beyond-unicode",
+    ),
+    pytest.param(
+        APPLY_CLEAN.replace(
+            "    name: first_rate\n", '    "\\U00110000": first_rate\n'
+        ),
+        id="escape-in-key",
+    ),
+    pytest.param(
+        APPLY_CLEAN.replace(
+            "      - effective_from: '2024-01-01'\n",
+            "      - effective_from: 2024-13-01\n",
+        ),
+        id="impossible-date",
+    ),
+]
+VALUE_ERROR_TESTS = [
+    pytest.param(
+        TESTS.replace("- name: first_rate_applies\n", '- name: "\\U00110000"\n'),
+        id="escape-beyond-unicode",
+    ),
+    pytest.param(
+        TESTS.replace("  period: 2024-01-01\n", "  period: 2024-13-01\n"),
+        id="impossible-date",
+    ),
+]
+VALUE_ISSUE = (
+    "[generated-yaml:value] invalid YAML: a scalar cannot be loaded, such as a "
+    "double-quoted escape beyond U+10FFFF or an impossible date"
+)
+TEST_VALUE_ISSUE = (
+    "[generated-yaml:value] invalid companion test YAML: a scalar cannot be "
+    "loaded, such as a double-quoted escape beyond U+10FFFF or an impossible date"
+)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        *(case.values[0] for case in VALUE_ERROR_MODULES),
+        *(case.values[0] for case in VALUE_ERROR_TESTS),
+    ],
+)
+def test_safe_load_raises_a_plain_value_error_on_these_texts(content):
+    """The premise: these are not yaml.YAMLError, so YAML-only handlers miss them."""
+
+    with pytest.raises(ValueError) as exc_info:
+        yaml.safe_load(content)
+
+    assert not isinstance(exc_info.value, yaml.YAMLError)
+
+
+def test_raw_scans_let_the_compose_value_error_propagate():
+    content = VALUE_ERROR_MODULES[0].values[0]
+
+    with pytest.raises(ValueError, match="chr"):
+        find_unsupported_yaml_tag_issues(content)
+    with pytest.raises(ValueError, match="chr"):
+        find_interpretation_yaml_issues(content)
+
+
+@pytest.mark.parametrize("content", VALUE_ERROR_MODULES)
+def test_proof_gate_and_pipeline_report_value_errors_as_parse_failures(
+    tmp_path, content
+):
+    result = validate_rulespec_proofs(content)
+    assert not result.passed
+    assert result.issues[0].startswith("RuleSpec proof YAML parse failed: ")
+
+    rules_file = _pipeline_module(tmp_path, content)
+    compile_result = _pipeline(tmp_path)._run_compile_check(rules_file)
+    assert not compile_result.passed
+    assert compile_result.issues[0].startswith("1.yaml YAML parse failed: ")
+
+
+@pytest.mark.parametrize("content", VALUE_ERROR_MODULES)
+@pytest.mark.parametrize(
+    "error",
+    [
+        "Generated RuleSpec failed compile validation",
+        "Generated RuleSpec failed CI validation",
+    ],
+)
+def test_apply_preflight_blocks_value_errors_before_repairs(tmp_path, content, error):
+    result, generated, output_root = _candidate(tmp_path, content)
+    result.success = False
+    result.error = error
+    assert _can_attempt_apply(result)
+    original = generated.read_bytes()
+
+    issue = _generated_rulespec_yaml_nonparser_issue(
+        result, generated, output_root=output_root
+    )
+
+    assert issue == VALUE_ISSUE
+    assert generated.read_bytes() == original
+
+
+@pytest.mark.parametrize("tests", VALUE_ERROR_TESTS)
+def test_apply_preflight_blocks_companion_test_value_errors(tmp_path, tests):
+    result, generated, output_root = _candidate(tmp_path, APPLY_CLEAN, tests)
+    result.success = False
+    result.error = "Generated RuleSpec failed CI validation"
+    test_file = generated.with_name("1.test.yaml")
+
+    issue = _generated_rulespec_yaml_nonparser_issue(
+        result, generated, output_root=output_root
+    )
+
+    assert issue == TEST_VALUE_ISSUE
+    assert test_file.read_text() == tests
+
+
+@pytest.mark.parametrize("content", VALUE_ERROR_MODULES)
+def test_real_stamping_reports_value_errors_before_rewrite(tmp_path, content):
+    result, generated, _ = _candidate(tmp_path, content)
+    original = generated.read_bytes()
+
+    with pytest.raises(RuntimeError) as exc_info:
+        _stamp_generated_source_attestation_for_apply(result, generated)
+
+    assert str(exc_info.value) == VALUE_ISSUE
+    assert generated.read_bytes() == original
+
+
+@pytest.mark.parametrize("content", VALUE_ERROR_MODULES)
+def test_apply_overlay_reports_value_errors_with_real_stamping(tmp_path, content):
+    result, generated, output_root = _candidate(tmp_path, content)
+    original = generated.read_bytes()
+
+    ok, issues, _supplemental = _validate_generated_encoding_in_policy_overlay(
+        result,
+        output_root=output_root,
+        policy_repo_path=tmp_path / "rulespec-us/us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        local_corpus_release=MagicMock(),
+        validate_dependents=False,
+    )
+
+    assert not ok
+    assert any(VALUE_ISSUE in issue for issue in issues), issues
+    assert generated.read_bytes() == original
+
+
+@pytest.mark.parametrize("content", VALUE_ERROR_MODULES)
+def test_retry_overlay_reports_generated_value_errors(tmp_path, content):
+    target = tmp_path / "section.yaml"
+    target.write_text(content, encoding="utf-8")
+
+    with pytest.raises(ValueError) as exc_info:
+        _overlay_validation_retry_candidate(
+            target,
+            artifact_root=tmp_path,
+            candidate=ValidationRetryCandidate(rulespec=APPLY_CLEAN),
+        )
+
+    assert str(exc_info.value) == (
+        "generated repair overlay RuleSpec must be valid UTF-8 YAML"
+    )
+    assert target.read_text(encoding="utf-8") == content
+
+
+@pytest.mark.parametrize("tests", VALUE_ERROR_TESTS)
+def test_retry_overlay_reports_generated_test_value_errors(tmp_path, tests):
+    target = tmp_path / "section.yaml"
+    target.write_text(APPLY_CLEAN, encoding="utf-8")
+    test_file = tmp_path / "section.test.yaml"
+    test_file.write_text(tests, encoding="utf-8")
+
+    with pytest.raises(ValueError) as exc_info:
+        _overlay_validation_retry_candidate(
+            target,
+            artifact_root=tmp_path,
+            candidate=ValidationRetryCandidate(rulespec=APPLY_CLEAN, tests=TESTS),
+        )
+
+    assert str(exc_info.value) == "repair overlay tests must be valid UTF-8 YAML"
+    assert test_file.read_text(encoding="utf-8") == tests
+
+
+@pytest.mark.parametrize(
+    ("label", "rulespec", "tests"),
+    [
+        *(
+            pytest.param("RuleSpec", case.values[0], None, id=f"module-{case.id}")
+            for case in VALUE_ERROR_MODULES
+        ),
+        *(
+            pytest.param("tests", APPLY_CLEAN, case.values[0], id=f"tests-{case.id}")
+            for case in VALUE_ERROR_TESTS
+        ),
+    ],
+)
+def test_retry_overlay_reports_preserved_value_errors(tmp_path, label, rulespec, tests):
+    target = tmp_path / "section.yaml"
+    target.write_text(APPLY_CLEAN, encoding="utf-8")
+
+    with pytest.raises(ValueError) as exc_info:
+        _overlay_validation_retry_candidate(
+            target,
+            artifact_root=tmp_path,
+            candidate=ValidationRetryCandidate(rulespec=rulespec, tests=tests),
+        )
+
+    assert str(exc_info.value).startswith(
+        f"preserved repair overlay {label} cannot be loaded: YAML text cannot be loaded"
+    )
+    assert target.read_text(encoding="utf-8") == APPLY_CLEAN
+
+
+@pytest.mark.parametrize("content", VALUE_ERROR_MODULES)
+def test_normalization_keeps_text_that_cannot_be_loaded(content):
+    with pytest.raises(ValueError, match="must start with `format: rulespec/v1`"):
+        _normalize_main_eval_content(
+            'entries: "\\U00110000"\n',
+            target_path=Path("section.yaml"),
+            single_amount_table_slice=False,
+        )
+
+    normalized = _normalize_main_eval_content(
+        "\n" + content + "\n\n",
+        target_path=Path("section.yaml"),
+        single_amount_table_slice=False,
+    )
+
+    assert normalized == content
+
+
+@pytest.mark.parametrize("content", VALUE_ERROR_MODULES)
+@pytest.mark.parametrize("delivery", ["response", "bundle", "workspace"])
+def test_materialization_keeps_modules_that_cannot_be_loaded(
+    tmp_path, content, delivery
+):
+    content = content.replace("module:\n", "module:\n" + MISPLACED_INPUTS, 1)
+
+    materialized, _tests = _materialize(tmp_path, content, delivery)
+
+    assert materialized == content
+
+
+@pytest.mark.parametrize("tests", VALUE_ERROR_TESTS)
+@pytest.mark.parametrize("delivery", ["bundle", "workspace"])
+def test_materialization_keeps_tests_that_cannot_be_loaded(tmp_path, tests, delivery):
+    _main, materialized_tests = _materialize(tmp_path, APPLY_CLEAN, delivery, tests)
+
+    assert materialized_tests == tests
+
+
+@pytest.mark.parametrize("tagged_file", ["module", "tests"])
+def test_eval_repairs_skip_files_that_cannot_be_loaded(tmp_path, tagged_file):
+    content = _with_unused_import(
+        VALUE_ERROR_MODULES[0].values[0] if tagged_file == "module" else APPLY_CLEAN
+    )
+    tests = VALUE_ERROR_TESTS[0].values[0] if tagged_file == "tests" else TESTS
+
+    repairs, repaired = _eval_repairs(tmp_path, content, tests)
+
+    assert repairs == []
+    assert repaired == content
+
+
+@pytest.mark.parametrize("content", VALUE_ERROR_MODULES)
+def test_engine_rejects_the_texts_pyyaml_cannot_load(real_engine, tmp_path, content):
+    """The escape fails YAML parsing; the date fails `effective_from`."""
+
+    run, _program = _engine_compile(real_engine.binary, tmp_path, content)
+
+    assert run.returncode != 0
+    assert "yaml parse error" in run.stderr
