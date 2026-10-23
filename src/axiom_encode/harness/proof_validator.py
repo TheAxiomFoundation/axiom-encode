@@ -659,10 +659,9 @@ def _unsupported_tag_issues(
     """Explicit tags anywhere in ``root`` that PyYAML and the engine read apart.
 
     A mapping may carry only `!!map` or the non-specific `!`, a sequence only
-    `!!seq` or `!`, and a scalar only `!!str` or `!`. For those, PyYAML
-    constructs what the engine reads, or the engine rejects the node. Nodes in
-    ``skip`` are walked through but their own tags are left to the scan that
-    skipped them.
+    `!!seq` or `!`, and a scalar only `!!str`. For those, PyYAML constructs
+    what the engine reads. Nodes in ``skip`` are walked through but their own
+    tags are left to the scan that skipped them.
     """
 
     found: list[tuple[int, int, str]] = []
@@ -738,13 +737,13 @@ def _unsupported_tag_explanation(node: yaml.Node, tag: str) -> str | None:
                 "mappings. Remove the tag."
             )
         return "only `!!seq` or the non-specific `!` may tag a sequence."
-    if tag in {"!", _YAML_STR_TAG}:
+    if tag == _YAML_STR_TAG:
         return None
     return (
-        "only `!!str` or the non-specific `!` may tag a scalar. Other scalar tags "
-        "can make PyYAML and the engine read the same text differently: "
-        "`!!binary` loads as bytes and `!!null` as null whatever the text, while "
-        "the engine reads the text or rejects it."
+        "only `!!str` may tag a scalar. Other scalar tags can make PyYAML and the "
+        "engine read the same text differently: `!!binary` loads as bytes and "
+        "`!!null` as null whatever the text, and PyYAML resolves `! '0.1'` as the "
+        "number 0.1, while the engine reads the text or rejects it."
     )
 
 
