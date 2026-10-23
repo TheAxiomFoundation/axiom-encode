@@ -180,7 +180,11 @@ from .engine_binding import (
     require_engine_ref_sha,
     resolve_pinned_engine_binary,
 )
-from .failure_classes import PRE_ENCODE_BLOCKED_STATUS, failure_class_payload
+from .failure_classes import (
+    PRE_ENCODE_BLOCKED_STATUS,
+    failure_class_payload,
+    retry_stop_record,
+)
 from .harness.amendment_timing import amendment_timing_issues
 from .harness.dependency_stubs import (
     UnsafeRulespecContextPath,
@@ -34241,6 +34245,18 @@ def _encode_attempt_was_validator_rejected(
     }
 
 
+def _encode_attempt_retry_stop(execution) -> dict[str, Any] | None:
+    """Return why a validator-rejected attempt must not be retried, if certain.
+
+    Only called for an attempt that ``_encode_attempt_was_validator_rejected``
+    accepted and that has a next model. The attempt's full residual issue
+    list decides: every issue must classify with certain confidence into a
+    non-encoder class (``failure_classes.retry_stop_record``). Any other
+    issue, or no recorded issue, keeps the existing retry.
+    """
+    return retry_stop_record(tuple(execution.validation_issues or ()))
+
+
 def _next_encode_attempt_model(
     config: _EncodeEscalationConfig,
     *,
@@ -34472,6 +34488,22 @@ def _run_encode_attempts_with_retries(
                 current_model=current_model,
                 failed_attempt_count=len(failed_attempts),
             )
+        if next_model is not None:
+            retry_stopped = _encode_attempt_retry_stop(execution)
+            if retry_stopped is not None:
+                # No repair retry and no escalation: the residual issues are
+                # certain non-encoder blockers that a new candidate cannot fix.
+                execution.outcome["retry_stopped"] = {
+                    **retry_stopped,
+                    "attempt": len(failed_attempts) + 1,
+                    "next_model": next_model,
+                }
+                print(
+                    f"  generation=retry_stopped class={retry_stopped['class']} "
+                    f"failed_attempts={len(failed_attempts) + 1} "
+                    f"skipped_model={next_model}"
+                )
+                next_model = None
         if next_model is not None:
             retry_error = _encode_outcome_issue(execution.result, execution.outcome)
             try:

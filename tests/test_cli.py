@@ -16753,6 +16753,144 @@ rules:
             "message": "Retry candidate capture failed closed before output cleanup",
         }
 
+    _ROOT_LAYOUT_ISSUE = (
+        "Axiom rules engine compile failed: invalid RuleSpec repository root "
+        "configuration: root-level `programs/` is forbidden in "
+        "`/tmp/tmpd78gxt4f/rulespec-us`; content belongs below a direct "
+        "jurisdiction directory"
+    )
+
+    def test_encode_stops_retry_when_every_issue_is_certain_non_encoder(
+        self, tmp_path, capsys
+    ):
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=True,
+        )
+        issues = [
+            f"statutes/26/1/j/2.yaml: compile: {self._ROOT_LAYOUT_ISSUE}",
+            f"statutes/26/1/j/2.yaml: ci: {self._ROOT_LAYOUT_ISSUE}",
+        ]
+
+        exit_code, generated, validated, mock_run, _validate, mock_apply = (
+            self._run_validator_escalation_case(args, [(False, issues)])
+        )
+
+        assert exit_code == 1
+        # One model call: no repair retry and no escalation model.
+        assert generated == [DEFAULT_OPENAI_MODEL]
+        assert validated == generated
+        mock_run.assert_called_once()
+        mock_apply.assert_not_called()
+        assert "generation=retry_stopped class=migration" in capsys.readouterr().out
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.generation_attempt_count == 1
+        stopped = run.outcome["retry_stopped"]
+        assert stopped["schema"] == "axiom-encode/retry-stopped/v1"
+        assert (stopped["class"], stopped["subclass"]) == ("migration", "schema")
+        assert stopped["attempt"] == 1
+        assert stopped["next_model"] == DEFAULT_OPENAI_MODEL
+        assert stopped["issue_count"] == 2
+        assert "generation_escalation" not in run.outcome
+        assert "generation_retry_blocked" not in run.outcome
+        assert run.outcome["status"] == "apply_blocked_validation"
+        assert run.outcome["final_success"] is False
+        assert run.outcome["failure_class"]["class"] == "migration"
+        assert run.outcome["failure_class"]["subclass"] == "schema"
+        assert "retry_stopped" in run.outcome["failure_class"]["evidence"]
+
+    def test_encode_stops_escalation_when_every_issue_is_certain_non_encoder(
+        self, tmp_path
+    ):
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=True,
+        )
+
+        exit_code, generated, _validated, mock_run, _validate, _apply = (
+            self._run_validator_escalation_case(
+                args,
+                [
+                    (False, ["terra-1"]),
+                    (False, [self._ROOT_LAYOUT_ISSUE]),
+                ],
+            )
+        )
+
+        assert exit_code == 1
+        # The second failure would escalate; the stop keeps the larger model
+        # out of the run.
+        assert generated == [DEFAULT_OPENAI_MODEL] * 2
+        assert mock_run.call_count == 2
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["retry_stopped"]["attempt"] == 2
+        assert (
+            run.outcome["retry_stopped"]["next_model"]
+            == DEFAULT_OPENAI_ESCALATION_MODEL
+        )
+        assert "generation_escalation" not in run.outcome
+
+    @pytest.mark.parametrize(
+        "issues",
+        [
+            ["terra-1"],
+            [
+                f"statutes/26/1/j/2.yaml: compile: {_ROOT_LAYOUT_ISSUE}",
+                "statutes/26/1/j/2.yaml: ci: [complete-source-unit:tests] "
+                "Principal output `x` is never asserted by a companion test.",
+            ],
+        ],
+    )
+    def test_encode_retries_when_any_issue_is_not_certain_non_encoder(
+        self, tmp_path, issues
+    ):
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=True,
+        )
+
+        exit_code, generated, _validated, mock_run, _validate, _apply = (
+            self._run_validator_escalation_case(args, [(False, issues), (True, [])])
+        )
+
+        assert exit_code == 0
+        assert generated == [DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_MODEL]
+        assert mock_run.call_count == 2
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert "retry_stopped" not in run.outcome
+        assert run.outcome["failure_class"] is None
+
+    def test_encode_final_attempt_records_no_retry_stop(self, tmp_path):
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=False,
+        )
+
+        exit_code, generated, _validated, _run, _validate, _apply = (
+            self._run_validator_escalation_case(
+                args, [(False, [self._ROOT_LAYOUT_ISSUE])]
+            )
+        )
+
+        # No retry was due, so nothing was stopped.
+        assert exit_code == 1
+        assert generated == [DEFAULT_OPENAI_MODEL]
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert "retry_stopped" not in run.outcome
+        assert run.outcome["failure_class"]["class"] == "unknown"
+
     def test_encode_retry_cleanup_rejects_symlinked_next_runner_root(self, tmp_path):
         import axiom_encode.cli as cli_module
 

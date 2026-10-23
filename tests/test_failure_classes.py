@@ -5,8 +5,10 @@ import pytest
 from axiom_encode.failure_classes import (
     FAILURE_CLASSES,
     FailureClassRecord,
+    classify_issue,
     classify_outcome,
     failure_class_payload,
+    retry_stop_record,
 )
 from axiom_encode.harness.pre_encode_gate import GateSource, evaluate_pre_encode_gate
 
@@ -186,3 +188,162 @@ def test_issue_text_alone_is_unknown(detail):
 
 def test_non_mapping_outcome_is_unknown():
     assert classify_outcome(None).failure_class == "unknown"  # type: ignore[arg-type]
+
+
+ROOT_LAYOUT = (
+    "Axiom rules engine compile failed: invalid RuleSpec repository root "
+    "configuration: root-level `programs/` is forbidden in "
+    "`/tmp/tmpd78gxt4f/rulespec-us`; content belongs below a direct "
+    "jurisdiction directory"
+)
+EMPTY_BODY = (
+    "[complete-source-unit:authoritative-source] The authoritative corpus body "
+    "is required; `module.summary` is never completeness evidence."
+)
+CONTRACT_CITATION = (
+    "[required-deferred-output-contract] generated citation does not match "
+    "the signed dispatch review contract"
+)
+CONTRACT_PATH = (
+    "[required-deferred-output-contract] generated RuleSpec path does not "
+    "match the signed dispatch review contract"
+)
+ENCODER_ISSUE = (
+    "statutes/7/2015/f.yaml: ci: [complete-source-unit:tests] Source-stated "
+    "exceptions or applicability conditions require paired positive/blocking cases"
+)
+
+
+@pytest.mark.parametrize(
+    ("issue", "expected"),
+    [
+        (ROOT_LAYOUT, ("migration", "schema")),
+        (f"statutes/7/2015/f.yaml: compile: {ROOT_LAYOUT}", ("migration", "schema")),
+        (f"statutes/7/2015/f.yaml: ci: {ROOT_LAYOUT}", ("migration", "schema")),
+        (EMPTY_BODY, ("corpus", "content")),
+        (f"statutes/26/1.yaml: ci: {EMPTY_BODY}", ("corpus", "content")),
+        (CONTRACT_CITATION, ("process", None)),
+        (f"statutes/26/1.yaml: {CONTRACT_PATH}", ("process", None)),
+    ],
+)
+def test_classify_issue_maps_only_certain_non_encoder_signals(issue, expected):
+    record = classify_issue(issue)
+    assert (record.failure_class, record.subclass) == expected
+    assert (record.source, record.confidence) == ("rule", "certain")
+    assert record.evidence and record.evidence[0].startswith("issue:")
+
+
+@pytest.mark.parametrize(
+    "issue",
+    [
+        ENCODER_ISSUE,
+        # A compile error in an imported legacy module: a later candidate in
+        # the recorded data stopped importing it and compiled.
+        "statutes/42/402/a.yaml: compile: Axiom rules engine compile failed: "
+        "failed to load RuleSpec module `/tmp/x/rulespec-us/us/statutes/42/402/a.yaml`: "
+        "RuleSpec module `us:statutes/42/416/l` declares removed plural "
+        "`corpus_citation_paths`",
+        "Axiom rules engine compile failed: invalid RuleSpec repository root "
+        "configuration: root `/tmp/x/rulespec-us` is an alias",
+        "[required-deferred-output-contract] expected exactly one "
+        "module.deferred_outputs entry with output `us:x#y`; found 0",
+        "[required-test-case-contract] expected exactly one companion case named 'a'",
+        "[temporal-dependency-coverage] Derived rule `a` version 1 covers ...",
+        "[generated-yaml:io] unable to read generated RuleSpec",
+        "Retained repair candidate is unusable; emit a complete replacement: x",
+        # The rule text must start the issue body, not occur inside it.
+        f"Test case `a` failed: {ROOT_LAYOUT}",
+        "",
+        None,
+    ],
+)
+def test_classify_issue_leaves_everything_else_unknown(issue):
+    record = classify_issue(issue)
+    assert record.failure_class == "unknown"
+
+
+def test_retry_stops_only_when_every_issue_is_certain_non_encoder():
+    record = retry_stop_record(
+        (
+            f"statutes/7/2015/f.yaml: compile: {ROOT_LAYOUT}",
+            f"statutes/7/2015/f.yaml: ci: {ROOT_LAYOUT}",
+        )
+    )
+    assert record is not None
+    assert record["schema"] == "axiom-encode/retry-stopped/v1"
+    assert (record["class"], record["subclass"]) == ("migration", "schema")
+    assert record["issue_count"] == 2
+    assert "migration/schema" in record["reason"]
+    assert record["evidence"][0] == "issue:rulespec-root-layout"
+
+
+@pytest.mark.parametrize(
+    "issues",
+    [
+        (),
+        [],
+        (ENCODER_ISSUE,),
+        (ROOT_LAYOUT, ENCODER_ISSUE),
+        (ENCODER_ISSUE, EMPTY_BODY),
+        (ROOT_LAYOUT, "validator rejected generated section"),
+        (ROOT_LAYOUT, None),
+        ROOT_LAYOUT,
+        None,
+    ],
+)
+def test_any_uncertain_or_missing_issue_keeps_the_retry(issues):
+    assert retry_stop_record(issues) is None
+
+
+def test_mixed_non_encoder_classes_still_stop():
+    record = retry_stop_record((CONTRACT_CITATION, EMPTY_BODY))
+    assert record is not None
+    assert (record["class"], record["subclass"]) == ("process", None)
+    assert "process, corpus/content" in record["reason"]
+
+
+def test_failure_class_carries_retry_stopped():
+    stopped = retry_stop_record((ROOT_LAYOUT,))
+    payload = failure_class_payload(
+        {
+            "final_success": False,
+            "status": "apply_blocked_validation",
+            "retry_stopped": {**stopped, "attempt": 1, "next_model": "m"},
+        }
+    )
+    assert payload["class"] == "migration"
+    assert payload["subclass"] == "schema"
+    assert payload["confidence"] == "certain"
+    assert payload["evidence"][:2] == [
+        "status:apply_blocked_validation",
+        "retry_stopped",
+    ]
+
+
+@pytest.mark.parametrize(
+    "stopped",
+    [
+        {"class": "encoder", "subclass": None},
+        {"class": "unknown", "subclass": None},
+        {"class": "migration", "subclass": "nope"},
+        "migration",
+    ],
+)
+def test_invalid_retry_stopped_never_classifies(stopped):
+    record = classify_outcome(
+        {
+            "final_success": False,
+            "status": "standalone_failed",
+            "retry_stopped": stopped,
+        }
+    )
+    assert record.failure_class == "unknown"
+
+
+def test_success_ignores_retry_stopped():
+    assert (
+        classify_outcome(
+            {"final_success": True, "retry_stopped": {"class": "migration"}}
+        )
+        is None
+    )

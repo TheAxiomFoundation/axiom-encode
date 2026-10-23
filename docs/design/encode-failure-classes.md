@@ -1,6 +1,6 @@
 # Encode failure classes and the pre-encode gate
 
-Status: design, 2026-10-23. Owner: Pavel. Code refs are origin/main at 0.2.2250. Stage 1 is implemented in 0.2.2254; the Stage 1 section below describes what was built.
+Status: design, 2026-10-23. Owner: Pavel. Code refs are origin/main at 0.2.2250. Stage 1 is implemented in 0.2.2254 and Stage 2 in 0.2.2255; their sections below describe what was built.
 
 ## Problem
 
@@ -78,9 +78,20 @@ Measurement before merge: run the gate offline in `report` mode over every item 
 
 ### Stage 2: stop repairs that cannot work
 
-- `_encode_attempt_was_validator_rejected` (`cli.py:34208`) is the single retry predicate. Return False when every residual blocking issue classifies as a non-encoder class with `confidence = certain` (today: `migration`, `process`, `infra`, `selection`). Record `retry_stopped: {class, reason}` with the existing `generation_retry_blocked` pattern (`cli.py:34440-34470`).
-- Do not escalate to the larger model for those classes.
-- Build on Max's draft #1660 (`validation-issue/v1`). Do not duplicate its persistence. If #1660 has not merged, stage 2 adds only the class to the outcome and the retry predicate.
+- `failure_classes.classify_issue(text) -> FailureClassRecord` classifies one validator issue. It strips an overlay `<file>.yaml: <gate>: ` prefix and matches the start of the issue body against a short list of rules. Each rule names an issue whose inputs do not come from the generated candidate, so every retry of the same invocation reports it again:
+
+  | Issue body starts with | Class | Why it is certain |
+  |---|---|---|
+  | ``Axiom rules engine compile failed: invalid RuleSpec repository root configuration: root-level ` `` | `migration/schema` | the rules engine refuses the checkout root (an old root-level content directory) before it loads a module |
+  | `[complete-source-unit:authoritative-source] The authoritative corpus body is required` | `corpus/content` | the resolver-owned body is empty |
+  | `[required-deferred-output-contract] generated citation does not match the signed dispatch review contract` | `process` | the invocation's citation differs from the signed dispatch |
+  | `[required-deferred-output-contract] generated RuleSpec path does not match the signed dispatch review contract` | `process` | the harness-chosen target path differs from the signed dispatch |
+
+  Everything else is `unknown`. Not mapped, from the measurement: a compile error in an imported legacy module (`RuleSpec module X declares removed plural corpus_citation_paths`): in the local A/B runs a later candidate stopped importing the module and compiled. A compile or schema error in the target's own file, `[temporal-dependency-coverage]`, `[existing-target-*-contract]` and `[required-test-case-contract]` are also encoder-fixable. `[toolchain]` and `[policyengine_runtime]` are exceptions that never reach the retry loop, and timeouts are not validator rejections, so neither needs a rule.
+- `failure_classes.retry_stop_record(issues)` returns a `retry_stopped` record only when every issue classifies with `confidence = certain` into `migration`, `process`, `infra` or `corpus`. One unknown or encoder issue, or no recorded issue, returns `None`.
+- In `_run_encode_attempts_with_retries`, after `_encode_attempt_was_validator_rejected` accepts an attempt and `_next_encode_attempt_model` picks a next model, `_encode_attempt_retry_stop` checks the attempt's full residual issue list (`validation_issues`). On a stop there is no further model call and no escalation. The outcome gets `retry_stopped: {schema, class, subclass, reason, evidence, issue_count, attempt, next_model}` next to the existing `generation_retry_blocked` records, and `classify_outcome` returns that class (`source: rule`, `confidence: certain`), so `failure_class` reflects it. A stop is recorded only when a retry was due; a final try with the same issues stays `unknown`.
+- `_encode_attempt_was_validator_rejected` itself does not change: it still decides whether the final rejected candidate is emitted, and that evidence is kept for stopped runs.
+- #1987 (typed validator issues, not merged) declares a `cause` per check. When it merges, `classify_issue` can read typed checks with an infra or source-corpus cause instead of text prefixes. #1660's persistence is not duplicated.
 
 ### Stage 3: triage agent (later, separate design)
 
