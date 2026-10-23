@@ -25,8 +25,8 @@
   "context_imports": {},
   "context_origins": {},
   "provider_git_blob_sha1": {},
-  "expected_class": "validator_fp",
-  "class_evidence": "Source has only statutory-basis, scope and applicability paragraphs, and no accepted non-operative deferral form exists; adjudication rates it validator-FP.",
+  "expected_class": "selection",
+  "class_evidence": "Source has only statutory-basis, scope and applicability paragraphs, with no operative rule; adjudication also notes no non-operative deferral form.",
   "class_source": "hand",
   "files": {
     "candidate.test.yaml": "a131f5865ae428ba6f0d3e8fd87278971ce7abed12c1e50edac16f006aa4b743",

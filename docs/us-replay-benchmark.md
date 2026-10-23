@@ -60,8 +60,10 @@ failure, from the failure-class design (v1):
 A label names the root cause, not the symptom. A fixture whose blocker no
 candidate can fix (an unencoded upstream concept, a non-operative target, a
 removed schema field in a context module) takes that class, even when the
-candidate also has encoder errors. `unknown` means that the evidence does not
-decide between two classes. `load_fixture` refuses an unknown class, a
+candidate also has encoder errors. A dependency label needs the missing module
+to be absent at the run's `rulespec_ref`. When two such blockers coexist, the
+label follows the local hand adjudication of that citation. `unknown` means
+that the evidence does not decide between two classes. `load_fixture` refuses an unknown class, a
 subclass of another class, or a label without evidence. `fixture.json` is not
 in its own hash list, so a label change does not change any file hash.
 

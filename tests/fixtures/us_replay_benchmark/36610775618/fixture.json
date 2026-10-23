@@ -28,7 +28,7 @@
   "context_origins": {},
   "provider_git_blob_sha1": {},
   "expected_class": "validator_fp",
-  "class_evidence": "Numeric recall demands manual section numbers 214.2, 214.3 and 214.4 (cf. axiom-encode#1815); adjudication rates this citation validator-FP.",
+  "class_evidence": "Numeric recall demands section numbers 214.2-214.4; the deferred telephone and SUA amounts exist in us-md standard-utility-allowances at the rulespec_ref.",
   "class_source": "hand",
   "files": {
     "candidate.test.yaml": "1883f317be030b2e08b38b24e0809d17c5a7ab04a897fd4052242ba560e86386",
