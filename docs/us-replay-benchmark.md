@@ -57,14 +57,20 @@ failure, from the failure-class design (v1):
 - `class_evidence`: one sentence that names the deciding evidence.
 - `class_source`: `hand` for these labels.
 
-A label names the root cause, not the symptom. A fixture whose blocker no
-candidate can fix (an unencoded upstream concept, a non-operative target, a
-removed schema field in a context module) takes that class, even when the
-candidate also has encoder errors. A dependency label needs the missing module
-to be absent at the run's `rulespec_ref`. When two such blockers coexist, the
-label follows the local hand adjudication of that citation. `unknown` means
-that the evidence does not decide between two classes. `load_fixture` refuses an unknown class, a
-subclass of another class, or a label without evidence. `fixture.json` is not
+A label names the root cause, not the symptom. A fixture whose central
+blocker no candidate can fix (an unencoded upstream concept, a non-operative
+target, a removed schema field in a context module) takes that class, even
+when the candidate also has encoder errors. A dependency label needs the
+necessary executable output to be missing at the run's `rulespec_ref`; a
+module that only defers that output still counts as missing. A validator
+false positive decides the label only when it blocks every plausible
+candidate for the citation (for example, the local hand adjudication found it
+in the failed runs of that citation). An incidental false demand, such as a
+page number or a footnote marker beside larger encoder errors, does not change
+an `encoder` label. When two unfixable blockers coexist, the label follows the
+local hand adjudication of that citation. `unknown` means that the evidence
+does not decide between two classes. `load_fixture` refuses an unknown class,
+a subclass of another class, or a label without evidence. `fixture.json` is not
 in its own hash list, so a label change does not change any file hash.
 
 `replay` prints the number of fixtures per class and puts `expected_class`

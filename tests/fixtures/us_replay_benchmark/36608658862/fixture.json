@@ -30,7 +30,7 @@
   "context_origins": {},
   "provider_git_blob_sha1": {},
   "expected_class": "unknown",
-  "class_evidence": "Deferrals cite missing filing status, but 26 USC 2(a)/(b) and a us-ks K-40ES schedule module exist at the rulespec_ref; validator FPs also present.",
+  "class_evidence": "Filing-status outputs are missing (26 USC 2 modules only defer them), but validator FPs (payment-portal sentence, form years) also block; no adjudication.",
   "class_source": "hand",
   "files": {
     "candidate.test.yaml": "2108d6479715488910d192344a7e9432348202c52371fab90cc714bf0e5f5adb",
