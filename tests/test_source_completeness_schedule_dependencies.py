@@ -7,6 +7,7 @@ from hypothesis import strategies as st
 from axiom_encode.harness import source_completeness as sc
 
 CITATION = "nz/statute/act/public/2018/0032/section/74"
+AUTHENTICATED_ACT_ALIASES = ("Social Security Act 2018",)
 # Social Security Act 2018, s 74(1)–(2). Paragraphs (2)(a) and (b)
 # inherit the missing rate's locator from their parent computation.
 SOURCE = """1
@@ -64,7 +65,11 @@ def test_rate_dependency_binds_parent_and_inherited_child_scopes(index, path):
     scope = sc._deferred_source_scope_text(path, source_text=SOURCE, branches=branches)
     assert "Part 8 of Schedule 4" in scope
     assert sc._reason_dependency_is_source_bound(
-        REASONS[index], scope, corpus_citation_path=CITATION, path=path
+        REASONS[index],
+        scope,
+        corpus_citation_path=CITATION,
+        path=path,
+        authenticated_same_act_aliases=AUTHENTICATED_ACT_ALIASES,
     )
 
 
@@ -84,7 +89,11 @@ def test_precise_rate_deferrals_need_no_invented_output_identifiers():
         }
     }
     covered, issues = sc._deferred_coverage(
-        payload, corpus_citation_path=CITATION, source_text=SOURCE, branches=branches
+        payload,
+        corpus_citation_path=CITATION,
+        source_text=SOURCE,
+        branches=branches,
+        authenticated_same_act_aliases=AUTHENTICATED_ACT_ALIASES,
     )
     assert not issues
     assert {("2",), ("2", "a"), ("2", "b")} <= covered
@@ -174,6 +183,271 @@ def test_relative_clauses_do_not_cross_amendment_containers():
         "In Schedule 4, Part 7, replace clause 4 with the following. "
         "In Schedule 5, Part 8, replace clause 1 with the following.",
         corpus_citation_path=AMENDMENT_CITATION,
+    )
+
+
+@pytest.mark.parametrize("jurisdiction", ("uk", "us", "de", "fr", "nz"))
+@pytest.mark.parametrize(
+    "source",
+    (
+        "In Schedule 4, Part 7, replace clause 4 with: "
+        "The rate is the rate in clause 1 of Schedule 5.",
+        "In Schedule 4, Part 7, replace clause 4 with the following. "
+        "In Schedule 5, Part 8, repeal clause 1.",
+        "In Schedule 4, Part 7, replace clause 4 with the following. "
+        "In Schedule 5, Part 8, omit clause 1.",
+    ),
+)
+def test_review_wrong_schedule_probes_cannot_authenticate_root_coverage(
+    jurisdiction, source
+):
+    citation = f"{jurisdiction}/statute/2020/1/section/72"
+    branches = sc.recognize_source_structure(source, corpus_citation_path=citation)
+    covered, issues = sc._deferred_coverage(
+        {
+            "module": {
+                "deferred_outputs": [
+                    {
+                        "output": f"{jurisdiction}:statutes/2020/1/section/72#rate",
+                        "reason": "Schedule 4, Part 7, clause 1 is unavailable.",
+                    }
+                ]
+            }
+        },
+        source_text=source,
+        corpus_citation_path=citation,
+        branches=branches,
+    )
+    assert not covered
+    assert issues
+
+
+@pytest.mark.parametrize("jurisdiction", ("uk", "us", "de", "fr", "nz"))
+@pytest.mark.parametrize(
+    "action", ("replace", "repeal", "omit", "insert", "substitute")
+)
+@pytest.mark.parametrize("action_first", (False, True))
+def test_every_amendment_action_terminates_an_inherited_container(
+    jurisdiction, action, action_first
+):
+    boundary = (
+        f"{action} clause 1 of Schedule 5, Part 8."
+        if action_first
+        else f"In Schedule 5, Part 8, {action} clause 1."
+    )
+    assert not sc._reason_dependency_is_source_bound(
+        "Schedule 4, Part 7, clause 1 is unavailable.",
+        "In Schedule 4, Part 7, replace clause 4 with the following. " + boundary,
+        corpus_citation_path=f"{jurisdiction}/statute/2020/1/section/72",
+    )
+
+
+@pytest.mark.parametrize(
+    "qualification",
+    ("Schedule 5", "Part 8 of Schedule 5", "Schedule 5, Part 8"),
+)
+@pytest.mark.parametrize("connector", ("of", "in", "under"))
+def test_postfix_clause_qualification_authenticates_only_its_own_container(
+    qualification, connector
+):
+    source = f"The rate is in clauses 1 to 3 {connector} {qualification}."
+    reason = f"clause 2 {connector} {qualification} is unavailable."
+    assert sc._reason_dependency_is_source_bound(
+        reason, source, corpus_citation_path=AMENDMENT_CITATION
+    )
+    assert not sc._reason_dependency_is_source_bound(
+        reason.replace("clause 2", "clause 4"),
+        source,
+        corpus_citation_path=AMENDMENT_CITATION,
+    )
+
+
+@pytest.mark.parametrize("jurisdiction", ("uk", "us", "de", "fr", "nz"))
+@pytest.mark.parametrize(
+    "new_container",
+    (
+        "Omit from Schedule 5, Part 8 clause 4. The rate is in clause 1.",
+        "Omit clause 4 in Schedule 5, Part 8. The rate is in clause 1.",
+        "Insert after clause 4 of Schedule 5, Part 8: The rate is in clause 1.",
+        "In Schedule 5, Part 8, after clause 4, insert: The rate is in clause 1.",
+        "In Schedule 5, Part 8 of the Other Benefits Act 2020, repeal clause 1.",
+        "After clause 6 of Schedule 5, Part 8, insert clause 1.",
+        "Before clause 6 of Schedule 5, Part 8, insert clause 1.",
+        "In Schedule 5, Part 8 of the Other Benefits Instrument 2020, repeal clause 1.",
+        "In Schedule 5, Part 8 (rates), repeal clause 1.",
+        "In Schedule 5, Part 8, clause 2 is replaced by clause 1.",
+        "In Schedule 5, Part 8, the rate is specified in clause 1.",
+        "For Schedule 5, Part 8, omit clause 1.",
+        "The rate in Schedule 5, Part 8 is specified in clause 1.",
+        "The rate is in clause 1, Schedule 5.",
+        "The rate is in clause 1 of (Schedule 5).",
+        "The rate is in clause 1 (of Schedule 5).",
+        "The rate is in clause 1 [of Schedule 5].",
+        "The rate is in clause 1 set out in Schedule 5.",
+        "The rate is in clause 1 specified in Schedule 5.",
+        "The rate is in clause 1 as defined in Schedule 5.",
+        "The rate is in clause 1 from Schedule 5.",
+        "The rate is in clause 1\nset out in Schedule 5.",
+        "The rate is in clause 1 (as defined in Schedule 5).",
+        "The rate is in clauses 1 and 2 of Schedule 5.",
+        "The rate is in clauses 1, 2 and 3 of Schedule 5.",
+        "The rate is in clauses 1 or 2 of Schedule 5.",
+        "The rate is in clauses 1 to 3 and 4 of Schedule 5.",
+        "The rate is in clause 1 (Schedule 5).",
+        "The rate is in clause 1 of the Fifth Schedule.",
+        "The rate is in clause 1 in Schedule 5.",
+        "The rate is in clause 1 under Schedule 5.",
+    ),
+)
+def test_qualified_amendment_locations_never_extend_a_previous_container(
+    jurisdiction, new_container
+):
+    assert not sc._reason_dependency_is_source_bound(
+        "Schedule 4, Part 7, clause 1 is unavailable.",
+        "In Schedule 4, Part 7, replace clause 4 with the following. " + new_container,
+        corpus_citation_path=f"{jurisdiction}/statute/2020/1/section/72",
+    )
+
+
+@pytest.mark.parametrize("jurisdiction", ("uk", "us", "de", "fr", "nz"))
+@pytest.mark.parametrize(
+    "instrument",
+    (
+        "Imaginary Benefits Act 2020",
+        "Imaginary Benefits Act",
+        "Imaginary Benefits Code",
+        "Imaginary Benefits Regulations 2020",
+        "Imaginary Benefits Instrument 2020",
+    ),
+)
+def test_review_invented_instrument_probe_cannot_authenticate_root_coverage(
+    jurisdiction, instrument
+):
+    citation = f"{jurisdiction}/statute/2020/1/section/72"
+    source = "The rate is stated in Part 8 of Schedule 4."
+    branches = sc.recognize_source_structure(source, corpus_citation_path=citation)
+    covered, issues = sc._deferred_coverage(
+        {
+            "module": {
+                "deferred_outputs": [
+                    {
+                        "output": f"{jurisdiction}:statutes/2020/1/section/72#rate",
+                        "reason": f"Part 8 of Schedule 4 of the {instrument} "
+                        "is unavailable.",
+                    }
+                ]
+            }
+        },
+        source_text=source,
+        corpus_citation_path=citation,
+        branches=branches,
+    )
+    assert not covered
+    assert issues
+
+
+@pytest.mark.parametrize("jurisdiction", ("uk", "us", "de", "fr", "nz"))
+def test_explicit_instrument_requires_source_or_resolver_owned_authentication(
+    jurisdiction,
+):
+    citation = f"{jurisdiction}/statute/2020/1/section/72"
+    instrument = "Actual Benefits Act 2020"
+    reason = f"Part 8 of Schedule 4 of the {instrument} is unavailable."
+    unqualified_source = "The rate is stated in Part 8 of Schedule 4."
+    assert not sc._reason_dependency_is_source_bound(
+        reason, unqualified_source, corpus_citation_path=citation
+    )
+    assert not sc._reason_dependency_is_source_bound(
+        reason,
+        unqualified_source,
+        corpus_citation_path=citation,
+        authenticated_same_act_aliases=("Other Benefits Act 2020",),
+    )
+    assert sc._reason_dependency_is_source_bound(
+        reason,
+        unqualified_source,
+        corpus_citation_path=citation,
+        authenticated_same_act_aliases=(instrument,),
+    )
+    assert sc._reason_dependency_is_source_bound(
+        reason,
+        f"The rate is stated in Part 8 of Schedule 4 of the {instrument}.",
+        corpus_citation_path=citation,
+    )
+    assert not sc._reason_dependency_is_source_bound(
+        reason,
+        "The rate is stated in Part 8 of Schedule 4 of the Other Benefits Act 2020.",
+        corpus_citation_path=citation,
+        authenticated_same_act_aliases=(instrument,),
+    )
+
+
+def test_nz_short_fixture_title_is_not_authenticated_by_its_citation():
+    branches = sc.recognize_source_structure(SOURCE, corpus_citation_path=CITATION)
+    scope = sc._deferred_source_scope_text(
+        ("2",), source_text=SOURCE, branches=branches
+    )
+    assert not sc._reason_dependency_is_source_bound(
+        REASONS[0], scope, corpus_citation_path=CITATION, path=("2",)
+    )
+
+
+@pytest.mark.parametrize("jurisdiction", ("uk", "us", "de", "fr", "nz"))
+def test_relative_clause_cannot_borrow_another_instruments_identical_container(
+    jurisdiction,
+):
+    assert not sc._reason_dependency_is_source_bound(
+        "Schedule 4, Part 7, clause 1 of the Actual Benefits Act 2020 is unavailable.",
+        "In Schedule 4, Part 7, replace clause 4 with: "
+        "The rate is in clause 1 of Schedule 4, Part 7 of the Other Benefits Act 2020.",
+        corpus_citation_path=f"{jurisdiction}/statute/2020/1/section/72",
+        authenticated_same_act_aliases=("Actual Benefits Act 2020",),
+    )
+
+
+@pytest.mark.parametrize("jurisdiction", ("uk", "us", "de", "fr", "nz"))
+def test_an_unrelated_source_title_cannot_qualify_a_schedule_dependency(jurisdiction):
+    assert not sc._reason_dependency_is_source_bound(
+        "Part 8 of Schedule 4 of the Imaginary Benefits Act 2020 is unavailable.",
+        "The rate is stated in Part 8 of Schedule 4. "
+        "The Imaginary Benefits Act 2020 has no effect on that rate.",
+        corpus_citation_path=f"{jurisdiction}/statute/2020/1/section/72",
+    )
+
+
+@pytest.mark.parametrize("jurisdiction", ("uk", "us", "de", "fr", "nz"))
+@pytest.mark.parametrize("continuation", ("Amendment Act 2025", "Act 2025"))
+def test_source_instrument_title_cannot_authenticate_a_truncated_prefix(
+    jurisdiction, continuation
+):
+    assert not sc._reason_dependency_is_source_bound(
+        "Part 8 of Schedule 4 of the Actual Benefits Act 2020 is unavailable.",
+        "The rate is stated in Part 8 of Schedule 4 of the Actual Benefits Act 2020 "
+        + continuation
+        + ".",
+        corpus_citation_path=f"{jurisdiction}/statute/2020/1/section/72",
+    )
+
+
+@pytest.mark.parametrize("jurisdiction", ("uk", "us", "de", "fr", "nz"))
+@pytest.mark.parametrize(
+    "qualification",
+    (
+        "(Other Benefits Act 2020)",
+        "in the Other Benefits Act 2020",
+        "under the Other Benefits Act 2020",
+        ", of the Other Benefits Act 2020",
+        "(under the Other Benefits Act 2020)",
+    ),
+)
+def test_source_explicit_foreign_instrument_cannot_be_overridden_by_current_alias(
+    jurisdiction, qualification
+):
+    assert not sc._reason_dependency_is_source_bound(
+        "Part 8 of Schedule 4 of the Actual Benefits Act 2020 is unavailable.",
+        f"The rate is stated in Part 8 of Schedule 4 {qualification}.",
+        corpus_citation_path=f"{jurisdiction}/statute/2020/1/section/72",
+        authenticated_same_act_aliases=("Actual Benefits Act 2020",),
     )
 
 

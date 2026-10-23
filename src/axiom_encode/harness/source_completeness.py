@@ -22,7 +22,7 @@ import math
 import re
 import textwrap
 from collections.abc import Callable, Iterable, Iterator, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from datetime import date
 from decimal import (
     ROUND_CEILING,
@@ -169,6 +169,11 @@ class SourceStructureBranch:
     required_principal_output: str | None = None
 
     @property
+    def condition_chapeau(self) -> tuple[int, int, str] | None:
+        """Ordinary source branches do not inherit a conditional introducer."""
+        return None
+
+    @property
     def computation_chapeau(self) -> tuple[int, int, str] | None:
         """The nearest authenticated cue, when a computation inherits context."""
         return self.computation_chapeaux[-1] if self.computation_chapeaux else None
@@ -182,6 +187,18 @@ class SourceStructureBranch:
             if not (self.start <= start and end <= self.end)
         )
         return "\n".join((*inherited, self.text))
+
+    @property
+    def condition_effect_text(self) -> str:
+        """The source proposition whose effect an inherited condition controls."""
+        return self.condition_chapeau[2] if self.condition_chapeau else self.text
+
+
+@dataclass(frozen=True)
+class _InheritedConditionBranch(SourceStructureBranch):
+    """Store conditional provenance only on branches that inherit it."""
+
+    condition_chapeau: tuple[int, int, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -1465,14 +1482,30 @@ _SCHEDULE_CLAUSE_LOCATOR = re.compile(
     flags=re.IGNORECASE,
 )
 _SCHEDULE_DEFERRAL_DEPENDENCY = re.compile(
-    rf"\b(?:schedule\s+(?P<schedule>{_SCHEDULE_LOCATOR_LABEL})"
+    rf"\b(?:(?:schedule\s+(?P<schedule>{_SCHEDULE_LOCATOR_LABEL})"
     rf"(?:\s*,?\s*part\s+(?P<part>{_SCHEDULE_LOCATOR_LABEL}))?"
     rf"|part\s+(?P<leading_part>{_SCHEDULE_LOCATOR_LABEL})\s+of\s+"
     rf"schedule\s+(?P<following_schedule>{_SCHEDULE_LOCATOR_LABEL}))"
     rf"(?:\s*,?\s*clauses?\s+(?P<first>{_SCHEDULE_LOCATOR_LABEL})"
-    rf"(?:\s*(?:to|[-–—])\s*(?P<last>{_SCHEDULE_LOCATOR_LABEL}))?)?",
+    rf"(?:\s*(?:to|[-–—])\s*(?P<last>{_SCHEDULE_LOCATOR_LABEL}))?)?"
+    rf"|clauses?\s+(?P<postfix_first>{_SCHEDULE_LOCATOR_LABEL})"
+    rf"(?:\s*(?:to|[-–—])\s*(?P<postfix_last>{_SCHEDULE_LOCATOR_LABEL}))?"
+    rf"\s+(?:of|in|under)\s+(?:the\s+)?"
+    rf"(?:part\s+(?P<postfix_leading_part>{_SCHEDULE_LOCATOR_LABEL})"
+    rf"\s+of\s+)?schedule\s+(?P<postfix_schedule>{_SCHEDULE_LOCATOR_LABEL})"
+    rf"(?:\s*,?\s*part\s+(?P<postfix_part>{_SCHEDULE_LOCATOR_LABEL}))?)",
     flags=re.IGNORECASE,
 )
+_SCHEDULE_INSTRUMENT_QUALIFIER = re.compile(
+    r"\s*(?:,\s*)?(?:(?:of|in|under)\s+|\(\s*"
+    r"(?:(?:of|in|under)\s+)?)(?:the\s+)?(?P<instrument>"
+    r"[A-Za-z][A-Za-z0-9'’ -]{0,160}\s+"
+    r"(?:Act|Code|Regulations?|Orders?|Gesetz|Loi)(?:\s+\d{4})?)"
+    r"(?=\s*(?:[,.;:\n)]|$)|\s+(?:is|are|was|were|remains?|"
+    r"requires?|replace|repeal|omit|insert|substitute)\b)",
+    flags=re.IGNORECASE,
+)
+_SCHEDULE_SCOPE_REFERENCE = re.compile(r"\bschedule\b", flags=re.IGNORECASE)
 _PRECISE_DEFERRAL_DEPENDENCY = re.compile(
     r"(?:" + _SCHEDULE_DEFERRAL_DEPENDENCY.pattern + r"|"
     r"§{1,2}\s*\d+[a-z]?|"
@@ -9377,9 +9410,26 @@ def _reason_names_absolute_target(
 def _schedule_dependency_identity(match: re.Match[str]) -> tuple[str, str]:
     groups = match.groupdict()
     return (
-        (groups.get("schedule") or groups.get("following_schedule") or "").lower(),
-        (groups.get("part") or groups.get("leading_part") or "").lower(),
+        (
+            groups.get("schedule")
+            or groups.get("following_schedule")
+            or groups.get("postfix_schedule")
+            or ""
+        ).lower(),
+        (
+            groups.get("part")
+            or groups.get("leading_part")
+            or groups.get("postfix_part")
+            or groups.get("postfix_leading_part")
+            or ""
+        ).lower(),
     )
+
+
+def _schedule_dependency_clause_labels(match: re.Match[str]) -> tuple[str, str]:
+    groups = match.groupdict()
+    first = groups.get("first") or groups.get("postfix_first") or ""
+    return first, groups.get("last") or groups.get("postfix_last") or first
 
 
 def _schedule_clause_range_contains(
@@ -9389,12 +9439,10 @@ def _schedule_clause_range_contains(
         parsed = re.fullmatch(r"(\d+)([a-z]*)", label, re.IGNORECASE)
         return (int(parsed[1]), parsed[2].lower()) if parsed else None
 
-    source_first = source.groupdict().get("first")
-    wanted_first = dependency.groupdict().get("first")
+    source_first, source_last = _schedule_dependency_clause_labels(source)
+    wanted_first, wanted_last = _schedule_dependency_clause_labels(dependency)
     if not source_first or not wanted_first:
         return False
-    source_last = source.groupdict().get("last") or source_first
-    wanted_last = dependency.groupdict().get("last") or wanted_first
     bounds = tuple(
         label_key(label)
         for label in (source_first, source_last, wanted_first, wanted_last)
@@ -9408,63 +9456,132 @@ def _schedule_clause_range_contains(
     return low <= wanted_low <= wanted_high <= high
 
 
-def _schedule_dependency_instrument(text: str, match: re.Match[str]) -> str:
-    qualifier = re.match(
-        r"\s+of\s+(?:the\s+)?(?P<instrument>"
-        r"[A-Za-z][A-Za-z'’ -]{0,100}\s+Act\s+\d{4})\b",
-        text[match.end() :],
-        re.IGNORECASE,
+def _schedule_dependency_instrument(text: str, match: re.Match[str]) -> str | None:
+    tail = text[match.end() :]
+    qualifier = _SCHEDULE_INSTRUMENT_QUALIFIER.match(tail)
+    if qualifier:
+        return _collapse_text(qualifier["instrument"]).casefold()
+    # An unparsed explicit qualification cannot silently become an unqualified
+    # current-instrument reference.
+    return (
+        None if re.match(r"\s*(?:,\s*)?(?:(?:of|in|under)\s+|\()", tail, re.I) else ""
     )
-    return _collapse_text(qualifier["instrument"]).casefold() if qualifier else ""
 
 
 def _schedule_amendment_container(text: str, match: re.Match[str]) -> bool:
+    action = r"(?:replace|repeal|omit|insert|substitute)"
+    prefix = text[: match.start()]
+    tail = text[match.end() :]
+    qualifier = _SCHEDULE_INSTRUMENT_QUALIFIER.match(tail)
+    if qualifier is not None:
+        tail = tail[qualifier.end() :]
+    opening = re.search(
+        r"(?:^|[.;:\n]|\band\s+)\s*(?:(?:in|before|after)\s+)?$", prefix, re.I
+    )
+    if opening and _schedule_dependency_instrument(text, match) is None:
+        # An unsupported explicit instrument cannot extend a prior container.
+        return True
     return bool(
-        re.search(r"(?:^|[.;\n])\s*(?:in\s+)?$", text[: match.start()], re.I)
-        and re.match(
-            r"\s*,?\s*(?:replace|insert|substitute)\b",
-            text[match.end() :],
+        (
+            opening
+            and re.match(
+                rf"\s*,?\s*(?:(?:before|after)\b[^.;\n:]{{0,100}}?,\s*)?{action}\b",
+                tail,
+                re.I,
+            )
+        )
+        or re.search(
+            rf"(?:^|[.;:\n]|\band\s+)\s*{action}\s+"
+            r"(?:(?:in|from|into|to|before|after)\s+)?$",
+            prefix,
             re.I,
         )
     )
 
 
+def _schedule_scope_container_boundary(text: str, match: re.Match[str]) -> bool:
+    """Fail closed at every later locator except a bounded definition aside."""
+    return not (
+        not _schedule_dependency_clause_labels(match)[0]
+        and re.search(r"\(\s*as\s+defined\s+in\s*$", text[: match.start()], re.I)
+        and re.match(r"\s*\)", text[match.end() :])
+        and _SCHEDULE_CLAUSE_LOCATOR.search(
+            text, _schedule_scope_statement_start(text, match), match.start()
+        )
+        is None
+    )
+
+
+def _schedule_scope_statement_start(text: str, match: re.Match[str]) -> int:
+    # The qualification may follow its clause (including an unparsed form),
+    # so ownership stops before the entire new statement rather than midway
+    # through it. Newlines can be soft wraps within one legal statement.
+    return max(text.rfind(mark, 0, match.start()) for mark in ".;:") + 1
+
+
 def _source_scope_cites_schedule_dependency(
-    source_scope_text: str, dependency: re.Match[str], *, reason: str
+    source_scope_text: str,
+    dependency: re.Match[str],
+    *,
+    reason: str,
+    authenticated_same_act_aliases: Sequence[str] = (),
 ) -> bool:
     identity = _schedule_dependency_identity(dependency)
     instrument = _schedule_dependency_instrument(reason, dependency)
+    if instrument is None:
+        return False
+    authenticated_aliases = {
+        _collapse_text(str(alias)).casefold()
+        for alias in authenticated_same_act_aliases
+    }
     locators = tuple(_SCHEDULE_DEFERRAL_DEPENDENCY.finditer(source_scope_text))
     for source in locators:
         if _schedule_dependency_identity(source) != identity:
             continue
         source_instrument = _schedule_dependency_instrument(source_scope_text, source)
-        if instrument and source_instrument and instrument != source_instrument:
+        if source_instrument is None:
             continue
-        if not dependency.groupdict().get("first"):
+        if instrument and not (
+            instrument == source_instrument
+            or (not source_instrument and instrument in authenticated_aliases)
+        ):
+            continue
+        if not _schedule_dependency_clause_labels(dependency)[0]:
             return True
         if _schedule_clause_range_contains(source, dependency):
             return True
         # An amendment's opening container also owns relative clause references
         # in its replacement text, including a referenced range's proper subset.
         if _schedule_amendment_container(source_scope_text, source):
-            container_end = min(
-                (
-                    locator.start()
+            boundaries = [
+                _schedule_scope_statement_start(source_scope_text, locator)
+                for locator in locators
+                if source.end() <= locator.start()
+                and _schedule_scope_container_boundary(source_scope_text, locator)
+            ]
+            # Unparsed forms (for example "the Fifth Schedule") must not lend
+            # their preceding clause to the earlier amendment container.
+            boundaries.extend(
+                _schedule_scope_statement_start(source_scope_text, mention)
+                for mention in _SCHEDULE_SCOPE_REFERENCE.finditer(
+                    source_scope_text, source.end()
+                )
+                if not any(
+                    locator.start() <= mention.start() < locator.end()
                     for locator in locators
-                    if source.end() <= locator.start()
-                    and _schedule_amendment_container(source_scope_text, locator)
-                ),
-                default=len(source_scope_text),
+                )
             )
+            container_end = min(boundaries, default=len(source_scope_text))
             for clause in _SCHEDULE_CLAUSE_LOCATOR.finditer(
                 source_scope_text, source.end(), container_end
             ):
                 if any(
                     locator.start() <= clause.start() < locator.end()
-                    and _schedule_dependency_identity(locator) != identity
                     for locator in locators
                 ):
+                    # Explicitly qualified clauses authenticate through their
+                    # own locator, including its instrument, rather than
+                    # borrowing an amendment container with the same numbers.
                     continue
                 if _schedule_clause_range_contains(clause, dependency):
                     return True
@@ -9486,7 +9603,7 @@ def _schedule_dependency_is_external(
     if current.get("part") and part and current["part"] != part:
         return True
     clause = current.get("clause")
-    if not clause or not dependency.groupdict().get("first"):
+    if not clause or not _schedule_dependency_clause_labels(dependency)[0]:
         return False
     current_clause = _SCHEDULE_CLAUSE_LOCATOR.fullmatch(f"clause {clause}")
     return bool(
@@ -9695,7 +9812,10 @@ def _reason_dependency_is_source_bound(
             if (
                 _schedule_dependency_is_external(match, corpus_citation_path)
                 and _source_scope_cites_schedule_dependency(
-                    source_scope_text, match, reason=reason
+                    source_scope_text,
+                    match,
+                    reason=reason,
+                    authenticated_same_act_aliases=authenticated_same_act_aliases,
                 )
                 and _reason_schedule_dependency_introduction_is_bounded(
                     reason,
@@ -20353,10 +20473,13 @@ def _companion_test_issues(
         paired_exception_branches = tuple(
             branch
             for branch in exception_branches
-            if _source_exception_requires_paired_witness(
-                branch.text,
-                branch_path=branch.path,
-                independently_covered_paths=independently_covered_paths,
+            if (
+                branch.condition_chapeau is not None
+                or _source_exception_requires_paired_witness(
+                    branch.text,
+                    branch_path=branch.path,
+                    independently_covered_paths=independently_covered_paths,
+                )
             )
         )
         unconditional_nonapplicability_branches = tuple(
@@ -20387,6 +20510,11 @@ def _companion_test_issues(
             asserted_by_rule=asserted_by_rule,
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
+        )
+        unwitnessed_inherited_conditions = tuple(
+            branch
+            for branch in missing_exception_branches
+            if branch.condition_chapeau is not None
         )
         if execution_evidence is not None and partnership_content is not None:
             from .floor_retained_referral_evidence import (
@@ -20563,6 +20691,13 @@ def _companion_test_issues(
             missing_exception_branches = partnership.unmatched(
                 missing_exception_branches
             )
+        # Existing supplemental certificates predate inherited conditions and
+        # cannot discharge their selected child/chapeau proof requirements.
+        missing_exception_branches = tuple(
+            dict.fromkeys(
+                (*missing_exception_branches, *unwitnessed_inherited_conditions)
+            )
+        )
         if missing_exception_branches:
             unsupported_row_outputs = [
                 f"case `{case.get('name') or '<unnamed>'}` output `{key}` "
@@ -20605,7 +20740,7 @@ def _companion_test_issues(
                     if branch.required_principal_output
                     else ""
                 )
-                + f"[{_source_exception_effect_requirement(branch.text)}]: `"
+                + f"[{_source_exception_effect_requirement(branch.condition_effect_text)}]: `"
                 f"{_bounded_source_feedback_excerpt(branch.text, limit=220)}`"
                 for branch in missing_exception_branches
             )
@@ -30587,6 +30722,10 @@ def _source_exception_branches(
     raw_source_text: str | None = None,
 ) -> tuple[SourceStructureBranch, ...]:
     obligations: list[SourceStructureBranch] = []
+    active_keys = {
+        (branch.path, branch.start, branch.end) for branch in active_branches
+    }
+    container_paths = {branch.path[:-1] for branch in branches if branch.path}
     source_clauses = tuple(_source_clause_spans(source_text, branches=branches))
     matches_by_clause: dict[
         tuple[int, int, str],
@@ -30670,16 +30809,49 @@ def _source_exception_branches(
                 continue
             if numeric_limits_only and not _STATED_NUMERIC_LIMIT.search(branch_text):
                 continue
-            if _source_condition_is_empty_list_chapeau(branch_text) and any(
-                len(child.path) > len(owner.path)
-                and child.path[: len(owner.path)] == owner.path
-                and branch_end <= child.start < owner.end
-                for child in active_branches
-            ):
-                # The authenticated children supply the conditions after this
-                # unfinished introducer.  It has no additional factual state
-                # for a companion case to toggle independently.
-                continue
+            if _source_condition_is_empty_list_chapeau(branch_text):
+                all_children = tuple(
+                    child
+                    for child in branches
+                    if len(child.path) == len(owner.path) + 1
+                    and child.path[: len(owner.path)] == owner.path
+                    and branch_end <= child.start < owner.end
+                )
+                children = tuple(
+                    child
+                    for child in all_children
+                    if (child.path, child.start, child.end) in active_keys
+                )
+                if children and all(
+                    child.path not in container_paths
+                    and (
+                        (child.path, child.start, child.end) in active_keys
+                        or _path_is_deferred(child.path, deferred_paths)
+                    )
+                    for child in all_children
+                ):
+                    # The introducer has no independent state, but every
+                    # operative child inherits its conditional force. Keep the
+                    # real child excerpt/offsets and authenticate the parent
+                    # alongside it when allocating formula-toggle witnesses.
+                    obligations.extend(
+                        _InheritedConditionBranch(
+                            **{
+                                **{
+                                    field.name: getattr(child, field.name)
+                                    for field in fields(SourceStructureBranch)
+                                },
+                                "kind": "exception-clause",
+                                "condition_chapeau": (
+                                    branch_start,
+                                    branch_end,
+                                    branch_text,
+                                ),
+                            }
+                        )
+                        for child in children
+                    )
+                    continue
             obligations.append(
                 SourceStructureBranch(
                     owner.path,
@@ -30692,7 +30864,8 @@ def _source_exception_branches(
             )
     return tuple(
         {
-            (branch.path, branch.start, branch.end): branch for branch in obligations
+            (branch.path, branch.start, branch.end, branch.condition_chapeau): branch
+            for branch in obligations
         }.values()
     )
 
@@ -31569,13 +31742,41 @@ def _unwitnessed_exception_branches(
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
-        affected_outputs = _bare_definition_condition_outputs(
-            branch,
-            branches=bare_branches,
-            principal_rules=principal_rules,
-            principal_rule_paths=principal_rule_paths,
-            corpus_citation_path=corpus_citation_path,
-        )
+        if branch.condition_chapeau is not None:
+            # Every principal formula that claims this operative proposition
+            # must implement its children. An independent residency Judgment
+            # cannot certify that a constant entitlement applies conditionally.
+            chapeau = _collapse_text(branch.condition_chapeau[2])
+            citation = corpus_citation_path.strip("/").casefold()
+            authoritative = _collapse_text(source_text)
+            parent_path = branch.path[:-1]
+            affected_outputs = tuple(
+                name
+                for name, rule in principal_rules.items()
+                if (
+                    any(
+                        path == parent_path[: len(path)]
+                        or parent_path == path[: len(parent_path)]
+                        for path in principal_rule_paths.get(name, ())
+                    )
+                    or any(
+                        atom_citation.strip("/").casefold() == citation
+                        and chapeau in (proof := _collapse_text(excerpt))
+                        and proof in authoritative
+                        for _path, atom_citation, excerpt in _rule_source_excerpt_atoms(
+                            rule
+                        )
+                    )
+                )
+            )
+        else:
+            affected_outputs = _bare_definition_condition_outputs(
+                branch,
+                branches=bare_branches,
+                principal_rules=principal_rules,
+                principal_rule_paths=principal_rule_paths,
+                corpus_citation_path=corpus_citation_path,
+            )
         if not affected_outputs:
             candidate_witnesses[branch] = witnesses
             continue
@@ -31589,6 +31790,9 @@ def _unwitnessed_exception_branches(
                 witness for witness in witnesses if witness.rule_name == rule_name
             }
     missing = _unmatched_evidence_obligations(candidate_witnesses)
+    unwitnessed_inherited_conditions = tuple(
+        branch for branch in missing if branch.condition_chapeau is not None
+    )
     if represented_annual_spans is not None:
         for branch, witnesses in candidate_witnesses.items():
             if branch in missing:
@@ -31677,7 +31881,7 @@ def _unwitnessed_exception_branches(
             )
         )
 
-    return missing
+    return tuple(dict.fromkeys((*missing, *unwitnessed_inherited_conditions)))
 
 
 def _bare_definition_condition_outputs(
@@ -33354,6 +33558,45 @@ def _formula_comparison_changes_boolean_output(
     ) is (not actual)
 
 
+def _inherited_condition_witness_has_source_proof(
+    branch: SourceStructureBranch,
+    witness: _ExceptionWitness,
+    *,
+    source_text: str,
+    corpus_citation_path: str,
+    rule: dict[str, Any],
+    asserted_cases: Sequence[dict[str, Any]],
+) -> bool:
+    """Bind an exercised inherited predicate to its real child and chapeau."""
+
+    if branch.condition_chapeau is None:
+        return True
+    cases = tuple(
+        case for case in asserted_cases if id(case) in witness.case_pair_identity
+    )
+    if len(cases) != 2 or len(witness.case_pair_identity) != 2:
+        return False
+    selected = _selected_rule_formula_version_index(rule, cases[0])
+    if selected is None or any(
+        _selected_rule_formula_version_index(rule, case) != selected for case in cases
+    ):
+        return False
+    authoritative = _collapse_text(source_text)
+    citation = corpus_citation_path.strip("/").casefold()
+    proofs = tuple(
+        proof
+        for path, atom_citation, excerpt in _rule_source_excerpt_atoms(rule)
+        if _formula_proof_version_index(path) == selected
+        and atom_citation.strip("/").casefold() == citation
+        and (proof := _collapse_text(excerpt))
+        and proof in authoritative
+    )
+    return all(
+        any(_collapse_text(text) in proof for proof in proofs)
+        for text in (branch.condition_chapeau[2], branch.text)
+    )
+
+
 def _exception_witnesses_for_branch(
     branch: SourceStructureBranch,
     *,
@@ -33402,7 +33645,21 @@ def _exception_witnesses_for_branch(
                 corpus_citation_path=corpus_citation_path,
             )
         }
-    requirement = _source_exception_effect_requirement(branch.text)
+    if branch.condition_chapeau is not None:
+        toggled_exception_selectors = {
+            witness
+            for witness in toggled_exception_selectors
+            if witness.rule_name in affecting_rules
+            and _inherited_condition_witness_has_source_proof(
+                branch,
+                witness,
+                source_text=source_text,
+                corpus_citation_path=corpus_citation_path,
+                rule=principal_rules[witness.rule_name],
+                asserted_cases=asserted_by_rule.get(witness.rule_name, ()),
+            )
+        }
+    requirement = _source_exception_effect_requirement(branch.condition_effect_text)
     condition_text = _source_exception_condition_text(branch.text)
     numeric_interval = _formula_interval_from_text(
         authoritative_numeric_recall_text(condition_text),
@@ -33520,6 +33777,7 @@ def _exception_witnesses_for_branch(
                     corpus_citation_path=corpus_citation_path,
                     principal_rules=principal_rules,
                     asserted_cases=asserted_by_rule.get(witness.rule_name, ()),
+                    formula_environment=formula_environment or {},
                 )
                 or _source_qualified_cardinality_evidence(
                     branch,
@@ -34171,6 +34429,7 @@ def _source_proved_exception_dependency_is_relevant(
     corpus_citation_path: str,
     principal_rules: dict[str, dict[str, Any]],
     asserted_cases: Sequence[dict[str, Any]],
+    formula_environment: dict[str, Any] | None = None,
 ) -> bool:
     """Follow a derived selector's selected source proof to a preposed condition.
 
@@ -34179,7 +34438,9 @@ def _source_proved_exception_dependency_is_relevant(
     exercised formula proofs to this source, then match the antecedent against
     the dependency's definition. A named consequent subject can resolve an
     antecedent pronoun; the consequent's effect cannot supply the missing action.
-    Output ownership, active polarity and effect remain the caller's checks.
+    The exercised dependency must also bind an occurrence of that action to the
+    witness's active side. A proof mentioning revocation cannot turn an approval
+    predicate, or the absence of revocation, into the revocation condition.
     """
 
     dependency = principal_rules.get(witness.selector_name)
@@ -34242,10 +34503,11 @@ def _source_proved_exception_dependency_is_relevant(
     # fresh subject, relative clause, condition, or sentence so a parking permit's
     # revocation cannot lend meaning to an election's validity selector.
     definition = re.compile(
-        rf"\b(?:the|an?|this|that|these|those)\s+{subject_pattern}\s+"
+        rf"(?:^|[.;]\s*)(?:(?:\d+[a-z]?|\([A-Za-z0-9]+\))\s+)?"
+        rf"(?P<definition>(?:the|an?|this|that|these|those)\s+{subject_pattern}\s+"
         rf"(?:{passive_auxiliary}\s+[A-Za-z][A-Za-z'’-]*"
         rf"\s*,?\s+(?:and|or)\s+)*"
-        rf"{passive_auxiliary}\s+{re.escape(passive['action'])}\b",
+        rf"{passive_auxiliary}\s+{re.escape(passive['action'])}\b)",
         re.IGNORECASE,
     )
     cases = tuple(
@@ -34254,6 +34516,22 @@ def _source_proved_exception_dependency_is_relevant(
     if len(cases) != 2 or len(witness.case_pair_identity) != 2:
         return False
     authoritative = _collapse_text(source_text)
+    positive_definitions = tuple(definition.finditer(authoritative))
+
+    def selected_positive_definition(proof_text: str) -> bool:
+        # Authenticate clause boundaries in the source itself. Slicing an
+        # excerpt out of "It is false that the election is revoked" cannot
+        # turn that subordinate claim into an operative source definition.
+        occurrences = tuple(re.finditer(re.escape(proof_text), authoritative))
+        return bool(occurrences) and all(
+            any(
+                occurrence.start() <= match.start("definition")
+                and match.end("definition") <= occurrence.end()
+                for match in positive_definitions
+            )
+            for occurrence in occurrences
+        )
+
     for candidate in (rule, dependency):
         selected = _selected_rule_formula_version_index(candidate, cases[0])
         if selected is None or any(
@@ -34268,12 +34546,96 @@ def _source_proved_exception_dependency_is_relevant(
             and (
                 condition in proof_text
                 if candidate is rule
-                else definition.search(proof_text) is not None
+                else selected_positive_definition(proof_text)
             )
             for path, atom_citation, excerpt in _rule_source_excerpt_atoms(candidate)
         ):
             return False
-    return True
+    return _source_proved_exception_dependency_exercises_action(
+        dependency,
+        witness,
+        cases=cases,
+        subject=subject,
+        action=passive["action"],
+        principal_rules=principal_rules,
+        formula_environment=formula_environment or {},
+    )
+
+
+def _source_proved_exception_dependency_exercises_action(
+    dependency: dict[str, Any],
+    witness: _ExceptionWitness,
+    *,
+    cases: Sequence[dict[str, Any]],
+    subject: str,
+    action: str,
+    principal_rules: dict[str, dict[str, Any]],
+    formula_environment: dict[str, Any],
+) -> bool:
+    """Bind the dependency's exercised value to an action occurrence and polarity.
+
+    A form or manner predicate only qualifies an action; toggling it does not
+    demonstrate that the action occurred. Accept bounded event-shaped input
+    names, with either the authenticated subject or an omitted subject, and
+    require the event itself to toggle on the dependency's active side.
+    """
+
+    action = action.casefold()
+    nominal_actions = {
+        "approved": "approval",
+        "canceled": "cancellation",
+        "cancelled": "cancellation",
+        "revoked": "revocation",
+        "terminated": "termination",
+        "withdrawn": "withdrawal",
+    }
+    nominal = nominal_actions.get(action)
+    event_names = {action, f"is_{action}", f"has_been_{action}"}
+    if nominal is not None:
+        event_names.update(
+            f"{nominal}_{occurrence}" for occurrence in ("made", "occurred", "present")
+        )
+    subject_prefix = _normalized_selector_name(subject) + "_"
+    event_names |= {subject_prefix + name for name in tuple(event_names)}
+    environments = []
+    for case in cases:
+        environment = _case_input_formula_environment(case)
+        if environment is None:
+            return False
+        environments.append(environment)
+    for name in environments[0]:
+        if _normalized_selector_name(name) not in event_names:
+            continue
+        values = [_boolean_value(environment.get(name)) for environment in environments]
+        if set(values) != {False, True}:
+            continue
+        for case, action_occurred in zip(cases, values, strict=True):
+            dependencies = _case_asserted_dependency_environment(
+                principal_rules,
+                case,
+                formula_environment=formula_environment,
+                allow_bound_row_assertions=True,
+            )
+            execution = _case_formula_execution(
+                dependency,
+                case,
+                formula_environment=formula_environment,
+                dependency_environment=dependencies,
+            )
+            if (
+                execution is None
+                or not _formula_execution_reaches_selector(execution, name)
+                or _boolean_value(_formula_execution_runtime_value(execution))
+                is not (
+                    witness.active_value
+                    if action_occurred
+                    else not witness.active_value
+                )
+            ):
+                break
+        else:
+            return True
+    return False
 
 
 def _source_age_relative_deviation_predicate(

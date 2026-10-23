@@ -23,6 +23,13 @@ CONDITION = (
 SOURCE = DEFINITION + "\n" + CONDITION
 SELECTOR = "winter_energy_payment_election_revocation_valid"
 OUTPUT = "election_stops_winter_energy_payment_entitlement"
+JURISDICTION_CITATIONS = (
+    "uk/statute/2020/1/section/73",
+    "us/statute/2020/1/section/73",
+    "de/statute/2020/1/section/73",
+    "fr/statute/2020/1/section/73",
+    CITATION,
+)
 
 
 def _rule(name, formula, excerpt):
@@ -113,6 +120,107 @@ def test_source_proved_composite_revocation_supplies_blocking_witness():
 
     assert {
         (w.rule_name, w.selector_name, w.active_value, w.blocks) for w in matches
+    } == {(OUTPUT, SELECTOR, True, True)}
+
+
+@pytest.mark.parametrize("citation", JURISDICTION_CITATIONS)
+@pytest.mark.parametrize(
+    "definition",
+    [DEFINITION, "If the election is revoked, the election is no longer active."],
+)
+def test_dependency_cannot_certify_opposite_exception_polarity(
+    monkeypatch, citation, definition
+):
+    """The review's active-election proof reverses the source-required result."""
+
+    monkeypatch.setitem(globals(), "CITATION", citation)
+    selector = "winter_energy_payment_election_active"
+    rules, cases = _fixture(selector)
+    rules[selector]["versions"][0]["formula"] = "not revocation_made"
+    rules[selector]["metadata"]["proof"]["atoms"][0]["source"]["excerpt"] = definition
+    for case in cases:
+        revoked = case["input"]["revocation_made"]
+        case["output"][selector] = not revoked
+        case["output"][OUTPUT] = revoked
+
+    assert not _matches(
+        rules,
+        cases,
+        source=definition + "\n" + CONDITION,
+        paths={selector: {("3",)}, OUTPUT: {("4",)}},
+    )
+
+
+@pytest.mark.parametrize("citation", JURISDICTION_CITATIONS)
+@pytest.mark.parametrize("sliced_excerpt", [False, True])
+@pytest.mark.parametrize(
+    "definition",
+    [
+        "It is false that the election is revoked.",
+        "The claim that the election is revoked is false.",
+        "A claim that the election is revoked does not establish revocation.",
+    ],
+)
+def test_dependency_cannot_borrow_negated_or_reported_source_action(
+    monkeypatch, citation, definition, sliced_excerpt
+):
+    monkeypatch.setitem(globals(), "CITATION", citation)
+    rules, cases = _fixture()
+    rules[SELECTOR]["metadata"]["proof"]["atoms"][0]["source"]["excerpt"] = (
+        "the election is revoked" if sliced_excerpt else definition
+    )
+
+    assert not _matches(
+        rules,
+        cases,
+        source=definition + "\n" + CONDITION,
+        paths={SELECTOR: {("3",)}, OUTPUT: {("4",)}},
+    )
+
+
+@pytest.mark.parametrize("citation", JURISDICTION_CITATIONS)
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "election_in_msd_approved_form",
+        "revocation_in_msd_approved_form",
+        "permit_revoked",
+    ],
+)
+def test_dependency_cannot_borrow_revocation_for_other_predicate(
+    monkeypatch, citation, predicate
+):
+    """An approval, action qualifier or another subject is not the action."""
+
+    monkeypatch.setitem(globals(), "CITATION", citation)
+    selector = "winter_energy_payment_election_form_approved"
+    rules, cases = _fixture(selector)
+    rules[selector]["versions"][0]["formula"] = predicate
+    for case in cases:
+        case["input"][predicate] = case["output"][selector]
+        for name in (
+            "revocation_made",
+            "revocation_in_msd_approved_form",
+            "revocation_in_msd_approved_manner",
+        ):
+            if name != predicate:
+                case["input"].pop(name)
+
+    assert not _matches(rules, cases)
+
+
+@pytest.mark.parametrize("citation", JURISDICTION_CITATIONS)
+def test_dependency_authenticates_event_with_correct_polarity(monkeypatch, citation):
+    monkeypatch.setitem(globals(), "CITATION", citation)
+    rules, cases = _fixture()
+    witnesses = sc._toggled_formula_boolean_selectors(
+        rules, asserted_by_rule={name: cases for name in rules}, formula_environment={}
+    )
+
+    assert len(witnesses) == 4
+    assert {
+        (w.rule_name, w.selector_name, w.active_value, w.blocks)
+        for w in _matches(rules, cases)
     } == {(OUTPUT, SELECTOR, True, True)}
 
 
