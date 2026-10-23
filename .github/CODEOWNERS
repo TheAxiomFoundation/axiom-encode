@@ -11,6 +11,7 @@
 # allowlists it admits.
 /.github/workflows/targeted-signed-reencode.yml @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/prepare_signed_backfill.py @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/corpus_artifact_transport.py @PavelMakarchuk @MaxGhenis
 
 # The signer, the signing supervisor, the broker and the trust bootstrap.
 /cmd/axiom-encode-apply-signer/ @PavelMakarchuk @MaxGhenis

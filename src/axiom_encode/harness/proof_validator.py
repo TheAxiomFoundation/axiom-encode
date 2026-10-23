@@ -21,7 +21,9 @@ import contextlib
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Mapping
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -30,6 +32,11 @@ from ..corpus_resolver import (
     InvalidCorpusCitationError,
     require_canonical_corpus_citation_path,
     split_proof_evidence_text,
+)
+from .amendment_timing import (
+    _proof_atoms,
+    indexed_proof_path_issue,
+    normalize_proof_location,
 )
 
 
@@ -62,6 +69,7 @@ PROOF_ATOM_KINDS = frozenset(
     }
 )
 POLICY_RULE_KINDS = frozenset({"derived", "derived_relation", "parameter"})
+_MISSING_INTERPRETATION_ID = object()
 
 
 def find_plural_corpus_citation_path_issues(payload: object) -> list[str]:
@@ -149,7 +157,10 @@ def find_rulespec_proof_issues(
 
 
 def proof_source_citation_paths(content: str) -> tuple[str, ...]:
-    """Return direct corpus citations used by proof atoms in one RuleSpec."""
+    """Return corpus citations needing proof or interpretation excerpt checks.
+
+    Interpretation texts are evidence to validate, never executable proof atoms.
+    """
 
     try:
         payload = yaml.safe_load(content)
@@ -157,10 +168,10 @@ def proof_source_citation_paths(content: str) -> tuple[str, ...]:
         return ()
     if not isinstance(payload, dict):
         return ()
+    paths = list(interpretation_source_citation_paths(payload))
     rules = payload.get("rules")
     if not isinstance(rules, list):
-        return ()
-    paths: list[str] = []
+        return tuple(paths)
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -175,6 +186,25 @@ def proof_source_citation_paths(content: str) -> tuple[str, ...]:
             citation_path = str(source.get("corpus_citation_path") or "").strip()
             if citation_path and citation_path not in paths:
                 paths.append(citation_path)
+    return tuple(paths)
+
+
+def interpretation_source_citation_paths(payload: dict[str, Any]) -> tuple[str, ...]:
+    """Collect interpretation citations without treating their texts as proofs."""
+
+    module = payload.get("module")
+    entries = module.get("interpretations") if isinstance(module, dict) else None
+    if not isinstance(entries, list):
+        return ()
+    paths: list[str] = []
+    for entry in entries:
+        texts = entry.get("texts") if isinstance(entry, dict) else None
+        if not isinstance(texts, list):
+            continue
+        for text in texts:
+            path = text.get("corpus_citation_path") if isinstance(text, dict) else None
+            if isinstance(path, str) and path.strip() and path not in paths:
+                paths.append(path)
     return tuple(paths)
 
 
@@ -199,9 +229,13 @@ def validate_rulespec_proofs(
     try:
         payload = yaml.safe_load(content)
     except (yaml.YAMLError, ValueError) as exc:
+        interpretation_yaml_issues = []
+        with contextlib.suppress(yaml.YAMLError, ValueError):
+            interpretation_yaml_issues = find_interpretation_yaml_issues(content)
         return ProofValidationResult(
             passed=False,
-            issues=[f"RuleSpec proof YAML parse failed: {exc}"],
+            issues=interpretation_yaml_issues
+            or [f"RuleSpec proof YAML parse failed: {exc}"],
             atoms_checked=0,
             proof_required=False,
         )
@@ -216,9 +250,18 @@ def validate_rulespec_proofs(
 
     module = payload.get("module")
     proof_required = require_policy_proofs or _module_requires_proofs(module)
+    interpretation_yaml_issues, numeric_id_paths = (
+        _interpretation_yaml_constraints(content)
+        if isinstance(module, dict) and "interpretations" in module
+        else ([], set())
+    )
     issues = [
         *find_plural_corpus_citation_path_issues(payload),
         *find_noncanonical_corpus_citation_path_issues(payload),
+        *interpretation_yaml_issues,
+        *_validate_module_interpretations(
+            payload, source_texts=source_texts, numeric_id_paths=numeric_id_paths
+        ),
     ]
     if isinstance(module, dict) and "source_claims" in module:
         issues.append(
@@ -243,6 +286,7 @@ def validate_rulespec_proofs(
         rule_name = str(rule.get("name") or f"rules[{index}]").strip() or (
             f"rules[{index}]"
         )
+        issues.extend(_version_proof_location_issues(rule, rule_name))
         proof = _rule_proof(rule)
         if proof is None:
             if proof_required and _is_policy_bearing_rule(rule):
@@ -267,6 +311,432 @@ def validate_rulespec_proofs(
         atoms_checked=atoms_checked,
         proof_required=proof_required,
     )
+
+
+def _interpretation_mapping(
+    value: Any, *, label: str, allowed: set[str], issues: list[str]
+) -> bool:
+    if not isinstance(value, dict):
+        issues.append(f"{label} must be a mapping.")
+        return False
+    for key in value:
+        if key not in allowed:
+            issues.append(f"{label} has unknown key `{key}`.")
+    return True
+
+
+def _interpretation_string(value: Any, *, label: str, issues: list[str]) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        issues.append(f"{label} must be a non-blank string.")
+        return False
+    return True
+
+
+def find_interpretation_yaml_issues(content: str) -> list[str]:
+    """Check interpretation syntax before any YAML load-and-dump rewrite.
+
+    YAML parse errors propagate so callers can retain their parser diagnostics.
+    Unlike safe loading, this preserves duplicate keys and explicit tag spelling.
+    """
+
+    issues, numeric_id_paths = _interpretation_yaml_constraints(content)
+    return [
+        *issues,
+        *(
+            f"{location} must be a quoted string when YAML reads this scalar "
+            "as a number."
+            for location in sorted(numeric_id_paths)
+        ),
+    ]
+
+
+def _interpretation_yaml_constraints(content: str) -> tuple[list[str], set[str]]:
+    """Inspect raw interpretation nodes before PyYAML discards their spelling.
+
+    The engine uses YAML 1.2 numeric resolution, whereas PyYAML leaves some
+    plain exponent and octal scalars as strings. Composition with the same
+    SafeLoader preserves quoting, explicit string tags, duplicate mapping keys,
+    and merge keys without changing how the rest of the module is loaded.
+    """
+
+    root = yaml.compose(content, Loader=yaml.SafeLoader)
+    explicit_node_tags = {
+        event.start_mark.index: event.tag
+        for event in yaml.parse(content, Loader=yaml.SafeLoader)
+        if isinstance(
+            event,
+            (
+                yaml.events.ScalarEvent,
+                yaml.events.SequenceStartEvent,
+                yaml.events.MappingStartEvent,
+            ),
+        )
+        and event.tag is not None
+    }
+    issues: list[str] = []
+    numeric_id_paths: set[str] = set()
+    number_pattern = re.compile(
+        r"[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?"
+        r"|[-+]?0o[0-7]+|[-+]?0x[0-9a-fA-F]+"
+    )
+    if not isinstance(root, yaml.MappingNode):
+        return issues, numeric_id_paths
+    stack: list[tuple[str, yaml.Node]] = []
+    for key, module in root.value:
+        if not isinstance(key, yaml.ScalarNode) or key.value != "module":
+            continue
+        if isinstance(module, yaml.MappingNode):
+            interpretations = [
+                value
+                for field, value in module.value
+                if isinstance(field, yaml.ScalarNode)
+                and field.value == "interpretations"
+            ]
+            if len(interpretations) > 1:
+                issues.append("module has duplicate key `interpretations`.")
+            stack.extend(("module.interpretations", value) for value in interpretations)
+            stack.extend(
+                ("module key `interpretations`", field)
+                for field, _value in module.value
+                if isinstance(field, yaml.ScalarNode)
+                and field.value == "interpretations"
+            )
+    seen_nodes: set[int] = set()
+    while stack:
+        location, node = stack.pop()
+        if id(node) in seen_nodes:
+            continue
+        seen_nodes.add(id(node))
+        explicit_tag = explicit_node_tags.get(node.start_mark.index)
+        if explicit_tag is not None and not isinstance(node, yaml.ScalarNode):
+            issues.append(
+                f"{location} must not use YAML tags on interpretation collections."
+            )
+        if isinstance(node, yaml.SequenceNode):
+            stack.extend(
+                (f"{location}[{index}]", value)
+                for index, value in enumerate(node.value)
+            )
+        elif isinstance(node, yaml.MappingNode):
+            seen_keys: set[str] = set()
+            for key, value in node.value:
+                if not isinstance(key, yaml.ScalarNode):
+                    continue
+                if key.value in seen_keys:
+                    issues.append(f"{location} has duplicate key `{key.value}`.")
+                seen_keys.add(key.value)
+                if key.value == "<<":
+                    issues.append(f"{location} must not use YAML merge keys.")
+                child = f"{location}.{key.value}"
+                stack.append((f"{location} key `{key.value}`", key))
+                stack.append((child, value))
+        elif isinstance(node, yaml.ScalarNode):
+            if explicit_tag is not None and explicit_tag != "tag:yaml.org,2002:str":
+                issues.append(
+                    f"{location} has unsupported YAML tag `{explicit_tag}`; "
+                    "only the canonical string tag `!!str` "
+                    "(`tag:yaml.org,2002:str`) is supported."
+                )
+            elif (
+                explicit_tag is None
+                and node.tag == "tag:yaml.org,2002:str"
+                and node.style is None
+                and number_pattern.fullmatch(node.value)
+            ):
+                if location.endswith(".id"):
+                    numeric_id_paths.add(location)
+                else:
+                    issues.append(
+                        f"{location} must be a quoted string when YAML reads "
+                        "this scalar as a number."
+                    )
+    return issues, numeric_id_paths
+
+
+def _interpretation_id(
+    value: Any, *, label: str, numeric_scalar: bool, issues: list[str]
+) -> bool:
+    if isinstance(value, bool):
+        issues.append(
+            f"{label} must be a quoted string when YAML reads it as a boolean."
+        )
+        return False
+    if value is None or isinstance(value, (int, float, date)):
+        scalar_type = (
+            "null"
+            if value is None
+            else "a timestamp"
+            if isinstance(value, date)
+            else "a number"
+        )
+        issues.append(
+            f"{label} must be a quoted string when YAML reads it as {scalar_type}."
+        )
+        return False
+    if not _interpretation_string(value, label=label, issues=issues):
+        return False
+    if numeric_scalar:
+        issues.append(
+            f"{label} must be a quoted string when YAML reads this scalar as a number."
+        )
+        return False
+    if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", value):
+        issues.append(f"{label} must match [a-z0-9]+(-[a-z0-9]+)*.")
+        return False
+    return True
+
+
+def _interpretation_list(value: Any, *, label: str, issues: list[str]) -> bool:
+    if not isinstance(value, list) or not value:
+        issues.append(f"{label} must be a non-empty list.")
+        return False
+    return True
+
+
+def _validate_interpretation_record(
+    record: Any, *, label: str, confirmation: bool, issues: list[str]
+) -> None:
+    allowed = {"by", "date", "record"}
+    if confirmation:
+        allowed.add("excerpt")
+    if not _interpretation_mapping(record, label=label, allowed=allowed, issues=issues):
+        return
+    _interpretation_string(record.get("by"), label=f"{label}.by", issues=issues)
+    if confirmation:
+        _interpretation_string(
+            record.get("excerpt"), label=f"{label}.excerpt", issues=issues
+        )
+    recorded_date = record.get("date")
+    valid_date = type(recorded_date) is date  # Unquoted YAML dates use date objects.
+    if isinstance(recorded_date, str) and re.fullmatch(
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}", recorded_date
+    ):
+        with contextlib.suppress(ValueError):
+            date.fromisoformat(recorded_date)
+            valid_date = True
+    if not valid_date:
+        issues.append(f"{label}.date must be a real YYYY-MM-DD date.")
+    if not confirmation or "record" in record:
+        url = record.get("record")
+        valid_url = False
+        if (
+            isinstance(url, str)
+            and url.startswith("https://")
+            and not re.search(r"\s", url)
+        ):
+            with contextlib.suppress(ValueError):
+                parsed = urlsplit(url)
+                _ = parsed.port
+                valid_url = parsed.scheme == "https" and bool(parsed.hostname)
+        if not valid_url:
+            issues.append(
+                f"{label}.record must be an https URL beginning with literal `https://`."
+            )
+
+
+def _validate_module_interpretations(
+    payload: dict[str, Any],
+    *,
+    source_texts: Mapping[str, str | None] | None,
+    numeric_id_paths: set[str] | None = None,
+) -> list[str]:
+    """Check inert interpretation metadata, even with a pre-field engine pin.
+
+    Canonical citation identities are checked by the recursive corpus-path gate
+    in ``validate_rulespec_proofs``; excerpt checks reuse the proof-atom matcher.
+    These texts never increment ``atoms_checked`` or satisfy proof obligations.
+    """
+
+    module = payload.get("module")
+    if not isinstance(module, dict) or "interpretations" not in module:
+        return []
+    entries = module["interpretations"]
+    if not isinstance(entries, list):
+        return ["module.interpretations must be a list."]
+    numeric_id_paths = numeric_id_paths or set()
+    issues: list[str] = []
+    seen_ids: set[str] = set()
+    rules = payload.get("rules")
+    rule_names = (
+        {
+            rule["name"]
+            for rule in rules
+            if isinstance(rule, dict) and isinstance(rule.get("name"), str)
+        }
+        if isinstance(rules, list)
+        else set()
+    )
+    deferred = module.get("deferred_outputs")
+    deferred_names = (
+        {
+            record["output"].rsplit("#", 1)[-1].strip()
+            for record in deferred
+            if isinstance(record, dict) and isinstance(record.get("output"), str)
+        }
+        if isinstance(deferred, list)
+        else set()
+    )
+    for index, entry in enumerate(entries):
+        location = f"module.interpretations[{index}]"
+        entry_id = (
+            entry.get("id", _MISSING_INTERPRETATION_ID)
+            if isinstance(entry, dict)
+            else None
+        )
+        label = (
+            f"Interpretation `{entry_id}` ({location})"
+            if isinstance(entry_id, str) and entry_id.strip()
+            else location
+        )
+        if not _interpretation_mapping(
+            entry,
+            label=label,
+            allowed={
+                "id",
+                "question",
+                "texts",
+                "reading",
+                "alternatives",
+                "basis",
+                "status",
+                "ruling",
+                "confirmation",
+                "affects",
+            },
+            issues=issues,
+        ):
+            continue
+        if _interpretation_id(
+            entry_id,
+            label=f"{label}.id",
+            numeric_scalar=f"{location}.id" in numeric_id_paths,
+            issues=issues,
+        ):
+            if entry_id in seen_ids:
+                issues.append(f"{label}.id duplicates interpretation `{entry_id}`.")
+            seen_ids.add(entry_id)
+        for field_name in ("question", "reading", "basis"):
+            _interpretation_string(
+                entry.get(field_name), label=f"{label}.{field_name}", issues=issues
+            )
+        texts = entry.get("texts")
+        if _interpretation_list(texts, label=f"{label}.texts", issues=issues):
+            for text_index, text in enumerate(texts):
+                text_label = f"{label}.texts[{text_index}]"
+                if not _interpretation_mapping(
+                    text,
+                    label=text_label,
+                    allowed={"corpus_citation_path", "excerpt"},
+                    issues=issues,
+                ):
+                    continue
+                valid_path = _interpretation_string(
+                    text.get("corpus_citation_path"),
+                    label=f"{text_label}.corpus_citation_path",
+                    issues=issues,
+                )
+                valid_excerpt = _interpretation_string(
+                    text.get("excerpt"),
+                    label=f"{text_label}.excerpt",
+                    issues=issues,
+                )
+                if valid_path and valid_excerpt:
+                    issues.extend(
+                        _validate_source_proof_atom(
+                            source=text,
+                            label=text_label,
+                            kind="definition",
+                            rule_source=None,
+                            source_texts=source_texts,
+                        )
+                    )
+        alternatives = entry.get("alternatives")
+        if _interpretation_list(
+            alternatives, label=f"{label}.alternatives", issues=issues
+        ):
+            seen_alternative_ids: set[str] = set()
+            for alternative_index, alternative in enumerate(alternatives):
+                alternative_label = f"{label}.alternatives[{alternative_index}]"
+                if not _interpretation_mapping(
+                    alternative,
+                    label=alternative_label,
+                    allowed={"id", "reading", "effect"},
+                    issues=issues,
+                ):
+                    continue
+                alternative_id = alternative.get("id", _MISSING_INTERPRETATION_ID)
+                if _interpretation_id(
+                    alternative_id,
+                    label=f"{alternative_label}.id",
+                    numeric_scalar=(
+                        f"{location}.alternatives[{alternative_index}].id"
+                        in numeric_id_paths
+                    ),
+                    issues=issues,
+                ):
+                    if alternative_id in seen_alternative_ids:
+                        issues.append(
+                            f"{alternative_label}.id duplicates alternative `{alternative_id}`."
+                        )
+                    seen_alternative_ids.add(alternative_id)
+                for field_name in ("reading", "effect"):
+                    if field_name == "reading" or field_name in alternative:
+                        _interpretation_string(
+                            alternative.get(field_name),
+                            label=f"{alternative_label}.{field_name}",
+                            issues=issues,
+                        )
+        status = entry.get("status")
+        if not isinstance(status, str) or status not in {
+            "open",
+            "ruled",
+            "confirmed",
+            "contradicted",
+        }:
+            issues.append(
+                f"{label}.status must be open, ruled, confirmed or contradicted."
+            )
+        else:
+            for field, required in (
+                ("ruling", status != "open"),
+                ("confirmation", status in {"confirmed", "contradicted"}),
+            ):
+                if not required:
+                    if field in entry:
+                        issues.append(
+                            f"{label}.{field} must be absent when status is `{status}`."
+                        )
+                elif field not in entry:
+                    issues.append(
+                        f"{label}.{field} must be a mapping when status is `{status}`."
+                    )
+                else:
+                    _validate_interpretation_record(
+                        entry[field],
+                        label=f"{label}.{field}",
+                        confirmation=field == "confirmation",
+                        issues=issues,
+                    )
+            if status == "contradicted":
+                issues.append(
+                    f"{label}: publisher contradicted this reading; repair the module, "
+                    "move the old reading into alternatives, and set the new status"
+                )
+        affects = entry.get("affects")
+        if _interpretation_list(affects, label=f"{label}.affects", issues=issues):
+            for affect_index, name in enumerate(affects):
+                affect_label = f"{label}.affects[{affect_index}]"
+                if not _interpretation_string(name, label=affect_label, issues=issues):
+                    continue
+                if name in deferred_names:
+                    issues.append(
+                        f"{affect_label} must not name deferred output `{name}`."
+                    )
+                elif name not in rule_names:
+                    issues.append(
+                        f"{affect_label} must name a rule defined in this module."
+                    )
+    return issues
 
 
 def _module_requires_proofs(module: Any) -> bool:
@@ -295,6 +765,32 @@ def _is_policy_bearing_rule(rule: dict[str, Any]) -> bool:
     if kind in {"data_relation", "source_relation"}:
         return False
     return bool(rule.get("versions"))
+
+
+def _version_proof_location_issues(rule: dict[str, Any], rule_name: str) -> list[str]:
+    """Check version-owned indices even when no rule-level proof is present."""
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return []
+    issues: list[str] = []
+    for version_index, version in enumerate(versions):
+        if not isinstance(version, dict):
+            continue
+        for atom_index, atom in enumerate(_proof_atoms(version)):
+            if not isinstance(atom, dict):
+                continue
+            issue = indexed_proof_path_issue(
+                str(atom.get("path") or ""),
+                versions=versions,
+                label=(
+                    f"rule `{rule_name}` versions[{version_index}] "
+                    f"proof atom {atom_index}"
+                ),
+                owner_version_index=version_index,
+            )
+            if issue is not None:
+                issues.append(issue)
+    return issues
 
 
 def _validate_rule_proof(
@@ -408,36 +904,25 @@ def _atom_anchor_issue(
     label: str,
     rule: dict[str, Any],
 ) -> str | None:
-    """Return an issue when a ``versions[i].{values,formula}`` anchor is wrong.
+    """Require indexed anchors to exist, then check formula/table shapes.
 
-    The atom's path is only enforced when it targets a ``versions[i].values`` or
-    ``versions[i].formula`` location and that version index resolves against the
-    rule. Any other path shape (e.g. a bare field, a table-cell suffix, or a
-    non-``versions`` anchor) is left to the other checks so this never
-    over-rejects. A ``.values`` anchor requires the version to carry a ``values``
-    table; a ``.formula`` anchor requires the version to carry a ``formula``.
+    Every indexed anchor must resolve, including dates and Boolean rule paths.
+    A ``.values`` anchor additionally requires a ``values`` table; a ``.formula``
+    anchor requires a ``formula``. Bare fields remain available to other checks.
     """
-    normalized = re.sub(r"\s+", "", str(path))
-    normalized = _ATOM_PATH_INDEX_PATTERN.sub(r"[\1]", normalized)
-    normalized = re.sub(r"^versions\.", "versions[0].", normalized)
+    normalized = normalize_proof_location(path)
+    location_issue = indexed_proof_path_issue(
+        normalized, versions=rule.get("versions"), label=label
+    )
+    if location_issue is not None:
+        return location_issue
     match = _ANCHOR_FIELD_PATTERN.match(normalized)
     if match is None:
         return None
 
     version_index = int(match.group(1))
     field = match.group(2)
-    versions = rule.get("versions")
-    if not isinstance(versions, list) or version_index >= len(versions):
-        return (
-            f"Proof atom anchor invalid: {label} anchors `versions[{version_index}]."
-            f"{field}`, but the rule has no such version."
-        )
-    version = versions[version_index]
-    if not isinstance(version, dict):
-        return (
-            f"Proof atom anchor invalid: {label} anchors `versions[{version_index}]."
-            f"{field}`, but that version is malformed."
-        )
+    version = rule["versions"][version_index]
 
     if field == "values":
         if not isinstance(version.get("values"), dict):
