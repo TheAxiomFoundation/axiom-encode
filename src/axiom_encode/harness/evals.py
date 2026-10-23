@@ -141,7 +141,10 @@ from .policyengine_runtime import (
     PolicyEngineRuntimeError,
 )
 from .pricing import estimate_usage_cost_usd
-from .proof_validator import find_interpretation_yaml_issues
+from .proof_validator import (
+    find_interpretation_yaml_issues,
+    find_unsupported_yaml_tag_issues,
+)
 from .source_completeness import (
     _rulespec_target_base,
     collect_artifact_numeric_values,
@@ -8869,13 +8872,16 @@ def _apply_generated_eval_repairs(
     """Apply deterministic generated-artifact repairs before final eval scoring."""
     repairs: list[str] = []
     # Several repairs load and dump the module or its tests, which would erase
-    # all but the last of two equal keys; validation already rejects them.
+    # all but the last of two equal keys and change type-changing tags;
+    # validation already rejects both.
     for artifact in (rulespec_file, _rulespec_test_path(rulespec_file)):
         try:
             artifact_content = artifact.read_text() if artifact.is_file() else ""
         except (OSError, UnicodeError):
             continue
-        if _rewrite_duplicate_key_issues(artifact_content):
+        if _rewrite_duplicate_key_issues(artifact_content) or (
+            _rewrite_unsupported_tag_issues(artifact_content)
+        ):
             return repairs
     proof_repairs = _remove_unreferenced_proof_import_atoms(rulespec_file, issues)
     repairs.extend(f"proof_import:{name}" for name in proof_repairs)
@@ -17012,8 +17018,10 @@ def _normalize_main_eval_content(
         # resolve these; keep the raw text so validation reports them.
         if find_interpretation_yaml_issues(content):
             return content
-        if find_duplicate_mapping_key_issues(content):
-            # Textual normalization only: it keeps every key and still
+        if find_duplicate_mapping_key_issues(content) or (
+            find_unsupported_yaml_tag_issues(content)
+        ):
+            # Textual normalization only: it keeps every key and tag and still
             # refuses text that is not RuleSpec.
             return _normalize_rulespec_content(content)
     except (yaml.YAMLError, RecursionError):
@@ -17048,6 +17056,16 @@ def _rewrite_duplicate_key_issues(content: str) -> list[str]:
 
     try:
         return find_duplicate_mapping_key_issues(content)
+    except (yaml.YAMLError, RecursionError):
+        # Callers keep their own handling of unparseable text.
+        return []
+
+
+def _rewrite_unsupported_tag_issues(content: str) -> list[str]:
+    """Tags that loading ``content`` would construct apart from the engine."""
+
+    try:
+        return find_unsupported_yaml_tag_issues(content)
     except (yaml.YAMLError, RecursionError):
         # Callers keep their own handling of unparseable text.
         return []
@@ -18305,9 +18323,11 @@ def _materialize_eval_artifact(
                 if normalized_main_content is None:
                     continue
                 content = normalized_main_content
-            # Normalization loads and dumps the cases; keep raw duplicate keys.
+            # Normalization loads and dumps the cases; keep raw duplicate keys
+            # and tags.
             elif target_path == expected_test_path and not (
                 _rewrite_duplicate_key_issues(content)
+                or _rewrite_unsupported_tag_issues(content)
             ):
                 if single_amount_table_slice:
                     content = _normalize_single_amount_row_test_content(
@@ -18605,6 +18625,20 @@ def _overlay_validation_retry_candidate(
                 "preserved repair overlay tests have duplicate YAML mapping keys: "
                 + "; ".join(preserved_duplicate_key_issues)
             )
+    # Loading constructs these tags apart from the engine, and some make it raise.
+    preserved_tag_issues = _rewrite_unsupported_tag_issues(candidate.rulespec)
+    if preserved_tag_issues:
+        raise _PreservedRepairOverlayError(
+            "preserved repair overlay has unsupported YAML tags: "
+            + "; ".join(preserved_tag_issues)
+        )
+    if candidate.tests is not None:
+        preserved_tag_issues = _rewrite_unsupported_tag_issues(candidate.tests)
+        if preserved_tag_issues:
+            raise _PreservedRepairOverlayError(
+                "preserved repair overlay tests have unsupported YAML tags: "
+                + "; ".join(preserved_tag_issues)
+            )
     base_issue = _repair_overlay_candidate_base_issue(candidate)
     if base_issue is not None:
         raise _PreservedRepairOverlayError(base_issue)
@@ -18625,6 +18659,12 @@ def _overlay_validation_retry_candidate(
             raise ValueError(
                 "generated repair overlay has duplicate YAML mapping keys: "
                 + "; ".join(generated_duplicate_key_issues)
+            )
+        generated_tag_issues = find_unsupported_yaml_tag_issues(generated_content)
+        if generated_tag_issues:
+            raise ValueError(
+                "generated repair overlay has unsupported YAML tags: "
+                + "; ".join(generated_tag_issues)
             )
         generated = yaml.safe_load(generated_content)
     except (OSError, UnicodeError, yaml.YAMLError, RecursionError) as exc:
@@ -18800,7 +18840,13 @@ def _overlay_validation_retry_candidate(
             generated_duplicate_key_issues = find_duplicate_mapping_key_issues(
                 generated_test_content
             )
-            generated_tests = yaml.safe_load(generated_test_content)
+            generated_tag_issues = find_unsupported_yaml_tag_issues(
+                generated_test_content
+            )
+            # Some of these tags make loading raise, so the text is not loaded.
+            generated_tests = (
+                None if generated_tag_issues else yaml.safe_load(generated_test_content)
+            )
             preserved_tests = yaml.safe_load(candidate.tests)
         except (OSError, UnicodeError, yaml.YAMLError, RecursionError) as exc:
             raise ValueError("repair overlay tests must be valid UTF-8 YAML") from exc
@@ -18808,6 +18854,11 @@ def _overlay_validation_retry_candidate(
             raise ValueError(
                 "generated repair overlay tests have duplicate YAML mapping keys: "
                 + "; ".join(generated_duplicate_key_issues)
+            )
+        if generated_tag_issues:
+            raise ValueError(
+                "generated repair overlay tests have unsupported YAML tags: "
+                + "; ".join(generated_tag_issues)
             )
         generated_wrapper = isinstance(generated_tests, dict)
         preserved_wrapper = isinstance(preserved_tests, dict)
@@ -19169,8 +19220,12 @@ def _materialize_workspace_artifacts(
 
     if workspace_test.exists():
         test_content = workspace_test.read_text()
-        # Normalization loads and dumps the cases; keep raw duplicate keys.
-        if not _rewrite_duplicate_key_issues(test_content):
+        # Normalization loads and dumps the cases; keep raw duplicate keys and
+        # tags.
+        if not (
+            _rewrite_duplicate_key_issues(test_content)
+            or _rewrite_unsupported_tag_issues(test_content)
+        ):
             if single_amount_table_slice:
                 test_content = _normalize_single_amount_row_test_content(
                     test_content,

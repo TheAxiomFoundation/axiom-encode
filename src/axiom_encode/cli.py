@@ -273,6 +273,7 @@ from .harness.proof_validator import (
     find_interpretation_yaml_issues,
     find_noncanonical_corpus_citation_path_issues,
     find_plural_corpus_citation_path_issues,
+    find_unsupported_yaml_tag_issues,
     load_money_atom_ratchet,
     proof_source_citation_paths,
     validate_rulespec_proofs,
@@ -591,6 +592,14 @@ _GENERATED_RULESPEC_DUPLICATE_KEY_ISSUE_PREFIX = (
 )
 _GENERATED_TEST_DUPLICATE_KEY_ISSUE_PREFIX = (
     "Cannot apply companion test YAML with duplicate mapping keys: "
+)
+# PyYAML constructs these tags differently from the engine, so validation and a
+# rewrite would see a different document from the one the engine compiles.
+_GENERATED_RULESPEC_TAG_ISSUE_PREFIX = (
+    "Cannot apply RuleSpec YAML with unsupported tags: "
+)
+_GENERATED_TEST_TAG_ISSUE_PREFIX = (
+    "Cannot apply companion test YAML with unsupported tags: "
 )
 _GENERATED_RULESPEC_NONRETRYABLE_PREFIXES = (
     "[generated-yaml:io]",
@@ -56379,8 +56388,8 @@ def _generated_rulespec_yaml_nonparser_issue(
     """Check raw YAML and read failures before auto-repair helpers.
 
     The apply-time repairs and attestation stamping rewrite the generated files
-    through a YAML load and dump, which silently resolves duplicate keys and
-    interpretation syntax, so both are rejected here first.
+    through a YAML load and dump, which silently resolves duplicate keys,
+    interpretation syntax and type-changing tags, so all are rejected here first.
     """
 
     backend = str(getattr(result, "backend", "") or "").strip().lower()
@@ -56404,6 +56413,9 @@ def _generated_rulespec_yaml_nonparser_issue(
             return _GENERATED_RULESPEC_DUPLICATE_KEY_ISSUE_PREFIX + "; ".join(
                 duplicate_key_issues
             )
+        tag_issues = find_unsupported_yaml_tag_issues(content)
+        if tag_issues:
+            return _GENERATED_RULESPEC_TAG_ISSUE_PREFIX + "; ".join(tag_issues)
         yaml.safe_load(content)
     except yaml.YAMLError:
         return None
@@ -56417,6 +56429,7 @@ def _generated_rulespec_yaml_nonparser_issue(
     try:
         test_content = test_file.read_text() if test_file.is_file() else ""
         duplicate_key_issues = find_duplicate_mapping_key_issues(test_content)
+        tag_issues = find_unsupported_yaml_tag_issues(test_content)
     except (OSError, UnicodeError, yaml.YAMLError, RecursionError):
         # Companion test read and parse failures keep their validation errors.
         return None
@@ -56424,6 +56437,8 @@ def _generated_rulespec_yaml_nonparser_issue(
         return _GENERATED_TEST_DUPLICATE_KEY_ISSUE_PREFIX + "; ".join(
             duplicate_key_issues
         )
+    if tag_issues:
+        return _GENERATED_TEST_TAG_ISSUE_PREFIX + "; ".join(tag_issues)
     return None
 
 
@@ -56447,6 +56462,11 @@ def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> 
             raise RuntimeError(
                 _GENERATED_RULESPEC_DUPLICATE_KEY_ISSUE_PREFIX
                 + "; ".join(duplicate_key_issues)
+            )
+        tag_issues = find_unsupported_yaml_tag_issues(content)
+        if tag_issues:
+            raise RuntimeError(
+                _GENERATED_RULESPEC_TAG_ISSUE_PREFIX + "; ".join(tag_issues)
             )
         payload = yaml.safe_load(content)
     except yaml.YAMLError as exc:

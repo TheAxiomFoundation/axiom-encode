@@ -13,7 +13,7 @@ from hypothesis import strategies as st
 
 from axiom_encode.harness.proof_validator import (
     _interpretation_yaml_constraints,
-    _safe_load_with_interpretation_constraints,
+    _safe_load_with_raw_constraints,
     _validate_source_proof_atom,
     find_interpretation_yaml_issues,
     proof_source_citation_paths,
@@ -1030,9 +1030,10 @@ def test_interpretation_yaml_scans_every_root_module_block():
 
 
 def _assert_single_pass_load_matches_safe_load(content):
-    payload, issues, numeric_id_paths = _safe_load_with_interpretation_constraints(
+    payload, issues, numeric_id_paths, tag_issues = _safe_load_with_raw_constraints(
         content
     )
+    assert tag_issues == []
     assert payload == yaml.safe_load(content)
     assert (issues, numeric_id_paths) == _interpretation_yaml_constraints(content)
 
@@ -1056,7 +1057,7 @@ def _assert_single_pass_load_matches_safe_load(content):
 def test_single_pass_interpretation_load_matches_safe_load(content):
     if "*c" in content:
         # Recursive values cannot be compared with ==; compare the raw view only.
-        assert _safe_load_with_interpretation_constraints(content)[1:] == (
+        assert _safe_load_with_raw_constraints(content)[1:3] == (
             _interpretation_yaml_constraints(content)
         )
         return
