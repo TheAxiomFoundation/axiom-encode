@@ -493,6 +493,52 @@ def test_a_rule_reached_only_through_an_unknown_root_key_is_not_a_rule():
     ]
 
 
+@pytest.mark.parametrize(
+    ("anchors", "replacements", "location"),
+    [
+        pytest.param(
+            "x-nested:\n  rules:\n    - name: shadow\n      metadata:\n"
+            "        <<: {note: shared}\n",
+            (),
+            "x-nested.rules[0].metadata key `<<`",
+            id="under-an-unknown-root-key",
+        ),
+        pytest.param(
+            "",
+            [
+                (
+                    "  summary: The standard utility allowance is $451.\n",
+                    "  summary: The standard utility allowance is $451.\n"
+                    "  rules:\n    - metadata:\n        <<: {note: shared}\n",
+                )
+            ],
+            "module.rules[0].metadata key `<<`",
+            id="under-module",
+        ),
+    ],
+)
+def test_only_the_root_rules_sequence_holds_rules(anchors, replacements, location):
+    """A `rules` key anywhere else is data, so its `metadata` is not exempt."""
+
+    content = _module(anchors, replacements)
+
+    assert find_yaml_merge_key_issues(content) == [
+        _merge_key_issue(content, location, "<<: {note")
+    ]
+
+
+def test_a_mapping_key_is_never_a_rule():
+    """Keys are data even when they are mappings holding a `rules` sequence."""
+
+    content = "? {rules: [{metadata: {<<: {a: 1}}}]}\n: x\n"
+
+    assert find_yaml_merge_key_issues(content) == [
+        _merge_key_issue(
+            content, "document root key `?`.rules[0].metadata key `<<`", "<<"
+        )
+    ]
+
+
 def test_merge_keys_in_documents_that_are_not_modules_do_not_fail_the_gate():
     """Companion tests and worklists are read only by PyYAML."""
 

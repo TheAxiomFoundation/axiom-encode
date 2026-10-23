@@ -51,9 +51,8 @@ one root `module` key, and neither the root nor `module` may carry a tag other
 than `!!map` or the non-specific `!` (PyYAML loads a `!!set` mapping as a set,
 which the engine reads as the mapping). Interpretation strings must not contain
 UTF-16 surrogate code points: PyYAML decodes escapes such as `"\uD800"` to lone
-surrogates, which the engine rejects. YAML merge keys must not supply `module` or
-`module.interpretations`: the engine does not apply merge keys, so it would
-read different interpretations from the encoder.
+surrogates, which the engine rejects. YAML merge keys follow the rule for
+the whole document, below.
 
 Duplicate mapping keys are rejected anywhere in a generated module or its
 companion test before any step writes the file back from a loaded payload:
@@ -85,6 +84,23 @@ validation to report. They treat text that PyYAML cannot load because it raises
 a plain `ValueError` the same way. A double-quoted escape beyond U+10FFFF, such
 as `"\U00110000"`, or an impossible unquoted date such as `2024-13-01`, raises
 one. The engine rejects the escape, and an impossible `effective_from`.
+
+YAML merge keys are rejected anywhere in a module except inside a rule's
+`metadata`. `yaml.safe_load` applies a merge key (`<<`, or a key tagged
+`!!merge`) by copying the merged mapping's keys into the mapping that holds it.
+The engine never applies merges: it reads `<<` as an ordinary key, which it
+ignores in a rule or version and rejects in `module.source_verification`. So a
+rule written `- <<: *base` would pass strict proof validation while the engine
+rejected it or compiled it without the merged fields, and a rewrite would write
+the merged fields out and change what the engine compiles. The engine never
+reads a rule's `metadata`, and modules merge shared proof sources there, so
+merges stay allowed inside it; a mapping anchored in `metadata` and aliased
+elsewhere is checked where it is used. Companion tests may use merges
+anywhere, since only PyYAML reads them, and a quoted `'<<'` or `!!str <<` key
+is an ordinary key to both loaders. Proof validation and the validator
+pipeline's preflight report each merge key with its location. The apply
+preflight and stamping and the retry overlay refuse the file before any
+rewrite, and the eval repairs and normalization keep its raw text.
 
 The encoder is instructed to create new entries with `status: open`. A repair may carry recorded human rulings and
 publisher replies supplied through mandatory review findings into `ruling` and
