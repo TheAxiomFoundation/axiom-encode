@@ -66,6 +66,27 @@ compared as `yaml.safe_load` constructs them, so `rules`, `"rules"`,
 `true`. Merge keys keep their override semantics. A file nested too deeply to
 scan is not rewritten either, since its duplicates cannot be ruled out.
 
+Explicit YAML tags are limited, anywhere in a module or its companion test, to
+the ones PyYAML and the engine read alike: a mapping may carry only `!!map` or
+the non-specific `!`, a sequence only `!!seq` or `!`, and a scalar only
+`!!str`. The engine ignores `!!set`, `!!omap`, `!!pairs` and local tags on a
+collection and reads the mapping or sequence as written, while `yaml.safe_load`
+turns a `!!set` mapping into a set of its keys and an `!!omap` or `!!pairs`
+sequence into a list of key-value pairs. The validators skip a rule, version
+or proof that does not load as a mapping, so such a tag would hide content the
+engine compiles: a policy-bearing rule written `- !!set` would pass strict proof
+validation, and `proof_validation: !!set` would turn strict mode off. Other
+scalar tags diverge as well: `!!binary` loads as bytes and `!!timestamp` as a
+date where the engine reads the text, `!!null` loads as null whatever the text,
+and PyYAML resolves `! '0.1'` as the number 0.1. Proof validation and the
+validator pipeline's preflight report each such tag with its location. The
+apply preflight and stamping and the retry overlay refuse the file before any
+rewrite, and the eval repairs and materialization keep its raw text for
+validation to report. They treat text that PyYAML cannot load because it raises
+a plain `ValueError` the same way. A double-quoted escape beyond U+10FFFF, such
+as `"\U00110000"`, or an impossible unquoted date such as `2024-13-01`, raises
+one. The engine rejects the escape, and an impossible `effective_from`.
+
 The encoder is instructed to create new entries with `status: open`. A repair may carry recorded human rulings and
 publisher replies supplied through mandatory review findings into `ruling` and
 `confirmation`, attributed only to organisations. A supplied ruling permits

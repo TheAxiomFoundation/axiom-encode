@@ -13,9 +13,10 @@ from hypothesis import strategies as st
 
 from axiom_encode.harness.proof_validator import (
     _interpretation_yaml_constraints,
-    _safe_load_with_interpretation_constraints,
+    _safe_load_with_raw_constraints,
     _validate_source_proof_atom,
     find_interpretation_yaml_issues,
+    find_unsupported_yaml_tag_issues,
     proof_source_citation_paths,
     validate_rulespec_proofs,
 )
@@ -703,6 +704,14 @@ MODULE_MERGE_MESSAGE = (
 )
 
 
+def _shadowed_tag_issue(content, location):
+    """The whole-document tag scan also reports the shadowed `! 1e5`."""
+
+    (issue,) = find_unsupported_yaml_tag_issues(content)
+    assert issue.startswith(f"{location} has unsupported YAML tag `!` at line ")
+    return issue
+
+
 @pytest.mark.parametrize(
     ("anchors", "module"),
     [
@@ -735,7 +744,10 @@ def test_interpretation_yaml_rejects_interpretations_supplied_by_module_merge_ke
     )
     assert find_interpretation_yaml_issues(content) == [MODULE_MERGE_MESSAGE]
     result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
-    assert result.issues == [MODULE_MERGE_MESSAGE]
+    assert result.issues == [
+        MODULE_MERGE_MESSAGE,
+        _shadowed_tag_issue(content, "x-defaults.interpretations[0].question"),
+    ]
 
 
 def test_interpretation_yaml_rejects_module_supplied_by_root_merge_keys():
@@ -749,7 +761,10 @@ def test_interpretation_yaml_rejects_module_supplied_by_root_merge_keys():
     )
     assert find_interpretation_yaml_issues(content) == [message]
     result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
-    assert result.issues == [message]
+    assert result.issues == [
+        message,
+        _shadowed_tag_issue(content, "x-base.module.interpretations[0].question"),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -765,9 +780,12 @@ def test_interpretation_yaml_rejects_module_supplied_by_root_merge_keys():
             id="merge-supplies-other-metadata",
         ),
         # A quoted `<<` is an ordinary key to PyYAML and to the engine alike.
+        # (The shadowed `! 1e5` is quoted here, since the whole-document tag
+        # scan rejects a non-specific tag on any scalar.)
         pytest.param(
             "format: rulespec/v1\nx-defaults: &defaults\n"
-            f"{RAW_SHADOWED_INTERPRETATIONS}module:\n  '<<': *defaults\n{RAW_RULES}",
+            + RAW_SHADOWED_INTERPRETATIONS.replace("! 1e5", "'1e5'")
+            + f"module:\n  '<<': *defaults\n{RAW_RULES}",
             id="quoted-merge-spelling",
         ),
     ],
@@ -1030,11 +1048,16 @@ def test_interpretation_yaml_scans_every_root_module_block():
 
 
 def _assert_single_pass_load_matches_safe_load(content):
-    payload, issues, numeric_id_paths = _safe_load_with_interpretation_constraints(
+    payload, issues, numeric_id_paths, tag_issues = _safe_load_with_raw_constraints(
         content
     )
-    assert payload == yaml.safe_load(content)
     assert (issues, numeric_id_paths) == _interpretation_yaml_constraints(content)
+    if tag_issues:
+        # A document with unsupported tags is reported, never constructed.
+        assert payload is None
+        assert set(tag_issues) <= set(find_unsupported_yaml_tag_issues(content))
+    else:
+        assert payload == yaml.safe_load(content)
 
 
 @pytest.mark.parametrize(
@@ -1056,7 +1079,7 @@ def _assert_single_pass_load_matches_safe_load(content):
 def test_single_pass_interpretation_load_matches_safe_load(content):
     if "*c" in content:
         # Recursive values cannot be compared with ==; compare the raw view only.
-        assert _safe_load_with_interpretation_constraints(content)[1:] == (
+        assert _safe_load_with_raw_constraints(content)[1:3] == (
             _interpretation_yaml_constraints(content)
         )
         return
