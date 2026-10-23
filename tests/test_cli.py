@@ -1495,9 +1495,10 @@ def _manifest_refresh_command_args(tmp_path, repo):
     )
 
 
-def _manifest_refresh_source_unit():
+def _manifest_refresh_source_unit(*, amendment_documents=()):
     return SimpleNamespace(
         body="authoritative source text\n",
+        amendment_documents=amendment_documents,
         source_attestation={
             "requested_corpus_citation_path": "us/statute/7/2015/f",
         },
@@ -1507,6 +1508,19 @@ def _manifest_refresh_source_unit():
 def test_refresh_applied_manifest_command_changes_only_manifest(tmp_path, capsys):
     repo, rule, companion, manifest = _manifest_refresh_repo(tmp_path)
     args = _manifest_refresh_command_args(tmp_path, repo)
+    amendment = CorpusAmendmentDocument(
+        citation_path="us/statute/119/54/15",
+        title="Section 2015 amended",
+        expression_date="2026-10-21",
+        metadata={
+            "commencement_date": "2027-04-01",
+            "commencement_citation_path": "us/statute/119/54/2",
+        },
+        body="In section 2015, replace the rate with 305.",
+        match_tier="structured",
+    )
+    source_unit = _manifest_refresh_source_unit(amendment_documents=(amendment,))
+
     original_rule = rule.read_bytes()
     original_companion = companion.read_bytes()
     original_manifest = manifest.read_bytes()
@@ -1536,12 +1550,12 @@ def test_refresh_applied_manifest_command_changes_only_manifest(tmp_path, capsys
         ),
         patch(
             "axiom_encode.cli.resolve_corpus_source_unit",
-            return_value=_manifest_refresh_source_unit(),
+            return_value=source_unit,
         ),
         patch(
             "axiom_encode.cli._run_generated_encoding_overlay_validation",
             return_value=(True, [], []),
-        ),
+        ) as overlay_mock,
         patch(
             "axiom_encode.cli._apply_generated_encoding_result",
             side_effect=apply_refresh,
@@ -1549,6 +1563,12 @@ def test_refresh_applied_manifest_command_changes_only_manifest(tmp_path, capsys
     ):
         signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
         cmd_refresh_applied_manifest(args)
+
+    overlay_mock.assert_called_once()
+    assert overlay_mock.call_args.kwargs["amendment_documents"] == (amendment,)
+    assert overlay_mock.call_args.kwargs["amendment_source_texts"] == {
+        amendment.citation_path: amendment.body,
+    }
 
     assert rule.read_bytes() == original_rule
     assert companion.read_bytes() == original_companion
@@ -1733,6 +1753,19 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
         capture_output=True,
     )
     reviewed_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    amendment = CorpusAmendmentDocument(
+        citation_path="us/statute/119/54/15",
+        title="Section 2015 amended",
+        expression_date="2026-10-21",
+        metadata={
+            "commencement_date": "2027-04-01",
+            "commencement_citation_path": "us/statute/119/54/2",
+        },
+        body="In section 2015, replace the rate with 305.",
+        match_tier="structured",
+    )
+    source_unit = _manifest_refresh_source_unit(amendment_documents=(amendment,))
+
     original_rule = rule.read_bytes()
     original_companion = companion.read_bytes()
     args = SimpleNamespace(
@@ -1789,12 +1822,12 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
         ),
         patch(
             "axiom_encode.cli.resolve_corpus_source_unit",
-            return_value=_manifest_refresh_source_unit(),
+            return_value=source_unit,
         ),
         patch(
             "axiom_encode.cli._run_generated_encoding_overlay_validation",
             side_effect=validate,
-        ),
+        ) as overlay_mock,
         patch(
             "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
             return_value=provenance,
@@ -1819,6 +1852,12 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
     ):
         signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
         cmd_promote_reviewed_candidate(args)
+
+    overlay_mock.assert_called_once()
+    assert overlay_mock.call_args.kwargs["amendment_documents"] == (amendment,)
+    assert overlay_mock.call_args.kwargs["amendment_source_texts"] == {
+        amendment.citation_path: amendment.body,
+    }
 
     manifest = repo / _applied_encoding_manifest_path(Path("us/statutes/7/2015/f.yaml"))
     payload = json.loads(manifest.read_text())
@@ -6564,6 +6603,56 @@ class TestCmdValidate:
 
         assert exc_info.value.code == 0
         assert "Result: ✓ PASSED" in capsys.readouterr().out
+
+    def test_validate_reports_interpretation_finding_from_shared_pipeline(
+        self, capsys, tmp_path
+    ):
+        from axiom_encode.harness import validator_pipeline
+
+        rulespec_file = self._module(tmp_path, "interpretations.yaml")
+        rulespec_file.write_text(
+            "format: rulespec/v1\nmodule:\n  interpretations: invalid\nrules: []\n"
+        )
+        args = SimpleNamespace(
+            files=[rulespec_file],
+            corpus_path=self.corpus_path,
+            axiom_rules_path=self.axiom_rules_path,
+            rulespec_dependency_root=[],
+            json=True,
+            skip_reviewers=True,
+            oracle=None,
+            min_match=0.95,
+            require_oracle_classification=False,
+        )
+
+        class InterpretationPipeline(validator_pipeline.ValidatorPipeline):
+            def _validate_with_authoritative_roots(
+                self, rulespec_file, skip_reviewers=False
+            ):
+                issues = validator_pipeline.find_rulespec_proof_issues(
+                    rulespec_file.read_text(), source_texts={}
+                )
+                return validator_pipeline.PipelineResult(
+                    results={
+                        "ci": validator_pipeline.ValidationResult(
+                            "ci",
+                            not issues,
+                            issues=issues,
+                            error=issues[0] if issues else None,
+                        )
+                    },
+                    total_duration_ms=0,
+                    all_passed=not issues,
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", InterpretationPipeline),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_validate(args)
+
+        assert exc_info.value.code == 1
+        assert "module.interpretations must be a list" in capsys.readouterr().out
 
     def test_policyengine_oracle_requires_explicit_runtime_root(
         self, tmp_path, monkeypatch
@@ -21581,6 +21670,9 @@ rules: []
         assert mock_overlay.call_args.kwargs["amendment_source_texts"] == {
             amendment_citation: amendment_sentence,
         }
+        assert mock_overlay.call_args.kwargs["amendment_documents"] == (
+            visible_amendment,
+        )
 
     def test_encode_apply_auto_repairs_nonnegative_taxable_income_floor(
         self, capsys, tmp_path
@@ -48918,6 +49010,138 @@ rules: []
             amendment_citation: amendment_sentence,
         }
 
+    @pytest.mark.parametrize("repair_timing", [False, True])
+    def test_standalone_amendment_timing_failure_cannot_be_rescued_by_apply_overlay(
+        self, tmp_path, repair_timing
+    ):
+        import axiom_encode.cli as cli_module
+        from axiom_encode.harness.amendment_timing import amendment_timing_issues
+        from axiom_encode.harness.validator_pipeline import (
+            ValidationResult,
+            ValidatorPipeline,
+        )
+
+        principal = "nz/statute/act/public/2018/0032/schedule/4/part/8"
+        amendment = "nz/statute/act/public/2026/0054/section/15"
+        document = CorpusAmendmentDocument(
+            citation_path=amendment,
+            title="Schedule 4 amended",
+            expression_date="2026-10-21",
+            metadata={
+                "commencement_date": "2027-04-01",
+                "commencement_citation_path": (
+                    "nz/statute/act/public/2026/0054/section/2"
+                ),
+            },
+            body="In Schedule 4, replace the rate with 305.",
+            match_tier="structured",
+        )
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-nz/nz"
+        relative = Path("statutes/act/public/2018/0032/schedule/4/part/8.yaml")
+        generated = output_root / "codex-test-model" / relative
+        generated.parent.mkdir(parents=True)
+        policy_repo.mkdir(parents=True)
+        payload = {
+            "format": "rulespec/v1",
+            "rules": [
+                {
+                    "name": "winter_energy_payment_rate",
+                    "kind": "parameter",
+                    "metadata": {
+                        "proof": {
+                            "atoms": [
+                                {
+                                    "path": "versions[0].formula",
+                                    "source": {"corpus_citation_path": amendment},
+                                }
+                            ]
+                        }
+                    },
+                    "versions": [
+                        {
+                            "effective_from": (
+                                "2027-04-01" if repair_timing else "0001-01-01"
+                            ),
+                            "formula": 305,
+                        }
+                    ],
+                }
+            ],
+        }
+        generated.write_text(yaml.safe_dump(payload))
+        result = SimpleNamespace(
+            success=False,
+            error="Generated RuleSpec failed compile validation",
+            output_file=str(generated),
+            runner="codex-test-model",
+            backend="codex",
+            citation=principal,
+        )
+        assert cli_module._can_attempt_apply(result)
+        assert bool(amendment_timing_issues(generated.read_text(), (document,))) is (
+            not repair_timing
+        )
+
+        def passing_ci_with_optional_repair(_pipeline, rules_file):
+            # Model an apply-time repair after the pipeline's initial timing
+            # check: admission must still inspect the final overlay bytes.
+            if repair_timing:
+                repaired = yaml.safe_load(rules_file.read_text())
+                repaired["rules"][0]["versions"][0]["effective_from"] = "0001-01-01"
+                rules_file.write_text(yaml.safe_dump(repaired))
+            return ValidationResult(validator_name="ci", passed=True)
+
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult(validator_name="compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                autospec=True,
+                side_effect=passing_ci_with_optional_repair,
+            ),
+            patch.object(cli_module, "_stamp_generated_source_attestation_for_apply"),
+            patch.object(
+                cli_module, "_generated_result_source_metadata", return_value={}
+            ),
+            patch.object(
+                cli_module, "_generated_result_source_attestation", return_value={}
+            ),
+            patch.object(
+                cli_module,
+                "_stamp_matching_supplemental_source_attestations",
+                side_effect=lambda mapping, **_kwargs: mapping,
+            ),
+            patch.object(cli_module, "_record_successful_apply_validation") as record,
+        ):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus", citation_path=principal
+                ),
+                validate_dependents=False,
+                amendment_source_texts={amendment: document.body},
+                amendment_documents=(document,),
+            )
+
+        assert ok is False
+        assert any(
+            "effective_from 0001-01-01 predates commencement 2027-04-01" in issue
+            for issue in issues
+        )
+        if not repair_timing:
+            assert any(": amendment_timing: " in issue for issue in issues)
+        assert supplemental == {}
+        record.assert_not_called()
+        assert getattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR) is None
+
     def test_standalone_contract_failure_cannot_be_rescued_by_apply_overlay(
         self, tmp_path
     ):
@@ -50025,6 +50249,51 @@ rules: []
         assert issues == []
         assert supplemental == {}
         assert seen_require_policy_proofs == [True]
+
+    def test_apply_overlay_blocks_interpretation_shape_through_shared_pipeline(
+        self, tmp_path
+    ):
+        from axiom_encode.harness import validator_pipeline
+
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        generated = output_root / "codex-test-model" / "statutes/7/2014/a.yaml"
+        generated.parent.mkdir(parents=True)
+        policy_repo.mkdir(parents=True)
+        content = (
+            "format: rulespec/v1\nmodule:\n  interpretations: invalid\nrules: []\n"
+        )
+        generated.write_text(content)
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
+
+        class CompilationStubPipeline(validator_pipeline.ValidatorPipeline):
+            def _run_compile_check(self, rulespec_file):
+                return validator_pipeline.ValidationResult("compile", True)
+
+            def _compile_rulespec_to_artifact(self, rulespec_file, output_path):
+                return (
+                    subprocess.CompletedProcess(["axiom-rules-engine"], 0, "", ""),
+                    {"program": {"parameters": [], "derived": [], "relations": []}},
+                )
+
+        with patch("axiom_encode.cli.ValidatorPipeline", CompilationStubPipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
+            )
+
+        assert not ok
+        assert any("module.interpretations must be a list" in issue for issue in issues)
+        assert generated.read_text() == content
+        assert supplemental == {}
+        assert not (policy_repo / "statutes/7/2014/a.yaml").exists()
 
     def test_repair_medicaid_optional_senior_composition_updates_rule_and_tests(
         self,

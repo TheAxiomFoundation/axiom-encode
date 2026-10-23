@@ -4965,7 +4965,7 @@ def test_both_verifiers_reject_predecessor_with_encoded_base_owner(
         ("ca", "94789006ce372a1967c258ef47c12b15a1fe511f"),
     ],
 )
-def test_canadian_refresh_head_does_not_admit_other_identity(
+def test_reviewed_head_rejects_country_or_full_sha_mismatch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     country: str,

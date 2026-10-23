@@ -1,6 +1,14 @@
+## 0.2.2251
+
+- Admit the exact reviewed Canadian repair head for all protected artifact-only modes, including manifest refresh and reviewed-candidate promotion. Preserve publication restrictions and every signing and validation gate; link the admission evidence.
+
+## 0.2.2248
+
+- Add reviewed `repealed_tombstone` coverage exemptions for the exact repealed leaf scopes 26 USC 3121(a)(3), 3121(a)(17) and 3306(b)(3), bound to the signed corpus bytes, with their review evidence. The operative parent paragraphs and every other scope keep their coverage demands.
+
 ## 0.2.2247
 
-- Admit the independently reviewed Canadian repair head 94789006 for artifact-only signed work. Keep publication-base restrictions, exact identity checks, validation and signing requirements unchanged.
+- Add bounded authenticated corpus artifact transport for fresh complete-source replacements, binding the official reviewed exporter, run and artifact metadata, archive bytes, signed release, immutable and current scope locks, and protected signing workflow without granting source authority.
 
 ## 0.2.2246
 
