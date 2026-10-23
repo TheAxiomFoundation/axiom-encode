@@ -102,7 +102,10 @@ from axiom_encode.toolchain import (
     load_rulespec_toolchain,
     verify_rulespec_validation_waiver_set,
 )
-from axiom_encode.yaml_serialization import safe_dump_yaml
+from axiom_encode.yaml_serialization import (
+    find_duplicate_mapping_key_issues,
+    safe_dump_yaml,
+)
 
 from .amendment_timing import amendment_timing_issues
 from .coverage_index import format_coverage_index
@@ -184,6 +187,12 @@ from .validator_pipeline import (
 EvalMode = Literal["cold", "repo-augmented"]
 EvalOracleMode = Literal["none", "policyengine"]
 EvalFailureKind = Literal["timeout", "validation", "error"]
+
+
+_DUPLICATE_KEY_SCAN_RESOURCE_ISSUE = (
+    "YAML nesting is too deep to check for duplicate mapping keys, so the "
+    "file is not rewritten."
+)
 
 
 class _PreservedRepairOverlayError(ValueError):
@@ -8865,6 +8874,15 @@ def _apply_generated_eval_repairs(
 ) -> list[str]:
     """Apply deterministic generated-artifact repairs before final eval scoring."""
     repairs: list[str] = []
+    # Several repairs load and dump the module or its tests, which would erase
+    # all but the last of two equal keys; validation already rejects them.
+    for artifact in (rulespec_file, _rulespec_test_path(rulespec_file)):
+        try:
+            artifact_content = artifact.read_text() if artifact.is_file() else ""
+        except (OSError, UnicodeError):
+            continue
+        if _rewrite_duplicate_key_issues(artifact_content):
+            return repairs
     proof_repairs = _remove_unreferenced_proof_import_atoms(rulespec_file, issues)
     repairs.extend(f"proof_import:{name}" for name in proof_repairs)
     unused_import_repairs = _prune_unused_imports_from_file(rulespec_file, issues)
@@ -16996,10 +17014,16 @@ def _normalize_main_eval_content(
         raise ValueError("RuleSpec artifacts must use canonical .yaml paths")
     content = _clean_generated_file_content(content)
     try:
+        # The repairs below load and dump the module, which would silently
+        # resolve these; keep the raw text so validation reports them.
         if find_interpretation_yaml_issues(content):
             return content
     except (yaml.YAMLError, RecursionError):
         pass
+    if _rewrite_duplicate_key_issues(content):
+        # Textual normalization only: it keeps every key and still refuses
+        # text that is not RuleSpec.
+        return _normalize_rulespec_content(content)
     normalized = _normalize_rulespec_content(content)
     normalized, _lifted_inputs = _repair_misplaced_module_inputs(normalized)
     normalized, _repaired_rules = repair_source_table_band_scalar_parameters(
@@ -17023,6 +17047,23 @@ def _normalize_main_eval_content(
         normalized
     )
     return normalized
+
+
+def _rewrite_duplicate_key_issues(content: str) -> list[str]:
+    """Why rewriting ``content`` through a YAML load could erase entries.
+
+    Text that does not compose cannot load either, so callers keep their own
+    handling of it. The scan composes with one more frame per level than
+    ``yaml.safe_load``, so nesting can exhaust it where loading still works;
+    that text is reported too, since its duplicate keys cannot be ruled out.
+    """
+
+    try:
+        return find_duplicate_mapping_key_issues(content)
+    except yaml.YAMLError:
+        return []
+    except RecursionError:
+        return [_DUPLICATE_KEY_SCAN_RESOURCE_ISSUE]
 
 
 def _rulespec_rule_names(content: str) -> set[str]:
@@ -18277,7 +18318,10 @@ def _materialize_eval_artifact(
                 if normalized_main_content is None:
                     continue
                 content = normalized_main_content
-            elif target_path == expected_test_path:
+            # Normalization loads and dumps the cases; keep raw duplicate keys.
+            elif target_path == expected_test_path and not (
+                _rewrite_duplicate_key_issues(content)
+            ):
                 if single_amount_table_slice:
                     content = _normalize_single_amount_row_test_content(
                         content,
@@ -18559,6 +18603,22 @@ def _overlay_validation_retry_candidate(
             "preserved repair overlay has invalid interpretation syntax: "
             + "; ".join(preserved_interpretation_issues)
         )
+    # The overlay is written back through a YAML load and dump, which would
+    # erase all but the last of two equal keys.
+    preserved_duplicate_key_issues = _rewrite_duplicate_key_issues(candidate.rulespec)
+    if preserved_duplicate_key_issues:
+        raise _PreservedRepairOverlayError(
+            "preserved repair overlay cannot be rewritten without losing YAML "
+            "mapping entries: " + "; ".join(preserved_duplicate_key_issues)
+        )
+    if candidate.tests is not None:
+        preserved_duplicate_key_issues = _rewrite_duplicate_key_issues(candidate.tests)
+        if preserved_duplicate_key_issues:
+            raise _PreservedRepairOverlayError(
+                "preserved repair overlay tests cannot be rewritten without "
+                "losing YAML mapping entries: "
+                + "; ".join(preserved_duplicate_key_issues)
+            )
     base_issue = _repair_overlay_candidate_base_issue(candidate)
     if base_issue is not None:
         raise _PreservedRepairOverlayError(base_issue)
@@ -18571,6 +18631,14 @@ def _overlay_validation_retry_candidate(
             raise ValueError(
                 "generated repair overlay has invalid interpretation syntax: "
                 + "; ".join(generated_interpretation_issues)
+            )
+        generated_duplicate_key_issues = find_duplicate_mapping_key_issues(
+            generated_content
+        )
+        if generated_duplicate_key_issues:
+            raise ValueError(
+                "generated repair overlay has duplicate YAML mapping keys: "
+                + "; ".join(generated_duplicate_key_issues)
             )
         generated = yaml.safe_load(generated_content)
     except (OSError, UnicodeError, yaml.YAMLError, RecursionError) as exc:
@@ -18740,14 +18808,21 @@ def _overlay_validation_retry_candidate(
     merged_test_payload: object | None = None
     if candidate.tests is not None:
         try:
-            generated_tests = (
-                yaml.safe_load(test_file.read_text(encoding="utf-8"))
-                if test_file.exists()
-                else []
+            generated_test_content = (
+                test_file.read_text(encoding="utf-8") if test_file.exists() else "[]"
             )
+            generated_duplicate_key_issues = find_duplicate_mapping_key_issues(
+                generated_test_content
+            )
+            generated_tests = yaml.safe_load(generated_test_content)
             preserved_tests = yaml.safe_load(candidate.tests)
         except (OSError, UnicodeError, yaml.YAMLError, RecursionError) as exc:
             raise ValueError("repair overlay tests must be valid UTF-8 YAML") from exc
+        if generated_duplicate_key_issues:
+            raise ValueError(
+                "generated repair overlay tests have duplicate YAML mapping keys: "
+                + "; ".join(generated_duplicate_key_issues)
+            )
         generated_wrapper = isinstance(generated_tests, dict)
         preserved_wrapper = isinstance(preserved_tests, dict)
         if generated_wrapper:
@@ -19108,33 +19183,37 @@ def _materialize_workspace_artifacts(
 
     if workspace_test.exists():
         test_content = workspace_test.read_text()
-        if single_amount_table_slice:
-            test_content = _normalize_single_amount_row_test_content(
+        # Normalization loads and dumps the cases; keep raw duplicate keys.
+        if not _rewrite_duplicate_key_issues(test_content):
+            if single_amount_table_slice:
+                test_content = _normalize_single_amount_row_test_content(
+                    test_content,
+                    rulespec_content=main_content,
+                    source_text=source_text,
+                )
+            else:
+                test_content = _normalize_test_periods_to_effective_dates(
+                    test_content,
+                    rulespec_content=main_content,
+                    source_text=source_text,
+                )
+                test_content = _complete_oracle_hint_test_outputs(
+                    test_content,
+                    rulespec_content=main_content,
+                    policyengine_rule_hint=policyengine_rule_hint,
+                    rulespec_path=expected_path,
+                )
+                test_content, _interval_test_repairs = (
+                    repair_source_table_interval_tests(
+                        test_content,
+                        rulespec_content=main_content,
+                        source_text=source_text,
+                    )
+                )
+            test_content = _strip_test_outputs_for_rule_names(
                 test_content,
-                rulespec_content=main_content,
-                source_text=source_text,
+                rule_names=stripped_test_output_names,
             )
-        else:
-            test_content = _normalize_test_periods_to_effective_dates(
-                test_content,
-                rulespec_content=main_content,
-                source_text=source_text,
-            )
-            test_content = _complete_oracle_hint_test_outputs(
-                test_content,
-                rulespec_content=main_content,
-                policyengine_rule_hint=policyengine_rule_hint,
-                rulespec_path=expected_path,
-            )
-            test_content, _interval_test_repairs = repair_source_table_interval_tests(
-                test_content,
-                rulespec_content=main_content,
-                source_text=source_text,
-            )
-        test_content = _strip_test_outputs_for_rule_names(
-            test_content,
-            rule_names=stripped_test_output_names,
-        )
         _write_eval_artifact_text(expected_test_path, test_content, artifact_root)
         if materialized_paths is not None:
             materialized_paths.add(expected_test_path)

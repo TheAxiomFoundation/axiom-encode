@@ -43,6 +43,29 @@ Each alternative requires a non-blank string `id` matching
 `^[a-z0-9]+(-[a-z0-9]+)*$`, unique within that interpretation; its only allowed
 keys are `id`, `reading`, and optional `effect`.
 
+Raw YAML is checked before any load-and-dump rewrite, because loading resolves
+duplicate keys, tags and merge keys silently. Interpretation scalars may carry
+only the canonical string tag `!!str`, interpretation collections carry no
+tags, and interpretation mapping keys must be unique. A document may have only
+one root `module` key, and neither the root nor `module` may carry a tag other
+than `!!map` or the non-specific `!` (PyYAML loads a `!!set` mapping as a set,
+which the engine reads as the mapping). Interpretation strings must not contain
+UTF-16 surrogate code points: PyYAML decodes escapes such as `"\uD800"` to lone
+surrogates, which the engine rejects. YAML merge keys must not supply `module` or
+`module.interpretations`: the engine does not apply merge keys, so it would
+read different interpretations from the encoder.
+
+Duplicate mapping keys are rejected anywhere in a generated module or its
+companion test before any step writes the file back from a loaded payload:
+apply stamping, the apply and eval repairs, materialization and the retry
+overlay. Loading keeps only the last of two equal keys, so such a rewrite would
+silently drop the first `rules` block, rule field or test output, and the
+engine, which rejects the raw file, would compile what was left. Keys are
+compared as `yaml.safe_load` constructs them, so `rules`, `"rules"`,
+`!!str rules` and an aliased key collide, and so do `1`, `0x1`, `1.0` and
+`true`. Merge keys keep their override semantics. A file nested too deeply to
+scan is not rewritten either, since its duplicates cannot be ruled out.
+
 The encoder is instructed to create new entries with `status: open`. A repair may carry recorded human rulings and
 publisher replies supplied through mandatory review findings into `ruling` and
 `confirmation`, attributed only to organisations. A supplied ruling permits
