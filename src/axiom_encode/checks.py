@@ -390,6 +390,11 @@ def issue_fingerprint(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
+def message_digest(message: str) -> str:
+    """SHA-256 of an issue's full message, the replay key of a truncated record."""
+    return hashlib.sha256(message.encode("utf-8")).hexdigest()
+
+
 def issue_record(
     issue: Any,
     *,
@@ -427,6 +432,9 @@ def issue_record(
     }
     if len(message) > message_limit:
         record["message_truncated"] = len(message) - message_limit
+        # The stored message is a display prefix; replay matches the full
+        # message by this digest, so a long issue keeps its check and fix.
+        record["message_sha256"] = message_digest(message)
     if isinstance(issue, ValidationIssue):
         check = issue.definition()
         subject = issue.subject
@@ -521,10 +529,29 @@ def typed_issue_document(
     records = issue_records(labeled_issues, max_issues=max_issues, max_bytes=max_bytes)
     if not records.typed:
         return None
+    document = _issue_document(records)
+    # ``max_bytes`` bounds the whole serialized document, envelope and check
+    # definitions included: drop records from the end until it fits.
+    overshoot = _document_bytes(document) - max_bytes
+    while overshoot > 0 and records.issues:
+        while overshoot > 0 and records.issues:
+            overshoot -= _document_bytes(records.issues.pop()) + 2
+            records.truncated += 1
+        document = _issue_document(records)
+        overshoot = _document_bytes(document) - max_bytes
+    return document
+
+
+def _issue_document(records: IssueRecords) -> dict[str, Any]:
     document = records.to_dict()
     document["checks"] = referenced_checks(document["issues"])
     document["check_registry_sha256"] = registry_digest()
     return document
+
+
+def _document_bytes(value: Any) -> int:
+    """UTF-8 bytes of ``json.dumps(value, ensure_ascii=False)``, the bounded form."""
+    return len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
 
 
 def issues_from_document(
@@ -535,17 +562,24 @@ def issues_from_document(
         return list(messages)
     load_checks()
     by_message: dict[str, Mapping[str, Any]] = {}
+    by_digest: dict[str, Mapping[str, Any]] = {}
     for record in document.get("issues") or ():
-        if (
+        if not (
             isinstance(record, Mapping)
             and isinstance(record.get("message"), str)
             and isinstance(record.get("check"), str)
-            and not record.get("message_truncated")
         ):
+            continue
+        if not record.get("message_truncated"):
             by_message.setdefault(record["message"], record)
+        elif isinstance(record.get("message_sha256"), str):
+            # A truncated record matches only the full message it digests.
+            by_digest.setdefault(record["message_sha256"], record)
     retyped: list[str] = []
     for message in messages:
         record = by_message.get(message)
+        if record is None and by_digest:
+            record = by_digest.get(message_digest(message))
         if record is None or get_check(str(record["check"])) is None:
             retyped.append(message)
             continue

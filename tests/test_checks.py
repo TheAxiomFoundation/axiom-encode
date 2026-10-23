@@ -352,6 +352,109 @@ def test_stored_documents_retype_their_issues():
     assert issues_from_document(["x"], None) == ["x"]
 
 
+def test_compile_issues_name_the_module_by_its_repo_relative_path(tmp_path):
+    from axiom_encode.harness.validator_pipeline import (
+        _compile_issue_module,
+        _rules_engine_compile_crashed_issue,
+        _rules_engine_compile_failed_issue,
+    )
+
+    def failed(root: Path, relative: str) -> ValidationIssue:
+        module = _compile_issue_module(root / relative, (root, None))
+        return _rules_engine_compile_failed_issue("invalid field at line 12", module)
+
+    first = failed(tmp_path / "stage-a", "us/statutes/26/1/a.yaml")
+    other = failed(tmp_path / "stage-a", "us/statutes/26/2/a.yaml")
+    restaged = failed(tmp_path / "stage-b", "us/statutes/26/1/a.yaml")
+    assert first.subject.module == "us/statutes/26/1/a.yaml"
+    # Same basename, different modules: distinct identities.
+    assert other.fingerprint != first.fingerprint
+    # Same module in another staging directory: the same identity.
+    assert restaged.fingerprint == first.fingerprint
+    crashed = _rules_engine_compile_crashed_issue(
+        RuntimeError("boom"),
+        _compile_issue_module(
+            tmp_path / "stage-c" / "us/statutes/26/1/a.yaml",
+            (tmp_path / "elsewhere", tmp_path / "stage-c"),
+        ),
+    )
+    assert crashed.subject.module == "us/statutes/26/1/a.yaml"
+
+
+def test_long_issue_keeps_its_check_through_a_bundle_round_trip(tmp_path):
+    from types import SimpleNamespace
+
+    from axiom_encode.cli import (
+        _emit_final_rejected_candidate,
+        _load_initial_validation_retry_feedback,
+    )
+    from axiom_encode.harness.validator_pipeline import (
+        _rules_engine_compile_failed_issue,
+    )
+
+    issue = _rules_engine_compile_failed_issue(
+        "compiler diagnosis " + "x" * 2100, "statutes/26/1.yaml"
+    )
+    assert len(issue) > checks.MAX_RECORDED_MESSAGE_CHARS
+    output_root = tmp_path / "out"
+    output_file = output_root / "codex-terra" / "statutes/26/1.yaml"
+    output_file.parent.mkdir(parents=True)
+    output_file.write_text("format: rulespec/v1\nrules: []\n")
+    output_file.with_suffix(".test.yaml").write_text("[]\n")
+    destination = tmp_path / "failed-encode"
+    _emit_final_rejected_candidate(
+        SimpleNamespace(runner="codex-terra", output_file=str(output_file)),
+        output_root=output_root,
+        destination=destination,
+        citation="26 USC 1",
+        validation_issues=(issue,),
+        attempt_count=1,
+    )
+    metadata = json.loads((destination / "issues.json").read_text())
+    record = metadata["typed_issues"]["issues"][0]
+    assert record["message_truncated"] == len(issue) - checks.MAX_RECORDED_MESSAGE_CHARS
+    assert record["message_sha256"] == checks.message_digest(str(issue))
+
+    replayed = _load_initial_validation_retry_feedback(
+        SimpleNamespace(
+            repair_candidate_root=destination,
+            repair_candidate_path=Path("statutes/26/1.yaml"),
+            repair_candidate_rulespec_sha256=metadata["rulespec_sha256"],
+            repair_candidate_tests_sha256=metadata["tests_sha256"],
+            citation="26 USC 1",
+        )
+    )
+    typed = [item for item in replayed if isinstance(item, ValidationIssue)]
+    assert [item.check for item in typed] == ["compile:rules-engine/failed"]
+    assert typed[0].fingerprint == issue.fingerprint
+    # A different message with the same stored prefix does not match it.
+    stranger = str(issue)[: checks.MAX_RECORDED_MESSAGE_CHARS] + "y" * 200
+    assert not isinstance(
+        issues_from_document([stranger], metadata["typed_issues"])[0],
+        ValidationIssue,
+    )
+
+
+def test_typed_issue_document_bounds_its_whole_serialized_size():
+    ci_checks = [check for check in load_checks().values() if check.gate == "ci"]
+    issues = [
+        ValidationIssue(
+            f"[{check.category}] issue {index} " + "z" * 600,
+            check=check.id,
+            subject=IssueSubject(citation="us/statutes/26/1", rule=f"r{index}"),
+            expected="e" * 300,
+            found="f" * 300,
+        )
+        for index in range(200)
+        for check in [ci_checks[index % len(ci_checks)]]
+    ]
+    document = typed_issue_document([("ci", issues)])
+    size = len(json.dumps(document, ensure_ascii=False).encode("utf-8"))
+    assert size <= checks.MAX_RECORDED_ISSUES_JSON_BYTES
+    assert document["truncated"] == 200 - len(document["issues"]) > 0
+    assert set(document["checks"]) == {r["check"] for r in document["issues"]}
+
+
 def test_failure_counts_are_keyed_by_check_id():
     summary = summarize_validation_failures(
         [("ci", [_issue(), "Ungrounded generated numeric literal: 7 does not appear"])]
@@ -538,3 +641,87 @@ def test_infra_issue_script_rejects_unknown_usage():
         text=True,
     )
     assert completed.returncode == 2
+
+
+def test_boundary_fingerprint_survives_repair_of_another_boundary(tmp_path):
+    from axiom_encode.harness import validator_pipeline as vp
+    from tests.test_source_completeness_bare_markers import CITATION, _source_rule
+
+    first = "The payment is at most 50 dollars, calculated as income divided by 2."
+    second = "The bonus is at most 70 dollars, calculated as wages divided by 4."
+    source = "a\n" + first + "\nb\n" + second + "\n"
+    payload = {
+        "format": "rulespec/v1",
+        "module": {"source_verification": {"corpus_citation_path": CITATION}},
+        "inputs": [
+            {"name": "income", "dtype": "Money"},
+            {"name": "wages", "dtype": "Money"},
+        ],
+        "rules": [
+            _source_rule(
+                "payment",
+                "if income <= income_limit: income / divisor else: 0",
+                first,
+                f"{CITATION}(a)",
+                dtype="Money",
+            ),
+            _source_rule(
+                "bonus",
+                "if wages <= wage_limit: wages / wage_divisor else: 0",
+                second,
+                f"{CITATION}(b)",
+                dtype="Money",
+            ),
+        ],
+    }
+    for name, number, proof, branch in (
+        ("income_limit", 50, "at most 50 dollars", "a"),
+        ("divisor", 2, "income divided by 2", "a"),
+        ("wage_limit", 70, "at most 70 dollars", "b"),
+        ("wage_divisor", 4, "wages divided by 4", "b"),
+    ):
+        rule = _source_rule(
+            name, str(number), proof, f"{CITATION}({branch})", dtype="Money"
+        )
+        rule["kind"] = "parameter"
+        payload["rules"].append(rule)
+    pipeline = vp.ValidatorPipeline(
+        policy_repo_path=tmp_path / "nonexistent-rulespec",
+        axiom_rules_path=tmp_path / "nonexistent-engine",
+        local_corpus_release=None,
+        enable_oracles=False,
+        require_complete_source_unit=True,
+    )
+
+    def boundary_issue(pairs):
+        cases = [
+            {
+                "period": "2026-07-01",
+                "input": {"income": income, "wages": wages},
+                "output": {
+                    "payment": income / 2 if income <= 50 else 0,
+                    "bonus": wages / 4 if wages <= 70 else 0,
+                },
+            }
+            for income, wages in pairs
+        ]
+        issues = pipeline._complete_source_unit_issues(
+            yaml.safe_dump(payload),
+            validation_source_texts={CITATION: source},
+            proof_source_texts={CITATION: source},
+            test_cases=cases,
+        )
+        (issue,) = [
+            issue
+            for issue in issues
+            if isinstance(issue, ValidationIssue)
+            and issue.check == "complete-source-unit:tests/boundary-unexercised"
+        ]
+        return issue
+
+    both_missing = boundary_issue([(0, 0), (10, 0), (99, 0)])
+    second_repaired = boundary_issue([(0, 69), (10, 70), (99, 71), (5, 0)])
+    assert "=70" in both_missing.found and "=70" not in second_repaired.found
+    # Branch (a)'s boundary is still unresolved: the same identity.
+    assert second_repaired.subject == both_missing.subject
+    assert second_repaired.fingerprint == both_missing.fingerprint

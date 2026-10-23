@@ -20515,8 +20515,14 @@ def _companion_test_issues(
                 f"source-stated boundary input; missing: {rendered}.",
                 check=CHECK_TESTS_BOUNDARY_UNEXERCISED,
                 subject=_branch_subject(corpus_citation_path, missing_boundaries[0][0]),
-                expected=f"cases at {rendered}",
-                found="no case at these boundaries",
+                # Name only the subject's own boundary: the fingerprint must not
+                # change when a different boundary is repaired.
+                expected=(
+                    "case at "
+                    f"{missing_boundaries[0][0].label}="
+                    f"{missing_boundaries[0][1].value:g}"
+                ),
+                found=f"no case at {rendered}",
             )
         )
 

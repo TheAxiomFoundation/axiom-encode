@@ -69,7 +69,7 @@ tries and runs.
 | Per try (`encoding_runs.iterations[].errors[]`, Supabase `iterations`) | `issues` | `validation-issue/v2` document of that try |
 | Failure bundle (`issues.json`) | `typed_issues` (optional) | `validation-issue/v2` document |
 | Run log v1 (`gate.compile`, `gate.ci` findings) | `Finding.code` | the check id; `locator` and `evidence` from the issue |
-| Workflow refusals (`scripts/infra_issue.py fail infra:<step>`) | `$RUNNER_TEMP/axiom-infra-issues.jsonl`, step summary, error annotation | one `validation-issue/v2` record per refusal, with `fix` |
+| Workflow refusals (`scripts/infra_issue.py record infra:<step>`) | `$RUNNER_TEMP/axiom-infra-issues.jsonl`, step summary, error annotation | one `validation-issue/v2` record per refusal, with `fix` |
 
 Each field is absent when no issue is typed, so untyped records keep their old
 bytes.
@@ -102,8 +102,18 @@ bytes.
 The issue fields are a superset of `axiom-encode/validation-issue/v1`
 (PR #1660): `gate`, `kind`, `message`, `category`, `locator`, `line`, `value`
 and `clause` keep their v1 meaning. Bounds: 200 issues, 128 KiB and 2,000
-message characters per document. `checks` holds the definitions of the checks
-the document names, so a reader needs no other file.
+message characters per document. The byte bound covers the whole document as
+`json.dumps(document, ensure_ascii=False)` writes it, the envelope and `checks`
+included. `checks` holds the definitions of the checks the document names, so a
+reader needs no other file.
+
+A record whose message is longer than 2,000 characters stores the first 2,000,
+`message_truncated` (the characters cut) and `message_sha256` (the SHA-256 of
+the full message). `checks.issues_from_document` matches a full message to such
+a record only by that digest, so a long issue keeps its check and fix when a
+`--repair-candidate-root` bundle is replayed. The workflow's repair extractor
+(`scripts/extract_repair_candidate.py`) checks `typed_issues` but writes only
+the candidate pair, so a workflow repair replay has no prior issues to re-type.
 
 ## Publish the registry
 

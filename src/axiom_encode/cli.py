@@ -34625,6 +34625,7 @@ def _run_encode_attempts_with_retries(
                 prior_attempts=failed_attempts,
                 final_attempt_success=final_attempt_success,
                 final_attempt_error=final_attempt_error,
+                final_attempt_issues=execution.validation_issues,
             )
             print(f"  run_id={logged_run.id}")
         _stamp_encode_loop_timing(
@@ -65532,8 +65533,15 @@ def _log_eval_result(
     prior_attempts: Sequence[_FailedEncodeAttempt] = (),
     final_attempt_success: bool | None = None,
     final_attempt_error: str | None = None,
+    final_attempt_issues: Sequence[str] = (),
 ) -> EncodingRun:
-    """Persist an eval-backed encode run in the local run history DB."""
+    """Persist an eval-backed encode run in the local run history DB.
+
+    ``final_attempt_issues`` are the final candidate's full validation issues
+    when the caller has them. When they hold issues the eval metrics miss (an
+    overlay rejection), they replace the metrics' issues in the final try, as
+    in the outcome telemetry; otherwise the metrics keep their gate labels.
+    """
     rulespec_content = _read_optional_text(getattr(result, "output_file", ""))
     source_text = _read_eval_source_text(getattr(result, "context_manifest_file", ""))
     iterations: list[Iteration] = []
@@ -65564,13 +65572,23 @@ def _log_eval_result(
     final_errors = []
     if isinstance(final_error, str) and final_error:
         final_metrics = getattr(result, "metrics", None)
+        final_issue_groups: list[tuple[str | None, Sequence[str]]] = []
+        if not resolved_final_success:
+            if final_metrics is not None:
+                final_issue_groups = _eval_metric_issue_groups(final_metrics)
+            metric_messages = {
+                str(issue) for _gate, issues in final_issue_groups for issue in issues
+            }
+            if any(str(issue) not in metric_messages for issue in final_attempt_issues):
+                # An overlay rejection: its issues are the try's verdict.
+                final_issue_groups = [(None, final_attempt_issues)]
         final_errors.append(
             IterationError(
                 error_type="validation",
                 message=final_error,
                 issues=(
-                    _safe_typed_issue_document(_eval_metric_issue_groups(final_metrics))
-                    if final_metrics is not None and not resolved_final_success
+                    _safe_typed_issue_document(final_issue_groups)
+                    if final_issue_groups
                     else None
                 ),
             )

@@ -271,14 +271,43 @@ CHECK_RULES_ENGINE_COMPILE_CRASHED = declare_check(
 _ENGINE_LINE_RE = re.compile(r"\bline (\d+)\b")
 
 
-def _rules_engine_compile_failed_issue(detail: str, rules_file: Path) -> str:
+def _compile_issue_module(rules_file: Path, roots: Sequence[Path | None]) -> str:
+    """The module's path relative to the first root that holds it.
+
+    A repo-relative path names one module, whatever staging directory holds the
+    checkout, so the issue fingerprint is stable across runs and distinct for
+    modules that share a basename. A file under no root keeps its full path.
+    """
+    candidates = [rules_file]
+    try:
+        candidates.append(rules_file.resolve())
+    except OSError:
+        pass
+    for root in roots:
+        if root is None:
+            continue
+        bases = [root]
+        try:
+            bases.append(root.resolve())
+        except OSError:
+            pass
+        for base in bases:
+            for path in candidates:
+                try:
+                    return path.relative_to(base).as_posix()
+                except ValueError:
+                    continue
+    return rules_file.as_posix()
+
+
+def _rules_engine_compile_failed_issue(detail: str, module: str) -> str:
     line_match = _ENGINE_LINE_RE.search(detail)
     first_line = detail.splitlines()[0] if detail else ""
     return ValidationIssue(
         f"Axiom rules engine compile failed: {detail}",
         check=CHECK_RULES_ENGINE_COMPILE_FAILED,
         subject=IssueSubject(
-            module=rules_file.name,
+            module=module,
             line=int(line_match.group(1)) if line_match else None,
         ),
         expected="successful compile",
@@ -286,11 +315,11 @@ def _rules_engine_compile_failed_issue(detail: str, rules_file: Path) -> str:
     )
 
 
-def _rules_engine_compile_crashed_issue(exc: BaseException, rules_file: Path) -> str:
+def _rules_engine_compile_crashed_issue(exc: BaseException, module: str) -> str:
     return ValidationIssue(
         f"Axiom rules engine compile failed: {exc}",
         check=CHECK_RULES_ENGINE_COMPILE_CRASHED,
-        subject=IssueSubject(module=rules_file.name),
+        subject=IssueSubject(module=module),
         expected="engine result",
         found=f"{type(exc).__name__}: {exc}",
     )
@@ -36940,6 +36969,12 @@ class ValidatorPipeline:
         )
         return result
 
+    def _compile_issue_module(self, rules_file: Path) -> str:
+        """The module path a compile issue names: repo-relative where possible."""
+        return _compile_issue_module(
+            rules_file, (self.policy_repo_path, self.validation_staging_root)
+        )
+
     def _rulespec_compile_success_output(self, payload: Any) -> str:
         """Return a concise successful compile summary for validator output."""
         program = payload.get("program") if isinstance(payload, dict) else {}
@@ -36965,7 +37000,9 @@ class ValidatorPipeline:
                 if result.returncode != 0:
                     detail = result.stderr.strip() or result.stdout.strip()
                     issues.append(
-                        _rules_engine_compile_failed_issue(detail, rules_file)
+                        _rules_engine_compile_failed_issue(
+                            detail, self._compile_issue_module(rules_file)
+                        )
                     )
                     return ValidationResult(
                         validator_name="compile",
@@ -36983,7 +37020,11 @@ class ValidatorPipeline:
                 raw_output=self._rulespec_compile_success_output(payload),
             )
         except Exception as exc:
-            issues.append(_rules_engine_compile_crashed_issue(exc, rules_file))
+            issues.append(
+                _rules_engine_compile_crashed_issue(
+                    exc, self._compile_issue_module(rules_file)
+                )
+            )
             return ValidationResult(
                 validator_name="compile",
                 passed=False,
@@ -38423,7 +38464,11 @@ class ValidatorPipeline:
             raw_output = compile_result.stdout + compile_result.stderr
             if compile_result.returncode != 0:
                 detail = compile_result.stderr.strip() or compile_result.stdout.strip()
-                issues.append(_rules_engine_compile_failed_issue(detail, rules_file))
+                issues.append(
+                    _rules_engine_compile_failed_issue(
+                        detail, self._compile_issue_module(rules_file)
+                    )
+                )
             elif isinstance(payload, dict):
                 compiled_payload = payload
                 if execution_capture is not None:
@@ -38434,7 +38479,11 @@ class ValidatorPipeline:
                     "Axiom rules engine compile did not return an artifact payload."
                 )
         except Exception as exc:
-            issues.append(_rules_engine_compile_crashed_issue(exc, rules_file))
+            issues.append(
+                _rules_engine_compile_crashed_issue(
+                    exc, self._compile_issue_module(rules_file)
+                )
+            )
 
         validation_source_texts = self._source_texts_for_rulespec_content(content)
         numeric_source_texts = self._numeric_source_texts_for_rulespec_content(
