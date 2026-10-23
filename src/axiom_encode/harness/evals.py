@@ -32,6 +32,11 @@ from axiom_oracles.bridges.registry import load_policyengine_registry
 
 from axiom_encode import __version__
 from axiom_encode import corpus_resolver as _corpus_resolver
+from axiom_encode.checks import (
+    ValidationIssue,
+    issue_fix_feedback,
+    typed_issue_document,
+)
 from axiom_encode.codex_cli import (
     DEFAULT_CODEX_REASONING_EFFORT,
     resolve_codex_cli,
@@ -85,6 +90,7 @@ from axiom_encode.repo_routing import (
     monorepo_checkout_name,
 )
 from axiom_encode.retry_feedback import (
+    VALIDATION_RETRY_CHECK_FIX_MAX_CHARS,
     VALIDATION_RETRY_FEEDBACK_MAX_ITEMS,
     VALIDATION_RETRY_FEEDBACK_MAX_TOTAL_CHARS,
     bounded_validation_retry_feedback_item,
@@ -956,21 +962,29 @@ def summarize_validation_failures(
             if identity in seen:
                 continue
             seen.add(identity)
-            message_class = classify_validation_issue(detail)
+            # A typed issue is classed by its declared check id; an untyped
+            # one by the message classifier, as before.
+            check_id = issue.check if isinstance(issue, ValidationIssue) else None
+            message_class = check_id or classify_validation_issue(detail)
             counts[f"{gate_text}:{message_class}"] += 1
-            failures.append(
-                {
-                    "gate": gate_text,
-                    "message_class": message_class,
-                    "detail": detail[:240],
-                }
-            )
+            failure = {
+                "gate": gate_text,
+                "message_class": message_class,
+                "detail": detail[:240],
+            }
+            if check_id is not None:
+                failure["check"] = check_id
+                failure["fingerprint"] = issue.fingerprint
+            failures.append(failure)
     if not failures:
         return {}
     result: dict[str, object] = {
         "validation_failures": failures[:40],
         "validation_failure_counts": dict(counts),
     }
+    typed_issues = typed_issue_document(labeled_issues)
+    if typed_issues is not None:
+        result["validation_issues"] = typed_issues
     dropped = len(failures) - 40
     if dropped > 0:
         result["validation_failures_truncated"] = dropped
@@ -10949,8 +10963,11 @@ def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
     optional_items: list[str] = []
     rendered_chars = 0
     seen: set[str] = set()
+    typed_items: list[str] = []
     for raw_item in feedback[:VALIDATION_RETRY_FEEDBACK_MAX_ITEMS]:
-        item = bounded_validation_retry_feedback_item(str(raw_item))
+        item = bounded_validation_retry_feedback_item(
+            raw_item if isinstance(raw_item, str) else str(raw_item)
+        )
         if (
             not item
             or item in seen
@@ -10958,6 +10975,7 @@ def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
         ):
             continue
         seen.add(item)
+        typed_items.append(item)
         rendered = f"- {json.dumps(item, ensure_ascii=False)}"
         if item.startswith("[non-blocking] Manual outcome advisory:"):
             optional_items.append(rendered)
@@ -11011,7 +11029,34 @@ Deterministic validation feedback for the rejected candidate below:
 {chr(10).join(rendered_items)}
 === END PRIOR VALIDATION FEEDBACK ===
 """
+        + _format_check_fix_feedback(typed_items)
         + optional_section
+    )
+
+
+def _format_check_fix_feedback(items: Sequence[str]) -> str:
+    """Render each failed check's declared fix, with expected vs found per subject.
+
+    Only typed issues (``checks.ValidationIssue``) contribute; feedback made of
+    untyped strings renders nothing here, so its bytes are unchanged.
+    """
+
+    lines = issue_fix_feedback(items)
+    if not lines:
+        return ""
+    kept: list[str] = []
+    used = 0
+    for line in lines:
+        if used + len(line) + 1 > VALIDATION_RETRY_CHECK_FIX_MAX_CHARS:
+            break
+        kept.append(line)
+        used += len(line) + 1
+    if not kept:
+        return ""
+    return (
+        "\n=== BEGIN CHECK FIXES (declared by each failed check) ===\n"
+        + "\n".join(kept)
+        + "\n=== END CHECK FIXES ===\n"
     )
 
 
