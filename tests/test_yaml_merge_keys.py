@@ -529,6 +529,63 @@ def test_only_the_root_rules_sequence_holds_rules(anchors, replacements, locatio
     ]
 
 
+def test_a_merge_reached_in_two_roles_keeps_its_first_location():
+    """A rule anchored under an unknown root key is walked as data and as a rule.
+
+    Its merge key is reported once, where the text is written.
+    """
+
+    content = (
+        FORMAT + "x-rule: &rule\n  <<: {kind: parameter}\n  name: sua_value\n"
+        "  dtype: Money\n  versions:\n    - effective_from: '2024-01-01'\n"
+        "      formula: '451'\n"
+        + MODULE_BLOCK.replace("    required: true\n", "    required: false\n")
+        + "rules:\n  - *rule\n"
+    )
+
+    assert find_yaml_merge_key_issues(content) == [
+        _merge_key_issue(content, "x-rule key `<<`", "<<: {kind")
+    ]
+
+
+def test_merge_keys_are_reported_in_position_order():
+    """An alias can reach an earlier key after a later one; the report is sorted."""
+
+    content = _module(
+        replacements=[
+            (
+                "    metadata:\n",
+                "    metadata:\n      x-version: &v\n"
+                "        <<: {effective_from: '2024-01-01'}\n"
+                "        formula: '451'\n",
+            ),
+            (
+                VERSIONS,
+                "    sources:\n      - <<: {citation: us/guidance/example/sua}\n"
+                "    versions:\n      - *v\n",
+            ),
+        ]
+    )
+
+    assert find_yaml_merge_key_issues(content) == [
+        _merge_key_issue(content, "rules[0].versions[0] key `<<`", "<<: {effective"),
+        _merge_key_issue(content, "rules[0].sources[0] key `<<`", "<<: {citation"),
+    ]
+
+
+def test_a_merge_tagged_metadata_key_does_not_exempt_what_it_merges():
+    """`!!merge metadata:` merges into the rule itself; it names no `metadata`."""
+
+    content = _module(
+        replacements=[("    unit: USD\n", "    !!merge metadata: {<<: {unit: USD}}\n")]
+    )
+
+    assert find_yaml_merge_key_issues(content) == [
+        _merge_key_issue(content, "rules[0] key `metadata`", "!!merge", tagged=True),
+        _merge_key_issue(content, "rules[0].metadata key `<<`", "<<: {unit"),
+    ]
+
+
 def test_a_mapping_key_is_never_a_rule():
     """Keys are data even when they are mappings holding a `rules` sequence."""
 
