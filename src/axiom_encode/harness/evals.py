@@ -17013,7 +17013,9 @@ def _normalize_main_eval_content(
         if find_interpretation_yaml_issues(content):
             return content
         if find_duplicate_mapping_key_issues(content):
-            return content
+            # Textual normalization only: it keeps every key and still
+            # refuses text that is not RuleSpec.
+            return _normalize_rulespec_content(content)
     except (yaml.YAMLError, RecursionError):
         pass
     normalized = _normalize_rulespec_content(content)

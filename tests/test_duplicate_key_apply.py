@@ -27,6 +27,7 @@ from axiom_encode.harness.evals import (
     ValidationRetryCandidate,
     _apply_generated_eval_repairs,
     _materialize_eval_artifact,
+    _normalize_main_eval_content,
     _overlay_validation_retry_candidate,
 )
 from axiom_encode.harness.validator_pipeline import _safe_load_unique_keys
@@ -536,6 +537,26 @@ def test_materialization_keeps_raw_duplicate_keys(
     assert any(
         diagnostic.split(" at line")[0] in issue
         for issue in find_duplicate_mapping_key_issues(materialized)
+    )
+
+
+def test_normalization_still_refuses_non_rulespec_text_with_duplicates():
+    """Keeping raw duplicate keys never lets text that is not RuleSpec through."""
+
+    with pytest.raises(ValueError, match="must start with `format: rulespec/v1`"):
+        _normalize_main_eval_content(
+            "entries:\n  - note: first\n    note: second\n",
+            target_path=Path("section.yaml"),
+            single_amount_table_slice=False,
+        )
+    duplicate = BASE + "rules:\n" + SHADOW_RULES
+    assert (
+        _normalize_main_eval_content(
+            "\n" + duplicate + "\n\n",
+            target_path=Path("section.yaml"),
+            single_amount_table_slice=False,
+        )
+        == duplicate
     )
 
 
