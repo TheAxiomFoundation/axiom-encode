@@ -40,7 +40,7 @@ from dataclasses import replace as dataclass_replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
-from typing import Any, Callable, NamedTuple, Protocol
+from typing import Any, Callable, NamedTuple, NoReturn, Protocol
 
 # receipt is pinned to an exact version and artifact hashes in uv.lock. Any
 # upgrade must rerun this repository's signature tests at the new pin first.
@@ -150,7 +150,9 @@ from .corpus_resolver import (
     InactiveCorpusSourceError,
     InvalidCorpusReleaseError,
     LocalCorpusRelease,
+    RepealedCorpusSourceError,
     UnsafeCorpusPathError,
+    iter_active_local_corpus_rows,
     normalize_corpus_identifier,
     read_bounded_regular_file,
     require_canonical_corpus_citation_path,
@@ -178,6 +180,7 @@ from .engine_binding import (
     require_engine_ref_sha,
     resolve_pinned_engine_binary,
 )
+from .failure_classes import PRE_ENCODE_BLOCKED_STATUS, failure_class_payload
 from .harness.amendment_timing import amendment_timing_issues
 from .harness.dependency_stubs import (
     UnsafeRulespecContextPath,
@@ -255,6 +258,13 @@ from .harness.evals import (
 from .harness.policyengine_runtime import (
     PolicyEngineRuntime,
     PolicyEngineRuntimeError,
+)
+from .harness.pre_encode_gate import (
+    DEFAULT_PRE_ENCODE_GATE_MODE,
+    PRE_ENCODE_GATE_MODES,
+    GateResult,
+    GateSource,
+    evaluate_pre_encode_gate,
 )
 from .harness.proof_validator import (
     _UNRESOLVED_NUMERIC_ALPHA_PARENT,
@@ -3005,6 +3015,16 @@ def main():
         action="store_false",
         default=True,
         help="Disable validator-failure retries and model escalation",
+    )
+    encode_parser.add_argument(
+        "--pre-encode-gate",
+        choices=PRE_ENCODE_GATE_MODES,
+        default=DEFAULT_PRE_ENCODE_GATE_MODE,
+        help=(
+            "Target checks before any model call: 'enforce' stops a body with "
+            "no operative text or a repealed target; 'report' only records "
+            "every finding (default: enforce)"
+        ),
     )
     encode_parser.add_argument(
         "--backend",
@@ -34409,6 +34429,23 @@ def _run_encode_attempts_with_retries(
     _validate_tests_only_repair_contract(args, initial_retry_candidate)
     failed_attempts: tuple[_FailedEncodeAttempt, ...] = ()
     current_model = config.initial_model
+    pre_encode_gate, prepared_source = _evaluate_encode_pre_encode_gate(
+        args,
+        resolved_policy_checkout_path=resolved_policy_checkout_path,
+    )
+    if pre_encode_gate is not None:
+        for finding in pre_encode_gate.findings:
+            print(
+                f"  pre_encode_gate={'block' if finding.enforce else 'report'} "
+                f"check={finding.check} reason={finding.reason}"
+            )
+        if pre_encode_gate.blocked:
+            _record_pre_encode_gate_block(
+                args,
+                pre_encode_gate,
+                model=current_model,
+                live_run=live_run,
+            )
 
     while True:
         # A try runs until the next one starts or the loop stops judging it.
@@ -34422,6 +34459,7 @@ def _run_encode_attempts_with_retries(
             defer_logging=config.enabled,
             apply_signing_broker=apply_signing_broker,
             resolved_policy_checkout_path=resolved_policy_checkout_path,
+            prepared_source=None if failed_attempts else prepared_source,
         )
         loop_timer.mark(PHASE_RETRY_HANDOFF)
         next_model = None
@@ -34536,6 +34574,8 @@ def _run_encode_attempts_with_retries(
                 "initial_model": config.initial_model,
                 "escalation_model": config.escalation_model,
             }
+        if pre_encode_gate is not None and pre_encode_gate.findings:
+            outcome["pre_encode_gate"] = pre_encode_gate.to_dict()
         db_path = getattr(args, "db", DEFAULT_DB)
         logged_run = execution.logged_run
         if logged_run is None:
@@ -34580,18 +34620,7 @@ def _run_encode_attempts_with_retries(
         if repair_manifest and repair_manifest.exists():
             print(f"  repair_manifest={repair_manifest}")
         if getattr(args, "sync", True) is True:
-            sync_result = _sync_run_to_supabase_if_configured(
-                logged_run,
-                db_path=db_path,
-            )
-            if not sync_result["configured"]:
-                print("  supabase_sync=skipped")
-            elif sync_result["run"] and sync_result["session"]:
-                print("  supabase_sync=run+session")
-            elif sync_result["run"]:
-                print("  supabase_sync=run")
-            else:
-                print("  supabase_sync=failed")
+            _sync_encode_run_and_report(logged_run, db_path=db_path)
 
         encode_succeeded = (
             execution.apply_passed if apply_requested else execution.result.success
@@ -34605,6 +34634,209 @@ def _run_encode_attempts_with_retries(
         sys.exit(0 if execution.result.success else 1)
 
 
+def _sync_encode_run_and_report(run: EncodingRun, *, db_path: Path) -> None:
+    sync_result = _sync_run_to_supabase_if_configured(run, db_path=db_path)
+    if not sync_result["configured"]:
+        print("  supabase_sync=skipped")
+    elif sync_result["run"] and sync_result["session"]:
+        print("  supabase_sync=run+session")
+    elif sync_result["run"]:
+        print("  supabase_sync=run")
+    else:
+        print("  supabase_sync=failed")
+
+
+class _PreparedEncodeSource(NamedTuple):
+    """The corpus release and source unit the gate resolved for the first try."""
+
+    corpus_path: Path
+    policy_checkout_path: Path
+    corpus_release: LocalCorpusRelease
+    source_unit: Any
+
+
+def _evaluate_encode_pre_encode_gate(
+    args,
+    *,
+    resolved_policy_checkout_path: Path | None = None,
+) -> tuple[GateResult | None, _PreparedEncodeSource | None]:
+    """Run the pre-encode gate once, on the target the first try will resolve.
+
+    The gate runs the first try's own preflights, in the same order, before it
+    reads the corpus, then resolves the target with the same functions. When
+    any of that fails for a reason other than a repealed row, the gate returns
+    no result and the first try reports the same failure as before. A resolved
+    target is handed to the first try so it is not resolved twice.
+    """
+    mode = getattr(args, "pre_encode_gate", DEFAULT_PRE_ENCODE_GATE_MODE)
+    if not isinstance(mode, str):
+        # Programmatic callers that predate the option get the default.
+        mode = DEFAULT_PRE_ENCODE_GATE_MODE
+    if mode not in PRE_ENCODE_GATE_MODES:
+        raise ValueError(
+            "encode --pre-encode-gate must be one of "
+            + ", ".join(PRE_ENCODE_GATE_MODES)
+        )
+    # The first try's own preflights, in its order; when one of them would
+    # stop the try, the gate leaves that failure to the try.
+    try:
+        _rulespec_dependency_roots_from_args(args)
+        _resolve_optional_axiom_compose_path(getattr(args, "axiom_compose_path", None))
+        if args.backend == "codex" and codex_auth_error():
+            return None, None
+        corpus_path = _resolve_explicit_existing_directory(
+            args.corpus_path,
+            label="Axiom Corpus",
+        )
+        _resolve_explicit_existing_directory(
+            args.axiom_rules_path,
+            label="Axiom rules engine",
+        )
+        policy_checkout_path = resolved_policy_checkout_path
+        if policy_checkout_path is None:
+            policy_checkout_path = _resolve_explicit_existing_directory(
+                args.policy_repo_path,
+                label="RuleSpec checkout",
+            )
+        if getattr(args, "apply", False) is not True:
+            pending_transaction = policy_checkout_path / _APPLY_TRANSACTION_DIRECTORY
+            if pending_transaction.exists() or pending_transaction.is_symlink():
+                return None, None
+        corpus_release = load_rulespec_local_corpus_release(
+            policy_checkout_path,
+            corpus_path,
+        )
+    except Exception:  # noqa: BLE001 - the first try reports this failure
+        return None, None
+    try:
+        source_unit = resolve_corpus_source_unit(args.citation, corpus_release)
+    except RepealedCorpusSourceError as exc:
+        return (
+            evaluate_pre_encode_gate(None, mode=mode, repealed_reason=str(exc)),
+            None,
+        )
+    except Exception:  # noqa: BLE001 - the first try reports this failure
+        return None, None
+    prepared = _PreparedEncodeSource(
+        corpus_path=corpus_path,
+        policy_checkout_path=policy_checkout_path,
+        corpus_release=corpus_release,
+        source_unit=source_unit,
+    )
+    try:
+        policy_repo_path = _resolve_explicit_policy_repo_for_corpus_source(
+            source_unit.citation_path,
+            policy_checkout_path,
+        )
+    except Exception:  # noqa: BLE001 - the first try reports this failure
+        policy_repo_path = None
+
+    # One read per cited jurisdiction and document class, not per citation.
+    active_paths: dict[tuple[str, str], frozenset[str]] = {}
+
+    def corpus_row_exists(citation_path: str) -> bool:
+        jurisdiction, document_class = citation_path.split("/")[:2]
+        key = (jurisdiction, document_class)
+        if key not in active_paths:
+            try:
+                active_paths[key] = frozenset(
+                    item.row.citation_path
+                    for item in iter_active_local_corpus_rows(
+                        corpus_release,
+                        jurisdiction=jurisdiction,
+                        document_class=document_class,
+                        include_bodyless=True,
+                    )
+                    if (item.metadata or {}).get("status") != "repealed"
+                )
+            except CorpusResolutionError:
+                active_paths[key] = frozenset()
+        return citation_path in active_paths[key]
+
+    gate = evaluate_pre_encode_gate(
+        GateSource.from_source_unit(source_unit),
+        mode=mode,
+        policy_repo_path=policy_repo_path,
+        replacement_target=(
+            getattr(args, "replace_rulespec_path", None) is not None
+            or getattr(args, "replace_legacy_rulespec_path", None) is not None
+        ),
+        rulespec_checkout_root=policy_checkout_path,
+        corpus_row_exists=corpus_row_exists,
+    )
+    return gate, prepared
+
+
+def _record_pre_encode_gate_block(
+    args,
+    gate: GateResult,
+    *,
+    model: str,
+    live_run: LiveRunTelemetry,
+) -> NoReturn:
+    """Record a run the pre-encode gate stopped, then exit non-zero.
+
+    No model was called, so the run has no generation iterations.
+    """
+    reasons = "; ".join(
+        f"{finding.check}: {finding.reason}" for finding in gate.blocking_findings
+    )
+    outcome = _initial_encode_outcome(
+        None,
+        apply_requested=getattr(args, "apply", False) is True,
+    )
+    outcome.update(
+        {
+            "status": PRE_ENCODE_BLOCKED_STATUS,
+            "final_success": False,
+            "primary_error": (
+                f"Pre-encode gate blocked the target before any model call: {reasons}"
+            ),
+            # No generation or validation ran.
+            "standalone_validation_success": None,
+            "pre_encode_gate": gate.to_dict(),
+        }
+    )
+    db_path = getattr(args, "db", DEFAULT_DB)
+    run = EncodingRun(
+        citation=str(args.citation),
+        agent_type=f"{args.backend}:encoder",
+        agent_model=str(model or ""),
+        axiom_encode_version=__version__,
+        generation_attempt_count=0,
+    )
+    run.session_id = f"encode-{run.id}"
+    db = EncodingDB(db_path)
+    db.log_run(run)
+    db.start_session(
+        model=str(model or ""),
+        cwd=os.getcwd(),
+        session_id=run.session_id,
+        run_id=run.id,
+        axiom_encode_version=__version__,
+    )
+    _record_encode_outcome(db_path=db_path, result=None, run=run, outcome=outcome)
+    if os.environ.get("AXIOM_ENCODE_DISABLE_RUN_LOG") != "1":
+        try:
+            from .run_log_export import emit_pre_encode_blocked_events
+
+            emit_pre_encode_blocked_events(
+                run.id,
+                outcome,
+                citation=str(args.citation),
+                backend=str(args.backend),
+                model=str(model or ""),
+            )
+        except Exception:  # noqa: BLE001 - run-log emission must never break a run
+            pass
+    print(f"  run_id={run.id}")
+    print(f"  outcome={outcome['status']} final_success=False")
+    if getattr(args, "sync", True) is True:
+        _sync_encode_run_and_report(run, db_path=db_path)
+    live_run.finish("failed", run_id=run.id)
+    sys.exit(1)
+
+
 def _run_encode_attempt(
     args,
     *,
@@ -34615,6 +34847,7 @@ def _run_encode_attempt(
     defer_logging: bool = True,
     apply_signing_broker: SigningBroker | None = None,
     resolved_policy_checkout_path: Path | None = None,
+    prepared_source: _PreparedEncodeSource | None = None,
 ) -> _EncodeAttemptExecution:
     """Run one generation through the existing standalone and apply gates."""
     if getattr(args, "apply", False) is True and not apply_signing_broker:
@@ -34656,11 +34889,20 @@ def _run_encode_attempt(
                 "rerun encode --apply, retire, or migrate-rulespec-paths to "
                 "recover it before encoding"
             )
-    corpus_release = load_rulespec_local_corpus_release(
-        policy_checkout_path,
-        corpus_path,
-    )
-    source_unit = resolve_corpus_source_unit(args.citation, corpus_release)
+    if (
+        prepared_source is not None
+        and prepared_source.corpus_path == corpus_path
+        and prepared_source.policy_checkout_path == policy_checkout_path
+    ):
+        # The pre-encode gate already resolved this try's target.
+        corpus_release = prepared_source.corpus_release
+        source_unit = prepared_source.source_unit
+    else:
+        corpus_release = load_rulespec_local_corpus_release(
+            policy_checkout_path,
+            corpus_path,
+        )
+        source_unit = resolve_corpus_source_unit(args.citation, corpus_release)
     policy_repo_path = _resolve_explicit_policy_repo_for_corpus_source(
         source_unit.citation_path,
         policy_checkout_path,
@@ -65694,6 +65936,14 @@ def _record_encode_outcome(
 ) -> Path | None:
     """Persist final encode workflow status and close the encode session."""
     db = EncodingDB(db_path)
+    # Advisory only: the class never changes the recorded verdict.
+    outcome["failure_class"] = failure_class_payload(
+        {
+            **outcome,
+            "timed_out": getattr(result, "timed_out", False) is True,
+            "failure_kind": getattr(result, "failure_kind", None),
+        }
+    )
     run.outcome = dict(outcome)
     db.update_run_outcome(run.id, run.outcome)
     db.log_event(

@@ -326,6 +326,7 @@ from axiom_encode.constants import (
 from axiom_encode.corpus_resolver import (
     PROOF_EVIDENCE_SEGMENT_SEPARATOR,
     CorpusResolutionError,
+    InvalidActiveCorpusSourceError,
     LocalCorpusRelease,
     UnsafeCorpusPathError,
     normalize_corpus_identifier,
@@ -14001,9 +14002,12 @@ class TestCmdEncode:
             policy_repo_path,
             corpus_path,
             citation_path=normalize_corpus_identifier(citation),
+            body=overrides.get("corpus_body", "authoritative test source"),
+            metadata=overrides.get("corpus_metadata"),
         )
         args = MagicMock()
         args.citation = citation
+        args.pre_encode_gate = overrides.get("pre_encode_gate", "enforce")
         args.output = overrides.get("output", tmp_path / "out")
         args.model = overrides.get("model", "test-model")
         args.escalation_model = overrides.get(
@@ -14057,6 +14061,157 @@ class TestCmdEncode:
         )
         args.allow_shrink = overrides.get("allow_shrink", False)
         return args
+
+    _GATE_TOC_BODY = "Table of Contents\n" + "\n".join(
+        f"Section {number}{'.' * 40} {number}" for number in range(12)
+    )
+
+    def test_encode_pre_encode_gate_blocks_an_empty_body_before_any_model_call(
+        self, tmp_path, capsys
+    ):
+        args = self._make_args(tmp_path, corpus_body=".")
+
+        with patch("axiom_encode.cli.run_model_eval") as model_call:
+            with patch.dict(os.environ, {}, clear=True):
+                with pytest.raises(SystemExit) as exc_info:
+                    cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        model_call.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.iterations == []
+        assert run.generation_attempt_count == 0
+        assert run.outcome["status"] == "pre_encode_blocked"
+        assert run.outcome["final_success"] is False
+        assert run.outcome["standalone_validation_success"] is None
+        assert run.outcome["pre_encode_gate"]["blocked"] is True
+        assert [
+            (finding["check"], finding["enforce"])
+            for finding in run.outcome["pre_encode_gate"]["findings"]
+        ] == [("no_operative_text", True)]
+        assert run.outcome["failure_class"]["class"] == "corpus"
+        assert run.outcome["failure_class"]["subclass"] == "content"
+        assert run.outcome["failure_class"]["confidence"] == "certain"
+        assert "Pre-encode gate blocked" in run.outcome["primary_error"]
+        events = EncodingDB(args.db).get_session_events(run.session_id)
+        assert "encode_outcome" in [event.event_type for event in events]
+        assert "pre_encode_gate=block check=no_operative_text" in (
+            capsys.readouterr().out
+        )
+
+    def test_encode_pre_encode_gate_only_reports_a_contents_page(self, tmp_path):
+        args = self._make_args(tmp_path, corpus_body=self._GATE_TOC_BODY)
+
+        mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        mock_run.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["pre_encode_gate"]["blocked"] is False
+        assert [
+            (finding["check"], finding["enforce"])
+            for finding in run.outcome["pre_encode_gate"]["findings"]
+        ] == [("toc_page", False)]
+
+    def test_encode_pre_encode_gate_blocks_a_repealed_target(self, tmp_path):
+        args = self._make_args(tmp_path, corpus_metadata={"status": "repealed"})
+
+        with patch("axiom_encode.cli.run_model_eval") as model_call:
+            with patch.dict(os.environ, {}, clear=True):
+                with pytest.raises(SystemExit) as exc_info:
+                    cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        model_call.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "pre_encode_blocked"
+        assert [
+            finding["check"] for finding in run.outcome["pre_encode_gate"]["findings"]
+        ] == ["repealed_target"]
+        assert run.outcome["failure_class"]["class"] == "selection"
+
+    def test_encode_pre_encode_gate_report_mode_never_blocks(self, tmp_path):
+        args = self._make_args(
+            tmp_path,
+            corpus_body=".",
+            pre_encode_gate="report",
+        )
+
+        mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        mock_run.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "standalone_validated"
+        assert run.outcome["pre_encode_gate"]["blocked"] is False
+        assert [
+            (finding["check"], finding["enforce"])
+            for finding in run.outcome["pre_encode_gate"]["findings"]
+        ] == [("no_operative_text", False)]
+        assert run.outcome["failure_class"] is None
+
+    def test_encode_pre_encode_gate_report_mode_keeps_the_repealed_error(
+        self, tmp_path
+    ):
+        args = self._make_args(
+            tmp_path,
+            corpus_metadata={"status": "repealed"},
+            pre_encode_gate="report",
+        )
+
+        with patch("axiom_encode.cli.run_model_eval") as model_call:
+            with patch.dict(os.environ, {}, clear=True):
+                with pytest.raises(InvalidActiveCorpusSourceError, match="repealed"):
+                    cmd_encode(args)
+
+        model_call.assert_not_called()
+
+    def test_encode_first_try_reuses_the_gate_resolution(self, tmp_path):
+        import axiom_encode.cli as cli_module
+
+        args = self._make_args(tmp_path)
+        with patch(
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            wraps=cli_module.resolve_corpus_source_unit,
+        ) as resolve:
+            _mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        assert resolve.call_count == 1
+
+    def test_encode_pre_encode_gate_leaves_preflight_failures_to_the_try(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path)
+        args.axiom_rules_path = tmp_path / "missing-rules-engine"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as model_call,
+            patch("axiom_encode.cli.load_rulespec_local_corpus_release") as load,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises((SystemExit, ValueError, FileNotFoundError)):
+                cmd_encode(args)
+
+        load.assert_not_called()
+        model_call.assert_not_called()
+
+    def test_encode_records_failure_class_on_every_outcome(self, tmp_path):
+        args = self._make_args(tmp_path)
+
+        _mock_run, exit_code = self._run_encode(args, self._make_eval_result(False))
+
+        assert exit_code == 1
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert "pre_encode_gate" not in run.outcome
+        assert run.outcome["failure_class"] == {
+            "schema": "axiom-encode/failure-class/v1",
+            "class": "unknown",
+            "subclass": None,
+            "source": "rule",
+            "confidence": "certain",
+            "evidence": ["status:standalone_failed"],
+        }
 
     def _make_eval_result(self, success=True):
         result = MagicMock()
