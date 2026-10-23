@@ -7106,7 +7106,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2249"')
+        .startswith('__version__ = "0.2.2251"')
     )
 
 
@@ -7338,13 +7338,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2249"
+    assert encoder_package["version"] == "0.2.2251"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2249"
+    assert project["project"]["version"] == "0.2.2251"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2249"')
+        .startswith('__version__ = "0.2.2251"')
     )
 
 
@@ -7606,13 +7606,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2249"
+    assert encoder_package["version"] == "0.2.2251"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2249"
+    assert project["project"]["version"] == "0.2.2251"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2249"')
+        .startswith('__version__ = "0.2.2251"')
     )
 
 
@@ -40361,6 +40361,199 @@ def test_validator_pipeline_resolves_direct_proof_sources_from_authoritative_cor
 
     assert source_texts == {citation_path: "The official amount is $298."}
     assert find_rulespec_proof_issues(content, source_texts=source_texts) == []
+
+
+def _interpretation_pipeline_content(*, excerpt="The official amount is $298."):
+    payload = yaml.safe_load(_corpus_checked_proof_content())
+    payload["module"].pop("proof_validation", None)
+    payload["module"]["interpretations"] = [
+        {
+            "id": "official-amount-reading",
+            "question": "Which amount applies?",
+            "texts": [
+                {
+                    "corpus_citation_path": "us/guidance/example/page-1",
+                    "excerpt": excerpt,
+                }
+            ],
+            "reading": "The stated official amount applies.",
+            "alternatives": [
+                {"id": "different-amount", "reading": "A different amount applies."}
+            ],
+            "basis": "The source states the official amount.",
+            "status": "open",
+            "affects": [payload["rules"][0]["name"]],
+        }
+    ]
+    return yaml.safe_dump(payload)
+
+
+def test_validator_pipeline_resolves_interpretations_without_numeric_coverage(
+    tmp_path,
+):
+    citation_path = "us/guidance/example/page-1"
+    body = "The official amount is $298."
+    corpus_root = tmp_path / "axiom-corpus"
+    provisions = corpus_root / "data/corpus/provisions/us/guidance"
+    provisions.mkdir(parents=True)
+    (provisions / "example.jsonl").write_text(
+        json.dumps(_active_corpus_record(citation_path, body, version="example")) + "\n"
+    )
+    release = _test_corpus_release(corpus_root, ("us", "guidance", "example"))
+    payload = yaml.safe_load(_interpretation_pipeline_content())
+    payload["rules"][0].pop("metadata", None)
+    content = yaml.safe_dump(payload)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        local_corpus_release=release,
+    )
+
+    with validator_pipeline._authoritative_corpus_scope(release):
+        proof_sources = pipeline._proof_source_texts_for_rulespec_content(
+            content, source_texts=None
+        )
+        numeric_sources = pipeline._numeric_source_texts_for_rulespec_content(
+            content, source_texts=None
+        )
+
+    assert proof_sources == {citation_path: body}
+    assert numeric_sources == {}
+    optional = validate_rulespec_proofs(content, source_texts=proof_sources)
+    strict = validate_rulespec_proofs(
+        content, source_texts=proof_sources, require_policy_proofs=True
+    )
+    assert optional.passed
+    assert optional.atoms_checked == strict.atoms_checked == 0
+    assert not strict.passed
+    assert any("Proof missing" in issue for issue in strict.issues)
+
+
+@pytest.mark.parametrize("require_policy_proofs", [False, True])
+def test_rulespec_ci_blocks_invalid_interpretation_excerpt_without_engine_support(
+    tmp_path, monkeypatch, require_policy_proofs
+):
+    rulespec_file = tmp_path / "rulespec-us/statutes/example.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(
+        _interpretation_pipeline_content(excerpt="A fabricated official amount.")
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        require_policy_proofs=require_policy_proofs,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_compile_rulespec_to_artifact",
+        lambda *_args: (
+            subprocess.CompletedProcess(["axiom-rules-engine"], 0, "", ""),
+            {"program": {"parameters": [], "derived": [], "relations": []}},
+        ),
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_corpus_proof_evidence_text",
+        lambda _citation: "The official amount is $298.",
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_corpus_source_text",
+        lambda _citation: "The official amount is $298.",
+    )
+
+    result = pipeline._run_rulespec_ci(rulespec_file)
+
+    assert not result.passed
+    assert any(
+        "official-amount-reading" in issue
+        and ".texts[0]" in issue
+        and "does not appear" in issue
+        for issue in result.issues
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "original"),
+    [
+        ("question", "1e5", "Which amount applies?"),
+        ("basis", "-0o17", "The source states the official amount."),
+        ("effect", "+.5", "A different amount applies."),
+        ("reading", "2e10", "The stated official amount applies."),
+    ],
+)
+@pytest.mark.parametrize("style", ["plain", "quoted", "explicit-string-tag"])
+def test_rulespec_ci_checks_raw_numeric_interpretation_strings_without_engine_support(
+    tmp_path, monkeypatch, field, value, original, style
+):
+    scalar = {
+        "plain": value,
+        "quoted": f"'{value}'",
+        "explicit-string-tag": f"!!str {value}",
+    }[style]
+    content = _interpretation_pipeline_content()
+    if field == "effect":
+        line = next(
+            line
+            for line in content.splitlines()
+            if line.strip() == f"reading: {original}"
+        )
+        indent = line[: len(line) - len(line.lstrip())]
+        content = content.replace(line, f"{line}\n{indent}effect: {scalar}")
+    else:
+        old = f"{field}: {original}"
+        assert old in content
+        content = content.replace(old, f"{field}: {scalar}", 1)
+    # Keep the replacement raw: safe_dump would remove some protective quoting.
+    rulespec_file = tmp_path / "rulespec-us/statutes/example.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(content)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        require_policy_proofs=False,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_compile_rulespec_to_artifact",
+        lambda *_args: (
+            subprocess.CompletedProcess(["axiom-rules-engine"], 0, "", ""),
+            {"program": {"parameters": [], "derived": [], "relations": []}},
+        ),
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_corpus_proof_evidence_text",
+        lambda _citation: "The official amount is $298.",
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_corpus_source_text",
+        lambda _citation: "The official amount is $298.",
+    )
+
+    result = pipeline._run_rulespec_ci(rulespec_file)
+
+    interpretation_issues = [
+        issue for issue in result.issues if "module.interpretations" in issue
+    ]
+    if style == "plain":
+        assert not result.passed
+        assert len(interpretation_issues) == 1
+        location = (
+            "module.interpretations[0].alternatives[0].effect"
+            if field == "effect"
+            else f"module.interpretations[0].{field}"
+        )
+        assert (
+            f"{location} must be a quoted string when YAML reads this scalar as a number."
+            in interpretation_issues[0]
+        )
+    else:
+        assert interpretation_issues == []
 
 
 def test_validator_pipeline_fails_closed_for_invalid_generated_proof_citation(

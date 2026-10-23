@@ -1,4 +1,4 @@
-## 0.2.2249
+## 0.2.2251
 
 - Admit authenticated in-place legacy Arizona ECE replacement from a signed corpus artifact while preserving the existing RuleSpec identity and dependent references; keep distinct-path moves and unsupported transport modes rejected.
 

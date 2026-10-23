@@ -183,7 +183,6 @@ def test_corpus_transport_rejects_even_normalizable_legacy_path_move():
 @pytest.mark.parametrize(
     "legacy_source",
     [
-        "us/policies/des/faa5/na-categorical-eligibility/expanded.yaml",
         "us-az/../../other.yaml",
         "us-az/policies/des/faa5//expanded.yaml",
         "us-az/policies/des/faa5\\expanded.yaml",
@@ -191,11 +190,23 @@ def test_corpus_transport_rejects_even_normalizable_legacy_path_move():
         "us-az/policies/des/faa5/expanded.test.yaml",
     ],
 )
-def test_legacy_replacement_transport_rejects_unsafe_source(legacy_source):
+def test_legacy_replacement_transport_rejects_unsafe_in_place_path(legacy_source):
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": legacy_source,
+        "REPLACE_LEGACY_RULESPEC_PATH": legacy_source,
+    }
+    with pytest.raises(ValueError):
+        transport.request_run_id(json.dumps(WRAPPER), dispatch)
+
+
+def test_legacy_replacement_transport_rejects_other_jurisdiction():
+    legacy_source = "us/policies/des/faa5/na-categorical-eligibility/expanded.yaml"
     dispatch = {
         "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
         "REPLACE_RULESPEC_PATH": (
-            "us-az/policies/des/faa5/na-categorical-eligibility/block-4.yaml"
+            "us-az/policies/des/faa5/na-categorical-eligibility/"
+            "expanded-categorical-eligibility.yaml"
         ),
         "REPLACE_LEGACY_RULESPEC_PATH": legacy_source,
     }
