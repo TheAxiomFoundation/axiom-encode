@@ -154,6 +154,14 @@ def test_line_one_amount_stays_demanded(first_line, citation, value):
     assert value in _demanded(_issues(source, citation))
 
 
+@pytest.mark.parametrize("prefix", ("14\r\n\r\n", "14  \n\n", "  14\n"))
+def test_page_number_line_endings_and_padding_are_recognized(prefix):
+    source = prefix + "The refundable amount is $5,120."
+    demanded = _demanded(_issues(source, f"{REV_PROC}/page-14"))
+    assert 14 not in demanded
+    assert 5120 in demanded
+
+
 def test_page_number_without_a_following_line_stays_demanded():
     assert 14 in _demanded(_issues("14", f"{REV_PROC}/page-14"))
 
