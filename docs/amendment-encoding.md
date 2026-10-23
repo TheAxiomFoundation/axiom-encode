@@ -4,8 +4,8 @@ An enacted amendment that has not yet commenced belongs in a dated version of
 the affected principal-Act rule. Ground that version in the amending provision
 and its commencement provision, preserving the principal rule's supported
 precommencement behavior. Once the official consolidation incorporates the
-change, re-point its evidence to the principal Act. This is the d1832 maintainer
-ruling of 21 October 2026.
+change, re-point its evidence to the principal Act. This follows the
+maintainer's ruling of 21 October 2026.
 
 Request the **principal provision's corpus citation**, with the amending text
 and commencement evidence attached from the same signed corpus release. The
@@ -86,12 +86,18 @@ must supply these fields on the requested provision's `metadata`:
 | `commencement_date` | The applicable commencement date in `YYYY-MM-DD` format, scoped to this amending provision. |
 | `commencement_citation_path` | An exact citation for a commencement provision in the same amending document (`source_path`) and capture `version`. Its body must state the supplied date in ISO or English long-date form. Other forms currently produce an unresolved-context blocker. |
 
-The requested row or its parent document must carry an amendment marker
+The requested row or its ancestor document must carry an amendment marker
 (`metadata.amends` or an amendment `metadata.document_type`). An operation
 heading such as `Schedule 4 amended` also identifies an amending provision, so
 missing amendment ingest markers cannot silently enable the neutral scaffold.
 An Act-level `amends` declaration helps discovery but does not choose the exact
 principal provision for a direct request.
+
+A bodyless container is classified using its own authenticated metadata and
+the text composed from its children. A sibling's metadata cannot stand in for
+the selected record. Its principal target may also be a composed provision.
+Headings or text that merely discuss repeal, savings, transitional effects, or
+the meaning of an enactment do not themselves establish an amendment operation.
 
 For a principal rule with both old and amended versions, scope rule-level proof
 atoms to `versions[0].formula`, `versions[1].formula`, and so on. Ground the old
@@ -102,8 +108,17 @@ evidence. An ambiguous citation to the whole amending Act inherits the bound
 of its contained amending provision; cite an exact other provision when that
 distinction matters.
 
+Commencement bounds travel with the authenticated amendment evidence into
+apply-time validation. A failed standalone validation may be retried in an
+overlay, but that overlay must pass the timing check on its final repaired
+bytes before a snapshot is admitted. Manifest refresh and reviewed-candidate
+promotion carry the same authenticated bounds into validation.
+
 The route resolves the principal provision as the output target and attaches
 the requested amending provision plus commencement provision as proof evidence.
+Eval-suite results and artifact paths use that principal citation, while the
+case identity and the result's separate `amendment_request` retain the original
+request. Resume verifies the same route against the signed corpus release.
 If context limits would omit either required provision, encoding stops with a
 blocker. The applicable commencement cannot be replaced by a scaffold date.
 For a commencement section with both a general date and a Part-specific date,
@@ -117,8 +132,13 @@ amendment evidence attached. Ordinary and legacy replacement flags do not
 authorize replacing a different principal corpus identity merely because the
 requested provision amends it.
 
-For NZ Act 2026/54 section 15, the relevant context includes section 2's
-statement that Part 2 comes into force on **1 April 2027**, the section's Part
-membership, and its principal target. The nine amendment-derived rules must
-not apply in October 2026. The principal rule retains its supported earlier
-behavior and changes on 1 April 2027.
+As an example from the [Social Security (Jobseeker Support and Accommodation
+Supplement) Amendment Act 2026 (2026 No 54), s 2](https://www.legislation.govt.nz/act/public/2026/54/en/2026-09-03/),
+the general commencement is **2 November 2026**, while Part 2 commences on
+**1 April 2027**. The Act places section 15 (Schedule 4 amended) in Part 2.
+Routing that section therefore needs its Part membership, principal target,
+and the applicable commencement evidence. An executable version derived from
+that amendment must not start before 1 April 2027; the principal rule retains
+its supported earlier behavior. The synthetic fixtures here exercise routing
+and timing validation; they do not reconstruct a historical encoding run or
+establish how many rules that run produced.

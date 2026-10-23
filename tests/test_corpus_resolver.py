@@ -266,13 +266,19 @@ def test_scoped_parent_slice_drops_parent_source_history(tmp_path: Path):
             }
         ],
     )
-    source = resolve_local_corpus_source(parent, _release(tmp_path))
+    release = _release(tmp_path)
+    source = resolve_local_corpus_source(parent, release)
 
     scoped = scope_resolved_corpus_source(source, CITATION)
 
     assert scoped.body == "(e) Second rule."
     assert scoped.source_history == ()
     assert scoped.proof_evidence_text == scoped.body
+    assert scoped.selected_record.body == scoped.body
+    assert (
+        scoped.selected_record
+        == resolve_local_corpus_source(CITATION, release).selected_record
+    )
 
 
 def test_active_scope_beats_newer_inactive_duplicate(tmp_path: Path):
@@ -3181,7 +3187,12 @@ def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
         tmp_path,
         version,
         [
-            {"citation_path": CITATION, "body": None, "heading": "Parent"},
+            {
+                "citation_path": CITATION,
+                "body": None,
+                "heading": "Parent",
+                "metadata": {"amends": "principal document"},
+            },
             {
                 "citation_path": f"{CITATION}/2",
                 "body": "second",
@@ -3196,7 +3207,8 @@ def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
         ],
     )
 
-    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
+    release = _release(tmp_path)
+    resolved = resolve_local_corpus_source(CITATION, release)
 
     assert resolved.body == "First heading\n\nfirst\n\nsecond"
     assert [row.citation_path for row in resolved.component_rows] == [
@@ -3204,6 +3216,15 @@ def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
         f"{CITATION}/2",
     ]
     assert all(row.provision_file_sha256 for row in resolved.component_rows)
+    assert resolved.selected_record.row == resolved.row
+    assert resolved.selected_record.body == resolved.body
+    assert resolved.selected_record.heading == "Parent"
+    assert dict(resolved.selected_record.metadata) == {"amends": "principal document"}
+    records = list(iter_active_local_corpus_rows(release, include_bodyless=True))
+    selected = next(record for record in records if record.row == resolved.row)
+    assert selected.body == ""
+    assert selected.row.body_sha256 is None
+    assert selected.metadata == resolved.selected_record.metadata
 
 
 def test_metadata_parent_composes_descendants_in_hierarchy_preorder(tmp_path: Path):

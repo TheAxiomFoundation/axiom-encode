@@ -1216,9 +1216,12 @@ class EvalResult:
     verdict_file: str = ""
     verdict_sha256: str | None = None
     require_complete_source_unit: bool = False
+    amendment_request: str | None = None
 
     def to_dict(self) -> dict:
         data = asdict(self)
+        if self.amendment_request is None:
+            data.pop("amendment_request", None)
         if not self.require_complete_source_unit:
             data.pop("require_complete_source_unit", None)
         if self.metrics is not None:
@@ -1748,6 +1751,7 @@ def run_source_eval(
             results.append(
                 _run_single_source_eval(
                     source_identifier=source_identifier,
+                    amendment_request=source_unit.amendment_request,
                     source_text=source_text,
                     runner=runner,
                     output_root=output_root,
@@ -3199,11 +3203,19 @@ def _run_eval_suite_with_signer(
             extra_context = [*manifest.allow_context, *case.allow_context]
             case_source_unit: CorpusSourceUnit | None = None
             expected_source_attestation: dict[str, object] | None = None
-            if case.kind == "source":
+            try:
                 case_source_unit = resolve_corpus_source_unit(
-                    case.corpus_citation_path or "",
+                    case.corpus_citation_path or case.citation or "",
                     corpus_release,
                 )
+            except ValueError:
+                if case.kind == "source":
+                    raise
+                # Citation resolution failures are recorded by the runner as
+                # failed cases; they cannot establish a routed output identity.
+            if case_source_unit is not None and (
+                case.kind == "source" or case_source_unit.amendment_request
+            ):
                 expected_source_attestation = _expected_eval_source_attestation(
                     case_source_unit,
                     rulespec_root=policy_repo_root,
@@ -3309,6 +3321,7 @@ def _run_eval_suite_with_signer(
                                 [parsed_runner],
                                 exc,
                                 source_attestation=expected_source_attestation,
+                                source_unit=case_source_unit,
                             )
 
                         _accumulate_suite_case_timeout_attempts(
@@ -3334,6 +3347,7 @@ def _run_eval_suite_with_signer(
                 case_results,
                 parsed_runners,
                 expected_source_attestation=expected_source_attestation,
+                source_unit=case_source_unit,
             )
             _append_eval_suite_case_results(
                 output_root,
@@ -3533,6 +3547,11 @@ def _eval_result_verdict_evidence_payload(
         "admission": admission_context,
         "identity": {
             "citation": result_payload.get("citation"),
+            **(
+                {"amendment_request": result_payload["amendment_request"]}
+                if "amendment_request" in result_payload
+                else {}
+            ),
             "runner": result_payload.get("runner"),
             "backend": result_payload.get("backend"),
             "model": result_payload.get("model"),
@@ -4232,11 +4251,13 @@ def _validate_new_eval_suite_case_results(
     parsed_runners: Sequence[EvalRunnerSpec],
     *,
     expected_source_attestation: dict[str, object] | None = None,
+    source_unit: CorpusSourceUnit | None = None,
 ) -> None:
     """Refuse to persist an incomplete, duplicate, or mislabelled result group."""
 
     expected = _expected_eval_suite_runners(parsed_runners)
-    expected_citation = _eval_suite_case_result_citation(case)
+    expected_citation = _eval_suite_case_result_citation(case, source_unit=source_unit)
+    expected_request = source_unit.amendment_request if source_unit else None
     seen: set[str] = set()
     for result in case_results:
         runner = expected.get(result.runner)
@@ -4270,9 +4291,13 @@ def _validate_new_eval_suite_case_results(
                 f"Eval suite case '{case.name}' returned citation "
                 f"'{result.citation}' instead of '{expected_citation}'"
             )
-        if case.kind == "source" and result.source_attestation != (
-            expected_source_attestation
-        ):
+        if result.amendment_request != expected_request:
+            raise ValueError(
+                f"Eval suite case '{case.name}' returned a different amendment request"
+            )
+        if (
+            case.kind == "source" or expected_request
+        ) and result.source_attestation != (expected_source_attestation):
             raise ValueError(
                 f"Eval suite case '{case.name}' returned a source attestation "
                 "that does not match its live signed corpus source"
@@ -4580,11 +4605,30 @@ def _validate_eval_suite_result_generation_artifact_ownership(
         "trace_file": case_root / "traces" / result.runner,
         "context_manifest_file": (case_root / "_eval_workspaces" / result.runner),
     }
+    routed_paths = (
+        {
+            "output_file": owned_roots["output_file"]
+            / _resolve_eval_output_path(result.citation),
+            "trace_file": owned_roots["trace_file"]
+            / f"{_slugify(result.citation)}.json",
+            "context_manifest_file": owned_roots["context_manifest_file"]
+            / _slugify(result.citation)
+            / "workspace"
+            / "context-manifest.json",
+        }
+        if result.amendment_request
+        else {}
+    )
     for field_name, owned_root in owned_roots.items():
         raw_path = getattr(result, field_name)
         if not raw_path:
             continue
         artifact_path = Path(os.path.abspath(raw_path))
+        if field_name in routed_paths and artifact_path != routed_paths[field_name]:
+            raise ValueError(
+                f"Eval suite result for case '{case.name}' uses {field_name} "
+                "outside its routed principal artifact path"
+            )
         try:
             artifact_path.relative_to(owned_root)
         except ValueError as exc:
@@ -4641,11 +4685,13 @@ def _validate_persisted_eval_suite_case_group(
     case_index: int,
     execution_identity: dict[str, object] | None = None,
     expected_source_attestation: dict[str, object] | None = None,
+    source_unit: CorpusSourceUnit | None = None,
 ) -> list[EvalResult]:
     """Require exactly one correctly labelled ledger row per effective runner."""
 
     expected = _expected_eval_suite_runners(parsed_runners)
-    expected_citation = _eval_suite_case_result_citation(case)
+    expected_citation = _eval_suite_case_result_citation(case, source_unit=source_unit)
+    expected_request = source_unit.amendment_request if source_unit else None
     results_by_runner: dict[str, EvalResult] = {}
     seen_artifact_paths: set[Path] = set()
     for payload in rows:
@@ -4722,9 +4768,14 @@ def _validate_persisted_eval_suite_case_group(
                 "Cannot resume eval suite: suite-results.jsonl row uses a "
                 f"different citation path for case '{case.name}'"
             )
-        if case.kind == "source" and result.source_attestation != (
-            expected_source_attestation
-        ):
+        if result.amendment_request != expected_request:
+            raise ValueError(
+                "Cannot resume eval suite: suite-results.jsonl row uses a "
+                f"different amendment request for case '{case.name}'"
+            )
+        if (
+            case.kind == "source" or expected_request
+        ) and result.source_attestation != (expected_source_attestation):
             raise ValueError(
                 "Cannot resume eval suite: suite-results.jsonl row source "
                 f"attestation does not match the live signed source for '{case.name}'"
@@ -5022,11 +5073,18 @@ def _load_eval_suite_resume_state(
     for case_index in case_indexes:
         case = manifest.cases[case_index - 1]
         expected_source_attestation: dict[str, object] | None = None
-        if case.kind == "source":
+        live_source_unit: CorpusSourceUnit | None = None
+        try:
             live_source_unit = resolve_corpus_source_unit(
-                case.corpus_citation_path or "",
+                case.corpus_citation_path or case.citation or "",
                 corpus_release,
             )
+        except ValueError:
+            if case.kind == "source":
+                raise
+        if live_source_unit is not None and (
+            case.kind == "source" or live_source_unit.amendment_request
+        ):
             expected_source_attestation = _expected_eval_source_attestation(
                 live_source_unit,
                 rulespec_root=_eval_suite_case_policy_repo_root(
@@ -5042,6 +5100,7 @@ def _load_eval_suite_resume_state(
             case_index=case_index,
             execution_identity=execution_identity,
             expected_source_attestation=expected_source_attestation,
+            source_unit=live_source_unit,
         )
         if revalidate_persisted_results:
             _revalidate_persisted_eval_suite_case_results(
@@ -5506,9 +5565,17 @@ def _eval_suite_case_corpus_citation_path(case: EvalSuiteCase) -> str:
     return _corpus_resolver.normalize_corpus_identifier(case.citation or "")
 
 
-def _eval_suite_case_result_citation(case: EvalSuiteCase) -> str:
-    """Return the exact citation value allowed in a persisted result."""
+def _eval_suite_case_result_citation(
+    case: EvalSuiteCase,
+    *,
+    source_unit: CorpusSourceUnit | None = None,
+) -> str:
+    """Return the output identity established by the live authenticated source."""
 
+    if source_unit is not None and source_unit.amendment_request:
+        if source_unit.amendment_request != _eval_suite_case_corpus_citation_path(case):
+            raise ValueError("Eval suite source uses a different amendment request")
+        return _corpus_resolver.normalize_corpus_identifier(source_unit.requested)
     return _eval_suite_case_corpus_citation_path(case)
 
 
@@ -5657,6 +5724,7 @@ def _eval_result_from_payload(
         timeout_seconds=payload.get("timeout_seconds"),
         timeout_attempts=int(payload.get("timeout_attempts", 0) or 0),
         retry_count=int(payload.get("retry_count", 0) or 0),
+        amendment_request=payload.get("amendment_request"),
         source_attestation=(
             dict(payload["source_attestation"])
             if isinstance(payload.get("source_attestation"), dict)
@@ -5678,6 +5746,7 @@ def _suite_case_failure_results(
     exc: Exception,
     *,
     source_attestation: dict[str, object] | None = None,
+    source_unit: CorpusSourceUnit | None = None,
 ) -> list[EvalResult]:
     """Convert an exception into explicit failed results for each runner."""
     timed_out = isinstance(exc, (subprocess.TimeoutExpired, TimeoutError))
@@ -5689,7 +5758,8 @@ def _suite_case_failure_results(
     )
     return [
         EvalResult(
-            citation=_eval_suite_case_result_citation(case),
+            citation=_eval_suite_case_result_citation(case, source_unit=source_unit),
+            amendment_request=source_unit.amendment_request if source_unit else None,
             runner=runner.name,
             backend=runner.backend,
             model=runner.model,
@@ -6445,16 +6515,19 @@ def _shallowest_active_source_path_row(
     *,
     source_path: str | None,
     version: str,
+    descendant_citation_path: str | None = None,
 ) -> _corpus_resolver.ActiveCorpusBodyRow | None:
-    """Select a document root only within one non-empty source and version."""
+    """Select an actual ancestor within one non-empty source and version."""
 
-    if not source_path:
+    if not source_path or not descendant_citation_path:
         return None
     return min(
         (
             row
             for row in rows
-            if row.row.source_path == source_path and row.row.version == version
+            if row.row.source_path == source_path
+            and row.row.version == version
+            and descendant_citation_path.startswith(row.row.citation_path + "/")
         ),
         key=lambda row: (
             len(row.row.citation_path.split("/")),
@@ -6471,33 +6544,60 @@ def _is_direct_amendment_request(
     """Recognize operative amendments even before ingest supplies Act markers."""
     if _is_amendment_row(row):
         return True
-    if any(key in row.metadata for key in ("amendment_target", "amendment_targets")):
-        return True
     # If ingest marks the parent as amending, an unclassified child cannot
     # safely become a standalone historical rule. Require explicit routing
     # context rather than assuming an unfamiliar language/form is harmless.
     if parent is not None and _is_amendment_row(parent):
         return True
-    # English operation headings are language evidence, not a jurisdiction
-    # switch. Do not classify a mere reference to another amendment as one.
-    heading = row.heading or ""
-    operation = re.search(
-        r"\b(?:amended|amendments?|substituted|repealed|replaced)\b",
-        heading,
-        flags=re.IGNORECASE,
-    ) or re.match(
-        r"\s*In\b[^\n:]{0,240}\b(?:replace|insert|omit|repeal|substitute)\b",
-        row.body,
-        flags=re.IGNORECASE,
+    # Require a named provision and an operative instruction. Interpretive,
+    # savings, and transitional references to repeal are ordinary legal text.
+    number = (
+        r"\(?(?:[0-9][0-9A-Za-z]*|[A-Za-z]|[ivxlcdm]+)"
+        r"\)?(?:\([0-9A-Za-z]+\)|[./-][0-9A-Za-z]+)*"
     )
-    return bool(operation) or bool(
-        re.match(
-            r"\s*(?:(?:For|In)\s+)?(?:section|schedule|article|paragraph|clause|§)\s+"
-            r"[^\n]{0,160}\b(?:amended|replace[sd]?|replacing|substitute[sd]?|substituting|insert(?:ed)?|repeal(?:ed)?)\b",
-            row.body,
-            re.IGNORECASE,
-        )
+    provision_kind = (
+        r"(?:sections?|subsections?|schedules?|articles?|paragraphs?|clauses?|"
+        r"regulations?|rules?|chapters?|parts?|annex(?:es)?|appendi(?:x|ces)|§+)"
     )
+    provision = rf"{provision_kind}\s+{number}(?:\s+(?:to|and)\s+{number})?"
+    named_provision = rf"(?:New\s+)?{provision}(?:\s*,\s*{provision})*"
+    document_qualifier = (
+        r"(?:\s+of\s+(?:the\s+)?[^\n.!?:;]{1,100}?\s+"
+        r"(?:Act|Code|Regulations|Order)(?:\s+[0-9]{4})?)?"
+    )
+    operation = r"(?:amended|replaced|substituted|inserted|omitted|repealed)"
+    imperative = r"(?:amend|replace|substitute|insert|omit|repeal)"
+    instruction_object = (
+        rf"(?:{named_provision}\b|[\"'“‘]|\$?[0-9]|"
+        r"\((?:[0-9][0-9A-Za-z]*|[A-Za-z]|[ivxlcdm]+)\)|"
+        r"(?:the\s+)?(?:following|words?|figures?|entries|entry|definition|text|heading|subheading)\b|"
+        rf"(?:a|an)\s+(?:new\s+)?{provision_kind}\b|this\s+{provision_kind}\b|"
+        rf"(?:after|before)\s+{provision}\b)"
+    )
+    for text in (row.heading or "", row.body):
+        if (
+            re.match(
+                rf"\s*{named_provision}{document_qualifier}\s+"
+                rf"(?:(?:is|are)\s+{operation}\b|{operation}\b"
+                rf"(?=\s*(?:$|[:;.(—-])|\s+(?:into|in)\s+{provision}))",
+                text,
+                re.IGNORECASE,
+            )
+            or re.match(
+                rf"\s*(?:In|For|After|Before)\s+{named_provision}{document_qualifier}"
+                rf"(?:\s*,?\s*(?:after|before)\s+{provision})?"
+                rf"\s*,?\s*{imperative}\s+{instruction_object}",
+                text,
+                re.IGNORECASE,
+            )
+            or re.match(
+                rf"\s*{imperative}\s+{provision}\b",
+                text,
+                re.IGNORECASE,
+            )
+        ):
+            return True
+    return False
 
 
 def _amendment_commencement_evidence(
@@ -6609,8 +6709,15 @@ def _route_amending_source_unit(
             prefix
             + "principal target must be in the same jurisdiction and document class"
         )
-    target_row = next((item for item in rows if item.row.citation_path == target), None)
-    if target_row is None or target_row.row.source_path == row.row.source_path:
+    try:
+        target_source = _corpus_resolver.resolve_local_corpus_source(
+            target, release, _exact_only=True
+        )
+    except _corpus_resolver.CorpusResolutionError:
+        raise ValueError(
+            prefix + "principal target must resolve to a different authenticated Act"
+        ) from None
+    if target_source.row.source_path == row.row.source_path:
         raise ValueError(
             prefix + "principal target must resolve to a different authenticated Act"
         )
@@ -6683,39 +6790,45 @@ def resolve_corpus_source_unit(
     )
     if local_text is not None:
         resolved = local_text.resolved_source
-        active_rows = tuple(
+        active_records = tuple(
             _corpus_resolver.iter_active_local_corpus_rows(
                 release,
                 jurisdiction=resolved.row.jurisdiction,
                 document_class=resolved.row.document_class,
+                include_bodyless=True,
             )
         )
-        target_row = next(
-            (
-                item
-                for item in active_rows
-                if item.row.citation_path == resolved.row.citation_path
-                and item.row.version == resolved.row.version
-            ),
-            None,
+        active_rows = tuple(
+            item for item in active_records if item.row.body_sha256 is not None
         )
-        if target_row is None and resolved.row.source_path:
-            target_row = _shallowest_active_source_path_row(
-                active_rows,
-                source_path=resolved.row.source_path,
-                version=resolved.row.version,
-            )
+        # The resolver retains the authenticated selected container's metadata
+        # alongside composed text. A sibling's body row cannot stand in for it.
+        target_row = resolved.selected_record
         parent_document_row = _shallowest_active_source_path_row(
-            active_rows,
+            active_records,
             source_path=resolved.row.source_path,
             version=resolved.row.version,
+            descendant_citation_path=resolved.row.citation_path,
         )
         if parent_document_row is None or len(resolved.citation_path.split("/")) <= len(
             parent_document_row.row.citation_path.split("/")
         ):
             parent_document_row = None
+        # A marked intermediate container still governs its child when an
+        # unmarked document root supplies the broader discovery identifiers.
+        amendment_parent_row = next(
+            (
+                item
+                for item in active_records
+                if item.row.source_path == resolved.row.source_path
+                and item.row.version == resolved.row.version
+                and resolved.row.citation_path.startswith(item.row.citation_path + "/")
+                and _is_amendment_row(item)
+            ),
+            parent_document_row,
+        )
         if target_row is not None and _is_direct_amendment_request(
-            target_row, parent_document_row
+            target_row, amendment_parent_row
         ):
             return _route_amending_source_unit(
                 target_row,
@@ -6724,6 +6837,35 @@ def resolve_corpus_source_unit(
                 release=release,
                 ancestors=_amendment_ancestors | {citation_path},
             )
+        provision_metadata = (
+            _curated_provision_metadata(target_row) if target_row else {}
+        )
+        if target_row is not None and target_row.row.body_sha256 is None:
+            # A sole composed child represents this container's legal text,
+            # unlike a sibling from the same source. Preserve its descriptive
+            # metadata only for ordinary provisions; selected keys win.
+            component_identities = frozenset(resolved.component_rows)
+            component_rows = [
+                item
+                for item in active_rows
+                if item.row in component_identities
+                and item.row.source_path == resolved.row.source_path
+                and item.row.version == resolved.row.version
+            ]
+            if len(component_rows) == 1 and not _is_direct_amendment_request(
+                component_rows[0], None
+            ):
+                provision_metadata = {
+                    **{
+                        key: value
+                        for key, value in _curated_provision_metadata(
+                            component_rows[0]
+                        ).items()
+                        if key
+                        in {"title", "title_short", "title_alternative", "source_note"}
+                    },
+                    **provision_metadata,
+                }
         return CorpusSourceUnit(
             requested=resolved.requested,
             citation_path=resolved.citation_path,
@@ -6731,9 +6873,7 @@ def resolve_corpus_source_unit(
             source=resolved.source,
             source_attestation=resolved.to_attestation(),
             resolved_source=resolved,
-            provision_metadata=(
-                _curated_provision_metadata(target_row) if target_row else {}
-            ),
+            provision_metadata=provision_metadata,
             amendment_documents=_discover_amendment_documents(
                 active_rows,
                 target_row=target_row,
@@ -7860,6 +8000,7 @@ def _evaluate_artifact_in_scope(
             rulespec_dependency_roots=validation_dependency_roots,
             validation_staging_root=validation_staging_root,
             require_complete_source_unit=require_complete_source_unit,
+            amendment_documents=amendment_documents,
             amendment_source_texts={
                 document.citation_path: document.body
                 for document in amendment_documents
@@ -9677,6 +9818,7 @@ def _run_single_eval(
     )
     result = EvalResult(
         citation=_corpus_resolver.normalize_corpus_identifier(source_unit.requested),
+        amendment_request=source_unit.amendment_request,
         runner=runner.name,
         backend=runner.backend,
         model=runner.model,
@@ -9792,6 +9934,7 @@ def _run_single_source_eval(
     rulespec_dependency_roots: Sequence[Path] = (),
     review_findings_paths: list[Path] | None = None,
     require_complete_source_unit: bool = False,
+    amendment_request: str | None = None,
 ) -> EvalResult:
     """Run one eval on a corpus-backed source unit rather than a USC citation."""
     workspace = prepare_eval_workspace(
@@ -9907,6 +10050,7 @@ def _run_single_source_eval(
     )
     result = EvalResult(
         citation=source_identifier,
+        amendment_request=amendment_request,
         runner=runner.name,
         backend=runner.backend,
         model=runner.model,

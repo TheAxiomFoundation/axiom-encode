@@ -3,10 +3,13 @@
 import json
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode.harness import evals
 from tests.eval_evidence_fixtures import install_test_eval_evidence_keys
@@ -29,7 +32,8 @@ _COMMENCEMENT_BODY = (
     "1\nThis Act comes into force on 2 November 2026.\n"
     "2\nHowever, Part 2 comes into force on 1 April 2027."
 )
-# Public-law excerpt from the diagnosis's authenticated NZ s15 source.
+# Synthetic fixture containing a short legal excerpt; the original diagnosis's
+# authenticated source and generated outputs are not supplied by this checkout.
 _AMENDMENT_BODY = (
     "In Schedule 4, Part 7, replace clauses 4 to 6A with:\n"
     "4 | To a person (other than a specified person) who has 1 or more "
@@ -41,7 +45,7 @@ _AMENDMENT_BODY = (
 
 
 def _amendment_rows(*, metadata=None):
-    """Add ingest declarations to the report's otherwise undated NZ source."""
+    """Build synthetic principal, amendment, and commencement corpus records."""
 
     amendment_metadata = {
         "title": _TITLE,
@@ -114,6 +118,306 @@ def test_amending_section_routes_to_principal_with_commencement_evidence(tmp_pat
     assert "effective_from: '0001-01-01'" not in prompt
     assert "Temporal scaffold dates visible in copied context" not in prompt
     assert evals._collect_scaffold_dates(workspace, workspace.context_files) == []
+
+
+@pytest.mark.parametrize("composed_principal", [False, True])
+def test_bodyless_amending_section_uses_selected_metadata_and_composed_evidence(
+    tmp_path, composed_principal
+):
+    rows = _amendment_rows()
+    rows[1]["body"] = None
+    rows.append(
+        {
+            "citation_path": f"{_AMENDING_SECTION}/1",
+            "source_path": rows[1]["source_path"],
+            "body": _AMENDMENT_BODY,
+            # Child metadata must not replace the selected container's metadata.
+            "metadata": {"commencement_date": "2028-01-01"},
+        }
+    )
+    if composed_principal:
+        rows[0]["body"] = None
+        rows.append(
+            {
+                "citation_path": f"{_PRINCIPAL_TARGET}/1",
+                "source_path": rows[0]["source_path"],
+                "body": "The accommodation supplement is 70% of qualifying costs.",
+                "metadata": {},
+            }
+        )
+    release = _write_test_corpus_release(tmp_path, rows)
+
+    source = evals.resolve_corpus_source_unit(_AMENDING_SECTION, release)
+
+    assert source.citation_path == _PRINCIPAL_TARGET
+    assert source.amendment_request == _AMENDING_SECTION
+    evidence = {item.citation_path: item for item in source.amendment_documents}
+    assert _AMENDMENT_BODY in evidence[_AMENDING_SECTION].body
+    assert evidence[_AMENDING_SECTION].metadata["commencement_date"] == "2027-04-01"
+    _, prompt = _workspace_prompt_for_source_unit(tmp_path, source)
+    assert _AMENDMENT_BODY in prompt
+    assert "effective_from: '0001-01-01'" not in prompt
+
+
+def test_bodyless_amending_section_without_context_blocks_instead_of_borrowing_sibling(
+    tmp_path,
+):
+    rows = _amendment_rows()
+    rows[1]["body"] = None
+    rows[1]["metadata"].pop("commencement_date")
+    rows[2]["metadata"] = dict(_amendment_rows()[1]["metadata"])
+    rows.append(
+        {
+            "citation_path": f"{_AMENDING_SECTION}/1",
+            "source_path": rows[1]["source_path"],
+            "body": _AMENDMENT_BODY,
+        }
+    )
+    release = _write_test_corpus_release(tmp_path, rows)
+
+    with pytest.raises(
+        ValueError, match="Unresolved amendment context.*commencement_date"
+    ):
+        evals.resolve_corpus_source_unit(_AMENDING_SECTION, release)
+
+
+def test_bodyless_principal_container_does_not_borrow_marked_sibling(tmp_path):
+    rows = _amendment_rows(metadata={})
+    rows[1].update(body=None, heading="Rates")
+    rows[2]["metadata"] = {"document_type": "amendment act"}
+    rows.append(
+        {
+            "citation_path": f"{_AMENDING_SECTION}/1",
+            "source_path": rows[1]["source_path"],
+            "body": "The ordinary benefit rate is $200.",
+        }
+    )
+    release = _write_test_corpus_release(tmp_path, rows)
+
+    source = evals.resolve_corpus_source_unit(_AMENDING_SECTION, release)
+
+    assert source.citation_path == _AMENDING_SECTION
+    assert source.amendment_request is None
+    assert "The ordinary benefit rate is $200." in source.body
+
+
+@pytest.mark.parametrize("selected_note", [None, "Container's own note."])
+def test_ordinary_composed_metadata_uses_only_its_contributing_child(
+    tmp_path, selected_note
+):
+    citation = "de/statute/principal/section/5"
+    source_path = "sources/de/principal.xml"
+    release = _write_test_corpus_release(
+        tmp_path,
+        [
+            {
+                "citation_path": citation,
+                "source_path": source_path,
+                "body": None,
+                "metadata": {"source_note": selected_note} if selected_note else {},
+            },
+            {
+                "citation_path": f"{citation}/1",
+                "source_path": source_path,
+                "body": "The ordinary principal benefit is 200.",
+                "metadata": {
+                    "source_note": "Contributing child's note.",
+                    "title": "Principal benefit",
+                    "amendment_target": "de/statute/other/section/2",
+                    "commencement_date": "2099-01-01",
+                },
+            },
+            {
+                "citation_path": "de/statute/principal/section/2",
+                "source_path": source_path,
+                "body": "Interpretation.",
+                "metadata": {"source_note": "Sibling's unrelated note."},
+            },
+        ],
+    )
+
+    source = evals.resolve_corpus_source_unit(citation, release)
+
+    assert source.amendment_request is None
+    assert source.provision_metadata["source_note"] == (
+        selected_note or "Contributing child's note."
+    )
+    assert source.provision_metadata["title"] == "Principal benefit"
+    assert "amendment_target" not in source.provision_metadata
+    assert "commencement_date" not in source.provision_metadata
+
+
+@pytest.mark.parametrize(
+    ("heading", "body"),
+    [
+        (
+            "References to repealed enactments",
+            "A reference to a repealed enactment includes its replacement.",
+        ),
+        (
+            "Savings on repeal",
+            "The repeal of section 4 does not affect an existing entitlement.",
+        ),
+        (
+            "Transitional provisions for repealed enactments",
+            "A benefit under repealed section 4 continues during the transition.",
+        ),
+        (
+            "Meaning of enactment",
+            "Enactment includes a repealed enactment and an amending enactment.",
+        ),
+        (
+            "Interpretation of section 4",
+            "Section 4 was repealed in 2005; references retain their former meaning.",
+        ),
+        (
+            "Interpretation",
+            "In section 4, a reference to repeal includes expiry.",
+        ),
+        (
+            "Interpretation",
+            "In article 12, the term substitute means a person acting temporarily.",
+        ),
+        (
+            "Interpretation",
+            "Section 4 repealed enactments are interpreted as including replacements.",
+        ),
+        (
+            "Savings",
+            "In section 4, repeal does not affect existing rights.",
+        ),
+        (
+            "Interpretation",
+            "In section 4, repeal includes expiry.",
+        ),
+        (
+            "Savings",
+            "In section 4, repeal (including expiry) does not affect existing rights.",
+        ),
+    ],
+)
+def test_nonoperative_repeal_references_keep_principal_resolution(
+    tmp_path, heading, body
+):
+    citation = "nz/statute/act/public/2018/0032/section/5"
+    release = _write_test_corpus_release(
+        tmp_path,
+        [{"citation_path": citation, "heading": heading, "body": body, "metadata": {}}],
+    )
+
+    source = evals.resolve_corpus_source_unit(citation, release)
+
+    assert source.requested == source.citation_path == citation
+    assert source.body == body
+    assert source.amendment_request is None
+    assert source.amendment_documents == ()
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "Section 4 amended",
+        "Article 12 replaced",
+        "Paragraph 3 is repealed",
+        "Clause 8 inserted",
+        "New sections 23A to 23I inserted",
+        "New Part 16 inserted into Schedule 1",
+        "Section 5 of the Example Act is repealed",
+        "In section 4(2)(a), omit the words temporary benefit.",
+        "In section 4, after subsection (2), insert a new subsection.",
+        "In Schedule 4, Part 7, replace clauses 4 to 6A with new clauses.",
+        "Insert section 4 after section 3.",
+        "For regulation 6 substitute the following regulation.",
+    ],
+)
+def test_unmarked_named_provision_operation_requires_amendment_context(
+    tmp_path, operation
+):
+    citation = "uk/statute/example/section/5"
+    release = _write_test_corpus_release(
+        tmp_path,
+        [{"citation_path": citation, "heading": operation, "body": operation}],
+    )
+
+    with pytest.raises(ValueError, match="Unresolved amendment context"):
+        evals.resolve_corpus_source_unit(citation, release)
+
+
+@settings(max_examples=100)
+@given(
+    heading=st.sampled_from(
+        ["References to repealed enactments", "Savings on repeal", "Definitions", None]
+    ),
+    subject=st.sampled_from(
+        [
+            "A reference to",
+            "The meaning of",
+            "Savings concerning",
+            "Transitional treatment of",
+            "In section 4, a reference to",
+            "For section 4, the definition of",
+            "In article 12, the term",
+        ]
+    ),
+    nouns=st.lists(
+        st.sampled_from(
+            [
+                "repealed enactments",
+                "replacement",
+                "amendments",
+                "section 4",
+                "article 12",
+                "enactment",
+                "repeal",
+                "substitute",
+                "replace",
+                "insert",
+            ]
+        ),
+        min_size=1,
+        max_size=12,
+    ),
+    target_metadata=st.booleans(),
+)
+def test_unmarked_nonoperative_text_is_never_an_amendment(
+    heading, subject, nouns, target_metadata
+):
+    # Target declarations alone are not ingest amendment markers. No generated
+    # text contains an instruction applying an amendment to a named provision.
+    row = SimpleNamespace(
+        heading=heading,
+        body=subject + " " + " and ".join(nouns) + ".",
+        metadata={"amendment_target": _PRINCIPAL_TARGET} if target_metadata else {},
+    )
+
+    assert evals._is_direct_amendment_request(row, None) is False
+
+
+@settings(max_examples=80)
+@given(
+    scope=st.sampled_from(["In section 4,", "For article 12,", "In Schedule 2,"]),
+    noun=st.sampled_from(
+        ["repeal", "substitute", "replace", "insert", "omit", "amend"]
+    ),
+    interpretation=st.sampled_from(
+        [
+            "does not affect existing rights",
+            "includes expiry",
+            "means an ordinary term",
+            "(including expiry) does not affect existing rights",
+        ]
+    ),
+)
+def test_scoped_operation_words_used_as_nouns_are_not_amendments(
+    scope, noun, interpretation
+):
+    row = SimpleNamespace(
+        heading="Interpretation",
+        body=f"{scope} {noun} {interpretation}.",
+        metadata={},
+    )
+
+    assert evals._is_direct_amendment_request(row, None) is False
 
 
 @pytest.mark.parametrize("jurisdiction", ["nz", "us", "uk", "de", "fr", "za"])
@@ -233,8 +537,8 @@ def test_amending_section_without_commencement_is_blocked(tmp_path, missing_fiel
 
 
 def test_report_unmarked_amending_section_requires_explicit_context(tmp_path):
-    # The real corpus title and heading reveal amendment form, but its s15
-    # record has no machine-readable target, Part membership, or legal date.
+    # This synthetic unmarked record has an operation heading but no declared
+    # target, Part membership, or applicable legal date.
     rows = _amendment_rows(metadata={"title": _TITLE, "assent_date": "2026-09-03"})
     release = _write_test_corpus_release(tmp_path, rows)
 
@@ -325,7 +629,8 @@ def test_required_commencement_context_cannot_be_dropped_by_budget(
         _workspace_prompt_for_source_unit(tmp_path, source)
 
 
-def test_parent_amendment_marker_blocks_unclassified_child(tmp_path):
+@pytest.mark.parametrize("bodyless_parent", [False, True])
+def test_parent_amendment_marker_blocks_unclassified_child(tmp_path, bodyless_parent):
     rows = _amendment_rows(metadata={})
     rows[1]["heading"] = "Rates"
     rows[1]["body"] = 'Delete the words "$200" and insert "$305".'
@@ -333,7 +638,7 @@ def test_parent_amendment_marker_blocks_unclassified_child(tmp_path):
         {
             "citation_path": _AMENDING_ACT,
             "source_path": rows[1]["source_path"],
-            "body": "Amending instrument.",
+            "body": None if bodyless_parent else "Amending instrument.",
             "metadata": {"document_type": "amendment act"},
         }
     )
@@ -341,6 +646,37 @@ def test_parent_amendment_marker_blocks_unclassified_child(tmp_path):
 
     with pytest.raises(ValueError, match="Unresolved amendment context"):
         evals.resolve_corpus_source_unit(_AMENDING_SECTION, release)
+
+
+def test_marked_bodyless_ancestor_is_not_hidden_by_unmarked_document_root(tmp_path):
+    request = f"{_AMENDING_ACT}/part/2/section/15"
+    source_path = "sources/nz/statute/2026-54.xml"
+    release = _write_test_corpus_release(
+        tmp_path,
+        [
+            {
+                "citation_path": _AMENDING_ACT,
+                "source_path": source_path,
+                "body": "An instrument.",
+                "metadata": {},
+            },
+            {
+                "citation_path": f"{_AMENDING_ACT}/part/2",
+                "source_path": source_path,
+                "body": None,
+                "metadata": {"document_type": "amendment part"},
+            },
+            {
+                "citation_path": request,
+                "source_path": source_path,
+                "body": 'Delete the words "$200" and insert "$305".',
+                "metadata": {},
+            },
+        ],
+    )
+
+    with pytest.raises(ValueError, match="Unresolved amendment context"):
+        evals.resolve_corpus_source_unit(request, release)
 
 
 @pytest.mark.parametrize("effective", ["0001-01-01", "2027-04-01"])

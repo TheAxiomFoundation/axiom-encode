@@ -125,8 +125,9 @@ is a separate telemetry feature and never supplies legal source text.
 For enacted amendments, request the principal provision with amendment and
 commencement evidence attached from the pinned corpus release. See
 [Encoding enacted amendments before commencement](docs/amendment-encoding.md)
-for the d1832 versioning path, the exact discovery metadata ingest must supply,
-and blockers for direct amending-provision requests with unresolved context.
+for the maintainer's ruling of 21 October 2026, the exact discovery metadata
+ingest must supply, and blockers for direct amending-provision requests with
+unresolved context.
 
 A corpus checkout that keeps its bytes outside git (`.axiom/corpus-locks/`) gets
 the pinned release's provisions placed on binding, each file verified against the
