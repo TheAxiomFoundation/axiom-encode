@@ -7,6 +7,7 @@ the first ``rules`` block, rule field or test output would silently vanish
 while the engine, which rejects duplicate keys, compiles what is left.
 """
 
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -29,7 +30,10 @@ from axiom_encode.harness.evals import (
     _overlay_validation_retry_candidate,
 )
 from axiom_encode.harness.validator_pipeline import _safe_load_unique_keys
-from axiom_encode.yaml_serialization import find_duplicate_mapping_key_issues
+from axiom_encode.yaml_serialization import (
+    find_duplicate_mapping_key_issues,
+    safe_dump_yaml,
+)
 from tests.test_cli import (
     _complete_source_attestation,
     _write_test_context_manifest,
@@ -173,6 +177,53 @@ def test_raw_guard_reports_duplicate_keys_anywhere(content, diagnostic):
     # The engine rejects these files, and safe_load would collapse them.
     with pytest.raises(yaml.constructor.ConstructorError, match="duplicate key"):
         _safe_load_unique_keys(content)
+
+
+def _engine_compile(real_engine, root: Path, content: str):
+    root = root.resolve() / "rulespec-us"
+    module = root / "us/statutes/26/1.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text(content)
+    return subprocess.run(
+        [
+            str(real_engine.binary),
+            "compile",
+            "--program",
+            str(module),
+            "--rulespec-root",
+            str(root),
+            "--output",
+            str(root.parent / "compiled.json"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_engine_compiles_the_clean_module(real_engine, tmp_path):
+    compiled = _engine_compile(real_engine, tmp_path, BASE)
+
+    assert compiled.returncode == 0, compiled.stderr
+
+
+@pytest.mark.parametrize(("content", "diagnostic"), DUPLICATES)
+def test_engine_rejects_raw_duplicates_that_a_rewrite_would_hide(
+    real_engine, tmp_path, content, diagnostic
+):
+    """The defect's premise: only the load-and-dump rewrite made these compile."""
+
+    raw = _engine_compile(real_engine, tmp_path / "raw", content)
+    rewritten = _engine_compile(
+        real_engine,
+        tmp_path / "rewritten",
+        safe_dump_yaml(yaml.safe_load(content), sort_keys=False, allow_unicode=True),
+    )
+
+    assert raw.returncode != 0
+    assert "duplicate entry with key" in raw.stderr
+    assert rewritten.returncode == 0, rewritten.stderr
+    assert find_duplicate_mapping_key_issues(content)
 
 
 @pytest.mark.parametrize("content", DISTINCT)
