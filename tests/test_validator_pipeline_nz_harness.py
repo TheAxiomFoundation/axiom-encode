@@ -330,6 +330,76 @@ def test_exact_canonical_paragraph_citation_never_matches_a_malformed_prefix():
     )
 
 
+CANONICAL_BOUNDARY_CITATIONS = [
+    TABLE_CITATION,
+    "uk/statute/example/section/72",
+    "us/guidance/example/section/72",
+    "de/statute/example/section/72",
+    "fr/statute/example/section/72",
+]
+
+
+@pytest.mark.parametrize("citation", CANONICAL_BOUNDARY_CITATIONS)
+@pytest.mark.parametrize("continuation", [".5", "-other", ":other"])
+def test_attached_canonical_suffix_retains_missing_paragraph_coverage(
+    citation, continuation
+):
+    # The exact review input uses TABLE_CITATION + "(a).5". Its valid prefix
+    # must not discharge the independent source paragraph's coverage demand.
+    source = "(a) A person without children is eligible."
+    payload = {
+        "format": "rulespec/v1",
+        "module": {"source_verification": {"corpus_citation_path": citation}},
+        "rules": [
+            {
+                "name": "single_without_children_rate",
+                "kind": "derived",
+                "source": citation + "(a)" + continuation,
+                "versions": [{"effective_from": "2018-01-01", "formula": "450"}],
+            }
+        ],
+    }
+    assert vp._rule_source_subparagraph_paths(payload, citation) == set()
+    issues = vp.find_source_subparagraph_coverage_issues(
+        yaml.safe_dump(payload), source_texts={citation: source}
+    )
+    assert len(issues) == 1
+    assert f"{citation}(a)" in issues[0]
+
+
+@pytest.mark.parametrize("citation", CANONICAL_BOUNDARY_CITATIONS)
+@pytest.mark.parametrize("terminal", ["", " ", "\n", ".", ". Text", ", text"])
+def test_complete_canonical_atom_accepts_authenticated_terminal_boundaries(
+    citation, terminal
+):
+    assert vp._source_citation_subparagraph_paths(
+        citation + "(a)" + terminal, citation
+    ) == {("a",)}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "Son contrat dure 1 an.",
+        "Votre contrat dure 1 an.",
+        "Notre garantie dure 1 an.",
+        "La durée maximale : 1 an.",
+        "Mon contrat dure 1 an.",
+        "Ton contrat dure 1 an.",
+        "Leur garantie dure 1 an.",
+        "Le délai minimal : 1 an.",
+    ],
+)
+def test_french_possessive_and_duration_labels_keep_singular_years(source):
+    assert vp._extract_year_duration_month_values(source) == {12}
+    assert any(
+        occurrence.raw == "1 an"
+        for occurrence in vp.extract_typed_numeric_inventory_occurrences_from_text(
+            source
+        )
+    )
+
+
 def test_singular_french_year_has_both_inventory_and_conversion():
     source = "Le délai ne dépasse pas 1 an."
     assert vp._extract_year_duration_month_values(source) == {12}

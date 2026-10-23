@@ -8845,7 +8845,8 @@ _FRENCH_ER_DURATION_VERB_ENDING = (
     r"erais|erait|erions|eriez|eraient|ai|as|a|âmes|âtes|èrent)"
 )
 _FRENCH_DURATION_CONTEXT_PATTERN = re.compile(
-    r"\b(?:le|la|les|une?|cette|ces|ils?|elles?|ce|cela)\s+"
+    r"\b(?:le|la|les|une?|cette|ces|ils?|elles?|ce|cela|"
+    r"ma|mon|mes|ta|ton|tes|sa|son|ses|notre|nos|votre|vos|leurs?)\s+"
     r"(?:[\w’'-]+\s+){0,8}(?:n[’'])?(?:est|sont|dure|durent|doit|doivent|"
     rf"peut|peuvent|d[ée]pass{_FRENCH_ER_DURATION_VERB_ENDING}|"
     rf"exc[èée]d{_FRENCH_ER_DURATION_VERB_ENDING}|expire|expirent)\s+"
@@ -8853,7 +8854,8 @@ _FRENCH_DURATION_CONTEXT_PATTERN = re.compile(
     r"\b(?:le|la|les|une?|des|ce|cette|ces|sa|son|ses|leurs?)\s+"
     r"(?:[\w’'-]+\s+){1,8}(?:de|pour|sur)\s+$|"
     r"\b(?:pendant|depuis|durant|apr[èe]s|avant)\s+$|"
-    r"\b(?:dur[ée]e|p[ée]riode|d[ée]lai|[âa]ge)\s*(?:de\s+|:\s*)$",
+    r"\b(?:dur[ée]e|p[ée]riode|d[ée]lai|[âa]ge)"
+    r"(?:\s+(?:minimal|maximal)(?:e?s?))?\s*(?:de\s+|:\s*)$",
     re.IGNORECASE,
 )
 _FRENCH_DURATION_FOLLOWING_CONTEXT_PATTERN = re.compile(
@@ -25650,7 +25652,9 @@ def _source_subparagraph_citation_pattern(citation_path: str) -> re.Pattern[str]
     return re.compile(
         rf"(?<![\w/.-]){re.escape(canonical)}"
         r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)"
-        r"(?![\w/(])",
+        # Attached locator syntax cannot be truncated to a valid paragraph.
+        # Sentence punctuation is terminal only before whitespace or text end.
+        r"(?=$|\s|[.,;:!?](?=\s|$))",
     )
 
 

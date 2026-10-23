@@ -62,16 +62,25 @@ MARKER_ONLY_RATES_TABLE = HEADED_RATES_TABLE.replace(" | $", " $")
 MARKER_ONLY_REPLACEMENT_TABLE = REPLACEMENT_TABLE.replace(" | 70%", " 70%")
 
 
-def test_complete_prose_subsections_with_prescribed_rate_are_authenticated():
-    outline = bare_outline(S73)
-    assert outline is not None
-    assert [label.path for label in outline] == [("1",), ("2",), ("3",), ("4",)]
-    assert re.findall(r"\d+", mask_bare_labels(S73, outline)) == []
-    for previous, following in zip(outline, outline[1:]):
-        assert previous.end == following.start
-    election_form = outline[2]
-    assert "form and manner" in S73[election_form.marker_end : election_form.end]
-    assert "Unless it is revoked" not in S73[election_form.start : election_form.end]
+def test_detached_complete_prose_without_legal_markers_keeps_numeric_obligations():
+    assert bare_outline(S73) is None
+    assert mask_bare_labels(S73) == S73
+    assert re.findall(r"\d+", mask_bare_labels(S73)) == ["1", "2", "3", "4"]
+
+
+def test_parenthesized_s73_markers_keep_authenticated_subsection_ownership():
+    # The official subsection markers prove identity. Detached bare numerals
+    # above do not acquire it merely because the following prose is complete.
+    source = re.sub(r"(?m)^([1-4])$", r"(\1)", S73)
+    branches = sc.recognize_source_structure(source)
+    assert [branch.path for branch in branches] == [("1",), ("2",), ("3",), ("4",)]
+    election_form = branches[2]
+    assert "form and manner" in election_form.text
+    assert "Unless it is revoked" not in election_form.text
+    cleaned = sc.authoritative_numeric_recall_text(
+        source, corpus_citation_path="nz/statute/act/public/2018/0032/section/73"
+    )
+    assert vp.extract_numeric_occurrences_from_text(cleaned) == []
 
 
 def test_legal_sections_subject_does_not_invalidate_local_subsections():
@@ -96,17 +105,15 @@ def test_legal_sections_subject_does_not_invalidate_local_subsections():
     prescribed=st.sampled_from(("prescribed", "specified", "approved")),
     ending=st.sampled_from(("\n", "\r\n", "\u2028")),
 )
-def test_complete_prose_outline_is_stable_under_prescribed_quantity_complements(
+def test_detached_prose_abstention_is_stable_under_prescribed_quantity_complements(
     quantity, prescribed, ending
 ):
     source = S73.replace("rate prescribed", f"{quantity} {prescribed}").replace(
         "\n", ending
     )
-    outline = bare_outline(source)
-    assert outline is not None
-    assert [label.path for label in outline] == [("1",), ("2",), ("3",), ("4",)]
-    assert len(mask_bare_labels(source, outline)) == len(source)
-    assert re.findall(r"\d+", mask_bare_labels(source, outline)) == []
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+    assert re.findall(r"\d+", mask_bare_labels(source)) == ["1", "2", "3", "4"]
 
 
 def test_flattened_rate_rows_end_before_later_rows_and_next_clause():
@@ -392,6 +399,27 @@ def test_official_value_cell_tables_abstain_on_ambiguous_ownership():
 
 
 JURISDICTIONS = ("nz", "uk", "us", "de", "fr")
+
+
+@pytest.mark.parametrize("jurisdiction", JURISDICTIONS)
+@pytest.mark.parametrize("heading", ("Family size.", "Household size.", "Age.", ""))
+def test_detached_count_axes_keep_counts_even_with_complete_prose(
+    jurisdiction, heading
+):
+    # The Family size case is the exact round-three review input. Count and
+    # age axes cannot become statutory subsections through ordered values.
+    source = (
+        (heading + "\n" if heading else "")
+        + "1\nThe household is entitled to $450.\n"
+        + "2\nThe household is entitled to $700."
+    )
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+    cleaned = sc.authoritative_numeric_recall_text(
+        source, corpus_citation_path=f"{jurisdiction}/statute/example/section/15"
+    )
+    assert vp.extract_numeric_occurrences_from_text(cleaned) == [1, 450, 2, 700]
+    assert not any(branch.path for branch in sc.recognize_source_structure(source))
 
 
 @pytest.mark.parametrize("jurisdiction", JURISDICTIONS)

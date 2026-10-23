@@ -27,9 +27,9 @@ def numeric_values(source: str, citation: str) -> list[float]:
 
 def test_completed_prose_subsections_mask_only_structural_numbers():
     source = (
-        "1\nThe winter energy payment is not payable for 1 or more days.\n"
-        "2\nThe winter energy payment is payable for up to a maximum of 28 days.\n"
-        "3\nSections 219 and 436 do not apply to the winter energy payment.\n"
+        "(1) The winter energy payment is not payable for 1 or more days.\n"
+        "(2) The winter energy payment is payable for up to a maximum of 28 days.\n"
+        "(3) Sections 219 and 436 do not apply to the winter energy payment.\n"
     )
     # The terminal prose "do not apply" does not authenticate a bare final
     # list item. Keep its conservative numeric obligation while retaining all
@@ -308,10 +308,10 @@ def test_clause_reference_stays_in_owning_table_row():
     assert not [branch for branch in branches if branch.kind == "sentence"]
 
 
-def test_canonical_dependency_uses_section_component_after_act_year():
+def test_explicit_canonical_dependency_keeps_obligation_after_reversion():
     source = "The beneficiary's eligibility for the payment is under section 72."
     reason = f"Cannot be computed until {NZ_ACT}/section/72 is encoded."
-    assert sc._reason_dependency_is_source_bound(
+    assert not sc._reason_dependency_is_source_bound(
         reason,
         source,
         corpus_citation_path=f"{NZ_ACT}/section/220",
@@ -326,7 +326,7 @@ def test_canonical_corpus_dependency_year_never_binds_as_section(
 ):
     instrument = f"nz/statute/act/public/{year}/0032"
     reason = f"Cannot be computed until {instrument}/section/{section} is encoded."
-    assert sc._reason_dependency_is_source_bound(
+    assert not sc._reason_dependency_is_source_bound(
         reason,
         f"The payment depends on section {section}.",
         corpus_citation_path=f"{instrument}/section/1000",
@@ -513,7 +513,7 @@ def test_legal_citation_list_never_contributes_numeric_demands(sections: list[in
         ),
         (
             "The supplement is the sum of the allowance under clauses 1 to 6AA and 20% of earnings.",
-            [0.2],
+            [0.2, 1],
         ),
     ],
 )
@@ -650,7 +650,9 @@ def test_citation_continuation_never_consumes_a_number_before_a_nonlocator_word(
     source = (
         f"The payment under sections 297, 311(1), and 338, and {amount} {word} applies."
     )
-    assert numeric_values(source, f"{NZ_ACT}/section/74") == [amount]
+    expected = numeric_values(f"{amount} {word} applies.", "")
+    assert expected
+    assert numeric_values(source, f"{NZ_ACT}/section/74") == expected
 
 
 @pytest.mark.parametrize("terminal", [".", ";", ":", ")", ""])
@@ -788,8 +790,10 @@ def test_canonical_section_dependency_requires_the_same_prose_locator_kind(
 
 @pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
 @pytest.mark.parametrize("alias", ["section", "§", "§§"])
-def test_canonical_section_dependency_keeps_typed_section_references(instrument, alias):
-    assert sc._reason_dependency_is_source_bound(
+def test_reverted_explicit_dependency_does_not_guess_from_typed_section_references(
+    instrument, alias
+):
+    assert not sc._reason_dependency_is_source_bound(
         f"Cannot be computed until {instrument}/section/72 is encoded.",
         f"The payment depends on {alias} 72.",
         corpus_citation_path=f"{instrument}/section/220",
@@ -870,6 +874,9 @@ def test_unproven_attached_hyphen_range_retains_the_whole_identifier(
         "72-A",
         "72/other",
         "72–5",
+        "72:other",
+        "72;other",
+        "72!other",
     ],
 )
 def test_canonical_section_dependency_never_binds_a_locator_prefix(instrument, locator):
@@ -884,7 +891,7 @@ def test_canonical_section_dependency_never_binds_a_locator_prefix(instrument, l
 def test_canonical_section_atom_keeps_terminal_punctuation_and_supported_children(
     locator,
 ):
-    assert sc._reason_dependency_is_source_bound(
+    assert not sc._reason_dependency_is_source_bound(
         f"Cannot be computed until {NZ_ACT}/section/72 is encoded.",
         f"The payment depends on section {locator}",
         corpus_citation_path=f"{NZ_ACT}/section/220",
@@ -924,3 +931,223 @@ def test_generated_unsupported_parenthetical_atoms_abstain_from_prefix_cleanup(
         source, corpus_citation_path=f"{NZ_ACT}/section/74"
     )
     assert f"({amount}){suffix}" in cleaned
+
+
+@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize("heading", ["Family size.", "Household size.", "Age."])
+def test_detached_count_axes_retain_actual_missing_scalar_obligations(
+    instrument, heading
+):
+    from tests.test_source_completeness import EN_NUMERIC_OCCURRENCE_EXTRACTOR, _analyze
+
+    citation = f"{instrument}/section/220"
+    source = f"{heading}\n1\nThe household is entitled to $450.\n2\nThe household is entitled to $700."
+    content = yaml.safe_dump(
+        {
+            "format": "rulespec/v1",
+            "module": {"source_verification": {"corpus_citation_path": citation}},
+            "rules": [
+                {
+                    "name": "payment",
+                    "kind": "derived",
+                    "dtype": "Money",
+                    "source": citation,
+                    "versions": [{"formula": "0"}],
+                }
+            ],
+        }
+    )
+    result = _analyze(
+        content,
+        source,
+        corpus_citation_path=citation,
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+    )
+    assert numeric_values(source, citation) == [1, 450, 2, 700]
+    for value in (1, 2, 450, 700):
+        assert any(
+            "numeric-recall" in issue and f"value {value} has" in issue
+            for issue in result.issues
+        )
+
+
+@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Section 72 has a heading and the conditions under paragraph 72 apply.",
+        "Section 72 has a heading and conditions under section 73 apply.",
+        "Section 72 has a heading and the payment is subject to paragraph 72.",
+        "Section 72 has a heading and section 73 is required.",
+        "The payment is not subject to section 72.",
+        "The payment does not depend on section 72.",
+        "No conditions under section 72 apply.",
+        "The payment does not require section 72.",
+        "The conditions under section 72 are described in a heading and the conditions under paragraph 73 apply.",
+        "The conditions under section 72 are described in a heading and the conditions under section 73 apply.",
+    ],
+)
+def test_same_sentence_dependency_cannot_borrow_another_references_predicate(
+    instrument, sentence
+):
+    citation = f"{instrument}/section/220"
+    source = "(1) " + sentence
+    reason = f"Cannot be computed until {instrument}/section/72 is encoded."
+    assert not sc._reason_dependency_is_source_bound(
+        reason, source, corpus_citation_path=citation
+    )
+    covered, issues = sc._deferred_coverage(
+        {
+            "module": {
+                "deferred_outputs": [
+                    {
+                        "output": sc._rulespec_target_base(citation) + "/1#payment",
+                        "reason": reason,
+                    }
+                ]
+            }
+        },
+        corpus_citation_path=citation,
+        source_text=source,
+        branches=sc.recognize_source_structure(source, corpus_citation_path=citation),
+    )
+    assert not covered
+    assert len(issues) == 1
+    assert "does not name an exact missing dependency" in issues[0]
+
+
+@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Section 73 has a heading and the conditions under section 72 apply.",
+        "Section 73 has a heading and the payment depends on section 72.",
+        "The payment is subject to section 72.",
+        "The beneficiary’s eligibility for the payment under section 72.",
+        "The beneficiary's eligibility for the payment is under section 72.",
+        "Section 72 is required and section 73 has a heading.",
+    ],
+)
+def test_explicit_canonical_dependency_relaxation_abstains_even_on_positive_prose(
+    instrument, sentence
+):
+    assert not sc._reason_dependency_is_source_bound(
+        f"Cannot be computed until {instrument}/section/72 is encoded.",
+        sentence,
+        corpus_citation_path=f"{instrument}/section/220",
+    )
+
+
+@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize("separator", [", ", " and ", ", and "])
+@pytest.mark.parametrize("locator", ["40-18-2", "40 - 18 - 2"])
+def test_partial_citation_list_preserves_percentage_formula_witness(
+    instrument, separator, locator
+):
+    from tests.test_source_completeness import EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR
+
+    source = f"The payment is 20% of earnings under sections 1{separator}{locator}."
+    cleaned = sc.authoritative_numeric_recall_text(
+        source, corpus_citation_path=f"{instrument}/section/74"
+    )
+    assert f"sections 1{separator}{locator}" in cleaned
+    assert sc._explicit_source_arithmetic_topology(cleaned) is None
+    branch = sc.SourceStructureBranch(
+        (), "formula-clause", "source unit", source, 0, len(source)
+    )
+    execution = sc._FormulaExecution(
+        trace=(),
+        leaf="earnings * 0.2",
+        evaluated_value=None,
+        evaluates_to_zero=False,
+        constant_environment={},
+    )
+    assert sc._formula_execution_matches_source_branch(
+        execution,
+        branch,
+        interval=None,
+        formula_environment={},
+        execution_environment={"earnings": 1000},
+        extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        numeric_value_is_grounded=vp.numeric_value_is_grounded,
+    )
+
+
+@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize("separator", [" ", "\u00a0", "\u202f"])
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "The payment under sections 297, 311(1), and 338, and ",
+        "The supplement is the sum of the allowance under clauses 1 to 6AA and ",
+    ],
+)
+def test_citation_cleanup_keeps_spaced_amount_whole(instrument, separator, prefix):
+    source = prefix + f"450{separator}700 dollars is payable."
+    cleaned = sc.authoritative_numeric_recall_text(
+        source, corpus_citation_path=f"{instrument}/section/74"
+    )
+    assert f"450{separator}700 dollars" in cleaned
+    assert numeric_values(source, f"{instrument}/section/74")[-2:] == [450, 700]
+
+
+@pytest.mark.parametrize("other", ["paragraph 72", "section 73"])
+def test_clause_wide_dependency_fallback_cannot_borrow_a_different_reference(other):
+    clause = f"Section 72 has a heading and the conditions under {other} apply."
+    assert not sc._source_clause_links_dependency(
+        clause, reference_start=0, reference_end=len("Section 72")
+    )
+
+
+@pytest.mark.parametrize(
+    ("clause", "reference"),
+    [
+        ("Die Voraussetzungen nach § 26 und § 32 vorliegen", "§ 32"),
+        ("The conditions under section 26 and section 32 apply", "section 32"),
+    ],
+)
+def test_coordinated_condition_predicate_owns_each_explicit_reference(
+    clause, reference
+):
+    start = clause.index(reference)
+    assert sc._source_clause_links_dependency(
+        clause, reference_start=start, reference_end=start + len(reference)
+    )
+
+
+@pytest.mark.parametrize(
+    "kind", ["sections", "clauses", "articles", "regulations", "paragraphs"]
+)
+@pytest.mark.parametrize("amount", [2, 20, 25, 2.5, 20.5])
+def test_possible_citation_formula_mask_retains_independent_percentage(kind, amount):
+    from tests.test_source_completeness import EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR
+
+    source = f"The supplement is the sum of the allowance under {kind} 1 to 6 and {amount}% of earnings."
+    assert sc._formula_operation_kinds(source) == {"add", "multiply"}
+    branch = sc.SourceStructureBranch(
+        (), "formula-clause", "source unit", source, 0, len(source)
+    )
+    for formula, expected in [
+        (f"allowance + earnings * {amount / 100}", True),
+        (f"allowance + {amount / 100}", False),
+        ("allowance + 450", False),
+    ]:
+        execution = sc._FormulaExecution(
+            trace=(),
+            leaf=formula,
+            evaluated_value=None,
+            evaluates_to_zero=False,
+            constant_environment={},
+        )
+        assert (
+            sc._formula_execution_matches_source_branch(
+                execution,
+                branch,
+                interval=None,
+                formula_environment={},
+                execution_environment={"allowance": 100, "earnings": 1000},
+                extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+                numeric_value_is_grounded=vp.numeric_value_is_grounded,
+            )
+            is expected
+        )

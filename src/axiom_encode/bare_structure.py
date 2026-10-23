@@ -116,13 +116,6 @@ _QUANTITY_ASSIGNMENT = re.compile(
     r"\s+(?:is|are|equals?|totals?)\s+\$?\d+(?:\.\d+)?(?:%|\b)",
     re.IGNORECASE,
 )
-_QUANTITY_SUBJECT = re.compile(
-    r"^(?:a|an|the|this|that|these|those|another)\s+"
-    r"(?:(?:prescribed|annual|weekly|monthly|payable|total|eligible|dependent)\s+)*"
-    + _QUANTITY_NOUN
-    + r"\b",
-    re.IGNORECASE,
-)
 _QUANTITY_COMPLEMENT = re.compile(
     r"\b(?:at|by|with|for|on)\s+(?:a|an|the)\s+$", re.IGNORECASE
 )
@@ -453,7 +446,7 @@ def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
     All token-shaped lines participate in the walk, including lines whose
     follower cannot authenticate a label. Never silently skip one. Unsupported
     table cells, mixed parenthetical layouts, gaps, and duplicate
-    labels reject the entire interpretation. Numeric-only quantity prose lacks
+    labels reject the entire interpretation. Numeric-only detached prose lacks
     evidence distinguishing subsection labels from count/table entries.
     """
     if "|" in text:
@@ -601,13 +594,10 @@ def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
     if len(labels) < 2:
         return None
     if root_kind == "number" and not any(len(label.path) > 1 for label in labels):
-        # Several complete operative clauses can authenticate subsections even
-        # without a child list. A quantity-headed series remains ambiguous with
-        # table values, including when every value is a complete sentence.
-        if any(
-            _QUANTITY_SUBJECT.match(lines[index + 1].strip()) for index in candidates
-        ):
-            return None
+        # Ordered numbers and complete prose do not establish legal identity.
+        # Retain base obligations for detached numeric-only lists; explicit
+        # parenthesized subsections belong to the ordinary marker parser.
+        return None
     labelled_text_lines = {index + 1 for index in candidates}
     for index, line in enumerate(lines):
         header = _DEFINITION_HEADER.match(line)

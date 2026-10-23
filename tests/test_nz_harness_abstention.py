@@ -10,6 +10,11 @@ These are finite malformed grammar families, not a claim of universal grammar
 equivalence. A valid prefix can independently improve on base; citation cases
 therefore invalidate the first locator, rather than compare a valid citation's
 new cleanup with base's incomplete cleanup.
+
+Round-three families compare complete count-outline and coverage signatures,
+mixed-reference binding, attached canonical atoms, arithmetic ambiguity, and
+the preservation of spaced amounts. Ambiguous citation cleanup can retain more
+locator obligations than base; its equivalence claim concerns arithmetic only.
 """
 
 from __future__ import annotations
@@ -207,6 +212,96 @@ def _base_signatures(amount: int, line_ending: str) -> dict[str, object]:
     return signatures
 
 
+def _round_three_observations(
+    amount: int, locator: int, line_ending: str, jurisdiction: str
+) -> dict[str, object]:
+    citation = f"{jurisdiction}/statute/act/public/2018/0032/section/220"
+    observations: dict[str, object] = {}
+    for heading in ("Family size.", "Age.", "Household members."):
+        source = line_ending.join(
+            (
+                heading,
+                "1",
+                f"The household is entitled to ${amount}.",
+                "2",
+                f"The household is entitled to ${amount + 1}.",
+            )
+        )
+        observations[f"detached/{heading}"] = (
+            bs.bare_outline(source),
+            _numeric_values(source, citation),
+            vp._top_level_source_subparagraph_segments(source),
+        )
+
+    reason = (
+        f"Cannot be computed until {citation.rsplit('/', 1)[0]}/{locator} is encoded."
+    )
+    for other in (f"paragraph {locator}", f"section {locator + 1}"):
+        source = (
+            f"(1) Section {locator} has a heading and the conditions under "
+            f"{other} apply."
+        )
+        observations[f"mixed_reference/{other}"] = (
+            sc._reason_dependency_is_source_bound(
+                reason, source, corpus_citation_path=citation
+            )
+        )
+
+    canonical = f"{jurisdiction}/guidance/example/section/{locator}"
+    observations["attached_suffixes"] = [
+        vp._source_citation_subparagraph_paths(f"{canonical}(a){tail}", canonical)
+        for tail in (".5", "-other", ":other", ".5(a)", "-other(b)")
+    ]
+
+    for separator in (", ", " and "):
+        for hyphen in ("-", " - "):
+            source = (
+                f"The payment is 20% of earnings under sections {locator}"
+                f"{separator}{locator + 1}{hyphen}18{hyphen}2."
+            )
+            cleaned = sc.authoritative_numeric_recall_text(
+                source, corpus_citation_path=citation
+            )
+            # Full percentage witnesses improve on base for spaced chains;
+            # parity here concerns the independent subtraction-topology veto.
+            observations[f"partial_list/{separator}/{hyphen}"] = (
+                sc._explicit_source_arithmetic_topology(cleaned)
+            )
+
+    for separator in (" ", "\u00a0", "\u202f"):
+        amount_text = f"{amount}{separator}{amount + 1} dollars"
+        source = (
+            "The payment under sections 297, 311(1), and 338, and "
+            f"{amount_text} is payable."
+        )
+        cleaned = sc.authoritative_numeric_recall_text(
+            source, corpus_citation_path=citation
+        )
+        observations[f"spaced_amount/{separator}"] = amount_text in cleaned
+    return observations
+
+
+def _round_three_base_signatures(amount: int, locator: int) -> dict[str, object]:
+    return {
+        **{
+            f"detached/{heading}": (None, [1, amount, 2, amount + 1], [])
+            for heading in ("Family size.", "Age.", "Household members.")
+        },
+        f"mixed_reference/paragraph {locator}": False,
+        f"mixed_reference/section {locator + 1}": False,
+        "attached_suffixes": [set(), set(), set(), set(), set()],
+        **{
+            f"partial_list/{separator}/{hyphen}": None
+            for separator in (", ", " and ")
+            for hyphen in ("-", " - ")
+        },
+        **{
+            f"spaced_amount/{separator}": True
+            for separator in (" ", "\u00a0", "\u202f")
+        },
+    }
+
+
 @settings(max_examples=40, deadline=None)
 @given(
     amount=st.integers(min_value=1000, max_value=9999),
@@ -223,3 +318,10 @@ def test_outside_relaxed_grammars_retains_base_signatures(
         assert actual.keys() == expected.keys()
         for path, signature in expected.items():
             assert actual[path] == signature, (jurisdiction, path)
+        round_three = _round_three_observations(
+            amount, locator, line_ending, jurisdiction
+        )
+        expected_round_three = _round_three_base_signatures(amount, locator)
+        assert round_three.keys() == expected_round_three.keys()
+        for path, signature in expected_round_three.items():
+            assert round_three[path] == signature, (jurisdiction, path)

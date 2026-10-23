@@ -2243,7 +2243,7 @@ _EXPLICIT_LEGAL_SECTION_REFERENCE = re.compile(
 )
 # A locator atom must finish before known layout or terminal punctuation.
 # Consume its supported child chain before testing this boundary.
-_LEGAL_LOCATOR_ATOM_BOUNDARY = r"(?!\s*\()(?=$|\s|[;:!?)}\]]|[.,](?=\s|$))"
+_LEGAL_LOCATOR_ATOM_BOUNDARY = r"(?!\s*\()(?=$|\s|[)}\]]|[.,;:!?](?=\s|$))"
 # Canonical dependency paths below represent sections. A paragraph may be a
 # different legal container with the same number, so the general blocker alias
 # grammar cannot prove its kind. Require positively typed section syntax.
@@ -2260,6 +2260,18 @@ _ENGLISH_LEGAL_LOCATOR = (
     # Never clean a prefix of an attached unsupported identifier or child.
     + _LEGAL_LOCATOR_ATOM_BOUNDARY
 )
+_ENGLISH_LEGAL_QUANTITY_STOP = (
+    r"(?!\s*[%$£€])"
+    # A frequency starter is sufficient evidence, including unfamiliar units
+    # and modifiers such as `per annum` or `a full fiscal year`.
+    + r"(?!\s+(?:a|an|each|every|per)\b)"
+    + rf"(?!\s+(?:(?:a|an|each|every|per)\s+)?"
+    rf"(?:(?:calendar|working|business|whole|entire)\s+)?"
+    rf"(?:{_RECALL_UNIT_WORD}|seconds?|minutes?|fortnights?|quarters?|"
+    r"per\s+cent|euros?|pounds?|rand|"
+    r"USD|EUR|GBP|CAD|AUD|NZD|ZAR)\b)"
+    r"(?!\s+\d)"
+)
 _ENGLISH_LEGAL_LIST_LOCATOR = (
     rf"(?:{_ENGLISH_LEGAL_LOCATOR}|"
     # A coordinated parenthetical continues the preceding named provision:
@@ -2270,19 +2282,10 @@ _ENGLISH_LEGAL_LIST_LOCATOR = (
     r"(?!\s*\([A-Za-z0-9]+\))"
     # A named locator is explicit; only bare coordinated continuations can
     # instead introduce an operative amount followed by its unit.
-    + r"(?!\s*[%$£€])"
-    # A frequency starter is sufficient evidence, including unfamiliar units
-    # and modifiers such as `per annum` or `a full fiscal year`.
-    + r"(?!\s+(?:a|an|each|every|per)\b)"
-    + rf"(?!\s+(?:(?:a|an|each|every|per)\s+)?"
-    rf"(?:(?:calendar|working|business|whole|entire)\s+)?"
-    rf"(?:{_RECALL_UNIT_WORD}|seconds?|minutes?|fortnights?|quarters?|"
-    r"per\s+cent|euros?|pounds?|rand|"
-    r"USD|EUR|GBP|CAD|AUD|NZD|ZAR)\b)"
+    + _ENGLISH_LEGAL_QUANTITY_STOP
     # Bare continuations need a positive list boundary. An arbitrary word
     # after a number supplies no evidence that the number is a locator.
-     + rf"(?=\s*(?:[.;:)]|$|{_ENGLISH_LEGAL_LOCATOR}|"
-    rf"\([A-Za-z0-9]+\)|"
+    + rf"(?=\s*(?:[.;:)]|$|"
     rf"(?:,\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)"
     rf"(?:{_ENGLISH_LEGAL_LOCATOR}|\([A-Za-z0-9]+\))))"
 )
@@ -2294,12 +2297,62 @@ _ENGLISH_LEGAL_CITATION = re.compile(
     r"(?:through|to|and|or)\s+|[-–—]\s*)" + _ENGLISH_LEGAL_LIST_LOCATOR + r")*",
     flags=re.IGNORECASE,
 )
-# A possible locator must not prove a substantive conversion base. Retain the
-# inherited lexical grammar for this conservative veto; numeric-recall cleanup
-# above separately requires positive evidence before deleting a continuation.
+_ENGLISH_LEGAL_CITATION_CONTINUATION = re.compile(
+    r"\s*(?:,\s*(?:(?:and|or)\s+)?|"
+    r"(?:through|to|and|or)\s+|[-–—]\s*)(?=[\d(])",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_LEGAL_CITATION_ATOM = re.compile(
+    rf"(?:{_ENGLISH_LEGAL_LOCATOR}|"
+    r"\([A-Za-z0-9]+\)(?:\s*\([A-Za-z0-9]+\))*" + _LEGAL_LOCATOR_ATOM_BOUNDARY + r")",
+    flags=re.IGNORECASE,
+)
+
+
+def _complete_english_legal_citation_replacement(match: re.Match[str]) -> str:
+    """Preserve a citation whose remaining coordinated atom is unsupported."""
+
+    continuation = _ENGLISH_LEGAL_CITATION_CONTINUATION.match(match.string, match.end())
+    if continuation is None:
+        return ""
+    atom = _ENGLISH_LEGAL_CITATION_ATOM.match(match.string, continuation.end())
+    if atom is None or _ENGLISH_LEGAL_CITATION_CONTINUATION.match(
+        match.string, atom.end()
+    ):
+        # Unsupported atoms or an unresolved coordinated chain outside the
+        # authenticated match retain their original keyword and numeric region.
+        # A separate citation veto must still see them before arithmetic proof.
+        return match.group(0)
+    return ""
+
+
+# A possible locator must not prove an operand, operation or conversion base.
+# This conservative veto retains list coordination in the original source;
+# numeric recall separately requires positive evidence before deleting it.
 _POSSIBLE_ENGLISH_LEGAL_CITATION = re.compile(
-    r"\b(?:articles?|sections?|secs?\.?|regulations?|paragraphs?)\s+"
-    r"\d+(?:\.\d+)*(?:\s*(?:through|to|[-–—]|and|,)\s*\d+(?:\.\d+)*)*",
+    r"\b(?:articles?|sections?|secs?\.?|regulations?|paragraphs?|"
+    r"clauses?|parts?|schedules?)\s+"
+    r"\d+(?:\.\d+)*(?:\s*(?:,\s*(?:(?:and|or)\s+)?|"
+    r"(?:through|to|and|or)\s+|[-–—]\s*)\d+(?:\.\d+)*)*",
+    flags=re.IGNORECASE,
+)
+# Formula evidence needs a narrower citation mask so actual retained quantities
+# remain operands and operations. The broad possible-citation veto above only
+# prevents a locator from proving arithmetic topology or a conversion base.
+_ENGLISH_LEGAL_FORMULA_CITATION = re.compile(
+    r"\b(?:articles?|sections?|secs?\.?|regulations?|paragraphs?|"
+    r"clauses?|parts?|schedules?)\s+\d+(?:\.\d+)*"
+    # Possible citation ranges can include unsupported hyphen chains. Every
+    # continuation still needs a genuine delimiter and positive terminal/list
+    # boundary, and must stop before a retained rate, unit or spaced amount.
+    r"(?:\s*(?:,\s*(?:(?:and|or)\s+)?|"
+    r"(?:through|to|and|or)\s+|[-–—]\s*)"
+    r"\d+(?:\.\d+)*(?:\s*\([A-Za-z0-9]+\))*"
+    r"(?!\w|\s*\(|[.,]\d)"
+    + _ENGLISH_LEGAL_QUANTITY_STOP
+    + r"(?=\s*(?:[.;:](?=\s|$)|[)]|$|"
+    r"(?:,\s*(?:(?:and|or)\s+)?|(?:through|to|and|or)\s+|[-–—]\s*)"
+    r"[\d(])))*",
     flags=re.IGNORECASE,
 )
 # A complete parenthesis containing only a Statutes at Large volume/page
@@ -3003,22 +3056,17 @@ def recognize_source_structure(
     legacy_marker_offsets = {
         *(match.start() for match in _NUMBER_MARKER.finditer(source_text)),
         *(match.start() for match in _LETTER_MARKER.finditer(source_text)),
-        *(
-            match.start()
-            for match in _GLUED_SENTENCE_MARKER.finditer(source_text)
-            if german_sentences
-        ),
-        *(
-            match.start()
-            for match in _GLUED_SECTION_SENTENCE_MARKER.finditer(source_text)
-            if german_sentences
-        ),
-        *(
-            match.start()
-            for match in _EXPLICIT_SENTENCE_MARKER.finditer(source_text)
-            if german_sentences
-        ),
     }
+    if german_sentences:
+        legacy_marker_offsets.update(
+            match.start()
+            for pattern in (
+                _GLUED_SENTENCE_MARKER,
+                _GLUED_SECTION_SENTENCE_MARKER,
+                _EXPLICIT_SENTENCE_MARKER,
+            )
+            for match in pattern.finditer(source_text)
+        )
     owner_paths = _most_specific_segment_paths_at_offsets(
         paragraph_segments,
         legacy_marker_offsets,
@@ -3079,19 +3127,22 @@ def recognize_source_structure(
                     )
                 )
 
-        sentence_matches = [
-            match
-            for match in sorted(
-                (
-                    *_GLUED_SENTENCE_MARKER.finditer(paragraph_text),
-                    *_glued_section_sentence_matches(paragraph_text),
-                    *_EXPLICIT_SENTENCE_MARKER.finditer(paragraph_text),
-                ),
-                key=lambda item: item.start(),
-            )
+        sentence_matches = (
+            [
+                match
+                for match in sorted(
+                    (
+                        *_GLUED_SENTENCE_MARKER.finditer(paragraph_text),
+                        *_glued_section_sentence_matches(paragraph_text),
+                        *_EXPLICIT_SENTENCE_MARKER.finditer(paragraph_text),
+                    ),
+                    key=lambda item: item.start(),
+                )
+                if owner_paths.get(paragraph_start + match.start()) == paragraph_path
+            ]
             if german_sentences
-            and owner_paths.get(paragraph_start + match.start()) == paragraph_path
-        ]
+            else []
+        )
         for index, match in enumerate(sentence_matches):
             start = paragraph_start + match.start()
             end = (
@@ -7495,15 +7546,23 @@ def _source_clause_links_dependency(
         flags=re.IGNORECASE,
     ):
         return True
-    return (
-        re.search(
-            r"\b(?:voraussetzung\w*|bedingung\w*|conditions?)"
-            r"[^.;]{0,160}\b(?:vorliegen|erfüllt|bestehen|apply|hold)\b",
-            clause,
-            flags=re.IGNORECASE,
-        )
-        is not None
-    )
+    # A coordinated provision can share the condition predicate, but only
+    # through an uninterrupted list of explicitly typed references containing
+    # this exact match. Never search the entire clause for an unrelated apply.
+    locator = r"(?:§{1,2}\s*|sections?\s+)\d+[a-z]?(?:\([A-Za-z0-9]+\))*"
+    if re.search(
+        r"\b(?:voraussetzung\w*|bedingung\w*|conditions?)\s+"
+        rf"(?:nach|under|des|der)\s+(?:{locator}\s+(?:und|and)\s+)*$",
+        before,
+        flags=re.IGNORECASE,
+    ) and re.match(
+        rf"(?:\s+(?:und|and)\s+{locator})*\s+"
+        r"(?:vorliegen|erfüllt|bestehen|apply|hold)\b",
+        after,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    return False
 
 
 def _source_scope_cites_usc_dependency(
@@ -9572,13 +9631,13 @@ def _reason_dependency_is_source_bound(
                 ),
                 None,
             )
-            # Source binding below recognizes sections only. Keeping a numeric
-            # identifier while discarding an unsupported kind would bind an
-            # article or regulation to prose about a different kind of locator.
+            # Explicit canonical containers have no supported dependency
+            # production. Keep established implicit instrument/section paths.
             if explicit_locator_index is not None:
-                if components[explicit_locator_index].casefold() != "section":
-                    continue
-                section_index = explicit_locator_index + 1
+                # Revert the explicit canonical dependency relaxation. A path
+                # alone cannot prove an operative source relation; retain the
+                # deferral obligation instead of guessing from adjacent prose.
+                continue
             else:
                 section_index = implicit_section_index
             if (
@@ -15596,7 +15655,11 @@ def authoritative_numeric_recall_text(
     cleaned = sub(_BFH_DECISION_NUMERIC_RECALL_CITATION, "", cleaned)
     cleaned = sub(_GERMAN_LEGAL_CITATION, "", cleaned)
     cleaned = sub(_TITLE_SUFFIX_LEGAL_CITATION, "", cleaned)
-    cleaned = sub(_ENGLISH_LEGAL_CITATION, "", cleaned)
+    cleaned = sub(
+        _ENGLISH_LEGAL_CITATION,
+        _complete_english_legal_citation_replacement,
+        cleaned,
+    )
     cleaned = sub(_STRUCTURAL_REFERENCE, "", cleaned)
     cleaned = sub(
         r"(?m)^[ \t]*\((?:\d+[a-z]?|[a-z])\)(?:[ \t]+bis[ \t]+\(\d+[a-z]?\))?",
@@ -23248,7 +23311,16 @@ def _formula_branch_computation_occurrences(
     )
     recall_text = authoritative_numeric_recall_text(
         _mask_numeric_spans(
-            _mask_numeric_spans(branch.text, represented_years),
+            _mask_numeric_spans(
+                branch.text,
+                (
+                    *represented_years,
+                    *(
+                        (m.start(), m.end())
+                        for m in _ENGLISH_LEGAL_FORMULA_CITATION.finditer(branch.text)
+                    ),
+                ),
+            ),
             branch.structural_numeric_spans,
         )
     )
@@ -25078,6 +25150,11 @@ def _temporal_occurrence_is_formula_applicability_preface(
 def _formula_operation_kinds(text: str) -> set[str]:
     """Recognize operations in source prose or an explicit expression."""
 
+    # Inspect operations outside possible citation spans in the original
+    # source. A spaced locator chain cannot supply a subtraction witness.
+    text = _ENGLISH_LEGAL_FORMULA_CITATION.sub(
+        lambda match: " " * len(match.group(0)), text
+    )
     text = _without_slash_conjunction_operators(text)
     parsed_operations = _formula_ast_operation_kinds(text)
     if parsed_operations:
