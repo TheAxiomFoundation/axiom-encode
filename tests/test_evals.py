@@ -129,6 +129,7 @@ from axiom_encode.legacy_replacement import (
     LegacyReplacementRetainedSuccessor,
     LegacyReplacementRewrite,
 )
+from axiom_encode.prompts import get_encoder_prompt
 from axiom_encode.repo_routing import find_policy_repo_root, monorepo_checkout_name
 from axiom_encode.signing_broker import get_signing_broker
 from axiom_encode.statute import CitationParts, citation_to_relative_rulespec_path
@@ -7256,6 +7257,99 @@ def test_review_findings_are_persisted_and_mandatory_in_prompt(tmp_path):
     assert persisted.read_text() == expected
     assert evidence["content"] == expected
     assert evidence["sha256"] == hashlib.sha256(expected.encode()).hexdigest()
+
+
+@pytest.mark.parametrize("prompt_kind", ["encoder", "eval"])
+def test_fresh_encoding_prompts_require_open_interpretations(tmp_path, prompt_kind):
+    citation = "us/manual/example/block-1"
+    if prompt_kind == "encoder":
+        prompt = get_encoder_prompt(
+            citation=citation,
+            output_path="manual/example/block-1.yaml",
+            corpus_citation_path=citation,
+        )
+    else:
+        workspace = prepare_eval_workspace(
+            citation=citation,
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="Review supplies at the start of each period.",
+            axiom_rules_path=_canonical_rulespec_content_root(tmp_path, "us"),
+            mode="cold",
+        )
+        prompt = _build_eval_prompt(
+            citation,
+            "cold",
+            workspace,
+            workspace.context_files,
+            target_file_name="block-1.yaml",
+        )
+
+    normalized = " ".join(prompt.split())
+    for topic in (
+        "source provisions conflict",
+        "reading departs from literal wording",
+        "question has been put to the publisher",
+        "module.interpretations[]",
+        "status: open",
+        "`alternatives` (`id`, `reading`, optional `effect`)",
+        "Every alternative requires a non-blank string `id` matching `^[a-z0-9]+(-[a-z0-9]+)*$`",
+        "unique within its interpretation",
+        "Its only allowed keys are `id`, `reading`, and `effect`",
+        "Never invent `ruling` or `confirmation`",
+        "recorded human ruling",
+        "mandatory review findings",
+        "organisations, never people",
+        "public https records",
+        "private identifiers and local paths out",
+    ):
+        assert topic in normalized
+
+
+def test_review_findings_carry_recorded_interpretation_ruling_to_repair_prompt(
+    tmp_path,
+):
+    policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
+    findings = tmp_path / "interpretation-ruling.md"
+    ruling = (
+        "For interpretation weekly-review, use status: ruled and copy:\n"
+        "ruling:\n"
+        "  by: Fictional Lantern Scheme Office\n"
+        "  date: 2024-10-10\n"
+        "  record: https://example.org/fictional-lantern/weekly-review\n"
+    )
+    findings.write_text(ruling)
+    workspace = prepare_eval_workspace(
+        citation="us/manual/example/block-1",
+        runner=parse_runner_spec("codex:gpt-5.4"),
+        output_root=tmp_path / "out",
+        source_text="Review supplies at the start of each period.",
+        axiom_rules_path=policy_repo_root,
+        mode="cold",
+        review_findings_paths=[findings],
+    )
+
+    prompt = _build_eval_prompt(
+        "us/manual/example/block-1",
+        "cold",
+        workspace,
+        workspace.context_files,
+        target_file_name="block-1.yaml",
+    )
+    evidence = json.loads(workspace.manifest_file.read_text())["review_findings_files"][
+        0
+    ]
+
+    assert ruling.rstrip() in prompt
+    assert "A supplied ruling permits `status: ruled`" in prompt
+    assert "exact `ruling` block" in prompt
+    assert "Never invent either block" in prompt
+    assert (
+        "moving the old reading into `alternatives` with a required non-blank "
+        "kebab-case `id` unique within that interpretation" in " ".join(prompt.split())
+    )
+    assert evidence["content"] == ruling
+    assert evidence["sha256"] == hashlib.sha256(ruling.encode()).hexdigest()
 
 
 def test_structured_review_contract_is_bound_into_context_manifest(tmp_path):
