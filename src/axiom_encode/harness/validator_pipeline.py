@@ -8839,10 +8839,16 @@ _YEAR_DURATION_PATTERN = re.compile(
     + r")\s+(?P<unit>ans?|jaar|jaren)\b",
     re.IGNORECASE,
 )
+_FRENCH_ER_DURATION_VERB_ENDING = (
+    r"(?:er|ant|e|es|ent|ons|ez|ais|ait|ions|iez|aient|"
+    r"é|ée|és|ées|erai|eras|era|erons|erez|eront|"
+    r"erais|erait|erions|eriez|eraient|ai|as|a|âmes|âtes|èrent)"
+)
 _FRENCH_DURATION_CONTEXT_PATTERN = re.compile(
     r"\b(?:le|la|les|une?|cette|ces|ils?|elles?|ce|cela)\s+"
-    r"(?:[\w’'-]+\s+){0,8}(?:est|sont|dure|durent|doit|doivent|"
-    r"peut|peuvent|d[ée]passer|exc[ée]der|expire|expirent)\s+"
+    r"(?:[\w’'-]+\s+){0,8}(?:n[’'])?(?:est|sont|dure|durent|doit|doivent|"
+    rf"peut|peuvent|d[ée]pass{_FRENCH_ER_DURATION_VERB_ENDING}|"
+    rf"exc[èée]d{_FRENCH_ER_DURATION_VERB_ENDING}|expire|expirent)\s+"
     r"(?:[\w’'-]+\s+){0,8}$|"
     r"\b(?:le|la|les|une?|des|ce|cette|ces|sa|son|ses|leurs?)\s+"
     r"(?:[\w’'-]+\s+){1,8}(?:de|pour|sur)\s+$|"

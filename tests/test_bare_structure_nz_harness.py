@@ -1,4 +1,8 @@
-"""Public NZ law excerpts retain legal rows without losing operative numbers."""
+"""Public NZ law excerpts retain legal rows without losing operative numbers.
+
+Excerpts: Social Security Act 2018 (2018/32); amending Act 2026/54, section 15.
+Source: New Zealand Legislation (legislation.govt.nz), Crown copyright, CC BY 4.0
+"""
 
 from __future__ import annotations
 
@@ -8,7 +12,12 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from axiom_encode.bare_structure import bare_outline, mask_bare_labels, table_outline
+from axiom_encode.bare_structure import (
+    bare_definition_headers,
+    bare_outline,
+    mask_bare_labels,
+    table_outline,
+)
 
 S73 = """1
 A person entitled to a winter energy payment may make an election not to receive the payment.
@@ -42,6 +51,10 @@ REPLACEMENT_TABLE = """In Schedule 4 , Part 7, replace clauses 4 to 6A with:
 6AA | To any other specified person whose accommodation costs are the sum of payments required under any mortgage security, and other payments that the chief executive is satisfied are reasonably required to be made in respect of the specified person’s home | 70% of the amount by which an applicant’s weekly qualifying accommodation costs exceeds 30% of the base rate, but not more than— a $165 a week, if the applicant resides in Area 1: b $105 a week, if the applicant resides in Area 2: c $80 a week, if the applicant resides in Area 3: d $70 a week, if the applicant resides in Area 4
 6A | The rate of accommodation supplement payable to a community spouse or partner (as defined in Schedule 2) is the rate in clauses 1 to 6AA that would apply to them if they were single (and their other circumstances were unchanged).
 6B | In clauses 4 to 6AA , specified person means a person, or the spouse or partner of a person, who is receiving— a supported living payment on the ground of restricted work capacity or total blindness; or b supported living payment on the ground of caring for another person; or c emergency benefit, but only if the equivalent benefit under section 63(4) is— i supported living payment on the ground of restricted work capacity or total blindness; or ii supported living payment on the ground of caring for another person; or d New Zealand superannuation; or e veteran’s pension."""
+
+
+# Synthetic legal-identity control; the official unheaded excerpt is kept above.
+HEADED_RATES_TABLE = "Clause | Provision\n" + RATES_TABLE
 
 
 def test_complete_prose_subsections_with_prescribed_rate_are_authenticated():
@@ -92,16 +105,18 @@ def test_complete_prose_outline_is_stable_under_prescribed_quantity_complements(
 
 
 def test_flattened_rate_rows_end_before_later_rows_and_next_clause():
-    outline = table_outline(RATES_TABLE)
+    outline = table_outline(HEADED_RATES_TABLE)
     assert outline is not None
     paths = {label.path: label for label in outline}
     single = paths[("1", "a")]
-    assert len(RATES_TABLE[single.marker_end : single.end]) < 100
-    assert "$ 450 per winter period" in RATES_TABLE[single.marker_end : single.end]
-    assert "$ 700" not in RATES_TABLE[single.marker_end : single.end]
+    assert len(HEADED_RATES_TABLE[single.marker_end : single.end]) < 100
+    assert (
+        "$ 450 per winter period" in HEADED_RATES_TABLE[single.marker_end : single.end]
+    )
+    assert "$ 700" not in HEADED_RATES_TABLE[single.marker_end : single.end]
     assert paths[("1", "c")].end == paths[("2",)].start
     assert paths[("2", "a", "iii")].end == paths[("2", "b")].start
-    masked = mask_bare_labels(RATES_TABLE, outline)
+    masked = mask_bare_labels(HEADED_RATES_TABLE, outline)
     assert re.findall(r"\d+", masked) == [
         "450",
         "1",
@@ -142,7 +157,7 @@ def test_replacement_clause_suffixes_and_cross_reference_keep_their_row():
     separator=st.sampled_from((" ", "\n", "\r\n", "\u2028")),
 )
 def test_table_mask_preserves_amounts_offsets_and_all_row_boundaries(amount, separator):
-    source = RATES_TABLE.replace("450", str(amount))
+    source = HEADED_RATES_TABLE.replace("450", str(amount))
     source = re.sub(r" (?=\([a-z]+\) \||2 \|)", lambda _: separator, source)
     outline = bare_outline(source)
     assert outline is not None
@@ -203,9 +218,7 @@ def test_value_column_headers_keep_counts_even_with_nested_conditions(
     assert mask_bare_labels(source) == source
 
 
-@pytest.mark.parametrize(
-    "prefix", ("", "Clause | Provision\n", "| Clause | Provision\n")
-)
+@pytest.mark.parametrize("prefix", ("Clause | Provision\n", "| Clause | Provision\n"))
 def test_clause_column_headers_keep_statutory_rate_rows(prefix):
     outline = bare_outline(prefix + RATES_TABLE)
     assert outline is not None
@@ -217,14 +230,14 @@ def test_clause_column_headers_keep_statutory_rate_rows(prefix):
     ("0", "-2", "+2", "2a", "2A1", "2" + "Z" * 9, "9" * 10, "(1)", "(1A)"),
 )
 def test_unknown_table_marker_invalidates_the_whole_walk(token):
-    source = RATES_TABLE.replace("2 | For", f"{token} | For")
+    source = HEADED_RATES_TABLE.replace("2 | For", f"{token} | For")
     assert table_outline(source) is None
     assert mask_bare_labels(source) == source
 
 
 @pytest.mark.parametrize("token", ("1.", "(1.)", "1.2", "(1.2)"))
 def test_unknown_dotted_table_row_between_siblings_invalidates_the_whole_walk(token):
-    source = RATES_TABLE.replace(
+    source = HEADED_RATES_TABLE.replace(
         "(b) | to a person",
         f"{token} | The unrecognised row is operative. (b) | to a person",
         1,
@@ -235,7 +248,7 @@ def test_unknown_dotted_table_row_between_siblings_invalidates_the_whole_walk(to
 
 @pytest.mark.parametrize("token", ("-2", "+2", "−2", "–2", "—2"))
 def test_unknown_signed_table_row_between_siblings_invalidates_the_whole_walk(token):
-    source = RATES_TABLE.replace(
+    source = HEADED_RATES_TABLE.replace(
         "(b) | to a person",
         f"{token} | The unrecognised row is operative. (b) | to a person",
         1,
@@ -260,4 +273,106 @@ def test_unparsed_line_start_children_prevent_a_partial_pipe_walk(border, token)
 
 def test_duplicate_or_out_of_order_table_roots_are_never_skipped():
     for token in ("1", "3"):
-        assert table_outline(RATES_TABLE.replace("2 | For", f"{token} | For")) is None
+        assert (
+            table_outline(HEADED_RATES_TABLE.replace("2 | For", f"{token} | For"))
+            is None
+        )
+
+
+@pytest.mark.parametrize(
+    "caption",
+    [
+        "",
+        "Family size | Eligibility\n",
+        "Age | Eligibility\n",
+        "Number of children | Eligibility\n",
+        "Years | Eligibility\n",
+    ],
+)
+def test_children_do_not_authenticate_numeric_cell_identity(caption):
+    source = (
+        caption + "1 | The household is eligible if— (a) | its income is below $450.\n"
+        "2 | The household is eligible if— (a) | its income is below $700."
+    )
+    assert table_outline(source) is None
+    assert mask_bare_labels(source) == source
+
+
+def test_unheaded_nz_rate_table_abstains_without_positive_legal_identity():
+    assert table_outline(RATES_TABLE) is None
+    assert mask_bare_labels(RATES_TABLE) == RATES_TABLE
+    assert table_outline(HEADED_RATES_TABLE) is not None
+
+
+@pytest.mark.parametrize("separator", [" ", "\n", "\r\n"])
+def test_inline_nonpipe_child_cannot_be_absorbed_by_a_pipe_sibling(separator):
+    source = (
+        "In Schedule 4, replace clauses 1 and 2 with:\n"
+        "1 | The conditions apply as follows: (a) | A person is eligible if resident."
+        + separator
+        + "(b) A person is eligible if aged 65 years.\n"
+        "2 | The authority must pay the benefit."
+    )
+    assert table_outline(source) is None
+    assert mask_bare_labels(source) == source
+
+
+@pytest.mark.parametrize("heading", ["", "Clause | Provision\n"])
+def test_pipe_definition_layout_abstains_where_detached_layout_has_independent_owners(
+    heading,
+):
+    pipe = (
+        "1 | The following definitions apply:—\nbenefit means—\n"
+        "(a) | a main benefit; or\n(b) | a pension.\n"
+        "minimum period means a period of at least 22 weeks."
+    )
+    detached = (
+        pipe.replace("1 | ", "1\n").replace("(a) | ", "a\n").replace("(b) | ", "b\n")
+    )
+    outline = bare_outline(detached)
+    assert outline is not None
+    assert [term for _, term in bare_definition_headers(detached, outline)] == [
+        "benefit",
+        "minimum period",
+    ]
+    assert detached[outline[-1].marker_end : outline[-1].end].strip() == "a pension."
+    # The same content cannot be certified with weaker ownership after a layout change.
+    assert table_outline(heading + pipe) is None
+    assert mask_bare_labels(heading + pipe) == heading + pipe
+
+
+def test_same_line_label_does_not_hide_a_following_definition_header():
+    source = (
+        "1 | The following definitions apply:—\nbenefit means—\n(a) | a main benefit."
+    )
+    from axiom_encode.bare_structure import BareLabel
+
+    labels = (BareLabel("1", ("1",), 0, source.index("The"), len(source)),)
+    assert [term for _, term in bare_definition_headers(source, labels)] == ["benefit"]
+
+
+@pytest.mark.parametrize(
+    "introduction", ["Compare clauses 1 and 2 with:", "Clauses 1 and 2 with:"]
+)
+def test_replacement_identity_requires_an_explicit_replacement(introduction):
+    source = (
+        introduction
+        + "\n1 | The household is eligible if— (a) | its income is below $450.\n"
+        "2 | The household is eligible if— (a) | its income is below $700."
+    )
+    assert table_outline(source) is None
+    assert (
+        table_outline(source.replace(introduction, "Replace clauses 1 and 2 with:"))
+        is not None
+    )
+
+
+@pytest.mark.parametrize("term", ["minimum_period", "minimum.period"])
+def test_unfamiliar_detached_definition_terms_prevent_a_partial_table_walk(term):
+    source = (
+        "Clause | Provision\n1 | The conditions apply as follows:—\n"
+        "(a) | A person is eligible if resident.\n(b) | A pension is payable.\n"
+        f"{term} means a period of at least 22 weeks."
+    )
+    assert table_outline(source) is None
+    assert mask_bare_labels(source) == source

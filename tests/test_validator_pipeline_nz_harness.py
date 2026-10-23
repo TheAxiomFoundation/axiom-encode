@@ -1,4 +1,8 @@
-"""NZ report regressions for structure-aware coverage and numeric parsing."""
+"""NZ report regressions for structure-aware coverage and numeric parsing.
+
+Excerpts: Social Security Act 2018 (2018/32); amending Act 2026/54, section 15.
+Source: New Zealand Legislation (legislation.govt.nz), Crown copyright, CC BY 4.0
+"""
 
 import pytest
 import yaml
@@ -95,6 +99,15 @@ def test_english_subsection_labels_never_generate_duration_conversions(label):
         ("La durée est de 4 ans.", 48),
         ("La durée est de 4\nans.", 48),
         ("La durée est de 1 an.", 12),
+        ("Le délai ne dépasse pas 1 an.", 12),
+        ("Les délais ne dépassent pas 1 an.", 12),
+        ("La durée ne dépassera pas 1 an.", 12),
+        ("La durée ne dépassait pas 1 an.", 12),
+        ("Le délai ne peut excéder 1 an.", 12),
+        ("Le délai n’excède pas 1 an.", 12),
+        ("Le délai a dépassé 1 an.", 12),
+        ("Les durées ont excédé 1 an.", 12),
+        ("La durée ne dépasserait pas 1 an.", 12),
         ("La durée est de\n1 an.", 12),
         ("La protection est garantie pendant 1 an.", 12),
         ("Un délai de 1 an est prévu.", 12),
@@ -113,8 +126,9 @@ def test_local_french_and_dutch_year_durations_keep_month_conversion(source, mon
     assert months in vp.extract_numeric_occurrences_from_text(source)
 
 
+# Synthetic clause caption authenticates this positive layout control.
 FLATTENED_RATE_TABLE = (
-    "1 | The rates of winter energy payment are as follows:\n"
+    "Clause | Provision\n1 | The rates of winter energy payment are as follows:\n"
     "(a) | to a person who is single and has no dependent children | $ 450 per winter period "
     "(b) | to a person who is single and has 1 or more dependent children | $ 700 per winter period "
     "(c) | to a person who is in a relationship, and who is the 1 spouse or partner "
@@ -139,7 +153,7 @@ def test_flattened_table_coverage_preserves_row_and_enclosing_clause_boundaries(
 @given(amount=st.integers(min_value=1, max_value=100_000))
 def test_flattened_coverage_rows_never_acquire_a_sibling_definition(amount):
     source = (
-        f"1 | The rates of payment are as follows: (a) | A person receives $ {amount}. "
+        f"Clause | Provision\n1 | The rates of payment are as follows: (a) | A person receives $ {amount}. "
         "(b) | A second person receives $ 700. "
         "2 | For the purposes of clause 1, dependent child means another person."
     )
@@ -175,7 +189,7 @@ def test_mixed_table_cells_preserve_ordinary_paragraph_coverage():
 
 def test_flattened_high_signal_demands_retain_their_own_physical_marker():
     source = (
-        "1 | The rates of payment are as follows: "
+        "Clause | Provision\n1 | The rates of payment are as follows: "
         "(a) | A single person is eligible for $ 450. "
         "(b) | A sole parent is eligible for $ 700. "
         "2 | For the purposes of clause 1, dependent child means another person."
@@ -191,7 +205,7 @@ def test_flattened_high_signal_demands_retain_their_own_physical_marker():
 
 def test_repeated_table_paragraph_citation_covers_only_its_own_clause():
     source = (
-        "1 | The rates of payment are as follows: "
+        "Clause | Provision\n1 | The rates of payment are as follows: "
         "(a) | A single person is eligible for $ 450. "
         "(b) | A sole parent receives $ 700. "
         "2 | For the purposes of clause 1, the definition is as follows: "
@@ -258,7 +272,7 @@ def test_repeated_table_paragraph_citation_covers_only_its_own_clause():
 )
 def test_table_source_does_not_drop_an_authenticated_numeric_subsection(citation):
     source = (
-        "1 | The rates of payment are as follows: "
+        "Clause | Provision\n1 | The rates of payment are as follows: "
         "(a) | A single person is eligible for $ 450. "
         "(b) | A sole parent receives $ 700. "
         "2 | For the purposes of subsection 1, a dependent child means another person."
@@ -313,4 +327,15 @@ def test_exact_canonical_paragraph_citation_never_matches_a_malformed_prefix():
             TABLE_CITATION + "(a)(b)x", TABLE_CITATION
         )
         == set()
+    )
+
+
+def test_singular_french_year_has_both_inventory_and_conversion():
+    source = "Le délai ne dépasse pas 1 an."
+    assert vp._extract_year_duration_month_values(source) == {12}
+    assert any(
+        occurrence.raw == "1 an"
+        for occurrence in vp.extract_typed_numeric_inventory_occurrences_from_text(
+            source
+        )
     )

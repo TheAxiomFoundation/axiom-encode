@@ -136,11 +136,11 @@ _TABLE_MARKER = re.compile(
 _TABLE_POSSIBLE_MARKER = re.compile(
     r"(?<!\S)(?:[+−–—-]?\d[\dA-Za-z.]*|\([A-Za-z0-9.]+\))\s*\|"
 )
-_TABLE_LINE_CHILD = re.compile(
-    r"^[ \t|]*(?P<marker>\((?:\d[\dA-Za-z.]*|[A-Za-z]+)\))(?=\s|$)"
+_TABLE_INLINE_CHILD = re.compile(
+    r"(?<![^\s|])(?P<marker>\((?:\d[\dA-Za-z.]*|[A-Za-z]+)\))(?=\s|$)"
 )
 _TABLE_REPLACEMENT_INTRO = re.compile(
-    r"\b(?:sections?|subsections?|clauses?|subclauses?|paragraphs?)\s+"
+    r"\breplace\s+(?:sections?|subsections?|clauses?|subclauses?|paragraphs?)\s+"
     r"(?P<first>[1-9]\d*[A-Z]*)"
     r"(?:\s+(?:to|through|and)\s+[1-9]\d*[A-Z]*)?\s+with\s*[:—-]\s*$",
     re.IGNORECASE,
@@ -151,6 +151,7 @@ _TABLE_SCOPE = re.compile(
     r"subclauses?|paragraphs?|parts?|schedules?))\b",
     re.IGNORECASE,
 )
+_LABEL_WHITESPACE = re.compile(r"\s*")
 _LINE_ENDINGS = "\r\n\v\f\x1c\x1d\x1e\x85\u2028\u2029"
 _VARIABLE_INTRO = re.compile(
     r"\b(?:where|formula|symbols?|variables?)\b", re.IGNORECASE
@@ -336,14 +337,13 @@ def table_outline(text: str) -> tuple[BareLabel, ...] | None:
         # sibling, just as an unknown token invalidates a detached outline.
         return None
     marker_starts = {marker.start() for marker in markers}
-    offset = 0
-    for line in text.splitlines(keepends=True):
-        child = _TABLE_LINE_CHILD.match(line)
-        if child is not None and offset + child.start("marker") not in marker_starts:
-            # A mixed layout can retain ordinary line-start paragraphs inside
-            # pipe cells. Abstain rather than certify a walk that omits them.
-            return None
-        offset += len(line)
+    if any(
+        child.start("marker") not in marker_starts
+        for child in _TABLE_INLINE_CHILD.finditer(text)
+    ):
+        # Mixed layouts can retain ordinary paragraphs inside flattened rows,
+        # too. Never certify a sibling hidden inside another child body.
+        return None
     roots = [marker for marker in markers if marker.group("number")]
     if not roots:
         return None
@@ -404,13 +404,22 @@ def table_outline(text: str) -> tuple[BareLabel, ...] | None:
         )
     if len(roots) == 1 and not any(len(label.path) > 1 for label in labels):
         return None
-    if not any(len(label.path) > 1 for label in labels):
-        introduction = _TABLE_REPLACEMENT_INTRO.search(text[: roots[0].start()])
-        if introduction is None or introduction["first"] != roots[0]["number"]:
-            # Complete sentences in numbered cells can still describe a
-            # child-count table. Without child structure, require an explicit
-            # clause-replacement locator to authenticate their legal identity.
-            return None
+    introduction = _TABLE_REPLACEMENT_INTRO.search(text[: roots[0].start()])
+    clause_heading = re.search(
+        r"(?im)^[ \t|]*(?:clauses?|sections?|subsections?|subclauses?|paragraphs?)"
+        r"[ \t]*\|",
+        text[: roots[0].start()],
+    )
+    if not clause_heading and (
+        introduction is None or introduction["first"] != roots[0]["number"]
+    ):
+        # Count-keyed tables can contain complete prose and nested eligibility
+        # conditions. Only an explicit legal locator authenticates the roots.
+        return None
+    if any(_DEFINITION_HEADER.match(line) for line in text.splitlines()):
+        # Independent definitions need boundaries beyond pipe markers. Retain
+        # all obligations until this layout has an authenticated ownership walk.
+        return None
     next_at_depth = [len(text)] * 3
     result: list[BareLabel] = []
     for label in reversed(labels):
@@ -659,15 +668,17 @@ def bare_definition_headers(
     """
     if not outline:
         return ()
-    label_starts = {label.start for label in outline}
-    labelled_text_starts: set[int] = set()
+    labelled_text_starts = {
+        _LABEL_WHITESPACE.match(text, label.marker_end).end() for label in outline
+    }
     definitions: list[tuple[int, str]] = []
     offset = 0
     for line in text.splitlines(keepends=True):
-        if offset in label_starts:
-            labelled_text_starts.add(offset + len(line))
         match = _DEFINITION.match(line)
-        if match is not None and offset not in labelled_text_starts:
+        if (
+            match is not None
+            and offset + match.start("term") not in labelled_text_starts
+        ):
             definitions.append((offset + match.start(), match.group("term").strip()))
         offset += len(line)
     return tuple(definitions)

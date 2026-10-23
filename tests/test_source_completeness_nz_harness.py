@@ -1,9 +1,13 @@
-"""Public-law regressions for outline, locator and clause ownership checks."""
+"""Public-law regressions for outline, locator and clause ownership checks.
+
+Excerpts: Social Security Act 2018 (2018/32); amending Act 2026/54, section 15.
+Source: New Zealand Legislation (legislation.govt.nz), Crown copyright, CC BY 4.0
+"""
 
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode.harness import source_completeness as sc
@@ -35,8 +39,9 @@ def test_completed_prose_subsections_mask_only_structural_numbers():
 
 
 def test_flattened_table_keeps_numeric_clause_labels_out_of_recall():
+    # Synthetic clause caption supplies the evidence absent from the NZ excerpt.
     source = (
-        "1 | The rates of winter energy payment are as follows:\n"
+        "Clause | Provision\n1 | The rates of winter energy payment are as follows:\n"
         "(a) | to a person who is single and has no dependent children | $ 450 "
         "per winter period (b) | to a person who is single and has 1 or more "
         "dependent children | $ 700 per winter period "
@@ -179,6 +184,7 @@ def test_german_glued_sentence_fallback_stays_available(jurisdiction: str):
     }
 
 
+@pytest.mark.parametrize("jurisdiction", ["de", "at", "ch"])
 @pytest.mark.parametrize(
     "subject",
     [
@@ -190,16 +196,18 @@ def test_german_glued_sentence_fallback_stays_available(jurisdiction: str):
         "SGB-II-Leistungen",
     ],
 )
-def test_german_glued_acronym_compounds_are_sentence_starts(subject: str):
+def test_german_glued_acronym_compounds_are_sentence_starts(
+    subject: str, jurisdiction: str
+):
     source = f"(1) 1{subject} erhalten die Zahlung.2{subject} erhalten die Leistung."
     branches = sc.recognize_source_structure(
-        source, corpus_citation_path="de/statute/example/1"
+        source, corpus_citation_path=f"{jurisdiction}/statute/example/1"
     )
     assert {b.path for b in branches if b.kind == "sentence"} == {
         ("1", "satz-1"),
         ("1", "satz-2"),
     }
-    assert not numeric_values(source, "de/statute/example/1")
+    assert not numeric_values(source, f"{jurisdiction}/statute/example/1")
 
 
 def test_german_source_preserves_bare_alphanumeric_clause_locators():
@@ -213,15 +221,26 @@ def test_german_source_preserves_bare_alphanumeric_clause_locators():
     ]
 
 
-def test_english_glued_prose_does_not_activate_german_sentence_fallback():
+@pytest.mark.parametrize(
+    "citation", [NZ_AMENDMENT, "at/statute/example/1", "ch/statute/example/1"]
+)
+def test_english_glued_prose_does_not_activate_german_sentence_fallback(citation):
     source = "6Accommodation costs are the sum of mortgage payments."
-    assert not sc.recognize_source_structure(source, corpus_citation_path=NZ_AMENDMENT)
+    assert not sc.recognize_source_structure(source, corpus_citation_path=citation)
     assert sc.authoritative_numeric_recall_text(
-        source, corpus_citation_path=NZ_AMENDMENT
+        source, corpus_citation_path=citation
     ).startswith("6Accommodation")
 
 
-@pytest.mark.parametrize("citation", ["", "fr/statute/example/article/1"])
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "",
+        "fr/statute/example/article/1",
+        "at/statute/example/1",
+        "ch/statute/example/1",
+    ],
+)
 @pytest.mark.parametrize(
     "source",
     [
@@ -475,3 +494,74 @@ def test_legal_citation_list_never_contributes_numeric_demands(sections: list[in
     source = "This section overrides sections " + ", ".join(references[:-1])
     source += ", and " + references[-1] + ". The amount is $450."
     assert numeric_values(source, f"{NZ_ACT}/section/74") == [450]
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            "This section overrides sections 297, 311(1), and 338, and 450 a week is payable.",
+            [450],
+        ),
+        (
+            "The supplement is the sum of the allowance under clauses 1 to 6AA and 20% of earnings.",
+            [0.2],
+        ),
+    ],
+)
+def test_citation_cleanup_keeps_review_payment_and_percentage(source, expected):
+    assert numeric_values(source, f"{NZ_ACT}/section/74") == expected
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    amount=st.integers(1, 999),
+    separator=st.sampled_from([", and ", " and ", ", ", ",\nand "]),
+    suffix=st.sampled_from(
+        [
+            "a week",
+            "each week",
+            "per calendar month",
+            "per annum",
+            "a full fiscal year",
+            "each full calendar week",
+            "a year",
+            "every fortnight",
+            "per working day",
+            "per cent of earnings",
+            "% of earnings",
+            "£",
+            "€",
+            "$",
+            "dollars",
+        ]
+    ),
+)
+@example(amount=450, separator=", and ", suffix="per annum")
+@example(amount=450, separator=", and ", suffix="a full fiscal year")
+def test_real_amount_after_a_citation_list_survives_cleanup(amount, separator, suffix):
+    source = f"The payment under sections 297, 311(1), and 338{separator}{amount} {suffix} is payable."
+    expected = numeric_values(f"{amount} {suffix} is payable.", "")
+    assert expected
+    assert numeric_values(source, f"{NZ_ACT}/section/74") == expected
+
+
+@pytest.mark.parametrize(
+    "caption", ["Family size", "Age", "Number of children", "Years"]
+)
+def test_count_keyed_table_keeps_counts_and_payment_amounts(caption):
+    source = (
+        f"{caption} | Eligibility\n"
+        "1 | The household is eligible if— (a) | its income is below $450.\n"
+        "2 | The household is eligible if— (a) | its income is below $700."
+    )
+    assert numeric_values(source, f"{NZ_ACT}/section/74") == [1, 450, 2, 700]
+
+
+@pytest.mark.parametrize("kind", ["article", "regulation"])
+def test_unsupported_canonical_locator_kinds_fail_closed(kind):
+    assert not sc._reason_dependency_is_source_bound(
+        f"Cannot be computed until {NZ_ACT}/{kind}/72 is encoded.",
+        f"The payment depends on {kind} 72.",
+        corpus_citation_path=f"{NZ_ACT}/{kind}/220",
+    )

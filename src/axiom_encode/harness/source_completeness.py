@@ -2255,7 +2255,14 @@ _ENGLISH_LEGAL_LIST_LOCATOR = (
     r"(?!\s*\([A-Za-z0-9]+\))"
     # A named locator is explicit; only bare coordinated continuations can
     # instead introduce an operative amount followed by its unit.
-    + rf"(?!\s+(?:per\s+)?(?:{_RECALL_UNIT_WORD}|euros?|pounds?|rand|"
+    + r"(?!\s*[%$£€])"
+    # A frequency starter is sufficient evidence, including unfamiliar units
+    # and modifiers such as `per annum` or `a full fiscal year`.
+    + r"(?!\s+(?:a|an|each|every|per)\b)"
+    + rf"(?!\s+(?:(?:a|an|each|every|per)\s+)?"
+    rf"(?:(?:calendar|working|business|whole|entire)\s+)?"
+    rf"(?:{_RECALL_UNIT_WORD}|seconds?|minutes?|fortnights?|quarters?|"
+    r"per\s+cent|euros?|pounds?|rand|"
     r"USD|EUR|GBP|CAD|AUD|NZD|ZAR)\b)"
 )
 _ENGLISH_LEGAL_CITATION = re.compile(
@@ -2679,6 +2686,7 @@ def _uses_german_sentence_numbering(text: str, corpus_citation_path: str) -> boo
             r"\b(?:Satz|Sätze|Absatz|Absätze|gilt|gelten|beträgt|anzuwenden|"
             r"Voraussetzung|abweichend|muss|müssen|nicht|darf|dürfen|wird|werden|"
             r"besteht|hervorgehen|vollendet)\b|"
+            r"\berhalten\s+(?:die|eine?|das|den)\b|"
             r"(?<![\w])[1-9]\d?(?:Der|Die|Das|Den|Dem|Er|Sie|Es|Für)\b",
             text,
             flags=re.IGNORECASE,
