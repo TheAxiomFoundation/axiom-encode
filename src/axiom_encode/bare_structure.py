@@ -1,4 +1,4 @@
-"""Conservative recognition of outlines whose labels occupy separate lines.
+"""Conservative recognition of detached outlines and prose-headed clause tables.
 
 The walk authenticates a whole outline before exposing any marker offsets. A
 partial walk is unsafe: a skipped duplicate, a table cell, or a broken sequence
@@ -66,6 +66,14 @@ _NUMERIC_SCOPE_INTRO = re.compile(r"^in\s+this\s+section,\s+", re.IGNORECASE)
 _NUMERIC_NAMED_MAIN_CLAUSE = re.compile(
     r"^[A-Z]{2,16}\s+(?:must|shall|may|can|cannot|will)\s+"
 )
+_NUMERIC_LEGAL_SUBJECT = re.compile(
+    r"^(?:sections?|subsections?|paragraphs?|clauses?|subclauses?|parts?|"
+    r"schedules?|chapters?|regulations?|articles?)\s+"
+    r"[1-9]\d*[A-Z]*(?:\([A-Za-z0-9]+\))*"
+    r"(?:\s*(?:,\s*(?:(?:and|or)\s+)?|(?:and|or|to)\s+)"
+    r"[1-9]\d*[A-Z]*(?:\([A-Za-z0-9]+\))*)*\s+",
+    re.IGNORECASE,
+)
 _NUMERIC_RELATIVE_SUBJECT = re.compile(
     r"\b(?:which|that|who|whom|whose|where|when)\b", re.IGNORECASE
 )
@@ -106,6 +114,41 @@ _UNRESOLVED_QUANTITY = re.compile(rf"\b{_QUANTITY_NOUN}\b", re.IGNORECASE)
 _QUANTITY_ASSIGNMENT = re.compile(
     _QUANTITY_NOUN + r"(?:\s+of\s+[A-Za-z ’'-]{1,120})?"
     r"\s+(?:is|are|equals?|totals?)\s+\$?\d+(?:\.\d+)?(?:%|\b)",
+    re.IGNORECASE,
+)
+_QUANTITY_SUBJECT = re.compile(
+    r"^(?:a|an|the|this|that|these|those|another)\s+"
+    r"(?:(?:prescribed|annual|weekly|monthly|payable|total|eligible|dependent)\s+)*"
+    + _QUANTITY_NOUN
+    + r"\b",
+    re.IGNORECASE,
+)
+_QUANTITY_COMPLEMENT = re.compile(
+    r"\b(?:at|by|with|for|on)\s+(?:a|an|the)\s+$", re.IGNORECASE
+)
+_QUANTITY_PRESCRIBED = re.compile(
+    r"\s+(?:prescribed|specified|approved|provided|payable)\b", re.IGNORECASE
+)
+_TABLE_MARKER = re.compile(
+    r"(?<!\S)(?:(?P<number>[1-9]\d{0,8}[A-Z]{0,8})|"
+    r"\((?P<child>[a-z]{1,32})\))\s*\|[ \t]*"
+)
+_TABLE_POSSIBLE_MARKER = re.compile(
+    r"(?<!\S)(?:[+−–—-]?\d[\dA-Za-z.]*|\([A-Za-z0-9.]+\))\s*\|"
+)
+_TABLE_LINE_CHILD = re.compile(
+    r"^[ \t|]*(?P<marker>\((?:\d[\dA-Za-z.]*|[A-Za-z]+)\))(?=\s|$)"
+)
+_TABLE_REPLACEMENT_INTRO = re.compile(
+    r"\b(?:sections?|subsections?|clauses?|subclauses?|paragraphs?)\s+"
+    r"(?P<first>[1-9]\d*[A-Z]*)"
+    r"(?:\s+(?:to|through|and)\s+[1-9]\d*[A-Z]*)?\s+with\s*[:—-]\s*$",
+    re.IGNORECASE,
+)
+_TABLE_RECIPIENT = re.compile(r"^To\s+(?:a|an|the|any)\s+", re.IGNORECASE)
+_TABLE_SCOPE = re.compile(
+    r"^(?:For\s+the\s+purposes?\s+of|In\s+(?:sections?|subsections?|clauses?|"
+    r"subclauses?|paragraphs?|parts?|schedules?))\b",
     re.IGNORECASE,
 )
 _LINE_ENDINGS = "\r\n\v\f\x1c\x1d\x1e\x85\u2028\u2029"
@@ -207,6 +250,9 @@ def _numeric_main_clause_has_subject(text: str) -> bool:
 
 def _numeric_follower_is_independent_prose(text: str) -> bool:
     """Require a subject, not a quantity's noun or relative continuation."""
+    legal_subject = _NUMERIC_LEGAL_SUBJECT.match(text)
+    if legal_subject is not None:
+        return bool(_NUMERIC_LOCAL_PREDICATE.match(text, legal_subject.end()))
     possession = _NUMERIC_DISTRIBUTIVE_POSSESSION.match(text)
     if possession is not None:
         subject = possession.group("subject")
@@ -240,15 +286,151 @@ def _numeric_follower_is_independent_prose(text: str) -> bool:
     return False
 
 
+def _quantity_is_resolved(text: str, quantity: re.Match[str]) -> bool:
+    """A prescribed rate in a prepositional complement is not a pending value."""
+    return bool(
+        _QUANTITY_ASSIGNMENT.match(text, quantity.start())
+        or re.match(r"\s+of\s+\$?\d+(?:\.\d+)?(?:%|\b)", text[quantity.end() :])
+        or (
+            _QUANTITY_COMPLEMENT.search(text[: quantity.start()])
+            and _QUANTITY_PRESCRIBED.match(text, quantity.end())
+        )
+    )
+
+
+def _table_number_successor(previous: str, current: str) -> bool:
+    earlier = re.fullmatch(r"(\d+)([A-Z]*)", previous)
+    later = re.fullmatch(r"(\d+)([A-Z]*)", current)
+    assert earlier is not None and later is not None
+    if int(later[1]) == int(earlier[1]) + 1 and not later[2]:
+        return True
+    if earlier[1] != later[1] or not later[2]:
+        return False
+
+    # Inserted provisions can precede an existing suffix: 6, 6AA, 6A, 6B.
+    # A terminating suffix sorts after its own insertions, while the original
+    # unsuffixed provision sorts first. This is legislative rather than
+    # alphabetic order and does not require a jurisdiction identifier.
+    def key(suffix: str) -> tuple[int, ...]:
+        return tuple(map(ord, suffix)) + (ord("Z") + 1,)
+
+    return not earlier[2] or key(earlier[2]) < key(later[2])
+
+
+def table_outline(text: str) -> tuple[BareLabel, ...] | None:
+    """Authenticate prose-headed clause rows in a flattened pipe table.
+
+    Pipe separators authenticate physical cell boundaries, not numeric labels
+    on their own. Numeric siblings must be ordered and head complete statutory
+    prose or recipient descriptions; ordinary count/amount tables abstain.
+    Parenthetical children retain the same nesting and source offsets as the
+    surrounding clauses, including when several rows share a physical line.
+    """
+    markers = tuple(_TABLE_MARKER.finditer(text))
+    if len(markers) < 2:
+        return None
+    if {marker.start() for marker in markers} != {
+        marker.start() for marker in _TABLE_POSSIBLE_MARKER.finditer(text)
+    }:
+        # A partial table walk would attach an unrecognized row to its prior
+        # sibling, just as an unknown token invalidates a detached outline.
+        return None
+    marker_starts = {marker.start() for marker in markers}
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        child = _TABLE_LINE_CHILD.match(line)
+        if child is not None and offset + child.start("marker") not in marker_starts:
+            # A mixed layout can retain ordinary line-start paragraphs inside
+            # pipe cells. Abstain rather than certify a walk that omits them.
+            return None
+        offset += len(line)
+    roots = [marker for marker in markers if marker.group("number")]
+    if not roots:
+        return None
+    for line in text[: roots[0].start()].splitlines():
+        column, separator, _rest = line.lstrip(" \t|").partition("|")
+        if separator and (
+            _ROW_CAPTION.match(column) or _QUANTITY_SUBJECT.match(column)
+        ):
+            # Nested eligibility conditions can occur in an ordinary count or
+            # amount table. An explicit value-column caption outweighs those
+            # children as evidence that its numbers are statutory locators.
+            return None
+    labels: list[BareLabel] = []
+    stack: list[str] = []
+    for index, marker in enumerate(markers):
+        token = marker.group("number") or marker.group("child")
+        next_start = (
+            markers[index + 1].start() if index + 1 < len(markers) else len(text)
+        )
+        body = text[marker.end() : next_start].strip()
+        if not body or not re.search(r"[A-Za-z]", body):
+            return None
+        if marker.group("number"):
+            if (
+                len(re.findall(r"[A-Za-z]+", body)) < 3
+                or not (
+                    _numeric_follower_is_independent_prose(body)
+                    or _TABLE_RECIPIENT.match(body)
+                    or (_TABLE_SCOPE.match(body) and _PREDICATE.search(body))
+                )
+                or (stack and not _table_number_successor(stack[0], token))
+            ):
+                return None
+            stack = [token]
+        else:
+            if not stack:
+                return None
+            kinds = ("number", "letter", "roman")
+            options = [
+                level
+                for level in range(len(stack) - 1, 0, -1)
+                if _successor(stack[level], token, kinds[level])
+            ]
+            previous_end = labels[-1].marker_end
+            before = text[previous_end : marker.start()].strip()
+            depth = len(stack)
+            if (
+                depth < len(kinds)
+                and _ordinal(token, kinds[depth]) == (1, 0)
+                and _LIST_INTRO.search(before)
+            ):
+                options.append(depth)
+            if len(options) != 1:
+                return None
+            stack = stack[: options[0]] + [token]
+        labels.append(
+            BareLabel(token, tuple(stack), marker.start(), marker.end(), len(text))
+        )
+    if len(roots) == 1 and not any(len(label.path) > 1 for label in labels):
+        return None
+    if not any(len(label.path) > 1 for label in labels):
+        introduction = _TABLE_REPLACEMENT_INTRO.search(text[: roots[0].start()])
+        if introduction is None or introduction["first"] != roots[0]["number"]:
+            # Complete sentences in numbered cells can still describe a
+            # child-count table. Without child structure, require an explicit
+            # clause-replacement locator to authenticate their legal identity.
+            return None
+    next_at_depth = [len(text)] * 3
+    result: list[BareLabel] = []
+    for label in reversed(labels):
+        depth = len(label.path) - 1
+        result.append(replace(label, end=min(next_at_depth[: depth + 1])))
+        next_at_depth[depth] = label.start
+    return tuple(reversed(result))
+
+
 def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
     """Return one positively ordered outline, otherwise retain all obligations.
 
     All token-shaped lines participate in the walk, including lines whose
-    follower cannot authenticate a label. Never silently skip one. Explicit
-    table evidence, mixed parenthetical layouts, gaps, and duplicate labels
-    reject the entire interpretation. Numeric-only prose lists lack evidence
-    distinguishing subsection labels from count/table entries and are retained.
+    follower cannot authenticate a label. Never silently skip one. Unsupported
+    table cells, mixed parenthetical layouts, gaps, and duplicate
+    labels reject the entire interpretation. Numeric-only quantity prose lacks
+    evidence distinguishing subsection labels from count/table entries.
     """
+    if "|" in text:
+        return table_outline(text)
     lines = text.splitlines(keepends=True)
     starts: list[int] = []
     offset = 0
@@ -361,7 +543,7 @@ def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
                         _VALUE_INTRO.search(before)
                         or _VALUE_CONTEXT.search(before)
                         or any(
-                            not _QUANTITY_ASSIGNMENT.match(before, quantity.start())
+                            not _quantity_is_resolved(before, quantity)
                             for quantity in _UNRESOLVED_QUANTITY.finditer(before)
                         )
                         or _ROW_CAPTION.match(before)
@@ -392,7 +574,13 @@ def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
     if len(labels) < 2:
         return None
     if root_kind == "number" and not any(len(label.path) > 1 for label in labels):
-        return None
+        # Several complete operative clauses can authenticate subsections even
+        # without a child list. A quantity-headed series remains ambiguous with
+        # table values, including when every value is a complete sentence.
+        if any(
+            _QUANTITY_SUBJECT.match(lines[index + 1].strip()) for index in candidates
+        ):
+            return None
     labelled_text_lines = {index + 1 for index in candidates}
     for index, line in enumerate(lines):
         header = _DEFINITION_HEADER.match(line)

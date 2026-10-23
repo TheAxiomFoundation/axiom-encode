@@ -57,7 +57,7 @@ from axiom_oracles.bridges.registry import (
     load_policyengine_registry,
 )
 
-from axiom_encode.bare_structure import bare_outline, mask_bare_labels
+from axiom_encode.bare_structure import bare_outline, mask_bare_labels, table_outline
 from axiom_encode.codex_cli import (
     resolve_codex_cli,
     with_codex_model_availability_hint,
@@ -8834,8 +8834,22 @@ _YEAR_DURATION_PATTERN = re.compile(
             reverse=True,
         )
     )
-    + r")\s+(?:ans?|jaar|jaren)\b",
+    + r")\s+(?P<unit>ans?|jaar|jaren)\b",
     re.IGNORECASE,
+)
+_FRENCH_DURATION_CONTEXT_PATTERN = re.compile(
+    r"\b(?:le|la|les|une?|cette|ces|ils?|elles?|ce|cela)\s+"
+    r"(?:[\w’'-]+\s+){0,8}(?:est|sont|dure|durent|doit|doivent|"
+    r"peut|peuvent|d[ée]passer|exc[ée]der|expire|expirent)\s+"
+    r"(?:[\w’'-]+\s+){0,8}$|"
+    r"\b(?:le|la|les|une?|des|ce|cette|ces|sa|son|ses|leurs?)\s+"
+    r"(?:[\w’'-]+\s+){1,8}(?:de|pour|sur)\s+$|"
+    r"\b(?:pendant|depuis|durant|apr[èe]s|avant)\s+$|"
+    r"\b(?:dur[ée]e|p[ée]riode|d[ée]lai|[âa]ge)\s*(?:de\s+|:\s*)$",
+    re.IGNORECASE,
+)
+_FRENCH_DURATION_FOLLOWING_CONTEXT_PATTERN = re.compile(
+    r"^\s+(?:est|sont|sera|seront)\b", re.IGNORECASE
 )
 _CENTIME_UNIT_PATTERN = re.compile(r"\bcentimes?\b", re.IGNORECASE)
 _ANNUAL_CONTEXT_PATTERN = re.compile(
@@ -11757,11 +11771,42 @@ def _extract_week_duration_day_values(text: str) -> set[float]:
 
 def _extract_year_duration_month_values(text: str) -> set[float]:
     values: set[float] = set()
-    for match in _YEAR_DURATION_PATTERN.finditer(text):
+    for match in _iter_year_duration_matches(text):
         value = _parse_belgian_numeric_phrase(match.group("number"))
         if value is not None:
             values.add(value * 12)
     return values
+
+
+def _iter_year_duration_matches(text: str) -> Iterator[re.Match[str]]:
+    """Keep year conversions inside their language and authenticated source unit."""
+    matches = tuple(_YEAR_DURATION_PATTERN.finditer(text))
+    if not matches:
+        return
+    structural_spans = [
+        (label.start, label.marker_end) for label in bare_outline(text) or ()
+    ]
+    for match in matches:
+        if _span_overlaps(match.span("number"), structural_spans):
+            continue
+        if match.group("unit").lower() == "an":
+            # Singular French ``an`` is also the English article ``An``.
+            # Require French evidence in the local source sentence rather
+            # than interpreting an English subsection label plus its prose.
+            before = re.split(r"[.!?;]", text[: match.start()])[-1][-512:]
+            after = re.split(r"[.!?;]", text[match.end() :], maxsplit=1)[0][:512]
+            number = match.group("number").lower()
+            french_number = (
+                number in _FRENCH_CARDINAL_PHRASE_VALUES
+                and number not in _CARDINAL_WORD_VALUES
+            )
+            if (
+                not french_number
+                and not _FRENCH_DURATION_CONTEXT_PATTERN.search(before)
+                and not _FRENCH_DURATION_FOLLOWING_CONTEXT_PATTERN.search(after)
+            ):
+                continue
+        yield match
 
 
 def _extract_dotted_date_year_values(text: str) -> set[float]:
@@ -16134,7 +16179,7 @@ def _tokenize_numeric_occurrences_from_text(
         add_both(raw_view, span, value)
 
     year_matches: list[tuple[tuple[int, int], float]] = []
-    for match in _YEAR_DURATION_PATTERN.finditer(raw_text):
+    for match in _iter_year_duration_matches(raw_text):
         value = _parse_belgian_numeric_phrase(match.group("number"))
         if value is not None:
             year_matches.append((match.span(), value * 12))
@@ -24648,13 +24693,23 @@ def find_source_subparagraph_coverage_issues(
     ):
         return []
 
-    source_children = _high_signal_top_level_coverage_demands(source_text)
+    source_children = _high_signal_top_level_coverage_demands(
+        source_text, citation_path=citation_path
+    )
     if coverage_scope_prefix:
         coverage_scope_top_level = _top_level_subparagraph_path(coverage_scope_prefix)
         source_children = [
             demand
             for demand in source_children
-            if (demand.label,) == coverage_scope_top_level
+            if (
+                any(
+                    _normalized_target_within(path, coverage_scope_prefix)
+                    or _normalized_target_within(coverage_scope_prefix, path)
+                    for path in demand.paths
+                )
+                if isinstance(demand, _TableCoverageDemand)
+                else (demand.label,) == coverage_scope_top_level
+            )
         ]
     source_children = filter_coverage_demands(
         source_children,
@@ -24674,11 +24729,26 @@ def find_source_subparagraph_coverage_issues(
             payload, citation_path, rules_file=rules_file
         )
     )
+    covered_paths = _rule_source_subparagraph_paths(payload, citation_path)
+    covered_paths.update(_source_relation_subparagraph_paths(payload, citation_path))
+    covered_paths.update(
+        _deferred_output_subparagraph_paths(
+            payload, citation_path, rules_file=rules_file
+        )
+    )
 
     issues: list[str] = []
     for demand in source_children:
         label, text = demand.label, demand.body
-        if (label,) in covered_children:
+        if isinstance(demand, _TableCoverageDemand):
+            if any(
+                _normalized_target_within(covered_path, path)
+                for path in demand.paths
+                for covered_path in covered_paths
+            ):
+                continue
+            label = ")(".join(demand.paths[-1])
+        elif (label,) in covered_children:
             continue
         citation = _format_source_subparagraph_citation(citation_path, label)
         excerpt = _compact_source_excerpt(text, limit=120)
@@ -24784,10 +24854,50 @@ def _high_signal_top_level_subparagraphs(source_text: str) -> list[tuple[str, st
     ]
 
 
-def _high_signal_top_level_coverage_demands(source_text: str) -> list[CoverageDemand]:
+@dataclass(frozen=True)
+class _TableCoverageDemand(CoverageDemand):
+    paths: tuple[tuple[str, ...], ...]
+
+
+def _high_signal_top_level_coverage_demands(
+    source_text: str, *, citation_path: str | None = None
+) -> list[CoverageDemand]:
     """Attach each main demand's original physical marker, including duplicates."""
-    # Compute main's complete spans first. Match origins must never be recovered
-    # with a label/body search: identical repeated headings have distinct keys.
+    outline = table_outline(source_text)
+    if outline is not None:
+        first_root = outline[0].path[0].lower()
+        citation_parts = (citation_path or "").split("/")
+        resolved_clause = (
+            len(citation_parts) >= 2
+            and citation_parts[-2] == "clause"
+            and (
+                not re.fullmatch(r"\d+[A-Za-z]*", citation_parts[-1])
+                or citation_parts[-1].lower() == first_root
+            )
+        )
+        demands: list[CoverageDemand] = []
+        for label in outline:
+            if len(label.path) != 2 or not re.fullmatch(r"[a-hj-r]", label.token):
+                continue
+            body = source_text[label.marker_end : label.end].strip()
+            if not _HIGH_SIGNAL_SUBPARAGRAPH_PATTERN.search(body):
+                continue
+            path = tuple(part.lower() for part in label.path)
+            # Only a resolved clause source authenticates a local-child alias
+            # for its first printed clause. A section source retains numeric
+            # subsection ancestors, and later clauses always keep their number.
+            paths = (
+                (path, path[1:])
+                if resolved_clause and path[0] == first_root
+                else (path,)
+            )
+            demands.append(
+                _TableCoverageDemand(label.token.lower(), body, label.start, paths)
+            )
+        return demands
+    # Preserve the ordinary outline scanner and its physical-origin contract.
+    # In particular, editorial-waiver controls must still observe that the
+    # scanner ran for an operative source rather than taking an early waiver.
     demands = _high_signal_top_level_subparagraphs(source_text)
     segments = _top_level_source_subparagraph_segments(source_text)
     origins = _TOP_LEVEL_SOURCE_SUBPARAGRAPH_PATTERN.finditer(source_text)
@@ -24804,8 +24914,31 @@ def _high_signal_top_level_coverage_demands(source_text: str) -> list[CoverageDe
 def _top_level_source_subparagraph_segments(
     source_text: str,
 ) -> list[tuple[str, str]]:
+    return [
+        (label, text)
+        for label, text, _ in _source_subparagraph_segments_with_positions(source_text)
+    ]
+
+
+def _source_subparagraph_segments_with_positions(
+    source_text: str,
+) -> list[tuple[str, str, int]]:
+    outline = table_outline(source_text)
+    if outline is not None:
+        # The shared outline authenticates flattened cell and clause markers.
+        # Its spans stop at a sibling or enclosing-clause boundary even when
+        # several rows occupy the same physical source line.
+        return [
+            (
+                label.token.lower(),
+                source_text[label.marker_end : label.end].strip(),
+                label.start,
+            )
+            for label in outline
+            if len(label.path) == 2 and re.fullmatch(r"[a-hj-r]", label.token)
+        ]
     matches = list(_TOP_LEVEL_SOURCE_SUBPARAGRAPH_PATTERN.finditer(source_text))
-    children: list[tuple[str, str]] = []
+    children: list[tuple[str, str, int]] = []
     for index, match in enumerate(matches):
         label = match.group("label").lower()
         start = match.start("text")
@@ -24813,7 +24946,7 @@ def _top_level_source_subparagraph_segments(
             matches[index + 1].start() if index + 1 < len(matches) else len(source_text)
         )
         text = source_text[start:end].strip()
-        children.append((label, text))
+        children.append((label, text, match.start()))
     return children
 
 
@@ -25500,7 +25633,17 @@ def _source_subparagraph_citation_pattern(citation_path: str) -> re.Pattern[str]
             r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)",
             flags=re.IGNORECASE,
         )
-    return None
+    try:
+        canonical = require_canonical_corpus_citation_path(citation_path)
+    except (InvalidCorpusCitationError, TypeError, ValueError):
+        return None
+    # Exact authenticated corpus identities work across document classes and
+    # jurisdictions. Human-readable aliases above remain language-specific.
+    return re.compile(
+        rf"(?<![\w/.-]){re.escape(canonical)}"
+        r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)"
+        r"(?![\w/(])",
+    )
 
 
 _RULESPEC_DOCUMENT_CLASS_DIRS = {

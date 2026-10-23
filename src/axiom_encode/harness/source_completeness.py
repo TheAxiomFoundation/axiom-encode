@@ -483,7 +483,7 @@ _RECALL_UNIT_WORD = (
 )
 _GLUED_SENTENCE_MARKER = re.compile(
     r"(?<![\w])(?P<label>[1-9]\d?)"
-    r"(?![A-ZÄÖÜ](?:\d+)?\b)"
+    r"(?![A-ZÄÖÜ]+(?:\d+)?\b(?!-[A-Za-zÄÖÜäöüß]))"
     r"(?!(?i:st|nd|rd|th)\b)"
     rf"(?!{_RECALL_UNIT_WORD}\b|(?i:per[ \t\u00a0\u202f]+cent)\b)"
     r"(?=[A-ZÄÖÜ](?!:)(?![ \t]*[.:/\-\u2010-\u2015\u2212\ufe58\ufe63\uff0d]"
@@ -2241,9 +2241,29 @@ _EXPLICIT_LEGAL_SECTION_REFERENCE = re.compile(
     r"(?P<section>\d+[a-z]?)",
     flags=re.IGNORECASE,
 )
+_ENGLISH_LEGAL_LOCATOR = (
+    r"\d+[A-Za-z]*(?:\.\d+)*(?:\s*\([A-Za-z0-9]+\))*"
+    r"(?![A-Za-z0-9]|[.,]\d)"
+)
+_ENGLISH_LEGAL_LIST_LOCATOR = (
+    rf"(?:{_ENGLISH_LEGAL_LOCATOR}|"
+    # A coordinated parenthetical continues the preceding named provision:
+    # `sections 311(1), (2), and 338` keeps every locator in the citation.
+    r"\([A-Za-z0-9]+\)(?:\s*\([A-Za-z0-9]+\))*(?![A-Za-z0-9]))"
+    # The unit check must see the end of the whole chain; otherwise optional
+    # suffix backtracking can leave `(a)` between an amount and its unit.
+    r"(?!\s*\([A-Za-z0-9]+\))"
+    # A named locator is explicit; only bare coordinated continuations can
+    # instead introduce an operative amount followed by its unit.
+    + rf"(?!\s+(?:per\s+)?(?:{_RECALL_UNIT_WORD}|euros?|pounds?|rand|"
+    r"USD|EUR|GBP|CAD|AUD|NZD|ZAR)\b)"
+)
 _ENGLISH_LEGAL_CITATION = re.compile(
-    r"\b(?:articles?|sections?|secs?\.?|regulations?|paragraphs?)\s+"
-    r"\d+(?:\.\d+)*(?:\s*(?:through|to|[-–—]|and|,)\s*\d+(?:\.\d+)*)*",
+    r"\b(?:articles?|sections?|secs?\.?|regulations?|paragraphs?|"
+    r"clauses?|parts?|schedules?)\s+"
+    + _ENGLISH_LEGAL_LOCATOR
+    + r"(?:\s*(?:,\s*(?:(?:and|or)\s+)?|"
+    r"(?:through|to|and|or)\s+|[-–—]\s*)" + _ENGLISH_LEGAL_LIST_LOCATOR + r")*",
     flags=re.IGNORECASE,
 )
 # A complete parenthesis containing only a Statutes at Large volume/page
@@ -2644,6 +2664,28 @@ def _glued_section_sentence_matches(text: str) -> tuple[re.Match[str], ...]:
     return tuple(matches)
 
 
+def _uses_german_sentence_numbering(text: str, corpus_citation_path: str) -> bool:
+    """Limit the German typography fallback to an identified German source.
+
+    A German corpus path identifies the language. Other sources need positive
+    German prose or explicit German structural terminology before a glued
+    number can mean ``Satz``, including German sources outside Germany.
+    """
+
+    if corpus_citation_path.split("/", 1)[0].split(":", 1)[0] == "de":
+        return True
+    return bool(
+        re.search(
+            r"\b(?:Satz|Sätze|Absatz|Absätze|gilt|gelten|beträgt|anzuwenden|"
+            r"Voraussetzung|abweichend|muss|müssen|nicht|darf|dürfen|wird|werden|"
+            r"besteht|hervorgehen|vollendet)\b|"
+            r"(?<![\w])[1-9]\d?(?:Der|Die|Das|Den|Dem|Er|Sie|Es|Für)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
 _IRS_REVENUE_PROCEDURE_CITATION = re.compile(
     r"us/guidance/irs/rev-proc-\d{4}-\d+(?:/page-\d+)?"
 )
@@ -2918,15 +2960,27 @@ def recognize_source_structure(
     if not paragraph_segments:
         paragraph_segments = [((), 0, len(source_text), source_text)]
 
+    german_sentences = _uses_german_sentence_numbering(
+        source_text, corpus_citation_path
+    )
     legacy_marker_offsets = {
         *(match.start() for match in _NUMBER_MARKER.finditer(source_text)),
         *(match.start() for match in _LETTER_MARKER.finditer(source_text)),
-        *(match.start() for match in _GLUED_SENTENCE_MARKER.finditer(source_text)),
+        *(
+            match.start()
+            for match in _GLUED_SENTENCE_MARKER.finditer(source_text)
+            if german_sentences
+        ),
         *(
             match.start()
             for match in _GLUED_SECTION_SENTENCE_MARKER.finditer(source_text)
+            if german_sentences
         ),
-        *(match.start() for match in _EXPLICIT_SENTENCE_MARKER.finditer(source_text)),
+        *(
+            match.start()
+            for match in _EXPLICIT_SENTENCE_MARKER.finditer(source_text)
+            if german_sentences
+        ),
     }
     owner_paths = _most_specific_segment_paths_at_offsets(
         paragraph_segments,
@@ -2998,7 +3052,8 @@ def recognize_source_structure(
                 ),
                 key=lambda item: item.start(),
             )
-            if owner_paths.get(paragraph_start + match.start()) == paragraph_path
+            if german_sentences
+            and owner_paths.get(paragraph_start + match.start()) == paragraph_path
         ]
         for index, match in enumerate(sentence_matches):
             start = paragraph_start + match.start()
@@ -9410,13 +9465,22 @@ def _reason_dependency_is_source_bound(
         ):
             continue
         dependency = match.group(0).strip()
+        canonical = re.fullmatch(
+            r"[a-z]{2}(?:-[a-z0-9-]+)?/"
+            r"(?:statute|regulation|guidance|manual)/[A-Za-z0-9_./-]+",
+            dependency,
+            flags=re.IGNORECASE,
+        )
         if not _reason_match_names_missing_dependency(
             reason,
             match,
             source_scope_text=source_scope_text,
             current_usc_title=(current_citation.title if current_citation else None),
-        ) or not _prose_dependency_is_external(
-            dependency, current_section=current_section
+        ) or (
+            canonical is None
+            and not _prose_dependency_is_external(
+                dependency, current_section=current_section
+            )
         ):
             continue
         if "#" in dependency and ":" in dependency:
@@ -9427,13 +9491,71 @@ def _reason_dependency_is_source_bound(
             ):
                 return True
             continue
-        section_match = re.search(r"\d+[a-z]?", dependency, flags=re.IGNORECASE)
-        corpus_target = _rulespec_target_base(corpus_citation_path)
-        corpus_instrument_target = corpus_target.rsplit("/", 1)[0]
-        if section_match:
+        if canonical is not None:
+            # Parse path components before considering prose digits: an Act's
+            # year or instrument number is never its section identifier.
+            components = dependency.rstrip("/.").split("/")
+            current_components = corpus_citation_path.rstrip("/").split("/")
+            descendant_locator = (
+                r"(?:subsection|paragraph|subparagraph|clause|subclause|"
+                r"absatz|satz|nummer|buchstabe|document)(?:-|/)[a-z0-9]+"
+            )
+            implicit_section_index = None
+            if (
+                len(components) >= 4
+                and len(current_components) >= 4
+                and re.fullmatch(r"\d+[a-z]*", components[3], flags=re.IGNORECASE)
+                and re.fullmatch(
+                    r"\d+[a-z]*", current_components[3], flags=re.IGNORECASE
+                )
+                and all(
+                    not tail
+                    or re.fullmatch(
+                        rf"{descendant_locator}(?:/{descendant_locator})*",
+                        "/".join(tail),
+                        flags=re.IGNORECASE,
+                    )
+                    for tail in (components[4:], current_components[4:])
+                )
+            ):
+                # Established instrument/section paths can continue into an
+                # authenticated branch or corpus document. Bare numeric tails
+                # can instead be Act metadata and establish no section.
+                implicit_section_index = 3
+            section_index = next(
+                (
+                    index + 1
+                    for index, component in enumerate(components[:-1])
+                    if index >= 3
+                    and component.casefold() in {"section", "article", "regulation"}
+                ),
+                implicit_section_index,
+            )
+            if (
+                section_index is None
+                or section_index >= len(current_components)
+                or [part.casefold() for part in components[:section_index]]
+                != [part.casefold() for part in current_components[:section_index]]
+            ):
+                continue
+            section = components[section_index]
+            if (
+                not re.fullmatch(r"\d+[a-z]*", section, flags=re.IGNORECASE)
+                or section.casefold() == current_components[section_index].casefold()
+            ):
+                continue
+            corpus_instrument_target = _rulespec_target_base(
+                "/".join(components[:section_index])
+            )
+        else:
+            section_match = re.search(r"\d+[a-z]?", dependency, flags=re.IGNORECASE)
+            section = section_match.group(0) if section_match else None
+            corpus_target = _rulespec_target_base(corpus_citation_path)
+            corpus_instrument_target = corpus_target.rsplit("/", 1)[0]
+        if section:
             if _source_scope_identifies_blocker(
                 source_scope_text,
-                f"{corpus_instrument_target}/{section_match.group(0)}#dependency",
+                f"{corpus_instrument_target}/{section}#dependency",
                 corpus_citation_path=corpus_citation_path,
             ):
                 return True
@@ -15227,14 +15349,17 @@ def authoritative_numeric_recall_text(
         source_text,
         (row.span("label") for row in _worksheet_arithmetic_rows(source_text)),
     )
-    cleaned = _mask_spaced_german_sentence_labels(
-        _strip_terminal_session_law_history(source_text)
+    german_sentences = _uses_german_sentence_numbering(
+        source_text, corpus_citation_path
     )
+    cleaned = _strip_terminal_session_law_history(source_text)
+    if german_sentences:
+        cleaned = _mask_spaced_german_sentence_labels(cleaned)
     if _source_map is not None:
         # The preceding masks preserve positions; history cleanup only drops
         # a terminal suffix. All subsequent deletions go through tracked sub.
         del _source_map.offsets[len(cleaned) :]
-    if _GLUED_SECTION_SENTENCE_MARKER.search(cleaned):
+    if german_sentences and _GLUED_SECTION_SENTENCE_MARKER.search(cleaned):
         # Strip only authenticated sentence labels, before removing the section
         # citation that distinguishes `2§ 64` from a substantive number 2.
         marker_spans = []
@@ -15417,7 +15542,8 @@ def authoritative_numeric_recall_text(
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = sub(_GLUED_SENTENCE_MARKER, "", cleaned)
+    if german_sentences:
+        cleaned = sub(_GLUED_SENTENCE_MARKER, "", cleaned)
     return cleaned
 
 
@@ -17082,6 +17208,21 @@ def _source_conjunctive_fact_gates(
     if conditional is None:
         return ()
     body = conditional.group("body")
+    if conditional.group("cue").casefold() == "if" and re.search(
+        r"\bwould\s+(?:otherwise\s+)?apply\b[^.!?;]*$",
+        text[: conditional.start()],
+        flags=re.IGNORECASE,
+    ):
+        # A cross-referenced rate evaluated under a hypothetical status does
+        # not require a second fact saying that every other circumstance was
+        # unchanged. This terminal parenthesis holds the comparison fixed.
+        body = re.sub(
+            r"\s*\(\s*and\s+(?:their|his|her|its)\s+other\s+circumstances"
+            r"\s+were\s+unchanged\s*\)\s*\.?\s*$",
+            "",
+            body,
+            flags=re.IGNORECASE,
+        )
     if conditional.group("cue").strip().casefold() != "unless":
         trailing_exception = re.search(
             r"\b(?:unless|except(?:\s+(?:if|when))?)\b",
@@ -37655,7 +37796,9 @@ def _source_boundary_is_nonoperative_guidance_definition(
             flags=re.IGNORECASE,
         )
         and re.search(
-            r"\bunder\s+\([a-z]\)\(\d+\)\s+of\s+the\s+INA\s+for\s+a\s+"
+            # Complete legal-citation cleanup removes the locator; legacy
+            # numeric views retained its parenthetical subsection suffix.
+            r"\bunder\s+(?:\([a-z]\)\(\d+\)\s+)?of\s+the\s+INA\s+for\s+a\s+"
             r"period\s+of\s+at\s+least\s+\d+(?:\.\d+)?\s+years?\b",
             collapsed,
             flags=re.IGNORECASE,
