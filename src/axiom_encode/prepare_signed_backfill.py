@@ -652,11 +652,13 @@ def resolve_atomic_repair_mode(
                 raise ValueError("corpus transport legacy source must be a path string")
             legacy_path = PurePosixPath(legacy_source)
             target_path = PurePosixPath(target)
+            citation_path = citation_rulespec_path(dispatch.get("CITATION", ""))
             if (
                 legacy_path.as_posix() != legacy_source
                 or legacy_path.is_absolute()
                 or len(legacy_path.parts) < 3
                 or legacy_path.parts[0] != target_path.parts[0]
+                or legacy_path.parts[0] != citation_path.parts[0]
                 or legacy_path.parts[1] not in RULESPEC_ATOMIC_ROOTS
                 or legacy_path.suffix != ".yaml"
                 or legacy_path.name.endswith(".test.yaml")

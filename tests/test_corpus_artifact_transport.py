@@ -204,10 +204,7 @@ def test_legacy_replacement_transport_rejects_other_jurisdiction():
     legacy_source = "us/policies/des/faa5/na-categorical-eligibility/expanded.yaml"
     dispatch = {
         "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
-        "REPLACE_RULESPEC_PATH": (
-            "us-az/policies/des/faa5/na-categorical-eligibility/"
-            "expanded-categorical-eligibility.yaml"
-        ),
+        "REPLACE_RULESPEC_PATH": legacy_source,
         "REPLACE_LEGACY_RULESPEC_PATH": legacy_source,
     }
     with pytest.raises(ValueError, match="legacy source must be"):
