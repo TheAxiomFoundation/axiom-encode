@@ -33,6 +33,11 @@ from ..corpus_resolver import (
     require_canonical_corpus_citation_path,
     split_proof_evidence_text,
 )
+from .amendment_timing import (
+    _proof_atoms,
+    indexed_proof_path_issue,
+    normalize_proof_location,
+)
 
 
 @dataclass(frozen=True)
@@ -281,6 +286,7 @@ def validate_rulespec_proofs(
         rule_name = str(rule.get("name") or f"rules[{index}]").strip() or (
             f"rules[{index}]"
         )
+        issues.extend(_version_proof_location_issues(rule, rule_name))
         proof = _rule_proof(rule)
         if proof is None:
             if proof_required and _is_policy_bearing_rule(rule):
@@ -761,6 +767,32 @@ def _is_policy_bearing_rule(rule: dict[str, Any]) -> bool:
     return bool(rule.get("versions"))
 
 
+def _version_proof_location_issues(rule: dict[str, Any], rule_name: str) -> list[str]:
+    """Check version-owned indices even when no rule-level proof is present."""
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return []
+    issues: list[str] = []
+    for version_index, version in enumerate(versions):
+        if not isinstance(version, dict):
+            continue
+        for atom_index, atom in enumerate(_proof_atoms(version)):
+            if not isinstance(atom, dict):
+                continue
+            issue = indexed_proof_path_issue(
+                str(atom.get("path") or ""),
+                versions=versions,
+                label=(
+                    f"rule `{rule_name}` versions[{version_index}] "
+                    f"proof atom {atom_index}"
+                ),
+                owner_version_index=version_index,
+            )
+            if issue is not None:
+                issues.append(issue)
+    return issues
+
+
 def _validate_rule_proof(
     *,
     rule_name: str,
@@ -872,36 +904,25 @@ def _atom_anchor_issue(
     label: str,
     rule: dict[str, Any],
 ) -> str | None:
-    """Return an issue when a ``versions[i].{values,formula}`` anchor is wrong.
+    """Require indexed anchors to exist, then check formula/table shapes.
 
-    The atom's path is only enforced when it targets a ``versions[i].values`` or
-    ``versions[i].formula`` location and that version index resolves against the
-    rule. Any other path shape (e.g. a bare field, a table-cell suffix, or a
-    non-``versions`` anchor) is left to the other checks so this never
-    over-rejects. A ``.values`` anchor requires the version to carry a ``values``
-    table; a ``.formula`` anchor requires the version to carry a ``formula``.
+    Every indexed anchor must resolve, including dates and Boolean rule paths.
+    A ``.values`` anchor additionally requires a ``values`` table; a ``.formula``
+    anchor requires a ``formula``. Bare fields remain available to other checks.
     """
-    normalized = re.sub(r"\s+", "", str(path))
-    normalized = _ATOM_PATH_INDEX_PATTERN.sub(r"[\1]", normalized)
-    normalized = re.sub(r"^versions\.", "versions[0].", normalized)
+    normalized = normalize_proof_location(path)
+    location_issue = indexed_proof_path_issue(
+        normalized, versions=rule.get("versions"), label=label
+    )
+    if location_issue is not None:
+        return location_issue
     match = _ANCHOR_FIELD_PATTERN.match(normalized)
     if match is None:
         return None
 
     version_index = int(match.group(1))
     field = match.group(2)
-    versions = rule.get("versions")
-    if not isinstance(versions, list) or version_index >= len(versions):
-        return (
-            f"Proof atom anchor invalid: {label} anchors `versions[{version_index}]."
-            f"{field}`, but the rule has no such version."
-        )
-    version = versions[version_index]
-    if not isinstance(version, dict):
-        return (
-            f"Proof atom anchor invalid: {label} anchors `versions[{version_index}]."
-            f"{field}`, but that version is malformed."
-        )
+    version = rule["versions"][version_index]
 
     if field == "values":
         if not isinstance(version.get("values"), dict):

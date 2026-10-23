@@ -178,6 +178,7 @@ from .engine_binding import (
     require_engine_ref_sha,
     resolve_pinned_engine_binary,
 )
+from .harness.amendment_timing import amendment_timing_issues
 from .harness.dependency_stubs import (
     UnsafeRulespecContextPath,
     validate_rulespec_context_file,
@@ -8326,6 +8327,11 @@ def cmd_refresh_applied_manifest(args):
                         axiom_compose_path=axiom_compose_path,
                         local_corpus_release=local_corpus_release,
                         rulespec_dependency_roots=dependency_roots,
+                        amendment_documents=source_unit.amendment_documents,
+                        amendment_source_texts={
+                            document.citation_path: document.body
+                            for document in source_unit.amendment_documents
+                        },
                     )
                 )
                 if not valid:
@@ -8587,6 +8593,11 @@ def cmd_promote_reviewed_candidate(args):
                         axiom_compose_path=axiom_compose_path,
                         local_corpus_release=local_corpus_release,
                         rulespec_dependency_roots=dependency_roots,
+                        amendment_documents=source_unit.amendment_documents,
+                        amendment_source_texts={
+                            document.citation_path: document.body
+                            for document in source_unit.amendment_documents
+                        },
                         require_complete_source_unit=True,
                     )
                 )
@@ -34693,6 +34704,7 @@ def _run_encode_attempt(
 
     deferred_output_review_contract = getattr(args, "review_contract_json", None)
     amendment_source_texts: dict[str, str] | None = None
+    visible_amendment_documents: tuple[object, ...] = ()
 
     @timed_phase(PHASE_OVERLAY_VALIDATION)
     def _validate_generated_encoding_in_policy_overlay(
@@ -34703,20 +34715,21 @@ def _run_encode_attempt(
         axiom_rules_path: Path,
         validate_dependents: bool = True,
     ) -> tuple[bool, list[str], dict[Path, str]]:
-        nonlocal amendment_source_texts
+        nonlocal amendment_source_texts, visible_amendment_documents
         if amendment_source_texts is None:
-            amendment_source_texts = (
-                {
-                    document.citation_path: document.body
-                    for document in _amendment_documents_visible_in_context_manifest(
-                        source_unit.amendment_documents,
-                        Path(result.context_manifest_file),
-                        expected_manifest_sha256=(result.context_manifest_sha256 or ""),
-                    )
-                }
+            visible_amendment_documents = (
+                _amendment_documents_visible_in_context_manifest(
+                    source_unit.amendment_documents,
+                    Path(result.context_manifest_file),
+                    expected_manifest_sha256=(result.context_manifest_sha256 or ""),
+                )
                 if source_unit.amendment_documents
-                else {}
+                else ()
             )
+            amendment_source_texts = {
+                document.citation_path: document.body
+                for document in visible_amendment_documents
+            }
         return _run_generated_encoding_overlay_validation(
             result,
             output_root=output_root,
@@ -34734,6 +34747,7 @@ def _run_encode_attempt(
             ),
             deferred_output_review_contract=deferred_output_review_contract,
             amendment_source_texts=amendment_source_texts,
+            amendment_documents=visible_amendment_documents,
             retired_source_admission=(
                 replacement_target.retired_source_admission
                 if replacement_target is not None
@@ -37829,7 +37843,11 @@ def _run_encode_attempt(
 
 
 def _can_attempt_apply(result) -> bool:
-    """Allow apply for successful runs or standalone artifact-validation failures."""
+    """Allow overlay validation to retry standalone artifact failures.
+
+    This never authorizes admission: the release-bound overlay pipeline must
+    check authenticated commencement bounds again on the final repaired bytes.
+    """
     if bool(getattr(result, "success", False)):
         return True
     error = str(getattr(result, "error", "") or "")
@@ -60609,9 +60627,11 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     require_complete_source_unit: bool = False,
     deferred_output_review_contract: _DeferredOutputReviewContract | None = None,
     amendment_source_texts: Mapping[str, str] | None = None,
+    amendment_documents: Sequence[object] = (),
     retired_source_admission: dict[str, Any] | None = None,
 ) -> tuple[bool, list[str], dict[Path, str]]:
     """Validate generated artifacts in a temporary policy-repo overlay."""
+    amendment_documents = copy.deepcopy(tuple(amendment_documents))
     setattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
     legacy_replacement = _result_legacy_replacement_contract(result)
     replacement_overlay_scope = _result_replacement_overlay_scope(result)
@@ -60940,6 +60960,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             rulespec_dependency_roots=staged_dependency_roots,
             source_metadata=source_metadata,
             amendment_source_texts=amendment_source_texts,
+            amendment_documents=amendment_documents,
             require_complete_source_unit=require_complete_source_unit,
             existing_target_oracle_contract=existing_target_oracle_contract,
         )
@@ -61118,6 +61139,33 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                         )
                         if final_preservation_issues:
                             return False, final_preservation_issues, {}
+                    # Repairs and source-attestation stamping can rewrite the
+                    # overlay after earlier validators ran. Admit only the final
+                    # bytes, under the same authenticated commencement bounds.
+                    if amendment_documents:
+                        final_timing_paths = {
+                            overlay_target,
+                            *(
+                                overlay_content_root / path
+                                for path in supplemental_files.keys()
+                                | repaired_exact_paths
+                                if path.suffix == RULESPEC_FILE_SUFFIX
+                                and not path.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+                            ),
+                        }
+                        final_timing_issues = [
+                            f"{path.relative_to(overlay_content_root)}: {issue}"
+                            for path in sorted(final_timing_paths)
+                            for issue in amendment_timing_issues(
+                                path.read_text(), amendment_documents
+                            )
+                        ]
+                        if final_timing_issues:
+                            return (
+                                False,
+                                final_timing_issues,
+                                {},
+                            )
                     _record_successful_apply_validation(
                         result,
                         output_root=output_root,
@@ -61563,6 +61611,7 @@ def _run_generated_encoding_overlay_validation(
     require_complete_source_unit: bool = False,
     deferred_output_review_contract: _DeferredOutputReviewContract | None = None,
     amendment_source_texts: Mapping[str, str] | None = None,
+    amendment_documents: Sequence[object] = (),
     retired_source_admission: dict[str, Any] | None = None,
 ) -> tuple[bool, list[str], dict[Path, str]]:
     """Dispatch a release-bound overlay run through the patchable test seam."""
@@ -61580,6 +61629,7 @@ def _run_generated_encoding_overlay_validation(
         require_complete_source_unit=require_complete_source_unit,
         deferred_output_review_contract=deferred_output_review_contract,
         amendment_source_texts=amendment_source_texts,
+        amendment_documents=amendment_documents,
         retired_source_admission=retired_source_admission,
     )
 
