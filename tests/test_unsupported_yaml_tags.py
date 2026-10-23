@@ -40,6 +40,7 @@ from axiom_encode.harness.proof_validator import (
     find_unsupported_yaml_tag_issues,
     validate_rulespec_proofs,
 )
+from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 from axiom_encode.yaml_serialization import safe_dump_yaml
 from tests.test_cli import (
     _complete_source_attestation,
@@ -1277,3 +1278,62 @@ def test_timestamp_tag_on_a_date_loads_like_the_plain_date():
     assert find_unsupported_yaml_tag_issues(content) == [
         _issue("effective_from", "!!timestamp", "!!timestamp", SCALAR_REASON)
     ]
+
+
+def _pipeline(tmp_path):
+    return ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        local_corpus_release=None,
+    )
+
+
+def _pipeline_module(tmp_path, content, tests=None):
+    rules_file = tmp_path / "rulespec-us/statutes/26/1.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(content)
+    if tests is not None:
+        rules_file.with_name("1.test.yaml").write_text(tests)
+    return rules_file
+
+
+@pytest.mark.parametrize(("content", "diagnostic"), APPLY_CASES)
+def test_pipeline_compile_check_reports_tags_before_loading(
+    tmp_path, content, diagnostic
+):
+    """Validators read the loaded payload, so the preflight stops first."""
+
+    rules_file = _pipeline_module(tmp_path, content)
+
+    result = _pipeline(tmp_path)._run_compile_check(rules_file)
+
+    assert not result.passed
+    assert len(result.issues) == 1
+    assert result.issues[0].startswith(
+        "1.yaml has unsupported YAML tags: " + diagnostic
+    )
+
+
+@pytest.mark.parametrize(("tests", "diagnostic"), TAGGED_TESTS)
+def test_pipeline_ci_reports_companion_test_tags(
+    tmp_path, monkeypatch, tests, diagnostic
+):
+    rules_file = _pipeline_module(tmp_path, APPLY_CLEAN, tests)
+    pipeline = _pipeline(tmp_path)
+
+    def fake_compile(rules_file, output_path):
+        return (
+            subprocess.CompletedProcess(["axiom-rules-engine"], 0, "", ""),
+            {"program": {"parameters": [], "derived": [], "relations": []}},
+        )
+
+    monkeypatch.setattr(pipeline, "_compile_rulespec_to_artifact", fake_compile)
+
+    result = pipeline._run_rulespec_ci(rules_file)
+
+    assert not result.passed
+    assert any(
+        issue.startswith("1.test.yaml has unsupported YAML tags: " + diagnostic)
+        for issue in result.issues
+    ), result.issues
