@@ -126,44 +126,6 @@ def test_local_french_and_dutch_year_durations_keep_month_conversion(source, mon
     assert months in vp.extract_numeric_occurrences_from_text(source)
 
 
-# Synthetic marker-only layout: value-column separators are unsupported.
-FLATTENED_RATE_TABLE = (
-    "Clause | Provision\n1 | The rates of winter energy payment are as follows:\n"
-    "(a) | to a person who is single and has no dependent children receives $ 450 per winter period "
-    "(b) | to a person who is single and has 1 or more dependent children receives $ 700 per winter period "
-    "(c) | to a person who is in a relationship, and who is the 1 spouse or partner "
-    "who is entitled under section 72(3) receives $ 700 per winter period "
-    "2 | For the purposes of clause 1(a) and (b), dependent child means any other person who— "
-    "(a) | is a child; and (b) | may be, but need not be, a child in respect of whom "
-    "payments are made under section 363."
-)
-
-
-def test_flattened_table_coverage_preserves_row_and_enclosing_clause_boundaries():
-    segments = vp._top_level_source_subparagraph_segments(FLATTENED_RATE_TABLE)
-    assert [label for label, _ in segments] == ["a", "b", "c", "a", "b"]
-    assert segments[0][1] == (
-        "to a person who is single and has no dependent children receives $ 450 per winter period"
-    )
-    assert all("dependent child means" not in body for _, body in segments)
-    assert vp._high_signal_top_level_coverage_demands(FLATTENED_RATE_TABLE) == []
-
-
-@settings(deadline=None)
-@given(amount=st.integers(min_value=1, max_value=100_000))
-def test_flattened_coverage_rows_never_acquire_a_sibling_definition(amount):
-    source = (
-        f"Clause | Provision\n1 | The rates of payment are as follows: (a) | A person receives $ {amount}. "
-        "(b) | A second person receives $ 700. "
-        "2 | For the purposes of clause 1, dependent child means another person."
-    )
-    segments = vp._top_level_source_subparagraph_segments(source)
-    assert len(segments) == 2
-    assert segments[0][1] == f"A person receives $ {amount}."
-    assert segments[1][1] == "A second person receives $ 700."
-    assert vp._high_signal_top_level_coverage_demands(source) == []
-
-
 def test_mixed_table_cells_preserve_ordinary_paragraph_coverage():
     source = (
         "In Schedule 4, replace clauses 1 and 2 with:\n"
@@ -185,122 +147,6 @@ def test_mixed_table_cells_preserve_ordinary_paragraph_coverage():
     assert len(issues) == 2
     assert any(f"{TABLE_CITATION}(a)" in issue for issue in issues)
     assert any(f"{TABLE_CITATION}(b)" in issue for issue in issues)
-
-
-def test_flattened_high_signal_demands_retain_their_own_physical_marker():
-    source = (
-        "Clause | Provision\n1 | The rates of payment are as follows: "
-        "(a) | A single person is eligible for $ 450. "
-        "(b) | A sole parent is eligible for $ 700. "
-        "2 | For the purposes of clause 1, dependent child means another person."
-    )
-    demands = vp._high_signal_top_level_coverage_demands(source)
-    assert [
-        (demand.label, demand.body, demand.physical_start) for demand in demands
-    ] == [
-        ("a", "A single person is eligible for $ 450.", source.index("(a)")),
-        ("b", "A sole parent is eligible for $ 700.", source.index("(b)")),
-    ]
-
-
-def test_repeated_table_paragraph_citation_covers_only_its_own_clause():
-    source = (
-        "Clause | Provision\n1 | The rates of payment are as follows: "
-        "(a) | A single person is eligible for $ 450. "
-        "(b) | A sole parent receives $ 700. "
-        "2 | For the purposes of clause 1, the definition is as follows: "
-        "(a) | A child means a person supported by a parent. "
-        "(b) | A parent means a person maintaining a child."
-    )
-    payload = {
-        "format": "rulespec/v1",
-        "module": {"source_verification": {"corpus_citation_path": TABLE_CITATION}},
-        "rules": [
-            {
-                "name": "single_without_children_rate",
-                "kind": "derived",
-                "source": TABLE_CITATION + "(a)",
-                "versions": [{"effective_from": "2018-01-01", "formula": "450"}],
-            }
-        ],
-    }
-    issues = vp.find_source_subparagraph_coverage_issues(
-        yaml.safe_dump(payload), source_texts={TABLE_CITATION: source}
-    )
-    assert len(issues) == 2
-    assert any(f"{TABLE_CITATION}(2)(a)" in issue for issue in issues)
-    assert any(f"{TABLE_CITATION}(2)(b)" in issue for issue in issues)
-    payload["rules"].append(
-        {
-            "name": "dependent_child_definition",
-            "kind": "derived",
-            "source": TABLE_CITATION + "(2)",
-            "versions": [{"effective_from": "2018-01-01", "formula": "true"}],
-        }
-    )
-    assert (
-        len(
-            vp.find_source_subparagraph_coverage_issues(
-                yaml.safe_dump(payload), source_texts={TABLE_CITATION: source}
-            )
-        )
-        == 2
-    )
-    payload["rules"][-1]["source"] = TABLE_CITATION + "(2)(a)(i)"
-    payload["rules"].append(
-        {
-            "name": "dependent_parent_definition",
-            "kind": "derived",
-            "source": TABLE_CITATION + "(2)(b)(i)",
-            "versions": [{"effective_from": "2018-01-01", "formula": "true"}],
-        }
-    )
-    assert (
-        vp.find_source_subparagraph_coverage_issues(
-            yaml.safe_dump(payload), source_texts={TABLE_CITATION: source}
-        )
-        == []
-    )
-
-
-@pytest.mark.parametrize(
-    "citation",
-    [
-        "nz/statute/act/public/2026/0054/section/15",
-        "nz/statute/act/public/2026/0054/schedule/4/clause/5",
-    ],
-)
-def test_table_source_does_not_drop_an_authenticated_numeric_subsection(citation):
-    source = (
-        "Clause | Provision\n1 | The rates of payment are as follows: "
-        "(a) | A single person is eligible for $ 450. "
-        "(b) | A sole parent receives $ 700. "
-        "2 | For the purposes of subsection 1, a dependent child means another person."
-    )
-    payload = {
-        "format": "rulespec/v1",
-        "module": {"source_verification": {"corpus_citation_path": citation}},
-        "rules": [
-            {
-                "name": "single_without_children_rate",
-                "kind": "derived",
-                "source": citation + "(a)",
-                "versions": [{"effective_from": "2026-01-01", "formula": "450"}],
-            }
-        ],
-    }
-    issues = vp.find_source_subparagraph_coverage_issues(
-        yaml.safe_dump(payload), source_texts={citation: source}
-    )
-    assert len(issues) == 1
-    assert f"{citation}(1)(a)" in issues[0]
-    payload["rules"][0]["source"] = citation + "(1)(a)"
-    assert (
-        vp.find_source_subparagraph_coverage_issues(
-            yaml.safe_dump(payload), source_texts={citation: source}
-        )
-        == []
-    )
 
 
 @pytest.mark.parametrize(
@@ -409,3 +255,20 @@ def test_singular_french_year_has_both_inventory_and_conversion():
             source
         )
     )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "Notre garantie de 1 an couvre le produit.",
+        "Votre contrat de 1 an prend effet ce jour.",
+        "La durée légale : 1 an.",
+    ],
+)
+def test_french_noun_phrase_and_label_forms_conservatively_have_no_month_conversion(
+    source,
+):
+    # These ordinary French forms remain outside the authenticated duration
+    # grammar. Extending that grammar is deliberately deferred.
+    assert vp._extract_year_duration_month_values(source) == set()
+    assert 12 not in vp.extract_numeric_occurrences_from_text(source)

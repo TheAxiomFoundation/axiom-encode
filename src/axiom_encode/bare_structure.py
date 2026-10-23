@@ -1,4 +1,4 @@
-"""Conservative recognition of detached outlines and prose-headed clause tables.
+"""Conservative recognition of outlines whose labels occupy separate lines.
 
 The walk authenticates a whole outline before exposing any marker offsets. A
 partial walk is unsafe: a skipped duplicate, a table cell, or a broken sequence
@@ -122,34 +122,6 @@ _QUANTITY_COMPLEMENT = re.compile(
 _QUANTITY_PRESCRIBED = re.compile(
     r"\s+(?:prescribed|specified|approved|provided|payable)\b", re.IGNORECASE
 )
-_TABLE_MARKER = re.compile(
-    r"(?<!\S)(?:(?P<number>[1-9]\d{0,8}[A-Z]{0,8})|"
-    r"\((?P<child>[a-z]{1,32})\))\s*\|[ \t]*"
-)
-_TABLE_POSSIBLE_MARKER = re.compile(
-    r"(?<!\S)(?:[+−–—-]?\d[\dA-Za-z.]*|\([A-Za-z0-9.]+\))\s*\|"
-)
-_TABLE_INLINE_CHILD = re.compile(
-    r"(?<![^\s|])(?P<marker>\((?:\d[\dA-Za-z.]*|[A-Za-z]+)\))(?=\s|$)"
-)
-_TABLE_REPLACEMENT_INTRO = re.compile(
-    r"\breplace\s+(?:sections?|subsections?|clauses?|subclauses?|paragraphs?)\s+"
-    r"(?P<first>[1-9]\d*[A-Z]*)"
-    r"(?:\s+(?:to|through|and)\s+[1-9]\d*[A-Z]*)?\s+with\s*[:—-]\s*$",
-    re.IGNORECASE,
-)
-_TABLE_CLAUSE_CAPTION = re.compile(
-    r"[ \t|]*(?:clauses?|sections?|subsections?|subclauses?|paragraphs?)"
-    r"[ \t]*\|[ \t]*[^|\r\n]+?[ \t]*\|?[ \t]*",
-    re.IGNORECASE,
-)
-_TABLE_RECIPIENT = re.compile(r"^To\s+(?:a|an|the|any)\s+", re.IGNORECASE)
-_TABLE_SCOPE = re.compile(
-    r"^(?:For\s+the\s+purposes?\s+of|In\s+(?:sections?|subsections?|clauses?|"
-    r"subclauses?|paragraphs?|parts?|schedules?))\b",
-    re.IGNORECASE,
-)
-_LABEL_WHITESPACE = re.compile(r"\s*")
 _LINE_ENDINGS = "\r\n\v\f\x1c\x1d\x1e\x85\u2028\u2029"
 _VARIABLE_INTRO = re.compile(
     r"\b(?:where|formula|symbols?|variables?)\b", re.IGNORECASE
@@ -297,160 +269,15 @@ def _quantity_is_resolved(text: str, quantity: re.Match[str]) -> bool:
     )
 
 
-def _table_number_successor(previous: str, current: str) -> bool:
-    earlier = re.fullmatch(r"(\d+)([A-Z]*)", previous)
-    later = re.fullmatch(r"(\d+)([A-Z]*)", current)
-    assert earlier is not None and later is not None
-    if int(later[1]) == int(earlier[1]) + 1 and not later[2]:
-        return True
-    if earlier[1] != later[1] or not later[2]:
-        return False
-
-    # Inserted provisions can precede an existing suffix: 6, 6AA, 6A, 6B.
-    # A terminating suffix sorts after its own insertions, while the original
-    # unsuffixed provision sorts first. This is legislative rather than
-    # alphabetic order and does not require a jurisdiction identifier.
-    def key(suffix: str) -> tuple[int, ...]:
-        return tuple(map(ord, suffix)) + (ord("Z") + 1,)
-
-    return not earlier[2] or key(earlier[2]) < key(later[2])
-
-
-def table_outline(text: str) -> tuple[BareLabel, ...] | None:
-    """Authenticate prose-headed clause rows in a flattened pipe table.
-
-    Only marker-to-prose cells are supported. Every pipe in the region must
-    belong to a supported marker, except a leading border before that marker.
-    Additional value cells and unknown child cells abstain: their ownership is
-    ambiguous in flattened text. An immediate legal caption or replacement
-    locator must identify this region, rather than an earlier outer table.
-    Parenthetical children retain the same nesting and source offsets as the
-    surrounding clauses, including when several rows share a physical line.
-    """
-    markers = tuple(_TABLE_MARKER.finditer(text))
-    if len(markers) < 2:
-        return None
-    if {marker.start() for marker in markers} != {
-        marker.start() for marker in _TABLE_POSSIBLE_MARKER.finditer(text)
-    }:
-        # A partial table walk would attach an unrecognized row to its prior
-        # sibling, just as an unknown token invalidates a detached outline.
-        return None
-    marker_starts = {marker.start() for marker in markers}
-    if any(
-        child.start("marker") not in marker_starts
-        for child in _TABLE_INLINE_CHILD.finditer(text)
-    ):
-        # Mixed layouts can retain ordinary paragraphs inside flattened rows,
-        # too. Never certify a sibling hidden inside another child body.
-        return None
-    roots = [marker for marker in markers if marker.group("number")]
-    if not roots:
-        return None
-    prefix = text[: roots[0].start()].rstrip(" \t|")
-    heading_lines = prefix.rstrip().splitlines()
-    caption = heading_lines[-1] if heading_lines else ""
-    introduction = _TABLE_REPLACEMENT_INTRO.search(prefix)
-    if not _TABLE_CLAUSE_CAPTION.fullmatch(caption) and (
-        introduction is None or introduction["first"] != roots[0]["number"]
-    ):
-        return None
-    if any(_DEFINITION_HEADER.match(line.lstrip(" \t|")) for line in text.splitlines()):
-        # Borders are layout, not ownership. A detached definition needs its
-        # own branch even when a leading pipe precedes its head.
-        return None
-    marker_pipes = {text.index("|", marker.start(), marker.end()) for marker in markers}
-    line_start = roots[0].start()
-    for line in text[line_start:].splitlines(keepends=True):
-        leading = len(line) - len(line.lstrip(" \t"))
-        if leading < len(line) and line[leading] == "|":
-            leading += 1
-            while leading < len(line) and line[leading] in " \t":
-                leading += 1
-        if line.strip() and line_start + leading not in marker_starts:
-            # Wrapped prose and unmarked headings do not positively identify
-            # this region's rows. Either might begin an embedded table.
-            return None
-        for pipe in re.finditer(r"\|", line):
-            position = line_start + pipe.start()
-            if position < roots[0].start() or position in marker_pipes:
-                continue
-            following = position + 1
-            while following < len(text) and text[following] in " \t":
-                following += 1
-            if line[: pipe.start()].strip() or following not in marker_starts:
-                # A new heading, bare child, detached cell or extra value
-                # column cannot borrow the current table's legal identity.
-                return None
-        line_start += len(line)
-    labels: list[BareLabel] = []
-    stack: list[str] = []
-    for index, marker in enumerate(markers):
-        token = marker.group("number") or marker.group("child")
-        next_start = (
-            markers[index + 1].start() if index + 1 < len(markers) else len(text)
-        )
-        body = text[marker.end() : next_start].strip()
-        if not body or not re.search(r"[A-Za-z]", body):
-            return None
-        if marker.group("number"):
-            if (
-                len(re.findall(r"[A-Za-z]+", body)) < 3
-                or not (
-                    _numeric_follower_is_independent_prose(body)
-                    or _TABLE_RECIPIENT.match(body)
-                    or (_TABLE_SCOPE.match(body) and _PREDICATE.search(body))
-                )
-                or (stack and not _table_number_successor(stack[0], token))
-            ):
-                return None
-            stack = [token]
-        else:
-            if not stack:
-                return None
-            kinds = ("number", "letter", "roman")
-            options = [
-                level
-                for level in range(len(stack) - 1, 0, -1)
-                if _successor(stack[level], token, kinds[level])
-            ]
-            previous_end = labels[-1].marker_end
-            before = text[previous_end : marker.start()].strip()
-            depth = len(stack)
-            if (
-                depth < len(kinds)
-                and _ordinal(token, kinds[depth]) == (1, 0)
-                and _LIST_INTRO.search(before)
-            ):
-                options.append(depth)
-            if len(options) != 1:
-                return None
-            stack = stack[: options[0]] + [token]
-        labels.append(
-            BareLabel(token, tuple(stack), marker.start(), marker.end(), len(text))
-        )
-    if len(roots) == 1 and not any(len(label.path) > 1 for label in labels):
-        return None
-    next_at_depth = [len(text)] * 3
-    result: list[BareLabel] = []
-    for label in reversed(labels):
-        depth = len(label.path) - 1
-        result.append(replace(label, end=min(next_at_depth[: depth + 1])))
-        next_at_depth[depth] = label.start
-    return tuple(reversed(result))
-
-
 def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
     """Return one positively ordered outline, otherwise retain all obligations.
 
     All token-shaped lines participate in the walk, including lines whose
-    follower cannot authenticate a label. Never silently skip one. Unsupported
-    table cells, mixed parenthetical layouts, gaps, and duplicate
-    labels reject the entire interpretation. Numeric-only detached prose lacks
-    evidence distinguishing subsection labels from count/table entries.
+    follower cannot authenticate a label. Never silently skip one. Explicit
+    table evidence, mixed parenthetical layouts, gaps, and duplicate labels
+    reject the entire interpretation. Numeric-only prose lists lack evidence
+    distinguishing subsection labels from count/table entries and are retained.
     """
-    if "|" in text:
-        return table_outline(text)
     lines = text.splitlines(keepends=True)
     starts: list[int] = []
     offset = 0
@@ -676,17 +503,15 @@ def bare_definition_headers(
     """
     if not outline:
         return ()
-    labelled_text_starts = {
-        _LABEL_WHITESPACE.match(text, label.marker_end).end() for label in outline
-    }
+    label_starts = {label.start for label in outline}
+    labelled_text_starts: set[int] = set()
     definitions: list[tuple[int, str]] = []
     offset = 0
     for line in text.splitlines(keepends=True):
+        if offset in label_starts:
+            labelled_text_starts.add(offset + len(line))
         match = _DEFINITION.match(line)
-        if (
-            match is not None
-            and offset + match.start("term") not in labelled_text_starts
-        ):
+        if match is not None and offset not in labelled_text_starts:
             definitions.append((offset + match.start(), match.group("term").strip()))
         offset += len(line)
     return tuple(definitions)

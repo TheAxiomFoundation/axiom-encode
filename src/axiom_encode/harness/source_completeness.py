@@ -2244,16 +2244,6 @@ _EXPLICIT_LEGAL_SECTION_REFERENCE = re.compile(
 # A locator atom must finish before known layout or terminal punctuation.
 # Consume its supported child chain before testing this boundary.
 _LEGAL_LOCATOR_ATOM_BOUNDARY = r"(?!\s*\()(?=$|\s|[)}\]]|[.,;:!?](?=\s|$))"
-# Canonical dependency paths below represent sections. A paragraph may be a
-# different legal container with the same number, so the general blocker alias
-# grammar cannot prove its kind. Require positively typed section syntax.
-_CANONICAL_SECTION_REFERENCE = re.compile(
-    r"(?:§{1,2}\s*|\bsections?\s+)(?P<section>\d+[a-z]*)"
-    r"(?:\s*\([A-Za-z0-9]+\))*" + _LEGAL_LOCATOR_ATOM_BOUNDARY,
-    # Consume every supported child and prove the atom's boundary. An unknown
-    # attached suffix cannot be silently dropped, including by backtracking.
-    flags=re.IGNORECASE,
-)
 _ENGLISH_LEGAL_LOCATOR = (
     r"\d+[A-Za-z]*(?:\.\d+)*(?:\s*\([A-Za-z0-9]+\))*"
     # A complete opaque atom must end before known layout or punctuation.
@@ -7419,7 +7409,6 @@ def _source_scope_identifies_blocker(
     blocker: str,
     *,
     corpus_citation_path: str,
-    reference_pattern: re.Pattern[str] | None = None,
 ) -> bool:
     """Reject citations expressly described as unrelated to the source rule."""
 
@@ -7433,13 +7422,11 @@ def _source_scope_identifies_blocker(
     section = target_path.rstrip("/").rsplit("/", 1)[-1]
     references = tuple(
         match
-        for match in (reference_pattern or _EXPLICIT_LEGAL_SECTION_REFERENCE).finditer(
-            source_scope_text
-        )
+        for match in _EXPLICIT_LEGAL_SECTION_REFERENCE.finditer(source_scope_text)
         if match.group("section").lower() == section.lower()
     )
     if not references:
-        return reference_pattern is None
+        return True
     for reference in references:
         clause_start = (
             max(
@@ -9565,22 +9552,13 @@ def _reason_dependency_is_source_bound(
         ):
             continue
         dependency = match.group(0).strip()
-        canonical = re.fullmatch(
-            r"[a-z]{2}(?:-[a-z0-9-]+)?/"
-            r"(?:statute|regulation|guidance|manual)/[A-Za-z0-9_./-]+",
-            dependency,
-            flags=re.IGNORECASE,
-        )
         if not _reason_match_names_missing_dependency(
             reason,
             match,
             source_scope_text=source_scope_text,
             current_usc_title=(current_citation.title if current_citation else None),
-        ) or (
-            canonical is None
-            and not _prose_dependency_is_external(
-                dependency, current_section=current_section
-            )
+        ) or not _prose_dependency_is_external(
+            dependency, current_section=current_section
         ):
             continue
         if "#" in dependency and ":" in dependency:
@@ -9591,99 +9569,14 @@ def _reason_dependency_is_source_bound(
             ):
                 return True
             continue
-        if canonical is not None:
-            # Parse path components before considering prose digits: an Act's
-            # year or instrument number is never its section identifier.
-            components = dependency.rstrip("/.").split("/")
-            current_components = corpus_citation_path.rstrip("/").split("/")
-            descendant_locator = (
-                r"(?:subsection|paragraph|subparagraph|clause|subclause|"
-                r"absatz|satz|nummer|buchstabe|document)(?:-|/)[a-z0-9]+"
-            )
-            implicit_section_index = None
-            if (
-                len(components) >= 4
-                and len(current_components) >= 4
-                and re.fullmatch(r"\d+[a-z]*", components[3], flags=re.IGNORECASE)
-                and re.fullmatch(
-                    r"\d+[a-z]*", current_components[3], flags=re.IGNORECASE
-                )
-                and all(
-                    not tail
-                    or re.fullmatch(
-                        rf"{descendant_locator}(?:/{descendant_locator})*",
-                        "/".join(tail),
-                        flags=re.IGNORECASE,
-                    )
-                    for tail in (components[4:], current_components[4:])
-                )
-            ):
-                # Established instrument/section paths can continue into an
-                # authenticated branch or corpus document. Bare numeric tails
-                # can instead be Act metadata and establish no section.
-                implicit_section_index = 3
-            explicit_locator_index = next(
-                (
-                    index
-                    for index, component in enumerate(components[:-1])
-                    if index >= 3
-                    and component.casefold() in {"section", "article", "regulation"}
-                ),
-                None,
-            )
-            # Explicit canonical containers have no supported dependency
-            # production. Keep established implicit instrument/section paths.
-            if explicit_locator_index is not None:
-                # Revert the explicit canonical dependency relaxation. A path
-                # alone cannot prove an operative source relation; retain the
-                # deferral obligation instead of guessing from adjacent prose.
-                continue
-            else:
-                section_index = implicit_section_index
-            if (
-                section_index is None
-                or section_index >= len(current_components)
-                or [part.casefold() for part in components[:section_index]]
-                != [part.casefold() for part in current_components[:section_index]]
-            ):
-                continue
-            if any(
-                tail
-                and not re.fullmatch(
-                    rf"{descendant_locator}(?:/{descendant_locator})*",
-                    "/".join(tail),
-                    flags=re.IGNORECASE,
-                )
-                for tail in (
-                    components[section_index + 1 :],
-                    current_components[section_index + 1 :],
-                )
-            ):
-                # Explicit and implicit section paths share the same supported
-                # descendant grammar; an unknown terminal kind cannot disappear.
-                continue
-            section = components[section_index]
-            if (
-                not re.fullmatch(r"\d+[a-z]*", section, flags=re.IGNORECASE)
-                or section.casefold() == current_components[section_index].casefold()
-            ):
-                continue
-            corpus_instrument_target = _rulespec_target_base(
-                "/".join(components[:section_index])
-            )
-        else:
-            section_match = re.search(r"\d+[a-z]?", dependency, flags=re.IGNORECASE)
-            section = section_match.group(0) if section_match else None
-            corpus_target = _rulespec_target_base(corpus_citation_path)
-            corpus_instrument_target = corpus_target.rsplit("/", 1)[0]
-        if section:
+        section_match = re.search(r"\d+[a-z]?", dependency, flags=re.IGNORECASE)
+        corpus_target = _rulespec_target_base(corpus_citation_path)
+        corpus_instrument_target = corpus_target.rsplit("/", 1)[0]
+        if section_match:
             if _source_scope_identifies_blocker(
                 source_scope_text,
-                f"{corpus_instrument_target}/{section}#dependency",
+                f"{corpus_instrument_target}/{section_match.group(0)}#dependency",
                 corpus_citation_path=corpus_citation_path,
-                reference_pattern=(
-                    _CANONICAL_SECTION_REFERENCE if canonical is not None else None
-                ),
             ):
                 return True
             continue

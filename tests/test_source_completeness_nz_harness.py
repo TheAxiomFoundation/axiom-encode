@@ -71,30 +71,6 @@ def test_unsupported_amendment_value_table_retains_numeric_row_obligations():
     assert numeric_values(source, NZ_AMENDMENT) == [4, 305, 220, 5, 160]
 
 
-def test_table_alternatives_have_independent_source_gate_ownership():
-    source = (
-        "In Schedule 4, Part 7, replace clauses 4 to 5 with:\n"
-        # Synthetic marker-only rows have no ambiguous value-cell boundary.
-        "4 | To a person who has dependent children and is in a relationship "
-        "$305 a week, if the applicant resides in Area 1\n"
-        "5 | To any other person $235 a week, if the applicant resides in Area 2\n"
-    )
-    clauses, ambiguous = sc._source_condition_clauses_owned_by_excerpt(
-        "$305 a week",
-        rule={"source": NZ_AMENDMENT},
-        source_text=source,
-        branches=sc.recognize_source_structure(
-            source, corpus_citation_path=NZ_AMENDMENT
-        ),
-        corpus_citation_path=NZ_AMENDMENT,
-    )
-    assert not ambiguous
-    assert len(clauses) == 1
-    assert clauses[0].branch_path == ("4",)
-    assert "$235" not in clauses[0].text
-    assert sc._source_conjunctive_fact_gates(clauses[0].text) == ()
-
-
 def test_counterfactual_rate_does_not_require_unchanged_circumstances_as_a_fact():
     source = (
         "The rate is the rate in clauses 1 to 6AA that would apply to them "
@@ -109,56 +85,6 @@ def test_counterfactual_rate_does_not_require_unchanged_circumstances_as_a_fact(
         )
         == 2
     )
-
-
-def test_independent_table_row_still_rejects_a_missing_conjunctive_fact():
-    source = (
-        "In Schedule 4, Part 7, replace clauses 4 to 5 with:\n"
-        "4 | The amount is $305 if the applicant is single and has no income.\n"
-        "5 | The amount is $235 if the applicant is partnered.\n"
-    )
-    rule = {
-        "name": "payment",
-        "kind": "derived",
-        "dtype": "Money",
-        "source": NZ_AMENDMENT,
-        "versions": [{"formula": "if applicant_is_single: 305 else: 0"}],
-        "metadata": {
-            "proof": {
-                "atoms": [
-                    {
-                        "path": "versions[0].formula",
-                        "kind": "formula",
-                        "source": {
-                            "corpus_citation_path": NZ_AMENDMENT,
-                            "excerpt": "$305",
-                        },
-                    }
-                ]
-            }
-        },
-    }
-    payload = {
-        "rules": [rule],
-        "inputs": [
-            {
-                "name": "applicant_is_single",
-                "dtype": "Boolean",
-                "description": "The applicant is single.",
-            }
-        ],
-    }
-    issues = sc._opaque_same_source_condition_input_issues(
-        payload,
-        source_text=source,
-        branches=sc.recognize_source_structure(
-            source, corpus_citation_path=NZ_AMENDMENT
-        ),
-        principal_rules={"payment": rule},
-        corpus_citation_path=NZ_AMENDMENT,
-    )
-    assert len(issues) == 1
-    assert "2 source gates" in issues[0]
 
 
 @pytest.mark.parametrize(
@@ -291,24 +217,9 @@ def test_german_grammatical_prose_authenticates_fallback_without_corpus_path():
     } == {("1", "satz-1"), ("1", "satz-2")}
 
 
-def test_clause_reference_stays_in_owning_table_row():
-    source = (
-        "In Schedule 4, Part 7, replace clauses 6 to 6B with:\n"
-        # Synthetic marker-only rows retain the independent clause owner.
-        "6 | To any other person $165 a week\n"
-        "6AA | To any other specified person $105 a week\n"
-        "6A | The rate is the rate in clauses 1 to 6AA that would apply "
-        "if they were single.\n"
-        "6B | In clauses 4 to 6AA, specified person means a person receiving a benefit.\n"
-    )
-    branches = sc.recognize_source_structure(source, corpus_citation_path=NZ_AMENDMENT)
-    row = next(branch for branch in branches if branch.path == ("6a",))
-    assert "clauses 1 to 6AA" in row.text
-    assert "specified person means" not in row.text
-    assert not [branch for branch in branches if branch.kind == "sentence"]
-
-
 def test_explicit_canonical_dependency_keeps_obligation_after_reversion():
+    # Base chooses the first numeric path component (2018), not section 72.
+    # Positive canonical dependency parsing is queued with NZ defect 6.
     source = "The beneficiary's eligibility for the payment is under section 72."
     reason = f"Cannot be computed until {NZ_ACT}/section/72 is encoded."
     assert not sc._reason_dependency_is_source_bound(
@@ -316,99 +227,6 @@ def test_explicit_canonical_dependency_keeps_obligation_after_reversion():
         source,
         corpus_citation_path=f"{NZ_ACT}/section/220",
         path=("2", "b"),
-    )
-
-
-@settings(deadline=None)
-@given(year=st.integers(1000, 9999), section=st.integers(1, 999))
-def test_canonical_corpus_dependency_year_never_binds_as_section(
-    year: int, section: int
-):
-    instrument = f"nz/statute/act/public/{year}/0032"
-    reason = f"Cannot be computed until {instrument}/section/{section} is encoded."
-    assert not sc._reason_dependency_is_source_bound(
-        reason,
-        f"The payment depends on section {section}.",
-        corpus_citation_path=f"{instrument}/section/1000",
-    )
-    assert not sc._reason_dependency_is_source_bound(
-        reason,
-        f"The payment depends on section {year}.",
-        corpus_citation_path=f"{instrument}/section/1000",
-    )
-
-
-def test_canonical_dependency_does_not_bind_another_instrument():
-    assert not sc._reason_dependency_is_source_bound(
-        "Cannot be computed until nz/statute/act/public/2019/0032/section/72 is encoded.",
-        "The payment depends on section 72.",
-        corpus_citation_path=f"{NZ_ACT}/section/220",
-    )
-
-
-@pytest.mark.parametrize(
-    ("instrument", "descendant"),
-    [
-        ("de/statute/estg", "absatz-1"),
-        ("de/statute/estg", "absatz-1/document-1"),
-        ("uk/statute/example", "subsection/1"),
-        ("uk/statute/example", "subsection/1/paragraph/a"),
-    ],
-)
-@pytest.mark.parametrize("current_descendant", ["", "/document-1"])
-def test_canonical_dependency_preserves_authenticated_descendant_sections(
-    instrument: str, descendant: str, current_descendant: str
-):
-    reason = f"Cannot be computed until {instrument}/72/{descendant} is encoded."
-    assert sc._reason_dependency_is_source_bound(
-        reason,
-        "The payment depends on section 72.",
-        corpus_citation_path=f"{instrument}/220{current_descendant}",
-    )
-    assert not sc._reason_dependency_is_source_bound(
-        reason,
-        "The payment depends on section 72.",
-        corpus_citation_path=f"{instrument}-other/220{current_descendant}",
-    )
-
-
-@pytest.mark.parametrize("tail", ["2018/0032", "72/unknown-1"])
-def test_canonical_dependency_numeric_metadata_does_not_establish_a_section(tail: str):
-    assert not sc._reason_dependency_is_source_bound(
-        f"Cannot be computed until uk/statute/example/{tail} is encoded.",
-        "The payment depends on section 72 and section 2018.",
-        corpus_citation_path="uk/statute/example/220",
-    )
-
-
-@settings(deadline=None)
-@given(year=st.integers(1000, 9998))
-def test_canonical_current_act_year_does_not_authenticate_an_implicit_section(
-    year: int,
-):
-    assert not sc._reason_dependency_is_source_bound(
-        f"Cannot be computed until uk/statute/ukpga/{year + 1} is encoded.",
-        f"The payment depends on section {year + 1}.",
-        corpus_citation_path=f"uk/statute/ukpga/{year}/32/section/220",
-    )
-
-
-def test_canonical_dependency_with_sentence_punctuation_is_not_its_own_blocker():
-    assert not sc._reason_dependency_is_source_bound(
-        f"Cannot be computed until {NZ_ACT}/section/220.",
-        "The payment depends on section 220.",
-        corpus_citation_path=f"{NZ_ACT}/section/220",
-    )
-
-
-@pytest.mark.parametrize(
-    "dependency", [f"{NZ_ACT}", f"{NZ_ACT}/section", f"{NZ_ACT}/schedule/4"]
-)
-def test_canonical_dependency_requires_a_section_locator(dependency: str):
-    assert not sc._reason_dependency_is_source_bound(
-        f"Cannot be computed until {dependency} is encoded.",
-        "The payment depends on section 4 and section 2018.",
-        corpus_citation_path=f"{NZ_ACT}/section/220",
     )
 
 
@@ -566,15 +384,6 @@ def test_count_keyed_table_keeps_counts_and_payment_amounts(caption):
     assert numeric_values(source, f"{NZ_ACT}/section/74") == [1, 450, 2, 700]
 
 
-@pytest.mark.parametrize("kind", ["article", "regulation"])
-def test_unsupported_canonical_locator_kinds_fail_closed(kind):
-    assert not sc._reason_dependency_is_source_bound(
-        f"Cannot be computed until {NZ_ACT}/{kind}/72 is encoded.",
-        f"The payment depends on {kind} 72.",
-        corpus_citation_path=f"{NZ_ACT}/{kind}/220",
-    )
-
-
 CITATION_CONTROL_INSTRUMENTS = [
     NZ_ACT,
     "uk/statute/example",
@@ -667,47 +476,11 @@ def test_citation_continuation_requires_a_positive_terminal(terminal: str):
 
 
 @pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
-@pytest.mark.parametrize("kind", ["article", "regulation"])
-@pytest.mark.parametrize("prose_kind", ["section", "article", "regulation"])
-def test_unsupported_locator_never_binds_section_prose_or_defers_a_branch(
-    instrument: str, kind: str, prose_kind: str
+@pytest.mark.parametrize("heading", ("Family size", "Number of children"))
+@pytest.mark.parametrize("separator", (" ", "\n", "\r\n", "\t", "\u2028", "\u00a0"))
+def test_embedded_count_table_retains_actual_completeness_obligations(
+    instrument: str, heading: str, separator: str
 ):
-    citation = f"{instrument}/{kind}/220"
-    reason = f"Cannot be computed until {instrument}/{kind}/72 is encoded."
-    source = f"(1) The payment depends on {prose_kind} 72."
-    assert not sc._reason_dependency_is_source_bound(
-        reason, source, corpus_citation_path=citation
-    )
-    covered, issues = sc._deferred_coverage(
-        {
-            "module": {
-                "deferred_outputs": [
-                    {
-                        "output": sc._rulespec_target_base(citation) + "/1#payment",
-                        "reason": reason,
-                    }
-                ]
-            }
-        },
-        corpus_citation_path=citation,
-        source_text=source,
-        branches=sc.recognize_source_structure(source, corpus_citation_path=citation),
-    )
-    assert covered == set()
-    assert any("does not name an exact missing dependency" in issue for issue in issues)
-
-
-@pytest.mark.parametrize("kind", ["article", "regulation"])
-def test_unsupported_outer_locator_cannot_be_rescued_by_a_nested_section(kind: str):
-    assert not sc._reason_dependency_is_source_bound(
-        f"Cannot be computed until {NZ_ACT}/{kind}/72/section/5 is encoded.",
-        "The payment depends on section 5.",
-        corpus_citation_path=f"{NZ_ACT}/{kind}/72/section/220",
-    )
-
-
-@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
-def test_embedded_count_table_retains_actual_completeness_obligations(instrument: str):
     from tests.test_source_completeness import (
         EN_NUMERIC_OCCURRENCE_EXTRACTOR,
         _analyze,
@@ -716,10 +489,11 @@ def test_embedded_count_table_retains_actual_completeness_obligations(instrument
     citation = f"{instrument}/section/74"
     source = (
         "Clause | Provision\n"
-        "1 | The rates are specified in the following table:\n"
-        "Number of children | Eligibility\n"
-        "2 | The household is eligible if— (a) | its income is below $450.\n"
-        "3 | The household is eligible if— (a) | its income is below $700."
+        "1 | The rates are specified in the following table:"
+        + separator
+        + heading
+        + "\n2 | The household is entitled to $450.\n"
+        + "3 | The household is entitled to $700."
     )
     content = yaml.safe_dump(
         {
@@ -776,46 +550,15 @@ def test_ambiguous_hyphenated_locator_never_leaves_a_partial_arithmetic_tail(
     assert sc._explicit_source_arithmetic_topology(cleaned) is None
 
 
-@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
-@pytest.mark.parametrize("prose_kind", ["paragraph", "article", "regulation", "clause"])
-def test_canonical_section_dependency_requires_the_same_prose_locator_kind(
-    instrument: str, prose_kind: str
-):
-    assert not sc._reason_dependency_is_source_bound(
-        f"Cannot be computed until {instrument}/section/72 is encoded.",
-        f"The payment depends on {prose_kind} 72.",
-        corpus_citation_path=f"{instrument}/section/220",
-    )
-
-
-@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize("instrument", [NZ_ACT])
 @pytest.mark.parametrize("alias", ["section", "§", "§§"])
-def test_reverted_explicit_dependency_does_not_guess_from_typed_section_references(
+def test_nz_explicit_dependency_keeps_base_deferral_with_typed_section_references(
     instrument, alias
 ):
     assert not sc._reason_dependency_is_source_bound(
         f"Cannot be computed until {instrument}/section/72 is encoded.",
         f"The payment depends on {alias} 72.",
         corpus_citation_path=f"{instrument}/section/220",
-    )
-
-
-@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
-@pytest.mark.parametrize("tail", ["article/73", "regulation/73", "unknown/73"])
-@pytest.mark.parametrize("location", ["dependency", "current"])
-def test_explicit_canonical_section_uses_supported_descendant_grammar(
-    instrument: str, tail: str, location: str
-):
-    dependency = f"{instrument}/section/72"
-    current = f"{instrument}/section/220"
-    if location == "dependency":
-        dependency += f"/{tail}"
-    else:
-        current += f"/{tail}"
-    assert not sc._reason_dependency_is_source_bound(
-        f"Cannot be computed until {dependency} is encoded.",
-        "The payment depends on section 72.",
-        corpus_citation_path=current,
     )
 
 
@@ -831,22 +574,6 @@ def test_ambiguous_citation_number_cannot_authenticate_a_conversion_base(source_
 
 
 @pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
-@pytest.mark.parametrize(
-    "section_prose",
-    ["Section 72 remains unaffected.", "Section 72 has a heading."],
-)
-def test_canonical_dependency_kind_and_link_must_belong_to_the_same_reference(
-    instrument: str, section_prose: str
-):
-    source = f"(1) {section_prose} The payment depends on paragraph 72."
-    assert not sc._reason_dependency_is_source_bound(
-        f"Cannot be computed until {instrument}/section/72 is encoded.",
-        source,
-        corpus_citation_path=f"{instrument}/section/220",
-    )
-
-
-@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
 @pytest.mark.parametrize("suffix", ["times the weekly amount", "is payable each week"])
 def test_unproven_attached_hyphen_range_retains_the_whole_identifier(
     instrument, suffix
@@ -858,37 +585,8 @@ def test_unproven_attached_hyphen_range_retains_the_whole_identifier(
     assert "1-20" in cleaned
 
 
-@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
-@pytest.mark.parametrize(
-    "locator",
-    [
-        "72.5",
-        "72-5",
-        "72,5",
-        "72/5",
-        "72_5",
-        "72.foo",
-        "72-foo",
-        "72(foo-bar)",
-        "72 (5.1)",
-        "72-A",
-        "72/other",
-        "72–5",
-        "72:other",
-        "72;other",
-        "72!other",
-    ],
-)
-def test_canonical_section_dependency_never_binds_a_locator_prefix(instrument, locator):
-    assert not sc._reason_dependency_is_source_bound(
-        f"Cannot be computed until {instrument}/section/72 is encoded.",
-        f"The payment depends on section {locator}.",
-        corpus_citation_path=f"{instrument}/section/220",
-    )
-
-
 @pytest.mark.parametrize("locator", ["72", "72.", "72(5)", "72 (5)(a)"])
-def test_canonical_section_atom_keeps_terminal_punctuation_and_supported_children(
+def test_nz_explicit_dependency_keeps_base_deferral_for_terminal_section_prose(
     locator,
 ):
     assert not sc._reason_dependency_is_source_bound(
@@ -971,7 +669,7 @@ def test_detached_count_axes_retain_actual_missing_scalar_obligations(
         )
 
 
-@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize("instrument", [NZ_ACT])
 @pytest.mark.parametrize(
     "sentence",
     [
@@ -1016,7 +714,7 @@ def test_same_sentence_dependency_cannot_borrow_another_references_predicate(
     assert "does not name an exact missing dependency" in issues[0]
 
 
-@pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
+@pytest.mark.parametrize("instrument", [NZ_ACT])
 @pytest.mark.parametrize(
     "sentence",
     [
@@ -1151,3 +849,42 @@ def test_possible_citation_formula_mask_retains_independent_percentage(kind, amo
             )
             is expected
         )
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The payment does not depend on section 72.",
+        "No conditions under section 72 apply.",
+        "The payment depends on section 72.",
+    ],
+)
+def test_implicit_numeric_instrument_dependency_retains_base_deferral_obligation(
+    sentence,
+):
+    # Revert selecting section 72 over instrument 26. Positive relation parsing
+    # is queued with NZ defect 6; neither negation nor positive prose admits it.
+    citation = "us/statute/26/220"
+    reason = "Cannot be computed until us/statute/26/72 is encoded."
+    source = "(1) " + sentence
+    assert not sc._reason_dependency_is_source_bound(
+        reason, source, corpus_citation_path=citation
+    )
+    covered, issues = sc._deferred_coverage(
+        {
+            "module": {
+                "deferred_outputs": [
+                    {
+                        "output": sc._rulespec_target_base(citation) + "/1#payment",
+                        "reason": reason,
+                    }
+                ]
+            }
+        },
+        corpus_citation_path=citation,
+        source_text=source,
+        branches=sc.recognize_source_structure(source, corpus_citation_path=citation),
+    )
+    assert covered == set()
+    assert len(issues) == 1
+    assert "does not name an exact missing dependency" in issues[0]

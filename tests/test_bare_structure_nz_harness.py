@@ -1,4 +1,4 @@
-"""Public NZ law excerpts retain legal rows without losing operative numbers.
+"""Public NZ law excerpts preserve detached structure and operative numbers.
 
 Excerpts: Social Security Act 2018 (2018/32); amending Act 2026/54, section 15.
 Source: New Zealand Legislation (legislation.govt.nz), Crown copyright, CC BY 4.0
@@ -16,7 +16,6 @@ from axiom_encode.bare_structure import (
     bare_definition_headers,
     bare_outline,
     mask_bare_labels,
-    table_outline,
 )
 from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness import validator_pipeline as vp
@@ -57,7 +56,7 @@ REPLACEMENT_TABLE = """In Schedule 4 , Part 7, replace clauses 4 to 6A with:
 
 # Synthetic legal-identity control; the official unheaded excerpt is kept above.
 HEADED_RATES_TABLE = "Clause | Provision\n" + RATES_TABLE
-# Synthetic marker-only cells move the value into the same prose cell.
+# Synthetic marker-only controls now exercise base's conservative pipe rejection.
 MARKER_ONLY_RATES_TABLE = HEADED_RATES_TABLE.replace(" | $", " $")
 MARKER_ONLY_REPLACEMENT_TABLE = REPLACEMENT_TABLE.replace(" | 70%", " 70%")
 
@@ -116,79 +115,6 @@ def test_detached_prose_abstention_is_stable_under_prescribed_quantity_complemen
     assert re.findall(r"\d+", mask_bare_labels(source)) == ["1", "2", "3", "4"]
 
 
-def test_flattened_rate_rows_end_before_later_rows_and_next_clause():
-    outline = table_outline(MARKER_ONLY_RATES_TABLE)
-    assert outline is not None
-    paths = {label.path: label for label in outline}
-    single = paths[("1", "a")]
-    assert len(MARKER_ONLY_RATES_TABLE[single.marker_end : single.end]) < 100
-    assert (
-        "$ 450 per winter period"
-        in MARKER_ONLY_RATES_TABLE[single.marker_end : single.end]
-    )
-    assert "$ 700" not in MARKER_ONLY_RATES_TABLE[single.marker_end : single.end]
-    assert paths[("1", "c")].end == paths[("2",)].start
-    assert paths[("2", "a", "iii")].end == paths[("2", "b")].start
-    masked = mask_bare_labels(MARKER_ONLY_RATES_TABLE, outline)
-    assert re.findall(r"\d+", masked) == [
-        "450",
-        "1",
-        "700",
-        "1",
-        "72",
-        "3",
-        "700",
-        "1",
-        "363",
-        "1989",
-    ]
-
-
-def test_replacement_clause_suffixes_and_cross_reference_keep_their_row():
-    outline = bare_outline(MARKER_ONLY_REPLACEMENT_TABLE)
-    assert outline is not None
-    assert [label.path for label in outline] == [
-        ("4",),
-        ("4A",),
-        ("5",),
-        ("5A",),
-        ("6",),
-        ("6AA",),
-        ("6A",),
-        ("6B",),
-    ]
-    row = next(label for label in outline if label.token == "6A")
-    owned = MARKER_ONLY_REPLACEMENT_TABLE[row.marker_end : row.end]
-    assert "clauses 1 to 6AA" in owned
-    assert "specified person means" not in owned
-    assert row.end == MARKER_ONLY_REPLACEMENT_TABLE.index("6B |")
-
-
-@settings(max_examples=30, deadline=None)
-@given(
-    amount=st.integers(min_value=1, max_value=999999),
-    separator=st.sampled_from((" ", "\n", "\r\n", "\u2028")),
-)
-def test_table_mask_preserves_amounts_offsets_and_all_row_boundaries(amount, separator):
-    source = MARKER_ONLY_RATES_TABLE.replace("450", str(amount))
-    source = re.sub(r" (?=\([a-z]+\) \||2 \|)", lambda _: separator, source)
-    outline = bare_outline(source)
-    assert outline is not None
-    masked = mask_bare_labels(source, outline)
-    assert len(masked) == len(source)
-    amount_start = source.index(f"$ {amount}") + 2
-    assert masked[amount_start : amount_start + len(str(amount))] == str(amount)
-    spans = [(label.start, label.marker_end) for label in outline]
-    for index, (before, after) in enumerate(zip(source, masked)):
-        if before != after:
-            assert any(start <= index < end for start, end in spans)
-    by_path = {label.path: label for label in outline}
-    for label in outline:
-        for depth in range(1, len(label.path)):
-            parent = by_path[label.path[:depth]]
-            assert parent.start <= label.start < label.end <= parent.end
-
-
 @settings(max_examples=25, deadline=None)
 @given(amount=st.integers(min_value=1, max_value=999999))
 def test_numeric_pipe_cells_without_legal_identity_remain_operative(amount):
@@ -198,7 +124,7 @@ def test_numeric_pipe_cells_without_legal_identity_remain_operative(amount):
         "The children are eligible.",
     ):
         source = f"1 | {body}\n2 | {body}\n"
-        assert table_outline(source) is None
+        assert bare_outline(source) is None
         assert mask_bare_labels(source) == source
 
 
@@ -231,20 +157,13 @@ def test_value_column_headers_keep_counts_even_with_nested_conditions(
     assert mask_bare_labels(source) == source
 
 
-@pytest.mark.parametrize("prefix", ("Clause | Provision\n", "| Clause | Provision\n"))
-def test_clause_column_headers_keep_statutory_rate_rows(prefix):
-    outline = bare_outline(prefix + RATES_TABLE.replace(" | $", " $"))
-    assert outline is not None
-    assert {label.path for label in outline} >= {("1", "a"), ("2", "d")}
-
-
 @pytest.mark.parametrize(
     "token",
     ("0", "-2", "+2", "2a", "2A1", "2" + "Z" * 9, "9" * 10, "(1)", "(1A)"),
 )
 def test_unknown_table_marker_invalidates_the_whole_walk(token):
     source = MARKER_ONLY_RATES_TABLE.replace("2 | For", f"{token} | For")
-    assert table_outline(source) is None
+    assert bare_outline(source) is None
     assert mask_bare_labels(source) == source
 
 
@@ -255,7 +174,7 @@ def test_unknown_dotted_table_row_between_siblings_invalidates_the_whole_walk(to
         f"{token} | The unrecognised row is operative. (b) | to a person",
         1,
     )
-    assert table_outline(source) is None
+    assert bare_outline(source) is None
     assert mask_bare_labels(source) == source
 
 
@@ -266,7 +185,7 @@ def test_unknown_signed_table_row_between_siblings_invalidates_the_whole_walk(to
         f"{token} | The unrecognised row is operative. (b) | to a person",
         1,
     )
-    assert table_outline(source) is None
+    assert bare_outline(source) is None
     assert mask_bare_labels(source) == source
 
 
@@ -280,14 +199,14 @@ def test_unparsed_line_start_children_prevent_a_partial_pipe_walk(border, token)
         f"{border}(b) A sole parent is eligible for $700.\n"
         "2 | A dependent child means a person supported by a parent."
     )
-    assert table_outline(source) is None
+    assert bare_outline(source) is None
     assert mask_bare_labels(source) == source
 
 
 def test_duplicate_or_out_of_order_table_roots_are_never_skipped():
     for token in ("1", "3"):
         assert (
-            table_outline(MARKER_ONLY_RATES_TABLE.replace("2 | For", f"{token} | For"))
+            bare_outline(MARKER_ONLY_RATES_TABLE.replace("2 | For", f"{token} | For"))
             is None
         )
 
@@ -307,15 +226,16 @@ def test_children_do_not_authenticate_numeric_cell_identity(caption):
         caption + "1 | The household is eligible if— (a) | its income is below $450.\n"
         "2 | The household is eligible if— (a) | its income is below $700."
     )
-    assert table_outline(source) is None
+    assert bare_outline(source) is None
     assert mask_bare_labels(source) == source
 
 
-def test_unheaded_nz_rate_table_abstains_without_positive_legal_identity():
-    assert table_outline(RATES_TABLE) is None
+def test_nz_rate_tables_keep_all_numbers_after_table_reversion():
+    assert bare_outline(RATES_TABLE) is None
     assert mask_bare_labels(RATES_TABLE) == RATES_TABLE
-    assert table_outline(HEADED_RATES_TABLE) is None
-    assert table_outline(MARKER_ONLY_RATES_TABLE) is not None
+    assert bare_outline(HEADED_RATES_TABLE) is None
+    assert bare_outline(MARKER_ONLY_RATES_TABLE) is None
+    assert mask_bare_labels(MARKER_ONLY_RATES_TABLE) == MARKER_ONLY_RATES_TABLE
 
 
 @pytest.mark.parametrize("separator", [" ", "\n", "\r\n"])
@@ -327,7 +247,7 @@ def test_inline_nonpipe_child_cannot_be_absorbed_by_a_pipe_sibling(separator):
         + "(b) A person is eligible if aged 65 years.\n"
         "2 | The authority must pay the benefit."
     )
-    assert table_outline(source) is None
+    assert bare_outline(source) is None
     assert mask_bare_labels(source) == source
 
 
@@ -351,34 +271,8 @@ def test_pipe_definition_layout_abstains_where_detached_layout_has_independent_o
     ]
     assert detached[outline[-1].marker_end : outline[-1].end].strip() == "a pension."
     # The same content cannot be certified with weaker ownership after a layout change.
-    assert table_outline(heading + pipe) is None
+    assert bare_outline(heading + pipe) is None
     assert mask_bare_labels(heading + pipe) == heading + pipe
-
-
-def test_same_line_label_does_not_hide_a_following_definition_header():
-    source = (
-        "1 | The following definitions apply:—\nbenefit means—\n(a) | a main benefit."
-    )
-    from axiom_encode.bare_structure import BareLabel
-
-    labels = (BareLabel("1", ("1",), 0, source.index("The"), len(source)),)
-    assert [term for _, term in bare_definition_headers(source, labels)] == ["benefit"]
-
-
-@pytest.mark.parametrize(
-    "introduction", ["Compare clauses 1 and 2 with:", "Clauses 1 and 2 with:"]
-)
-def test_replacement_identity_requires_an_explicit_replacement(introduction):
-    source = (
-        introduction
-        + "\n1 | The household is eligible if— (a) | its income is below $450.\n"
-        "2 | The household is eligible if— (a) | its income is below $700."
-    )
-    assert table_outline(source) is None
-    assert (
-        table_outline(source.replace(introduction, "Replace clauses 1 and 2 with:"))
-        is not None
-    )
 
 
 @pytest.mark.parametrize("term", ["minimum_period", "minimum.period"])
@@ -388,17 +282,45 @@ def test_unfamiliar_detached_definition_terms_prevent_a_partial_table_walk(term)
         "(a) | A person is eligible if resident.\n(b) | A pension is payable.\n"
         f"{term} means a period of at least 22 weeks."
     )
-    assert table_outline(source) is None
+    assert bare_outline(source) is None
     assert mask_bare_labels(source) == source
 
 
 def test_official_value_cell_tables_abstain_on_ambiguous_ownership():
-    for source in (RATES_TABLE, HEADED_RATES_TABLE, REPLACEMENT_TABLE):
-        assert table_outline(source) is None
+    for source in (
+        RATES_TABLE,
+        HEADED_RATES_TABLE,
+        REPLACEMENT_TABLE,
+        MARKER_ONLY_RATES_TABLE,
+        MARKER_ONLY_REPLACEMENT_TABLE,
+    ):
+        assert bare_outline(source) is None
         assert mask_bare_labels(source) == source
 
 
 JURISDICTIONS = ("nz", "uk", "us", "de", "fr")
+
+
+@pytest.mark.parametrize("jurisdiction", JURISDICTIONS)
+@pytest.mark.parametrize("heading", ("Family size", "Number of children"))
+@pytest.mark.parametrize("separator", (" ", "\n", "\r\n", "\t", "\u2028", "\u00a0"))
+def test_embedded_count_heading_keeps_counts_after_table_reversion(
+    jurisdiction, heading, separator
+):
+    # The space + Family size form is the exact round-four review input.
+    source = (
+        "Clause | Provision\n1 | The rates are specified in the following table:"
+        + separator
+        + heading
+        + "\n2 | The household is entitled to $450.\n"
+        + "3 | The household is entitled to $700."
+    )
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+    cleaned = sc.authoritative_numeric_recall_text(
+        source, corpus_citation_path=f"{jurisdiction}/statute/example/section/15"
+    )
+    assert vp.extract_numeric_occurrences_from_text(cleaned) == [1, 2, 450, 3, 700]
 
 
 @pytest.mark.parametrize("jurisdiction", JURISDICTIONS)
@@ -434,7 +356,7 @@ def test_outer_legal_caption_cannot_authenticate_embedded_count_table(
         "2 | The household is eligible if— (a) | its income is below $450.\n"
         "3 | The household is eligible if— (a) | its income is below $700."
     )
-    assert table_outline(source) is None
+    assert bare_outline(source) is None
     assert mask_bare_labels(source) == source
     cleaned = sc.authoritative_numeric_recall_text(
         source, corpus_citation_path=f"{jurisdiction}/statute/example/section/15"
@@ -455,7 +377,7 @@ def test_a_new_table_caption_after_first_root_prevents_partial_ownership(
         "2 | The household is eligible if— (a) | its income is below $450.\n"
         "3 | The household is eligible if— (a) | its income is below $700."
     )
-    assert table_outline(source) is None
+    assert bare_outline(source) is None
     assert mask_bare_labels(source) == source
 
 
@@ -466,7 +388,7 @@ def test_unmarked_table_lines_abstain_without_positive_region_ownership(line):
         f"{line}\n"
         "2 | The household is eligible if— (a) | its income is below $450."
     )
-    assert table_outline(source) is None
+    assert bare_outline(source) is None
     assert mask_bare_labels(source) == source
 
 
@@ -479,7 +401,7 @@ def test_legal_caption_must_be_immediate_to_its_own_table(intervening):
         "1 | The household is eligible if— (a) | its income is below $450.\n"
         "2 | The household is eligible if— (a) | its income is below $700."
     )
-    assert table_outline(source) is None
+    assert bare_outline(source) is None
     assert mask_bare_labels(source) == source
 
 
@@ -496,7 +418,7 @@ def test_unsupported_pipe_children_abstain_instead_of_belonging_to_previous_chil
         + f"{token} | A person is eligible if aged 65 years.\n"
         "2 | The authority must pay the benefit."
     )
-    assert table_outline(source) is None
+    assert bare_outline(source) is None
     assert mask_bare_labels(source) == source
     cleaned = sc.authoritative_numeric_recall_text(
         source, corpus_citation_path=f"{jurisdiction}/statute/example/section/15"
@@ -515,7 +437,7 @@ def test_bordered_detached_definition_heads_prevent_weaker_pipe_ownership(
         "(a) | a main benefit; or\n(b) | a pension.\n"
         f"{border}minimum period means a period of at least 22 weeks."
     )
-    assert table_outline(source) is None
+    assert bare_outline(source) is None
     assert mask_bare_labels(source) == source
     cleaned = sc.authoritative_numeric_recall_text(
         source, corpus_citation_path=f"{jurisdiction}/statute/example/section/15"

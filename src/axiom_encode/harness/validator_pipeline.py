@@ -57,7 +57,7 @@ from axiom_oracles.bridges.registry import (
     load_policyengine_registry,
 )
 
-from axiom_encode.bare_structure import bare_outline, mask_bare_labels, table_outline
+from axiom_encode.bare_structure import bare_outline, mask_bare_labels
 from axiom_encode.codex_cli import (
     resolve_codex_cli,
     with_codex_model_availability_hint,
@@ -24704,23 +24704,13 @@ def find_source_subparagraph_coverage_issues(
     ):
         return []
 
-    source_children = _high_signal_top_level_coverage_demands(
-        source_text, citation_path=citation_path
-    )
+    source_children = _high_signal_top_level_coverage_demands(source_text)
     if coverage_scope_prefix:
         coverage_scope_top_level = _top_level_subparagraph_path(coverage_scope_prefix)
         source_children = [
             demand
             for demand in source_children
-            if (
-                any(
-                    _normalized_target_within(path, coverage_scope_prefix)
-                    or _normalized_target_within(coverage_scope_prefix, path)
-                    for path in demand.paths
-                )
-                if isinstance(demand, _TableCoverageDemand)
-                else (demand.label,) == coverage_scope_top_level
-            )
+            if (demand.label,) == coverage_scope_top_level
         ]
     source_children = filter_coverage_demands(
         source_children,
@@ -24740,26 +24730,11 @@ def find_source_subparagraph_coverage_issues(
             payload, citation_path, rules_file=rules_file
         )
     )
-    covered_paths = _rule_source_subparagraph_paths(payload, citation_path)
-    covered_paths.update(_source_relation_subparagraph_paths(payload, citation_path))
-    covered_paths.update(
-        _deferred_output_subparagraph_paths(
-            payload, citation_path, rules_file=rules_file
-        )
-    )
 
     issues: list[str] = []
     for demand in source_children:
         label, text = demand.label, demand.body
-        if isinstance(demand, _TableCoverageDemand):
-            if any(
-                _normalized_target_within(covered_path, path)
-                for path in demand.paths
-                for covered_path in covered_paths
-            ):
-                continue
-            label = ")(".join(demand.paths[-1])
-        elif (label,) in covered_children:
+        if (label,) in covered_children:
             continue
         citation = _format_source_subparagraph_citation(citation_path, label)
         excerpt = _compact_source_excerpt(text, limit=120)
@@ -24865,50 +24840,10 @@ def _high_signal_top_level_subparagraphs(source_text: str) -> list[tuple[str, st
     ]
 
 
-@dataclass(frozen=True)
-class _TableCoverageDemand(CoverageDemand):
-    paths: tuple[tuple[str, ...], ...]
-
-
-def _high_signal_top_level_coverage_demands(
-    source_text: str, *, citation_path: str | None = None
-) -> list[CoverageDemand]:
+def _high_signal_top_level_coverage_demands(source_text: str) -> list[CoverageDemand]:
     """Attach each main demand's original physical marker, including duplicates."""
-    outline = table_outline(source_text)
-    if outline is not None:
-        first_root = outline[0].path[0].lower()
-        citation_parts = (citation_path or "").split("/")
-        resolved_clause = (
-            len(citation_parts) >= 2
-            and citation_parts[-2] == "clause"
-            and (
-                not re.fullmatch(r"\d+[A-Za-z]*", citation_parts[-1])
-                or citation_parts[-1].lower() == first_root
-            )
-        )
-        demands: list[CoverageDemand] = []
-        for label in outline:
-            if len(label.path) != 2 or not re.fullmatch(r"[a-hj-r]", label.token):
-                continue
-            body = source_text[label.marker_end : label.end].strip()
-            if not _HIGH_SIGNAL_SUBPARAGRAPH_PATTERN.search(body):
-                continue
-            path = tuple(part.lower() for part in label.path)
-            # Only a resolved clause source authenticates a local-child alias
-            # for its first printed clause. A section source retains numeric
-            # subsection ancestors, and later clauses always keep their number.
-            paths = (
-                (path, path[1:])
-                if resolved_clause and path[0] == first_root
-                else (path,)
-            )
-            demands.append(
-                _TableCoverageDemand(label.token.lower(), body, label.start, paths)
-            )
-        return demands
-    # Preserve the ordinary outline scanner and its physical-origin contract.
-    # In particular, editorial-waiver controls must still observe that the
-    # scanner ran for an operative source rather than taking an early waiver.
+    # Compute main's complete spans first. Match origins must never be recovered
+    # with a label/body search: identical repeated headings have distinct keys.
     demands = _high_signal_top_level_subparagraphs(source_text)
     segments = _top_level_source_subparagraph_segments(source_text)
     origins = _TOP_LEVEL_SOURCE_SUBPARAGRAPH_PATTERN.finditer(source_text)
@@ -24925,31 +24860,8 @@ def _high_signal_top_level_coverage_demands(
 def _top_level_source_subparagraph_segments(
     source_text: str,
 ) -> list[tuple[str, str]]:
-    return [
-        (label, text)
-        for label, text, _ in _source_subparagraph_segments_with_positions(source_text)
-    ]
-
-
-def _source_subparagraph_segments_with_positions(
-    source_text: str,
-) -> list[tuple[str, str, int]]:
-    outline = table_outline(source_text)
-    if outline is not None:
-        # The shared outline authenticates flattened cell and clause markers.
-        # Its spans stop at a sibling or enclosing-clause boundary even when
-        # several rows occupy the same physical source line.
-        return [
-            (
-                label.token.lower(),
-                source_text[label.marker_end : label.end].strip(),
-                label.start,
-            )
-            for label in outline
-            if len(label.path) == 2 and re.fullmatch(r"[a-hj-r]", label.token)
-        ]
     matches = list(_TOP_LEVEL_SOURCE_SUBPARAGRAPH_PATTERN.finditer(source_text))
-    children: list[tuple[str, str, int]] = []
+    children: list[tuple[str, str]] = []
     for index, match in enumerate(matches):
         label = match.group("label").lower()
         start = match.start("text")
@@ -24957,7 +24869,7 @@ def _source_subparagraph_segments_with_positions(
             matches[index + 1].start() if index + 1 < len(matches) else len(source_text)
         )
         text = source_text[start:end].strip()
-        children.append((label, text, match.start()))
+        children.append((label, text))
     return children
 
 
