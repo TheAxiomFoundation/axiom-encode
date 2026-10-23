@@ -109,6 +109,7 @@ from axiom_encode.companion_entities import (
 from axiom_encode.companion_relations import executable_relation_directions
 from axiom_encode.yaml_serialization import (
     Yaml12SafeDumper,
+    find_duplicate_mapping_key_issues,
     represent_yaml12_string,
     safe_dump_yaml,
 )
@@ -583,6 +584,13 @@ _GENERATED_RULESPEC_YAML_IO_ISSUE = (
 )
 _GENERATED_RULESPEC_YAML_DECODE_ISSUE = (
     "[generated-yaml:decode] generated RuleSpec text is not decodable"
+)
+# Loading keeps only the last of two equal keys, so a rewrite would erase one.
+_GENERATED_RULESPEC_DUPLICATE_KEY_ISSUE_PREFIX = (
+    "Cannot apply RuleSpec YAML with duplicate mapping keys: "
+)
+_GENERATED_TEST_DUPLICATE_KEY_ISSUE_PREFIX = (
+    "Cannot apply companion test YAML with duplicate mapping keys: "
 )
 _GENERATED_RULESPEC_NONRETRYABLE_PREFIXES = (
     "[generated-yaml:io]",
@@ -56368,7 +56376,12 @@ def _generated_rulespec_yaml_nonparser_issue(
     *,
     output_root: Path,
 ) -> str | None:
-    """Check raw interpretations and read failures before auto-repair helpers."""
+    """Check raw YAML and read failures before auto-repair helpers.
+
+    The apply-time repairs and attestation stamping rewrite the generated files
+    through a YAML load and dump, which silently resolves duplicate keys and
+    interpretation syntax, so both are rejected here first.
+    """
 
     backend = str(getattr(result, "backend", "") or "").strip().lower()
     if backend not in APPLIED_ENCODING_ENCODER_BACKENDS:
@@ -56386,6 +56399,11 @@ def _generated_rulespec_yaml_nonparser_issue(
             return "Cannot apply invalid interpretation YAML: " + "; ".join(
                 interpretation_issues
             )
+        duplicate_key_issues = find_duplicate_mapping_key_issues(content)
+        if duplicate_key_issues:
+            return _GENERATED_RULESPEC_DUPLICATE_KEY_ISSUE_PREFIX + "; ".join(
+                duplicate_key_issues
+            )
         yaml.safe_load(content)
     except yaml.YAMLError:
         return None
@@ -56395,6 +56413,17 @@ def _generated_rulespec_yaml_nonparser_issue(
         return _GENERATED_RULESPEC_YAML_IO_ISSUE
     except UnicodeError:
         return _GENERATED_RULESPEC_YAML_DECODE_ISSUE
+    test_file = _rulespec_test_path(output_file)
+    try:
+        test_content = test_file.read_text() if test_file.is_file() else ""
+        duplicate_key_issues = find_duplicate_mapping_key_issues(test_content)
+    except (OSError, UnicodeError, yaml.YAMLError, RecursionError):
+        # Companion test read and parse failures keep their validation errors.
+        return None
+    if duplicate_key_issues:
+        return _GENERATED_TEST_DUPLICATE_KEY_ISSUE_PREFIX + "; ".join(
+            duplicate_key_issues
+        )
     return None
 
 
@@ -56412,6 +56441,12 @@ def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> 
             raise RuntimeError(
                 "Cannot apply invalid interpretation YAML: "
                 + "; ".join(interpretation_issues)
+            )
+        duplicate_key_issues = find_duplicate_mapping_key_issues(content)
+        if duplicate_key_issues:
+            raise RuntimeError(
+                _GENERATED_RULESPEC_DUPLICATE_KEY_ISSUE_PREFIX
+                + "; ".join(duplicate_key_issues)
             )
         payload = yaml.safe_load(content)
     except yaml.YAMLError as exc:
