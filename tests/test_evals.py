@@ -1572,9 +1572,22 @@ def test_target_source_document_is_not_its_own_amendment_context(tmp_path):
         ],
     )
 
-    source_unit = resolve_corpus_source_unit("dk/statute/benefit/section-1", release)
-
-    assert source_unit.amendment_documents == ()
+    rows = tuple(corpus_resolver.iter_active_local_corpus_rows(release))
+    target = next(row for row in rows if row.row.citation_path.endswith("section-1"))
+    assert (
+        evals_module._discover_amendment_documents(
+            rows,
+            release=release,
+            target_row=target,
+            parent_document_row=None,
+            target_citation_path=target.row.citation_path,
+            target_source_path=target.row.source_path,
+            version=target.row.version,
+        )
+        == ()
+    )
+    with pytest.raises(ValueError, match="Unresolved amendment context"):
+        resolve_corpus_source_unit("dk/statute/benefit/section-1", release)
 
 
 def test_provision_inherits_document_identifiers_for_de_amendment_discovery(tmp_path):
@@ -16829,6 +16842,172 @@ class TestEvalSuiteManifest:
         ) as mock_evaluate:
             self.persisted_result_revalidation = mock_evaluate
             yield
+
+    @pytest.mark.parametrize("kind", ["citation", "source"])
+    def test_routed_amendment_suite_result_persists_and_resumes(
+        self, tmp_path, monkeypatch, kind
+    ):
+        from tests.test_amending_section_context import (
+            _AMENDING_SECTION,
+            _PRINCIPAL_TARGET,
+            _amendment_rows,
+        )
+
+        release = _write_test_corpus_release(tmp_path, _amendment_rows())
+        policy_root = _canonical_rulespec_content_root(tmp_path, "nz")
+        case = EvalSuiteCase(
+            kind=kind,
+            name="amending-section",
+            mode="cold",
+            **(
+                {"citation": _AMENDING_SECTION}
+                if kind == "citation"
+                else {"corpus_citation_path": _AMENDING_SECTION}
+            ),
+        )
+        manifest = EvalSuiteManifest(
+            name="Routed amendment suite",
+            path=tmp_path / "suite.yaml",
+            runners=["codex:gpt-5.4"],
+            mode="cold",
+            allow_context=[],
+            gates=EvalReadinessGates(),
+            cases=[case],
+        )
+        prompt_eval = Mock(
+            return_value=EvalPromptResponse(
+                text=(
+                    "=== FILE: 4.yaml ===\n"
+                    "format: rulespec/v1\n"
+                    "module:\n"
+                    "  source_verification:\n"
+                    f"    corpus_citation_path: {_PRINCIPAL_TARGET}\n"
+                    "  summary: Principal accommodation supplement provision.\n"
+                    "rules: []\n"
+                    "=== FILE: 4.test.yaml ===\n"
+                    "[]\n"
+                ),
+                duration_ms=1,
+                trace={},
+            )
+        )
+        monkeypatch.setattr(evals_module, "_run_prompt_eval", prompt_eval)
+        run_kwargs = {
+            "manifest": manifest,
+            "output_root": tmp_path / "out",
+            "axiom_rules_path": tmp_path / "axiom-rules-engine",
+            "policy_repo_path": policy_root.parent,
+            "corpus_release": release,
+        }
+
+        [result] = run_eval_suite(**run_kwargs)
+
+        assert result.success is True
+        assert result.citation == _PRINCIPAL_TARGET
+        assert result.amendment_request == _AMENDING_SECTION
+        assert Path(result.output_file).relative_to(
+            tmp_path / "out" / "01-amending-section" / result.runner
+        ) == _resolve_eval_output_path(_PRINCIPAL_TARGET)
+        ledger = json.loads(
+            (tmp_path / "out" / "suite-results.jsonl").read_text().strip()
+        )
+        assert ledger["result"]["citation"] == _PRINCIPAL_TARGET
+        assert ledger["result"]["amendment_request"] == _AMENDING_SECTION
+        case_identity = ledger["result"]["admission"]["case"]
+        assert case_identity["corpus_citation_path"] == _AMENDING_SECTION
+        signed_identity = json.loads(Path(result.verdict_file).read_text())["identity"]
+        assert signed_identity["citation"] == _PRINCIPAL_TARGET
+        assert signed_identity["amendment_request"] == _AMENDING_SECTION
+        assert result.source_attestation["requested_corpus_citation_path"] == (
+            _PRINCIPAL_TARGET
+        )
+
+        monkeypatch.setattr(
+            evals_module,
+            "_run_prompt_eval",
+            Mock(side_effect=AssertionError("resume must retain completed generation")),
+        )
+        [resumed] = run_eval_suite(**run_kwargs, resume_existing=True)
+
+        assert resumed.to_dict() == result.to_dict()
+        assert prompt_eval.call_count == 1
+
+    @pytest.mark.parametrize("kind", ["citation", "source"])
+    @pytest.mark.parametrize("forgery", ["target", "request", "attestation"])
+    def test_routed_amendment_suite_rejects_untrusted_identity(
+        self, tmp_path, kind, forgery
+    ):
+        from tests.test_amending_section_context import (
+            _AMENDING_SECTION,
+            _OTHER_TARGET,
+            _PRINCIPAL_TARGET,
+            _amendment_rows,
+        )
+
+        release = _write_test_corpus_release(tmp_path, _amendment_rows())
+        source = resolve_corpus_source_unit(_AMENDING_SECTION, release)
+        attestation = _expected_eval_source_attestation(
+            source, rulespec_root=_canonical_rulespec_content_root(tmp_path, "nz")
+        )
+        case = EvalSuiteCase(
+            kind=kind,
+            name="amending-section",
+            mode="cold",
+            **(
+                {"citation": _AMENDING_SECTION}
+                if kind == "citation"
+                else {"corpus_citation_path": _AMENDING_SECTION}
+            ),
+        )
+        result = _fake_eval_result("openai-gpt-5.4", _PRINCIPAL_TARGET)
+        result.amendment_request = _AMENDING_SECTION
+        result.source_attestation = dict(attestation)
+        if forgery == "target":
+            result.citation = _OTHER_TARGET
+        elif forgery == "request":
+            result.amendment_request = _AMENDING_SECTION + "/1"
+        else:
+            result.source_attestation = None
+
+        with pytest.raises(ValueError):
+            evals_module._validate_new_eval_suite_case_results(
+                case,
+                [result],
+                [parse_runner_spec("openai:gpt-5.4")],
+                expected_source_attestation=attestation,
+                source_unit=source,
+            )
+
+    def test_routed_amendment_suite_rejects_amending_artifact_path(self, tmp_path):
+        from tests.test_amending_section_context import (
+            _AMENDING_SECTION,
+            _PRINCIPAL_TARGET,
+        )
+
+        result = _fake_eval_result("openai-gpt-5.4", _PRINCIPAL_TARGET)
+        result.amendment_request = _AMENDING_SECTION
+        result.output_file = str(
+            tmp_path
+            / "out"
+            / "01-amending-section"
+            / result.runner
+            / _resolve_eval_output_path(_AMENDING_SECTION)
+        )
+        case = EvalSuiteCase(
+            kind="citation",
+            name="amending-section",
+            mode="cold",
+            citation=_AMENDING_SECTION,
+        )
+
+        with pytest.raises(ValueError, match="routed principal artifact path"):
+            evals_module._validate_eval_suite_result_generation_artifact_ownership(
+                result,
+                output_root=tmp_path / "out",
+                case_index=1,
+                case=case,
+                seen_paths=set(),
+            )
 
     def test_manifest_case_identity_exposes_oracle_mode(self, tmp_path):
         manifest = EvalSuiteManifest(

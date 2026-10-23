@@ -115,6 +115,7 @@ from axiom_encode.form_numeric_structure import (
     mask_form_numeric_locators,
 )
 from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.harness.amendment_timing import amendment_timing_issues
 from axiom_encode.harness.coverage_exemptions import (
     CoverageDemand,
     filter_coverage_demands,
@@ -35661,6 +35662,7 @@ class ValidatorPipeline:
         source_metadata: dict[str, object] | None = None,
         source_citation_path: str | None = None,
         amendment_source_texts: Mapping[str, str] | None = None,
+        amendment_documents: Sequence[object] = (),
         rulespec_dependency_roots: Iterable[Path] = (),
         validation_staging_root: Path | None = None,
         existing_target_oracle_contract: ExistingTargetOracleContract | None = None,
@@ -35761,6 +35763,9 @@ class ValidatorPipeline:
             amendment_source_texts = {}
         if not isinstance(amendment_source_texts, Mapping):
             raise TypeError("amendment_source_texts must be a mapping when provided")
+        # Keep the authenticated metadata as well as the bodies: source text
+        # alone cannot establish the legal start of amendment-backed behavior.
+        self.amendment_documents = copy.deepcopy(tuple(amendment_documents))
         self.amendment_source_texts: dict[str, str] = {}
         for raw_citation_path, raw_source_text in amendment_source_texts.items():
             if not isinstance(raw_citation_path, str):
@@ -36391,6 +36396,23 @@ class ValidatorPipeline:
             )
         start = time.time()
         results = {}
+        if self.amendment_documents:
+            try:
+                timing_file = _canonical_rulespec_compile_path(
+                    rulespec_file, self.policy_repo_path
+                )
+            except (OSError, ValueError, UnsafeRulespecContextPath) as exc:
+                timing_issues = [f"RuleSpec validation target is not canonical: {exc}"]
+            else:
+                timing_issues = amendment_timing_issues(
+                    timing_file.read_text(), self.amendment_documents
+                )
+            results["amendment_timing"] = ValidationResult(
+                validator_name="amendment_timing",
+                passed=not timing_issues,
+                issues=timing_issues,
+                error="\n".join(timing_issues) or None,
+            )
 
         # Tier 0: Compile check (fast, catches structural errors early)
         self._log_event(

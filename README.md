@@ -122,6 +122,12 @@ rows are rejected as ambiguous. If the named release or an unambiguous provision
 is unavailable, encoding stops before calling a model. Supabase run/session sync
 is a separate telemetry feature and never supplies legal source text.
 
+For enacted amendments, request the principal provision with amendment and
+commencement evidence attached from the pinned corpus release. See
+[Encoding enacted amendments before commencement](docs/amendment-encoding.md)
+for the dated-version pattern, the exact discovery metadata ingest must supply,
+and blockers for direct amending-provision requests with unresolved context.
+
 A corpus checkout that keeps its bytes outside git (`.axiom/corpus-locks/`) gets
 the pinned release's provisions placed on binding, each file verified against the
 release's sha256 and placed only where the checkout's own lock pins those bytes;
@@ -525,7 +531,9 @@ from axiom_encode.core_export import build_spec_from_eval_result
 spec, metadata = build_spec_from_eval_result(
     selected_result,
     root="us:statutes/26/32/a/1",
-    modules=[("us:statutes/26/32/b", Path("/explicit/rulespec-us/us/statutes/26/32/b.yaml"))],
+    modules=[
+        ("us:statutes/26/32/b", Path("/explicit/rulespec-us/us/statutes/26/32/b.yaml"))
+    ],
 )
 ```
 
