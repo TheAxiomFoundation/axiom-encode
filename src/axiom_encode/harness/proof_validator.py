@@ -39,6 +39,18 @@ from .amendment_timing import (
     normalize_proof_location,
 )
 
+_SURROGATE_PATTERN = re.compile("[\ud800-\udfff]")
+
+
+def _escape_surrogates(text: str) -> str:
+    """Spell UTF-16 surrogates as escapes so a diagnostic stays UTF-8 encodable.
+
+    YAML escapes such as `"\\uD800"` load as lone surrogates, and issues echo
+    keys and ids verbatim.
+    """
+
+    return _SURROGATE_PATTERN.sub(lambda match: f"\\u{ord(match.group()):04x}", text)
+
 
 @dataclass(frozen=True)
 class ProofValidationResult:
@@ -48,6 +60,11 @@ class ProofValidationResult:
     issues: list[str]
     atoms_checked: int
     proof_required: bool
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "issues", [_escape_surrogates(issue) for issue in self.issues]
+        )
 
 
 PROOF_ATOM_KINDS = frozenset(
@@ -347,12 +364,15 @@ def find_interpretation_yaml_issues(content: str) -> list[str]:
 
     issues, numeric_id_paths = _interpretation_yaml_constraints(content)
     return [
-        *issues,
-        *(
-            f"{location} must be a quoted string when YAML reads this scalar "
-            "as a number."
-            for location in sorted(numeric_id_paths)
-        ),
+        _escape_surrogates(issue)
+        for issue in [
+            *issues,
+            *(
+                f"{location} must be a quoted string when YAML reads this scalar "
+                "as a number."
+                for location in sorted(numeric_id_paths)
+            ),
+        ]
     ]
 
 
@@ -548,6 +568,12 @@ def _interpretation_node_constraints(
                 stack.append((f"{location} key `{key.value}`", key))
                 stack.append((child, value))
         elif isinstance(node, yaml.ScalarNode):
+            if _SURROGATE_PATTERN.search(node.value):
+                issues.append(
+                    f"{location} must not contain UTF-16 surrogate code points "
+                    "(U+D800 to U+DFFF); the engine accepts only Unicode scalar "
+                    "values."
+                )
             if explicit_tag is not None and explicit_tag != _YAML_STR_TAG:
                 issues.append(
                     f"{location} has unsupported YAML tag `{explicit_tag}`; "

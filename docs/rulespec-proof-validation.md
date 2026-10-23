@@ -48,8 +48,10 @@ duplicate keys, tags and merge keys silently. Interpretation scalars may carry
 only the canonical string tag `!!str`, interpretation collections carry no
 tags, and interpretation mapping keys must be unique. A document may have only
 one root `module` key, and neither the root nor `module` may carry a tag other
-than `!!map` (PyYAML loads a `!!set` mapping as a set, which the engine reads as
-the mapping). YAML merge keys must not supply `module` or
+than `!!map` or the non-specific `!` (PyYAML loads a `!!set` mapping as a set,
+which the engine reads as the mapping). Interpretation strings must not contain
+UTF-16 surrogate code points: PyYAML decodes escapes such as `"\uD800"` to lone
+surrogates, which the engine rejects. YAML merge keys must not supply `module` or
 `module.interpretations`: the engine does not apply merge keys, so it would
 read different interpretations from the encoder.
 
