@@ -37,6 +37,7 @@ from axiom_encode.repo_routing import (
     canonical_rulespec_root_identity,
     monorepo_checkout_name,
 )
+from axiom_encode.yaml_serialization import safe_dump_yaml
 
 # RuleSpec dtypes that align with money-amount PolicyEngine variables.
 _MONEY_DTYPES = frozenset({"Money", "USD", "Integer", "Decimal", "Number"})
@@ -401,7 +402,7 @@ def classification_to_yaml_block(c: Classification, *, program: str = "snap") ->
     if c.comparison is not None:
         lines.append(f"    comparison: {c.comparison}")
     if c.rationale:
-        rendered = yaml.safe_dump(
+        rendered = safe_dump_yaml(
             c.rationale.replace("\n", " ").strip(),
             default_style='"',
             width=10_000,

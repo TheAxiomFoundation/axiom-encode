@@ -115,6 +115,7 @@ from axiom_encode.form_numeric_structure import (
     mask_form_numeric_locators,
 )
 from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.harness.amendment_timing import amendment_timing_issues
 from axiom_encode.harness.coverage_exemptions import (
     CoverageDemand,
     filter_coverage_demands,
@@ -144,6 +145,7 @@ from axiom_encode.statute import (
     normalize_rulespec_path_segment,
     parse_usc_citation,
 )
+from axiom_encode.yaml_serialization import safe_dump_yaml
 
 from .dependency_stubs import (
     UnsafeRulespecContextPath,
@@ -173,6 +175,7 @@ from .proof_validator import (
     collapse_evidence_whitespace,
     find_plural_corpus_citation_path_issues,
     find_rulespec_proof_issues,
+    interpretation_source_citation_paths,
     validate_rulespec_proofs,
 )
 from .same_case_execution import (
@@ -18530,7 +18533,7 @@ def repair_source_table_band_scalar_parameters(
         ]
         changed_rules.update(migratable_bound_names)
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -18894,7 +18897,7 @@ def repair_unsupported_chained_conditionals(content: str) -> tuple[str, list[str
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -18931,7 +18934,7 @@ def repair_formula_let_bindings(content: str) -> tuple[str, list[str]]:
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -19064,7 +19067,7 @@ def repair_source_table_open_ended_bound_sentinels(
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -19194,7 +19197,7 @@ def repair_source_table_interval_row_alignment(
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -19259,7 +19262,7 @@ def repair_source_table_interval_tests(
 
     if not changed_cases:
         return content, []
-    repaired_content = yaml.safe_dump(cases, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(cases, sort_keys=False).strip() + "\n"
     return repaired_content, changed_cases
 
 
@@ -19312,7 +19315,7 @@ def repair_copied_cross_reference_summary(
         return content, []
 
     module["summary"] = repaired_summary.strip()
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, repaired_imports
 
 
@@ -35506,6 +35509,7 @@ class ValidatorPipeline:
         source_metadata: dict[str, object] | None = None,
         source_citation_path: str | None = None,
         amendment_source_texts: Mapping[str, str] | None = None,
+        amendment_documents: Sequence[object] = (),
         rulespec_dependency_roots: Iterable[Path] = (),
         validation_staging_root: Path | None = None,
         existing_target_oracle_contract: ExistingTargetOracleContract | None = None,
@@ -35606,6 +35610,9 @@ class ValidatorPipeline:
             amendment_source_texts = {}
         if not isinstance(amendment_source_texts, Mapping):
             raise TypeError("amendment_source_texts must be a mapping when provided")
+        # Keep the authenticated metadata as well as the bodies: source text
+        # alone cannot establish the legal start of amendment-backed behavior.
+        self.amendment_documents = copy.deepcopy(tuple(amendment_documents))
         self.amendment_source_texts: dict[str, str] = {}
         for raw_citation_path, raw_source_text in amendment_source_texts.items():
             if not isinstance(raw_citation_path, str):
@@ -35769,6 +35776,14 @@ class ValidatorPipeline:
             return resolved
         if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
             return resolved
+        # Interpretation quotes need the same release-bound evidence as proof
+        # atoms. They are excluded from the numeric-grounding source pool.
+        if proof_evidence:
+            for citation_path in interpretation_source_citation_paths(payload):
+                try:
+                    resolved[citation_path] = fetch_source(citation_path)
+                except InvalidCorpusCitationError:
+                    resolved[citation_path] = None
         rules = payload.get("rules")
         if not isinstance(rules, list):
             return resolved
@@ -36228,6 +36243,23 @@ class ValidatorPipeline:
             )
         start = time.time()
         results = {}
+        if self.amendment_documents:
+            try:
+                timing_file = _canonical_rulespec_compile_path(
+                    rulespec_file, self.policy_repo_path
+                )
+            except (OSError, ValueError, UnsafeRulespecContextPath) as exc:
+                timing_issues = [f"RuleSpec validation target is not canonical: {exc}"]
+            else:
+                timing_issues = amendment_timing_issues(
+                    timing_file.read_text(), self.amendment_documents
+                )
+            results["amendment_timing"] = ValidationResult(
+                validator_name="amendment_timing",
+                passed=not timing_issues,
+                issues=timing_issues,
+                error="\n".join(timing_issues) or None,
+            )
 
         # Tier 0: Compile check (fast, catches structural errors early)
         self._log_event(
