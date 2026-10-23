@@ -20,8 +20,8 @@ from tests.test_cli import (
 from tests.test_module_interpretations import (
     CITATION,
     EXCERPT,
+    RAW_INTERPRETATIONS,
     RAW_RULES,
-    RAW_SHADOWED_INTERPRETATIONS,
     _raw_payload,
     _raw_string_payload,
 )
@@ -194,15 +194,15 @@ INVALID_RAW = [
     ),
     pytest.param(
         "format: rulespec/v1\nx-defaults: &defaults\n"
-        f"{RAW_SHADOWED_INTERPRETATIONS}module:\n  <<: *defaults\n{RAW_RULES}",
-        "must not supply `interpretations` through YAML merge keys",
+        f"{RAW_INTERPRETATIONS}module:\n  <<: *defaults\n{RAW_RULES}",
+        "module key `<<` is a YAML merge key",
         id="module-merge",
     ),
     pytest.param(
         "format: rulespec/v1\nx-base: &base\n  module:\n"
-        + "".join("  " + line for line in RAW_SHADOWED_INTERPRETATIONS.splitlines(True))
+        + "".join("  " + line for line in RAW_INTERPRETATIONS.splitlines(True))
         + f"<<: *base\n{RAW_RULES}",
-        "must not supply `module` through YAML merge keys",
+        "document root key `<<` is a YAML merge key",
         id="root-merge",
     ),
     pytest.param(

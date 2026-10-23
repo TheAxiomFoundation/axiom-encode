@@ -144,6 +144,7 @@ from .pricing import estimate_usage_cost_usd
 from .proof_validator import (
     find_interpretation_yaml_issues,
     find_unsupported_yaml_tag_issues,
+    find_yaml_merge_key_issues,
 )
 from .source_completeness import (
     _rulespec_target_base,
@@ -8872,14 +8873,16 @@ def _apply_generated_eval_repairs(
     """Apply deterministic generated-artifact repairs before final eval scoring."""
     repairs: list[str] = []
     # Several repairs load and dump the module or its tests, which would erase
-    # all but the last of two equal keys, change type-changing tags, or raise;
-    # validation already rejects all three.
+    # all but the last of two equal keys, change type-changing tags, raise, or
+    # write out the module's merge keys; validation already rejects all four.
     for artifact in (rulespec_file, _rulespec_test_path(rulespec_file)):
         try:
             artifact_content = artifact.read_text() if artifact.is_file() else ""
         except (OSError, UnicodeError):
             continue
-        if _rewrite_would_change_yaml(artifact_content):
+        if _rewrite_would_change_yaml(artifact_content) or (
+            artifact == rulespec_file and _rewrite_merge_key_issues(artifact_content)
+        ):
             return repairs
     proof_repairs = _remove_unreferenced_proof_import_atoms(rulespec_file, issues)
     repairs.extend(f"proof_import:{name}" for name in proof_repairs)
@@ -17019,6 +17022,7 @@ def _normalize_main_eval_content(
         keep_text = bool(
             find_duplicate_mapping_key_issues(content)
             or find_unsupported_yaml_tag_issues(content)
+            or find_yaml_merge_key_issues(content)
         )
         if not keep_text:
             yaml.safe_load(content)
@@ -17029,8 +17033,8 @@ def _normalize_main_eval_content(
         # escape beyond U+10FFFF, which the repairs below would raise again.
         keep_text = True
     if keep_text:
-        # Textual normalization only: it keeps every key and tag and still
-        # refuses text that is not RuleSpec.
+        # Textual normalization only: it keeps every key, tag and merge key and
+        # still refuses text that is not RuleSpec.
         return _normalize_rulespec_content(content)
     normalized = _normalize_rulespec_content(content)
     normalized, _lifted_inputs = _repair_misplaced_module_inputs(normalized)
@@ -17082,6 +17086,18 @@ def _rewrite_unsupported_tag_issues(content: str) -> list[str]:
 
     try:
         return find_unsupported_yaml_tag_issues(content)
+    except (yaml.YAMLError, RecursionError):
+        # Callers keep their own handling of unparseable text.
+        return []
+    except ValueError:
+        return [_UNLOADABLE_YAML_ISSUE]
+
+
+def _rewrite_merge_key_issues(content: str) -> list[str]:
+    """Merge keys that rewriting the module ``content`` would write out."""
+
+    try:
+        return find_yaml_merge_key_issues(content)
     except (yaml.YAMLError, RecursionError):
         # Callers keep their own handling of unparseable text.
         return []
@@ -18658,6 +18674,12 @@ def _generated_overlay_raw_issue(content: str) -> str | None:
         return "generated repair overlay has unsupported YAML tags: " + "; ".join(
             tag_issues
         )
+    merge_key_issues = find_yaml_merge_key_issues(content)
+    if merge_key_issues:
+        return (
+            "generated repair overlay has YAML merge keys the engine does not "
+            "apply: " + "; ".join(merge_key_issues)
+        )
     return None
 
 
@@ -18717,6 +18739,13 @@ def _overlay_validation_retry_candidate(
                 "preserved repair overlay tests have unsupported YAML tags: "
                 + "; ".join(preserved_tag_issues)
             )
+    # The engine does not apply merge keys; the rewrite would write them out.
+    preserved_merge_key_issues = _rewrite_merge_key_issues(candidate.rulespec)
+    if preserved_merge_key_issues:
+        raise _PreservedRepairOverlayError(
+            "preserved repair overlay has YAML merge keys the engine does not "
+            "apply: " + "; ".join(preserved_merge_key_issues)
+        )
     base_issue = _repair_overlay_candidate_base_issue(candidate)
     if base_issue is not None:
         raise _PreservedRepairOverlayError(base_issue)

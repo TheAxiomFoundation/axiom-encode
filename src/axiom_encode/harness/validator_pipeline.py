@@ -176,6 +176,7 @@ from .proof_validator import (
     find_plural_corpus_citation_path_issues,
     find_rulespec_proof_issues,
     find_unsupported_yaml_tag_issues,
+    find_yaml_merge_key_issues,
     interpretation_source_citation_paths,
     validate_rulespec_proofs,
 )
@@ -420,6 +421,12 @@ def _yaml_parse_issue(path: Path, exc: BaseException) -> str:
 
 def _yaml_tag_issue(path: Path, issues: list[str]) -> str:
     return f"{path.name} has unsupported YAML tags: " + "; ".join(issues)
+
+
+def _yaml_merge_key_issue(path: Path, issues: list[str]) -> str:
+    return f"{path.name} has YAML merge keys the engine does not apply: " + "; ".join(
+        issues
+    )
 
 
 def run_claude_code(
@@ -36468,6 +36475,10 @@ class ValidatorPipeline:
             return _yaml_parse_issue(rules_file, exc)
         if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
             return "RuleSpec YAML artifacts are required."
+        # The payload holds merged keys the engine never reads.
+        merge_key_issues = find_yaml_merge_key_issues(content)
+        if merge_key_issues:
+            return _yaml_merge_key_issue(rules_file, merge_key_issues)
         return None
 
     def _rulespec_test_path(self, rules_file: Path) -> Path:

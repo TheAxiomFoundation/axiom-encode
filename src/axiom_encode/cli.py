@@ -274,6 +274,7 @@ from .harness.proof_validator import (
     find_noncanonical_corpus_citation_path_issues,
     find_plural_corpus_citation_path_issues,
     find_unsupported_yaml_tag_issues,
+    find_yaml_merge_key_issues,
     load_money_atom_ratchet,
     proof_source_citation_paths,
     validate_rulespec_proofs,
@@ -610,6 +611,12 @@ _GENERATED_RULESPEC_YAML_VALUE_ISSUE = (
 _GENERATED_TEST_YAML_VALUE_ISSUE = (
     "[generated-yaml:value] invalid companion test YAML: a scalar cannot be "
     "loaded, such as a double-quoted escape beyond U+10FFFF or an impossible date"
+)
+# PyYAML applies these and the engine does not, so a rewrite writes the merged
+# keys out and changes what the engine compiles. Companion tests may use them:
+# only PyYAML reads tests.
+_GENERATED_RULESPEC_MERGE_KEY_ISSUE_PREFIX = (
+    "Cannot apply RuleSpec YAML with merge keys the engine does not apply: "
 )
 _GENERATED_RULESPEC_NONRETRYABLE_PREFIXES = (
     "[generated-yaml:io]",
@@ -56399,7 +56406,8 @@ def _generated_rulespec_yaml_nonparser_issue(
 
     The apply-time repairs and attestation stamping rewrite the generated files
     through a YAML load and dump, which silently resolves duplicate keys,
-    interpretation syntax and type-changing tags, so all are rejected here first.
+    interpretation syntax, type-changing tags and merge keys, so all are
+    rejected here first.
     """
 
     backend = str(getattr(result, "backend", "") or "").strip().lower()
@@ -56426,6 +56434,11 @@ def _generated_rulespec_yaml_nonparser_issue(
         tag_issues = find_unsupported_yaml_tag_issues(content)
         if tag_issues:
             return _GENERATED_RULESPEC_TAG_ISSUE_PREFIX + "; ".join(tag_issues)
+        merge_key_issues = find_yaml_merge_key_issues(content)
+        if merge_key_issues:
+            return _GENERATED_RULESPEC_MERGE_KEY_ISSUE_PREFIX + "; ".join(
+                merge_key_issues
+            )
         yaml.safe_load(content)
     except yaml.YAMLError:
         return None
@@ -56483,6 +56496,11 @@ def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> 
         if tag_issues:
             raise RuntimeError(
                 _GENERATED_RULESPEC_TAG_ISSUE_PREFIX + "; ".join(tag_issues)
+            )
+        merge_key_issues = find_yaml_merge_key_issues(content)
+        if merge_key_issues:
+            raise RuntimeError(
+                _GENERATED_RULESPEC_MERGE_KEY_ISSUE_PREFIX + "; ".join(merge_key_issues)
             )
         payload = yaml.safe_load(content)
     except yaml.YAMLError as exc:
