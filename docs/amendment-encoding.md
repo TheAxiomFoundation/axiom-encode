@@ -125,7 +125,9 @@ of its contained amending provision; cite an exact other provision when that
 distinction matters.
 
 Commencement bounds travel with the authenticated amendment evidence into
-apply-time validation. A failed standalone validation may be retried in an
+generated-artifact evaluation and apply-time validation. The public `validate`
+and `proof-validate` commands do not load amendment documents, so they don't
+run this timing check. A generated artifact that fails evaluation may be retried in an
 overlay, but that overlay must pass the timing check on its final repaired
 bytes before a snapshot is admitted. Manifest refresh and reviewed-candidate
 promotion carry the same authenticated bounds into validation.
