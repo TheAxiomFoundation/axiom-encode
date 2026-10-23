@@ -238,6 +238,11 @@ def scope_resolved_corpus_source(
         resolved_text_sha256=_sha256_text(body),
         source_history=source.source_history if target == source.citation_path else (),
         slice_required=target != source.citation_path,
+        selected_record=(
+            replace(source.selected_record, body=body)
+            if source.selected_record is not None
+            else None
+        ),
     )
 
 
@@ -446,7 +451,7 @@ class CorpusRowIdentity:
 
 @dataclass(frozen=True)
 class ActiveCorpusBodyRow:
-    """One body-bearing row selected by the active corpus release."""
+    """An active row's metadata and text; containers may use composed text."""
 
     row: CorpusRowIdentity
     body: str
@@ -477,6 +482,7 @@ class ResolvedCorpusSource:
     release_selector_sha256: str
     source_history: tuple[str, ...] = ()
     slice_required: bool = False
+    selected_record: ActiveCorpusBodyRow | None = None
 
     @property
     def proof_evidence_segments(self) -> tuple[str, ...]:
@@ -527,6 +533,8 @@ class _StoredRecord:
     file_path: Path
     file_sha256: str
     source_history: tuple[str, ...]
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    citation_label: str | None = None
 
 
 @dataclass(frozen=True)
@@ -810,8 +818,13 @@ def iter_active_local_corpus_rows(
     *,
     jurisdiction: str | None = None,
     document_class: str | None = None,
+    include_bodyless: bool = False,
 ) -> Iterator[ActiveCorpusBodyRow]:
     """Iterate body-bearing rows in an exact, validated active release.
+
+    ``include_bodyless`` retains container metadata for structural callers.
+    Such rows have empty text and ``row.body_sha256 is None``; resolve the
+    container normally before using its composed text as legal evidence.
 
     The complete selected scope is validated before the iterator is returned,
     so callers never observe partial results before a duplicate citation or
@@ -921,14 +934,14 @@ def iter_active_local_corpus_rows(
                     body_sha256=_sha256_text(body) if body is not None else None,
                 )
                 identities_by_citation.setdefault(citation_path, []).append(identity)
-                if body is None:
+                if body is None and not include_bodyless:
                     continue
                 raw_metadata = record.get("metadata")
                 metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
                 body_rows.append(
                     ActiveCorpusBodyRow(
                         row=identity,
-                        body=body,
+                        body=body if body is not None else "",
                         heading=_optional_string(record.get("heading")),
                         citation_label=_optional_string(record.get("citation_label")),
                         metadata=MappingProxyType(dict(metadata)),
@@ -986,6 +999,16 @@ def _resolved_source(
         release_selector_sha256=release.selector_sha256,
         source_history=() if slice_required else selected.source_history,
         slice_required=slice_required,
+        selected_record=ActiveCorpusBodyRow(
+            row=selected.row,
+            body=body,
+            heading=selected.heading,
+            citation_label=selected.citation_label,
+            metadata=selected.metadata,
+            release_name=release.name,
+            release_content_sha256=release.content_sha256,
+            release_selector_sha256=release.selector_sha256,
+        ),
     )
 
 
@@ -1292,6 +1315,12 @@ def _read_matching_records(
                 file_path=path,
                 file_sha256=artifact.sha256,
                 source_history=_record_source_history(record),
+                metadata=MappingProxyType(
+                    dict(record["metadata"])
+                    if isinstance(record.get("metadata"), dict)
+                    else {}
+                ),
+                citation_label=_optional_string(record.get("citation_label")),
             )
         )
     return records
@@ -1374,6 +1403,12 @@ def _read_descendant_records(
                 file_path=path,
                 file_sha256=artifact.sha256,
                 source_history=_record_source_history(record),
+                metadata=MappingProxyType(
+                    dict(record["metadata"])
+                    if isinstance(record.get("metadata"), dict)
+                    else {}
+                ),
+                citation_label=_optional_string(record.get("citation_label")),
             )
         )
     return records
