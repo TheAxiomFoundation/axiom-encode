@@ -17072,6 +17072,9 @@ def _rewrite_unsupported_tag_issues(content: str) -> list[str]:
 
 
 def _rulespec_rule_names(content: str) -> set[str]:
+    if _rewrite_unsupported_tag_issues(content):
+        # Some of these tags make loading raise; validation reports them.
+        return set()
     try:
         payload = yaml.safe_load(content)
     except (yaml.YAMLError, ValueError):
@@ -17096,6 +17099,8 @@ def _removed_rulespec_rule_names(original: str, normalized: str) -> set[str]:
 
 
 def _indexed_parameter_rule_names(content: str) -> set[str]:
+    if _rewrite_unsupported_tag_issues(content):
+        return set()
     try:
         payload = yaml.safe_load(content)
     except (yaml.YAMLError, ValueError):

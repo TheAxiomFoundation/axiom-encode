@@ -175,6 +175,7 @@ from .proof_validator import (
     collapse_evidence_whitespace,
     find_plural_corpus_citation_path_issues,
     find_rulespec_proof_issues,
+    find_unsupported_yaml_tag_issues,
     interpretation_source_citation_paths,
     validate_rulespec_proofs,
 )
@@ -415,6 +416,10 @@ def _safe_load_unique_keys(content: str) -> Any:
 
 def _yaml_parse_issue(path: Path, exc: BaseException) -> str:
     return f"{path.name} YAML parse failed: {exc}"
+
+
+def _yaml_tag_issue(path: Path, issues: list[str]) -> str:
+    return f"{path.name} has unsupported YAML tags: " + "; ".join(issues)
 
 
 def run_claude_code(
@@ -36450,7 +36455,13 @@ class ValidatorPipeline:
     def _rulespec_yaml_preflight_issue(self, rules_file: Path) -> str | None:
         """Return a parse/shape issue before invoking compile or CI validators."""
         try:
-            payload = _safe_load_unique_keys(rules_file.read_text())
+            content = rules_file.read_text()
+            # The validators below read the loaded payload, which these tags
+            # turn into sets, tuples or bytes the engine never sees.
+            tag_issues = find_unsupported_yaml_tag_issues(content)
+            if tag_issues:
+                return _yaml_tag_issue(rules_file, tag_issues)
+            payload = _safe_load_unique_keys(content)
         except OSError as exc:
             return f"RuleSpec YAML read failed: {exc}"
         except (yaml.YAMLError, ValueError) as exc:
@@ -38597,11 +38608,18 @@ class ValidatorPipeline:
         test_path = self._rulespec_test_path(rules_file)
         if test_path.exists():
             try:
-                payload = _safe_load_unique_keys(test_path.read_text())
+                test_content = test_path.read_text()
+                test_tag_issues = find_unsupported_yaml_tag_issues(test_content)
+                # Some of these tags make loading raise, so the text is not loaded.
+                payload = (
+                    None if test_tag_issues else _safe_load_unique_keys(test_content)
+                )
             except (yaml.YAMLError, ValueError) as exc:
                 issues.append(_yaml_parse_issue(test_path, exc))
             else:
-                if payload in (None, ""):
+                if test_tag_issues:
+                    issues.append(_yaml_tag_issue(test_path, test_tag_issues))
+                elif payload in (None, ""):
                     if not self._is_nonassertable_rulespec_artifact(rules_file):
                         issues.append("No tests found.")
                 elif not isinstance(payload, list):
