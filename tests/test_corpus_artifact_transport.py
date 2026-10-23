@@ -755,6 +755,66 @@ def test_reviewed_exporter_ancestry_and_exact_blobs(signed, monkeypatch, changed
         transport.validate_run(run, "123", repo)
 
 
+def test_reviewed_exporter_runtime_pairs_are_atomic(signed, monkeypatch):
+    repo = signed["corpus"]
+    for path in transport.REVIEWED_BLOBS:
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("reviewed fixture " + path)
+    transport.git(repo, "add", ".")
+    transport.git(repo, "-c", "commit.gpgsign=false", "commit", "-qm", "reviewed")
+    reviewed_head = transport.git(repo, "rev-parse", "HEAD")
+    original_lock = (repo / "uv.lock").read_text()
+    baseline_blobs = {
+        path: transport.git(repo, "rev-parse", f"HEAD:{path}")
+        for path in transport.REVIEWED_BLOBS
+    }
+    transport.git(
+        repo,
+        "remote",
+        "add",
+        "origin",
+        f"https://github.com/{transport.REPOSITORY}.git",
+    )
+    monkeypatch.setattr(transport, "REVIEWED_EXPORTER", reviewed_head)
+    monkeypatch.setattr(transport, "REVIEWED_BLOBS", baseline_blobs)
+    run = {
+        "id": 123,
+        "event": "workflow_dispatch",
+        "status": "completed",
+        "conclusion": "success",
+        "path": transport.WORKFLOW,
+        "head_branch": "main",
+        "repository": {"full_name": transport.REPOSITORY},
+        "head_repository": {"full_name": transport.REPOSITORY},
+        "head_sha": reviewed_head,
+        "run_attempt": 1,
+    }
+    transport.git(repo, "update-ref", "refs/remotes/origin/main", reviewed_head)
+    transport.validate_run(run, "123", repo)
+
+    (repo / "pyproject.toml").write_text("second reviewed pyproject")
+    (repo / "uv.lock").write_text("second reviewed lock")
+    transport.git(repo, "add", "pyproject.toml", "uv.lock")
+    transport.git(repo, "-c", "commit.gpgsign=false", "commit", "-qm", "second pair")
+    second_head = transport.git(repo, "rev-parse", "HEAD")
+    second_pair = (
+        transport.git(repo, "rev-parse", "HEAD:pyproject.toml"),
+        transport.git(repo, "rev-parse", "HEAD:uv.lock"),
+    )
+    monkeypatch.setattr(transport, "REVIEWED_PYMUPDF_RUNTIME_BLOB_PAIR", second_pair)
+    transport.git(repo, "update-ref", "refs/remotes/origin/main", second_head)
+    transport.validate_run({**run, "head_sha": second_head}, "123", repo)
+
+    (repo / "uv.lock").write_text(original_lock)
+    transport.git(repo, "add", "uv.lock")
+    transport.git(repo, "-c", "commit.gpgsign=false", "commit", "-qm", "mixed pair")
+    mixed_head = transport.git(repo, "rev-parse", "HEAD")
+    transport.git(repo, "update-ref", "refs/remotes/origin/main", mixed_head)
+    with pytest.raises(ValueError, match="reviewed blobs"):
+        transport.validate_run({**run, "head_sha": mixed_head}, "123", repo)
+
+
 def test_destination_link_rejected(signed, tmp_path):
     path = signed["receipt"]["path"]
     target = signed["corpus"] / path

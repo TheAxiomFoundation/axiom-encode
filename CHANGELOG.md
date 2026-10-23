@@ -1,3 +1,7 @@
+## 0.2.2253
+
+- Accept the exact reviewed corpus exporter dependency-file pair for the current PyMuPDF minimum-version update, while rejecting mixed or otherwise changed exporter checkouts.
+
 ## 0.2.2252
 
 - Admit authenticated in-place legacy Arizona ECE replacement from a signed corpus artifact while preserving the existing RuleSpec identity and dependent references; keep distinct-path moves and unsupported transport modes rejected.

@@ -39,6 +39,13 @@ REVIEWED_BLOBS = {
     "pyproject.toml": "d2e466184798193640ed498fe00c0546679c0099",
     "uv.lock": "438ba675bc1acd5d4228b466c7de116fc0a2ddc5",
 }
+# Corpus main raised PyMuPDF's declared minimum from 1.25.0 to 1.26.6 while
+# retaining the same locked 1.26.7 package and the reviewed exporter code.
+# Accept only the exact second dependency-file pair, never a mixed checkout.
+REVIEWED_PYMUPDF_RUNTIME_BLOB_PAIR = (
+    "9b2ffc55ce307d11f19bd85a223ff10c4beb9af0",
+    "1308da83ad1154d4d4bc6271742ac6581868b01a",
+)
 MAX_PAYLOAD = 16 * 1024 * 1024
 MAX_ARCHIVE = 17 * 1024 * 1024
 MAX_RECEIPT = 16 * 1024
@@ -89,9 +96,18 @@ def validate_run(run: dict, run_id: str, corpus: Path) -> None:
         raise ValueError("corpus origin is not official")
     git(corpus, "merge-base", "--is-ancestor", REVIEWED_EXPORTER, head)
     git(corpus, "merge-base", "--is-ancestor", head, "refs/remotes/origin/main")
-    for path, blob in REVIEWED_BLOBS.items():
-        if git(corpus, "rev-parse", f"{head}:{path}") != blob:
-            raise ValueError("exporter implementation differs from reviewed blobs")
+    observed = {
+        path: git(corpus, "rev-parse", f"{head}:{path}") for path in REVIEWED_BLOBS
+    }
+    if any(
+        observed[path] != blob
+        for path, blob in REVIEWED_BLOBS.items()
+        if path not in {"pyproject.toml", "uv.lock"}
+    ) or (observed["pyproject.toml"], observed["uv.lock"]) not in {
+        (REVIEWED_BLOBS["pyproject.toml"], REVIEWED_BLOBS["uv.lock"]),
+        REVIEWED_PYMUPDF_RUNTIME_BLOB_PAIR,
+    }:
+        raise ValueError("exporter implementation differs from reviewed blobs")
 
 
 def select_artifact(document: dict, run: dict) -> dict:
