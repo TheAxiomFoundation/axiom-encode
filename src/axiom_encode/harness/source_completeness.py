@@ -1458,8 +1458,23 @@ _LOCAL_CONDITION_LANGUAGE = re.compile(
     r")\b",
     flags=re.IGNORECASE,
 )
+_SCHEDULE_LOCATOR_LABEL = r"(?:\d+[a-z]*|[ivxlcdm]+)(?![a-z0-9_])"
+_SCHEDULE_CLAUSE_LOCATOR = re.compile(
+    rf"\bclauses?\s+(?P<first>{_SCHEDULE_LOCATOR_LABEL})"
+    rf"(?:\s*(?:to|[-–—])\s*(?P<last>{_SCHEDULE_LOCATOR_LABEL}))?",
+    flags=re.IGNORECASE,
+)
+_SCHEDULE_DEFERRAL_DEPENDENCY = re.compile(
+    rf"\b(?:schedule\s+(?P<schedule>{_SCHEDULE_LOCATOR_LABEL})"
+    rf"(?:\s*,?\s*part\s+(?P<part>{_SCHEDULE_LOCATOR_LABEL}))?"
+    rf"|part\s+(?P<leading_part>{_SCHEDULE_LOCATOR_LABEL})\s+of\s+"
+    rf"schedule\s+(?P<following_schedule>{_SCHEDULE_LOCATOR_LABEL}))"
+    rf"(?:\s*,?\s*clauses?\s+(?P<first>{_SCHEDULE_LOCATOR_LABEL})"
+    rf"(?:\s*(?:to|[-–—])\s*(?P<last>{_SCHEDULE_LOCATOR_LABEL}))?)?",
+    flags=re.IGNORECASE,
+)
 _PRECISE_DEFERRAL_DEPENDENCY = re.compile(
-    r"(?:"
+    r"(?:" + _SCHEDULE_DEFERRAL_DEPENDENCY.pattern + r"|"
     r"§{1,2}\s*\d+[a-z]?|"
     r"\b(?:section|subsection|paragraph|absatz|abs\.|satz|nummer|nr\.)"
     r"\s*\d+[a-z]?|"
@@ -5225,12 +5240,32 @@ def _without_manual_typography_operators(source_text: str) -> str:
     return "".join(masked)
 
 
+def _without_defined_category_operators(source_text: str) -> str:
+    """Keep scalars in defined ``50+ single person`` labels, masking the plus."""
+
+    masked = list(source_text)
+    for category in re.finditer(
+        r"\b(?:a|an|the)\s+\d+(?P<operator>\+)\s+"
+        r"(?:[A-Za-z][A-Za-z'’-]*\s+){1,8}"
+        r"(?:as\s+defined\s+(?:in|by)|within\s+the\s+meaning\s+of)\b",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        # The following noun phrase names the category authenticated by the
+        # definition reference. Its attached '+' is a threshold label, not an
+        # instruction to add the first word of the category to the number.
+        masked[category.start("operator")] = _TYPOGRAPHY_MASK
+    return "".join(masked)
+
+
 def _has_substantive_arithmetic_expression(source_text: str) -> bool:
     """Ignore prose conjunctions and year spans, retaining actual arithmetic."""
 
     arithmetic_text = list(
         _without_slash_conjunction_operators(
-            _without_manual_typography_operators(source_text)
+            _without_manual_typography_operators(
+                _without_defined_category_operators(source_text)
+            )
         )
     )
     for metadata_pattern in (
@@ -7075,8 +7110,38 @@ def _deferred_source_scope_text(
 ) -> str:
     if not path:
         return source_text
-    candidates = [branch.text for branch in branches if branch.path == path]
-    return max(candidates, key=len, default="")
+    candidates = [branch for branch in branches if branch.path == path]
+    owner = max(candidates, key=lambda branch: len(branch.text), default=None)
+    if owner is None:
+        return ""
+    inherited = []
+    for depth in range(1, len(path)):
+        parents = [
+            branch
+            for branch in branches
+            if branch.path == path[:depth]
+            and branch.start <= owner.start
+            and owner.end <= branch.end
+        ]
+        parent = max(parents, key=lambda branch: len(branch.text), default=None)
+        if parent is None:
+            continue
+        first_child_start = min(
+            (
+                branch.start
+                for branch in branches
+                if len(branch.path) == depth + 1
+                and branch.path[:depth] == parent.path
+                and parent.start <= branch.start < parent.end
+            ),
+            default=parent.end,
+        )
+        chapeau = parent.text[: first_child_start - parent.start]
+        # The parent's rate reference governs each enumerated operand. Include
+        # only its chapeau, never a sibling's independent dependency or facts.
+        if _SCHEDULE_DEFERRAL_DEPENDENCY.search(chapeau):
+            inherited.append(chapeau)
+    return "\n".join([*inherited, owner.text])
 
 
 def _deferred_branch_display_path(
@@ -9309,6 +9374,222 @@ def _reason_names_absolute_target(
     )
 
 
+def _schedule_dependency_identity(match: re.Match[str]) -> tuple[str, str]:
+    groups = match.groupdict()
+    return (
+        (groups.get("schedule") or groups.get("following_schedule") or "").lower(),
+        (groups.get("part") or groups.get("leading_part") or "").lower(),
+    )
+
+
+def _schedule_clause_range_contains(
+    source: re.Match[str], dependency: re.Match[str]
+) -> bool:
+    def label_key(label: str) -> tuple[int, str] | None:
+        parsed = re.fullmatch(r"(\d+)([a-z]*)", label, re.IGNORECASE)
+        return (int(parsed[1]), parsed[2].lower()) if parsed else None
+
+    source_first = source.groupdict().get("first")
+    wanted_first = dependency.groupdict().get("first")
+    if not source_first or not wanted_first:
+        return False
+    source_last = source.groupdict().get("last") or source_first
+    wanted_last = dependency.groupdict().get("last") or wanted_first
+    bounds = tuple(
+        label_key(label)
+        for label in (source_first, source_last, wanted_first, wanted_last)
+    )
+    if any(bound is None for bound in bounds):
+        return (source_first.lower(), source_last.lower()) == (
+            wanted_first.lower(),
+            wanted_last.lower(),
+        )
+    low, high, wanted_low, wanted_high = bounds
+    return low <= wanted_low <= wanted_high <= high
+
+
+def _schedule_dependency_instrument(text: str, match: re.Match[str]) -> str:
+    qualifier = re.match(
+        r"\s+of\s+(?:the\s+)?(?P<instrument>"
+        r"[A-Za-z][A-Za-z'’ -]{0,100}\s+Act\s+\d{4})\b",
+        text[match.end() :],
+        re.IGNORECASE,
+    )
+    return _collapse_text(qualifier["instrument"]).casefold() if qualifier else ""
+
+
+def _schedule_amendment_container(text: str, match: re.Match[str]) -> bool:
+    return bool(
+        re.search(r"(?:^|[.;\n])\s*(?:in\s+)?$", text[: match.start()], re.I)
+        and re.match(
+            r"\s*,?\s*(?:replace|insert|substitute)\b",
+            text[match.end() :],
+            re.I,
+        )
+    )
+
+
+def _source_scope_cites_schedule_dependency(
+    source_scope_text: str, dependency: re.Match[str], *, reason: str
+) -> bool:
+    identity = _schedule_dependency_identity(dependency)
+    instrument = _schedule_dependency_instrument(reason, dependency)
+    locators = tuple(_SCHEDULE_DEFERRAL_DEPENDENCY.finditer(source_scope_text))
+    for source in locators:
+        if _schedule_dependency_identity(source) != identity:
+            continue
+        source_instrument = _schedule_dependency_instrument(source_scope_text, source)
+        if instrument and source_instrument and instrument != source_instrument:
+            continue
+        if not dependency.groupdict().get("first"):
+            return True
+        if _schedule_clause_range_contains(source, dependency):
+            return True
+        # An amendment's opening container also owns relative clause references
+        # in its replacement text, including a referenced range's proper subset.
+        if _schedule_amendment_container(source_scope_text, source):
+            container_end = min(
+                (
+                    locator.start()
+                    for locator in locators
+                    if source.end() <= locator.start()
+                    and _schedule_amendment_container(source_scope_text, locator)
+                ),
+                default=len(source_scope_text),
+            )
+            for clause in _SCHEDULE_CLAUSE_LOCATOR.finditer(
+                source_scope_text, source.end(), container_end
+            ):
+                if any(
+                    locator.start() <= clause.start() < locator.end()
+                    and _schedule_dependency_identity(locator) != identity
+                    for locator in locators
+                ):
+                    continue
+                if _schedule_clause_range_contains(clause, dependency):
+                    return True
+    return False
+
+
+def _schedule_dependency_is_external(
+    dependency: re.Match[str], corpus_citation_path: str
+) -> bool:
+    parts = corpus_citation_path.lower().strip("/").split("/")
+    current = {
+        kind: parts[index + 1]
+        for index, kind in enumerate(parts[:-1])
+        if kind in {"schedule", "part", "clause"}
+    }
+    schedule, part = _schedule_dependency_identity(dependency)
+    if current.get("schedule") != schedule:
+        return True
+    if current.get("part") and part and current["part"] != part:
+        return True
+    clause = current.get("clause")
+    if not clause or not dependency.groupdict().get("first"):
+        return False
+    current_clause = _SCHEDULE_CLAUSE_LOCATOR.fullmatch(f"clause {clause}")
+    return bool(
+        current_clause
+        and not _schedule_clause_range_contains(dependency, current_clause)
+    )
+
+
+def _schedule_dependency_object_is_positive(text: str) -> bool:
+    return not re.match(
+        r"\s*(?:no|not|neither|without)\b", text, re.I
+    ) and not re.search(
+        r"\b(?:not|never|without|(?:other|rather)\s+than)\b", text, re.I
+    )
+
+
+def _reason_schedule_dependency_introduction_is_bounded(
+    reason: str,
+    dependency: re.Match[str],
+    *,
+    corpus_citation_path: str,
+    path: tuple[str, ...] | None,
+) -> bool:
+    clause_start, _ = _reason_clause_bounds(reason, dependency)
+    before = reason[clause_start : dependency.start()]
+    # A missing state must be asserted, rather than quoted or negated. The
+    # alternate form covers a source-anchored computation followed by an
+    # anaphoric statement that its executable rate is absent.
+    direct = re.fullmatch(
+        r"\s*(?:the\s+)?missing\s+(?:legal\s+)?dependency\s+is\s+"
+        r"(?:(?P<need>[^.;\n]{1,180})\s+(?:in|under|from)\s+)?",
+        before,
+        re.I,
+    )
+    direct_introduction = bool(
+        direct and _schedule_dependency_object_is_positive(direct["need"] or "")
+    )
+    if (
+        direct_introduction
+        or _reason_dependency_introduction_is_bounded(before)
+        or re.fullmatch(
+            r"\s*(?:missing|unavailable|not\s+yet\s+encoded)\s+", before, re.I
+        )
+    ):
+        return True
+    source_introduction = False
+    if path is not None and _reason_cites_exact_current_statute_branch(
+        before,
+        corpus_citation_path=corpus_citation_path,
+        path=path,
+        strict_terminal=True,
+    ):
+        for alias in _authoritative_source_unit_aliases(corpus_citation_path):
+            introduction = re.fullmatch(
+                re.escape(alias) + r"(?:\s*\([A-Za-z0-9]+\))*"
+                r"(?:,\s*(?:replacement\s+)?clause\s+\d+[a-z]*\s*:\s*"
+                r"computing\s+[^.;\n]{1,180})?\s+requires\s+"
+                r"(?P<need>[^.;\n]{1,180})\s+(?:in|under|from)\s+",
+                before.lstrip(),
+                re.I,
+            )
+            if introduction and _schedule_dependency_object_is_positive(
+                introduction["need"]
+            ):
+                source_introduction = True
+                break
+    return source_introduction
+
+
+def _reason_schedule_dependency_has_missing_rate(
+    reason: str, dependency: re.Match[str]
+) -> bool:
+    after = reason[dependency.end() :]
+    after = re.sub(
+        r"^\s+of\s+(?:the\s+)?[A-Za-z][A-Za-z -]{0,100}\s+Act\s+\d{4}\b",
+        "",
+        after,
+        flags=re.IGNORECASE,
+    )
+    if re.fullmatch(
+        r"\s*,?\s*(?:(?:which|that)\s+)?(?:is|are)\s+"
+        r"(?:missing|unavailable|not\s+(?:yet\s+)?"
+        r"(?:encoded|implemented|available|provided|supplied))\s*\.?\s*",
+        after,
+        re.I,
+    ):
+        return True
+    # Keep an immediately following anaphoric export claim attached to the
+    # authenticated Schedule, rather than accepting an unrelated missing input.
+    return bool(
+        re.fullmatch(
+            r"\s*[.;]\s*(?:the\s+missing\s+legal\s+dependency\s+is\s+"
+            r"that\s+schedule[’']s\s+[^.;\n]{1,100}\brate\s+per\s+"
+            r"[^.;\n]{1,60};\s*)?"
+            r"no\s+executable\s+(?:RuleSpec\s+)?output\s+for\s+"
+            r"(?:that|this|those)\s+rates?\s+is\s+supplied\s+"
+            r"in\s+the\s+available\s+context\s*\.?\s*",
+            after,
+            re.I,
+        )
+    )
+
+
 def _reason_dependency_is_source_bound(
     reason: str,
     source_scope_text: str,
@@ -9410,6 +9691,30 @@ def _reason_dependency_is_source_bound(
         ):
             continue
         dependency = match.group(0).strip()
+        if _schedule_dependency_identity(match)[0]:
+            if (
+                _schedule_dependency_is_external(match, corpus_citation_path)
+                and _source_scope_cites_schedule_dependency(
+                    source_scope_text, match, reason=reason
+                )
+                and _reason_schedule_dependency_introduction_is_bounded(
+                    reason,
+                    match,
+                    corpus_citation_path=corpus_citation_path,
+                    path=path,
+                )
+                and (
+                    _reason_match_names_missing_dependency(
+                        reason,
+                        match,
+                        source_scope_text=source_scope_text,
+                        current_usc_title=None,
+                    )
+                    or _reason_schedule_dependency_has_missing_rate(reason, match)
+                )
+            ):
+                return True
+            continue
         if not _reason_match_names_missing_dependency(
             reason,
             match,
@@ -24869,7 +25174,9 @@ def _temporal_occurrence_is_formula_applicability_preface(
 def _formula_operation_kinds(text: str) -> set[str]:
     """Recognize operations in source prose or an explicit expression."""
 
-    text = _without_slash_conjunction_operators(text)
+    text = _without_slash_conjunction_operators(
+        _without_defined_category_operators(text)
+    )
     parsed_operations = _formula_ast_operation_kinds(text)
     if parsed_operations:
         return parsed_operations
@@ -24931,6 +25238,7 @@ def _explicit_source_arithmetic_topology(text: str) -> Any | None:
     result is a nested tuple of immutable scalars that callers only compare.
     """
 
+    text = _without_defined_category_operators(text)
     tokens = tuple(_SYMBOLIC_ARITHMETIC_TOKEN.finditer(text))
     candidates: list[tuple[int, int, str]] = []
     for start_index, start_token in enumerate(tokens):
@@ -30362,6 +30670,16 @@ def _source_exception_branches(
                 continue
             if numeric_limits_only and not _STATED_NUMERIC_LIMIT.search(branch_text):
                 continue
+            if _source_condition_is_empty_list_chapeau(branch_text) and any(
+                len(child.path) > len(owner.path)
+                and child.path[: len(owner.path)] == owner.path
+                and branch_end <= child.start < owner.end
+                for child in active_branches
+            ):
+                # The authenticated children supply the conditions after this
+                # unfinished introducer.  It has no additional factual state
+                # for a companion case to toggle independently.
+                continue
             obligations.append(
                 SourceStructureBranch(
                     owner.path,
@@ -30376,6 +30694,23 @@ def _source_exception_branches(
         {
             (branch.path, branch.start, branch.end): branch for branch in obligations
         }.values()
+    )
+
+
+def _source_condition_is_empty_list_chapeau(text: str) -> bool:
+    """Recognize a list introducer with no independent condition predicate."""
+
+    return (
+        re.fullmatch(
+            r"(?:if|when)\s*"
+            r"(?:,\s*(?:for|on|during|in|at)\s+"
+            r"(?:these|those|such|this|that)(?:\s+same)?\s+"
+            r"(?:days?|weeks?|months?|years?|periods?|quarters?)\s*,?\s*)?"
+            r"[,\s]*[:—–-]\s*",
+            _collapse_text(_source_exception_condition_text(text)),
+            flags=re.IGNORECASE,
+        )
+        is not None
     )
 
 
@@ -33178,6 +33513,14 @@ def _exception_witnesses_for_branch(
                         )
                     ),
                 )
+                or _source_proved_exception_dependency_is_relevant(
+                    condition_text,
+                    witness,
+                    source_text=source_text,
+                    corpus_citation_path=corpus_citation_path,
+                    principal_rules=principal_rules,
+                    asserted_cases=asserted_by_rule.get(witness.rule_name, ()),
+                )
                 or _source_qualified_cardinality_evidence(
                     branch,
                     witness,
@@ -33818,6 +34161,119 @@ def _source_exception_selector_is_relevant(
             for supporting_text in supporting_texts
         )
     return _source_selector_relevance_matches(collapsed, normalized_name)
+
+
+def _source_proved_exception_dependency_is_relevant(
+    condition_text: str,
+    witness: _ExceptionWitness,
+    *,
+    source_text: str,
+    corpus_citation_path: str,
+    principal_rules: dict[str, dict[str, Any]],
+    asserted_cases: Sequence[dict[str, Any]],
+) -> bool:
+    """Follow a derived selector's selected source proof to a preposed condition.
+
+    A composite name can contain the benefit's full name while the exception
+    uses only an action and a pronoun (``Unless it is revoked, ...``). Bind both
+    exercised formula proofs to this source, then match the antecedent against
+    the dependency's definition. A named consequent subject can resolve an
+    antecedent pronoun; the consequent's effect cannot supply the missing action.
+    Output ownership, active polarity and effect remain the caller's checks.
+    """
+
+    dependency = principal_rules.get(witness.selector_name)
+    rule = principal_rules.get(witness.rule_name)
+    citation = corpus_citation_path.strip("/").casefold()
+    if (
+        dependency is None
+        or rule is None
+        or dependency is rule
+        or dependency.get("kind") != "derived"
+        or dependency.get("dtype") != "Judgment"
+        or not citation
+    ):
+        return False
+    condition = _collapse_text(condition_text)
+    preposed = re.match(
+        r"^(?:unless|except\s+(?:if|when)|if|when)\s+"
+        r"(?P<antecedent>[^,;:.]+),",
+        condition,
+        re.IGNORECASE,
+    )
+    if preposed is None:
+        return False
+    passive = re.fullmatch(
+        r"(?P<subject>it|they|(?:the|an?|this|that|these|those)\s+"
+        r"[A-Za-z][A-Za-z'’-]*(?:\s+[A-Za-z][A-Za-z'’-]*){0,7}?)\s+"
+        r"(?:is|are|was|were|has\s+been|have\s+been)\s+"
+        r"(?P<action>[A-Za-z][A-Za-z'’-]*)",
+        preposed["antecedent"],
+        re.IGNORECASE,
+    )
+    if passive is None:
+        return False
+    subject = passive["subject"]
+    if subject.casefold() in {"it", "they"}:
+        # An unrelated permit can also be revoked. Resolve an anaphoric action
+        # to the consequent's explicit subject before following its definition.
+        owner = re.match(
+            r"\s*(?:the|an?|this|that|these|those)\s+"
+            r"(?P<subject>[A-Za-z][A-Za-z'’-]*"
+            r"(?:\s+[A-Za-z][A-Za-z'’-]*){0,7}?)\s+"
+            r"(?:is|are|was|were|has|have|had|may|must|shall|should|will|would|"
+            r"can|could|stops?|ceases?|prevents?|allows?|ends?|remains?|"
+            r"continues?|appl(?:y|ies))\b",
+            condition[preposed.end() :],
+            re.IGNORECASE,
+        )
+        if owner is None:
+            return False
+        subject = owner["subject"]
+    else:
+        subject = re.sub(
+            r"^(?:the|an?|this|that|these|those)\s+", "", subject, flags=re.IGNORECASE
+        )
+    subject_pattern = r"\s+".join(re.escape(token) for token in subject.split())
+    passive_auxiliary = (
+        r"(?:(?:must|may|shall|can|could|should|will|would)\s+be|is|are|was|were)"
+    )
+    # A shared subject may govern coordinated passive predicates. Stop at a
+    # fresh subject, relative clause, condition, or sentence so a parking permit's
+    # revocation cannot lend meaning to an election's validity selector.
+    definition = re.compile(
+        rf"\b(?:the|an?|this|that|these|those)\s+{subject_pattern}\s+"
+        rf"(?:{passive_auxiliary}\s+[A-Za-z][A-Za-z'’-]*"
+        rf"\s*,?\s+(?:and|or)\s+)*"
+        rf"{passive_auxiliary}\s+{re.escape(passive['action'])}\b",
+        re.IGNORECASE,
+    )
+    cases = tuple(
+        case for case in asserted_cases if id(case) in witness.case_pair_identity
+    )
+    if len(cases) != 2 or len(witness.case_pair_identity) != 2:
+        return False
+    authoritative = _collapse_text(source_text)
+    for candidate in (rule, dependency):
+        selected = _selected_rule_formula_version_index(candidate, cases[0])
+        if selected is None or any(
+            _selected_rule_formula_version_index(candidate, case) != selected
+            for case in cases
+        ):
+            return False
+        if not any(
+            _formula_proof_version_index(path) == selected
+            and atom_citation.strip("/").casefold() == citation
+            and (proof_text := _collapse_text(excerpt)) in authoritative
+            and (
+                condition in proof_text
+                if candidate is rule
+                else definition.search(proof_text) is not None
+            )
+            for path, atom_citation, excerpt in _rule_source_excerpt_atoms(candidate)
+        ):
+            return False
+    return True
 
 
 def _source_age_relative_deviation_predicate(
