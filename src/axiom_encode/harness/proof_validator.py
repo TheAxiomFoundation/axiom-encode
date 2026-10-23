@@ -244,8 +244,8 @@ def validate_rulespec_proofs(
     When strict mode is off, any proof blocks that are present are still checked.
     """
     try:
-        payload, interpretation_yaml_issues, numeric_id_paths = (
-            _safe_load_with_interpretation_constraints(content)
+        payload, interpretation_yaml_issues, numeric_id_paths, tag_issues = (
+            _safe_load_with_raw_constraints(content)
         )
     except (yaml.YAMLError, ValueError) as exc:
         interpretation_yaml_issues = []
@@ -259,12 +259,12 @@ def validate_rulespec_proofs(
             proof_required=False,
         )
 
-    if not isinstance(payload, dict) and interpretation_yaml_issues:
-        # A tagged root mapping can load as a set, which would otherwise skip
-        # every check below while the engine still reads the mapping.
+    if tag_issues or (not isinstance(payload, dict) and interpretation_yaml_issues):
+        # A tagged mapping can load as a set, which would otherwise skip the
+        # checks below while the engine still reads the mapping.
         return ProofValidationResult(
             passed=False,
-            issues=interpretation_yaml_issues,
+            issues=[*interpretation_yaml_issues, *tag_issues],
             atoms_checked=0,
             proof_required=False,
         )
@@ -376,9 +376,42 @@ def find_interpretation_yaml_issues(content: str) -> list[str]:
     ]
 
 
+def find_unsupported_yaml_tag_issues(content: str) -> list[str]:
+    """Report explicit YAML tags that PyYAML and the engine read differently.
+
+    Engine ``1aabc8383`` ignores `!!set`, `!!omap`, `!!pairs` and local tags on
+    collections and reads the mapping or sequence as written, whereas
+    ``yaml.safe_load`` turns a `!!set` mapping into a set of its keys and an
+    `!!omap` or `!!pairs` sequence into a list of key-value tuples. Validators
+    then skip those rules, versions or proofs while the engine compiles them,
+    and a load-and-dump rewrite mangles them. Scalar tags other than `!!str`
+    diverge too: `!!binary` loads as bytes and `!!timestamp` as a date where
+    the engine reads the text, `!!null` loads as null whatever the text, and
+    `!!bool` or `!!timestamp` on other text makes loading raise.
+
+    Every node is checked, including nodes reached only through aliases, once
+    each. YAML parse errors propagate so callers can keep their parser
+    diagnostics.
+    """
+
+    loader = _ExplicitTagComposer(content)
+    try:
+        return _unsupported_tag_issues(loader.get_single_node(), loader.explicit_tags)
+    finally:
+        loader.dispose()
+
+
 _YAML_STR_TAG = "tag:yaml.org,2002:str"
 _YAML_MAP_TAG = "tag:yaml.org,2002:map"
+_YAML_SEQ_TAG = "tag:yaml.org,2002:seq"
+_YAML_SET_TAG = "tag:yaml.org,2002:set"
+_YAML_OMAP_TAG = "tag:yaml.org,2002:omap"
+_YAML_PAIRS_TAG = "tag:yaml.org,2002:pairs"
 _YAML_MERGE_TAG = "tag:yaml.org,2002:merge"
+_YAML_CORE_TAG_PREFIX = "tag:yaml.org,2002:"
+_RAW_TAG_ISSUE_LIMIT = 10
+_RAW_TAG_LABEL_LIMIT = 80
+_RAW_TAG_LOCATION_LIMIT = 240
 
 
 class _ExplicitTagComposer(yaml.SafeLoader):
@@ -401,26 +434,37 @@ class _ExplicitTagComposer(yaml.SafeLoader):
         return node
 
 
-def _safe_load_with_interpretation_constraints(
+def _safe_load_with_raw_constraints(
     content: str,
-) -> tuple[Any, list[str], set[str]]:
-    """Safe-load once, inspecting raw interpretation nodes before construction.
+) -> tuple[Any, list[str], set[str], list[str]]:
+    """Safe-load once, inspecting the raw nodes before construction.
 
-    Construction flattens merge keys in the composed nodes, so the raw scan
-    runs first. The constructed payload is exactly what ``yaml.safe_load``
-    returns.
+    Construction flattens merge keys in the composed nodes, so the raw scans
+    run first. Returns the payload, the interpretation issues and numeric id
+    paths, and the unsupported-tag issues for nodes the interpretation scan
+    does not already check. A document with unsupported tags is not
+    constructed, because some of those tags make construction raise; otherwise
+    the payload is exactly what ``yaml.safe_load`` returns.
     """
 
     loader = _ExplicitTagComposer(content)
     try:
         root = loader.get_single_node()
+        interpretation_nodes: set[int] = set()
         issues, numeric_id_paths = _interpretation_node_constraints(
-            root, loader.explicit_tags
+            root, loader.explicit_tags, inspected=interpretation_nodes
         )
-        payload = loader.construct_document(root) if root is not None else None
+        tag_issues = _unsupported_tag_issues(
+            root, loader.explicit_tags, skip=interpretation_nodes
+        )
+        payload = (
+            loader.construct_document(root)
+            if root is not None and not tag_issues
+            else None
+        )
     finally:
         loader.dispose()
-    return payload, issues, numeric_id_paths
+    return payload, issues, numeric_id_paths, tag_issues
 
 
 def _interpretation_yaml_constraints(content: str) -> tuple[list[str], set[str]]:
@@ -488,7 +532,10 @@ def _merge_keys_supply(node: yaml.MappingNode, name: str) -> bool:
 
 
 def _interpretation_node_constraints(
-    root: yaml.Node | None, explicit_tags: Mapping[int, str]
+    root: yaml.Node | None,
+    explicit_tags: Mapping[int, str],
+    *,
+    inspected: set[int] | None = None,
 ) -> tuple[list[str], set[str]]:
     """Inspect raw interpretation nodes before PyYAML discards their spelling.
 
@@ -496,6 +543,8 @@ def _interpretation_node_constraints(
     plain exponent and octal scalars as strings. The composed nodes keep
     quoting, explicit tags, duplicate mapping keys, and merge keys. Every
     root `module` block is scanned, because loading keeps only the last one.
+    When given, ``inspected`` receives the identity of every node whose tag
+    this scan checks.
     """
 
     issues: list[str] = []
@@ -504,8 +553,11 @@ def _interpretation_node_constraints(
         r"[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?"
         r"|[-+]?0o[0-7]+|[-+]?0x[0-9a-fA-F]+"
     )
+    if inspected is None:
+        inspected = set()
     if not isinstance(root, yaml.MappingNode):
         return issues, numeric_id_paths
+    inspected.add(id(root))
     if tag_issue := _mapping_tag_issue(root, "RuleSpec root", explicit_tags):
         issues.append(tag_issue)
     modules = _mapping_fields(root, "module")
@@ -522,6 +574,7 @@ def _interpretation_node_constraints(
     for _key, module in modules:
         if not isinstance(module, yaml.MappingNode):
             continue
+        inspected.add(id(module))
         if tag_issue := _mapping_tag_issue(module, "module", explicit_tags):
             issues.append(tag_issue)
         interpretations = _mapping_fields(module, "interpretations")
@@ -593,7 +646,132 @@ def _interpretation_node_constraints(
                         f"{location} must be a quoted string when YAML reads "
                         "this scalar as a number."
                     )
+    inspected.update(seen_nodes)
     return issues, numeric_id_paths
+
+
+def _unsupported_tag_issues(
+    root: yaml.Node | None,
+    explicit_tags: Mapping[int, str],
+    *,
+    skip: set[int] | frozenset[int] = frozenset(),
+) -> list[str]:
+    """Explicit tags anywhere in ``root`` that PyYAML and the engine read apart.
+
+    A mapping may carry only `!!map` or the non-specific `!`, a sequence only
+    `!!seq` or `!`, and a scalar only `!!str` or `!`. For those, PyYAML
+    constructs what the engine reads, or the engine rejects the node. Nodes in
+    ``skip`` are walked through but their own tags are left to the scan that
+    skipped them.
+    """
+
+    found: list[tuple[int, int, str]] = []
+    seen: set[int] = set()
+    stack: list[tuple[str, yaml.Node]] = (
+        [] if root is None else [("document root", root)]
+    )
+    while stack:
+        location, node = stack.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        tag = explicit_tags.get(id(node))
+        if tag is not None and id(node) not in skip:
+            explanation = _unsupported_tag_explanation(node, tag)
+            if explanation is not None:
+                mark = node.start_mark
+                found.append(
+                    (
+                        mark.line,
+                        mark.column,
+                        f"{location} has unsupported YAML tag "
+                        f"`{_short_yaml_tag(tag)}` at line {mark.line + 1}, "
+                        f"column {mark.column + 1}: {explanation}",
+                    )
+                )
+        children: list[tuple[str, yaml.Node]] = []
+        if isinstance(node, yaml.SequenceNode):
+            children = [
+                (_raw_child_location(location, f"[{index}]"), value)
+                for index, value in enumerate(node.value)
+            ]
+        elif isinstance(node, yaml.MappingNode):
+            for key, value in node.value:
+                label = (
+                    _raw_tag_label(key.value)
+                    if isinstance(key, yaml.ScalarNode)
+                    else "?"
+                )
+                children.append((f"{location} key `{label}`", key))
+                children.append((_raw_child_location(location, f".{label}"), value))
+        stack.extend(reversed(children))
+    found.sort(key=lambda item: (item[0], item[1]))
+    issues = [issue for _line, _column, issue in found[:_RAW_TAG_ISSUE_LIMIT]]
+    if len(found) > _RAW_TAG_ISSUE_LIMIT:
+        issues.append(
+            f"{len(found) - _RAW_TAG_ISSUE_LIMIT} more unsupported YAML tag(s) "
+            "not shown."
+        )
+    return issues
+
+
+def _unsupported_tag_explanation(node: yaml.Node, tag: str) -> str | None:
+    """Why ``tag`` on ``node`` is rejected, or None when both loaders agree."""
+
+    if isinstance(node, yaml.MappingNode):
+        if tag in {"!", _YAML_MAP_TAG}:
+            return None
+        if tag == _YAML_SET_TAG:
+            return (
+                "PyYAML loads this mapping as a set of its keys and drops their "
+                "values, while the engine ignores the tag and reads the mapping. "
+                "Remove the tag."
+            )
+        return "only `!!map` or the non-specific `!` may tag a mapping."
+    if isinstance(node, yaml.SequenceNode):
+        if tag in {"!", _YAML_SEQ_TAG}:
+            return None
+        if tag in {_YAML_OMAP_TAG, _YAML_PAIRS_TAG}:
+            return (
+                "PyYAML loads this sequence as a list of key-value pairs instead "
+                "of mappings, while the engine ignores the tag and reads the "
+                "mappings. Remove the tag."
+            )
+        return "only `!!seq` or the non-specific `!` may tag a sequence."
+    if tag in {"!", _YAML_STR_TAG}:
+        return None
+    return (
+        "only `!!str` or the non-specific `!` may tag a scalar. Other scalar tags "
+        "can make PyYAML and the engine read the same text differently: "
+        "`!!binary` loads as bytes and `!!null` as null whatever the text, while "
+        "the engine reads the text or rejects it."
+    )
+
+
+def _short_yaml_tag(tag: str) -> str:
+    if tag.startswith(_YAML_CORE_TAG_PREFIX):
+        return "!!" + tag[len(_YAML_CORE_TAG_PREFIX) :]
+    return tag
+
+
+def _raw_tag_label(value: str) -> str:
+    text = "".join(
+        character if character.isprintable() else repr(character)[1:-1]
+        for character in value[: _RAW_TAG_LABEL_LIMIT + 1]
+    )
+    if len(text) > _RAW_TAG_LABEL_LIMIT:
+        text = text[:_RAW_TAG_LABEL_LIMIT] + "..."
+    return text
+
+
+def _raw_child_location(location: str, suffix: str) -> str:
+    if location != "document root":
+        child = location + suffix
+    else:
+        child = suffix[1:] if suffix.startswith(".") else location + suffix
+    if len(child) > _RAW_TAG_LOCATION_LIMIT:
+        child = "..." + child[-(_RAW_TAG_LOCATION_LIMIT - 3) :]
+    return child
 
 
 def _interpretation_id(
