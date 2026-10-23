@@ -32,6 +32,7 @@ from axiom_encode.harness.evals import (
     ValidationRetryCandidate,
     _apply_generated_eval_repairs,
     _materialize_eval_artifact,
+    _normalize_main_eval_content,
     _overlay_validation_retry_candidate,
 )
 from axiom_encode.harness.proof_validator import (
@@ -1124,6 +1125,27 @@ def test_materialization_keeps_raw_tags(tmp_path, content, diagnostic, delivery)
 
     assert materialized == content
     assert find_unsupported_yaml_tag_issues(materialized)
+
+
+@pytest.mark.parametrize(("content", "diagnostic"), APPLY_CASES)
+def test_normalization_keeps_raw_tags_and_still_refuses_non_rulespec_text(
+    content, diagnostic
+):
+    with pytest.raises(ValueError, match="must start with `format: rulespec/v1`"):
+        _normalize_main_eval_content(
+            "entries: !!set {first: kept}\n",
+            target_path=Path("section.yaml"),
+            single_amount_table_slice=False,
+        )
+
+    normalized = _normalize_main_eval_content(
+        "\n" + content + "\n\n",
+        target_path=Path("section.yaml"),
+        single_amount_table_slice=False,
+    )
+
+    assert normalized == content
+    assert find_unsupported_yaml_tag_issues(normalized)[0].startswith(diagnostic)
 
 
 @pytest.mark.parametrize("delivery", ["response", "bundle", "workspace"])
