@@ -1,9 +1,12 @@
-"""The signed re-encode reads R2-stored corpus scopes with read-only credentials.
+"""The signed re-encode reads R2-stored corpus scopes with the corpus read credentials.
 
 Corpus scopes ingested after the storage switch exist only in R2, so the
 provision-fetch step needs credentials. Those credentials are the organization's
-read-only pair (R2_CORPUS_READ_*), they reach exactly one step, and their absence
-stops the run before the production-signing gate rather than after it.
+corpus read pair (R2_CORPUS_READ_*, meant to be read-only; these tests pin the
+secret names, not the key's scope). They reach exactly one step. An ad hoc run
+missing either value stops before the production-signing gate rather than after
+it; queue dispatches skip that check, and the fetch step itself fails closed for
+a lock-pinned corpus without both values.
 """
 
 from __future__ import annotations
