@@ -14,9 +14,10 @@ from axiom_encode.harness import validator_pipeline as vp
 TABLE_CITATION = "nz/statute/act/public/2018/0032/schedule/4/part/8/clause/lms118454"
 
 
-def test_authenticated_canonical_paragraph_citations_satisfy_coverage():
-    # The report's rejected candidate already cites the exact demanded (a)
-    # on both of these rules; the citation parser used to return None.
+@pytest.mark.parametrize("suffix", ["(a)", "(a) (b)x"])
+def test_canonical_paragraph_fallback_retains_base_coverage_obligation(suffix):
+    # Keep base's demand even for the formerly admitted exact citation.
+    # A spaced unsupported continuation must not gain broader admission.
     payload = {
         "format": "rulespec/v1",
         "module": {"source_verification": {"corpus_citation_path": TABLE_CITATION}},
@@ -24,7 +25,7 @@ def test_authenticated_canonical_paragraph_citations_satisfy_coverage():
             {
                 "name": name,
                 "kind": "derived",
-                "source": TABLE_CITATION + "(a)",
+                "source": TABLE_CITATION + suffix,
                 "versions": [{"effective_from": "2018-01-01", "formula": "450"}],
             }
             for name in (
@@ -33,15 +34,14 @@ def test_authenticated_canonical_paragraph_citations_satisfy_coverage():
             )
         ],
     }
-    assert vp._source_subparagraph_citation_pattern(TABLE_CITATION) is not None
-    assert vp._rule_source_subparagraph_paths(payload, TABLE_CITATION) == {("a",)}
-    assert (
-        vp.find_source_subparagraph_coverage_issues(
-            yaml.safe_dump(payload),
-            source_texts={TABLE_CITATION: "(a) A person without children is eligible."},
-        )
-        == []
+    assert vp._source_subparagraph_citation_pattern(TABLE_CITATION) is None
+    assert vp._rule_source_subparagraph_paths(payload, TABLE_CITATION) == set()
+    issues = vp.find_source_subparagraph_coverage_issues(
+        yaml.safe_dump(payload),
+        source_texts={TABLE_CITATION: "(a) A person without children is eligible."},
     )
+    assert len(issues) == 1
+    assert TABLE_CITATION + "(a)" in issues[0]
 
 
 @settings(deadline=None)
@@ -49,11 +49,11 @@ def test_authenticated_canonical_paragraph_citations_satisfy_coverage():
     jurisdiction=st.sampled_from(["nz", "uk", "de", "fr", "za", "gh"]),
     label=st.sampled_from(["a", "b", "c", "1", "2", "A", "ii"]),
 )
-def test_exact_canonical_citations_bind_only_the_authenticated_identity(
+def test_canonical_citation_expansion_is_deferred_to_keep_base_obligations(
     jurisdiction, label
 ):
     citation = f"{jurisdiction}/statute/example/section/72"
-    expected = {(label.lower(),)}
+    expected = set()
     parse = vp._source_citation_subparagraph_paths
     assert parse(f"{citation}({label})", citation) == expected
     assert parse(f"{citation}0({label})", citation) == set()
@@ -69,22 +69,22 @@ def test_exact_canonical_citations_bind_only_the_authenticated_identity(
         "4\nAn eligible person is entitled to payment.\n5\nAn instalment is due.",
     ],
 )
-def test_english_subsection_and_article_are_not_a_french_year_duration(source):
-    assert all(
-        "An" not in occurrence.raw
+def test_english_an_conversion_retains_base_behavior_pending_separate_fix(source):
+    assert any(
+        "An" in occurrence.raw
         for occurrence in vp.extract_typed_numeric_inventory_occurrences_from_text(
             source
         )
     )
-    assert vp._extract_year_duration_month_values(source) == set()
+    assert 48 in vp._extract_year_duration_month_values(source)
 
 
 @settings(deadline=None)
 @given(label=st.integers(min_value=1, max_value=999))
-def test_english_subsection_labels_never_generate_duration_conversions(label):
+def test_english_subsection_labels_keep_base_conversion_until_followup(label):
     source = f"{label}\nAn instalment must be paid on the relevant payment date."
-    assert vp._extract_year_duration_month_values(source) == set()
-    assert not any(
+    assert vp._extract_year_duration_month_values(source) == {label * 12}
+    assert any(
         occurrence.raw == f"{label}\nAn"
         for occurrence in vp.extract_typed_numeric_inventory_occurrences_from_text(
             source
@@ -157,9 +157,9 @@ def test_mixed_table_cells_preserve_ordinary_paragraph_coverage():
         "A pendant is worth 4\nAn applicant is eligible.",
     ],
 )
-def test_french_duration_language_evidence_is_not_incidental_english_vocabulary(source):
-    assert vp._extract_year_duration_month_values(source) == set()
-    assert not any(
+def test_incidental_english_vocabulary_keeps_base_an_conversion(source):
+    assert vp._extract_year_duration_month_values(source) == {48}
+    assert any(
         occurrence.value == 48
         for occurrence in vp.extract_typed_numeric_inventory_occurrences_from_text(
             source
@@ -215,12 +215,11 @@ def test_attached_canonical_suffix_retains_missing_paragraph_coverage(
 
 @pytest.mark.parametrize("citation", CANONICAL_BOUNDARY_CITATIONS)
 @pytest.mark.parametrize("terminal", ["", " ", "\n", ".", ". Text", ", text"])
-def test_complete_canonical_atom_accepts_authenticated_terminal_boundaries(
-    citation, terminal
-):
-    assert vp._source_citation_subparagraph_paths(
-        citation + "(a)" + terminal, citation
-    ) == {("a",)}
+def test_complete_canonical_atom_keeps_base_coverage_demand(citation, terminal):
+    assert (
+        vp._source_citation_subparagraph_paths(citation + "(a)" + terminal, citation)
+        == set()
+    )
 
 
 @pytest.mark.parametrize(
@@ -265,10 +264,9 @@ def test_singular_french_year_has_both_inventory_and_conversion():
         "La durée légale : 1 an.",
     ],
 )
-def test_french_noun_phrase_and_label_forms_conservatively_have_no_month_conversion(
+def test_french_noun_phrase_and_label_forms_keep_base_month_conversion(
     source,
 ):
-    # These ordinary French forms remain outside the authenticated duration
-    # grammar. Extending that grammar is deliberately deferred.
-    assert vp._extract_year_duration_month_values(source) == set()
-    assert 12 not in vp.extract_numeric_occurrences_from_text(source)
+    # The reverted language gate must not delete genuine year obligations.
+    assert vp._extract_year_duration_month_values(source) == {12}
+    assert 12 in vp.extract_numeric_occurrences_from_text(source)

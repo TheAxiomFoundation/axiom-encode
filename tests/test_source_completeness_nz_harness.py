@@ -14,6 +14,10 @@ from hypothesis import strategies as st
 from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness import validator_pipeline as vp
 
+# These controls pin base behavior after the round-six production reverts.
+# Citation cleanup, false Satz suppression, canonical expansion and English An
+# improvements remain queued; the three review regressions below must reject.
+
 NZ_ACT = "nz/statute/act/public/2018/0032"
 NZ_AMENDMENT = "nz/statute/act/public/2026/0054/section/15"
 
@@ -31,10 +35,8 @@ def test_completed_prose_subsections_mask_only_structural_numbers():
         "(2) The winter energy payment is payable for up to a maximum of 28 days.\n"
         "(3) Sections 219 and 436 do not apply to the winter energy payment.\n"
     )
-    # The terminal prose "do not apply" does not authenticate a bare final
-    # list item. Keep its conservative numeric obligation while retaining all
-    # three positively identified subsection branches.
-    assert numeric_values(source, f"{NZ_ACT}/section/220") == [1, 28, 436]
+    # Pin base citation cleanup while keeping the parenthesized branches.
+    assert numeric_values(source, f"{NZ_ACT}/section/220") == [1, 28]
     assert {branch.path for branch in sc.recognize_source_structure(source)} == {
         ("1",),
         ("2",),
@@ -68,7 +70,7 @@ def test_unsupported_amendment_value_table_retains_numeric_row_obligations():
         "4A | To a specified person | $220 a week\n"
         "5 | To any other person | $160 a week\n"
     )
-    assert numeric_values(source, NZ_AMENDMENT) == [4, 305, 220, 5, 160]
+    assert numeric_values(source, NZ_AMENDMENT) == [7, 4, 4, 305, 220, 5, 160]
 
 
 def test_counterfactual_rate_retains_base_gates_pending_positive_evidence():
@@ -147,17 +149,17 @@ def test_unrelated_would_apply_clause_retains_actual_eligibility_gates():
 @pytest.mark.parametrize(
     "citation", [NZ_AMENDMENT, "uk/statute/example/15", "us/statute/26/15"]
 )
-def test_non_german_clause_reference_never_creates_satz_branch(citation: str):
+def test_non_german_clause_reference_retains_base_sentence_fallback(citation: str):
     # No complete outline: exercise the fallback independently of table parsing.
     source = "The rate in clauses 1 to 6AA applies. 6B identifies the specified person."
-    assert not [
+    assert [
         branch
         for branch in sc.recognize_source_structure(
             source, corpus_citation_path=citation
         )
         if branch.kind == "sentence"
     ]
-    assert "6AA" in sc.authoritative_numeric_recall_text(
+    assert "6AA" not in sc.authoritative_numeric_recall_text(
         "The category 6AA is unchanged.", corpus_citation_path=citation
     )
 
@@ -200,9 +202,9 @@ def test_german_glued_acronym_compounds_are_sentence_starts(
     assert not numeric_values(source, f"{jurisdiction}/statute/example/1")
 
 
-def test_german_source_preserves_bare_alphanumeric_clause_locators():
+def test_german_source_retains_base_alphanumeric_sentence_fallback():
     source = "Die Zahlung gilt nach den Klauseln 6AA und 6B."
-    assert not [
+    assert [
         branch
         for branch in sc.recognize_source_structure(
             source, corpus_citation_path="de/statute/example/1"
@@ -214,12 +216,12 @@ def test_german_source_preserves_bare_alphanumeric_clause_locators():
 @pytest.mark.parametrize(
     "citation", [NZ_AMENDMENT, "at/statute/example/1", "ch/statute/example/1"]
 )
-def test_english_glued_prose_does_not_activate_german_sentence_fallback(citation):
+def test_english_glued_prose_retains_base_sentence_fallback(citation):
     source = "6Accommodation costs are the sum of mortgage payments."
-    assert not sc.recognize_source_structure(source, corpus_citation_path=citation)
+    assert sc.recognize_source_structure(source, corpus_citation_path=citation)
     assert sc.authoritative_numeric_recall_text(
         source, corpus_citation_path=citation
-    ).startswith("6Accommodation")
+    ).startswith("Accommodation")
 
 
 @pytest.mark.parametrize(
@@ -239,10 +241,8 @@ def test_english_glued_prose_does_not_activate_german_sentence_fallback(citation
         "1Des prestations sont versées. 2Le montant est de 450 euros.",
     ],
 )
-def test_french_article_des_does_not_authenticate_german_sentence_numbers(
-    source: str, citation: str
-):
-    assert not [
+def test_french_article_des_retains_base_sentence_fallback(source: str, citation: str):
+    assert [
         branch
         for branch in sc.recognize_source_structure(
             source, corpus_citation_path=citation
@@ -252,9 +252,9 @@ def test_french_article_des_does_not_authenticate_german_sentence_numbers(
 
 
 @pytest.mark.parametrize("citation", ["", NZ_AMENDMENT, "uk/statute/example/15"])
-def test_person_name_does_not_authenticate_german_sentence_numbers(citation: str):
+def test_person_name_retains_base_sentence_fallback(citation: str):
     source = "The beneficiary Van der Meer is entitled. 6Accommodation costs are paid."
-    assert not [
+    assert [
         branch
         for branch in sc.recognize_source_structure(
             source, corpus_citation_path=citation
@@ -287,14 +287,11 @@ def test_explicit_canonical_dependency_keeps_obligation_after_reversion():
     )
 
 
-def test_complete_cross_reference_list_is_excluded_from_numeric_recall():
-    assert (
-        numeric_values(
-            "This section overrides sections 297 , 311(1) , and 338 .",
-            f"{NZ_ACT}/section/74",
-        )
-        == []
-    )
+def test_complete_cross_reference_list_retains_base_terminal_numeric_obligation():
+    assert numeric_values(
+        "This section overrides sections 297 , 311(1) , and 338 .",
+        f"{NZ_ACT}/section/74",
+    ) == [338]
 
 
 def test_cross_reference_list_can_wrap_without_swallowing_a_following_amount():
@@ -302,7 +299,7 @@ def test_cross_reference_list_can_wrap_without_swallowing_a_following_amount():
         "This section overrides sections\n297 , 311(1) ,\nand 338 . "
         "The amount is $450.",
         f"{NZ_ACT}/section/74",
-    ) == [450]
+    ) == [338, 450]
 
 
 def test_abbreviated_subsection_continuation_stays_in_legal_citation_list():
@@ -310,7 +307,7 @@ def test_abbreviated_subsection_continuation_stays_in_legal_citation_list():
         "This section overrides sections 297, 311(1), (2), and 338. "
         "The amount is $450.",
         f"{NZ_ACT}/section/74",
-    ) == [450]
+    ) == [338, 450]
 
 
 @settings(deadline=None)
@@ -326,7 +323,9 @@ def test_abbreviated_legal_list_keeps_policy_values_after_citation(
         "This section overrides sections 297, 311(1)"
         f"{separator}({subsection})(a), and 338. The amount is ${amount}."
     )
-    assert numeric_values(source, f"{NZ_ACT}/section/74") == [amount]
+    # Base can also retain an unsupported long parenthetical locator.
+    # Both the terminal locator and the operative amount must survive.
+    assert {338, amount} <= set(numeric_values(source, f"{NZ_ACT}/section/74"))
 
 
 @pytest.mark.parametrize("unit", ["dollars", "per week", "euros", "USD"])
@@ -361,7 +360,7 @@ def test_cross_reference_list_does_not_consume_a_coordinated_policy_amount(
         "This section overrides sections 297, 311(1), and 338"
         f"{separator}450{wrapping}{unit} are payable."
     )
-    assert numeric_values(source, f"{NZ_ACT}/section/74") == [450]
+    assert sorted(numeric_values(source, f"{NZ_ACT}/section/74")) == [338, 450]
 
 
 @pytest.mark.parametrize("unit", ["per person", "per week", "dollars", "USD"])
@@ -384,7 +383,7 @@ def test_legal_citation_list_never_contributes_numeric_demands(sections: list[in
     [
         (
             "This section overrides sections 297, 311(1), and 338, and 450 a week is payable.",
-            [450],
+            [338, 450],
         ),
         (
             "The supplement is the sum of the allowance under clauses 1 to 6AA and 20% of earnings.",
@@ -426,7 +425,7 @@ def test_real_amount_after_a_citation_list_survives_cleanup(amount, separator, s
     source = f"The payment under sections 297, 311(1), and 338{separator}{amount} {suffix} is payable."
     expected = numeric_values(f"{amount} {suffix} is payable.", "")
     assert expected
-    assert numeric_values(source, f"{NZ_ACT}/section/74") == expected
+    assert set(numeric_values(source, f"{NZ_ACT}/section/74")) == {338, *expected}
 
 
 @pytest.mark.parametrize(
@@ -477,7 +476,9 @@ def test_citation_cleanup_keeps_round_two_operative_quantities(
     )
 
     citation = f"{instrument}/section/74"
-    assert numeric_values(source, citation) == [amount]
+    assert numeric_values(source, citation) == (
+        [338, amount] if "sections 297" in source else [1, amount]
+    )
     content = yaml.safe_dump(
         {
             "format": "rulespec/v1",
@@ -518,18 +519,15 @@ def test_citation_continuation_never_consumes_a_number_before_a_nonlocator_word(
     )
     expected = numeric_values(f"{amount} {word} applies.", "")
     assert expected
-    assert numeric_values(source, f"{NZ_ACT}/section/74") == expected
+    assert set(numeric_values(source, f"{NZ_ACT}/section/74")) == {338, *expected}
 
 
 @pytest.mark.parametrize("terminal", [".", ";", ":", ")", ""])
-def test_citation_continuation_requires_a_positive_terminal(terminal: str):
-    assert (
-        numeric_values(
-            f"This section overrides sections 297, 311(1), and 338{terminal}",
-            f"{NZ_ACT}/section/74",
-        )
-        == []
-    )
+def test_citation_continuation_retains_base_terminal_obligation(terminal: str):
+    assert numeric_values(
+        f"This section overrides sections 297, 311(1), and 338{terminal}",
+        f"{NZ_ACT}/section/74",
+    ) == [338]
 
 
 @pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
@@ -581,14 +579,14 @@ def test_embedded_count_table_retains_actual_completeness_obligations(
 
 
 @pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
-def test_ambiguous_hyphenated_locator_retains_quantities_without_inventing_topology(
+def test_ambiguous_hyphenated_locator_keeps_base_range_cleanup(
     instrument: str,
 ):
     source = "Section 40-18-2 shall apply. The payment is $450."
     cleaned = sc.authoritative_numeric_recall_text(
         source, corpus_citation_path=f"{instrument}/section/74"
     )
-    assert "40-18-2" in cleaned
+    assert "40-18-2" not in cleaned
     assert 450 in numeric_values(source, f"{instrument}/section/74")
     assert sc._explicit_source_arithmetic_topology(cleaned) is None
 
@@ -603,7 +601,7 @@ def test_ambiguous_hyphenated_locator_never_leaves_a_partial_arithmetic_tail(
     cleaned = sc.authoritative_numeric_recall_text(
         source, corpus_citation_path=f"{NZ_ACT}/section/74"
     )
-    assert locator in cleaned
+    assert locator not in cleaned
     assert sc._explicit_source_arithmetic_topology(cleaned) is None
 
 
@@ -636,7 +634,7 @@ def test_nested_count_axes_retain_actual_missing_scalar_obligations(variant, hea
         corpus_citation_path=citation,
         extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
     )
-    expected = [1, 450, 2, 73] if variant == "legal-subject" else [1, 450, 2, 700]
+    expected = [1, 450, 2] if variant == "legal-subject" else [1, 450, 2, 700]
     assert numeric_values(source, citation) == expected
     for value in expected:
         assert any(
@@ -662,22 +660,19 @@ def test_nz_explicit_dependency_keeps_base_deferral_with_typed_section_reference
 )
 def test_ambiguous_citation_number_cannot_authenticate_a_conversion_base(source_kind):
     source = f"Under {source_kind} 10 to 12, converted monthly, it is 6150 dollars."
-    # Keep the conservative recall demand while refusing to infer that a
-    # possible locator is the monetary base of the converted result.
-    assert numeric_values(source, f"{NZ_ACT}/section/74") == [12, 6150]
+    # Base removes the reference range and does not infer a conversion base.
+    assert numeric_values(source, f"{NZ_ACT}/section/74") == [6150]
     assert not sc.source_states_stated_conversion_result(source)
 
 
 @pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
 @pytest.mark.parametrize("suffix", ["times the weekly amount", "is payable each week"])
-def test_unproven_attached_hyphen_range_retains_the_whole_identifier(
-    instrument, suffix
-):
+def test_unproven_attached_hyphen_range_keeps_base_range_cleanup(instrument, suffix):
     source = f"The payment under sections 1-20 {suffix}."
     cleaned = sc.authoritative_numeric_recall_text(
         source, corpus_citation_path=f"{instrument}/section/74"
     )
-    assert "1-20" in cleaned
+    assert "1-20" not in cleaned
 
 
 @pytest.mark.parametrize("locator", ["72", "72.", "72(5)", "72 (5)(a)"])
@@ -834,7 +829,7 @@ def test_explicit_canonical_dependency_relaxation_abstains_even_on_positive_pros
 @pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
 @pytest.mark.parametrize("separator", [", ", " and ", ", and "])
 @pytest.mark.parametrize("locator", ["40-18-2", "40 - 18 - 2"])
-def test_partial_citation_list_preserves_percentage_formula_witness(
+def test_partial_citation_list_keeps_base_formula_witness_behavior(
     instrument, separator, locator
 ):
     from tests.test_source_completeness import EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR
@@ -843,8 +838,10 @@ def test_partial_citation_list_preserves_percentage_formula_witness(
     cleaned = sc.authoritative_numeric_recall_text(
         source, corpus_citation_path=f"{instrument}/section/74"
     )
-    assert f"sections 1{separator}{locator}" in cleaned
-    assert sc._explicit_source_arithmetic_topology(cleaned) is None
+    assert f"sections 1{separator}{locator}" not in cleaned
+    assert (sc._explicit_source_arithmetic_topology(cleaned) is not None) is (
+        separator == ", and "
+    )
     branch = sc.SourceStructureBranch(
         (), "formula-clause", "source unit", source, 0, len(source)
     )
@@ -863,7 +860,7 @@ def test_partial_citation_list_preserves_percentage_formula_witness(
         execution_environment={"earnings": 1000},
         extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
         numeric_value_is_grounded=vp.numeric_value_is_grounded,
-    )
+    ) is (separator != ", and " and locator == "40-18-2")
 
 
 @pytest.mark.parametrize("instrument", CITATION_CONTROL_INSTRUMENTS)
@@ -885,9 +882,9 @@ def test_citation_cleanup_keeps_spaced_amount_whole(instrument, separator, prefi
 
 
 @pytest.mark.parametrize("other", ["paragraph 72", "section 73"])
-def test_clause_wide_dependency_fallback_cannot_borrow_a_different_reference(other):
+def test_clause_wide_dependency_fallback_retains_base_short_clause_behavior(other):
     clause = f"Section 72 has a heading and the conditions under {other} apply."
-    assert not sc._source_clause_links_dependency(
+    assert sc._source_clause_links_dependency(
         clause, reference_start=0, reference_end=len("Section 72")
     )
 
@@ -932,18 +929,15 @@ def test_possible_citation_formula_mask_retains_independent_percentage(kind, amo
             evaluates_to_zero=False,
             constant_environment={},
         )
-        assert (
-            sc._formula_execution_matches_source_branch(
-                execution,
-                branch,
-                interval=None,
-                formula_environment={},
-                execution_environment={"allowance": 100, "earnings": 1000},
-                extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
-                numeric_value_is_grounded=vp.numeric_value_is_grounded,
-            )
-            is expected
-        )
+        assert sc._formula_execution_matches_source_branch(
+            execution,
+            branch,
+            interval=None,
+            formula_environment={},
+            execution_environment={"allowance": 100, "earnings": 1000},
+            extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+            numeric_value_is_grounded=vp.numeric_value_is_grounded,
+        ) is (expected and kind != "clauses")
 
 
 @pytest.mark.parametrize(
@@ -983,3 +977,169 @@ def test_implicit_numeric_instrument_dependency_retains_base_deferral_obligation
     assert covered == set()
     assert len(issues) == 1
     assert "does not name an exact missing dependency" in issues[0]
+
+
+def _constant_candidate_completeness_issues(
+    tmp_path, source, citation, formula, *, suffix="", dtype="Money", value=700
+):
+    """Exercise both production entry points with a matching asserted case."""
+    import functools
+
+    payload = {
+        "format": "rulespec/v1",
+        "module": {"source_verification": {"corpus_citation_path": citation}},
+        "rules": [
+            {
+                "name": "result",
+                "kind": "derived",
+                "dtype": dtype,
+                "source": citation + suffix,
+                "versions": [{"effective_from": "2026-01-01", "formula": formula}],
+            }
+        ],
+    }
+    content = yaml.safe_dump(payload)
+    cases = [
+        {
+            "name": "asserted constant",
+            "period": "2026",
+            "input": {},
+            "output": {"result": value},
+        }
+    ]
+    analysis = sc.analyze_complete_source_unit(
+        content,
+        source,
+        corpus_citation_path=citation,
+        test_cases=cases,
+        extract_numeric_occurrences=functools.partial(
+            vp.extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+        ),
+        extract_named_scalars=vp.extract_named_scalar_occurrences,
+        numeric_value_is_grounded=vp.numeric_value_is_grounded,
+    )
+    pipeline = vp.ValidatorPipeline(
+        tmp_path,
+        tmp_path,
+        local_corpus_release=None,
+        enable_oracles=False,
+        enforce_repository_layout=False,
+        source_citation_path=citation,
+        require_complete_source_unit=True,
+    )
+    return (
+        analysis.issues,
+        pipeline._complete_source_unit_issues(
+            content, validation_source_texts={citation: source}, test_cases=cases
+        ),
+    )
+
+
+@pytest.mark.parametrize("count", [12, 20])
+def test_long_negated_dependency_retains_base_deferral_rejection(count):
+    import functools
+
+    citation = "de/statute/estg/220"
+    reason = "Cannot be computed until de/statute/estg/72 is encoded."
+    source = (
+        "(1) No conditions under "
+        + " and ".join(f"section {n}" for n in [*range(1, count + 1), 72])
+        + " apply to eligibility."
+    )
+    payload = {
+        "format": "rulespec/v1",
+        "module": {
+            "source_verification": {"corpus_citation_path": citation},
+            "deferred_outputs": [
+                {"output": "de:statutes/estg/220/1#payment", "reason": reason}
+            ],
+        },
+        "rules": [],
+    }
+    assert not sc._reason_dependency_is_source_bound(
+        reason, source, corpus_citation_path=citation, path=("1",)
+    )
+    covered, issues = sc._deferred_coverage(
+        payload,
+        corpus_citation_path=citation,
+        source_text=source,
+        branches=sc.recognize_source_structure(source, corpus_citation_path=citation),
+    )
+    assert not covered
+    assert any("does not name an exact missing dependency" in issue for issue in issues)
+    result = sc.analyze_complete_source_unit(
+        yaml.safe_dump(payload),
+        source,
+        corpus_citation_path=citation,
+        test_cases=[],
+        extract_numeric_occurrences=functools.partial(
+            vp.extract_typed_numeric_inventory_occurrences_from_text, profile="de-DE"
+        ),
+        extract_numeric_grounding_occurrences=functools.partial(
+            vp.extract_typed_numeric_occurrences_from_text, profile="de-DE"
+        ),
+        extract_named_scalars=vp.extract_named_scalar_occurrences,
+        numeric_value_is_grounded=vp.numeric_value_is_grounded,
+    )
+    assert any("deferral" in issue for issue in result.issues)
+    assert any("structure" in issue for issue in result.issues)
+
+
+@pytest.mark.parametrize("percentage", ["20 percent", "20 per cent"])
+def test_schedules_verb_keeps_percentage_and_computation_obligations(
+    tmp_path, percentage
+):
+    source = f"The employer schedules {percentage} of the weekly working hours."
+    citation = "nz/statute/example/section/1"
+    assert numeric_values(source, citation) == [0.2]
+    for issues in _constant_candidate_completeness_issues(
+        tmp_path, source, citation, "700"
+    ):
+        assert any(
+            "numeric-recall" in issue and "value 0.2 has" in issue for issue in issues
+        )
+        assert any("computation" in issue for issue in issues)
+
+
+@pytest.mark.parametrize("jurisdiction", ["at", "ch"])
+@pytest.mark.parametrize(
+    "source",
+    [
+        "(1) 1Eine Person hat Anspruch.2Kinder haben Anspruch.",
+        "(1) 1EU-Bürger erhalten einen Zuschuss.2EU-Bürger erhalten einen Freibetrag.",
+        "(1) 1Die Person hat Anspruch.2Eine weitere Person hat Anspruch.",
+    ],
+)
+def test_genuine_german_sentences_retain_both_child_obligations(
+    tmp_path, jurisdiction, source
+):
+    citation = f"{jurisdiction}/statute/example/1"
+    assert {
+        b.path
+        for b in sc.recognize_source_structure(source, corpus_citation_path=citation)
+        if b.kind == "sentence"
+    } == {("1", "satz-1"), ("1", "satz-2")}
+    for issues in _constant_candidate_completeness_issues(
+        tmp_path, source, citation, "True", suffix="(1)", dtype="Boolean", value=True
+    ):
+        assert any("Source branch Satz 1" in issue for issue in issues)
+        assert any("Source branch Satz 2" in issue for issue in issues)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "Notre garantie de 1 an couvre le produit.",
+        "Après renouvellement, une garantie vaut 1 an.",
+        "Le mandat légal : 1 an.",
+        "La durée légale : 1 an.",
+    ],
+)
+def test_french_year_gate_cannot_remove_base_month_obligation(tmp_path, source):
+    assert vp._extract_year_duration_month_values(source) == {12}
+    for issues in _constant_candidate_completeness_issues(
+        tmp_path, source, "fr/statute/example/1", "1", value=1
+    ):
+        assert any(
+            "numeric-recall" in issue and "value 12 has" in issue for issue in issues
+        )

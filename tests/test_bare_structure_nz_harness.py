@@ -118,7 +118,6 @@ def test_s220_outline_retains_base_obligations_after_authentication_reversion():
         28,
         1,
         3,
-        436,
     ]
 
 
@@ -375,7 +374,7 @@ def test_nested_detached_count_axes_keep_roots_after_authentication_reversion(
     jurisdiction, heading, case
 ):
     source = NESTED_COUNT_SOURCES[case].replace("Family size.", heading, 1)
-    expected = [1, 450, 2, 73] if case == "legal-subject" else [1, 450, 2, 700]
+    expected = [1, 450, 2] if case == "legal-subject" else [1, 450, 2, 700]
     assert bare_outline(source) is None
     assert mask_bare_labels(source) == source
     cleaned = sc.authoritative_numeric_recall_text(

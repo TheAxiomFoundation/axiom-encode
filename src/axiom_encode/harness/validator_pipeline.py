@@ -8837,30 +8837,8 @@ _YEAR_DURATION_PATTERN = re.compile(
             reverse=True,
         )
     )
-    + r")\s+(?P<unit>ans?|jaar|jaren)\b",
+    + r")\s+(?:ans?|jaar|jaren)\b",
     re.IGNORECASE,
-)
-_FRENCH_ER_DURATION_VERB_ENDING = (
-    r"(?:er|ant|e|es|ent|ons|ez|ais|ait|ions|iez|aient|"
-    r"é|ée|és|ées|erai|eras|era|erons|erez|eront|"
-    r"erais|erait|erions|eriez|eraient|ai|as|a|âmes|âtes|èrent)"
-)
-_FRENCH_DURATION_CONTEXT_PATTERN = re.compile(
-    r"\b(?:le|la|les|une?|cette|ces|ils?|elles?|ce|cela|"
-    r"ma|mon|mes|ta|ton|tes|sa|son|ses|notre|nos|votre|vos|leurs?)\s+"
-    r"(?:[\w’'-]+\s+){0,8}(?:n[’'])?(?:est|sont|dure|durent|doit|doivent|"
-    rf"peut|peuvent|d[ée]pass{_FRENCH_ER_DURATION_VERB_ENDING}|"
-    rf"exc[èée]d{_FRENCH_ER_DURATION_VERB_ENDING}|expire|expirent)\s+"
-    r"(?:[\w’'-]+\s+){0,8}$|"
-    r"\b(?:le|la|les|une?|des|ce|cette|ces|sa|son|ses|leurs?)\s+"
-    r"(?:[\w’'-]+\s+){1,8}(?:de|pour|sur)\s+$|"
-    r"\b(?:pendant|depuis|durant|apr[èe]s|avant)\s+$|"
-    r"\b(?:dur[ée]e|p[ée]riode|d[ée]lai|[âa]ge)"
-    r"(?:\s+(?:minimal|maximal)(?:e?s?))?\s*(?:de\s+|:\s*)$",
-    re.IGNORECASE,
-)
-_FRENCH_DURATION_FOLLOWING_CONTEXT_PATTERN = re.compile(
-    r"^\s+(?:est|sont|sera|seront)\b", re.IGNORECASE
 )
 _CENTIME_UNIT_PATTERN = re.compile(r"\bcentimes?\b", re.IGNORECASE)
 _ANNUAL_CONTEXT_PATTERN = re.compile(
@@ -11782,42 +11760,11 @@ def _extract_week_duration_day_values(text: str) -> set[float]:
 
 def _extract_year_duration_month_values(text: str) -> set[float]:
     values: set[float] = set()
-    for match in _iter_year_duration_matches(text):
+    for match in _YEAR_DURATION_PATTERN.finditer(text):
         value = _parse_belgian_numeric_phrase(match.group("number"))
         if value is not None:
             values.add(value * 12)
     return values
-
-
-def _iter_year_duration_matches(text: str) -> Iterator[re.Match[str]]:
-    """Keep year conversions inside their language and authenticated source unit."""
-    matches = tuple(_YEAR_DURATION_PATTERN.finditer(text))
-    if not matches:
-        return
-    structural_spans = [
-        (label.start, label.marker_end) for label in bare_outline(text) or ()
-    ]
-    for match in matches:
-        if _span_overlaps(match.span("number"), structural_spans):
-            continue
-        if match.group("unit").lower() == "an":
-            # Singular French ``an`` is also the English article ``An``.
-            # Require French evidence in the local source sentence rather
-            # than interpreting an English subsection label plus its prose.
-            before = re.split(r"[.!?;]", text[: match.start()])[-1][-512:]
-            after = re.split(r"[.!?;]", text[match.end() :], maxsplit=1)[0][:512]
-            number = match.group("number").lower()
-            french_number = (
-                number in _FRENCH_CARDINAL_PHRASE_VALUES
-                and number not in _CARDINAL_WORD_VALUES
-            )
-            if (
-                not french_number
-                and not _FRENCH_DURATION_CONTEXT_PATTERN.search(before)
-                and not _FRENCH_DURATION_FOLLOWING_CONTEXT_PATTERN.search(after)
-            ):
-                continue
-        yield match
 
 
 def _extract_dotted_date_year_values(text: str) -> set[float]:
@@ -16190,7 +16137,7 @@ def _tokenize_numeric_occurrences_from_text(
         add_both(raw_view, span, value)
 
     year_matches: list[tuple[tuple[int, int], float]] = []
-    for match in _iter_year_duration_matches(raw_text):
+    for match in _YEAR_DURATION_PATTERN.finditer(raw_text):
         value = _parse_belgian_numeric_phrase(match.group("number"))
         if value is not None:
             year_matches.append((match.span(), value * 12))
@@ -25556,19 +25503,7 @@ def _source_subparagraph_citation_pattern(citation_path: str) -> re.Pattern[str]
             r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)",
             flags=re.IGNORECASE,
         )
-    try:
-        canonical = require_canonical_corpus_citation_path(citation_path)
-    except (InvalidCorpusCitationError, TypeError, ValueError):
-        return None
-    # Exact authenticated corpus identities work across document classes and
-    # jurisdictions. Human-readable aliases above remain language-specific.
-    return re.compile(
-        rf"(?<![\w/.-]){re.escape(canonical)}"
-        r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)"
-        # Attached locator syntax cannot be truncated to a valid paragraph.
-        # Sentence punctuation is terminal only before whitespace or text end.
-        r"(?=$|\s|[.,;:!?](?=\s|$))",
-    )
+    return None
 
 
 _RULESPEC_DOCUMENT_CLASS_DIRS = {
