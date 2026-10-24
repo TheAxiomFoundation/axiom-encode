@@ -146,6 +146,19 @@ jobs:
           path: axiom-encode
           persist-credentials: false
 
+      # Before the production-signing gate: a run that cannot fetch its pinned
+      # corpus would fail after approval and waste the signing review. Only the
+      # presence of the secrets is evaluated here; no step's environment or log
+      # receives a value.
+      - name: Require corpus read credentials before the signing gate
+        env:
+          HAS_CORPUS_READ: ${{ secrets.R2_CORPUS_READ_ACCESS_KEY_ID != '' && secrets.R2_CORPUS_READ_SECRET_ACCESS_KEY != '' }}
+        run: |
+          if [ "$HAS_CORPUS_READ" != true ]; then
+            echo "::error::R2 corpus read credentials are not available to axiom-encode, so the signed re-encode could not fetch R2-stored corpus scopes after approval. Grant this repository access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials, then re-dispatch." >&2
+            exit 1
+          fi
+
       - name: Enforce failed-attempt budget
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1211,11 +1224,20 @@ jobs:
         shell: bash
         env:
           RELEASE_OBJECT: ${{ steps.pinned_corpus_release.outputs.release_object }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # Read-only corpus credentials, shared with this repository as the
+          # organization secrets R2_CORPUS_READ_* (the rulespec repositories use
+          # the same pair). Only this step holds any R2 credential.
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_CORPUS_READ_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_CORPUS_READ_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
           if [ -d axiom-corpus/.axiom/corpus-locks ]; then
+            # Only a lock-pinned corpus fetches from R2; a lockless (git-history)
+            # pin reads its provisions from the checkout and needs no credential.
+            if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
+              echo "::error::R2 corpus read credentials are not available to this workflow; locked corpus scopes stored only in R2 cannot be fetched. Grant axiom-encode access to the organization's R2_CORPUS_READ_ACCESS_KEY_ID and R2_CORPUS_READ_SECRET_ACCESS_KEY credentials." >&2
+              exit 1
+            fi
             provision_paths_json="$(jq -e \
               '[.content.artifacts[] | select(.artifact_class == "provisions") | .path]
                | if length > 0 then . else error("no provision artifacts") end' \
