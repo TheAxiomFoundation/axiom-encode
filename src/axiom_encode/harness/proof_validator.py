@@ -39,6 +39,18 @@ from .amendment_timing import (
     normalize_proof_location,
 )
 
+_SURROGATE_PATTERN = re.compile("[\ud800-\udfff]")
+
+
+def _escape_surrogates(text: str) -> str:
+    """Spell UTF-16 surrogates as escapes so a diagnostic stays UTF-8 encodable.
+
+    YAML escapes such as `"\\uD800"` load as lone surrogates, and issues echo
+    keys and ids verbatim.
+    """
+
+    return _SURROGATE_PATTERN.sub(lambda match: f"\\u{ord(match.group()):04x}", text)
+
 
 @dataclass(frozen=True)
 class ProofValidationResult:
@@ -48,6 +60,11 @@ class ProofValidationResult:
     issues: list[str]
     atoms_checked: int
     proof_required: bool
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "issues", [_escape_surrogates(issue) for issue in self.issues]
+        )
 
 
 PROOF_ATOM_KINDS = frozenset(
@@ -227,7 +244,9 @@ def validate_rulespec_proofs(
     When strict mode is off, any proof blocks that are present are still checked.
     """
     try:
-        payload = yaml.safe_load(content)
+        payload, interpretation_yaml_issues, numeric_id_paths = (
+            _safe_load_with_interpretation_constraints(content)
+        )
     except (yaml.YAMLError, ValueError) as exc:
         interpretation_yaml_issues = []
         with contextlib.suppress(yaml.YAMLError, ValueError):
@@ -240,6 +259,15 @@ def validate_rulespec_proofs(
             proof_required=False,
         )
 
+    if not isinstance(payload, dict) and interpretation_yaml_issues:
+        # A tagged root mapping can load as a set, which would otherwise skip
+        # every check below while the engine still reads the mapping.
+        return ProofValidationResult(
+            passed=False,
+            issues=interpretation_yaml_issues,
+            atoms_checked=0,
+            proof_required=False,
+        )
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return ProofValidationResult(
             passed=True,
@@ -250,11 +278,6 @@ def validate_rulespec_proofs(
 
     module = payload.get("module")
     proof_required = require_policy_proofs or _module_requires_proofs(module)
-    interpretation_yaml_issues, numeric_id_paths = (
-        _interpretation_yaml_constraints(content)
-        if isinstance(module, dict) and "interpretations" in module
-        else ([], set())
-    )
     issues = [
         *find_plural_corpus_citation_path_issues(payload),
         *find_noncanonical_corpus_citation_path_issues(payload),
@@ -341,38 +364,140 @@ def find_interpretation_yaml_issues(content: str) -> list[str]:
 
     issues, numeric_id_paths = _interpretation_yaml_constraints(content)
     return [
-        *issues,
-        *(
-            f"{location} must be a quoted string when YAML reads this scalar "
-            "as a number."
-            for location in sorted(numeric_id_paths)
-        ),
+        _escape_surrogates(issue)
+        for issue in [
+            *issues,
+            *(
+                f"{location} must be a quoted string when YAML reads this scalar "
+                "as a number."
+                for location in sorted(numeric_id_paths)
+            ),
+        ]
     ]
 
 
+_YAML_STR_TAG = "tag:yaml.org,2002:str"
+_YAML_MAP_TAG = "tag:yaml.org,2002:map"
+_YAML_MERGE_TAG = "tag:yaml.org,2002:merge"
+
+
+class _ExplicitTagComposer(yaml.SafeLoader):
+    """Compose with the safe schema while recording each node's own tag.
+
+    Tags are keyed by node identity rather than source position: a block
+    mapping starts where its first key starts, so a position map would read
+    that key's tag as a tag on the whole mapping.
+    """
+
+    def __init__(self, stream: str) -> None:
+        super().__init__(stream)
+        self.explicit_tags: dict[int, str] = {}
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        event = self.peek_event()
+        node = super().compose_node(parent, index)
+        if not isinstance(event, yaml.AliasEvent) and event.tag is not None:
+            self.explicit_tags[id(node)] = event.tag
+        return node
+
+
+def _safe_load_with_interpretation_constraints(
+    content: str,
+) -> tuple[Any, list[str], set[str]]:
+    """Safe-load once, inspecting raw interpretation nodes before construction.
+
+    Construction flattens merge keys in the composed nodes, so the raw scan
+    runs first. The constructed payload is exactly what ``yaml.safe_load``
+    returns.
+    """
+
+    loader = _ExplicitTagComposer(content)
+    try:
+        root = loader.get_single_node()
+        issues, numeric_id_paths = _interpretation_node_constraints(
+            root, loader.explicit_tags
+        )
+        payload = loader.construct_document(root) if root is not None else None
+    finally:
+        loader.dispose()
+    return payload, issues, numeric_id_paths
+
+
 def _interpretation_yaml_constraints(content: str) -> tuple[list[str], set[str]]:
+    loader = _ExplicitTagComposer(content)
+    try:
+        return _interpretation_node_constraints(
+            loader.get_single_node(), loader.explicit_tags
+        )
+    finally:
+        loader.dispose()
+
+
+def _mapping_fields(
+    node: yaml.MappingNode, name: str
+) -> list[tuple[yaml.Node, yaml.Node]]:
+    return [
+        (key, value)
+        for key, value in node.value
+        if isinstance(key, yaml.ScalarNode) and key.value == name
+    ]
+
+
+def _mapping_tag_issue(
+    node: yaml.MappingNode, label: str, explicit_tags: Mapping[int, str]
+) -> str | None:
+    """Reject tags that make PyYAML construct a mapping as something else.
+
+    `!!set` loads a mapping as a set, which hides it from validation, while the
+    engine ignores the tag and reads the mapping.
+    """
+
+    tag = explicit_tags.get(id(node))
+    if tag is None or tag in {"!", _YAML_MAP_TAG}:
+        return None
+    return (
+        f"{label} has unsupported YAML tag `{tag}`; only an untagged mapping "
+        "or `!!map` is supported."
+    )
+
+
+def _merge_keys_supply(node: yaml.MappingNode, name: str) -> bool:
+    """Whether a merge key in ``node`` would copy ``name`` into it on load.
+
+    PyYAML applies merge keys, including nested and sequence merges. The engine
+    does not apply them, so a field supplied this way is invisible to the
+    engine until a load-and-dump rewrite flattens it.
+    """
+
+    pending = [value for key, value in node.value if key.tag == _YAML_MERGE_TAG]
+    seen: set[int] = set()
+    while pending:
+        source = pending.pop()
+        if id(source) in seen:
+            continue
+        seen.add(id(source))
+        if isinstance(source, yaml.SequenceNode):
+            pending.extend(source.value)
+        elif isinstance(source, yaml.MappingNode):
+            for key, value in source.value:
+                if key.tag == _YAML_MERGE_TAG:
+                    pending.append(value)
+                elif isinstance(key, yaml.ScalarNode) and key.value == name:
+                    return True
+    return False
+
+
+def _interpretation_node_constraints(
+    root: yaml.Node | None, explicit_tags: Mapping[int, str]
+) -> tuple[list[str], set[str]]:
     """Inspect raw interpretation nodes before PyYAML discards their spelling.
 
     The engine uses YAML 1.2 numeric resolution, whereas PyYAML leaves some
-    plain exponent and octal scalars as strings. Composition with the same
-    SafeLoader preserves quoting, explicit string tags, duplicate mapping keys,
-    and merge keys without changing how the rest of the module is loaded.
+    plain exponent and octal scalars as strings. The composed nodes keep
+    quoting, explicit tags, duplicate mapping keys, and merge keys. Every
+    root `module` block is scanned, because loading keeps only the last one.
     """
 
-    root = yaml.compose(content, Loader=yaml.SafeLoader)
-    explicit_node_tags = {
-        event.start_mark.index: event.tag
-        for event in yaml.parse(content, Loader=yaml.SafeLoader)
-        if isinstance(
-            event,
-            (
-                yaml.events.ScalarEvent,
-                yaml.events.SequenceStartEvent,
-                yaml.events.MappingStartEvent,
-            ),
-        )
-        and event.tag is not None
-    }
     issues: list[str] = []
     numeric_id_paths: set[str] = set()
     number_pattern = re.compile(
@@ -381,33 +506,45 @@ def _interpretation_yaml_constraints(content: str) -> tuple[list[str], set[str]]
     )
     if not isinstance(root, yaml.MappingNode):
         return issues, numeric_id_paths
-    stack: list[tuple[str, yaml.Node]] = []
-    for key, module in root.value:
-        if not isinstance(key, yaml.ScalarNode) or key.value != "module":
+    if tag_issue := _mapping_tag_issue(root, "RuleSpec root", explicit_tags):
+        issues.append(tag_issue)
+    modules = _mapping_fields(root, "module")
+    if len(modules) > 1:
+        issues.append("RuleSpec root has duplicate key `module`.")
+    if _merge_keys_supply(root, "module"):
+        issues.append(
+            "RuleSpec root must not supply `module` through YAML merge keys; "
+            "the engine does not apply them."
+        )
+    stack: list[tuple[str, yaml.Node]] = [
+        ("RuleSpec root key `module`", key) for key, _module in modules
+    ]
+    for _key, module in modules:
+        if not isinstance(module, yaml.MappingNode):
             continue
-        if isinstance(module, yaml.MappingNode):
-            interpretations = [
-                value
-                for field, value in module.value
-                if isinstance(field, yaml.ScalarNode)
-                and field.value == "interpretations"
-            ]
-            if len(interpretations) > 1:
-                issues.append("module has duplicate key `interpretations`.")
-            stack.extend(("module.interpretations", value) for value in interpretations)
-            stack.extend(
-                ("module key `interpretations`", field)
-                for field, _value in module.value
-                if isinstance(field, yaml.ScalarNode)
-                and field.value == "interpretations"
+        if tag_issue := _mapping_tag_issue(module, "module", explicit_tags):
+            issues.append(tag_issue)
+        interpretations = _mapping_fields(module, "interpretations")
+        if len(interpretations) > 1:
+            issues.append("module has duplicate key `interpretations`.")
+        if _merge_keys_supply(module, "interpretations"):
+            issues.append(
+                "module must not supply `interpretations` through YAML merge "
+                "keys; the engine does not apply them."
             )
+        stack.extend(
+            ("module.interpretations", value) for _field, value in interpretations
+        )
+        stack.extend(
+            ("module key `interpretations`", field) for field, _value in interpretations
+        )
     seen_nodes: set[int] = set()
     while stack:
         location, node = stack.pop()
         if id(node) in seen_nodes:
             continue
         seen_nodes.add(id(node))
-        explicit_tag = explicit_node_tags.get(node.start_mark.index)
+        explicit_tag = explicit_tags.get(id(node))
         if explicit_tag is not None and not isinstance(node, yaml.ScalarNode):
             issues.append(
                 f"{location} must not use YAML tags on interpretation collections."
@@ -431,7 +568,13 @@ def _interpretation_yaml_constraints(content: str) -> tuple[list[str], set[str]]
                 stack.append((f"{location} key `{key.value}`", key))
                 stack.append((child, value))
         elif isinstance(node, yaml.ScalarNode):
-            if explicit_tag is not None and explicit_tag != "tag:yaml.org,2002:str":
+            if _SURROGATE_PATTERN.search(node.value):
+                issues.append(
+                    f"{location} must not contain UTF-16 surrogate code points "
+                    "(U+D800 to U+DFFF); the engine accepts only Unicode scalar "
+                    "values."
+                )
+            if explicit_tag is not None and explicit_tag != _YAML_STR_TAG:
                 issues.append(
                     f"{location} has unsupported YAML tag `{explicit_tag}`; "
                     "only the canonical string tag `!!str` "
@@ -439,7 +582,7 @@ def _interpretation_yaml_constraints(content: str) -> tuple[list[str], set[str]]
                 )
             elif (
                 explicit_tag is None
-                and node.tag == "tag:yaml.org,2002:str"
+                and node.tag == _YAML_STR_TAG
                 and node.style is None
                 and number_pattern.fullmatch(node.value)
             ):
