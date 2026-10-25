@@ -306,6 +306,50 @@ def emit_live_encode_events(
     return writer
 
 
+def emit_pre_encode_blocked_events(
+    run_id: str,
+    outcome: dict[str, Any],
+    *,
+    citation: Optional[str] = None,
+    backend: Optional[str] = None,
+    model: Optional[str] = None,
+    log_dir: Optional[Path] = None,
+) -> RunLogWriter:
+    """Emit the events of an encode the pre-encode gate stopped.
+
+    Nothing was generated, validated or applied, so each stage is skipped
+    with the gate's reason. Never raises: the writer swallows its own errors.
+    """
+    writer = RunLogWriter(run_id, log_dir=log_dir)
+    identity = {"citation": citation, "backend": backend, "model": model}
+    for stage in _PRE_ENCODE_SKIPPED_STAGES:
+        writer.emit(**_pre_encode_skipped_event(stage, outcome, identity))
+    return writer
+
+
+_PRE_ENCODE_BLOCKED_STATUS = "pre_encode_blocked"
+_PRE_ENCODE_SKIPPED_STAGES = ("generate", "apply")
+
+
+def _pre_encode_skipped_event(
+    stage: str, outcome: dict[str, Any], identity: dict[str, Any]
+) -> dict[str, Any]:
+    attrs: dict[str, Any] = {
+        "status": outcome.get("status"),
+        "pre_encode_gate": outcome.get("pre_encode_gate"),
+    }
+    if stage == "generate":
+        # fold_run reads the run's identity from the generate event.
+        attrs.update({"legal_id": None, **identity})
+    return {
+        "stage": stage,
+        "status": StageStatus.skipped,
+        "reason_code": _PRE_ENCODE_BLOCKED_STATUS,
+        "reason": outcome.get("primary_error"),
+        "attrs": attrs,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Backfill (source-backed only; absent -> null, never fabricated)
 # ---------------------------------------------------------------------------
@@ -408,6 +452,19 @@ def synthesize_backfill_events(
         seq += 1
 
     outcome = getattr(run, "outcome", None) or {}
+    if outcome.get("status") == _PRE_ENCODE_BLOCKED_STATUS:
+        # The gate stopped the encode before a model call: nothing ran.
+        identity = {
+            "citation": getattr(run, "citation", None),
+            "backend": getattr(run, "agent_type", None),
+            "model": getattr(run, "agent_model", None),
+        }
+        for stage in _PRE_ENCODE_SKIPPED_STAGES:
+            event = _pre_encode_skipped_event(stage, outcome, identity)
+            event["attrs"]["backfilled"] = True
+            stage_name = event.pop("stage")
+            _event(stage_name, event.pop("status"), **event)
+        return events
     # Only claim generate=passed when it is sourced. The recorded outcome status
     # `apply_blocked_generation` is the one historical signal that generation
     # itself failed; every other status (validated/applied/blocked-at-validation

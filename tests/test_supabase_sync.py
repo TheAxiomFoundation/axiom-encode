@@ -1639,6 +1639,27 @@ class TestSyncRunCostLedger:
         assert "estimated_cost_usd" not in payload
         assert "generation_attempt_count" not in payload
 
+    def test_pre_encode_blocked_run_publishes_zero_attempts(self):
+        """A gate-blocked run made no model call; its zero is measured."""
+        mock_run = self._make_run_with_ledger()
+        from axiom_encode.harness.encoding_db import TokenUsage
+
+        mock_run.tokens = TokenUsage()
+        mock_run.generation_attempt_count = 0
+        mock_run.outcome = {"status": "pre_encode_blocked", "final_success": False}
+
+        mock_client = MagicMock()
+        mock_client.schema.return_value.table.return_value.upsert.return_value.execute.return_value = MagicMock(
+            data=[{"id": "cost-123"}]
+        )
+
+        assert sync_run_to_supabase(mock_run, "ci_only", client=mock_client) is True
+        payload = (
+            mock_client.schema.return_value.table.return_value.upsert.call_args.args[0]
+        )
+        assert payload["generation_attempt_count"] == 0
+        assert payload["outcome"]["status"] == "pre_encode_blocked"
+
     def test_non_finite_cost_stays_absent(self):
         """NaN/Infinity cannot be sent as JSON, so they stay NULL remotely."""
         mock_run = self._make_run_with_ledger()
