@@ -239,8 +239,11 @@ def check_no_operative_text(
     if not any(character.isalnum() for character in remaining):
         return PUNCTUATION_BODY_REASON
     label_found = False
+    # Longest first; equal lengths in text order, so the result never depends
+    # on set iteration order (PYTHONHASHSEED).
     for label in sorted(
-        {_normalize_space(item) for item in labels if item}, key=len, reverse=True
+        {_normalize_space(item) for item in labels if item},
+        key=lambda item: (-len(item), item),
     ):
         if label and re.search(re.escape(label), remaining, flags=re.IGNORECASE):
             label_found = True
