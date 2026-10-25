@@ -1,0 +1,1 @@
+Admit the exact US encoder and engine preparation commit for artifact-only targeted repair. Existing signatures, source checks, review-base restrictions, and publication gates remain required.
