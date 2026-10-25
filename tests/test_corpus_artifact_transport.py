@@ -58,6 +58,26 @@ def test_wrapper_projects_only_source_contract():
     assert json.loads(raw)["corpus_artifact_run_id"] == "123"
 
 
+def test_transport_can_prefetch_distinct_signed_provisions():
+    wrapper = {**WRAPPER, "provision_export_run_ids": ["456", "789"]}
+    raw = json.dumps(wrapper)
+    assert transport.request_run_id(raw, DISPATCH) == "123"
+    assert transport.provision_run_ids(raw) == ["456", "789"]
+    assert immutable_atomic_source_contract(raw) == split_atomic_source_input(
+        json.dumps(INNER)
+    )
+
+
+@pytest.mark.parametrize(
+    "ids",
+    [[], ["0"], ["01"], ["123"], ["456", "456"], [456], ["1" * 21], ["1"] * 8],
+)
+def test_transport_rejects_invalid_prefetch_run_ids(ids):
+    wrapper = {**WRAPPER, "provision_export_run_ids": ids}
+    with pytest.raises(ValueError, match="prefetch"):
+        transport.provision_run_ids(json.dumps(wrapper))
+
+
 def test_provision_prefetch_projects_only_source_contract():
     raw = json.dumps(PREFETCH)
     assert transport.request_run_id(raw, DISPATCH) == ""

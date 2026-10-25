@@ -1,3 +1,7 @@
+## 0.2.2257
+
+- Allow one authenticated Arizona corpus export and up to seven distinct signed provision exports in the same fresh protected transaction, so R2-only federal dependencies are available without altering the source contract.
+
 ## 0.2.2256
 
 - Admit the reviewed PyMuPDF corpus exporter dependency-file pair alongside the protected signed Arizona source/dependent transaction and its completed-manifest census check.

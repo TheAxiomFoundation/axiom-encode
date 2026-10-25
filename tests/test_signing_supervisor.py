@@ -2273,7 +2273,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["source_bundle_json"] == {
         "description": (
             "Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3 "
-            "for an ordinary or in-place legacy replacement; "
+            "for an ordinary or in-place legacy replacement, with optional signed "
+            "provision export run IDs; "
             "legacy citation array/refresh object, v2-v5 contract, "
             "or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} "
             "for an authenticated failed ordinary single-target repair"
