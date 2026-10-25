@@ -3783,6 +3783,11 @@ def main():
 
     _judge_cli.register_judge_subparsers(subparsers)
 
+    # Failure-triage evidence (deterministic, no model) registers the same way.
+    from axiom_encode.triage import cli_commands as _triage_cli
+
+    _triage_cli.register_triage_subparsers(subparsers)
+
     args = parser.parse_args()
 
     if args.command == "ci":
@@ -3797,6 +3802,9 @@ def main():
 
     if args.command in _judge_cli.COMMANDS:
         sys.exit(_judge_cli.dispatch(args))
+
+    if args.command in _triage_cli.COMMANDS:
+        sys.exit(_triage_cli.dispatch(args))
 
     if args.command == "validate":
         cmd_validate(args)

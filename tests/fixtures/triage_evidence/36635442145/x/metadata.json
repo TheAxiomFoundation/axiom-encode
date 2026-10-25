@@ -1,0 +1,286 @@
+{
+  "atomic_source_input": "[]",
+  "citation": "us/regulation/42/457/800",
+  "corpus_ref": "c65b2ca15ba4a789f547eb323728a7aadcfc1f9d",
+  "country": "us",
+  "dependent_citation": null,
+  "encoder_commit": "b3e4660a70e6b306bd4e814075df65b12bfc5cbe",
+  "existing_signed_imports_input": "[]",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "files": [
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-luna/us-regulation-42-457-800/workspace/context-manifest.json",
+      "sha256": "71b00290d638aaf082e3c5e0dee5a2d2d43d870393c0be3d778156a8dbf82e9b",
+      "size": 4215
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-luna/us-regulation-42-457-800/workspace/context/regulations/42-cfr/457/340.test.yaml",
+      "sha256": "3e0ab334180dce217316deb396bcc0eed8bb45580c2db218162eda6dda4fd23a",
+      "size": 1894
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-luna/us-regulation-42-457-800/workspace/context/regulations/42-cfr/457/340.yaml",
+      "sha256": "ea3c32f595fda885499824ec26bbdb41a1968c63f81939d2070f9d3671e938bc",
+      "size": 1826
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-luna/us-regulation-42-457-800/workspace/context/regulations/42-cfr/457/344.test.yaml",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "size": 3
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-luna/us-regulation-42-457-800/workspace/context/regulations/42-cfr/457/344.yaml",
+      "sha256": "a6ed2dbea98c7d898c0f9bda59709ba4e881ab8bb9ec571454d528fe76955ccd",
+      "size": 644
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-luna/us-regulation-42-457-800/workspace/context/regulations/42-cfr/457/960.test.yaml",
+      "sha256": "8316510c35ec0ef525c7031346be9ffd0fa70d26a2eae0fd265ab465ea5b1408",
+      "size": 1685
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-luna/us-regulation-42-457-800/workspace/context/regulations/42-cfr/457/960.yaml",
+      "sha256": "b63d0c158e6968b1b0bca2632f4b1a2d802560e8d3ecaacdaa9243b1050bbdea",
+      "size": 2001
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-luna/us-regulation-42-457-800/workspace/provision-metadata.txt",
+      "sha256": "03eadd42c137c78808bd99581465007625e26d40c492f15a8c3dc6b4f5b3c8fb",
+      "size": 181
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-luna/us-regulation-42-457-800/workspace/source-metadata.json",
+      "sha256": "dd0ec1f292b54f2b40aec2bb5e490c82f3525883d04afcf253bbaea6ba20891c",
+      "size": 1915
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-luna/us-regulation-42-457-800/workspace/source.txt",
+      "sha256": "3fbbaaf39b74a3cb00bccf6b21678b4697295d4b9ad8b047edb83ad094d1b44a",
+      "size": 613
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-sol/us-regulation-42-457-800/workspace/context-manifest.json",
+      "sha256": "71b00290d638aaf082e3c5e0dee5a2d2d43d870393c0be3d778156a8dbf82e9b",
+      "size": 4215
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-sol/us-regulation-42-457-800/workspace/context/regulations/42-cfr/457/340.test.yaml",
+      "sha256": "3e0ab334180dce217316deb396bcc0eed8bb45580c2db218162eda6dda4fd23a",
+      "size": 1894
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-sol/us-regulation-42-457-800/workspace/context/regulations/42-cfr/457/340.yaml",
+      "sha256": "ea3c32f595fda885499824ec26bbdb41a1968c63f81939d2070f9d3671e938bc",
+      "size": 1826
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-sol/us-regulation-42-457-800/workspace/context/regulations/42-cfr/457/344.test.yaml",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "size": 3
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-sol/us-regulation-42-457-800/workspace/context/regulations/42-cfr/457/344.yaml",
+      "sha256": "a6ed2dbea98c7d898c0f9bda59709ba4e881ab8bb9ec571454d528fe76955ccd",
+      "size": 644
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-sol/us-regulation-42-457-800/workspace/context/regulations/42-cfr/457/960.test.yaml",
+      "sha256": "8316510c35ec0ef525c7031346be9ffd0fa70d26a2eae0fd265ab465ea5b1408",
+      "size": 1685
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-sol/us-regulation-42-457-800/workspace/context/regulations/42-cfr/457/960.yaml",
+      "sha256": "b63d0c158e6968b1b0bca2632f4b1a2d802560e8d3ecaacdaa9243b1050bbdea",
+      "size": 2001
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-sol/us-regulation-42-457-800/workspace/provision-metadata.txt",
+      "sha256": "03eadd42c137c78808bd99581465007625e26d40c492f15a8c3dc6b4f5b3c8fb",
+      "size": 181
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-sol/us-regulation-42-457-800/workspace/source-metadata.json",
+      "sha256": "dd0ec1f292b54f2b40aec2bb5e490c82f3525883d04afcf253bbaea6ba20891c",
+      "size": 1915
+    },
+    {
+      "path": "target/_eval_workspaces/openai-gpt-6-sol/us-regulation-42-457-800/workspace/source.txt",
+      "sha256": "3fbbaaf39b74a3cb00bccf6b21678b4697295d4b9ad8b047edb83ad094d1b44a",
+      "size": 613
+    },
+    {
+      "path": "target/final-rejected-candidate/issues.json",
+      "sha256": "7765c20f92a9a37428cf37cc92b39a2ffb970c5b133e0c1bf2295744a93d3b5b",
+      "size": 753
+    },
+    {
+      "path": "target/final-rejected-candidate/regulations/42-cfr/457/800.test.yaml",
+      "sha256": "a131f5865ae428ba6f0d3e8fd87278971ce7abed12c1e50edac16f006aa4b743",
+      "size": 498
+    },
+    {
+      "path": "target/final-rejected-candidate/regulations/42-cfr/457/800.yaml",
+      "sha256": "95c1b024b5d2f6a810e54e71d526befbf73ee6fd342874c06a5df8fc84045dd6",
+      "size": 1791
+    },
+    {
+      "path": "target/openai-gpt-6-luna/regulations/42-cfr/457/340.test.yaml",
+      "sha256": "3e0ab334180dce217316deb396bcc0eed8bb45580c2db218162eda6dda4fd23a",
+      "size": 1894
+    },
+    {
+      "path": "target/openai-gpt-6-luna/regulations/42-cfr/457/340.yaml",
+      "sha256": "ea3c32f595fda885499824ec26bbdb41a1968c63f81939d2070f9d3671e938bc",
+      "size": 1826
+    },
+    {
+      "path": "target/openai-gpt-6-luna/regulations/42-cfr/457/344.test.yaml",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "size": 3
+    },
+    {
+      "path": "target/openai-gpt-6-luna/regulations/42-cfr/457/344.yaml",
+      "sha256": "a6ed2dbea98c7d898c0f9bda59709ba4e881ab8bb9ec571454d528fe76955ccd",
+      "size": 644
+    },
+    {
+      "path": "target/openai-gpt-6-luna/regulations/42-cfr/457/800.test.yaml",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "size": 3
+    },
+    {
+      "path": "target/openai-gpt-6-luna/regulations/42-cfr/457/800.yaml",
+      "sha256": "e0e27809500fd6acfda46604e85cf8eac9ef5b34a2b6e98f68576dc9c6d37547",
+      "size": 499
+    },
+    {
+      "path": "target/openai-gpt-6-luna/regulations/42-cfr/457/960.test.yaml",
+      "sha256": "8316510c35ec0ef525c7031346be9ffd0fa70d26a2eae0fd265ab465ea5b1408",
+      "size": 1685
+    },
+    {
+      "path": "target/openai-gpt-6-luna/regulations/42-cfr/457/960.yaml",
+      "sha256": "b63d0c158e6968b1b0bca2632f4b1a2d802560e8d3ecaacdaa9243b1050bbdea",
+      "size": 2001
+    },
+    {
+      "path": "target/openai-gpt-6-sol/regulations/42-cfr/457/340.test.yaml",
+      "sha256": "3e0ab334180dce217316deb396bcc0eed8bb45580c2db218162eda6dda4fd23a",
+      "size": 1894
+    },
+    {
+      "path": "target/openai-gpt-6-sol/regulations/42-cfr/457/340.yaml",
+      "sha256": "ea3c32f595fda885499824ec26bbdb41a1968c63f81939d2070f9d3671e938bc",
+      "size": 1826
+    },
+    {
+      "path": "target/openai-gpt-6-sol/regulations/42-cfr/457/344.test.yaml",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "size": 3
+    },
+    {
+      "path": "target/openai-gpt-6-sol/regulations/42-cfr/457/344.yaml",
+      "sha256": "a6ed2dbea98c7d898c0f9bda59709ba4e881ab8bb9ec571454d528fe76955ccd",
+      "size": 644
+    },
+    {
+      "path": "target/openai-gpt-6-sol/regulations/42-cfr/457/800.repair.json",
+      "sha256": "76277ceac803a8f1cfc321676418673268bb1c83f581c89d71cf50c62fecf611",
+      "size": 1202
+    },
+    {
+      "path": "target/openai-gpt-6-sol/regulations/42-cfr/457/800.test.yaml",
+      "sha256": "a131f5865ae428ba6f0d3e8fd87278971ce7abed12c1e50edac16f006aa4b743",
+      "size": 498
+    },
+    {
+      "path": "target/openai-gpt-6-sol/regulations/42-cfr/457/800.yaml",
+      "sha256": "95c1b024b5d2f6a810e54e71d526befbf73ee6fd342874c06a5df8fc84045dd6",
+      "size": 1791
+    },
+    {
+      "path": "target/openai-gpt-6-sol/regulations/42-cfr/457/960.test.yaml",
+      "sha256": "8316510c35ec0ef525c7031346be9ffd0fa70d26a2eae0fd265ab465ea5b1408",
+      "size": 1685
+    },
+    {
+      "path": "target/openai-gpt-6-sol/regulations/42-cfr/457/960.yaml",
+      "sha256": "b63d0c158e6968b1b0bca2632f4b1a2d802560e8d3ecaacdaa9243b1050bbdea",
+      "size": 2001
+    },
+    {
+      "path": "target/traces/openai-gpt-6-luna/us-regulation-42-457-800.json",
+      "sha256": "31371670d4dfe210736397876bd3a883940aed91304da9a0e6c1a3c2843b05fa",
+      "size": 169408
+    },
+    {
+      "path": "target/traces/openai-gpt-6-sol/us-regulation-42-457-800.json",
+      "sha256": "550bd0672d632deef5e6fa10dbe9d658e630424e784990377ef59a133f9b16e6",
+      "size": 176837
+    }
+  ],
+  "generated_lanes": [
+    "target"
+  ],
+  "guards": [],
+  "legacy_exact_dependent_rulespec_path": null,
+  "legacy_retained_successor_rulespec_paths_input": "[]",
+  "open_pr": false,
+  "pr_base_branch": "main",
+  "queue_dispatcher_run_id": null,
+  "queue_id": null,
+  "queue_item_generation_sha256": null,
+  "queue_item_id": null,
+  "queue_manifest_sha256": null,
+  "repair_candidate": null,
+  "repair_run_id": null,
+  "replace_legacy_rulespec_path": null,
+  "replace_rulespec_path": null,
+  "rules_engine_ref": "89571cc2a938707fd60a5489b951135345697296",
+  "rulespec_ref": "5f7a38c20a3ed4dd217d9c5505a73cddd9152d9c",
+  "schema": "axiom-encode/failed-reencode-diagnostics/v1",
+  "second_dependent_citation": null,
+  "second_legacy_exact_dependent_rulespec_path": null,
+  "step_outcomes": {
+    "commit_reviewed_lane_changes": {
+      "conclusion": "skipped",
+      "outcome": "skipped"
+    },
+    "encode_apply": {
+      "conclusion": "failure",
+      "outcome": "failure"
+    },
+    "finalize_signed_reencode_artifact": {
+      "conclusion": "skipped",
+      "outcome": "skipped"
+    },
+    "package_exact_generated_changes": {
+      "conclusion": "skipped",
+      "outcome": "skipped"
+    },
+    "publish_lane_pull_request": {
+      "conclusion": "skipped",
+      "outcome": "skipped"
+    },
+    "repair_candidate": {
+      "conclusion": "skipped",
+      "outcome": "skipped"
+    },
+    "upload_signed_reencode_artifact": {
+      "conclusion": "skipped",
+      "outcome": "skipped"
+    },
+    "verify_existing_signed_import_integrity": {
+      "conclusion": "skipped",
+      "outcome": "skipped"
+    },
+    "verify_generated_provenance": {
+      "conclusion": "skipped",
+      "outcome": "skipped"
+    }
+  },
+  "workflow_run_attempt": 1,
+  "workflow_run_id": "36635442145"
+}

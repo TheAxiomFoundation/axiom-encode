@@ -82,7 +82,9 @@ Measurement before merge: run the gate offline in `report` mode over every item 
 - Do not escalate to the larger model for those classes.
 - Build on Max's draft #1660 (`validation-issue/v1`). Do not duplicate its persistence. If #1660 has not merged, stage 2 adds only the class to the outcome and the retry predicate.
 
-### Stage 3: triage agent (later, separate design)
+### Stage 3: triage agent (separate design)
+
+Design: `docs/design/encode-failure-triage.md`. Build step 1, the deterministic evidence bundle and probes (`axiom-encode triage-evidence`), is implemented in 0.2.2256.
 
 - Runs locally on the subscription (no API sends), after a final failure, with evidence: source, candidate, validator output, gate findings, corpus probe.
 - Independent of the generator (different prompt; different model where possible).
