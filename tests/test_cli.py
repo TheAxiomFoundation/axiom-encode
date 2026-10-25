@@ -15330,6 +15330,95 @@ rules:
         assert len(applied_contents) == 1
         assert malformed not in applied_contents[0]
 
+    def test_encode_rechecks_duplicate_keys_once_quoting_makes_the_module_parse(
+        self, tmp_path
+    ):
+        """A module the preflight could not parse is rescanned after quoting.
+
+        The unquoted colon hides the duplicate `rules` key from the first
+        preflight; the quoting repair makes the module parse, and the rerun
+        blocks it before any later repair or the overlay rewrites the file.
+        """
+
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=True,
+        )
+        rule = (
+            "  - name: {name}\n    kind: parameter\n    dtype: Float\n"
+            "    versions:\n      - effective_from: '2024-01-01'\n"
+            "        formula: '0.1'\n"
+        )
+        hidden_duplicate = (
+            "format: rulespec/v1\nsource: changes at age: 65\nmodule:\n"
+            "  summary: Fictional rates.\nrules:\n"
+            + rule.format(name="first_rate")
+            + "rules:\n"
+            + rule.format(name="second_rate")
+        )
+        valid = "format: rulespec/v1\nrules: []\n"
+        generated_attempts = 0
+        validated_contents: list[str] = []
+        retry_feedback: list[tuple[str, ...]] = []
+
+        def generate(**kwargs):
+            nonlocal generated_attempts
+            generated_attempts += 1
+            retry_feedback.append(tuple(kwargs["validation_retry_feedback"]))
+            backend, model = kwargs["runner_specs"][0].split(":", 1)
+            result = self._make_eval_result(True)
+            result.backend = backend
+            result.model = model
+            result.runner = f"{backend}-{model}"
+            result.generation_prompt_sha256 = f"prompt-{generated_attempts}"
+            output_file = (
+                args.output / result.runner / "statutes" / "26" / "1" / "j" / "2.yaml"
+            )
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            output_file.write_text(
+                hidden_duplicate if generated_attempts == 1 else valid
+            )
+            output_file.with_suffix(".test.yaml").write_text("[]\n")
+            result.output_file = str(output_file)
+            return [result]
+
+        def validate(result, **_kwargs):
+            validated_contents.append(Path(result.output_file).read_text())
+            return True, [], {}
+
+        def apply(result, **_kwargs):
+            return [args.policy_repo_path / "us/statutes/26/1/j/2.yaml"]
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", side_effect=generate),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=validate,
+            ),
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                side_effect=apply,
+            ) as apply_call,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        assert generated_attempts == 2
+        assert retry_feedback[0] == ()
+        assert retry_feedback[1] == (
+            "Cannot apply RuleSpec YAML with duplicate mapping keys: document "
+            "root has duplicate key `rules` at line 12, column 1 (first at line "
+            "5, column 1).",
+        )
+        # The first attempt never reached the overlay, which stamps the file.
+        assert validated_contents == [valid]
+        apply_call.assert_called_once()
+
     def test_encode_contract_rejection_retries_with_exact_context_before_apply(
         self, tmp_path
     ):
