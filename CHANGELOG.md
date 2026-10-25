@@ -1,10 +1,14 @@
+## 0.2.2256
+
+- Admit the reviewed PyMuPDF corpus exporter dependency-file pair alongside the protected signed Arizona source/dependent transaction and its completed-manifest census check.
+
 ## 0.2.2255
 
 - Prefetch authenticated signed corpus provision exports for protected runs whose release provisions are R2-only, with exact exporter, archive, release, and provision-byte checks.
 
 ## 0.2.2254
 
-- Accept the exact reviewed corpus exporter dependency-file pair for the current PyMuPDF minimum-version update, while rejecting mixed or otherwise changed exporter checkouts.
+- Recognize completed signed in-place source-bound dependents in the legacy replacement census, retaining source-citation, primary-proof, and fresh-manifest checks.
 
 ## 0.2.2253
 
