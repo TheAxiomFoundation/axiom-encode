@@ -156,6 +156,15 @@ REVIEWED_RULESPEC_REFS = frozenset(
             "us",
             "87c766a7ecc76d7d36272c648f6daf87b4669317",
         ),
+        # rulespec-us#1790: signed FY2026 income standards plus root-load
+        # baseline shrink on the #1778 stack; downstream CFR metadata remains
+        # open. Review is author-reported in the #1790 comments (codex review);
+        # GitHub records no PR review. Exact-head runs: rulespec-us Actions
+        # 39340525214 (program-artifacts) and 39340628098 (engine root load).
+        (
+            "us",
+            "8eff74e39ca3ed50de3439b27de7c438a7b7bcda",
+        ),
         # rulespec-us#1183: reviewed FL SNAP BBCE candidate promotion.
         (
             "us",
@@ -209,6 +218,12 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
             "us",
             "87c766a7ecc76d7d36272c648f6daf87b4669317",
             "axiom/signed-backfill-us-38756101655-1",
+        ),
+        # rulespec-us#1790: admit only its exact reviewed, signed branch tip.
+        (
+            "us",
+            "8eff74e39ca3ed50de3439b27de7c438a7b7bcda",
+            "axiom/signed-backfill-us-38802732779-1",
         ),
         # rulespec-us#1183: reviewed FL SNAP BBCE candidate promotion.
         (

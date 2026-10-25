@@ -4324,6 +4324,7 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "b5273061fc5765dea04bf36f63de39bf40afc2d8"),
         ("us", "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a"),
         ("us", "87c766a7ecc76d7d36272c648f6daf87b4669317"),
+        ("us", "8eff74e39ca3ed50de3439b27de7c438a7b7bcda"),
         ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
@@ -4358,6 +4359,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "b5273061fc5765dea04bf36f63de39bf40afc2d8"),
             ("us", "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a"),
             ("us", "87c766a7ecc76d7d36272c648f6daf87b4669317"),
+            ("us", "8eff74e39ca3ed50de3439b27de7c438a7b7bcda"),
             ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
             ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
@@ -4404,6 +4406,11 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
                 "us",
                 "87c766a7ecc76d7d36272c648f6daf87b4669317",
                 "axiom/signed-backfill-us-38756101655-1",
+            ),
+            (
+                "us",
+                "8eff74e39ca3ed50de3439b27de7c438a7b7bcda",
+                "axiom/signed-backfill-us-38802732779-1",
             ),
             (
                 "us",
@@ -4490,6 +4497,10 @@ def test_validate_rulespec_base_accepts_exact_reviewed_protected_branch_tip(
         (
             "87c766a7ecc76d7d36272c648f6daf87b4669317",
             "axiom/signed-backfill-us-38756101655-1",
+        ),
+        (
+            "8eff74e39ca3ed50de3439b27de7c438a7b7bcda",
+            "axiom/signed-backfill-us-38802732779-1",
         ),
         (
             "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
