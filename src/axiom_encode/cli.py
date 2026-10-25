@@ -9030,6 +9030,7 @@ def _scheduled_dependent_manifest_issue(
     expected_waiver_set_sha256: str,
     expected_encoder_identity: Mapping[str, str],
     local_corpus_release: LocalCorpusRelease | None = None,
+    expected_source_citation: str | None = None,
 ) -> str | None:
     """Fully verify the fresh v5 manifest that resolves one scheduled group."""
 
@@ -9068,6 +9069,14 @@ def _scheduled_dependent_manifest_issue(
         or verified.get("backend") not in APPLIED_ENCODING_ENCODER_BACKENDS
     ):
         return "resolved manifest is not a fresh model encoding"
+    if expected_source_citation is not None:
+        attestation = verified.get("source_attestation")
+        if (
+            not isinstance(attestation, dict)
+            or attestation.get("requested_corpus_citation_path")
+            != expected_source_citation
+        ):
+            return "fresh v5 model manifest has the wrong source citation"
     applied_files = verified.get("applied_files")
     actual_hashes = (
         {
@@ -10424,12 +10433,32 @@ def _legacy_replacement_pending_paths(
         seen_primaries: set[str] = set()
         seen_files: set[str] = set()
         for dependent in scheduled:
+            source_bound_citation = (
+                dependent.get("source_citation")
+                if isinstance(dependent, dict)
+                else None
+            )
+            source_bound = source_bound_citation is not None
             if (
                 not isinstance(dependent, dict)
-                or set(dependent) != {"primary", "files"}
+                or set(dependent)
+                != (
+                    {"primary", "files", "source_citation"}
+                    if source_bound
+                    else {"primary", "files"}
+                )
                 or not isinstance(dependent.get("primary"), str)
                 or not isinstance(dependent.get("files"), list)
                 or not dependent["files"]
+                or (
+                    source_bound
+                    and (
+                        replacement.get("source") != replacement.get("destination")
+                        or not isinstance(source_bound_citation, str)
+                        or not source_bound_citation
+                        or len(dependent["files"]) != 1
+                    )
+                )
             ):
                 pending.append(f"invalid:{manifest_label}")
                 continue
@@ -10460,7 +10489,7 @@ def _legacy_replacement_pending_paths(
                     or not isinstance(evidence.get("path"), str)
                     or not isinstance(evidence.get("before_sha256"), str)
                     or not isinstance(evidence.get("replacements"), list)
-                    or not evidence["replacements"]
+                    or (not evidence["replacements"] and not source_bound)
                 ):
                     group_invalid = True
                     continue
@@ -10474,12 +10503,22 @@ def _legacy_replacement_pending_paths(
                     or any(part in {"", ".", ".."} for part in live_relative.parts)
                     or _SHA256_HEX_PATTERN.fullmatch(before) is None
                     or live_relative not in {primary_path, companion_path(primary_path)}
+                    or (
+                        source_bound
+                        and (
+                            live_relative != primary_path
+                            or evidence["replacements"] != []
+                        )
+                    )
                 ):
                     group_invalid = True
                     continue
                 seen_files.add(path)
                 replacements = evidence["replacements"]
-                if _strict_legacy_replacement_map(replacements) is None:
+                if (
+                    not source_bound
+                    and _strict_legacy_replacement_map(replacements) is None
+                ):
                     group_invalid = True
                     continue
                 try:
@@ -10488,11 +10527,24 @@ def _legacy_replacement_pending_paths(
                         base_commit,
                         live_relative,
                     )
-                    _base_rewritten, base_counts = rewrite_exact_references(
-                        base_raw,
-                        authoritative_replacements,
-                    )
-                except (RuntimeError, PathMigrationPlanError):
+                    if source_bound:
+                        source_path = Path(str(replacement["source"]))
+                        old_primary_raw = _rulespec_migration_base_blob(
+                            repo_path, base_commit, source_path
+                        )
+                        source_bound_dependent_proof_imports(
+                            base_raw,
+                            primary=source_path,
+                            primary_sha256=hashlib.sha256(old_primary_raw).hexdigest(),
+                            source_citation=source_bound_citation,
+                        )
+                        base_counts = []
+                    else:
+                        _base_rewritten, base_counts = rewrite_exact_references(
+                            base_raw,
+                            authoritative_replacements,
+                        )
+                except (RuntimeError, PathMigrationPlanError, ValueError):
                     group_invalid = True
                     continue
                 if (
@@ -10517,10 +10569,31 @@ def _legacy_replacement_pending_paths(
                     group_pending.append(path)
                     continue
                 try:
-                    _rewritten, remaining = rewrite_exact_references(
-                        live_raw, authoritative_replacements
-                    )
-                except PathMigrationPlanError:
+                    if source_bound:
+                        new_primary_raw = read_bounded_regular_file(
+                            repo_path,
+                            repo_path / source_path,
+                            label="source-bound primary live file",
+                            max_bytes=16 * 1024 * 1024,
+                            required_mode=0o644,
+                        )
+                        source_bound_dependent_proof_imports(
+                            live_raw,
+                            primary=source_path,
+                            primary_sha256=hashlib.sha256(new_primary_raw).hexdigest(),
+                            source_citation=source_bound_citation,
+                        )
+                        remaining = ()
+                    else:
+                        _rewritten, remaining = rewrite_exact_references(
+                            live_raw, authoritative_replacements
+                        )
+                except (
+                    OSError,
+                    UnsafeCorpusPathError,
+                    PathMigrationPlanError,
+                    ValueError,
+                ):
                     remaining = ({"invalid": True},)
                 if remaining:
                     group_invalid = True
@@ -10544,6 +10617,9 @@ def _legacy_replacement_pending_paths(
                 ),
                 expected_encoder_identity=expected_encoder_identity,
                 local_corpus_release=local_corpus_release,
+                expected_source_citation=(
+                    source_bound_citation if source_bound else None
+                ),
             )
             if manifest_issue:
                 pending.append(f"invalid:{primary}")

@@ -17995,6 +17995,27 @@ rules:
         dependent_manifest = (
             checkout / ".axiom/encoding-manifests/us-az/policies/des/faa5/benefit.json"
         )
+
+        def pending_state() -> list[str]:
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: (
+                            TEST_APPLY_PUBLIC_KEY_B64
+                        ),
+                        "AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY,
+                    },
+                ),
+                patch(
+                    "axiom_encode.cli._applied_encoding_manifest_verifier",
+                    return_value=TEST_APPLY_SIGNING_BROKER,
+                ),
+            ):
+                return _legacy_replacement_pending_paths(
+                    checkout, local_corpus_release=release
+                )
+
         clean_dependent_manifest = dependent_manifest.read_bytes()
         tampered = json.loads(clean_dependent_manifest)
         tampered["source_attestation"]["generation_input_sha256"] = "0" * 64
@@ -18002,6 +18023,7 @@ rules:
         dependent_manifest.write_text(json.dumps(tampered) + "\n")
         with pytest.raises(ValueError, match="source attestation differs"):
             authorized_changed_paths(checkout, corpus_root=corpus_path)
+        assert pending_state()
         dependent_manifest.write_bytes(clean_dependent_manifest)
 
         clean_dependent = dependent.read_bytes()
@@ -18016,6 +18038,7 @@ rules:
         dependent_manifest.write_text(json.dumps(stale_proof) + "\n")
         with pytest.raises(ValueError, match="primary proof hash differs"):
             authorized_changed_paths(checkout, corpus_root=corpus_path)
+        assert pending_state()
         dependent.write_bytes(clean_dependent)
         dependent_manifest.write_bytes(clean_dependent_manifest)
 
@@ -18025,6 +18048,37 @@ rules:
         )
         assert primary_rel.as_posix() in staged
         assert dependent_rel.as_posix() in staged
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: (
+                        TEST_APPLY_PUBLIC_KEY_B64
+                    ),
+                    "AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._read_only_guard_encoder_execution_identity",
+                return_value=TEST_PINNED_ENCODER_IDENTITY,
+            ),
+            patch(
+                "axiom_encode.cli._applied_encoding_manifest_verifier",
+                return_value=TEST_APPLY_SIGNING_BROKER,
+            ),
+        ):
+            assert (
+                _legacy_replacement_pending_paths(
+                    checkout, local_corpus_release=release
+                )
+                == []
+            )
+            census = _manifest_census(
+                checkout,
+                roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+                local_corpus_release=release,
+            )
+        assert dependent_rel.as_posix() not in census["unmanifested_paths"]
 
     @pytest.mark.parametrize("dependent_owner", ["manual", "generated"])
     def test_apply_atomically_migrates_exact_legacy_dependent(
