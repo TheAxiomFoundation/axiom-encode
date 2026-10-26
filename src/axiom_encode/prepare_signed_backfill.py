@@ -107,6 +107,38 @@ REVIEWED_RULESPEC_DECLARED_FIELDS = frozenset(
         "pre_encode_gate",
     }
 )
+# The admissions that existed before records replaced the shared allowlist.
+# They never recorded which module they admitted, so their records carry no
+# binding and promote-reviewed-candidate keeps their original behaviour (any
+# eligible module at the commit). FROZEN: never add an entry. Every later
+# record must carry a binding to be promotable.
+UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS = frozenset(
+    {
+        ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
+        ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
+        ("dk", "06489d04e7d4b8d424d1711d99df883c6411248a"),
+        ("us", "1e04e456ab404860050586c34eef51321eea95e9"),
+        ("us", "251d8d66dabdebcb763d9e7c9b8322a281440c36"),
+        ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
+        ("us", "2a503a5c9a2227c363aceaece6c547429c3c0878"),
+        ("us", "38ddc92d4160a0d39af13bfe232a446b554a15c5"),
+        ("us", "6535019ce780d9e78f10509f2fe7a2607fb2bdc4"),
+        ("us", "68cca4a6fa806b63f95277c129575d88d2ac07f1"),
+        ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
+        ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
+        ("us", "87c766a7ecc76d7d36272c648f6daf87b4669317"),
+        ("us", "b1a6e07af093d62f613f83afe26fcb4dd87de491"),
+        ("us", "b5273061fc5765dea04bf36f63de39bf40afc2d8"),
+        ("us", "b61918da93fe8a1a29b35b9330aef2085291a5d0"),
+        ("us", "c482ef6506c50b54236354926bbce1bcd6434132"),
+        ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
+        ("us", "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a"),
+        ("us", "dc87ef6212accbc4ff67b81f97b6ddf0cf3b5a5c"),
+        ("us", "e942ce50546b1c3a1c0c8f3f0404a217eddbe071"),
+        ("us", "ef9dd5f72d529ebc70f539c42144361e536d7563"),
+        ("us", "f4fd3203db560c0d4661542388b6ae2f353e0bd3"),
+    }
+)
 _REVIEWED_RULESPEC_BRANCH_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
 _REVIEWED_RULESPEC_RECORD_NAME_PATTERN = re.compile(r"([0-9a-f]{40})\.json")
 _REVIEWED_RULESPEC_TEXT_LIMITS = {"purpose": 400, "declared": 200, "binding": 512}

@@ -16,6 +16,7 @@ from axiom_encode.prepare_signed_backfill import (
     REVIEWED_RULESPEC_PR_BASES,
     REVIEWED_RULESPEC_RECORD_SCHEMA,
     REVIEWED_RULESPEC_REFS,
+    UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS,
     load_reviewed_rulespec_records,
     reviewed_rulespec_pr_bases_from_records,
     reviewed_rulespec_refs_from_records,
@@ -448,3 +449,17 @@ def test_checkout_without_record_root_admits_no_reviewed_head(
         sys.modules.pop(spec.name, None)
 
     assert module.REVIEWED_RULESPEC_REFS == frozenset({("us", SHA)})
+
+
+def test_unbound_promotion_set_is_frozen_to_the_migrated_records() -> None:
+    """Only pre-record admissions may promote without a record binding."""
+
+    assert UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS == (
+        PRE_RECORD_REVIEWED_RULESPEC_REFS
+    )
+    records = load_reviewed_rulespec_records(RECORD_ROOT)
+    assert UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS <= {
+        (record.country, record.rulespec_ref)
+        for record in records
+        if record.payload["binding"] is None
+    }
