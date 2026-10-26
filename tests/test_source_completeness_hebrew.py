@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import itertools
 import json
 import re
 import sys
@@ -3922,3 +3923,108 @@ def test_marks_inside_outline_labels_change_no_branch_or_issue(nodes, data):
         )
         assert hebrew.fold_marks(marked_branch.text) == plain_branch.text
     assert _analyze(content, marked) == _analyze(content, plain)
+
+
+# Finding 1: ``בלתי`` is a negation under any chain of prefix letters.
+
+_BILTI_CHAINS = tuple(
+    "".join(chain)
+    for length in range(4)
+    for chain in itertools.product(hebrew._PREFIX_LETTERS, repeat=length)
+)
+
+
+def test_bilti_is_a_negation_under_every_prefix_chain():
+    """Each guard reads ``בלתי`` under each chain of up to three prefix letters."""
+
+    assert len(_BILTI_CHAINS) == 1 + 8 + 8**2 + 8**3
+    for chain in _BILTI_CHAINS:
+        word = chain + "בלתי"
+        assert hebrew._REASON_NEGATION.fullmatch(word), word
+        assert hebrew._NEGATED_SIGNAL_PREFIX.search(word), word
+        negation = hebrew._NEGATIONS.fullmatch(word)
+        assert negation, word
+        # A chain with the relative ``ש`` or ``ד`` opens a relative clause.
+        assert hebrew._is_relative(negation) is bool(set(chain) & {"ש", "ד"}), word
+
+
+@pytest.mark.parametrize("length", range(4))
+def test_every_prefix_chain_before_bilti_refuses_as_the_bare_word_does(length):
+    """Finding 1's family, enumerated in full through the CI method.
+
+    Every chain of ``length`` prefix letters before ``בלתי``, in each place a
+    negation governs: earlier in the clause through a complement (``הטענה
+    הבלתי נכונה ש``), just before the signal (``לבלתי היות חסר``), between
+    the signal and its citation, and before a source link. Without
+    ``בלתי`` each text is accepted.
+    """
+
+    def verdicts(word: str) -> tuple[bool, ...]:
+        return (
+            _accepted("a", f"הטענה {word} נכונה שחסר סעיף 2", REVIEW_SOURCE),
+            _accepted("a", f"{word} היות חסר סעיף 2", REVIEW_SOURCE),
+            _accepted("a", f"חסר {word} סעיף 2", REVIEW_SOURCE),
+            _accepted("a", "חסר סעיף 2", f"(א) {word} מחושב בהתאם לסעיף 2."),
+        )
+
+    assert verdicts("") == (True,) * 4
+    assert verdicts("בלתי") == (False,) * 4
+    accepted = [
+        chain
+        for chain in _BILTI_CHAINS
+        if len(chain) == length and any(verdicts(chain + "בלתי"))
+    ]
+    assert not accepted, accepted
+
+
+# Each single prefix letter before ``לא`` and ``אין``: read as a negation, or
+# excluded because the letters make another word, with the reading that
+# excludes it. Each excluded word gets its word-for-word English verdict.
+_PREFIXED_NEGATION_READINGS = (
+    ("ולא", True, "And not missing section 2."),
+    ("ואין", True, "And there is no missing section 2."),
+    ("שלא", True, "That not missing section 2."),
+    ("שאין", True, "That there is no missing section 2."),
+    ("דלא", True, "That not missing section 2."),
+    ("דאין", True, "That there is no missing section 2."),
+    # "Surely", a rhetorical affirmation, and "is there not", its question.
+    ("הלא", False, "Surely missing section 2."),
+    ("האין", False, "Is there not missing section 2?"),
+    # "Without", a preposition: the link guard reads it, and a reason's
+    # without-signals are ``בלי``, ``ללא`` and ``מבלי``.
+    ("בלא", False, "Without missing section 2."),
+    # "In the absence of": an absence, as English "absent" negates nothing.
+    ("באין", False, "In the absence of missing section 2."),
+    ("כלא", False, "Prison: missing section 2."),
+    # "As nothing" (``כאין וכאפס``).
+    ("כאין", False, "As nothing missing section 2."),
+    # "Without", a missing-dependency signal of its own.
+    ("ללא", False, "Without missing section 2."),
+    # "To no end" (``לאין ספור``, "countless").
+    ("לאין", False, "Countless missing section 2."),
+    ("מלא", False, "Full: missing section 2."),
+    ("מאין", False, "Whence missing section 2."),
+)
+
+
+def test_every_single_prefix_letter_is_listed():
+    words = {word for word, _negation, _english in _PREFIXED_NEGATION_READINGS}
+
+    assert words == {
+        letter + negation
+        for letter in hebrew._PREFIX_LETTERS
+        for negation in ("לא", "אין")
+    }
+
+
+@pytest.mark.parametrize(("word", "negation", "english"), _PREFIXED_NEGATION_READINGS)
+def test_each_prefix_of_a_negation_is_read_or_excluded(word, negation, english):
+    """The narrow ``לא``/``אין`` grammar: each exclusion is another word."""
+
+    assert bool(hebrew._REASON_NEGATION.fullmatch(word)) is negation
+    assert bool(hebrew._NEGATED_SIGNAL_PREFIX.search(word)) is negation
+    hebrew_verdict = _accepted("a", f"{word} חסר סעיף 2", REVIEW_SOURCE)
+    if negation:
+        assert not hebrew_verdict
+    else:
+        assert hebrew_verdict is _english_accepted("a", english, REVIEW_ENGLISH_SOURCE)
