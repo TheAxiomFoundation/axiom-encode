@@ -137,7 +137,11 @@ def test_replay_page_amounts_stay_demanded(citation, source, page):
     assert _demanded(_issues(source, citation)) == REPLAY_PAGE_DEMANDS[citation]
 
 
-@pytest.mark.parametrize("line_break", ("\n", "\r\n"), ids=("lf", "crlf"))
+@pytest.mark.parametrize(
+    "line_break",
+    ("\n", "\r\n", "\n\n", "\r\n\r\n"),
+    ids=("lf", "crlf", "lf-blank", "crlf-blank"),
+)
 @pytest.mark.parametrize(
     "continuation",
     (
@@ -208,7 +212,7 @@ def test_masked_page_number_lets_later_geography_recognition_run():
     # The page-number mask runs before context-sensitive recognizers. Once the
     # page number is masked, `48 contiguous states` opens the text and is read
     # as geography; the operative amount stays demanded.
-    source = "14\n48 contiguous states have an allowance of $500."
+    source = "14\n\n48 contiguous states have an allowance of $500."
     citation = f"{REV_PROC}/page-14"
     assert _demanded(_issues(source, "")) == {14, 48, 500}
     assert _demanded(_issues(source, citation)) == {500}
@@ -239,12 +243,28 @@ def test_line_one_amount_stays_demanded(first_line, citation, value):
     assert value in _demanded(_issues(source, citation))
 
 
-@pytest.mark.parametrize("prefix", ("14\r\n\r\n", "14  \n\n", "  14\n"))
+@pytest.mark.parametrize("prefix", ("14\r\n\r\n", "14  \n\n", "  14\n \n", "14\n\n\n"))
 def test_page_number_line_endings_and_padding_are_recognized(prefix):
     source = prefix + "The refundable amount is $5,120."
     demanded = _demanded(_issues(source, f"{REV_PROC}/page-14"))
     assert 14 not in demanded
     assert 5120 in demanded
+
+
+@pytest.mark.parametrize("line_break", ("\n", "\r\n"), ids=("lf", "crlf"))
+@pytest.mark.parametrize(
+    "opening",
+    (
+        "(3) Refundable Portion. The refundable amount is $5,120.",
+        "Number of Qualifying Children: the amount is $5,120.",
+        "household is increased to $5,120.",
+    ),
+)
+def test_page_number_without_a_blank_line_stays_demanded(line_break, opening):
+    # Without a blank line the first line may be an amount whose unit or
+    # qualifier wraps onto the next line, so it is never proven a locator.
+    source = "14" + line_break + opening
+    assert _demanded(_issues(source, f"{REV_PROC}/page-14")) == {14, 5120}
 
 
 def test_page_number_without_a_following_line_stays_demanded():

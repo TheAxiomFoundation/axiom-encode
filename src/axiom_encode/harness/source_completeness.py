@@ -15200,8 +15200,13 @@ def _contiguous_states_numeric_recall_spans(
 _IRS_PAGED_GUIDANCE_CITATION = re.compile(
     r"us/guidance/irs/(?:rev-proc|notice)-\d{4}-\d+/page-(?P<page>[1-9]\d{0,3})"
 )
-_LEADING_PAGE_NUMBER_LINE = re.compile(r"[ \t]*(?P<page>[0-9]{1,4})[ \t]*\r?\n")
-# Text after the number's line that continues a quantity (`14\ndollars per
+# The page number stands alone and a blank line separates it from the page
+# text. A single line break is not enough: an amount whose unit or qualifier
+# wraps onto the next line looks the same, so it stays demanded.
+_LEADING_PAGE_NUMBER_LINE = re.compile(
+    r"[ \t]*(?P<page>[0-9]{1,4})[ \t]*\r?\n[ \t]*\r?\n"
+)
+# Extra exclusion after the blank line: text that continues a quantity (`14\ndollars per
 # hour`, `14\r\npercent`, `14\ntaxable years`, `14\nto 18 years`) makes the
 # number an amount whose unit wrapped onto the next line, not a page number.
 # A unit may follow up to two modifier words (`U.S. dollars`, `consecutive
@@ -15231,9 +15236,10 @@ def _irs_page_locator_numeric_recall_spans(
     """Prove an IRS PDF page's printed page number, never a leading amount.
 
     Revenue procedure and notice pages start with the printed page number
-    alone on the first line. Only that exact line, equal to the citation's own
-    page index and not followed by text that continues a quantity, is a
-    locator; any other leading number stays demanded.
+    alone on the first line, then a blank line. Only that exact shape, with
+    the number equal to the citation's own page index and the following text
+    not continuing a quantity, is a locator. Any other leading number,
+    including one followed by a single line break, stays demanded.
     """
 
     citation = _IRS_PAGED_GUIDANCE_CITATION.fullmatch(corpus_citation_path)
