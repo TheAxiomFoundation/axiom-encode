@@ -141,10 +141,14 @@ supervisor treats the private-key variable names as fatal
    credentials are needed only for bytes that the cache and git do not have.
    `axiom-corpus-ingest corpus fetch --release <release>` fills the cache.
    The command exits 1 when it cannot place an artifact, and names it.
-3. **Private-only artifacts.** If `corpus-fetch` cannot place an artifact, a
-   later read of that jurisdiction and document class fails closed. Get the
-   bytes from a maintainer with R2 read access, or treat encodes that need
-   that scope as blocked. On 2026-10-26, 2 of 271 provisions artifacts
+3. **Private-only artifacts.** If `corpus-fetch` cannot place an artifact,
+   get the bytes from a maintainer with R2 read access. Until then:
+   - Route 1 is blocked. The supervisor does not forward
+     `AXIOM_CORPUS_NO_FETCH`, so release binding tries placement and fails on
+     any lock-pinned artifact that is missing, also outside the target scope.
+   - Route 2 with `AXIOM_CORPUS_NO_FETCH=1` binds the release, but a read of
+     the jurisdiction and document class of a missing artifact fails closed.
+     Treat encodes that need that scope as blocked. On 2026-10-26, 2 of 271 provisions artifacts
    (12 CFR parts 1005 and 1006) were private-only. That run continued only
    with a local experiment shim that hid them from candidate lookup. The shim
    is not part of this repository and is not a supported setup.
@@ -223,8 +227,10 @@ route 2.
   exists.
 - `AXIOM_CORPUS_NO_FETCH=1` turns off corpus placement during the encode
   ([command](corpus-bytes-outside-git.md#command)), so the encode does not
-  fetch from R2 even if a credentials file exists. Place the bytes before the
-  run.
+  fetch from R2 even if a credentials file exists. It applies to route 2. The
+  route 1 supervisor builds the child environment from empty and does not
+  forward it; there, the child has no `HOME` and reads git objects only.
+  Place the bytes before the run in both routes.
 - `--no-sync` and a local `--db` keep the run out of Supabase.
 - `--require-complete-source-unit` applies the same completeness rule as the
   protected workflow.
@@ -292,14 +298,15 @@ can produce one.
    change lands, the digest no longer matches. Encode against current `main`,
    and land quickly.
 
-Today new RuleSpec bytes get a signed manifest in two ways only: a model
-re-encode in the protected workflow, or `promote-reviewed-candidate`
+Today an unsigned draft can get a signed manifest in two ways only: a model
+re-encode in the protected workflow (which regenerates the bytes), or
+`promote-reviewed-candidate`
 ([reviewed candidate promotion](trusted-signing-supervisor.md#reviewed-candidate-promotion)).
-Promotion needs an allowlist change and a manual dispatch.
-`refresh-applied-manifest` also signs, but only for bytes that already have a
-signed model manifest
-([byte-identical manifest refresh](trusted-signing-supervisor.md#byte-identical-manifest-refresh)),
-so it cannot admit an unsigned local draft.
+Promotion needs an allowlist change and a manual dispatch. The other signing
+modes of the protected workflow, such as `refresh-applied-manifest`
+([byte-identical manifest refresh](trusted-signing-supervisor.md#byte-identical-manifest-refresh))
+and the deterministic metadata migrations, start from bytes that already have
+signed ownership. They cannot admit a local draft.
 
 ## Planned contributor flow (design B)
 
