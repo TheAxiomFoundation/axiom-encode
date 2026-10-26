@@ -2357,14 +2357,15 @@ _CONTIGUOUS_STATES_NUMERIC_RECALL_IDENTIFIER = re.compile(
 # The capitalized `States` must be followed directly by a listed jurisdiction
 # (District of Columbia, D.C., DC, Guam or Virgin Islands); `48 States` alone,
 # `48 states` and `48 months` keep their demand. The span helper also requires
-# the column caption `Household Size` (or bare/definite syntax) before it.
+# the column caption `Household Size` directly before it: in prose, even
+# `The 48 States and DC must approve ...` can state an operative count.
 _JURISDICTION_SET_LABEL_NUMERIC_RECALL_IDENTIFIER = re.compile(
     r"(?<![\w.,])48(?=[ \t]+States[ \t]*(?:,|&|and\b)[ \t]*(?:the[ \t]+)?"
     r"(?:District[ \t]+of[ \t]+Columbia\b|D\.[ \t]?C\.|DC\b|Guam\b|"
     r"Virgin[ \t]+Islands\b))"
 )
 _JURISDICTION_SET_LABEL_CAPTION = re.compile(
-    r"(?:(?<!\w)the|(?<![\w$])Household[ \t]+Size)\Z", re.IGNORECASE
+    r"(?<![\w$])Household[ \t]+Size\Z", re.IGNORECASE
 )
 _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
     r"\bWAC[ \t]+\d+-\d+-\d+[A-Za-z]?"
@@ -2401,12 +2402,15 @@ _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL = re.compile(
 # A complete US postal address: house number, capitalized street name and
 # street suffix, an optional directional and suite/room, then `City, ST
 # 12345[-6789]` with a USPS state code. Only the whole address is removed, so
-# its house number and ZIP code are never demanded. A number after a currency
-# sign or `USD` (also across one space), digit, decimal point or comma (`$1,320
-# Braddock Place ...`) is not a house number, and an address without the
-# city/state/ZIP tail keeps every number demanded.
+# its house number and ZIP code are never demanded. A number after a digit,
+# decimal point or comma, or after a currency sign or `USD` across any
+# whitespace (`$1,320 Braddock Place ...`, see `_us_street_address_or_amount`),
+# is not a house number, and an address without the city/state/ZIP tail keeps
+# every number demanded. A ZIP+4 code split at its hyphen (PDF extraction) is
+# read only on the same line and before punctuation or a line end, so a
+# following `- 1500 dollars` bullet stays demanded.
 _US_STREET_ADDRESS_NUMERIC_RECALL = re.compile(
-    r"(?<![\w.,$¢£¥€₹₩])(?<![$¢£¥€₹₩][ \t])(?<!(?i:usd)[ \t])\d{1,6}"
+    r"(?<![\w.,$¢£¥€₹₩])\d{1,6}"
     r"\s+[A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,4}\s+"
     r"(?:Avenue|Ave\.?|Boulevard|Blvd\.?|Center|Drive|Dr\.?|Lane|Ln\.?|Parkway|"
     r"Pkwy\.?|Place|Pl\.?|Plaza|Road|Rd\.?|Street|St\.?|Way)(?![\w'’-])"
@@ -2416,9 +2420,21 @@ _US_STREET_ADDRESS_NUMERIC_RECALL = re.compile(
     r",\s*[A-Za-z .'-]+,\s*"
     r"(?:A[KLRSZ]|C[AOT]|D[CE]|FL|G[AU]|HI|I[ADLN]|K[SY]|LA|M[ADEINOPST]|"
     r"N[CDEHJMVY]|O[HKR]|P[AR]|RI|S[CD]|T[NX]|UT|V[AIT]|W[AIVY])"
-    # PDF extraction can split a ZIP+4 code at its hyphen.
-    r"\s+\d{5}(?:\s*-\s*\d{4})?(?!\d)"
+    r"\s+\d{5}(?:-\d{4}|[ \t]*-[ \t]*\d{4}(?=[ \t]*(?:[;,)]|\.(?!\d)|\r?\n|\Z)))?"
+    r"(?![\d-])"
 )
+_US_STREET_ADDRESS_CURRENCY_PREFIX = re.compile(r"(?:[$¢£¥€₹₩]|\b(?i:usd))\s*\Z")
+
+
+def _us_street_address_or_amount(match: re.Match[str]) -> str:
+    """Remove a postal address unless its first number reads as an amount."""
+
+    window = match.string[max(0, match.start() - 16) : match.start()]
+    if _US_STREET_ADDRESS_CURRENCY_PREFIX.search(window):
+        return match.group(0)
+    return ""
+
+
 # Paginated US manuals open each page with its page number and a revision
 # stamp: the Oregon Programs Eligibility Notebook reads `93 (07/2026) Chapter
 # 2:Eligibility ...` or `26 Chapter 1: Introduction ... (07/2026)`. These
@@ -15230,8 +15246,8 @@ def _contiguous_states_numeric_recall_spans(
             r"(?<!\w)the$", source_text[max(0, before - 4) : before], re.IGNORECASE
         ):
             yield identifier.span()
-    # The same geography as a table column label. Only text start, `the`, or
-    # the `Household Size` column caption may precede it: a currency, sign,
+    # The same geography as a table column label. Only the `Household Size`
+    # column caption may precede it: text start, `the`, a currency, sign,
     # number or any other word (`of`, `than`, `USD`) keeps the 48 demanded.
     for identifier in _JURISDICTION_SET_LABEL_NUMERIC_RECALL_IDENTIFIER.finditer(
         source_text
@@ -15239,7 +15255,7 @@ def _contiguous_states_numeric_recall_spans(
         before = identifier.start()
         while before > 0 and source_text[before - 1].isspace():
             before -= 1
-        if before == 0 or _JURISDICTION_SET_LABEL_CAPTION.search(
+        if _JURISDICTION_SET_LABEL_CAPTION.search(
             source_text, max(0, before - 32), before
         ):
             yield identifier.span()
@@ -15400,7 +15416,9 @@ def authoritative_numeric_recall_text(
         ),
         cleaned,
     )
-    cleaned = sub(_US_STREET_ADDRESS_NUMERIC_RECALL, "", cleaned)
+    cleaned = sub(
+        _US_STREET_ADDRESS_NUMERIC_RECALL, _us_street_address_or_amount, cleaned
+    )
     if _US_CORPUS_CITATION_PATH.match(corpus_citation_path):
         # US-only: a German line such as `1.000 Euro Freibetrag` would
         # otherwise read as a numbered heading.

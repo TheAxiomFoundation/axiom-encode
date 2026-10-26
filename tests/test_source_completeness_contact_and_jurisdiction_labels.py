@@ -126,8 +126,6 @@ def test_snap_fy2026_page_paths_keep_their_existing_label_mask():
         "Household Size 48 States and the District of Columbia",
         "Household size 48 States, Guam, Virgin Islands",
         "Household Size\n48 States, District of Columbia",
-        "The 48 States and DC",
-        "48 States & Virgin Islands",
     ),
 )
 def test_jurisdiction_set_column_label_is_not_demanded(label):
@@ -160,6 +158,10 @@ def test_jurisdiction_set_column_label_is_not_demanded(label):
         "Household Size -48 States, DC",
         "Each of 48 States, District of Columbia",
         "A heading\n48 States, District of Columbia",
+        # Prose, even definite, can state an operative count (a quorum).
+        "48 States and DC must approve the compact before it takes effect.",
+        "The 48 States and DC must approve the compact.",
+        "48 States & Virgin Islands",
     ),
 )
 def test_48_stays_demanded_outside_a_jurisdiction_set_label(source):
@@ -231,6 +233,10 @@ def test_complete_postal_address_numbers_are_not_demanded(address, numbers):
         "The deduction is $1320 Braddock Place, Alexandria, VA 22314.",
         "The deduction is $ 1320 Braddock Place, Alexandria, VA 22314.",
         "The deduction is USD 1320 Braddock Place, Alexandria, VA 22314.",
+        "The deduction is USD  1320 Braddock Pl., Alexandria, VA 22314.",
+        "The deduction is USD\u00a01320 Braddock Pl., Alexandria, VA 22314.",
+        "The deduction is $\u202f1320 Braddock Pl., Alexandria, VA 22314.",
+        "The deduction is $\n1320 Braddock Pl., Alexandria, VA 22314.",
         "The rate is 0.1320 Braddock Place, Alexandria, VA 22314.",
         # No complete city, state and ZIP tail.
         "Send it to 1320 Braddock Place.",
@@ -244,6 +250,20 @@ def test_complete_postal_address_numbers_are_not_demanded(address, numbers):
 def test_number_outside_a_complete_postal_address_stays_demanded(source):
     values = _values(source)
     assert any(value in values for value in (1320, 0.132))
+
+
+@pytest.mark.parametrize(
+    "tail",
+    (
+        "\n- 1500 dollars is the maximum monthly income.",
+        " - 1500 dollars is the maximum monthly income.",
+        "\n-1500 dollars is the maximum monthly income.",
+    ),
+)
+def test_amount_after_an_address_is_not_read_as_a_zip_extension(tail):
+    source = f"Mail applications to 1320 Braddock Place, Alexandria, VA 22314{tail}"
+    assert 1500 in {abs(value) for value in _values(source)}
+    assert 1320 not in _values(source)
 
 
 def test_amount_on_the_same_line_as_an_address_stays_demanded():
