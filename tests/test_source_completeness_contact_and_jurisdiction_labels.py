@@ -225,6 +225,8 @@ def test_count_the_rule_uses_stays_demanded():
     (
         ("1320 Braddock Place, Alexandria, VA 22314", (1320, 22314)),
         ("1320 Braddock Place, Alexandria, VA 22314-1500", (1320, 22314, 1500)),
+        # A ZIP+4 extension cut off at a page or line end.
+        ("3388 Brentwood Drive, Baton Rouge, LA 70809-", (3388, 70809)),
         ("1400 Independence Ave., SW, Washington, DC 20250", (1400, 20250)),
         ("800 I Street, NW, Washington, DC 20001 - 3710", (800, 20001, 3710)),
         ("1400 Independence Avenue SW, Washington, DC 20250", (1400, 20250)),
