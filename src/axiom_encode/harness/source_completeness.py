@@ -15210,11 +15210,12 @@ _LEADING_PAGE_NUMBER_LINE = re.compile(r"[ \t]*(?P<page>[0-9]{1,4})[ \t]*\r?\n")
 # `To qualify, ...` keeps its page number masked.
 _LEADING_PAGE_NUMBER_QUANTITY_CONTINUATION = re.compile(
     r"\s*(?:[%\u00a2]"
-    r"|(?:[A-Za-z][A-Za-z.'\-]*[ \t]+){0,2}"
+    r"|(?:[A-Za-z][A-Za-z.'\-]*\s+){0,2}"
     r"(?:dollars?|cents?|usd|percent(?:age)?s?|per|seconds?|minutes?|hours?"
     r"|days?|weeks?|months?|quarters?|years?|times|miles?)\b"
-    r"|(?:to|through|or|and)\s+\$?\d"
-    r"|or\s+(?:more|less|fewer|greater|older|younger|over|under)\b)",
+    r"|(?:to|through|or|and)\s+"
+    r"(?:(?:not\s+)?(?:less|more|fewer|greater)\s+than\s+)?\$?\d"
+    r"|(?:or|and)\s+(?:more|less|fewer|greater|older|younger|over|under)\b)",
     re.IGNORECASE,
 )
 

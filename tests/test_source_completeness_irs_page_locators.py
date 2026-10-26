@@ -161,6 +161,11 @@ def test_replay_page_amounts_stay_demanded(citation, source, page):
         "or more qualifying children.",
         "to 18 years of age.",
         "through 17 years of age.",
+        "to less than 20 percent of taxable income.",
+        "and older qualify for the benefit.",
+        # Modifier words wrapped across lines or joined by a no-break space.
+        "taxable\nyears is the maximum carryforward period.",
+        "U.S.\u00a0dollars per hour may be reimbursed.",
         # Coordinated amounts.
         "and 12 percent brackets apply.",
         "or $20 per hour, whichever is greater.",
