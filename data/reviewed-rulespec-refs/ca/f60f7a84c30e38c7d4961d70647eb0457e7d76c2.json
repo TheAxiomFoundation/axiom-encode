@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "ca",
+  "declared": null,
+  "pr_base_branch": null,
+  "purpose": "Reviewed Canada TD1 head. Migrated from the pre-record allowlist; admitted by axiom-encode#1226.",
+  "rulespec_pr": null,
+  "rulespec_ref": "f60f7a84c30e38c7d4961d70647eb0457e7d76c2",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}

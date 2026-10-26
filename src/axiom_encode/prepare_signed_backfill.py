@@ -17,6 +17,7 @@ import subprocess
 import tokenize
 from datetime import date
 from pathlib import Path, PurePosixPath
+from typing import NamedTuple
 
 COUNTRY_PATTERN = re.compile(r"[a-z]{2}")
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
@@ -70,154 +71,45 @@ MAX_REQUIRED_TEST_CASE_FIELDS = 64
 MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES = 64 * 1024
 DEFERRED_OUTPUT_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v1"
 STRUCTURED_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v2"
-REVIEWED_RULESPEC_REFS = frozenset(
+# Reviewed RuleSpec head admissions live in one record file per country and
+# commit under ``data/reviewed-rulespec-refs/<country>/<sha>.json`` in the
+# trusted axiom-encode checkout (code-owner reviewed; see .github/CODEOWNERS).
+# ``REVIEWED_RULESPEC_REFS`` and ``REVIEWED_RULESPEC_PR_BASES`` below are
+# derived from those records.
+REVIEWED_RULESPEC_RECORD_SCHEMA = "axiom-encode/reviewed-rulespec-admission/v1"
+REVIEWED_RULESPEC_RECORD_MAX_BYTES = 16 * 1024
+REVIEWED_RULESPEC_RECORD_FIELDS = frozenset(
     {
-        # rulespec-ca#28: reviewed toolchain preparation; artifact-only.
-        ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
-        (
-            "dk",
-            "06489d04e7d4b8d424d1711d99df883c6411248a",
-        ),
-        (
-            "us",
-            "b61918da93fe8a1a29b35b9330aef2085291a5d0",
-        ),
-        (
-            "us",
-            "251d8d66dabdebcb763d9e7c9b8322a281440c36",
-        ),
-        (
-            "us",
-            "68cca4a6fa806b63f95277c129575d88d2ac07f1",
-        ),
-        (
-            "us",
-            "1e04e456ab404860050586c34eef51321eea95e9",
-        ),
-        (
-            "us",
-            "b1a6e07af093d62f613f83afe26fcb4dd87de491",
-        ),
-        (
-            "us",
-            "38ddc92d4160a0d39af13bfe232a446b554a15c5",
-        ),
-        (
-            "us",
-            "ef9dd5f72d529ebc70f539c42144361e536d7563",
-        ),
-        (
-            "us",
-            "f4fd3203db560c0d4661542388b6ae2f353e0bd3",
-        ),
-        (
-            "us",
-            "e942ce50546b1c3a1c0c8f3f0404a217eddbe071",
-        ),
-        (
-            "us",
-            "dc87ef6212accbc4ff67b81f97b6ddf0cf3b5a5c",
-        ),
-        (
-            "us",
-            "2a503a5c9a2227c363aceaece6c547429c3c0878",
-        ),
-        (
-            "us",
-            "6535019ce780d9e78f10509f2fe7a2607fb2bdc4",
-        ),
-        (
-            "us",
-            "c482ef6506c50b54236354926bbce1bcd6434132",
-        ),
-        (
-            "us",
-            "297aec1691edf7b3a21781c8a825690db1e7c988",
-        ),
-        (
-            "us",
-            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
-        ),
-        (
-            "us",
-            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
-        ),
-        (
-            "us",
-            "b5273061fc5765dea04bf36f63de39bf40afc2d8",
-        ),
-        (
-            "us",
-            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
-        ),
-        # rulespec-us#1778: independently reviewed signed FY2026 SNAP metadata
-        # migration; its remaining income dependency requires a protected PR.
-        (
-            "us",
-            "87c766a7ecc76d7d36272c648f6daf87b4669317",
-        ),
-        # rulespec-us#1183: reviewed FL SNAP BBCE candidate promotion.
-        (
-            "us",
-            "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
-        ),
-        (
-            "ca",
-            "f60f7a84c30e38c7d4961d70647eb0457e7d76c2",
-        ),
+        "base_sha",
+        "binding",
+        "country",
+        "declared",
+        "pr_base_branch",
+        "purpose",
+        "rulespec_pr",
+        "rulespec_ref",
+        "schema",
     }
 )
-REVIEWED_RULESPEC_PR_BASES = frozenset(
+REVIEWED_RULESPEC_BINDING_FIELDS = frozenset(
+    {"citation", "companion_sha256", "rulespec_path", "rulespec_sha256"}
+)
+# Contributor-declared generation metadata. It is recorded for review only and
+# never authorizes anything.
+REVIEWED_RULESPEC_DECLARED_FIELDS = frozenset(
     {
-        (
-            "dk",
-            "06489d04e7d4b8d424d1711d99df883c6411248a",
-            "pin/dk-rulespec-2026-08-07",
-        ),
-        (
-            "us",
-            "2a503a5c9a2227c363aceaece6c547429c3c0878",
-            "hard-cut/canonical-layout-us",
-        ),
-        (
-            "us",
-            "297aec1691edf7b3a21781c8a825690db1e7c988",
-            "axiom/signed-backfill-us-35001504609-1",
-        ),
-        (
-            "us",
-            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
-            "axiom/signed-backfill-us-35145159769-1",
-        ),
-        (
-            "us",
-            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
-            "axiom/signed-backfill-us-35160240952-1",
-        ),
-        (
-            "us",
-            "b5273061fc5765dea04bf36f63de39bf40afc2d8",
-            "fix/1248-snap-immigration-status",
-        ),
-        (
-            "us",
-            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
-            "codex/az-nested-engine-pin",
-        ),
-        # rulespec-us#1778: admit only its exact reviewed, signed branch tip.
-        (
-            "us",
-            "87c766a7ecc76d7d36272c648f6daf87b4669317",
-            "axiom/signed-backfill-us-38756101655-1",
-        ),
-        # rulespec-us#1183: reviewed FL SNAP BBCE candidate promotion.
-        (
-            "us",
-            "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
-            "fl-snap-bbce-page5",
-        ),
+        "encoder_commit",
+        "encoder_version",
+        "failure_class",
+        "generator_cli",
+        "generator_model",
+        "outcome_sha256",
+        "pre_encode_gate",
     }
 )
+_REVIEWED_RULESPEC_BRANCH_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
+_REVIEWED_RULESPEC_RECORD_NAME_PATTERN = re.compile(r"([0-9a-f]{40})\.json")
+_REVIEWED_RULESPEC_TEXT_LIMITS = {"purpose": 400, "declared": 200, "binding": 512}
 
 
 def _load_unambiguous_json(raw: str, *, label: str) -> object:
@@ -232,6 +124,303 @@ def _load_unambiguous_json(raw: str, *, label: str) -> object:
         return decoded
 
     return json.loads(raw, object_pairs_hook=reject_duplicates)
+
+
+class ReviewedRulespecRecord(NamedTuple):
+    """One validated admission record."""
+
+    country: str
+    rulespec_ref: str
+    payload: dict[str, object]
+
+
+def _record_text_issue(value: object, *, limit: int, nullable: bool) -> bool:
+    if value is None:
+        return not nullable
+    return (
+        not isinstance(value, str)
+        or not value
+        or len(value) > limit
+        or value != value.strip()
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    )
+
+
+def _record_relative_path_issue(value: object) -> bool:
+    if _record_text_issue(
+        value, limit=_REVIEWED_RULESPEC_TEXT_LIMITS["binding"], nullable=False
+    ):
+        return True
+    assert isinstance(value, str)
+    if any(character.isspace() or character == "\\" for character in value):
+        return True
+    parts = value.split("/")
+    return value.startswith("/") or any(part in {"", ".", ".."} for part in parts)
+
+
+def _reviewed_rulespec_record_issue(
+    payload: object, *, country: str, rulespec_ref: str
+) -> str | None:
+    """Return why one decoded admission record is invalid, or None."""
+
+    if not isinstance(payload, dict):
+        return "record must be a JSON object"
+    if set(payload) != REVIEWED_RULESPEC_RECORD_FIELDS:
+        return "record fields are not exactly the v1 schema"
+    if payload["schema"] != REVIEWED_RULESPEC_RECORD_SCHEMA:
+        return "record schema is not supported"
+    if payload["country"] != country or payload["rulespec_ref"] != rulespec_ref:
+        return "record country or rulespec_ref does not match its path"
+    branch = payload["pr_base_branch"]
+    if branch is not None and (
+        not isinstance(branch, str)
+        or _REVIEWED_RULESPEC_BRANCH_PATTERN.fullmatch(branch) is None
+        or ".." in branch
+        or "//" in branch
+        or branch.endswith(("/", ".", ".lock"))
+    ):
+        return "record pr_base_branch is malformed"
+    base_sha = payload["base_sha"]
+    if base_sha is not None and (
+        not isinstance(base_sha, str) or COMMIT_PATTERN.fullmatch(base_sha) is None
+    ):
+        return "record base_sha must be null or a full lowercase commit SHA"
+    rulespec_pr = payload["rulespec_pr"]
+    if rulespec_pr is not None and (
+        type(rulespec_pr) is not int or not 0 < rulespec_pr < 10**9
+    ):
+        return "record rulespec_pr must be null or a positive integer"
+    if _record_text_issue(
+        payload["purpose"],
+        limit=_REVIEWED_RULESPEC_TEXT_LIMITS["purpose"],
+        nullable=False,
+    ):
+        return "record purpose must be short single-line text"
+    binding = payload["binding"]
+    if binding is not None:
+        if (
+            not isinstance(binding, dict)
+            or set(binding) != REVIEWED_RULESPEC_BINDING_FIELDS
+        ):
+            return "record binding fields are not exactly the v1 schema"
+        if _record_relative_path_issue(binding["citation"]):
+            return "record binding citation is malformed"
+        rulespec_path = binding["rulespec_path"]
+        if (
+            _record_relative_path_issue(rulespec_path)
+            or not str(rulespec_path).endswith(".yaml")
+            or str(rulespec_path).endswith(".test.yaml")
+        ):
+            return "record binding rulespec_path is malformed"
+        for field in ("rulespec_sha256", "companion_sha256"):
+            digest = binding[field]
+            if not isinstance(digest, str) or DIGEST_PATTERN.fullmatch(digest) is None:
+                return f"record binding {field} must be a lowercase SHA-256"
+    declared = payload["declared"]
+    if declared is not None:
+        if (
+            not isinstance(declared, dict)
+            or set(declared) != REVIEWED_RULESPEC_DECLARED_FIELDS
+        ):
+            return "record declared fields are not exactly the v1 schema"
+        for field in sorted(REVIEWED_RULESPEC_DECLARED_FIELDS):
+            value = declared[field]
+            if field == "encoder_commit":
+                if value is not None and (
+                    not isinstance(value, str)
+                    or COMMIT_PATTERN.fullmatch(value) is None
+                ):
+                    return "record declared encoder_commit is malformed"
+            elif field == "outcome_sha256":
+                if value is not None and (
+                    not isinstance(value, str)
+                    or DIGEST_PATTERN.fullmatch(value) is None
+                ):
+                    return "record declared outcome_sha256 is malformed"
+            elif _record_text_issue(
+                value,
+                limit=_REVIEWED_RULESPEC_TEXT_LIMITS["declared"],
+                nullable=True,
+            ):
+                return f"record declared {field} is malformed"
+    return None
+
+
+def _read_reviewed_rulespec_record_bytes(
+    root_descriptor: int, country: str, name: str, *, label: str
+) -> bytes:
+    """Read one regular 0644 record below an opened root without following links."""
+
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        raise ValueError("reviewed RuleSpec records need O_NOFOLLOW and O_DIRECTORY")
+    flags = os.O_RDONLY | nofollow | getattr(os, "O_CLOEXEC", 0)
+    country_descriptor = os.open(country, flags | directory, dir_fd=root_descriptor)
+    try:
+        descriptor = os.open(
+            name,
+            flags | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=country_descriptor,
+        )
+    finally:
+        os.close(country_descriptor)
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError(f"{label} is not a regular file")
+        if stat.S_IMODE(metadata.st_mode) != 0o644:
+            raise ValueError(f"{label} must have mode 0644")
+        if metadata.st_size > REVIEWED_RULESPEC_RECORD_MAX_BYTES:
+            raise ValueError(f"{label} is too large")
+        chunks: list[bytes] = []
+        remaining = REVIEWED_RULESPEC_RECORD_MAX_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(descriptor, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+    finally:
+        os.close(descriptor)
+    raw = b"".join(chunks)
+    if len(raw) > REVIEWED_RULESPEC_RECORD_MAX_BYTES:
+        raise ValueError(f"{label} is too large")
+    return raw
+
+
+def load_reviewed_rulespec_records(
+    root: Path,
+) -> tuple[ReviewedRulespecRecord, ...]:
+    """Strictly load every admission record below ``root``.
+
+    The layout is closed: ``root`` holds only two-letter country directories,
+    and each holds only ``<40-hex sha>.json`` regular 0644 files. Symlinks,
+    other entries, malformed or non-canonical JSON, duplicate keys, unknown
+    fields, and a record whose content disagrees with its path all raise.
+    """
+
+    root = Path(root)
+    try:
+        root_metadata = root.lstat()
+    except OSError as exc:
+        raise ValueError("reviewed RuleSpec record root is unavailable") from exc
+    if stat.S_ISLNK(root_metadata.st_mode) or not stat.S_ISDIR(root_metadata.st_mode):
+        raise ValueError("reviewed RuleSpec record root must be a real directory")
+    directory = getattr(os, "O_DIRECTORY", None)
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if directory is None or nofollow is None:
+        raise ValueError("reviewed RuleSpec records need O_NOFOLLOW and O_DIRECTORY")
+    try:
+        root_descriptor = os.open(
+            root, os.O_RDONLY | directory | nofollow | getattr(os, "O_CLOEXEC", 0)
+        )
+    except OSError as exc:
+        raise ValueError("reviewed RuleSpec record root cannot be opened") from exc
+    records: list[ReviewedRulespecRecord] = []
+    try:
+        for country in sorted(os.listdir(root_descriptor)):
+            country_metadata = os.stat(
+                country, dir_fd=root_descriptor, follow_symlinks=False
+            )
+            if COUNTRY_PATTERN.fullmatch(country) is None or not stat.S_ISDIR(
+                country_metadata.st_mode
+            ):
+                raise ValueError(
+                    f"reviewed RuleSpec record root has an unexpected entry: {country}"
+                )
+            country_descriptor = os.open(
+                country,
+                os.O_RDONLY | directory | nofollow | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=root_descriptor,
+            )
+            try:
+                names = sorted(os.listdir(country_descriptor))
+            finally:
+                os.close(country_descriptor)
+            for name in names:
+                label = f"reviewed RuleSpec record {country}/{name}"
+                match = _REVIEWED_RULESPEC_RECORD_NAME_PATTERN.fullmatch(name)
+                if match is None:
+                    raise ValueError(f"{label} is not named <full-sha>.json")
+                raw = _read_reviewed_rulespec_record_bytes(
+                    root_descriptor, country, name, label=label
+                )
+                try:
+                    payload = _load_unambiguous_json(raw.decode("utf-8"), label=label)
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    raise ValueError(f"{label} is not valid UTF-8 JSON") from exc
+                issue = _reviewed_rulespec_record_issue(
+                    payload, country=country, rulespec_ref=match.group(1)
+                )
+                if issue is not None:
+                    raise ValueError(f"{label}: {issue}")
+                canonical = (
+                    json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False)
+                    + "\n"
+                ).encode("utf-8")
+                if raw != canonical:
+                    raise ValueError(f"{label} is not canonical JSON")
+                assert isinstance(payload, dict)
+                records.append(ReviewedRulespecRecord(country, match.group(1), payload))
+    except OSError as exc:
+        # A symlink (O_NOFOLLOW), a vanished entry, or an unreadable file.
+        raise ValueError(
+            f"reviewed RuleSpec records cannot be read safely: {exc}"
+        ) from exc
+    finally:
+        os.close(root_descriptor)
+    return tuple(records)
+
+
+def reviewed_rulespec_refs_from_records(
+    records: tuple[ReviewedRulespecRecord, ...],
+) -> frozenset[tuple[str, str]]:
+    return frozenset((record.country, record.rulespec_ref) for record in records)
+
+
+def reviewed_rulespec_pr_bases_from_records(
+    records: tuple[ReviewedRulespecRecord, ...],
+) -> frozenset[tuple[str, str, str]]:
+    return frozenset(
+        (record.country, record.rulespec_ref, str(record.payload["pr_base_branch"]))
+        for record in records
+        if record.payload["pr_base_branch"] is not None
+    )
+
+
+def _checkout_reviewed_rulespec_record_root() -> Path | None:
+    """Return the record root of the source checkout this module runs from.
+
+    An installed package (a wheel, or the provisioned signing runtime) has no
+    checkout and therefore admits no reviewed head through these constants.
+    The protected promotion command receives its own provisioned record root.
+    """
+
+    module = Path(__file__).resolve()
+    if module.parent.name != "axiom_encode" or module.parents[1].name != "src":
+        return None
+    return module.parents[2] / "data" / "reviewed-rulespec-refs"
+
+
+def _load_checkout_reviewed_rulespec_records() -> tuple[ReviewedRulespecRecord, ...]:
+    root = _checkout_reviewed_rulespec_record_root()
+    if root is None:
+        return ()
+    try:
+        root.lstat()
+    except FileNotFoundError:
+        return ()
+    return load_reviewed_rulespec_records(root)
+
+
+_CHECKOUT_REVIEWED_RULESPEC_RECORDS = _load_checkout_reviewed_rulespec_records()
+REVIEWED_RULESPEC_REFS = reviewed_rulespec_refs_from_records(
+    _CHECKOUT_REVIEWED_RULESPEC_RECORDS
+)
+REVIEWED_RULESPEC_PR_BASES = reviewed_rulespec_pr_bases_from_records(
+    _CHECKOUT_REVIEWED_RULESPEC_RECORDS
+)
 
 
 def _read_bounded_regular(

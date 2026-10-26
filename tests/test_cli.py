@@ -1730,6 +1730,31 @@ def test_manifest_refresh_rejects_unsigned_manifest_mutation(tmp_path):
         )
 
 
+def _write_reviewed_rulespec_records(
+    root: Path, *records: tuple[str, str, dict | None]
+) -> Path:
+    """Write strict admission records ``(country, sha, binding)`` below root."""
+
+    root.mkdir(parents=True, exist_ok=True)
+    for country, sha, binding in records:
+        path = root / country / f"{sha}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema": "axiom-encode/reviewed-rulespec-admission/v1",
+            "country": country,
+            "rulespec_ref": sha,
+            "pr_base_branch": None,
+            "base_sha": None,
+            "rulespec_pr": None,
+            "purpose": "Test admission.",
+            "binding": binding,
+            "declared": None,
+        }
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        path.chmod(0o644)
+    return root
+
+
 def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
     repo = tmp_path / "rulespec-us"
     _init_test_git_repo(repo)
@@ -1776,6 +1801,9 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
         rulespec_path="us/statutes/7/2015/f.yaml",
         citation="us/statute/7/2015/f",
         reviewed_rulespec_ref=reviewed_ref,
+        reviewed_rulespec_refs_root=_write_reviewed_rulespec_records(
+            tmp_path / "reviewed-rulespec-refs", ("us", reviewed_ref, None)
+        ),
         run_id="promotion-test-run",
     )
     args.axiom_rules_path.mkdir()
@@ -1806,10 +1834,6 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
         "identity_source": "trusted-runtime-attestation",
     }
     with (
-        patch(
-            "axiom_encode.prepare_signed_backfill.REVIEWED_RULESPEC_REFS",
-            frozenset({("us", reviewed_ref)}),
-        ),
         patch("axiom_encode.cli._recover_apply_transaction"),
         patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
         patch(
@@ -1936,17 +1960,89 @@ def test_promote_reviewed_candidate_rejects_unallowlisted_ref(tmp_path):
         rulespec_path="us/statutes/7/2015/f.yaml",
         citation="us/statute/7/2015/f",
         reviewed_rulespec_ref=reviewed_ref,
+        # Admitted for another country and another commit only.
+        reviewed_rulespec_refs_root=_write_reviewed_rulespec_records(
+            tmp_path / "reviewed-rulespec-refs",
+            ("ca", reviewed_ref, None),
+            ("us", "f" * 40, None),
+        ),
         run_id=None,
     )
 
     with (
-        patch(
-            "axiom_encode.prepare_signed_backfill.REVIEWED_RULESPEC_REFS",
-            frozenset(),
-        ),
+        patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
         pytest.raises(ValueError, match="not explicitly allowlisted"),
     ):
         cmd_promote_reviewed_candidate(args)
+    signer_context.assert_not_called()
+
+
+@pytest.mark.parametrize("defect", ["missing", "non-canonical", "symlink"])
+def test_promote_reviewed_candidate_refuses_unsafe_record_root(tmp_path, defect):
+    repo = tmp_path / "rulespec-us"
+    _init_test_git_repo(repo)
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "empty reviewed head"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    reviewed_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    root = _write_reviewed_rulespec_records(
+        tmp_path / "records", ("us", reviewed_ref, None)
+    )
+    if defect == "missing":
+        shutil.rmtree(root)
+    elif defect == "non-canonical":
+        record = root / "us" / f"{reviewed_ref}.json"
+        record.write_text(json.dumps(json.loads(record.read_text())) + "\n")
+    else:
+        link = tmp_path / "linked-records"
+        link.symlink_to(root, target_is_directory=True)
+        root = link
+    args = SimpleNamespace(
+        repo=repo,
+        axiom_rules_path=tmp_path,
+        corpus_path=tmp_path,
+        rulespec_dependency_root=[],
+        rulespec_path="us/statutes/7/2015/f.yaml",
+        citation="us/statute/7/2015/f",
+        reviewed_rulespec_ref=reviewed_ref,
+        reviewed_rulespec_refs_root=root,
+        run_id=None,
+    )
+
+    with (
+        patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
+        pytest.raises(ValueError, match="reviewed RuleSpec record"),
+    ):
+        cmd_promote_reviewed_candidate(args)
+    signer_context.assert_not_called()
+
+
+def test_promote_reviewed_candidate_requires_record_root_argument():
+    parser_args = [
+        "promote-reviewed-candidate",
+        "--repo",
+        "rulespec-us",
+        "--rulespec-path",
+        "us/statutes/7/2015/f.yaml",
+        "--citation",
+        "us/statute/7/2015/f",
+        "--reviewed-rulespec-ref",
+        "a" * 40,
+        "--axiom-rules-engine-path",
+        "engine",
+        "--corpus-path",
+        "corpus",
+    ]
+    with (
+        patch.object(sys, "argv", ["axiom-encode", *parser_args]),
+        patch("axiom_encode.cli.cmd_promote_reviewed_candidate") as command,
+        pytest.raises(SystemExit),
+    ):
+        main()
+    command.assert_not_called()
 
 
 def test_apply_manifest_environment_public_key_cannot_replace_protected_broker(

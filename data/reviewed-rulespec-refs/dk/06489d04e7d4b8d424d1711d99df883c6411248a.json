@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "dk",
+  "declared": null,
+  "pr_base_branch": "pin/dk-rulespec-2026-08-07",
+  "purpose": "Reviewed Denmark re-encode head on the pinned dk RuleSpec branch. Migrated from the pre-record allowlist; admitted by axiom-encode#1476.",
+  "rulespec_pr": null,
+  "rulespec_ref": "06489d04e7d4b8d424d1711d99df883c6411248a",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}

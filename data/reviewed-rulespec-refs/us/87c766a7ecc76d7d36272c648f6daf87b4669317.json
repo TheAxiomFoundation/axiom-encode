@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "us",
+  "declared": null,
+  "pr_base_branch": "axiom/signed-backfill-us-38756101655-1",
+  "purpose": "Independently reviewed signed FY2026 SNAP metadata migration (rulespec-us#1778); its remaining income dependency requires a protected PR. Migrated from the pre-record allowlist; admitted by axiom-encode#1938.",
+  "rulespec_pr": 1778,
+  "rulespec_ref": "87c766a7ecc76d7d36272c648f6daf87b4669317",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}

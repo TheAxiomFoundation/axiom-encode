@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "us",
+  "declared": null,
+  "pr_base_branch": "axiom/signed-backfill-us-35160240952-1",
+  "purpose": "Reviewed immigration memo head for signed test follow-up. Migrated from the pre-record allowlist; admitted by axiom-encode#1653.",
+  "rulespec_pr": null,
+  "rulespec_ref": "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}

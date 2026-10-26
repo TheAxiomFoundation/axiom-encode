@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "us",
+  "declared": null,
+  "pr_base_branch": "codex/az-nested-engine-pin",
+  "purpose": "Reviewed Arizona engine-pin head. Migrated from the pre-record allowlist; admitted by axiom-encode#1725.",
+  "rulespec_pr": null,
+  "rulespec_ref": "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}

@@ -2599,6 +2599,15 @@ def main():
         help="Exact allowlisted reviewed RuleSpec commit checked out at HEAD",
     )
     promote_reviewed_candidate_parser.add_argument(
+        "--reviewed-rulespec-refs-root",
+        type=Path,
+        required=True,
+        help=(
+            "Protected admission record root (data/reviewed-rulespec-refs "
+            "exported from the attested encoder commit)"
+        ),
+    )
+    promote_reviewed_candidate_parser.add_argument(
         "--axiom-rules-engine-path",
         dest="axiom_rules_path",
         metavar="AXIOM_RULES_ENGINE_PATH",
@@ -8408,8 +8417,9 @@ def cmd_promote_reviewed_candidate(args):
     """Validate and sign one exact allowlisted reviewed RuleSpec commit."""
 
     from .prepare_signed_backfill import (
-        REVIEWED_RULESPEC_REFS,
         citation_rulespec_path,
+        load_reviewed_rulespec_records,
+        reviewed_rulespec_refs_from_records,
     )
 
     repo_path = _resolve_canonical_rulespec_checkout(
@@ -8441,7 +8451,14 @@ def cmd_promote_reviewed_candidate(args):
     ).strip()
     if actual_ref != reviewed_ref:
         raise ValueError("reviewed candidate checkout does not match its exact ref")
-    if (country, reviewed_ref) not in REVIEWED_RULESPEC_REFS:
+    # The record root is provisioned root-owned from the attested encoder
+    # commit (data/reviewed-rulespec-refs), never from the RuleSpec checkout.
+    reviewed_records = load_reviewed_rulespec_records(
+        Path(args.reviewed_rulespec_refs_root)
+    )
+    if (country, reviewed_ref) not in reviewed_rulespec_refs_from_records(
+        reviewed_records
+    ):
         raise ValueError("reviewed candidate ref is not explicitly allowlisted")
 
     rulespec_relative = Path(args.rulespec_path)
