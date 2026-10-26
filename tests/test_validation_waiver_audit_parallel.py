@@ -249,9 +249,7 @@ def test_parallel_propagates_worker_failure(monkeypatch):
         _FakePool.chunk_results[path] = (
             ValueError("worker exploded")
             if index == 0
-            else [
-                {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
-            ]
+            else [{"path": path, "passed": False, "fingerprint": f"fp-{path}"}]
         )
     with pytest.raises(ValueError, match="worker exploded"):
         _run_parallel(paths, monkeypatch)

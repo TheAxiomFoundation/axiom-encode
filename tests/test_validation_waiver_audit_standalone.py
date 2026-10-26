@@ -173,11 +173,17 @@ def test_all_schedules_equal_standalone_fingerprints(
 ):
     repo = standalone_repo
     monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, str(workers))
-    monkeypatch.setattr(cli.concurrent.futures, "ProcessPoolExecutor", _SimulatedExecutor)
+    monkeypatch.setattr(
+        cli.concurrent.futures, "ProcessPoolExecutor", _SimulatedExecutor
+    )
     monkeypatch.setattr(
         cli.concurrent.futures, "as_completed", _completion_order(completion)
     )
-    orderings = [repo.paths, list(reversed(repo.paths)), repo.paths[2:] + repo.paths[:2]]
+    orderings = [
+        repo.paths,
+        list(reversed(repo.paths)),
+        repo.paths[2:] + repo.paths[:2],
+    ]
     for ordering in orderings:
         assert (
             cli._fingerprint_validation_waiver_modules(ordering, **repo.kwargs)
@@ -245,7 +251,9 @@ def test_audit_json_bytes_and_one_timing_per_initial_module(
         args.partition_key = "shard-a"
         args.partition_keys_json = '["shard-b", "shard-a"]'
     monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, str(workers))
-    monkeypatch.setattr(cli.concurrent.futures, "ProcessPoolExecutor", _SimulatedExecutor)
+    monkeypatch.setattr(
+        cli.concurrent.futures, "ProcessPoolExecutor", _SimulatedExecutor
+    )
     monkeypatch.setattr(
         cli.concurrent.futures, "as_completed", _completion_order("reverse")
     )
@@ -337,10 +345,16 @@ def test_parallel_worker_failure_preserves_timing_in_parent(
             raise RuntimeError("worker validation broke")
         return original(self, module, skip_reviewers=skip_reviewers)
 
-    monkeypatch.setattr(_ScopeCheckingPipeline, "_validate_with_authoritative_roots", validate)
+    monkeypatch.setattr(
+        _ScopeCheckingPipeline, "_validate_with_authoritative_roots", validate
+    )
     monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, "2")
-    monkeypatch.setattr(cli.concurrent.futures, "ProcessPoolExecutor", _SimulatedExecutor)
-    monkeypatch.setattr(cli.concurrent.futures, "as_completed", _completion_order("reverse"))
+    monkeypatch.setattr(
+        cli.concurrent.futures, "ProcessPoolExecutor", _SimulatedExecutor
+    )
+    monkeypatch.setattr(
+        cli.concurrent.futures, "as_completed", _completion_order("reverse")
+    )
     with pytest.raises(RuntimeError, match="worker validation broke"):
         cli._fingerprint_validation_waiver_modules_parallel(paths, **repo.kwargs)
     output = capsys.readouterr()

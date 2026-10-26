@@ -65,7 +65,9 @@ def _simulate(modules, workers, *, fail=None):
 
     with (
         patch.dict(cli.os.environ, {cli._WAIVER_AUDIT_WORKERS_ENV: str(workers)}),
-        patch.object(cli, "load_rulespec_local_corpus_release", return_value=_release_stub()),
+        patch.object(
+            cli, "load_rulespec_local_corpus_release", return_value=_release_stub()
+        ),
         patch.object(cli, "LocalCorpusRelease", return_value=_release_stub()),
         patch.object(cli, "_fingerprint_validation_waiver_modules", fingerprint),
         patch.object(cli.concurrent.futures, "ProcessPoolExecutor", CostPool),
@@ -79,9 +81,7 @@ def _simulate(modules, workers, *, fail=None):
     return result, calls, intervals
 
 
-_MODULE_COSTS = st.dictionaries(
-    st.integers(0, 999), st.integers(1, 30), max_size=12
-)
+_MODULE_COSTS = st.dictionaries(st.integers(0, 999), st.integers(1, 30), max_size=12)
 
 
 @settings(max_examples=100, deadline=None)
@@ -114,9 +114,7 @@ def test_dynamic_schedule_is_work_conserving_and_fingerprints_once(modules, work
 
 
 @settings(max_examples=50, deadline=None)
-@given(
-    modules=_MODULE_COSTS.filter(bool), workers=st.integers(1, 8), data=st.data()
-)
+@given(modules=_MODULE_COSTS.filter(bool), workers=st.integers(1, 8), data=st.data())
 def test_random_worker_exception_fails_audit(modules, workers, data):
     failed = data.draw(st.sampled_from(list(modules)))
     with pytest.raises(RuntimeError, match="worker exploded"):
