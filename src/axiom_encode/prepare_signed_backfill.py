@@ -3548,13 +3548,29 @@ def authorized_changed_paths(
 
         corpus_release = load_rulespec_local_corpus_release(repo, corpus_root)
     changed = _changed_paths(repo)
+    historical_deleted_manifests: set[PurePosixPath] = set()
+    for path in changed:
+        parts = path.parts
+        if (
+            len(parts) < 6
+            or parts[1:3] != (".axiom", "encoding-manifests")
+            or path.suffix != ".json"
+            or (repo / path).exists()
+        ):
+            continue
+        source = PurePosixPath(parts[0], *parts[3:]).with_suffix(".yaml")
+        try:
+            _validate_rulespec_path(repo, source, label="historical manifest owner")
+        except ValueError:
+            continue
+        historical_deleted_manifests.add(path)
     manifests = {
         path
         for path in changed
         if path.is_relative_to(MANIFEST_ROOT) and path.suffix == ".json"
     }
     live_manifests = {path for path in manifests if (repo / path).is_file()}
-    deleted_manifests = manifests - live_manifests
+    deleted_manifests = (manifests - live_manifests) | historical_deleted_manifests
     if not live_manifests:
         raise ValueError(
             "no changed signed apply manifest is available to authorize publication"
@@ -3681,11 +3697,13 @@ def authorized_changed_paths(
                 old_manifest.get("path"),
                 label=f"{relative} legacy.manifest.path",
             )
+            replaces_source_in_place = isinstance(
+                receipt_replacement.get("source"), str
+            ) and receipt_replacement.get("source") == receipt_replacement.get(
+                "destination"
+            )
             replaces_manifest_in_place = (
-                isinstance(receipt_replacement.get("source"), str)
-                and receipt_replacement.get("source")
-                == receipt_replacement.get("destination")
-                and old_manifest_path == relative
+                replaces_source_in_place and old_manifest_path == relative
             )
             if (
                 (
@@ -4443,7 +4461,7 @@ def authorized_changed_paths(
                     raise ValueError(
                         f"legacy replacement live file differs: {live_path}"
                     )
-                if replaces_manifest_in_place and live_path not in changed:
+                if replaces_source_in_place and live_path not in changed:
                     base_raw = _git(repo, "show", f"HEAD:{live_path.as_posix()}")
                     if hashlib.sha256(base_raw).hexdigest() != item["sha256"]:
                         raise ValueError(
