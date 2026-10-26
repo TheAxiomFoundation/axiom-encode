@@ -1,3 +1,7 @@
+## 0.2.2258
+
+- Bind historical Arizona SNAP manifest-owner replacement to the signed receipt and original Git bytes throughout protected packaging and publication.
+
 ## 0.2.2257
 
 - Allow one authenticated Arizona corpus export and up to seven distinct signed provision exports in the same fresh protected transaction, so R2-only federal dependencies are available without altering the source contract.
