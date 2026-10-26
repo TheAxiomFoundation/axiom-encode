@@ -381,6 +381,52 @@ def test_compile_issues_name_the_module_by_its_repo_relative_path(tmp_path):
     assert crashed.subject.module == "us/statutes/26/1/a.yaml"
 
 
+def test_pipeline_compile_issues_keep_the_jurisdiction_of_a_content_root(
+    tmp_path, monkeypatch
+):
+    """Production passes a jurisdiction content root as ``policy_repo_path``."""
+    from types import SimpleNamespace
+
+    from axiom_encode.harness import validator_pipeline as vp
+
+    def compile_failure(self, rules_file, output_path):
+        return SimpleNamespace(
+            returncode=1, stdout="", stderr="invalid field at line 12"
+        ), None
+
+    monkeypatch.setattr(
+        vp.ValidatorPipeline, "_compile_rulespec_to_artifact", compile_failure
+    )
+
+    def compile_issue(jurisdiction: str, staging: str) -> ValidationIssue:
+        content_root = tmp_path / staging / "rulespec-us" / jurisdiction
+        rules_file = content_root / "statutes/1/1.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text("format: rulespec/v1\nrules: []\n")
+        pipeline = vp.ValidatorPipeline(
+            policy_repo_path=content_root,
+            axiom_rules_path=tmp_path / "nonexistent-engine",
+            local_corpus_release=None,
+            enable_oracles=False,
+        )
+        result = pipeline._run_rulespec_compile_check(rules_file)
+        (issue,) = result.issues
+        assert isinstance(issue, ValidationIssue)
+        assert issue.check == "compile:rules-engine/failed"
+        return issue
+
+    federal = compile_issue("us", "run-a")
+    kentucky = compile_issue("us-ky", "run-a")
+    federal_again = compile_issue("us", "run-b")
+    assert federal.subject.module == "us/statutes/1/1.yaml"
+    assert kentucky.subject.module == "us-ky/statutes/1/1.yaml"
+    assert federal.subject.line == kentucky.subject.line == 12
+    # Same relative path in two jurisdictions: distinct identities.
+    assert federal.fingerprint != kentucky.fingerprint
+    # Same module of one jurisdiction in another run directory: one identity.
+    assert federal_again.fingerprint == federal.fingerprint
+
+
 def test_long_issue_keeps_its_check_through_a_bundle_round_trip(tmp_path):
     from types import SimpleNamespace
 
@@ -500,10 +546,10 @@ def test_iteration_payload_keeps_old_shape_without_typed_issues():
         Iteration(
             attempt=1,
             duration_ms=1,
-            errors=[IterationError("validation", "m", issues=document)],
+            errors=[IterationError("validation", "m", issue_document=document)],
         )
     )
-    assert typed["errors"][0]["issues"] == document
+    assert typed["errors"][0]["issue_document"] == document
 
 
 CITATION = "de/guidance/bzst-dakg-2025/a-19-2/document-1"
@@ -641,6 +687,89 @@ def test_infra_issue_script_rejects_unknown_usage():
         text=True,
     )
     assert completed.returncode == 2
+
+
+def test_computations_under_one_owner_have_distinct_stable_fingerprints():
+    from tests.test_source_completeness_bare_markers import CITATION, _source_rule
+
+    first = "The payment is calculated as income divided by 2."
+    second = "The bonus is calculated as wages divided by 4."
+    source = "a\n" + first + " " + second + "\nb\nThe fee is charged.\n"
+    principals = {
+        "payment": _source_rule(
+            "payment", "income / divisor", first, f"{CITATION}(a)", dtype="Money"
+        ),
+        "bonus": _source_rule(
+            "bonus", "wages / wage_divisor", second, f"{CITATION}(a)", dtype="Money"
+        ),
+    }
+
+    def formula_issues(*repaired: str) -> dict[str, ValidationIssue]:
+        payload = {
+            "format": "rulespec/v1",
+            "module": {"source_verification": {"corpus_citation_path": CITATION}},
+            "inputs": [
+                {"name": "income", "dtype": "Money"},
+                {"name": "wages", "dtype": "Money"},
+            ],
+            "rules": [principals[name] for name in repaired],
+        }
+        for name, number, proof in (
+            ("divisor", 2, "income divided by 2"),
+            ("wage_divisor", 4, "wages divided by 4"),
+        ):
+            rule = _source_rule(
+                name, str(number), proof, f"{CITATION}(a)", dtype="Money"
+            )
+            rule["kind"] = "parameter"
+            payload["rules"].append(rule)
+        result = sc.analyze_complete_source_unit(
+            yaml.safe_dump(payload),
+            source,
+            corpus_citation_path=CITATION,
+            test_cases=[],
+            extract_numeric_occurrences=(
+                extract_typed_numeric_inventory_occurrences_from_text
+            ),
+            extract_named_scalars=extract_named_scalar_occurrences,
+            numeric_value_is_grounded=numeric_value_is_grounded,
+        )
+        found: dict[str, ValidationIssue] = {}
+        for issue in result.issues:
+            if (
+                isinstance(issue, ValidationIssue)
+                and issue.check
+                == "complete-source-unit:formula-output/branch-without-output"
+            ):
+                name = "payment" if "income" in issue.evidence else "bonus"
+                assert name not in found
+                found[name] = issue
+        return found
+
+    both = formula_issues()
+    assert set(both) == {"payment", "bonus"}
+    payment, bonus = both["payment"], both["bonus"]
+    # One structural owner: the same branch and clause, distinct source spans.
+    assert payment.subject.branch == bonus.subject.branch == "a"
+    assert payment.subject.clause == bonus.subject.clause
+    assert payment.subject.span != bonus.subject.span
+    start, end = map(int, payment.subject.span.split(":"))
+    assert first in source[start:end]
+    start, end = map(int, bonus.subject.span.split(":"))
+    assert second in source[start:end]
+    assert payment.fingerprint != bonus.fingerprint
+    # The retry feedback keeps one fix row per computation.
+    rows = [
+        line
+        for line in checks.issue_fix_feedback([payment, bonus])
+        if line.startswith("  - ")
+    ]
+    assert len(rows) == 2
+    # Repairing either computation leaves the other's identity unchanged.
+    assert set(formula_issues("payment")) == {"bonus"}
+    assert formula_issues("payment")["bonus"].fingerprint == bonus.fingerprint
+    assert set(formula_issues("bonus")) == {"payment"}
+    assert formula_issues("bonus")["payment"].fingerprint == payment.fingerprint
 
 
 def test_boundary_fingerprint_survives_repair_of_another_boundary(tmp_path):

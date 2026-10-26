@@ -56,7 +56,17 @@ typed fields survive.
 
 `fingerprint` hashes the check, the subject and the expected value (not the
 found value), so the same problem at the same place has the same id across
-tries and runs.
+tries and runs. Two subjects need to differ wherever two problems differ:
+
+- A source-branch subject carries `span`, the `start:end` character offsets of
+  the branch in the authoritative source text. Two computations (or rounding or
+  exception clauses) under one paragraph share `branch` and `clause`; the span
+  keeps them apart, and it does not change when the other one is repaired.
+- A compile subject names the module by its path relative to the policy repo.
+  When that root is a canonical jurisdiction content root (`rulespec-us/us-ky`),
+  the jurisdiction is the first path part (`us-ky/statutes/1/1.yaml`), as it is
+  relative to the checkout root, so the same relative path in two
+  jurisdictions gets two fingerprints.
 
 ## Where typed issues go
 
@@ -66,7 +76,7 @@ tries and runs.
 | Outcome telemetry (`encoding_runs.outcome_json`) | `validation_failure_counts` | typed issues count under `<gate>:<check id>`; untyped ones keep `<gate>:<message class>` |
 | | `validation_failures[]` | typed entries add `check` and `fingerprint` |
 | | `validation_issues` | `validation-issue/v2` document (below) |
-| Per try (`encoding_runs.iterations[].errors[]`, Supabase `iterations`) | `issues` | `validation-issue/v2` document of that try |
+| Per try (`encoding_runs.iterations[].errors[]`, Supabase `iterations`) | `issue_document` | `validation-issue/v2` document of that try |
 | Failure bundle (`issues.json`) | `typed_issues` (optional) | `validation-issue/v2` document |
 | Run log v1 (`gate.compile`, `gate.ci` findings) | `Finding.code` | the check id; `locator` and `evidence` from the issue |
 | Workflow refusals (`scripts/infra_issue.py record infra:<step>`) | `$RUNNER_TEMP/axiom-infra-issues.jsonl`, step summary, error annotation | one `validation-issue/v2` record per refusal, with `fix` |
@@ -99,9 +109,23 @@ bytes.
 }
 ```
 
-The issue fields are a superset of `axiom-encode/validation-issue/v1`
+Each issue record has every field name of `axiom-encode/validation-issue/v1`
 (PR #1660): `gate`, `kind`, `message`, `category`, `locator`, `line`, `value`
-and `clause` keep their v1 meaning. Bounds: 200 issues, 128 KiB and 2,000
+and `clause`. The names match, but for a typed issue some values do not match
+what the v1 code writes for the same issue:
+
+| Field | v1 (#1660) | v2, typed issue |
+| --- | --- | --- |
+| `kind` | message class, such as `complete_source_unit_tests_principal_output` | the check id, such as `complete-source-unit:tests/output-unasserted` |
+| `value` | parsed from the message text (`expected=...`/`actual=...`), else `null` | `found`, else `expected` |
+| `clause` | a citation parsed from the message text, else `null` | `subject.clause`, else `subject.citation` |
+| `locator`, `line` | parsed from the message text | from the subject; a source branch adds ` chars <start:end>` to the locator |
+
+`gate`, `message` and `category` keep their v1 meaning. An untyped issue keeps
+the v1 `kind`; its other fields stay `null`. The container also differs: v1 stores a list of
+records under `iterations[].errors[].issues`, and this document is stored under
+its own key, `iterations[].errors[].issue_document`, so a v1 reader never
+reads a v2 document as an empty list. Bounds: 200 issues, 128 KiB and 2,000
 message characters per document. The byte bound covers the whole document as
 `json.dumps(document, ensure_ascii=False)` writes it, the envelope and `checks`
 included. `checks` holds the definitions of the checks the document names, so a

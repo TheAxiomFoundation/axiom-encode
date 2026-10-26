@@ -13868,11 +13868,19 @@ def _branch_subject(
     corpus_citation_path: str,
     branch: SourceStructureBranch,
 ) -> IssueSubject:
-    """The typed-issue subject for a source branch."""
+    """The typed-issue subject for a source branch.
+
+    Computations, rounding and exception clauses take their structural owner's
+    path, so two of them in one paragraph share ``branch`` and ``clause``. The
+    branch's character span in the authoritative source text keeps their
+    subjects (and fingerprints) distinct; it comes from the source, not the
+    artifact, so repairing one obligation leaves the other's identity as is.
+    """
     return IssueSubject(
         citation=corpus_citation_path,
         branch="/".join(branch.path) or None,
         clause=_branch_citation(corpus_citation_path, branch),
+        span=f"{branch.start}:{branch.end}",
     )
 
 

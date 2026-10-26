@@ -65554,7 +65554,7 @@ def _log_eval_result(
                     IterationError(
                         error_type="validation",
                         message=failed_attempt.error,
-                        issues=_safe_typed_issue_document(
+                        issue_document=_safe_typed_issue_document(
                             [(None, failed_attempt.full_validation_issues)]
                         ),
                     )
@@ -65586,7 +65586,7 @@ def _log_eval_result(
             IterationError(
                 error_type="validation",
                 message=final_error,
-                issues=(
+                issue_document=(
                     _safe_typed_issue_document(final_issue_groups)
                     if final_issue_groups
                     else None

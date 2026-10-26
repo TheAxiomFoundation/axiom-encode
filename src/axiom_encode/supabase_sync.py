@@ -174,8 +174,8 @@ def sync_run_to_supabase(
                         "variable": e.variable,
                         "fix_applied": e.fix_applied,
                         **(
-                            {"issues": e.issues}
-                            if getattr(e, "issues", None) is not None
+                            {"issue_document": e.issue_document}
+                            if getattr(e, "issue_document", None) is not None
                             else {}
                         ),
                     }

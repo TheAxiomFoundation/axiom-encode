@@ -14189,7 +14189,7 @@ class TestCmdEncode:
         )
 
         final_try = EncodingDB(db_path).get_run(run.id).iterations[-1]
-        document = final_try.errors[0].issues
+        document = final_try.errors[0].issue_document
         assert document is not None and document["typed"] == 1
         assert document["issues"][0]["fingerprint"] == overlay_issue.fingerprint
 

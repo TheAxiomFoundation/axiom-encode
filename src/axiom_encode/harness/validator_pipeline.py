@@ -271,12 +271,27 @@ CHECK_RULES_ENGINE_COMPILE_CRASHED = declare_check(
 _ENGINE_LINE_RE = re.compile(r"\bline (\d+)\b")
 
 
+def _compile_issue_root_jurisdiction(root: Path) -> str | None:
+    """The jurisdiction a canonical content root holds, such as ``us-ky``."""
+    try:
+        identity = canonical_rulespec_root_identity(root)
+    except (OSError, ValueError):
+        return None
+    if identity is None:
+        return None
+    return identity.rsplit("/", 1)[-1]
+
+
 def _compile_issue_module(rules_file: Path, roots: Sequence[Path | None]) -> str:
     """The module's path relative to the first root that holds it.
 
     A repo-relative path names one module, whatever staging directory holds the
     checkout, so the issue fingerprint is stable across runs and distinct for
-    modules that share a basename. A file under no root keeps its full path.
+    modules that share a basename. A canonical jurisdiction content root
+    (``rulespec-us/us-ky``) keeps its jurisdiction as the first path part, so
+    ``us/statutes/1/1.yaml`` and ``us-ky/statutes/1/1.yaml`` stay distinct and
+    match the path relative to the checkout root. A file under no root keeps
+    its full path.
     """
     candidates = [rules_file]
     try:
@@ -294,9 +309,13 @@ def _compile_issue_module(rules_file: Path, roots: Sequence[Path | None]) -> str
         for base in bases:
             for path in candidates:
                 try:
-                    return path.relative_to(base).as_posix()
+                    relative = path.relative_to(base).as_posix()
                 except ValueError:
                     continue
+                jurisdiction = _compile_issue_root_jurisdiction(root)
+                if jurisdiction is None:
+                    return relative
+                return f"{jurisdiction}/{relative}"
     return rules_file.as_posix()
 
 

@@ -232,6 +232,11 @@ class IssueSubject:
     rule: str | None = None
     test_case: str | None = None
     field: str | None = None
+    # ``start:end`` character offsets of the source branch in the authoritative
+    # source text. Separate computations (or other obligations) under one
+    # structural owner share ``branch`` and ``clause``; the span keeps them
+    # distinct, and it does not change when another obligation is repaired.
+    span: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {key: value for key, value in asdict(self).items() if value is not None}
@@ -245,7 +250,8 @@ class IssueSubject:
         if self.field:
             return f"field:{self.field}"
         if self.branch or self.clause:
-            return self.clause or self.branch
+            where = self.clause or self.branch
+            return f"{where} chars {self.span}" if self.span else where
         if self.module:
             return f"path:{self.module}"
         if self.line is not None:
