@@ -417,6 +417,86 @@ def _yaml_parse_issue(path: Path, exc: BaseException) -> str:
     return f"{path.name} YAML parse failed: {exc}"
 
 
+_LOCAL_REVIEWER_SYSTEM_PATH: tuple[str, ...] = (
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+)
+_LOCAL_REVIEWER_CONFIG_DIR_NAMES: tuple[str, ...] = ("CODEX_HOME", "CLAUDE_CONFIG_DIR")
+_REVIEWER_UNAVAILABLE = "reviewer_unavailable"
+
+
+def _protected_reviewer_context_active() -> bool:
+    """Return true when the reviewer must keep the sandboxed environment.
+
+    A protected run has a signing broker attached (which also pins the trusted
+    subprocess base environment), runs under the trusted supervisor runtime, or
+    runs in CI. Those runs keep the existing scrubbed reviewer environment
+    unchanged; only a local run with none of these gets the local environment.
+    """
+    from axiom_encode import signing_broker
+
+    return (
+        getattr(signing_broker, "_trusted_subprocess_base_environment", None)
+        is not None
+        or getattr(signing_broker, "_active_broker", None) is not None
+        or os.getenv("AXIOM_ENCODE_TRUSTED_RUNTIME") == "1"
+        or os.getenv("GITHUB_ACTIONS", "").strip().lower() == "true"
+        or os.getenv("CI", "").strip().lower() in {"1", "true", "yes"}
+    )
+
+
+def _local_reviewer_environment(executables: Sequence[str]) -> dict[str, str]:
+    """Build the explicit-allowlist reviewer environment for a local run.
+
+    The scrubbed base (Git neutralizers, locale, Python isolation) is kept. It
+    adds only what a subscription-authenticated reviewer CLI needs to start:
+    the account's real home directory and user name (the CLI logins and the
+    macOS keychain are keyed on them), the per-user TMPDIR, explicit CLI config
+    directories, and a PATH limited to the resolved reviewer executables'
+    directories plus the system directories. No other ambient variable, such
+    as an API key or token, is forwarded.
+    """
+    import pwd
+
+    account = pwd.getpwuid(os.getuid())
+    environment = scrub_attestation_signing_keys()
+    for name in ("XDG_CONFIG_HOME", "XDG_DATA_HOME"):
+        environment.pop(name, None)
+    environment["HOME"] = account.pw_dir
+    environment["USER"] = account.pw_name
+    environment["LOGNAME"] = account.pw_name
+    tmpdir = os.environ.get("TMPDIR", "")
+    if tmpdir and os.path.isabs(tmpdir) and os.path.isdir(tmpdir):
+        environment["TMPDIR"] = tmpdir
+    for name in _LOCAL_REVIEWER_CONFIG_DIR_NAMES:
+        value = os.environ.get(name, "")
+        if value and os.path.isabs(value):
+            environment[name] = value
+    path_entries: list[str] = []
+    for executable in executables:
+        for directory in (
+            os.path.dirname(executable),
+            os.path.dirname(os.path.realpath(executable)),
+        ):
+            if directory and directory not in path_entries:
+                path_entries.append(directory)
+    for directory in _LOCAL_REVIEWER_SYSTEM_PATH:
+        if directory not in path_entries:
+            path_entries.append(directory)
+    environment["PATH"] = os.pathsep.join(path_entries)
+    return environment
+
+
+def _resolve_local_reviewer_executable(name: str) -> str | None:
+    """Resolve one reviewer CLI to an absolute path from the caller's PATH."""
+    resolved = shutil.which(name)
+    if resolved is None:
+        return None
+    return os.path.abspath(resolved)
+
+
 def run_claude_code(
     prompt: str,
     model: str = REVIEWER_CLI_MODEL,
@@ -437,8 +517,18 @@ def run_claude_code(
     if reviewer_cli_preference == "codex":
         return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
 
+    protected = _protected_reviewer_context_active()
+    claude_executable = "claude"
+    local_environment: dict[str, str] | None = None
+    if not protected:
+        resolved_claude = _resolve_local_reviewer_executable("claude")
+        if resolved_claude is None:
+            return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
+        claude_executable = resolved_claude
+        local_environment = _local_reviewer_environment([resolved_claude])
+
     cmd = [
-        "claude",
+        claude_executable,
         "--print",
         "--permission-mode",
         "dontAsk",
@@ -466,13 +556,23 @@ def run_claude_code(
         idle_timeout = timeout
         if idle_timeout_env is not None:
             idle_timeout = min(timeout, max(0, int(idle_timeout_env)))
-        result = _run_subprocess_with_idle_timeout(
-            cmd,
-            timeout=timeout,
-            idle_timeout=idle_timeout,
-            cwd=cwd,
-            env=scrub_attestation_signing_keys(),
-        )
+        if local_environment is None:
+            result = _run_subprocess_with_idle_timeout(
+                cmd,
+                timeout=timeout,
+                idle_timeout=idle_timeout,
+                cwd=cwd,
+                env=scrub_attestation_signing_keys(),
+            )
+        else:
+            result = _run_subprocess_with_idle_timeout(
+                cmd,
+                timeout=timeout,
+                idle_timeout=idle_timeout,
+                cwd=cwd,
+                env=local_environment,
+                env_is_final=True,
+            )
         return result.output, result.returncode
     except subprocess.TimeoutExpired as exc:
         return f"Timeout after {exc.timeout}s", 1
@@ -488,8 +588,21 @@ def _run_codex_reviewer_cli(
     cwd: Optional[Path] = None,
 ) -> tuple[str, int]:
     """Run reviewer prompts through Codex CLI and return assistant text."""
+    codex_executable = resolve_codex_cli()
+    local_environment: dict[str, str] | None = None
+    if not _protected_reviewer_context_active():
+        if not os.path.isabs(codex_executable):
+            resolved_codex = _resolve_local_reviewer_executable(codex_executable)
+            if resolved_codex is None:
+                return (
+                    f"{_REVIEWER_UNAVAILABLE}: no reviewer CLI could start "
+                    "(claude and codex were not found on PATH)",
+                    1,
+                )
+            codex_executable = resolved_codex
+        local_environment = _local_reviewer_environment([codex_executable])
     cmd = [
-        resolve_codex_cli(),
+        codex_executable,
         "exec",
         "--json",
         "--skip-git-repo-check",
@@ -515,17 +628,31 @@ def _run_codex_reviewer_cli(
                 ),
             ),
         )
-        result = _run_subprocess_with_idle_timeout(
-            cmd,
-            timeout=timeout,
-            idle_timeout=idle_timeout,
-            cwd=cwd,
-        )
+        if local_environment is None:
+            result = _run_subprocess_with_idle_timeout(
+                cmd,
+                timeout=timeout,
+                idle_timeout=idle_timeout,
+                cwd=cwd,
+            )
+        else:
+            result = _run_subprocess_with_idle_timeout(
+                cmd,
+                timeout=timeout,
+                idle_timeout=idle_timeout,
+                cwd=cwd,
+                env=local_environment,
+                env_is_final=True,
+            )
         return _extract_codex_text_output(result.output), result.returncode
     except subprocess.TimeoutExpired:
         return f"Timeout after {timeout}s", 1
     except FileNotFoundError:
-        return "Reviewer CLIs not found (missing claude and codex)", 1
+        return (
+            f"{_REVIEWER_UNAVAILABLE}: Reviewer CLIs not found "
+            "(missing claude and codex)",
+            1,
+        )
     except Exception as e:
         return f"Error: {e}", 1
 
@@ -552,9 +679,16 @@ def _run_subprocess_with_idle_timeout(
     idle_timeout: int,
     cwd: Optional[Path] = None,
     env: Mapping[str, str] | None = None,
+    env_is_final: bool = False,
     poll_interval: float = 0.5,
 ) -> _SubprocessRunResult:
-    """Run a subprocess, aborting if it stops emitting output for too long."""
+    """Run a subprocess, aborting if it stops emitting output for too long.
+
+    ``env`` is scrubbed again unless ``env_is_final`` is set; only the local
+    reviewer passes an already-built explicit-allowlist environment.
+    """
+    if env_is_final and env is None:
+        raise ValueError("env_is_final requires an explicit environment")
     capture_root: Path | None = None
     try:
         with tempfile.TemporaryDirectory(
@@ -576,7 +710,9 @@ def _run_subprocess_with_idle_timeout(
                     text=True,
                     cwd=cwd,
                     env=(
-                        scrub_attestation_signing_keys()
+                        dict(env)
+                        if env_is_final and env is not None
+                        else scrub_attestation_signing_keys()
                         if env is None
                         else scrub_attestation_signing_keys(env)
                     ),

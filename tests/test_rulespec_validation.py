@@ -193,6 +193,9 @@ def test_claude_reviewer_disables_tools_and_scrubs_signing_capabilities(
     )
     for index, name in enumerate(signing_names):
         monkeypatch.setenv(name, str(index + 1))
+    # Pin the protected (CI) reviewer path; local runs are covered in
+    # tests/test_local_reviewer_environment.py.
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
 
     with patch.object(
         validator_pipeline,
@@ -7106,7 +7109,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2250"')
+        .startswith('__version__ = "0.2.2257"')
     )
 
 
@@ -7338,13 +7341,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2250"
+    assert encoder_package["version"] == "0.2.2257"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2250"
+    assert project["project"]["version"] == "0.2.2257"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2250"')
+        .startswith('__version__ = "0.2.2257"')
     )
 
 
@@ -7606,13 +7609,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2250"
+    assert encoder_package["version"] == "0.2.2257"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2250"
+    assert project["project"]["version"] == "0.2.2257"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2250"')
+        .startswith('__version__ = "0.2.2257"')
     )
 
 
