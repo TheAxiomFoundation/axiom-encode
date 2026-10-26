@@ -2424,8 +2424,6 @@ jobs:
               --rulespec-path "$REPLACE_RULESPEC_PATH"
               --citation "$CITATION"
               --reviewed-rulespec-ref "$RULESPEC_REF"
-              --reviewed-rulespec-refs-root
-              /opt/axiom-verification/reviewed-rulespec-refs
               --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
               --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
               --run-id "$GITHUB_RUN_ID"

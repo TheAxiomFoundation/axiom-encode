@@ -986,8 +986,8 @@ def _install_pinned_codex_cli(
 
 _ENCODER_PACKAGE_PATHSPEC = "src/axiom_encode"
 # Code-owner-reviewed reviewed-RuleSpec admission records. They are data, not
-# encoder code: exported verbatim from the attested commit into a root-owned
-# directory next to the runtime, where promote-reviewed-candidate reads them.
+# encoder code: exported verbatim from the attested commit into the root-owned
+# runtime prefix, where promote-reviewed-candidate reads them.
 _REVIEWED_RULESPEC_REFS_PATHSPEC = "data/reviewed-rulespec-refs"
 _REVIEWED_RULESPEC_REFS_EXPORT = "reviewed-rulespec-refs"
 # Files whose in-tree version must agree for the encoder to declare one version,
@@ -1859,6 +1859,15 @@ def provision(
             # time via Path(__file__).parent) so the recorded tree digest binds
             # the executing bytes.
             package_tree_sha256 = _deterministic_package_tree_sha256(installed_package)
+            # Inside the runtime prefix, so the supervisor's trusted-tree checks
+            # (root-owned, no symlinks or special files) cover the records, and
+            # the CLI locates them from its own prefix rather than an argument.
+            assert encoder_staging is not None
+            shutil.copytree(
+                encoder_staging / _REVIEWED_RULESPEC_REFS_EXPORT,
+                runtime / _REVIEWED_RULESPEC_REFS_EXPORT,
+                symlinks=True,
+            )
         if sys.platform == "linux":
             if not patchelf:
                 patchelf = shutil.which("patchelf")
@@ -1896,13 +1905,6 @@ def provision(
                 declared_version,
                 package_tree_sha256,
                 codex_cli,
-            )
-        if provision_encoder:
-            assert encoder_staging is not None
-            shutil.copytree(
-                encoder_staging / _REVIEWED_RULESPEC_REFS_EXPORT,
-                destination / _REVIEWED_RULESPEC_REFS_EXPORT,
-                symlinks=True,
             )
         shutil.copy2(supervisor, destination / "axiom-encode-signing-supervisor")
         (destination / "axiom-encode-signing-supervisor").chmod(0o755)

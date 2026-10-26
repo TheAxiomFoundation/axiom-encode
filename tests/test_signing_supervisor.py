@@ -3262,13 +3262,9 @@ def test_targeted_reencode_has_fail_closed_reviewed_candidate_promotion() -> Non
     assert "promote-reviewed-candidate" in command
     assert '--reviewed-rulespec-ref "$RULESPEC_REF"' in command
     assert '--rulespec-path "$REPLACE_RULESPEC_PATH"' in command
-    # Admission records come from the root-owned export of the attested encoder
-    # commit, never from a caller-controlled or RuleSpec-side path.
-    assert re.search(
-        r"--reviewed-rulespec-refs-root\s+/opt/axiom-verification/reviewed-rulespec-refs\n",
-        command,
-    )
-    assert command.count("--reviewed-rulespec-refs-root") == 1
+    # Admission records come from the attested runtime prefix, never from a
+    # caller-controlled argument.
+    assert "--reviewed-rulespec-refs-root" not in command
     assert "cannot mix with other transaction modes" in command
     assert command.index("promote-reviewed-candidate") < command.index(
         'elif [ "$canonical_refresh_enabled" = "true" ]'

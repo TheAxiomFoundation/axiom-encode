@@ -2599,15 +2599,6 @@ def main():
         help="Exact allowlisted reviewed RuleSpec commit checked out at HEAD",
     )
     promote_reviewed_candidate_parser.add_argument(
-        "--reviewed-rulespec-refs-root",
-        type=Path,
-        required=True,
-        help=(
-            "Protected admission record root (data/reviewed-rulespec-refs "
-            "exported from the attested encoder commit)"
-        ),
-    )
-    promote_reviewed_candidate_parser.add_argument(
         "--axiom-rules-engine-path",
         dest="axiom_rules_path",
         metavar="AXIOM_RULES_ENGINE_PATH",
@@ -8413,6 +8404,28 @@ def cmd_refresh_applied_manifest(args):
             print(f"refreshed {expected_manifest}")
 
 
+_REVIEWED_RULESPEC_RUNTIME_RECORD_DIR = "reviewed-rulespec-refs"
+
+
+def _promotion_reviewed_rulespec_record_root() -> Path | None:
+    """Locate the admission records this encoder itself was built from.
+
+    Never caller-supplied. Under the signing supervisor's trusted-runtime
+    marker, the records are the ones provisioning exported from the attested
+    encoder commit into the root-owned runtime prefix (next to the validated
+    runtime attestation). Otherwise only a source checkout has records, its own
+    ``data/reviewed-rulespec-refs``; an installed package has none, so
+    promotion refuses.
+    """
+
+    from .prepare_signed_backfill import _checkout_reviewed_rulespec_record_root
+
+    if os.environ.get(_TRUSTED_RUNTIME_ENV) == "1":
+        attestation = _load_trusted_runtime_attestation()
+        return Path(attestation["path"]).parent / _REVIEWED_RULESPEC_RUNTIME_RECORD_DIR
+    return _checkout_reviewed_rulespec_record_root()
+
+
 def cmd_promote_reviewed_candidate(args):
     """Validate and sign one exact allowlisted reviewed RuleSpec commit."""
 
@@ -8451,11 +8464,12 @@ def cmd_promote_reviewed_candidate(args):
     ).strip()
     if actual_ref != reviewed_ref:
         raise ValueError("reviewed candidate checkout does not match its exact ref")
-    # The record root is provisioned root-owned from the attested encoder
-    # commit (data/reviewed-rulespec-refs), never from the RuleSpec checkout.
-    reviewed_records = load_reviewed_rulespec_records(
-        Path(args.reviewed_rulespec_refs_root)
-    )
+    record_root = _promotion_reviewed_rulespec_record_root()
+    if record_root is None:
+        raise ValueError(
+            "reviewed candidate promotion has no trusted admission record root"
+        )
+    reviewed_records = load_reviewed_rulespec_records(record_root)
     if (country, reviewed_ref) not in reviewed_rulespec_refs_from_records(
         reviewed_records
     ):

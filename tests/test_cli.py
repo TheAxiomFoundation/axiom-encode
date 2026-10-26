@@ -1801,10 +1801,10 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
         rulespec_path="us/statutes/7/2015/f.yaml",
         citation="us/statute/7/2015/f",
         reviewed_rulespec_ref=reviewed_ref,
-        reviewed_rulespec_refs_root=_write_reviewed_rulespec_records(
-            tmp_path / "reviewed-rulespec-refs", ("us", reviewed_ref, None)
-        ),
         run_id="promotion-test-run",
+    )
+    record_root = _write_reviewed_rulespec_records(
+        tmp_path / "reviewed-rulespec-refs", ("us", reviewed_ref, None)
     )
     args.axiom_rules_path.mkdir()
     args.corpus_path.mkdir()
@@ -1834,6 +1834,10 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
         "identity_source": "trusted-runtime-attestation",
     }
     with (
+        patch(
+            "axiom_encode.cli._promotion_reviewed_rulespec_record_root",
+            return_value=record_root,
+        ),
         patch("axiom_encode.cli._recover_apply_transaction"),
         patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
         patch(
@@ -1960,16 +1964,20 @@ def test_promote_reviewed_candidate_rejects_unallowlisted_ref(tmp_path):
         rulespec_path="us/statutes/7/2015/f.yaml",
         citation="us/statute/7/2015/f",
         reviewed_rulespec_ref=reviewed_ref,
-        # Admitted for another country and another commit only.
-        reviewed_rulespec_refs_root=_write_reviewed_rulespec_records(
-            tmp_path / "reviewed-rulespec-refs",
-            ("ca", reviewed_ref, None),
-            ("us", "f" * 40, None),
-        ),
         run_id=None,
+    )
+    # Admitted for another country and another commit only.
+    record_root = _write_reviewed_rulespec_records(
+        tmp_path / "reviewed-rulespec-refs",
+        ("ca", reviewed_ref, None),
+        ("us", "f" * 40, None),
     )
 
     with (
+        patch(
+            "axiom_encode.cli._promotion_reviewed_rulespec_record_root",
+            return_value=record_root,
+        ),
         patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
         pytest.raises(ValueError, match="not explicitly allowlisted"),
     ):
@@ -1977,7 +1985,7 @@ def test_promote_reviewed_candidate_rejects_unallowlisted_ref(tmp_path):
     signer_context.assert_not_called()
 
 
-@pytest.mark.parametrize("defect", ["missing", "non-canonical", "symlink"])
+@pytest.mark.parametrize("defect", ["none", "missing", "non-canonical", "symlink"])
 def test_promote_reviewed_candidate_refuses_unsafe_record_root(tmp_path, defect):
     repo = tmp_path / "rulespec-us"
     _init_test_git_repo(repo)
@@ -1991,7 +1999,9 @@ def test_promote_reviewed_candidate_refuses_unsafe_record_root(tmp_path, defect)
     root = _write_reviewed_rulespec_records(
         tmp_path / "records", ("us", reviewed_ref, None)
     )
-    if defect == "missing":
+    if defect == "none":
+        root = None
+    elif defect == "missing":
         shutil.rmtree(root)
     elif defect == "non-canonical":
         record = root / "us" / f"{reviewed_ref}.json"
@@ -2008,19 +2018,24 @@ def test_promote_reviewed_candidate_refuses_unsafe_record_root(tmp_path, defect)
         rulespec_path="us/statutes/7/2015/f.yaml",
         citation="us/statute/7/2015/f",
         reviewed_rulespec_ref=reviewed_ref,
-        reviewed_rulespec_refs_root=root,
         run_id=None,
     )
 
     with (
+        patch(
+            "axiom_encode.cli._promotion_reviewed_rulespec_record_root",
+            return_value=root,
+        ),
         patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
-        pytest.raises(ValueError, match="reviewed RuleSpec record"),
+        pytest.raises(ValueError, match="record"),
     ):
         cmd_promote_reviewed_candidate(args)
     signer_context.assert_not_called()
 
 
-def test_promote_reviewed_candidate_requires_record_root_argument():
+def test_promote_reviewed_candidate_rejects_caller_supplied_record_root():
+    """Admission records are never taken from a command-line path."""
+
     parser_args = [
         "promote-reviewed-candidate",
         "--repo",
@@ -2031,6 +2046,8 @@ def test_promote_reviewed_candidate_requires_record_root_argument():
         "us/statute/7/2015/f",
         "--reviewed-rulespec-ref",
         "a" * 40,
+        "--reviewed-rulespec-refs-root",
+        "/tmp/caller-records",
         "--axiom-rules-engine-path",
         "engine",
         "--corpus-path",
@@ -2043,6 +2060,42 @@ def test_promote_reviewed_candidate_requires_record_root_argument():
     ):
         main()
     command.assert_not_called()
+
+
+def test_promotion_record_root_uses_attested_runtime_prefix(tmp_path, monkeypatch):
+    from axiom_encode.cli import _promotion_reviewed_rulespec_record_root
+
+    runtime = tmp_path / "opt" / "python"
+    monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_RUNTIME", "1")
+    with patch(
+        "axiom_encode.cli._load_trusted_runtime_attestation",
+        return_value={"path": str(runtime / "runtime-attestation.json")},
+    ):
+        assert _promotion_reviewed_rulespec_record_root() == (
+            runtime / "reviewed-rulespec-refs"
+        )
+    with (
+        patch(
+            "axiom_encode.cli._load_trusted_runtime_attestation",
+            side_effect=RuntimeError("runtime attestation is unreadable"),
+        ),
+        pytest.raises(RuntimeError, match="unreadable"),
+    ):
+        _promotion_reviewed_rulespec_record_root()
+
+
+def test_promotion_record_root_outside_runtime_is_checkout_or_none(monkeypatch):
+    from axiom_encode.cli import _promotion_reviewed_rulespec_record_root
+
+    monkeypatch.delenv("AXIOM_ENCODE_TRUSTED_RUNTIME", raising=False)
+    assert _promotion_reviewed_rulespec_record_root() == (
+        Path(__file__).resolve().parents[1] / "data" / "reviewed-rulespec-refs"
+    )
+    with patch(
+        "axiom_encode.prepare_signed_backfill._checkout_reviewed_rulespec_record_root",
+        return_value=None,
+    ):
+        assert _promotion_reviewed_rulespec_record_root() is None
 
 
 def test_apply_manifest_environment_public_key_cannot_replace_protected_broker(
