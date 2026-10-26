@@ -1755,7 +1755,7 @@ def _write_reviewed_rulespec_records(
     return root
 
 
-def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
+def _reviewed_candidate_checkout(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     repo = tmp_path / "rulespec-us"
     _init_test_git_repo(repo)
     rule = repo / "us/statutes/7/2015/f.yaml"
@@ -1777,7 +1777,27 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
         check=True,
         capture_output=True,
     )
-    reviewed_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    return repo, rule, companion, _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+
+def _reviewed_candidate_binding(rule: Path, companion: Path, **overrides) -> dict:
+    binding = {
+        "citation": "us/statute/7/2015/f",
+        "rulespec_path": "us/statutes/7/2015/f.yaml",
+        "rulespec_sha256": _sha256_file(rule),
+        "companion_sha256": _sha256_file(companion),
+    }
+    binding.update(overrides)
+    return binding
+
+
+@pytest.mark.parametrize("admission", ["bound", "unbound-legacy"])
+def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys, admission):
+    repo, rule, companion, reviewed_ref = _reviewed_candidate_checkout(tmp_path)
+    binding = (
+        _reviewed_candidate_binding(rule, companion) if admission == "bound" else None
+    )
+    legacy_refs = frozenset({("us", reviewed_ref)}) if binding is None else frozenset()
     amendment = CorpusAmendmentDocument(
         citation_path="us/statute/119/54/15",
         title="Section 2015 amended",
@@ -1804,7 +1824,7 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
         run_id="promotion-test-run",
     )
     record_root = _write_reviewed_rulespec_records(
-        tmp_path / "reviewed-rulespec-refs", ("us", reviewed_ref, None)
+        tmp_path / "reviewed-rulespec-refs", ("us", reviewed_ref, binding)
     )
     args.axiom_rules_path.mkdir()
     args.corpus_path.mkdir()
@@ -1837,6 +1857,11 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
         patch(
             "axiom_encode.cli._promotion_reviewed_rulespec_record_root",
             return_value=record_root,
+        ),
+        patch(
+            "axiom_encode.prepare_signed_backfill."
+            "UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS",
+            legacy_refs,
         ),
         patch("axiom_encode.cli._recover_apply_transaction"),
         patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
@@ -1944,6 +1969,67 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
     assert coverage["us/statutes/7/2015/f.test.yaml"][0]["is_generated"] is True
     assert guard_issues == []
     assert "promoted reviewed candidate" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("defect", "message"),
+    [
+        ("citation", "citation or path differs from its admission record"),
+        ("path", "citation or path differs from its admission record"),
+        ("rulespec_sha256", "bytes differ from its admission record binding"),
+        ("companion_sha256", "bytes differ from its admission record binding"),
+        ("unbound", "has no promotion binding"),
+    ],
+)
+def test_promote_reviewed_candidate_refuses_record_binding_mismatch_before_signer(
+    tmp_path, defect, message
+):
+    repo, rule, companion, reviewed_ref = _reviewed_candidate_checkout(tmp_path)
+    binding = {
+        "citation": _reviewed_candidate_binding(
+            rule, companion, citation="us/statute/7/2015/g"
+        ),
+        "path": _reviewed_candidate_binding(
+            rule, companion, rulespec_path="us/statutes/7/2015/g.yaml"
+        ),
+        "rulespec_sha256": _reviewed_candidate_binding(
+            rule, companion, rulespec_sha256="0" * 64
+        ),
+        "companion_sha256": _reviewed_candidate_binding(
+            rule, companion, companion_sha256="0" * 64
+        ),
+        # A post-migration record without a binding is not promotable.
+        "unbound": None,
+    }[defect]
+    args = SimpleNamespace(
+        repo=repo,
+        axiom_rules_path=tmp_path,
+        corpus_path=tmp_path,
+        rulespec_dependency_root=[],
+        rulespec_path="us/statutes/7/2015/f.yaml",
+        citation="us/statute/7/2015/f",
+        reviewed_rulespec_ref=reviewed_ref,
+        run_id=None,
+    )
+    record_root = _write_reviewed_rulespec_records(
+        tmp_path / "reviewed-rulespec-refs", ("us", reviewed_ref, binding)
+    )
+
+    with (
+        patch(
+            "axiom_encode.cli._promotion_reviewed_rulespec_record_root",
+            return_value=record_root,
+        ),
+        patch("axiom_encode.cli._recover_apply_transaction") as recover,
+        patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
+        patch("axiom_encode.cli._run_generated_encoding_overlay_validation") as overlay,
+        pytest.raises(ValueError, match=message),
+    ):
+        cmd_promote_reviewed_candidate(args)
+    signer_context.assert_not_called()
+    overlay.assert_not_called()
+    recover.assert_not_called()
+    assert not (repo / ".axiom").exists()
 
 
 def test_promote_reviewed_candidate_rejects_unallowlisted_ref(tmp_path):
