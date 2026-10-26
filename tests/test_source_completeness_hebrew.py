@@ -20,6 +20,7 @@ import sys
 import tempfile
 import time
 import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -1090,7 +1091,11 @@ _NEGATION_PREFIXES = (
 # Points, cantillation, and direction and format marks: none changes a word.
 # Every mark the fold drops, by Unicode property (review round 14):
 # ``test_the_fold_drops_every_format_character_and_hebrew_mark`` pins the set.
-_INVISIBLE_MARKS = tuple(map(chr, sorted(hebrew.folded_marks())))
+# The surrogates fold too, but no YAML text holds one: they reach a reason
+# only as YAML's reading of an escaped astral mark, which
+# ``test_an_escaped_astral_mark_in_yaml_hides_no_negation`` covers.
+_SURROGATES = frozenset(range(0xD800, 0xE000))
+_INVISIBLE_MARKS = tuple(map(chr, sorted(hebrew.folded_marks() - _SURROGATES)))
 
 
 @st.composite
@@ -2663,6 +2668,57 @@ _OTHER_LINK_NEGATORS = (
     "in no respect",
     "rather than",
     "other than",
+    # The German word for each (review round 14, finding 3).
+    "nicht",
+    "nie",
+    "niemals",
+    "weder",
+    "nirgends",
+    "nirgendwo",
+    "kein",
+    "keine",
+    "keinem",
+    "keinesfalls",
+    "keineswegs",
+    "außer",
+    "ausser",
+    "ausgenommen",
+    "abgesehen von",
+    "verbietet",
+    "verboten",
+    "untersagt",
+    "verwehrt",
+    "ausgeschlossen",
+    "verhindert",
+    "verweigert",
+    "abgelehnt",
+    "bestreitet",
+    "verneint",
+    "zurückgewiesen",
+    "versäumt",
+    "unterlässt",
+    "unterlassen",
+    "weigert",
+    "außerstande",
+    "ausserstande",
+    "anstatt",
+    "statt",
+    "anders als",
+    "falsch, dass",
+    "unwahr dass",
+    "unmöglich, dass",
+    # ``without`` and ``ohne`` before a computation word of either language.
+    "without Berechnung",
+    "without being berechnet",
+    "ohne computed",
+    "ohne Berechnung",
+    "ohne berechnet",
+    "ohne zu berechnen",
+    "ohne Anwendung",
+    "ohne festgesetzt",
+    "ohne ermittelt",
+    "ohne erhoben",
+    "ohne zu entstehen",
 )
 # The Hebrew negations the link guard reads, as ``_NEGATIONS`` reads them.
 _LINK_NEGATORS = ("לא", "אין", "אינו", "בלתי")
@@ -3716,8 +3772,10 @@ def test_the_fold_drops_every_format_character_and_hebrew_mark():
     # The review's omissions: the Mongolian vowel separator and the invisible
     # function application, times, separator and plus.
     assert {0x180E, 0x2061, 0x2062, 0x2063, 0x2064} <= folded
+    # The surrogates YAML decodes an escaped astral mark into.
+    assert _SURROGATES <= folded
     # Beyond them, only the invisible marks of no script.
-    for code in folded - format_characters - _HEBREW_POINTS:
+    for code in folded - format_characters - _HEBREW_POINTS - _SURROGATES:
         name = unicodedata.name(chr(code))
         assert unicodedata.category(chr(code)) == "Mn", name
         assert "VARIATION SELECTOR" in name or name == "COMBINING GRAPHEME JOINER"
@@ -3763,7 +3821,9 @@ def test_no_invisible_mark_inside_a_negator_hides_it(negator, position):
         )
 
     expected = verdicts(negator)
-    marks = _unicode_format_characters() | _HEBREW_POINTS | hebrew.folded_marks()
+    marks = (
+        _unicode_format_characters() | _HEBREW_POINTS | hebrew.folded_marks()
+    ) - _SURROGATES
 
     assert expected == (False, False)
     differing = [
@@ -4028,3 +4088,793 @@ def test_each_prefix_of_a_negation_is_read_or_excluded(word, negation, english):
         assert not hebrew_verdict
     else:
         assert hebrew_verdict is _english_accepted("a", english, REVIEW_ENGLISH_SOURCE)
+
+
+# Finding 3: exclusions and negations read across languages, symmetrically.
+#
+# A negation or exclusion of one language negates a computation word or link
+# of another as its translation's negation does. The matrix below crosses a
+# negator of each language with a computation word and a link of each, and
+# compares each mixed source against its word-for-word English translation.
+
+
+@dataclass(frozen=True)
+class _Word:
+    text: str
+    language: str
+    english: str
+    # A negator's kind ("negation", "without", "except"); for an object,
+    # whether it is a computation word.
+    kind: str
+
+
+_CROSS_NEGATORS = (
+    _Word("לא", "he", "not", "negation"),
+    _Word("אינו", "he", "not", "negation"),
+    _Word("אין", "he", "not", "negation"),
+    _Word("בלתי", "he", "not", "negation"),
+    _Word("בלי", "he", "without", "without"),
+    _Word("ללא", "he", "without", "without"),
+    _Word("מבלי", "he", "without", "without"),
+    _Word("למעט", "he", "except", "except"),
+    _Word("מלבד", "he", "except", "except"),
+    _Word("not", "en", "not", "negation"),
+    _Word("never", "en", "never", "negation"),
+    _Word("prohibited", "en", "prohibited", "negation"),
+    _Word("excluded", "en", "excluded", "negation"),
+    _Word("without", "en", "without", "without"),
+    _Word("except", "en", "except", "except"),
+    _Word("other than", "en", "other than", "except"),
+    _Word("nicht", "de", "not", "negation"),
+    _Word("nie", "de", "never", "negation"),
+    _Word("niemals", "de", "never", "negation"),
+    _Word("verboten", "de", "prohibited", "negation"),
+    _Word("ausgeschlossen", "de", "excluded", "negation"),
+    _Word("ohne", "de", "without", "without"),
+    _Word("außer", "de", "except", "except"),
+    _Word("ausser", "de", "except", "except"),
+    _Word("ausgenommen", "de", "except", "except"),
+    _Word("anders als", "de", "other than", "except"),
+    _Word("anstatt", "de", "rather than", "except"),
+)
+_CROSS_OBJECTS = (
+    _Word("מחושב", "he", "computed", "computation"),
+    _Word("חישוב", "he", "calculation", "computation"),
+    _Word("דיחוי", "he", "delay", "other"),
+    _Word("computed", "en", "computed", "computation"),
+    _Word("calculation", "en", "calculation", "computation"),
+    _Word("delay", "en", "delay", "other"),
+    _Word("berechnet", "de", "computed", "computation"),
+    _Word("Berechnung", "de", "calculation", "computation"),
+    _Word("Verzögerung", "de", "delay", "other"),
+)
+# Each link with its citation. The German links take the English verdict of
+# "under" and "pursuant to", which neither reader checks for negation.
+_CROSS_LINKS = (
+    _Word("בהתאם לסעיף 2", "he", "in accordance with section 2", "link"),
+    _Word("לפי סעיף 2", "he", "under section 2", "link"),
+    _Word("in accordance with section 2", "en", "in accordance with section 2", "link"),
+    _Word("under section 2", "en", "under section 2", "link"),
+    _Word("nach section 2", "de", "under section 2", "link"),
+    _Word("gemäß section 2", "de", "pursuant to section 2", "link"),
+)
+
+
+@functools.cache
+def _english_link_verdict(source: str) -> bool:
+    return _english_accepted("a", "Missing section 2.", source)
+
+
+def _mixed_link_verdicts(negator: str, obj: str, link: _Word) -> tuple[bool, ...]:
+    """The mixed source's verdict on each corpus path that can read its link.
+
+    A Hebrew link is read under the Israeli path. Any other is read by the
+    shared English routes, under the English path and the Israeli one.
+    """
+
+    words = " ".join(part for part in (negator, obj, link.text) if part)
+    if link.language == "he":
+        return (_accepted("a", "חסר סעיף 2", f"(א) משולם {words}."),)
+    return (
+        _english_accepted("a", "Missing section 2.", f"(a) It is paid {words}."),
+        _accepted("a", "Missing section 2.", f"(א) It is paid {words}."),
+    )
+
+
+def _intended_stricter(negator: _Word, obj: _Word, link: _Word) -> str | None:
+    """Why the mixed source is refused where its translation is accepted, if it is."""
+
+    # ``without delay`` and ``ohne Verzögerung`` exclude nothing in either
+    # language; any other negator here negates in the mixed text.
+    if (
+        negator.kind == "without"
+        and obj.kind != "computation"
+        and "he" not in (negator.language, obj.language)
+    ):
+        return None
+    if link.text.startswith("לפי"):
+        return "a negated `לפי` link; English does not check `under` (round 13)"
+    if (
+        negator.kind == "without"
+        and obj.kind != "computation"
+        and (link.language == "he" or link.text.startswith("in accordance with"))
+    ):
+        # ``בלי דיחוי בהתאם ל`` is refused, and English "without delay in
+        # accordance with" links; ``without`` and ``ohne`` before a Hebrew
+        # word read as ``בלי`` does. Only a link read for negation shows it.
+        return "a Hebrew exclusion excludes whatever follows it"
+    return None
+
+
+@pytest.mark.parametrize("negator", _CROSS_NEGATORS, ids=lambda word: word.text)
+def test_every_cross_language_exclusion_gets_its_translations_verdict(negator):
+    """Finding 3's family, enumerated: 944 mixed sources against their translations.
+
+    For this negator and every computation word (and, after an exclusion,
+    every other word) and link of the three languages, where the three are
+    not all of one language, the mixed source gets its word-for-word English
+    translation's verdict. It is refused where that translation is accepted
+    only in the two labelled classes of ``_intended_stricter``, and never
+    accepted where the translation is refused. Without the negator, every
+    such source is accepted.
+    """
+
+    compared = 0
+    for obj, link in itertools.product(_CROSS_OBJECTS, _CROSS_LINKS):
+        if len({negator.language, obj.language, link.language}) == 1:
+            continue
+        if obj.kind != "computation" and negator.kind != "without":
+            continue
+        translation = f"(a) It is paid {negator.english} {obj.english} {link.english}."
+        english = _english_link_verdict(translation)
+        reason = _intended_stricter(negator, obj, link)
+        expected = (False, True) if reason else (english, english)
+        for mixed in _mixed_link_verdicts(negator.text, obj.text, link):
+            assert (mixed, english) == expected, (negator.text, obj.text, link.text)
+        assert all(_mixed_link_verdicts("", obj.text, link)), (obj.text, link.text)
+        compared += 1
+    assert compared
+
+
+def test_the_cross_language_matrix_covers_every_language_pairing():
+    """Each negator language meets each object and link language, all 27 ways."""
+
+    triples = {
+        (negator.language, obj.language, link.language)
+        for negator, obj, link in itertools.product(
+            _CROSS_NEGATORS, _CROSS_OBJECTS, _CROSS_LINKS
+        )
+    }
+    assert triples == set(itertools.product(("he", "en", "de"), repeat=3))
+    mixed = sum(
+        1
+        for negator, obj, link in itertools.product(
+            _CROSS_NEGATORS, _CROSS_OBJECTS, _CROSS_LINKS
+        )
+        if len({negator.language, obj.language, link.language}) > 1
+        and (obj.kind == "computation" or negator.kind == "without")
+    )
+    assert mixed == 944
+
+
+# ``_SOURCE_LINK_NEGATION_LANGUAGE`` as main had it, inline in
+# ``_source_link_scope_has_unreset_negation``: the English vocabulary alone.
+_MAIN_LINK_NEGATION = re.compile(
+    r"\b(?:not|never|neither|nor|cannot|nowhere|prohibit\w*|barred|"
+    r"forbidden|precluded|prevented|excluded|denied|except)\b|"
+    r"\b(?:denies?|rejects?|disclaims?)\b|"
+    r"\b(?:false|untrue|impossible)\s+that\b|"
+    r"(?:^|[,;:]\s*|\b(?:and|but|or|that|while|whereas)\s+)"
+    r"no\s+(?:amount|tax|liability|computation|calculation|"
+    r"determination|rate|base|statute|rule|provision|requirement)\b"
+    r"(?:\s+[A-Za-z-]+){0,3}\s+(?:is|are|was|were|shall|may|must|will|"
+    r"would|can|could|does|do|did|states?|provides?|requires?|"
+    r"determines?|calculates?|computes?|applies?|arises?)\b|"
+    r"\b(?:ca|do|does|did|is|are|was|were|"
+    r"shall|will|would|could|should|must|need)n['’]t\b|"
+    r"\b(?:fails?|refuses?|unable)\s+to\b|"
+    r"\bwithout\s+(?:being\s+)?(?:determin\w*|comput\w*|calculat\w*|"
+    r"appl\w*|impos\w*|aris\w*)\b|"
+    r"\b(?:in\s+no\s+(?:case|event)|under\s+no\s+circumstances|"
+    r"at\s+no\s+time|by\s+no\s+means|in\s+no\s+way|"
+    r"on\s+no\s+account|under\s+no\s+conditions?|"
+    r"in\s+no\s+(?:manner|respect))\b|"
+    r"\b(?:rather|other)\s+than\b",
+    flags=re.IGNORECASE,
+)
+# English words, the English link negators' own among them, and punctuation.
+_ENGLISH_LINK_WORDS = (
+    *(word for form in _OTHER_LINK_NEGATORS[:44] for word in form.split()),
+    "being",
+    "delay",
+    "the",
+    "amount",
+    "is",
+    "computed",
+    "calculated",
+    "applied",
+    "determined",
+    "imposed",
+    "arising",
+    "in",
+    "accordance",
+    "with",
+    "under",
+    "section",
+    "2",
+    "and",
+    "that",
+    "Statute",
+    "zone",
+    "nine",
+    "never-ending",
+)
+
+
+@settings(max_examples=300, deadline=None)
+@given(
+    st.lists(st.sampled_from(_ENGLISH_LINK_WORDS), max_size=16),
+    st.lists(st.sampled_from((" ", "  ", ", ", "; ", ": ", "\n")), max_size=16),
+)
+@example(["without", "being", "computed"], [])
+@example(["and", "no", "amount", "is"], [])
+@example(["other", "than"], [])
+def test_the_link_vocabulary_reads_english_text_as_main_did(words, separators):
+    """Differential: on English text the vocabulary matches exactly main's matches.
+
+    Every alternative round 14 added needs a German word, ``zu`` or a Hebrew
+    letter, so text of English words, the link negators' own included, is
+    read with the same spans as main read it; and with no Hebrew script the
+    shared checker has no cross-language reading of it.
+    """
+
+    text = "".join(
+        word + (separators[index] if index < len(separators) else " ")
+        for index, word in enumerate(words)
+    )
+    assert [
+        match.span()
+        for match in completeness_module._SOURCE_LINK_NEGATION_LANGUAGE.finditer(text)
+    ] == [match.span() for match in _MAIN_LINK_NEGATION.finditer(text)]
+    assert hebrew.cross_language_text(text) is None
+    assert hebrew.english_reading_view(text) is None
+
+
+def test_the_main_vocabulary_is_the_first_part_of_the_shared_one():
+    assert completeness_module._SOURCE_LINK_NEGATION_LANGUAGE.pattern.startswith(
+        _MAIN_LINK_NEGATION.pattern + "|"
+    )
+    assert _OTHER_LINK_NEGATORS[43] == "other than"
+
+
+@pytest.mark.parametrize("exclusion", ("without", "ohne", "WITHOUT", "Ohne"))
+@pytest.mark.parametrize("filler", ("", "being ", "zu "))
+@pytest.mark.parametrize("word", ("חישוב", "מחושב", "דיחוי", "התשלום"))
+def test_without_and_ohne_exclude_any_following_hebrew_word(exclusion, filler, word):
+    """As ``בלי`` does; before an English or German word only a computation word."""
+
+    negation = completeness_module._SOURCE_LINK_NEGATION_LANGUAGE
+    text = f"{exclusion} {filler}{word}"
+    found = negation.search(text)
+    assert found and found.span() == (0, len(text) - len(word)), text
+    for other in ("delay", "Verzögerung", "the", "Zahlung"):
+        assert not negation.search(f"{exclusion} {filler}{other}"), other
+
+
+# Hebrew negations before English signals and links: the converse direction.
+
+_ENGLISH_PAID_SOURCE = "(a) It is paid in accordance with section 2."
+
+
+def _english_routes_accept(reason: str, english_source: str) -> tuple[bool, bool]:
+    """A mixed reason under the English path and the Israeli one."""
+
+    return (
+        _english_accepted("a", reason, english_source),
+        _accepted("a", reason, english_source.replace("(a)", "(א)", 1)),
+    )
+
+
+@st.composite
+def _hebrew_link_negations(draw) -> str:
+    """A Hebrew link negation or exclusion, under its prefixes, marked."""
+
+    negation = draw(st.sampled_from(_NEGATION_PREFIXES)) + draw(
+        st.sampled_from(
+            _LINK_NEGATORS + ("בלי", "ללא", "מבלי", "למעט", "מלבד", "נאסר", "אסור")
+        )
+    )
+    return draw(_marked(negation))
+
+
+@settings(max_examples=120, deadline=None)
+@given(
+    _negations(),
+    st.lists(st.sampled_from(("it", "is", "true", "that", "the", "claim")), max_size=4),
+    st.booleans(),
+)
+@example("לא", [], False)
+@example("אין זה נכון ש", [], False)
+@example("לא", [], True)
+@example("ודלא", ["it", "is"], False)
+def test_a_hebrew_negation_before_an_english_signal_refuses_it(
+    negation, words, between
+):
+    """Polarity: a Hebrew negation flips an accepted English reason.
+
+    The mirror of ``test_any_negator_before_an_accepted_signal_refuses_it``.
+    A Hebrew negation under any prefix, pointed or marked, anywhere earlier
+    in the clause than ``missing``, or between it and its citation, refuses
+    the reason the same words accept without it, under either corpus path. In
+    a clause of its own before the reason, it refuses nothing.
+    """
+
+    lead = " ".join(words)
+    affirmed = f"{lead} missing section 2.".strip()
+    negated = (
+        f"{lead} missing {negation} section 2."
+        if between
+        else f"{lead} {negation} missing section 2."
+    ).strip()
+
+    assert _english_routes_accept(affirmed, _ENGLISH_PAID_SOURCE) == (True, True)
+    assert _english_routes_accept(negated, _ENGLISH_PAID_SOURCE) == (False, False)
+    assert _english_routes_accept(
+        f"{negation} ברור. {affirmed}", _ENGLISH_PAID_SOURCE
+    ) == (True, True)
+
+
+@settings(max_examples=120, deadline=None)
+@given(
+    _hebrew_link_negations(),
+    st.lists(st.sampled_from(("the", "amount", "is", "החישוב")), max_size=3),
+)
+@example("לא", [])
+@example("דלא", [])
+@example("אינו", ["the", "amount", "is"])
+@example("למעט", [])
+def test_a_hebrew_negation_before_an_english_link_unlinks_it(negation, words):
+    """Polarity: a Hebrew link negation negates an ``in accordance with`` link.
+
+    The mirror of ``test_any_negator_before_an_accepted_link_unlinks_it``,
+    read by the English link guard under either corpus path.
+    """
+
+    lead = " ".join(words)
+    affirmed = f"(a) It is paid {lead} computed in accordance with section 2."
+    negated = f"(a) It is paid {lead} {negation} computed in accordance with section 2."
+
+    assert _english_routes_accept("Missing section 2.", affirmed) == (True, True)
+    assert _english_routes_accept("Missing section 2.", negated) == (False, False)
+
+
+def test_an_english_reset_after_a_hebrew_negation_relinks_as_in_english():
+    """The English reset reads after a Hebrew negation as after ``not``."""
+
+    for negation in ("לא", "not"):
+        source = (
+            f"(a) {negation} computed, and the amount is computed in accordance "
+            "with section 2."
+        )
+        assert _english_routes_accept("Missing section 2.", source) == (True, True)
+
+
+def test_a_hebrew_negation_before_abweichend_von_is_nicht():
+    source = "(a) Die Zahlung erfolgt {} abweichend von section 2."
+    reason = "Missing section 2."
+    affirmed = _english_accepted("a", reason, source.format(""))
+    assert _english_accepted("a", reason, source.format("nicht")) is False
+    assert _english_accepted("a", reason, source.format("לא")) is False
+    assert hebrew.ends_with_negation("Die Zahlung erfolgt ל‏א ")
+    assert not hebrew.ends_with_negation("Die Zahlung erfolgt nicht ")
+    assert affirmed
+
+
+# A script change is a word boundary for every negation and adversative.
+
+_GLUED_LATIN_NEGATORS = tuple(
+    word for word in _OTHER_NEGATORS + _OTHER_LINK_NEGATORS if " " not in word
+)
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    st.sampled_from(tuple(hebrew._PREFIX_LETTERS)),
+    st.sampled_from(_GLUED_LATIN_NEGATORS),
+    st.sampled_from(("he-reason", "he-link", "en-link")),
+)
+@example("ו", "not", "he-reason")
+@example("ש", "nicht", "he-reason")
+@example("ו", "not", "he-link")
+@example("ש", "prohibited", "he-link")
+@example("ו", "not", "en-link")
+@example("ש", "ohne", "en-link")
+def test_a_hebrew_prefix_glued_to_a_latin_negator_hides_nothing(prefix, negator, frame):
+    """Metamorphic: ``וnot`` is read as ``ו־not``, in every frame.
+
+    A Hebrew prefix glued to an English or German negator gets the verdict of
+    the same prefix joined by a maqaf, where ``\\b`` already sees the word.
+    """
+
+    def verdict(word: str) -> tuple[bool, ...]:
+        if frame == "he-reason":
+            return (_accepted("a", f"{word} חסר סעיף 2", REVIEW_SOURCE),)
+        if frame == "he-link":
+            return (
+                _accepted("a", "חסר סעיף 2", f"(א) ישולם {word} מחושב בהתאם לסעיף 2."),
+            )
+        return _english_routes_accept(
+            "Missing section 2.",
+            f"(a) It is paid {word} computed in accordance with section 2.",
+        )
+
+    assert verdict(prefix + negator) == verdict(f"{prefix}־{negator}")
+
+
+@pytest.mark.parametrize(
+    "adversative", ("however", "but", "although", "aber", "jedoch", "obwohl")
+)
+@pytest.mark.parametrize("prefix", ("ו", "ש"))
+def test_a_hebrew_prefix_glued_to_a_latin_adversative_hides_nothing(
+    adversative, prefix
+):
+    hebrew_reason = "חסר סעיף 2. {} הוא זמין."
+    english_reason = "Missing section 2. {} it is available."
+    for reason, accepts in (
+        (hebrew_reason, lambda text: _accepted("a", text, REVIEW_SOURCE)),
+        (
+            english_reason,
+            lambda text: _english_routes_accept(text, _ENGLISH_PAID_SOURCE),
+        ),
+    ):
+        glued = accepts(reason.format(prefix + adversative))
+        assert glued == accepts(reason.format(f"{prefix}־{adversative}"))
+        assert not any(glued if isinstance(glued, tuple) else (glued,))
+
+
+@pytest.mark.parametrize("negator", ("not", "never", "nicht", "ohne", "without"))
+def test_a_latin_negator_glued_before_a_hebrew_word_is_still_read(negator):
+    """``notמחושב`` is ``not מחושב``, in the Hebrew and the English link guard."""
+
+    for words in (f"{negator}מחושב", f"{negator} מחושב"):
+        assert not _accepted("a", "חסר סעיף 2", f"(א) ישולם {words} בהתאם לסעיף 2.")
+        assert _english_routes_accept(
+            "Missing section 2.",
+            f"(a) It is paid {words} in accordance with section 2.",
+        ) == (False, False)
+
+
+@settings(max_examples=200, deadline=None)
+@given(st.text(alphabet="אבגדlnotXY ־-.,", max_size=24))
+def test_scripts_split_maps_every_start_back(text):
+    """Every start read in the split copy maps to the same character of the text."""
+
+    view, junctions = hebrew._split_scripts(text)
+    assert view.replace(" ", "") == text.replace(" ", "")
+    assert len(view) == len(text) + len(junctions)
+    starts = hebrew._split_starts(text, (lambda copy: re.finditer(r"\S", copy),))
+    assert starts == [index for index, char in enumerate(text) if not char.isspace()]
+
+
+# Review round 14's reproducers, with their faithful translations. ``route``
+# names the corpus path the mixed text is read under: ``il`` is the Israeli
+# path (`_accepted`), ``us`` the English one (`_english_accepted`). The
+# translation is always read under the English path.
+ROUND_14_REPRODUCERS = (
+    # Finding 1: ``בלתי`` under any chain of prefix letters.
+    (
+        "il",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "הטענה הבלתי נכונה שחסר סעיף 2",
+        "The untrue claim that section 2 is missing.",
+        "neither",
+    ),
+    (
+        "il",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "לבלתי היות חסר סעיף 2",
+        "So that section 2 is not missing.",
+        "neither",
+    ),
+    # Finding 2: format characters the old list missed.
+    (
+        "il",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "ל⁣א חסר סעיף 2",
+        "Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        "il",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "ל᠎א חסר סעיף 2",
+        "Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        "il",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "אינ⁡ו חסר סעיף 2",
+        "Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        "il",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "בל⁢תי נכון שחסר סעיף 2",
+        "It is untrue that section 2 is missing.",
+        "neither",
+    ),
+    (
+        "il",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "n⁤ot חסר סעיף 2",
+        "Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        "il",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "kei⁣ne חסר סעיף 2",
+        "No section 2 is missing.",
+        "neither",
+    ),
+    # Finding 3: ``without`` and ``ohne`` before a Hebrew computation.
+    (
+        "il",
+        "(א) משולם without חישוב בהתאם לסעיף 2.",
+        "(a) It is paid without calculation in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "il",
+        "(א) משולם ohne חישוב בהתאם לסעיף 2.",
+        "(a) It is paid without calculation in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "il",
+        "(א) ohne מחושב בהתאם לסעיף 2.",
+        "(a) It is paid without being computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    # Finding 3's reverse gaps, open on main too: a Hebrew negation before an
+    # English signal, under either path, and before an English link.
+    (
+        "us",
+        _ENGLISH_PAID_SOURCE,
+        _ENGLISH_PAID_SOURCE,
+        "לא missing section 2",
+        "Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        "il",
+        "(א) It is paid in accordance with section 2.",
+        _ENGLISH_PAID_SOURCE,
+        "לא missing section 2",
+        "Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        "us",
+        _ENGLISH_PAID_SOURCE,
+        _ENGLISH_PAID_SOURCE,
+        "אין זה נכון ש missing section 2.",
+        "It is not true that section 2 is missing.",
+        "neither",
+    ),
+    (
+        "us",
+        "(a) לא computed in accordance with section 2.",
+        REVIEW_NEGATED_SOURCE,
+        "Missing section 2.",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "us",
+        "(a) דלא computed in accordance with section 2.",
+        REVIEW_NEGATED_SOURCE,
+        "Missing section 2.",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "us",
+        "(a) אינו computed in accordance with section 2.",
+        REVIEW_NEGATED_SOURCE,
+        "Missing section 2.",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "us",
+        "(a) אין זה נכון ש computed in accordance with section 2.",
+        REVIEW_NEGATED_SOURCE,
+        "Missing section 2.",
+        "Missing section 2.",
+        "neither",
+    ),
+    # Glued scripts: a Hebrew prefix joined to an English or German word, and
+    # an English word joined to a Hebrew one.
+    (
+        "il",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "וnot חסר סעיף 2",
+        "And section 2 is not missing.",
+        "neither",
+    ),
+    (
+        "il",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "שnicht חסר סעיף 2",
+        "That section 2 is not missing.",
+        "neither",
+    ),
+    (
+        "il",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "חסר סעיף 2. וhowever הוא זמין.",
+        "Missing section 2. And however it is available.",
+        "neither",
+    ),
+    (
+        "il",
+        "(א) ישולם וnot מחושב בהתאם לסעיף 2.",
+        "(a) It is paid and not computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "il",
+        "(א) ישולם שprohibited מחושב בהתאם לסעיף 2.",
+        "(a) It is paid, which is prohibited to compute in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "us",
+        _ENGLISH_PAID_SOURCE,
+        _ENGLISH_PAID_SOURCE,
+        "missing section 2. וhowever it is available.",
+        "Missing section 2. And however it is available.",
+        "neither",
+    ),
+    (
+        "us",
+        "(a) It is paid וnot computed in accordance with section 2.",
+        "(a) It is paid and not computed in accordance with section 2.",
+        "Missing section 2.",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "us",
+        "(a) It is paid notמחושב in accordance with section 2.",
+        "(a) It is paid not computed in accordance with section 2.",
+        "Missing section 2.",
+        "Missing section 2.",
+        "neither",
+    ),
+    # Controls accepted by both: an exclusion of no computation in German, a
+    # Hebrew negation in a clause of its own or after the citation, and an
+    # English reset after a Hebrew negation.
+    (
+        "il",
+        "(א) משולם ohne Verzögerung בהתאם לסעיף 2.",
+        "(a) It is paid without delay in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "both",
+    ),
+    (
+        "us",
+        _ENGLISH_PAID_SOURCE,
+        _ENGLISH_PAID_SOURCE,
+        "לא ברור. Missing section 2.",
+        "Unclear. Missing section 2.",
+        "both",
+    ),
+    (
+        "us",
+        _ENGLISH_PAID_SOURCE,
+        _ENGLISH_PAID_SOURCE,
+        "Missing section 2, שלא קודד.",
+        "Missing section 2, which has not been encoded.",
+        "both",
+    ),
+    (
+        "us",
+        "(a) לא computed, and the amount is computed in accordance with section 2.",
+        "(a) not computed, and the amount is computed in accordance with section 2.",
+        "Missing section 2.",
+        "Missing section 2.",
+        "both",
+    ),
+    # Intended: a Hebrew negation before an English signal refuses where
+    # English, which reads no negation before its own ``missing``, accepts
+    # the word-for-word translation; the mirror of round 13's ``not חסר
+    # סעיף 2``. And ``without`` before a Hebrew word excludes whatever
+    # follows, as ``בלי`` does, though English "without delay" links.
+    (
+        "us",
+        _ENGLISH_PAID_SOURCE,
+        _ENGLISH_PAID_SOURCE,
+        "לא missing section 2",
+        "Not missing section 2.",
+        "hebrew-stricter",
+    ),
+    (
+        "il",
+        "(א) משולם without דיחוי בהתאם לסעיף 2.",
+        "(a) It is paid without delay in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "hebrew-stricter",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    (
+        "route",
+        "mixed_source",
+        "english_source",
+        "mixed_reason",
+        "english_reason",
+        "verdict",
+    ),
+    ROUND_14_REPRODUCERS,
+)
+def test_round_14_reproducers_get_the_english_verdict(
+    route, mixed_source, english_source, mixed_reason, english_reason, verdict
+):
+    mixed = (
+        _english_accepted("a", mixed_reason, mixed_source)
+        if route == "us"
+        else _accepted("a", mixed_reason, mixed_source)
+    )
+    assert (mixed, _english_accepted("a", english_reason, english_source)) == (
+        _DIFFERENTIAL_VERDICTS[verdict]
+    )
+
+
+def test_an_escaped_astral_mark_in_yaml_hides_no_negation():
+    """YAML reads ``"\\ud804\\udcbd"`` as two surrogates; they fold as the mark does."""
+
+    marked = "ל\U000110bdא missing section 2."
+    escaped = json.dumps(marked)
+    assert "\\ud804\\udcbd" in escaped
+    reason = yaml.safe_load(escaped)
+    assert [unicodedata.category(char) for char in reason[1:3]] == ["Cs", "Cs"]
+    assert hebrew.fold_marks(reason) == "לא missing section 2."
+    # ``_english_accepted`` writes the reason with ASCII escapes, as here.
+    assert not _english_accepted("a", marked, _ENGLISH_PAID_SOURCE)
+    content = _deferral_content("a", "חסר סעיף 2").replace(
+        json.dumps("חסר סעיף 2", ensure_ascii=False),
+        json.dumps(marked),
+    )
+    assert "\\ud804" in content
+    source = "(א) It is paid in accordance with section 2."
+    assert _deferral_issue(_analyze(content, source), 0)
+    assert _accepted("a", "Missing section 2.", source)

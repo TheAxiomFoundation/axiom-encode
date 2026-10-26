@@ -41,7 +41,10 @@ _H = HEBREW_LETTER_CLASS
 #   maqaf, paseq, sof pasuq and inverted nun there are punctuation and stay);
 # - the variation selectors (Unicode's Variation_Selector property, whose code
 #   points are exactly the ``Mn`` ones named "... VARIATION SELECTOR ...") and
-#   the combining grapheme joiner, the invisible marks of no script.
+#   the combining grapheme joiner, the invisible marks of no script;
+# - the surrogates (category ``Cs``), which are no characters: YAML decodes an
+#   escaped astral mark (``"\ud804\udcbd"``, U+110BD) into two of them, so a
+#   reason written with one would otherwise hide the word around it.
 #
 # Combining marks of other scripts are parts of letters (a German ``u`` with
 # U+0308 is ``ü``) and stay. ``לא`` with a holam (U+05B9), a right-to-left mark
@@ -53,7 +56,7 @@ _PRESENTATION_FORMS = (0xFB1D, 0xFB4F)
 
 
 def _is_folded_mark(code: int, category: str) -> bool:
-    if category == "Cf":
+    if category in ("Cf", "Cs"):
         return True
     if category != "Mn":
         return False
@@ -77,7 +80,7 @@ def folded_marks() -> frozenset[int]:
     codes = range(sys.maxunicode + 1)
     categories = list(map(unicodedata.category, map(chr, codes)))
     candidates = itertools.compress(
-        codes, map(frozenset(("Cf", "Mn")).__contains__, categories)
+        codes, map(frozenset(("Cf", "Cs", "Mn")).__contains__, categories)
     )
     return frozenset(
         code for code in candidates if _is_folded_mark(code, categories[code])
