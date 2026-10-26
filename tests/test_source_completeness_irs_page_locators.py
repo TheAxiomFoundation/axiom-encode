@@ -166,6 +166,9 @@ def test_replay_page_amounts_stay_demanded(citation, source, page):
         # Modifier words wrapped across lines or joined by a no-break space.
         "taxable\nyears is the maximum carryforward period.",
         "U.S.\u00a0dollars per hour may be reimbursed.",
+        "but not more than 12 consecutive calendar months.",
+        # Mixed number.
+        "\u00bd months of 2014.",
         # Coordinated amounts.
         "and 12 percent brackets apply.",
         "or $20 per hour, whichever is greater.",

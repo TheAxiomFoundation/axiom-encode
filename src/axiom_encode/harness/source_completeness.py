@@ -15207,14 +15207,16 @@ _LEADING_PAGE_NUMBER_LINE = re.compile(r"[ \t]*(?P<page>[0-9]{1,4})[ \t]*\r?\n")
 # A unit may follow up to two modifier words (`U.S. dollars`, `consecutive
 # months`). A range or list word (`to`, `through`, `or`, `and`) counts only
 # before a number or a comparison word, so a page that opens with
-# `To qualify, ...` keeps its page number masked.
+# `To qualify, ...` keeps its page number masked. A fraction glyph (`2\n½
+# months`) completes a mixed number.
 _LEADING_PAGE_NUMBER_QUANTITY_CONTINUATION = re.compile(
-    r"\s*(?:[%\u00a2]"
+    r"\s*(?:[%\u00a2\u00bc-\u00be\u2150-\u215e]"
     r"|(?:[A-Za-z][A-Za-z.'\-]*\s+){0,2}"
     r"(?:dollars?|cents?|usd|percent(?:age)?s?|per|seconds?|minutes?|hours?"
     r"|days?|weeks?|months?|quarters?|years?|times|miles?)\b"
     r"|(?:to|through|or|and)\s+"
     r"(?:(?:not\s+)?(?:less|more|fewer|greater)\s+than\s+)?\$?\d"
+    r"|but\s+(?:not\s+)?(?:less|more|fewer|greater)\s+than\s+\$?\d"
     r"|(?:or|and)\s+(?:more|less|fewer|greater|older|younger|over|under)\b)",
     re.IGNORECASE,
 )
