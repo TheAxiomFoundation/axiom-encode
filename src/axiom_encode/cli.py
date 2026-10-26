@@ -517,6 +517,7 @@ from .signing_broker import (
     reject_direct_private_signing_environment,
 )
 from .toolchain import (
+    VALIDATION_WAIVER_SET_PATH,
     VALIDATION_WAIVER_SET_SHA256_FIELD,
     load_rulespec_local_corpus_release,
     load_rulespec_toolchain,
@@ -2514,6 +2515,15 @@ def main():
     _add_expected_encoder_checkout_argument(guard_generated_parser)
     guard_generated_parser.add_argument(
         "--json", action="store_true", help="Output guard result as JSON"
+    )
+    guard_generated_parser.add_argument(
+        "--candidate-status",
+        action="store_true",
+        help=(
+            "Also report, from Git metadata only, whether the change set is an "
+            "unadmitted reviewed candidate, admitted, or invalid; the guard's "
+            "checks and exit code do not change"
+        ),
     )
 
     stage_signed_backfill_parser = subparsers.add_parser(
@@ -8003,6 +8013,25 @@ def cmd_guard_generated(args):
     )
     roots = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
     all_files = bool(getattr(args, "all", False))
+    candidate_status = None
+    if getattr(args, "candidate_status", False):
+        # Classify before any corpus, broker, or manifest work, and print it
+        # first in text mode so a later guard failure cannot hide it.
+        try:
+            candidate_status = guard_candidate_status_report(
+                repo_path,
+                base_ref=args.base_ref,
+                head_ref=args.head_ref,
+                roots=roots,
+            )
+        except Exception as exc:  # the report must never change the guard
+            candidate_status = {
+                "schema": GUARD_CANDIDATE_STATUS_SCHEMA,
+                "status": GUARD_CANDIDATE_STATUS_INVALID,
+                "reasons": [f"candidate status failed: {type(exc).__name__}: {exc}"],
+            }
+        if not args.json:
+            print(json.dumps(candidate_status, indent=2, sort_keys=True), flush=True)
     issues = guard_generated_change_issues(
         repo_path,
         corpus_path=Path(args.corpus_path),
@@ -8014,6 +8043,8 @@ def cmd_guard_generated(args):
         expected_encoder_checkout=getattr(args, "expected_encoder_checkout", None),
     )
     payload = {"repo": str(repo_path), "passed": not issues, "issues": issues}
+    if candidate_status is not None and args.json:
+        payload["candidate_status"] = candidate_status
     if args.json:
         print(json.dumps(payload, indent=2))
     elif issues:
@@ -8026,6 +8057,331 @@ def cmd_guard_generated(args):
         else:
             print("All changed RuleSpec files have encoder apply manifests.")
     sys.exit(0 if not issues else 1)
+
+
+GUARD_CANDIDATE_STATUS_SCHEMA = "axiom-encode/guard-candidate-status/v1"
+GUARD_CANDIDATE_STATUS_UNADMITTED = "unadmitted_reviewed_candidate"
+GUARD_CANDIDATE_STATUS_ADMITTED = "admitted"
+GUARD_CANDIDATE_STATUS_INVALID = "invalid"
+GUARD_CANDIDATE_STATUS_NO_RULESPEC_CHANGE = "no_rulespec_change"
+_GUARD_CANDIDATE_MAX_BLOB_BYTES = 10 * 1024 * 1024
+
+
+def _guard_candidate_head_blob(
+    repo_path: Path, head_sha: str, path: str
+) -> tuple[bytes | None, str | None]:
+    """Return one regular head blob, or why it cannot bind a candidate."""
+
+    listing = _rulespec_migration_git_bytes(
+        repo_path, "ls-tree", "-z", "--full-tree", head_sha, "--", path
+    )
+    records = [record for record in listing.split(b"\0") if record]
+    if not records:
+        return None, "deleted"
+    try:
+        metadata, listed = records[0].split(b"\t", 1)
+        mode, object_type, object_id = metadata.decode("ascii").split(" ")
+    except (ValueError, UnicodeDecodeError):
+        return None, "malformed tree entry"
+    if len(records) != 1 or listed.decode("utf-8", "replace") != path:
+        return None, "ambiguous tree entry"
+    if mode != "100644" or object_type != "blob":
+        return None, f"not a regular 0644 file (mode {mode})"
+    size = int(_rulespec_migration_git(repo_path, "cat-file", "-s", object_id))
+    if size > _GUARD_CANDIDATE_MAX_BLOB_BYTES:
+        return None, "larger than 10 MiB"
+    return _rulespec_migration_git_bytes(repo_path, "cat-file", "blob", object_id), None
+
+
+def _guard_candidate_changed_paths(repo_path: Path, *revisions: str) -> list[str]:
+    """List changed paths with replacement refs and ambient Git disabled."""
+
+    listing = _rulespec_migration_git_bytes(
+        repo_path,
+        "-c",
+        "core.fsmonitor=false",
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "--ignore-submodules=none",
+        "--diff-filter=ACDMRT",
+        "-z",
+        "--end-of-options",
+        *revisions,
+        "--",
+    )
+    return sorted({os.fsdecode(path) for path in listing.split(b"\0") if path})
+
+
+def _guard_candidate_change_kind(path: str, *, roots: tuple[str, ...]) -> str:
+    relative = Path(path)
+    if _guard_provenance_path_case_issue(relative) is not None or any(
+        part.casefold() == ".axiom" and part != ".axiom" for part in relative.parts
+    ):
+        return "metadata"
+    if _is_applied_encoding_manifest_path(relative, roots=roots):
+        return "manifest"
+    if _is_protected_rulespec_yaml_path(relative, roots=roots):
+        return (
+            "companion"
+            if relative.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+            else "module"
+        )
+    if path == VALIDATION_WAIVER_SET_PATH:
+        return "waiver"
+    if ".axiom" in relative.parts:
+        return "metadata"
+    if _is_noncanonical_rulespec_yml_path(relative, roots=roots):
+        return "noncanonical_yml"
+    return "other"
+
+
+def _guard_candidate_module_path(path: str) -> str:
+    """Map a companion test path to its module path."""
+
+    relative = Path(path)
+    if relative.name.endswith(RULESPEC_TEST_FILE_SUFFIX):
+        stem = relative.name[: -len(RULESPEC_TEST_FILE_SUFFIX)]
+        return relative.with_name(f"{stem}{RULESPEC_FILE_SUFFIX}").as_posix()
+    return path
+
+
+def guard_candidate_status_report(
+    repo_path: Path,
+    *,
+    base_ref: str | None,
+    head_ref: str = "HEAD",
+    roots: tuple[str, ...] = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+) -> dict[str, Any]:
+    """Classify a change set for local-contribution admission (#1628, B3).
+
+    This is a structural report from Git metadata and head blobs only: it
+    loads no corpus, runs no engine, attaches no signing broker, and verifies
+    no manifest. ``admitted`` means the change set carries a manifest for
+    every changed module; ``guard_generated_change_issues`` stays the only
+    authority on whether those manifests verify.
+    """
+
+    from .prepare_signed_backfill import citation_rulespec_path
+
+    repo_path = Path(repo_path).resolve()
+    country_match = re.fullmatch(r"rulespec-([a-z]{2}(?:-[a-z0-9_]+)*)", repo_path.name)
+    report: dict[str, Any] = {
+        "schema": GUARD_CANDIDATE_STATUS_SCHEMA,
+        "status": GUARD_CANDIDATE_STATUS_INVALID,
+        "reasons": [],
+        "repository": repo_path.name,
+        "country": country_match.group(1) if country_match else None,
+        "base_sha": None,
+        "head_sha": None,
+        "changed_files": [],
+        "candidate": None,
+    }
+    reasons: list[str] = report["reasons"]
+    if base_ref is None:
+        reasons.append("candidate status requires --base-ref")
+        return report
+    try:
+        with _rulespec_migration_clean_ambient_git():
+            base_sha, head_sha = _resolve_guard_git_refs(
+                repo_path, base_ref=base_ref, head_ref=head_ref
+            )
+            if base_sha is None:
+                raise ValueError("candidate status requires a Git repository")
+            report["base_sha"], report["head_sha"] = base_sha, head_sha
+            committed = _guard_candidate_changed_paths(repo_path, base_sha, head_sha)
+            # Staged, unstaged, and untracked state all bind other bytes than
+            # the head commit, including staged edits undone in the worktree.
+            uncommitted = set(_guard_candidate_changed_paths(repo_path, head_sha))
+            status = _rulespec_migration_git_bytes(
+                repo_path,
+                "-c",
+                "core.fsmonitor=false",
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=all",
+                "--ignore-submodules=none",
+            )
+            uncommitted.update(
+                os.fsdecode(record[3:])
+                for record in status.split(b"\0")
+                if len(record) > 3 and record[2:3] == b" "
+            )
+            if status and not uncommitted:
+                uncommitted.add("<git status>")
+            # assume-unchanged (lowercase tag) and skip-worktree (S) entries
+            # hide worktree edits from diff and status, so refuse them.
+            flags = _rulespec_migration_git_bytes(repo_path, "ls-files", "-v", "-z")
+            uncommitted.update(
+                os.fsdecode(record[2:]) + " (index flag hides worktree changes)"
+                for record in flags.split(b"\0")
+                if len(record) > 2
+                and (record[:1].islower() or record[:1] in {b"S", b"s"})
+            )
+            changed: list[dict[str, Any]] = []
+            for path in committed:
+                blob, problem = _guard_candidate_head_blob(repo_path, head_sha, path)
+                changed.append(
+                    {
+                        "path": path,
+                        "kind": _guard_candidate_change_kind(path, roots=roots),
+                        "sha256": (
+                            hashlib.sha256(blob).hexdigest()
+                            if blob is not None
+                            else None
+                        ),
+                        "head_state": problem or "regular",
+                        "_blob": blob,
+                    }
+                )
+    except (OSError, ValueError, RuntimeError, UnicodeDecodeError) as exc:
+        reasons.append(f"cannot inspect the change set: {exc}")
+        return report
+    report["changed_files"] = [
+        {key: value for key, value in entry.items() if key != "_blob"}
+        for entry in changed
+    ]
+    if uncommitted:
+        reasons.append(
+            "checkout has uncommitted or untracked changes: "
+            + ", ".join(sorted(uncommitted))
+        )
+
+    by_kind: dict[str, list[dict[str, Any]]] = {}
+    for entry in changed:
+        by_kind.setdefault(entry["kind"], []).append(entry)
+    modules = by_kind.get("module", [])
+    companions = by_kind.get("companion", [])
+    manifests = by_kind.get("manifest", [])
+    if not modules and not companions and not manifests:
+        for kind, label in (
+            ("waiver", "validation waiver set changed"),
+            ("metadata", "provenance metadata changed"),
+            ("noncanonical_yml", "noncanonical .yml RuleSpec changed"),
+        ):
+            for entry in by_kind.get(kind, []):
+                reasons.append(f"{label} without a RuleSpec change: {entry['path']}")
+        if not reasons:
+            report["status"] = GUARD_CANDIDATE_STATUS_NO_RULESPEC_CHANGE
+        return report
+
+    if manifests:
+        if not modules and not companions:
+            reasons.append(
+                "manifest-only change set: manifests changed without any "
+                "RuleSpec change (#1531)"
+            )
+            return report
+        manifest_paths = set()
+        for entry in manifests:
+            if entry["head_state"] == "regular":
+                manifest_paths.add(entry["path"])
+            else:
+                reasons.append(
+                    f"manifest {entry['path']} is {entry['head_state']} at head"
+                )
+        for entry in modules + companions:
+            module_path = _guard_candidate_module_path(entry["path"])
+            expected = _applied_encoding_manifest_path(Path(module_path)).as_posix()
+            if expected not in manifest_paths:
+                reasons.append(
+                    f"{entry['path']} changed without its matching manifest {expected}"
+                )
+        if not reasons:
+            report["status"] = GUARD_CANDIDATE_STATUS_ADMITTED
+        return report
+
+    kind_reasons = {
+        "waiver": "validation waiver set changed",
+        "metadata": "provenance metadata changed",
+        "noncanonical_yml": "noncanonical .yml RuleSpec changed",
+        "other": "non-RuleSpec file changed",
+    }
+    for kind, label in kind_reasons.items():
+        for entry in by_kind.get(kind, []):
+            reasons.append(f"{label}: {entry['path']}")
+    if len(modules) != 1:
+        reasons.append(
+            f"expected exactly one RuleSpec module, found {len(modules)}: "
+            + ", ".join(entry["path"] for entry in modules)
+        )
+        return report
+    module = modules[0]
+    companion_path = _rulespec_test_path(Path(module["path"])).as_posix()
+    companion = next(
+        (entry for entry in companions if entry["path"] == companion_path), None
+    )
+    for entry in companions:
+        if entry["path"] != companion_path:
+            reasons.append(f"companion test of another module changed: {entry['path']}")
+    if companion is None:
+        reasons.append(f"companion test {companion_path} did not change")
+    for entry in (module, companion):
+        if entry is not None and entry["head_state"] != "regular":
+            reasons.append(f"{entry['path']} is {entry['head_state']} at head")
+    citation = None
+    if module["_blob"] is not None:
+        try:
+            document = yaml.load(  # noqa: S506 - unique-key safe loader
+                module["_blob"].decode("utf-8"), Loader=_LegacyReplacementYamlLoader
+            )
+        except (
+            UnicodeDecodeError,
+            ValueError,
+            TypeError,
+            RecursionError,
+            yaml.YAMLError,
+        ):
+            document = None
+        verification = (
+            document.get("module", {}).get("source_verification")
+            if isinstance(document, dict) and isinstance(document.get("module"), dict)
+            else None
+        )
+        value = (
+            verification.get("corpus_citation_path")
+            if isinstance(verification, dict)
+            else None
+        )
+        if isinstance(value, str) and value.strip() == value and value:
+            citation = value
+        else:
+            reasons.append(
+                f"{module['path']} declares no module.source_verification."
+                "corpus_citation_path"
+            )
+    if citation is not None:
+        jurisdiction = citation.split("/", 1)[0]
+        country = report["country"]
+        try:
+            require_canonical_corpus_citation_path(citation)
+            canonical = citation_rulespec_path(citation).as_posix()
+        except (ValueError, CorpusResolutionError) as exc:
+            reasons.append(f"citation {citation} has no canonical path: {exc}")
+        else:
+            if country is None or (
+                jurisdiction != country and not jurisdiction.startswith(f"{country}-")
+            ):
+                reasons.append(
+                    f"citation {citation} is outside the {repo_path.name} jurisdiction"
+                )
+            if canonical != module["path"]:
+                reasons.append(
+                    f"{module['path']} is not at the canonical path {canonical} "
+                    f"of citation {citation}"
+                )
+    if reasons:
+        return report
+    report["status"] = GUARD_CANDIDATE_STATUS_UNADMITTED
+    report["candidate"] = {
+        "citation": citation,
+        "rulespec_path": module["path"],
+        "rulespec_sha256": module["sha256"],
+        "companion_path": companion["path"],
+        "companion_sha256": companion["sha256"],
+    }
+    return report
 
 
 def cmd_stage_signed_backfill(args):
