@@ -2891,7 +2891,8 @@ def recognize_source_structure(
             outer_end=len(source_text),
         ):
             text = source_text[marker.start : end].strip()
-            if _is_editorial_omission(text):
+            # The label may carry points or direction marks (``(א‏) (בוטל)``).
+            if _is_editorial_omission(hebrew_source_text.fold_marks(text)):
                 continue
             branches.append(
                 SourceStructureBranch(
@@ -6010,8 +6011,12 @@ def _analyze_rulespec_payload(
             )
         )
 
+    # Hebrew points and direction marks change no number: a marked outline
+    # label (``(1\u2063)``) or citation is read as its unmarked form, while
+    # a source with no Hebrew script is read as is.
     numeric_recall_text = authoritative_numeric_recall_text(
-        source_text, corpus_citation_path=corpus_citation_path
+        hebrew_source_text.fold_marks(source_text),
+        corpus_citation_path=corpus_citation_path,
     )
     source_occurrences = tuple(
         occurrence
@@ -6024,8 +6029,11 @@ def _analyze_rulespec_payload(
     unrepresented_occurrences = source_occurrences
     if represented_annual_spans or represented_measurement_spans:
         unrepresented_recall_text = authoritative_numeric_recall_text(
-            _mask_numeric_spans(
-                source_text, represented_annual_spans | represented_measurement_spans
+            hebrew_source_text.fold_marks(
+                _mask_numeric_spans(
+                    source_text,
+                    represented_annual_spans | represented_measurement_spans,
+                )
             ),
             corpus_citation_path=corpus_citation_path,
         )

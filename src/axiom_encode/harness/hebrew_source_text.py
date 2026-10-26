@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import bisect
 import functools
+import itertools
 import re
+import sys
 import unicodedata
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
@@ -30,36 +32,73 @@ from dataclasses import dataclass, field
 HEBREW_LETTER_CLASS = "א-ת"
 _H = HEBREW_LETTER_CLASS
 
-# Marks that change no word: Hebrew points and cantillation (U+0591-U+05C7,
-# less the maqaf, paseq, sof pasuq and inverted nun, which are punctuation),
-# the bidirectional marks, embeddings and isolates, and the other invisible
-# format characters. ``לא`` with a holam (U+05B9) or a right-to-left mark
-# (U+200F) inside it is ``לא`` to a reader, so the guards read through them.
-_INVISIBLE_MARK_RANGES = (
-    (0x0591, 0x05BD),
-    (0x05BF, 0x05BF),
-    (0x05C1, 0x05C2),
-    (0x05C4, 0x05C5),
-    (0x05C7, 0x05C7),
-    (0x00AD, 0x00AD),
-    (0x034F, 0x034F),
-    (0x061C, 0x061C),
-    (0x200B, 0x200F),
-    (0x202A, 0x202E),
-    (0x2060, 0x2060),
-    (0x2066, 0x2069),
-    (0xFEFF, 0xFEFF),
-)
+# Marks that change no word, chosen by Unicode property rather than listed:
+#
+# - every format character (General_Category ``Cf``): the bidirectional
+#   marks, embeddings and isolates, the zero-width spaces and joiners, the
+#   soft hyphen, the invisible operators U+2061-U+2064, U+180E and the tags;
+# - the Hebrew points and cantillation, category ``Mn`` in U+0591-U+05C7 (the
+#   maqaf, paseq, sof pasuq and inverted nun there are punctuation and stay);
+# - the variation selectors (Unicode's Variation_Selector property, whose code
+#   points are exactly the ``Mn`` ones named "... VARIATION SELECTOR ...") and
+#   the combining grapheme joiner, the invisible marks of no script.
+#
+# Combining marks of other scripts are parts of letters (a German ``u`` with
+# U+0308 is ``ü``) and stay. ``לא`` with a holam (U+05B9), a right-to-left mark
+# (U+200F) or an invisible separator (U+2063) inside it is ``לא`` to a reader,
+# so the guards read through all of them.
+_HEBREW_MARK_BLOCK = (0x0591, 0x05C7)
 # Precomposed pointed letters (U+FB4B, vav with holam) read as their letters.
 _PRESENTATION_FORMS = (0xFB1D, 0xFB4F)
 
 
-def _fold_table() -> dict[int, str | None]:
-    table: dict[int, str | None] = {
-        code: None
-        for low, high in _INVISIBLE_MARK_RANGES
-        for code in range(low, high + 1)
-    }
+def _is_folded_mark(code: int, category: str) -> bool:
+    if category == "Cf":
+        return True
+    if category != "Mn":
+        return False
+    name = unicodedata.name(chr(code), "")
+    return (
+        _HEBREW_MARK_BLOCK[0] <= code <= _HEBREW_MARK_BLOCK[1]
+        or "VARIATION SELECTOR" in name
+        or name == "COMBINING GRAPHEME JOINER"
+    )
+
+
+@functools.cache
+def folded_marks() -> frozenset[int]:
+    """The code points ``fold_marks`` drops, read from the Unicode database.
+
+    The database is read once, on first use, at C speed: the categories of
+    all code points map in one pass, and only the few thousand ``Mn`` marks
+    are named.
+    """
+
+    codes = range(sys.maxunicode + 1)
+    categories = list(map(unicodedata.category, map(chr, codes)))
+    candidates = itertools.compress(
+        codes, map(frozenset(("Cf", "Mn")).__contains__, categories)
+    )
+    return frozenset(
+        code for code in candidates if _is_folded_mark(code, categories[code])
+    )
+
+
+def _code_ranges(codes: Iterable[int]) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    for code in sorted(codes):
+        if ranges and ranges[-1][1] == code - 1:
+            ranges[-1] = (ranges[-1][0], code)
+        else:
+            ranges.append((code, code))
+    return ranges
+
+
+@functools.cache
+def _fold_rules() -> tuple[dict[int, str | None], re.Pattern[str]]:
+    """The translation table and the pattern of every character it changes."""
+
+    table: dict[int, str | None] = dict.fromkeys(folded_marks())
     for code in range(_PRESENTATION_FORMS[0], _PRESENTATION_FORMS[1] + 1):
         char = chr(code)
         if unicodedata.category(char) == "Cn":
@@ -69,15 +108,17 @@ def _fold_table() -> dict[int, str | None]:
             for part in unicodedata.normalize("NFKD", char)
             if not unicodedata.combining(part)
         )
-    return table
+    foldable = re.compile(
+        "["
+        + "".join(
+            re.escape(chr(low)) + (f"-{re.escape(chr(high))}" if high > low else "")
+            for low, high in _code_ranges(table)
+        )
+        + "]"
+    )
+    return table, foldable
 
 
-_FOLD_TABLE = _fold_table()
-_FOLDABLE = re.compile(
-    "["
-    + "".join(f"{chr(low)}-{chr(high)}" for low, high in _INVISIBLE_MARK_RANGES)
-    + f"{chr(_PRESENTATION_FORMS[0])}-{chr(_PRESENTATION_FORMS[1])}]"
-)
 # The Hebrew block from its first mark, and the presentation forms.
 _HEBREW_SCRIPT = re.compile("[\u0591-\u05f4\ufb1d-\ufb4f]")
 
@@ -85,16 +126,82 @@ _HEBREW_SCRIPT = re.compile("[\u0591-\u05f4\ufb1d-\ufb4f]")
 def fold_marks(text: str) -> str:
     """Drop the marks that change no word from text in Hebrew script.
 
-    Every negation, adversative, signal and citation guard reads the folded
-    copy, so a pointed or direction-marked word is the word itself. Text with
-    no Hebrew script is returned as is, the same object, so no English or
-    German reading changes. The folded copy is read whole by functions that
-    return a verdict, never an offset into the original.
+    Every negation, adversative, signal, citation and outline guard reads the
+    folded copy, so a pointed or direction-marked word is the word itself.
+    Text with no Hebrew script is returned as is, the same object, so no
+    English or German reading changes. A reader that reports offsets reads a
+    :class:`FoldedText`, which maps each folded offset back to the original.
     """
 
-    if _HEBREW_SCRIPT.search(text) is None or _FOLDABLE.search(text) is None:
+    if _HEBREW_SCRIPT.search(text) is None:
         return text
-    return text.translate(_FOLD_TABLE)
+    table, foldable = _fold_rules()
+    if foldable.search(text) is None:
+        return text
+    return text.translate(table)
+
+
+class FoldedText:
+    """``fold_marks(original)``, with its offsets mapped back to ``original``.
+
+    The map records only the folded characters, so building it costs one
+    scan of the marks and no work per unmarked character. A folded offset
+    of a kept character maps to that character; a dropped mark belongs to
+    no folded offset, so a slice between two mapped starts holds the marks
+    between them; a presentation form that folds to two letters (U+FB4F)
+    maps both to itself.
+    """
+
+    __slots__ = ("original", "text", "_ends", "_shifts", "_sources", "_starts")
+
+    def __init__(self, original: str, *, force: bool = False) -> None:
+        """Fold ``original``; ``force`` folds it even with no Hebrew script.
+
+        A forced fold is for a window cut from a longer text, whose Hebrew
+        letters may lie past the window: a reader that needs a Hebrew letter
+        in what it matches reads the window as the whole text would fold it.
+        """
+
+        self.original = original
+        if force:
+            table, foldable = _fold_rules()
+            self.text = (
+                original.translate(table) if foldable.search(original) else original
+            )
+        else:
+            self.text = fold_marks(original)
+        # For each folded character: where its replacement starts and ends in
+        # the folded text, the original offset it came from, and the shift of
+        # the kept text after it.
+        self._starts: list[int] = []
+        self._ends: list[int] = []
+        self._sources: list[int] = []
+        self._shifts: list[int] = [0]
+        if self.text is original:
+            return
+        table, foldable = _fold_rules()
+        shift = 0
+        for mark in foldable.finditer(original):
+            replacement = table[ord(mark.group(0))] or ""
+            start = mark.start() - shift
+            self._starts.append(start)
+            self._ends.append(start + len(replacement))
+            self._sources.append(mark.start())
+            shift += 1 - len(replacement)
+            self._shifts.append(shift)
+
+    def original_start(self, offset: int) -> int:
+        """The original offset of the folded character at ``offset``."""
+
+        index = bisect.bisect_right(self._ends, offset)
+        if index < len(self._starts) and self._starts[index] <= offset:
+            return self._sources[index]
+        return offset + self._shifts[index]
+
+    def original_end(self, offset: int) -> int:
+        """The original offset just past the folded character before ``offset``."""
+
+        return self.original_start(offset - 1) + 1 if offset > 0 else 0
 
 
 # Geresh and gershayim, and the marks that stand in for them: ASCII quotes and
@@ -344,20 +451,26 @@ def hebrew_outline_markers(
     shares its start, as the U.S. outline recognizer does for ``(a)(1)``.
     Inline references such as ``סעיף קטן (ב)(1)`` never start a line and are
     not markers.
+
+    Labels are read on the folded text (:class:`FoldedText`), so a pointed or
+    direction-marked label such as ``(א‏)`` or ``(אֹ)`` is ``(א)``: its marker
+    is the folded label, and its start is mapped back to an offset into
+    ``source_text``, so every branch slice and message reads the original.
     """
 
     if not HEBREW_LETTER.search(source_text):
         # Keep non-Hebrew sources at one C-speed scan: a CFR-style outline of
         # 20,000 `(n)` lines would otherwise parse every label here.
         return ()
+    folded = FoldedText(source_text)
     chains = []
-    for match in _OUTLINE_CHAIN.finditer(source_text):
+    for match in _OUTLINE_CHAIN.finditer(folded.text):
         labels = [
             parse_outline_label(text)
             for text in _CHAIN_LABEL.findall(match.group("chain"))
         ]
         if labels and all(label is not None for label in labels):
-            chains.append((match.start("chain"), labels))
+            chains.append((folded.original_start(match.start("chain")), labels))
     if not any(
         HEBREW_LETTER.search(label.marker)
         for _start, labels in chains
@@ -389,10 +502,38 @@ def hebrew_outline_markers(
 LEADING_OUTLINE_CHAIN = re.compile(rf"^\s*(?P<chain>(?:\({OUTLINE_LABEL}\)[ \t]*)+)")
 
 
-def strip_leading_outline_chain(text: str) -> str | None:
-    """Strip a leading Hebrew marker chain such as ``(ב) (1)``; else ``None``."""
+def _leading_chain_match(text: str) -> tuple[FoldedText, re.Match[str] | None]:
+    """Match ``LEADING_OUTLINE_CHAIN`` on the folded start of ``text``.
 
-    match = LEADING_OUTLINE_CHAIN.match(text)
+    Only the start is folded: a window that grows fourfold until the chain
+    match is decided, so a call costs the chain's own length, marks
+    included, however long the text after it.
+    """
+
+    width = 64
+    while True:
+        window = FoldedText(text[:width], force=True)
+        match = LEADING_OUTLINE_CHAIN.match(window.text)
+        if width >= len(text):
+            return window, match
+        rest = window.text[match.end() :] if match else window.text.lstrip()
+        # Decided once the window holds a character that ends the chain: one
+        # other than an opening parenthesis, or a label's closing one.
+        if (match is None or match.end() < len(window.text)) and (
+            rest[:1] not in {"", "("} or ")" in rest
+        ):
+            return window, match
+        width *= 4
+
+
+def strip_leading_outline_chain(text: str) -> str | None:
+    """Strip a leading Hebrew marker chain such as ``(ב) (1)``; else ``None``.
+
+    The chain is read on the folded text, as ``hebrew_outline_markers`` reads
+    it, and the original text after it is returned.
+    """
+
+    folded, match = _leading_chain_match(text)
     if match is None or not HEBREW_LETTER.search(match.group("chain")):
         return None
     labels = [
@@ -401,7 +542,7 @@ def strip_leading_outline_chain(text: str) -> str | None:
     ]
     if not labels or any(label is None for label in labels):
         return None
-    return text[match.end() :].lstrip()
+    return text[folded.original_end(match.end()) :].lstrip()
 
 
 # ``(בוטל)`` is the consolidation's repeal note, the counterpart of the German

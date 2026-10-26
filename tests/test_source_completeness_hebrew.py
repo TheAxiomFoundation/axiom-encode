@@ -15,8 +15,10 @@ import functools
 import hashlib
 import json
 import re
+import sys
 import tempfile
 import time
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -1085,30 +1087,9 @@ _NEGATION_PREFIXES = (
     "וד",
 )
 # Points, cantillation, and direction and format marks: none changes a word.
-_INVISIBLE_MARKS = (
-    "\u05b0",
-    "\u05b4",
-    "\u05b5",
-    "\u05b7",
-    "\u05b8",
-    "\u05b9",
-    "\u05bc",
-    "\u05c1",
-    "\u05c7",
-    "\u0591",
-    "\u05a5",
-    "\u00ad",
-    "\u061c",
-    "\u200b",
-    "\u200d",
-    "\u200e",
-    "\u200f",
-    "\u202b",
-    "\u202c",
-    "\u2067",
-    "\u2069",
-    "\ufeff",
-)
+# Every mark the fold drops, by Unicode property (review round 14):
+# ``test_the_fold_drops_every_format_character_and_hebrew_mark`` pins the set.
+_INVISIBLE_MARKS = tuple(map(chr, sorted(hebrew.folded_marks())))
 
 
 @st.composite
@@ -1117,7 +1098,7 @@ def _marked(draw, text: str) -> str:
 
     marks = draw(
         st.lists(
-            st.sampled_from(("", "", *_INVISIBLE_MARKS)),
+            st.one_of(st.just(""), st.sampled_from(_INVISIBLE_MARKS)),
             min_size=len(text),
             max_size=len(text),
         )
@@ -2196,7 +2177,7 @@ def test_folding_is_idempotent_and_leaves_no_mark(text):
 
     assert hebrew.fold_marks(folded) == folded
     if hebrew._HEBREW_SCRIPT.search(text):
-        assert not hebrew._FOLDABLE.search(folded)
+        assert not hebrew._fold_rules()[1].search(folded)
     else:
         assert folded is text
 
@@ -3696,3 +3677,248 @@ rules:
     uncovered = _structure_paths(_analyze(content))
 
     assert (("c",) not in uncovered) is covers
+
+
+# --- Review round 14 ------------------------------------------------------------
+#
+# Rounds 11 to 13 each closed the listed reproducers, and the next review found
+# new members of the same families. Each test below pins a family: it
+# enumerates every member, or samples all of them, rather than the reproducer.
+
+# Finding 2: the fold drops marks by Unicode property, not from a list.
+
+
+@functools.cache
+def _unicode_format_characters() -> frozenset[int]:
+    """Every ``Cf`` code point, read from the Unicode database one by one."""
+
+    return frozenset(
+        code
+        for code in range(sys.maxunicode + 1)
+        if unicodedata.category(chr(code)) == "Cf"
+    )
+
+
+_HEBREW_POINTS = frozenset(
+    code for code in range(0x0591, 0x05C8) if unicodedata.category(chr(code)) == "Mn"
+)
+
+
+def test_the_fold_drops_every_format_character_and_hebrew_mark():
+    """Every format character and Hebrew point folds, and no letter's mark."""
+
+    folded = hebrew.folded_marks()
+    format_characters = _unicode_format_characters()
+
+    assert format_characters <= folded
+    assert _HEBREW_POINTS <= folded
+    # The review's omissions: the Mongolian vowel separator and the invisible
+    # function application, times, separator and plus.
+    assert {0x180E, 0x2061, 0x2062, 0x2063, 0x2064} <= folded
+    # Beyond them, only the invisible marks of no script.
+    for code in folded - format_characters - _HEBREW_POINTS:
+        name = unicodedata.name(chr(code))
+        assert unicodedata.category(chr(code)) == "Mn", name
+        assert "VARIATION SELECTOR" in name or name == "COMBINING GRAPHEME JOINER"
+    # The maqaf, paseq, sof pasuq and inverted nun are punctuation.
+    assert not {0x05BE, 0x05C0, 0x05C3, 0x05C6} & folded
+    # Combining marks of other scripts are parts of letters.
+    assert not (set(range(0x0300, 0x0370)) - {0x034F}) & folded
+
+
+def test_combining_marks_outside_hebrew_keep_their_letters():
+    """A decomposed German umlaut beside Hebrew is still the umlaut."""
+
+    text = "für Absatz 2 und ká – חסר סעיף 2"
+
+    assert hebrew.fold_marks(text) == text
+    assert hebrew.fold_marks("ü⁣ חסר") == "ü חסר"
+
+
+# The review's eight negators, four Hebrew and four English and German.
+_FOLD_NEGATORS = ("לא", "אין", "אינו", "בלתי", "not", "never", "nicht", "keine")
+
+
+@pytest.mark.parametrize(
+    ("negator", "position"),
+    [
+        (negator, position)
+        for negator in _FOLD_NEGATORS
+        for position in range(1, len(negator))
+    ],
+)
+def test_no_invisible_mark_inside_a_negator_hides_it(negator, position):
+    """Finding 2's family, enumerated in full through the CI method.
+
+    Each ``Cf`` code point in Unicode, each Hebrew point and each other folded
+    mark, at each point inside each negator, before a signal and before a
+    source link: the verdict is the unmarked negator's, a refusal.
+    """
+
+    def verdicts(word: str) -> tuple[bool, bool]:
+        return (
+            _accepted("a", f"{word} חסר סעיף 2", REVIEW_SOURCE),
+            _accepted("a", "חסר סעיף 2", f"(א) {word} מחושב בהתאם לסעיף 2."),
+        )
+
+    expected = verdicts(negator)
+    marks = _unicode_format_characters() | _HEBREW_POINTS | hebrew.folded_marks()
+
+    assert expected == (False, False)
+    differing = [
+        f"U+{code:04X}"
+        for code in sorted(marks)
+        if verdicts(negator[:position] + chr(code) + negator[position:]) != expected
+    ]
+    assert not differing, differing
+
+
+# The review's five marked/unmarked pairs: every letter of the body and reason
+# carries a holam and a right-to-left mark.
+_OFFSET_PAIRS = (
+    ("a", "(א) ישולם לפי סעיף 2.\n(ב) הוראה נוספת.", "חסר סעיף 2"),
+    ("a", "(א) ישולם לפי סעיף 2.\n(ב) הוראה נוספת.", "לא חסר סעיף 2"),
+    ("a", "(א) אינו מחושב בהתאם לסעיף 2.\n(ב) הוראה נוספת.", "חסר סעיף 2"),
+    (
+        "a/1",
+        "(א) (1) ישולם לפי סעיף 2.\n(2) הוראה נוספת.\n(ב) הוראה נוספת.",
+        "חסר סעיף 2",
+    ),
+    ("a", "(א) ישולם לפי סעיף 2.\n(ב) הוראה נוספת.", "חסר סעיף 2. אולם הוא זמין."),
+)
+
+
+def _point_every_letter(text: str) -> str:
+    return "".join(char + ("ֹ‏" if "א" <= char <= "ת" else "") for char in text)
+
+
+@pytest.mark.parametrize(("branch", "source", "reason"), _OFFSET_PAIRS)
+@pytest.mark.parametrize("label_marks", ("", "‏", "ֹ⁣"))
+def test_marked_sources_keep_their_offsets_verdicts_and_issues(
+    branch, source, reason, label_marks
+):
+    """Offsets: branches slice the marked text; verdicts and issues are the plain ones.
+
+    The review marked bodies and reasons only; the labels are marked here too.
+    """
+
+    marked = "\n".join(
+        line[: line.index(")")]
+        + label_marks
+        + line[line.index(")") : line.rindex(")") + 1]
+        + _point_every_letter(line[line.rindex(")") + 1 :])
+        for line in source.splitlines()
+    )
+    content = _deferral_content(branch, reason)
+    marked_content = _deferral_content(branch, _point_every_letter(reason))
+    plain_branches = recognize_source_structure(source, corpus_citation_path=CITATION)
+    marked_branches = recognize_source_structure(marked, corpus_citation_path=CITATION)
+
+    assert [item.path for item in marked_branches] == [
+        item.path for item in plain_branches
+    ]
+    assert [item.label for item in marked_branches] == [
+        item.label for item in plain_branches
+    ]
+    for item in marked_branches:
+        assert marked[item.start : item.end].strip() == item.text
+    assert _analyze(marked_content, marked) == _analyze(content, source)
+    assert _accepted(branch, _point_every_letter(reason), marked) is _accepted(
+        branch, reason, source
+    )
+
+
+# Finding 4: outline labels are read on the folded text.
+
+
+_UNENCODED_CONTENT = (
+    "format: rulespec/v1\n"
+    "module:\n"
+    "  source_verification:\n"
+    f"    corpus_citation_path: {CITATION}\n"
+    "rules: []\n"
+)
+
+
+@pytest.mark.parametrize("label", ("(א‏)", "(אֹ)", "(⁣א️)"))
+def test_a_marked_label_still_opens_its_branch(label):
+    """The review's table: a marked label hides no branch from the check."""
+
+    source = f"{label} הוראה."
+    branches = recognize_source_structure(source, corpus_citation_path=CITATION)
+    issues = _analyze(_UNENCODED_CONTENT, source)
+
+    assert [item.path for item in branches] == [("a",)]
+    assert [item.label for item in branches] == ["(א)"]
+    assert _structure_paths(issues) == {("a",)}
+    assert issues == _analyze(_UNENCODED_CONTENT, "(א) הוראה.")
+
+
+def test_a_marked_repeal_note_is_still_no_branch():
+    plain = "(א) הוראה.\n(ב) (בוטל)"
+    marked = "(א) הוראה.\n(ב‏) (בוטלָ)"
+
+    assert [
+        item.path
+        for item in recognize_source_structure(marked, corpus_citation_path=CITATION)
+    ] == [
+        item.path
+        for item in recognize_source_structure(plain, corpus_citation_path=CITATION)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("text", "body"),
+    (
+        ("(א‏) הוראה.", "הוראה."),
+        ("(אֹ)(1⁣)‏ הוראה", "הוראה"),
+        ("\n" * 300 + "(ב) (1) גוף", "גוף"),
+        ("(" + "‏" * 500 + "א) גוף", "גוף"),
+        ("(a) The rule", None),
+        ("(1) The rule", None),
+        ("(" + "ֹ" * 300, None),
+    ),
+)
+def test_a_marked_leading_chain_is_stripped_from_the_original(text, body):
+    assert hebrew.strip_leading_outline_chain(text) == body
+
+
+@settings(max_examples=150, deadline=None)
+@given(_outlines(), st.data())
+def test_marks_inside_outline_labels_change_no_branch_or_issue(nodes, data):
+    """Finding 4's family: any outline, any folded mark anywhere inside its labels.
+
+    Paths, labels and every completeness issue are the unmarked outline's, and
+    each branch slices its own text from the marked source.
+    """
+
+    lines, paths = _render_outline(nodes)
+    plain = "\n".join(lines)
+    pieces, inside = [], False
+    for char in plain:
+        if inside:
+            pieces.append(
+                data.draw(st.one_of(st.just(""), st.sampled_from(_INVISIBLE_MARKS)))
+            )
+        pieces.append(char)
+        inside = (inside or char == "(") and char != ")"
+    marked = "".join(pieces)
+    # An imprecise deferral of the first branch, so a deferral message names
+    # its label too.
+    content = _deferral_content(paths[0][0], "חסר מידע")
+    plain_branches = recognize_source_structure(plain, corpus_citation_path=CITATION)
+    marked_branches = recognize_source_structure(marked, corpus_citation_path=CITATION)
+
+    assert [item.path for item in marked_branches] == paths
+    assert [item.path for item in plain_branches] == paths
+    assert [item.label for item in marked_branches] == [
+        item.label for item in plain_branches
+    ]
+    for marked_branch, plain_branch in zip(
+        marked_branches, plain_branches, strict=True
+    ):
+        assert marked[marked_branch.start : marked_branch.end].strip() == (
+            marked_branch.text
+        )
+        assert hebrew.fold_marks(marked_branch.text) == plain_branch.text
+    assert _analyze(content, marked) == _analyze(content, plain)
