@@ -7587,6 +7587,136 @@ def test_targeted_artifact_preserves_pre_v4_replacement_receipts(
 
 
 @pytest.mark.parametrize(
+    ("mutation", "error"),
+    [
+        ("none", None),
+        ("wrong-owner-hash", "historical legacy replacement manifest binding differs"),
+        ("owner-not-deleted", "deleted manifest inventory differs"),
+    ],
+)
+def test_targeted_artifact_packages_historical_in_place_owner(
+    tmp_path: Path, mutation: str, error: str | None
+) -> None:
+    rulespec = tmp_path / "rulespec-us"
+    rulespec.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=rulespec, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=rulespec,
+        check=True,
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=rulespec, check=True)
+    primary_path = "us-az/policies/des/faa5/expanded.yaml"
+    old_manifest_path = (
+        "us-az/.axiom/encoding-manifests/policies/des/faa5/expanded.json"
+    )
+    new_manifest_path = (
+        ".axiom/encoding-manifests/us-az/policies/des/faa5/expanded.json"
+    )
+    primary = rulespec / primary_path
+    primary.parent.mkdir(parents=True)
+    primary.write_bytes(b"old rule\n")
+    old_manifest = rulespec / old_manifest_path
+    old_manifest.parent.mkdir(parents=True)
+    old_manifest.write_bytes(b"old owner\n")
+    old_owner_sha = hashlib.sha256(old_manifest.read_bytes()).hexdigest()
+    subprocess.run(["git", "add", "."], cwd=rulespec, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=rulespec, check=True)
+    rulespec_ref = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=rulespec, text=True
+    ).strip()
+
+    primary.write_bytes(b"new rule\n")
+    if mutation != "owner-not-deleted":
+        old_manifest.unlink()
+    citation = "us-az/manual/des/faa5/block-4"
+    context = {"citation": citation, "review_findings_files": []}
+    context_bytes = json.dumps(context, sort_keys=True).encode()
+    context_path = tmp_path / "generated/target/context-manifest.json"
+    context_path.parent.mkdir(parents=True)
+    context_path.write_bytes(context_bytes)
+    nested_manifest = {
+        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+        "tool": "axiom-encode encode --apply",
+        "backend": "codex",
+        "citation": citation,
+        "context_manifest_file": str(context_path),
+        "context_manifest_sha256": hashlib.sha256(context_bytes).hexdigest(),
+        "applied_files": [
+            {
+                "path": primary_path,
+                "sha256": hashlib.sha256(primary.read_bytes()).hexdigest(),
+            }
+        ],
+    }
+    receipt_payload = {
+        "schema_version": "axiom-encode/legacy-fresh-reencode-receipt/v8",
+        "legacy": {"manifest": {"path": old_manifest_path, "sha256": old_owner_sha}},
+        "replacement": {
+            "source": primary_path,
+            "destination": primary_path,
+            "scheduled_dependents": [],
+            "exact_dependents": [],
+            "retained_successors": [],
+            "metadata_reconciliations": [],
+        },
+    }
+    receipt = rulespec / ".axiom/legacy-replacements" / f"{'a' * 64}.json"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text(json.dumps(receipt_payload) + "\n")
+    outer = {
+        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+        "tool": "axiom-encode encode --apply --replace-legacy-rulespec-path",
+        "replacement_manifest": nested_manifest,
+        "replacement": {
+            "receipt_path": receipt.relative_to(rulespec).as_posix(),
+            "receipt_sha256": hashlib.sha256(receipt.read_bytes()).hexdigest(),
+            "legacy_manifest_path": old_manifest_path,
+            "legacy_manifest_sha256": (
+                "0" * 64 if mutation == "wrong-owner-hash" else old_owner_sha
+            ),
+        },
+    }
+    new_manifest = rulespec / new_manifest_path
+    new_manifest.parent.mkdir(parents=True)
+    new_manifest.write_text(json.dumps(outer) + "\n")
+    (tmp_path / "source-bundle.json").write_text("[]\n")
+    (tmp_path / "canonical-refresh-bundle.json").write_text("[]\n")
+    artifact = tmp_path / "artifact"
+    artifact.mkdir()
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-",
+            str(artifact / "context-manifest.json"),
+            str(artifact / "apply-manifests.json"),
+        ],
+        cwd=tmp_path,
+        input=_targeted_package_script(),
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "CITATION": citation,
+            "PYTHONPATH": str(ROOT / "src"),
+            "REVIEW_FINDING": "",
+            "REVIEW_FINDING_PRESENT": "false",
+            "RUNNER_TEMP": str(tmp_path),
+            "RULESPEC_CHECKOUT": "rulespec-us",
+            "RULESPEC_REF": rulespec_ref,
+            "REPLACE_LEGACY_RULESPEC_PATH": primary_path,
+            "REPLACE_RULESPEC_PATH": primary_path,
+        },
+    )
+    if error:
+        assert completed.returncode != 0
+        assert error in completed.stderr
+    else:
+        assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize(
     ("target_lane", "dependent_lane", "dependent_context_citation", "error"),
     [
         ("target", "dependent", None, None),
