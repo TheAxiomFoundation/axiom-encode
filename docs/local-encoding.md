@@ -32,6 +32,7 @@ signing key, and it writes nothing to Supabase.
 - **`claude` CLI** on a claude.ai login, for the generalist reviewer. Make sure
   that `~/.claude/settings.json` sets no `apiKeyHelper` and no provider key.
 - **`gh`** with read access to the repositories, to read pins and public keys.
+- **`jq`** and **`curl`**, to fetch the corpus release object.
 
 ### Pinned refs
 
@@ -178,8 +179,10 @@ only, so place them first (see [Corpus release](#corpus-release)).
    tree root-owned and not group- or other-writable
    (`chown -R 0:0`, `chmod -R go-w`). The supervisor refuses a tree that the
    invoking user can write. Run the `sudo` step yourself; never automate it.
-4. Run the supervisor as your own user, with `CODEX_HOME` unset, and give it
-   `--codex-subscription-auth` and `--codex-auth-outbox`. After `--`, run
+4. Run the supervisor as your own user, with `CODEX_HOME` unset. Give it
+   `--codex-subscription-auth "$HOME/.codex/auth.json"` and
+   `--codex-auth-outbox "$HOME/.codex/auth.json.refreshed"` (the linked
+   example derives these paths from `CODEX_HOME`). After `--`, run
    `/opt/axiom-verification/axiom-encode encode <citation>` with the flags in
    [Encode command](#encode-command).
 
@@ -229,7 +232,9 @@ route 2.
   ([command](corpus-bytes-outside-git.md#command)), so the encode does not
   fetch from R2 even if a credentials file exists. It applies to route 2. The
   route 1 supervisor builds the child environment from empty and does not
-  forward it; there, the child has no `HOME` and reads git objects only.
+  forward it. There, the child gets a protected runtime `HOME`, not yours, so
+  your corpus cache and R2 credentials file do not reach it, and it can
+  supply missing corpus bytes only from local git objects.
   Place the bytes before the run in both routes.
 - `--no-sync` and a local `--db` keep the run out of Supabase.
 - `--require-complete-source-unit` applies the same completeness rule as the
