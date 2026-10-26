@@ -204,6 +204,69 @@ class FoldedText:
         return self.original_start(offset - 1) + 1 if offset > 0 else 0
 
 
+# Where a Hebrew letter meets a letter of another script. A Hebrew prefix
+# glues to a word of another script (``לsection 2``, ``וnot``, ``שohne``), and
+# Python's ``\b`` sees one word there, so ``\bnot\b`` misses the ``not`` of
+# ``וnot``. A script change is a word boundary for the readers of negations,
+# exclusions and adversatives: they read ``_split_scripts``'s copy, with a
+# space at each junction (#1882). The readers of signals, links and citations
+# do not, so a glued word is read only where it refuses.
+_SCRIPT_JUNCTION = re.compile(
+    rf"(?<=[{_H}])(?=[^\W\d_\u0590-\u05ff])|(?<=[^\W\d_\u0590-\u05ff])(?=[{_H}])"
+)
+
+
+def _split_scripts(text: str) -> tuple[str, list[int]]:
+    """``text`` with a space at each junction of scripts, and the junctions.
+
+    A junction is the offset in ``text`` that the space is inserted before.
+    Text with no junction is returned as is, the same object.
+    """
+
+    junctions = [match.start() for match in _SCRIPT_JUNCTION.finditer(text)]
+    if not junctions:
+        return text, junctions
+    bounds = [0, *junctions, len(text)]
+    return (
+        " ".join(text[low:high] for low, high in itertools.pairwise(bounds)),
+        junctions,
+    )
+
+
+def _split_starts(
+    text: str, finders: Iterable[Callable[[str], Iterable[re.Match[str]]]]
+) -> list[int]:
+    """Where the finders' matches start in ``text``, read with scripts split.
+
+    Each finder reads ``_split_scripts(text)``; an offset there maps back past
+    the spaces inserted before it, and one that falls on an inserted space
+    maps to the character after it. The starts are sorted.
+    """
+
+    view, junctions = _split_scripts(text)
+    starts = [match.start() for finder in finders for match in finder(view)]
+    if junctions:
+        # The k-th inserted space stands at view offset junctions[k] + k.
+        inserted = [junction + index for index, junction in enumerate(junctions)]
+        starts = [start - bisect.bisect_left(inserted, start) for start in starts]
+    return sorted(starts)
+
+
+def cross_language_text(text: str) -> str | None:
+    """``text`` as the shared checker's English guards read it with Hebrew in it.
+
+    ``None`` for text with no Hebrew script, which keeps its English or German
+    reading. Otherwise the marks are folded and a space stands at each
+    junction of scripts, so ``לא`` with U+200F inside it, ``וnot`` and
+    ``notמחושב`` show their words. A guard that reads this copy as well as
+    the text, and refuses when either refuses, reads no text more loosely.
+    """
+
+    if _HEBREW_SCRIPT.search(text) is None:
+        return None
+    return _split_scripts(fold_marks(text))[0]
+
+
 # Geresh and gershayim, and the marks that stand in for them: ASCII quotes and
 # the typographic quotes a word processor substitutes (``345י”א``). A numeral
 # read without them would lose its last letters and name another section.
@@ -945,13 +1008,14 @@ _OTHER_NEGATION = re.compile(
     r")\b|n['’]t\b",
     flags=re.IGNORECASE,
 )
-# The English negations, prohibitions and exclusions that negate an ``in
-# accordance with`` link: ``_SOURCE_LINK_NEGATION_LANGUAGE`` in
+# The English and German negations, prohibitions and exclusions that negate an
+# ``in accordance with`` link: ``_SOURCE_LINK_NEGATION_LANGUAGE`` in
 # source_completeness, verbatim, which the shared checker passes in as
 # ``other_link_negations``; ``test_link_negations_use_the_shared_vocabulary``
 # holds them equal. With ``_OTHER_NEGATION`` they negate a Hebrew source
 # link, so ``(א) prohibited מחושב בהתאם לסעיף 2`` links nothing, as its
-# translation does not.
+# translation does not. ``without`` and ``ohne`` before a Hebrew word exclude
+# what follows, as ``בלי`` does (``משולם ohne חישוב בהתאם לסעיף 2``).
 _OTHER_LINK_NEGATION = re.compile(
     r"\b(?:not|never|neither|nor|cannot|nowhere|prohibit\w*|barred|"
     r"forbidden|precluded|prevented|excluded|denied|except)\b|"
@@ -972,7 +1036,21 @@ _OTHER_LINK_NEGATION = re.compile(
     r"at\s+no\s+time|by\s+no\s+means|in\s+no\s+way|"
     r"on\s+no\s+account|under\s+no\s+conditions?|"
     r"in\s+no\s+(?:manner|respect))\b|"
-    r"\b(?:rather|other)\s+than\b",
+    r"\b(?:rather|other)\s+than\b|"
+    r"\b(?:nicht|nie|niemals|weder|nirgends|nirgendwo|kein(?:e|en|em|er|es)?|"
+    r"keinesfalls|keineswegs|au(?:ß|ss)er|ausgenommen|abgesehen\s+von|"
+    r"verbiet\w*|verboten\w*|untersag\w*|verwehrt\w*|ausgeschlossen\w*|"
+    r"verhindert\w*|verweigert\w*|abgelehnt\w*|bestreit\w*|verneint\w*|"
+    r"zurückgewiesen\w*|versäumt\w*|unterl(?:ä|a)sst|unterlassen\w*|weigert\w*|"
+    r"au(?:ß|ss)erstande|(?:an)?statt|anders\s+als|"
+    r"(?:falsch|unwahr|unmöglich),?\s+dass)\b|"
+    r"\b(?:without|ohne)\s+(?:being\s+|zu\s+)?(?:"
+    r"determin\w*|comput\w*|calculat\w*|appl\w*|impos\w*|aris\w*|"
+    r"bestimm\w*|ermitt?el\w*|ermittl\w*|festgesetzt\w*|festsetz\w*|"
+    r"festzusetzen|festgestellt\w*|feststell\w*|festzustellen|berechn\w*|"
+    r"errechn\w*|anwend\w*|angewendet\w*|angewandt\w*|anzuwenden|erheb\w*|"
+    r"erhoben\w*|auferleg\w*|aufzuerlegen|entsteh\w*|entstanden\w*)\b|"
+    r"\b(?:without|ohne)\s+(?:being\s+|zu\s+)?(?=[א-ת])",
     flags=re.IGNORECASE,
 )
 
@@ -1491,14 +1569,14 @@ def _linked_source_instruments(
     # Where the English and German negators start. Each is a main-clause
     # negation, read where it starts: one that starts in the linker's clause
     # before the linker negates it. The two vocabularies overlap, so only the
-    # starts are kept, in order.
-    other_starts = sorted(
-        negation.start()
-        for finder in (
+    # starts are kept, in order. They are read with scripts split, so a
+    # Hebrew prefix glued to one (``וnot``, ``שohne``) hides it from neither.
+    other_starts = _split_starts(
+        source_scope_text,
+        (
             other_negations or _OTHER_NEGATION.finditer,
             other_link_negations or _OTHER_LINK_NEGATION.finditer,
-        )
-        for negation in finder(source_scope_text)
+        ),
     )
     for cited, cited_instrument in _section_citations(source_scope_text, current_kind):
         clause_start = _clause_start(stops, cited.start())
@@ -1603,21 +1681,18 @@ def _read_signals(
     negation earlier in its clause (``לא ניתן לומר שחסרה``, ``It is not true
     that חסרה``). The negations are those of ``_REASON_NEGATION`` and the
     English and German negators (``other_negations``, ``_OTHER_NEGATION``
-    without it) outside every signal. Each lookup is a bisection, so the scan
-    stays linear in the reason's length.
+    without it) outside every signal, read with scripts split
+    (``_split_starts``), so ``וnot`` and ``שnicht`` negate as ``ו־not`` does.
+    Each lookup is a bisection, so the scan stays linear in the reason's
+    length.
     """
 
     stops = list(stops)
     every = list(_SIGNAL.finditer(text))
     signal_starts = [signal.start() for signal in every]
     negations = []
-    for start in sorted(
-        negation.start()
-        for finder in (
-            _REASON_NEGATION.finditer,
-            other_negations or _OTHER_NEGATION.finditer,
-        )
-        for negation in finder(text)
+    for start in _split_starts(
+        text, (_REASON_NEGATION.finditer, other_negations or _OTHER_NEGATION.finditer)
     ):
         holder = bisect.bisect_right(signal_starts, start) - 1
         if holder < 0 or start >= every[holder].end():
@@ -1637,6 +1712,34 @@ def _read_signals(
             continue
         signals.append(signal)
     return signals, negations
+
+
+def _reason_stops(
+    reason: str,
+    masked_citations: Callable[[str], Iterable[re.Match[str]]] | None = None,
+) -> list[int]:
+    """Clause stops, but not the periods inside the citations English masks.
+
+    ``42 U.S.C. 9`` and ``R.S. 47:295`` hold periods that end no clause, as
+    ``_reason_clause_bounds`` reads them; ``masked_citations`` finds them.
+    """
+
+    masked_spans = sorted(
+        (match.start(), match.end())
+        for match in (masked_citations(reason) if masked_citations else ())
+    )
+    stops = []
+    span_index = 0
+    for stop in _clause_stops(reason):
+        while span_index < len(masked_spans) and masked_spans[span_index][1] <= stop:
+            span_index += 1
+        inside = (
+            span_index < len(masked_spans)
+            and masked_spans[span_index][0] <= stop < masked_spans[span_index][1]
+        )
+        if not inside:
+            stops.append(stop)
+    return stops
 
 
 def _signals(text: str) -> list[re.Match[str]]:
@@ -1661,13 +1764,16 @@ class _ReasonIndex:
         other_negations: Callable[[str], Iterable[re.Match[str]]] | None = None,
     ) -> None:
         # Every adversative English reads, in any of its languages, with "not
-        # yet" blanked as English blanks it.
-        self.adversatives = [
-            match.start()
-            for match in _ANY_ADVERSATIVE.finditer(
-                _NOT_YET.sub(lambda match: " " * len(match.group(0)), reason)
-            )
-        ]
+        # yet" blanked as English blanks it, and scripts split, so a glued
+        # ``וhowever`` reverses the reason as ``ו־however`` does.
+        self.adversatives = _split_starts(
+            reason,
+            (
+                lambda view: _ANY_ADVERSATIVE.finditer(
+                    _NOT_YET.sub(lambda match: " " * len(match.group(0)), view)
+                ),
+            ),
+        )
         # A citation starts at its ``סעיף`` word: its prefix letters may belong
         # to a signal (``תלוי בסעיף``), and the citation is still between that
         # signal and a later one. ``citations`` are the reason's
@@ -1692,25 +1798,7 @@ class _ReasonIndex:
         for position in range(len(spans) - 1, -1, -1):
             earliest = min(earliest, spans[position][1])
             self.earliest_end_from[position] = earliest
-        # Clause stops, but not the periods inside the citations English masks
-        # (``42 U.S.C. 9``, ``R.S. 47:295``), as ``_reason_clause_bounds`` does.
-        masked_spans = sorted(
-            (match.start(), match.end())
-            for match in (masked_citations(reason) if masked_citations else ())
-        )
-        self.stops = []
-        span_index = 0
-        for stop in _clause_stops(reason):
-            while (
-                span_index < len(masked_spans) and masked_spans[span_index][1] <= stop
-            ):
-                span_index += 1
-            inside = (
-                span_index < len(masked_spans)
-                and masked_spans[span_index][0] <= stop < masked_spans[span_index][1]
-            )
-            if not inside:
-                self.stops.append(stop)
+        self.stops = _reason_stops(reason, masked_citations)
         self.length = len(reason)
         self.signals, self.negations = _read_signals(
             reason, self.stops, other_negations
@@ -1858,6 +1946,88 @@ def reason_names_source_bound_dependency(
         if _source_scope_links_dependency(linked_index, dependency, instrument):
             return True
     return False
+
+
+# --- Hebrew negations in English text ---------------------------------------
+#
+# The Hebrew reader takes English and German negators before a Hebrew signal or
+# link (``not חסר סעיף 2``). The converse holds too: a Hebrew negation before
+# an English signal or link (``לא missing section 2``, ``(a) לא computed in
+# accordance with section 2``) is read as its translation's negation, by the
+# shared checker's English routes (#1882). Text with no Hebrew script reads
+# nothing here, so no English or German verdict changes.
+
+
+def english_reading_view(
+    reason: str,
+    masked_citations: Callable[[str], Iterable[re.Match[str]]] | None = None,
+) -> str | None:
+    """The copy of a mixed-language reason the English routes must also accept.
+
+    ``None`` when the reason has no Hebrew script. Otherwise it is
+    ``cross_language_text(reason)`` with every clause blanked from each Hebrew
+    negation (``_REASON_NEGATION``, outside the Hebrew signals that hold one,
+    such as ``טרם קודד``) to the clause's end. That is the Hebrew reader's
+    rule: a negation governs what follows it in its clause, before a signal or
+    between a signal and its citation. So ``לא missing section 2`` and
+    ``missing לא section 2`` cite nothing in this copy, and the English
+    routes, which read no negation before ``missing``, refuse them. A
+    citation before the negation (``missing section 2, שלא קודד``) and a
+    clause of its own stay. The shared checker accepts a reason only if it
+    accepts this copy as well, which refuses where the copy alone would
+    refuse and admits nothing the reason alone would not. ``masked_citations``
+    are the citations whose periods end no clause.
+    """
+
+    text = cross_language_text(reason)
+    if text is None:
+        return None
+    signals = [(signal.start(), signal.end()) for signal in _SIGNAL.finditer(text)]
+    signal_starts = [start for start, _ in signals]
+    negations = []
+    for negation in _REASON_NEGATION.finditer(text):
+        holder = bisect.bisect_right(signal_starts, negation.start()) - 1
+        if holder < 0 or negation.start() >= signals[holder][1]:
+            negations.append(negation.start())
+    if not negations:
+        return text if text != reason else None
+    stops = _reason_stops(text, masked_citations)
+    parts = []
+    kept = 0
+    for start in negations:
+        if start < kept:
+            continue
+        stop = bisect.bisect_left(stops, start)
+        end = stops[stop] if stop < len(stops) else len(text)
+        parts.append(text[kept:start])
+        parts.append(" " * (end - start))
+        kept = end
+    parts.append(text[kept:])
+    return "".join(parts)
+
+
+def link_negations(text: str) -> Iterable[re.Match[str]]:
+    """The Hebrew negations, prohibitions and exclusions of a source link.
+
+    ``_NEGATIONS``, for the shared checker's English link guard, which reads
+    them in ``cross_language_text`` as it reads ``not`` and ``except``.
+    """
+
+    return _NEGATIONS.finditer(text)
+
+
+def ends_with_negation(text: str) -> bool:
+    """Whether a mixed-language text ends with a Hebrew link negation.
+
+    The German reader refuses ``nicht abweichend von``; a Hebrew negation in
+    ``nicht``'s place (``לא abweichend von``) is read the same way.
+    """
+
+    view = cross_language_text(text)
+    if view is None:
+        return False
+    end = len(view.rstrip())
+    return any(negation.end() == end for negation in _NEGATIONS.finditer(view))
 
 
 # Counterparts of ``_SOURCE_BOUND_RUNTIME_GAP_LANGUAGE``, word for word. They

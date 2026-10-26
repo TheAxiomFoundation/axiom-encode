@@ -1575,6 +1575,18 @@ _NEGATION_LANGUAGE = re.compile(
 # (``_source_link_scope_has_unreset_negation``). The Hebrew reader takes them,
 # with ``_NEGATION_LANGUAGE``, as negating a Hebrew source link
 # (``(א) prohibited מחושב בהתאם לסעיף 2``), as the translation is read.
+#
+# The vocabulary is symmetric across English, German and Hebrew (#1882). The
+# English lines come first, unchanged. Then come the German words for each of
+# them: ``nicht`` for "not", ``ohne`` for "without", ``außer`` for "except",
+# ``verboten`` for "prohibited", ``anders als`` for "other than", and so on.
+# ``without`` and ``ohne`` exclude a computation word of English or German.
+# Before a Hebrew word they exclude whatever follows, as Hebrew ``בלי`` does
+# (``משולם without חישוב בהתאם לסעיף 2``, "paid without calculation in
+# accordance with section 2"). Every added alternative needs a German word,
+# ``zu`` or a Hebrew letter, so no English text reads differently. German
+# links (``nach``, ``gemäß``) take no negation reading, so no German text
+# reads this vocabulary.
 _SOURCE_LINK_NEGATION_LANGUAGE = re.compile(
     r"\b(?:not|never|neither|nor|cannot|nowhere|prohibit\w*|barred|"
     r"forbidden|precluded|prevented|excluded|denied|except)\b|"
@@ -1595,7 +1607,21 @@ _SOURCE_LINK_NEGATION_LANGUAGE = re.compile(
     r"at\s+no\s+time|by\s+no\s+means|in\s+no\s+way|"
     r"on\s+no\s+account|under\s+no\s+conditions?|"
     r"in\s+no\s+(?:manner|respect))\b|"
-    r"\b(?:rather|other)\s+than\b",
+    r"\b(?:rather|other)\s+than\b|"
+    r"\b(?:nicht|nie|niemals|weder|nirgends|nirgendwo|kein(?:e|en|em|er|es)?|"
+    r"keinesfalls|keineswegs|au(?:ß|ss)er|ausgenommen|abgesehen\s+von|"
+    r"verbiet\w*|verboten\w*|untersag\w*|verwehrt\w*|ausgeschlossen\w*|"
+    r"verhindert\w*|verweigert\w*|abgelehnt\w*|bestreit\w*|verneint\w*|"
+    r"zurückgewiesen\w*|versäumt\w*|unterl(?:ä|a)sst|unterlassen\w*|weigert\w*|"
+    r"au(?:ß|ss)erstande|(?:an)?statt|anders\s+als|"
+    r"(?:falsch|unwahr|unmöglich),?\s+dass)\b|"
+    r"\b(?:without|ohne)\s+(?:being\s+|zu\s+)?(?:"
+    r"determin\w*|comput\w*|calculat\w*|appl\w*|impos\w*|aris\w*|"
+    r"bestimm\w*|ermitt?el\w*|ermittl\w*|festgesetzt\w*|festsetz\w*|"
+    r"festzusetzen|festgestellt\w*|feststell\w*|festzustellen|berechn\w*|"
+    r"errechn\w*|anwend\w*|angewendet\w*|angewandt\w*|anzuwenden|erheb\w*|"
+    r"erhoben\w*|auferleg\w*|aufzuerlegen|entsteh\w*|entstanden\w*)\b|"
+    r"\b(?:without|ohne)\s+(?:being\s+|zu\s+)?(?=[א-ת])",
     flags=re.IGNORECASE,
 )
 _CONTEXTUAL_AUTHORITY_LANGUAGE = re.compile(
@@ -6813,7 +6839,30 @@ def _deferred_coverage(
             branches=branches,
         )
 
+        # A reason that mixes in Hebrew must also be precise as
+        # `english_reading_view` reads it: a Hebrew negation blanks the rest of
+        # its clause there, so `לא missing section 2` cites nothing, as the
+        # Hebrew reader refuses `not חסר סעיף 2` (#1882). With no Hebrew script
+        # there is no view, so no English or German verdict changes.
+        english_view = hebrew_source_text.english_reading_view(
+            reason, masked_citations=_clause_masked_dependencies
+        )
+
         def reason_is_precise_for(
+            candidate_scope_text: str,
+            candidate_path: tuple[str, ...],
+        ) -> bool:
+            return reason_text_is_precise_for(
+                reason, candidate_scope_text, candidate_path
+            ) and (
+                english_view is None
+                or reason_text_is_precise_for(
+                    english_view, candidate_scope_text, candidate_path
+                )
+            )
+
+        def reason_text_is_precise_for(
+            reason: str,
             candidate_scope_text: str,
             candidate_path: tuple[str, ...],
         ) -> bool:
@@ -7502,8 +7551,14 @@ def _source_clause_links_dependency(
                 dependency_link.group(0).strip(),
                 flags=re.IGNORECASE,
             )
-            and re.search(
-                r"\b(?:nicht|keinesfalls)\s*$", preceding_link, flags=re.IGNORECASE
+            and (
+                re.search(
+                    r"\b(?:nicht|keinesfalls)\s*$",
+                    preceding_link,
+                    flags=re.IGNORECASE,
+                )
+                # ``לא abweichend von`` is ``nicht abweichend von`` (#1882).
+                or hebrew_source_text.ends_with_negation(preceding_link)
             )
         )
         if not negated_in_accordance_link and not negated_german_deviation:
@@ -8993,9 +9048,43 @@ def _louisiana_predicate_is_in_negative_complement(
 
 
 def _source_link_scope_has_unreset_negation(governing_scope: str) -> bool:
-    """Bind negation to a linker unless a later finite predicate resets it."""
+    """Bind negation to a linker unless a later finite predicate resets it.
 
-    negative_markers = tuple(_SOURCE_LINK_NEGATION_LANGUAGE.finditer(governing_scope))
+    A scope that mixes in Hebrew is also read as ``cross_language_text``
+    shows it, with the Hebrew link negations (``לא``, ``אינו``, ``בלי``,
+    ``למעט``) among the markers, so ``(a) לא computed in accordance with
+    section 2`` is negated as its translation is (#1882). Either reading's
+    negation counts, so the second reading only refuses; a scope with no
+    Hebrew script has no second reading.
+    """
+
+    if _scope_has_unreset_link_negation(
+        governing_scope,
+        tuple(_SOURCE_LINK_NEGATION_LANGUAGE.finditer(governing_scope)),
+    ):
+        return True
+    cross_language_scope = hebrew_source_text.cross_language_text(governing_scope)
+    if cross_language_scope is None:
+        return False
+    return _scope_has_unreset_link_negation(
+        cross_language_scope,
+        tuple(
+            sorted(
+                (
+                    *_SOURCE_LINK_NEGATION_LANGUAGE.finditer(cross_language_scope),
+                    *hebrew_source_text.link_negations(cross_language_scope),
+                ),
+                key=lambda marker: (marker.start(), marker.end()),
+            )
+        ),
+    )
+
+
+def _scope_has_unreset_link_negation(
+    governing_scope: str, negative_markers: tuple[re.Match[str], ...]
+) -> bool:
+    """``_source_link_scope_has_unreset_negation`` for one reading's markers."""
+
     if not negative_markers:
         return False
 
