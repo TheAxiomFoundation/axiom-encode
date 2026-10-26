@@ -41,7 +41,7 @@ target RuleSpec repository at the commit you encode against:
 ```bash
 cd <work>/rulespec-us
 git fetch origin && git checkout --detach origin/main
-python3 - <<'EOF'
+uv run --no-project --python 3.13 python - <<'EOF'
 import tomllib
 w = tomllib.load(open(".axiom/workflow-toolchain.toml", "rb"))["workflow_toolchain"]
 t = tomllib.load(open(".axiom/toolchain.toml", "rb"))["toolchain"]
@@ -69,6 +69,18 @@ EOF
   applies to producers
   ([signed manifest encoder admission](signed-manifest-encoder-admission.md)).
   On 2026-10-26, current axiom-encode `main` met it.
+
+### Encoder checkout
+
+1. Clone axiom-encode with full history (`git clone`, not a worktree: the
+   route 1 provisioner refuses a worktree). Check out `axiom_encode_ref`, or a
+   later first-parent `main` commit.
+2. Create the venv from Python 3.13:
+   - Route 1: `uv venv --python 3.13 .venv && uv pip install .` (not
+     editable; the supervisor runtime rejects editable installs).
+   - Route 2: `uv sync --locked --python 3.13`.
+3. Call the tools by path (`.venv/bin/python`, `.venv/bin/axiom-encode`). The
+   venv is not activated.
 
 ### Public trust roots
 
@@ -98,48 +110,53 @@ supervisor treats the private-key variable names as fatal
 
    ```bash
    cd <work>/axiom-encode
-   mapfile -t pin < <(.venv/bin/python scripts/materialize_corpus_release.py \
-     pin --toolchain <work>/rulespec-us/.axiom/toolchain.toml)
+   toolchain=<work>/rulespec-us/.axiom/toolchain.toml
+   pin=$(.venv/bin/python scripts/materialize_corpus_release.py pin --toolchain "$toolchain")
+   name=$(printf '%s\n' "$pin" | sed -n 1p)
+   sha=$(printf '%s\n' "$pin" | sed -n 2p)
    curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
      -o <tmp>/release.json \
-     "https://pub-a8952f8657fc49fda358146ac001366c.r2.dev/releases/${pin[0]}/${pin[1]}.json"
+     "https://pub-a8952f8657fc49fda358146ac001366c.r2.dev/releases/$name/$sha.json"
    jq -ce '[{"release_object": .}]' <tmp>/release.json > <tmp>/response.json
    .venv/bin/python scripts/materialize_corpus_release.py materialize \
-     --toolchain <work>/rulespec-us/.axiom/toolchain.toml \
-     --response <tmp>/response.json --corpus-root <work>/axiom-corpus
+     --toolchain "$toolchain" --response <tmp>/response.json \
+     --corpus-root <work>/axiom-corpus
    ```
 
-   The script
-   checks the content digest against the pin. Every corpus-reading command
-   then verifies the signature against the corpus-release root when it binds
-   the release.
-2. Place the provisions bytes. The public URL serves release objects only, not
-   the `objects/sha256/...` bytes. A corpus checkout with
-   `.axiom/corpus-locks/` takes the bytes from the local cache
-   (`~/.axiom/corpus-cache`), then from git objects
-   ([sources](corpus-bytes-outside-git.md#sources)). Fill the cache with
-   `axiom-corpus-ingest corpus fetch --release <release>` or
-   `axiom-encode corpus-fetch`. These need R2 read credentials. Run them as a
-   separate step, never in the encode environment.
-3. Some artifacts can be private-only. On 2026-10-26, 2 of 271 provisions
-   artifacts (12 CFR parts 1005 and 1006) were in no public source, and the
-   encoder failed closed when it loaded the release. The workaround was
-   `AXIOM_CORPUS_NO_FETCH=1`, which turns off placement
-   ([command](corpus-bytes-outside-git.md#command)), plus a local-only shim
-   that hid those two artifacts from candidate lookup. No rulespec-us module
-   cites 12 CFR, so the shim did not change the result. The shim is not part
-   of this repository.
+   The script checks the content digest against the pin. Every
+   corpus-reading command then verifies the signature against the
+   corpus-release root when it binds the release.
+2. Place the provisions bytes before the encode, as a separate step:
+
+   ```bash
+   .venv/bin/axiom-encode corpus-fetch --corpus-path <work>/axiom-corpus \
+     --rulespec-root <work>/rulespec-us
+   ```
+
+   A corpus checkout with `.axiom/corpus-locks/` keeps its bytes outside git.
+   `corpus-fetch` places them into the checkout from the local cache
+   (`~/.axiom/corpus-cache`), then from git objects, then from R2
+   ([sources](corpus-bytes-outside-git.md#sources)). The public URL serves
+   release objects only, not the `objects/sha256/...` bytes. R2 read
+   credentials are needed only for bytes that the cache and git do not have.
+   `axiom-corpus-ingest corpus fetch --release <release>` fills the cache.
+   The command exits 1 when it cannot place an artifact, and names it.
+3. **Private-only artifacts.** If `corpus-fetch` cannot place an artifact, a
+   later read of that jurisdiction and document class fails closed. Get the
+   bytes from a maintainer with R2 read access, or treat encodes that need
+   that scope as blocked. On 2026-10-26, 2 of 271 provisions artifacts
+   (12 CFR parts 1005 and 1006) were private-only. That run continued only
+   with a local experiment shim that hid them from candidate lookup. The shim
+   is not part of this repository and is not a supported setup.
 
 ### Route 1: root-owned verification supervisor
 
 This is the route that #1622 proved with the code on `main`. It runs the
 encoder under the same supervisor that CI uses, with no signer attached.
+Supervised commands read corpus bytes from the checkout and its git objects
+only, so place them first (see [Corpus release](#corpus-release)).
 
-1. Clone axiom-encode with full history and check out `axiom_encode_ref`. The
-   provisioner refuses a git worktree.
-2. Create the venv and install the package (not editable):
-   `uv venv --python 3.13 .venv && uv pip install .`
-3. Build the supervisor:
+1. Build the supervisor in the encoder checkout:
 
    ```bash
    CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
@@ -147,16 +164,17 @@ encoder under the same supervisor that CI uses, with no signer attached.
      ./cmd/axiom-encode-signing-supervisor
    ```
 
-4. Bind the engine: `axiom-encode engine-bind --axiom-rules-engine-path
-   <work>/axiom-rules-engine --pin <axiom_rules_engine_ref>`.
-5. Provision a root-owned runtime with
+2. Bind the engine: `.venv/bin/axiom-encode engine-bind
+   --axiom-rules-engine-path <work>/axiom-rules-engine --pin
+   <axiom_rules_engine_ref>`.
+3. Provision a root-owned runtime with
    `scripts/provision_verification_supervisor.py`, as in
    [ChatGPT subscription generation](trusted-signing-supervisor.md#chatgpt-subscription-generation),
    with the three public roots and `--install-pinned-codex-cli`. Then make the
    tree root-owned and not group- or other-writable
    (`chown -R 0:0`, `chmod -R go-w`). The supervisor refuses a tree that the
    invoking user can write. Run the `sudo` step yourself; never automate it.
-6. Run the supervisor as your own user, with `CODEX_HOME` unset, and give it
+4. Run the supervisor as your own user, with `CODEX_HOME` unset, and give it
    `--codex-subscription-auth` and `--codex-auth-outbox`. After `--`, run
    `/opt/axiom-verification/axiom-encode encode <citation>` with the flags in
    [Encode command](#encode-command).
@@ -176,17 +194,16 @@ capability, and the wrapper refuses `--apply`.
 - The context manager is documented as existing for `axiom-encode ci`. Use
   this route for local drafts and measurements only. It has no supervisor
   isolation.
-- Use a uv venv from Python 3.13 (`uv sync --locked`), and run the wrapper with
-  `python -I`.
+- Run the wrapper with `.venv/bin/python -I`.
 
 ### Encode command
 
-Run the encode in an empty environment, so that no provider, R2, Supabase or
-GitHub key can reach it:
+Run the encode in an empty environment:
 
 ```bash
 env -i HOME="$HOME" USER="$USER" TMPDIR="$TMPDIR" LANG=en_US.UTF-8 \
-  PATH="<venv>/bin:$HOME/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+  AXIOM_CORPUS_NO_FETCH=1 \
+  PATH="<venv>/bin:<codex-and-claude-dir>:/usr/bin:/bin:/usr/sbin:/sbin" \
   caffeinate -i <launcher> encode "<citation>" --backend codex \
     --corpus-path <work>/axiom-corpus \
     --axiom-rules-engine-path <work>/axiom-rules-engine \
@@ -198,9 +215,16 @@ env -i HOME="$HOME" USER="$USER" TMPDIR="$TMPDIR" LANG=en_US.UTF-8 \
 ```
 
 `<launcher>` is the supervisor command line of route 1 or the wrapper of
-route 2. Add the directory of the `codex` and `claude` binaries to `PATH` for
 route 2.
 
+- `env -i` removes provider, R2, Supabase and GitHub keys from the
+  environment. It keeps `HOME`, so files under it still apply: the Codex and
+  Claude logins, and `~/.config/axiom-foundation/r2-credentials.json` if it
+  exists.
+- `AXIOM_CORPUS_NO_FETCH=1` turns off corpus placement during the encode
+  ([command](corpus-bytes-outside-git.md#command)), so the encode does not
+  fetch from R2 even if a credentials file exists. Place the bytes before the
+  run.
 - `--no-sync` and a local `--db` keep the run out of Supabase.
 - `--require-complete-source-unit` applies the same completeness rule as the
   protected workflow.
@@ -268,10 +292,14 @@ can produce one.
    change lands, the digest no longer matches. Encode against current `main`,
    and land quickly.
 
-Today the only signed paths are a model re-encode in the protected workflow
-and `promote-reviewed-candidate`
+Today new RuleSpec bytes get a signed manifest in two ways only: a model
+re-encode in the protected workflow, or `promote-reviewed-candidate`
 ([reviewed candidate promotion](trusted-signing-supervisor.md#reviewed-candidate-promotion)).
 Promotion needs an allowlist change and a manual dispatch.
+`refresh-applied-manifest` also signs, but only for bytes that already have a
+signed model manifest
+([byte-identical manifest refresh](trusted-signing-supervisor.md#byte-identical-manifest-refresh)),
+so it cannot admit an unsigned local draft.
 
 ## Planned contributor flow (design B)
 
