@@ -20,8 +20,8 @@ import sys
 import tempfile
 import time
 import unicodedata
-from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 import yaml
@@ -4098,8 +4098,8 @@ def test_each_prefix_of_a_negation_is_read_or_excluded(word, negation, english):
 # compares each mixed source against its word-for-word English translation.
 
 
-@dataclass(frozen=True)
-class _Word:
+# A NamedTuple, not a dataclass: review scripts load this module unregistered.
+class _Word(NamedTuple):
     text: str
     language: str
     english: str
