@@ -4599,8 +4599,9 @@ def _fingerprint_validation_waiver_modules_parallel(
     validate still opens a fresh resolution scope per module. Thus a task is
     the standalone execution, independent of worker assignment or neighbors,
     with process-specific paths canonicalized out of its outcome. A worker
-    failure fails the whole audit; results are re-sorted so output order
-    matches the serial code path exactly.
+    failure fails the whole audit with the error the interleaved split would
+    have raised, whatever the completion order; results are re-sorted so
+    output order matches the serial code path exactly.
     """
     ordered = sorted(str(module) for module in modules)
     workers = _waiver_audit_worker_count(len(ordered))
@@ -4627,7 +4628,7 @@ def _fingerprint_validation_waiver_modules_parallel(
     dependency_roots = tuple(str(path) for path in rulespec_dependency_roots)
 
     results: list[dict[str, Any]] = []
-    worker_error: Exception | None = None
+    failures: list[tuple[tuple[int, int], Exception]] = []
     with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
         futures = [
             pool.submit(
@@ -4642,23 +4643,29 @@ def _fingerprint_validation_waiver_modules_parallel(
             )
             for module in ordered
         ]
+        index_of = {future: index for index, future in enumerate(futures)}
         for future in concurrent.futures.as_completed(futures):
+            # The interleaved split this replaces raised the first failing
+            # module of the lowest failing slice (slice index % workers,
+            # position index // workers). Rank failures the same way so the
+            # reported error never depends on which worker finished first.
+            index = index_of[future]
+            rank = (index % workers, index // workers)
             try:
                 task = future.result()
             except Exception as error:
-                if worker_error is None:
-                    worker_error = error
+                failures.append((rank, error))
                 continue
             sys.stderr.write(task.stderr)
             sys.stderr.flush()
-            if task.error is not None and worker_error is None:
-                worker_error = task.error
+            if task.error is not None:
+                failures.append((rank, task.error))
             results.extend(task.rows)
 
     # The pool waits for submitted work even on failure. Drain every receipt
     # first so completed modules' captured diagnostics are never discarded.
-    if worker_error is not None:
-        raise worker_error
+    if failures:
+        raise min(failures, key=lambda failure: failure[0])[1]
 
     returned = sorted(result["path"] for result in results)
     if returned != ordered:
