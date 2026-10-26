@@ -2367,12 +2367,20 @@ _JURISDICTION_SET_LABEL_NUMERIC_RECALL_IDENTIFIER = re.compile(
     r"Virgin[ \t]+Islands\b))"
 )
 _JURISDICTION_SET_LABEL_CAPTION = re.compile(
-    r"(?<![\w$])(?<!(?i:maximum|minimum) )Household[ \t]+Size\Z", re.IGNORECASE
+    r"(?<![\w$])Household[ \t]+Size\Z", re.IGNORECASE
 )
-# Only column-header words (no digit, currency sign or line-free run longer
-# than 200 characters) may separate the label from row `1 $<amount>`.
+# A qualifier before the caption (`Maximum Household Size 48 ...`, across any
+# whitespace) makes it a row label with an operative value.
+_JURISDICTION_SET_LABEL_CAPTION_QUALIFIER = re.compile(
+    r"\b(?:max(?:imum)?|min(?:imum)?|largest|smallest|total|average|eligible|"
+    r"limit|up[ \t]+to)\W*\Z",
+    re.IGNORECASE,
+)
+# Only column-header words (no digit, currency sign or second `Household`
+# caption, at most 200 characters) may separate the label from row
+# `1 $<amount>`.
 _JURISDICTION_SET_LABEL_FIRST_ROW = re.compile(
-    r"[^\d$]{0,200}?(?<!\S)1[ \t]+\$[ \t]*\d"
+    r"(?:(?!household)[^\d$]){0,200}?(?<!\S)1[ \t]+\$[ \t]*\d", re.IGNORECASE
 )
 _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
     r"\bWAC[ \t]+\d+-\d+-\d+[A-Za-z]?"
@@ -2397,11 +2405,13 @@ _NUMBERED_MANUAL_HEADING_LABEL = re.compile(
     r"Business|Calendar|Working)\b)"
     r"(?P<title>[A-Z][A-Za-z'’&()/-]*(?:[ \t,]+[A-Za-z'’&()/-]+){1,15})[ \t]*$)"
 )
-# A ZIP+4 extension. PDF extraction can split it at its hyphen; a split
-# extension counts only before punctuation or a line end, so a following
-# bullet such as `\n- 1500 dollars ...` keeps its amount.
+# A ZIP+4 extension. PDF extraction can split it after its hyphen
+# (`22314-\n1500`) or space it on the same line (`20001 - 3710;`, only
+# before punctuation or a line end). A hyphen that opens a new line is a
+# bullet (`22314\n- 1500, ...`), never an extension.
 _US_ZIP_PLUS_FOUR_EXTENSION = (
-    r"(?:-\d{4}|\s*-\s*\d{4}(?=[ \t]*(?:[;,)]|\.(?!\d)|\r?\n|\Z)))(?![\d-])"
+    r"(?:-[ \t]*(?:\r?\n[ \t]*)?\d{4}"
+    r"|[ \t]+-[ \t]*\d{4}(?=[ \t]*(?:[;,)]|\.(?!\d)|\r?\n|\Z)))(?![\d-])"
 )
 # Telephone numbers, post-office boxes, ZIP+4 codes and letter-prefixed form
 # numbers (`Schedule K-210`) on US forms and notices.
@@ -2439,7 +2449,9 @@ def _us_street_address_or_amount(match: re.Match[str]) -> str:
     """Remove a postal address unless its first number reads as an amount."""
 
     before = match.start()
-    while before > 0 and match.string[before - 1].isspace():
+    while before > 0 and (
+        match.string[before - 1].isspace() or match.string[before - 1] in "+-−–"
+    ):
         before -= 1
     if _US_STREET_ADDRESS_CURRENCY_PREFIX.search(
         match.string, max(0, before - 4), before
@@ -15269,9 +15281,16 @@ def _contiguous_states_numeric_recall_spans(
         before = identifier.start()
         while before > 0 and source_text[before - 1].isspace():
             before -= 1
-        if _JURISDICTION_SET_LABEL_CAPTION.search(
+        caption = _JURISDICTION_SET_LABEL_CAPTION.search(
             source_text, max(0, before - 32), before
-        ) and _JURISDICTION_SET_LABEL_FIRST_ROW.match(source_text, identifier.end()):
+        )
+        if (
+            caption
+            and not _JURISDICTION_SET_LABEL_CAPTION_QUALIFIER.search(
+                source_text, max(0, caption.start() - 64), caption.start()
+            )
+            and _JURISDICTION_SET_LABEL_FIRST_ROW.match(source_text, identifier.end())
+        ):
             yield identifier.span()
 
 

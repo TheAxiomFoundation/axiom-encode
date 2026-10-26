@@ -166,6 +166,10 @@ def test_jurisdiction_set_column_label_is_not_demanded(label):
         "Criterion\tLimit\tApplies in\nMaximum Household Size\t48\tStates, "
         "District of Columbia and Guam",
         "Maximum Household Size 48 States, District of Columbia and Guam",
+        "Maximum  Household Size 48 States, District of Columbia and Guam",
+        "Maximum\tHousehold Size 48 States, District of Columbia and Guam",
+        "Maximum\nHousehold Size 48 States, District of Columbia and Guam",
+        "Maximum: Household Size 48 States, District of Columbia and Guam",
         "Household Size 48  States, District of Columbia",
     ),
 )
@@ -187,6 +191,7 @@ def test_48_stays_demanded_outside_a_jurisdiction_set_label(source, rows):
         " Alaska Hawaii 1 1,305",
         " Alaska Hawaii are listed in Table 2. 1 $1,305",
         " " + "Alaska " * 40 + "1 $1,305",
+        "\nHousehold Size Monthly Limit\n1 $1,305",
     ),
 )
 def test_label_without_a_first_household_size_row_stays_demanded(after):
@@ -267,6 +272,8 @@ def test_complete_postal_address_numbers_are_not_demanded(address, numbers):
         "The deduction is $" + " " * 16 + "1320 Braddock Pl., Alexandria, VA 22314.",
         "The deduction is USD -1320 Braddock Pl., Alexandria, VA 22314.",
         "The deduction is $-1320 Braddock Pl., Alexandria, VA 22314.",
+        "The deduction is USD - 1320 Braddock Pl., Alexandria, VA 22314.",
+        "The deduction is $ \u2212 1320 Braddock Pl., Alexandria, VA 22314.",
         "The change is -1320 Braddock Pl., Alexandria, VA 22314.",
         "The rate is 0.1320 Braddock Place, Alexandria, VA 22314.",
         # No complete city, state and ZIP tail.
@@ -289,6 +296,9 @@ def test_number_outside_a_complete_postal_address_stays_demanded(source):
         "\n- 1500 dollars is the maximum monthly income.",
         " - 1500 dollars is the maximum monthly income.",
         "\n-1500 dollars is the maximum monthly income.",
+        "\n- 1500, the maximum monthly income.",
+        "\n- 1500\n  dollars is the maximum monthly income.",
+        "\n- 1500.",
     ),
 )
 def test_amount_after_an_address_is_not_read_as_a_zip_extension(tail):
@@ -311,7 +321,8 @@ def test_bullet_after_an_address_or_kept_amount_stays_demanded(prefix):
 def test_split_zip_plus_four_is_still_masked():
     for source in (
         "Write to Alexandria, VA 22314 - 1500.",
-        "Write to Alexandria, VA 22314\n-1500\nPhone",
+        "Write to Alexandria, VA 22314-\n1500\nPhone",
+        "Write to 1320 Braddock Place, Alexandria, VA 22314-\n1500 Phone",
         "Write to 800 I Street, NW, Washington, DC 20001 - 3710; phone",
     ):
         values = _values(source)
