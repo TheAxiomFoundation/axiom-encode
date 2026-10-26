@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "us",
+  "declared": null,
+  "pr_base_branch": null,
+  "purpose": "Reviewed exact-dependent metadata reconciliation head. Migrated from the pre-record allowlist; admitted by axiom-encode#1457.",
+  "rulespec_pr": null,
+  "rulespec_ref": "dc87ef6212accbc4ff67b81f97b6ddf0cf3b5a5c",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}

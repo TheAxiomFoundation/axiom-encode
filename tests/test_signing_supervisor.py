@@ -3262,6 +3262,9 @@ def test_targeted_reencode_has_fail_closed_reviewed_candidate_promotion() -> Non
     assert "promote-reviewed-candidate" in command
     assert '--reviewed-rulespec-ref "$RULESPEC_REF"' in command
     assert '--rulespec-path "$REPLACE_RULESPEC_PATH"' in command
+    # Admission records come from the attested runtime prefix, never from a
+    # caller-controlled argument.
+    assert "--reviewed-rulespec-refs-root" not in command
     assert "cannot mix with other transaction modes" in command
     assert command.index("promote-reviewed-candidate") < command.index(
         'elif [ "$canonical_refresh_enabled" = "true" ]'

@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "ca",
+  "declared": null,
+  "pr_base_branch": null,
+  "purpose": "Reviewed Canada toolchain preparation head for artifact-only repair (rulespec-ca#28). Migrated from the pre-record allowlist; admitted by axiom-encode#1775.",
+  "rulespec_pr": 28,
+  "rulespec_ref": "09327ea52b2c09d20ce5f826fe61dceb33253abc",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}

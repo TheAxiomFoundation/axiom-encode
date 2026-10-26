@@ -21,7 +21,6 @@ from scripts.prepare_signed_backfill import (
     MAX_CANONICAL_REFRESH_BUNDLE_CITATIONS,
     MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES,
     MAX_SOURCE_BUNDLE_JSON_BYTES,
-    REVIEWED_RULESPEC_PR_BASES,
     REVIEWED_RULESPEC_REFS,
     _normalize_required_test_cases,
     _retired_manifest_inventory_without_entry,
@@ -4336,82 +4335,8 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
     reviewed_ref: str,
 ) -> None:
     repo = tmp_path / f"rulespec-{country}"
-    assert REVIEWED_RULESPEC_REFS == frozenset(
-        {
-            ("dk", "06489d04e7d4b8d424d1711d99df883c6411248a"),
-            ("us", "b61918da93fe8a1a29b35b9330aef2085291a5d0"),
-            ("us", "251d8d66dabdebcb763d9e7c9b8322a281440c36"),
-            ("us", "68cca4a6fa806b63f95277c129575d88d2ac07f1"),
-            ("us", "1e04e456ab404860050586c34eef51321eea95e9"),
-            ("us", "b1a6e07af093d62f613f83afe26fcb4dd87de491"),
-            ("us", "38ddc92d4160a0d39af13bfe232a446b554a15c5"),
-            ("us", "ef9dd5f72d529ebc70f539c42144361e536d7563"),
-            ("us", "f4fd3203db560c0d4661542388b6ae2f353e0bd3"),
-            ("us", "e942ce50546b1c3a1c0c8f3f0404a217eddbe071"),
-            ("us", "dc87ef6212accbc4ff67b81f97b6ddf0cf3b5a5c"),
-            ("us", "2a503a5c9a2227c363aceaece6c547429c3c0878"),
-            ("us", "6535019ce780d9e78f10509f2fe7a2607fb2bdc4"),
-            ("us", "c482ef6506c50b54236354926bbce1bcd6434132"),
-            ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
-            ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
-            ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
-            ("us", "b5273061fc5765dea04bf36f63de39bf40afc2d8"),
-            ("us", "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a"),
-            ("us", "87c766a7ecc76d7d36272c648f6daf87b4669317"),
-            ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
-            ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
-            ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
-        }
-    )
-    assert REVIEWED_RULESPEC_PR_BASES == frozenset(
-        {
-            (
-                "dk",
-                "06489d04e7d4b8d424d1711d99df883c6411248a",
-                "pin/dk-rulespec-2026-08-07",
-            ),
-            (
-                "us",
-                "2a503a5c9a2227c363aceaece6c547429c3c0878",
-                "hard-cut/canonical-layout-us",
-            ),
-            (
-                "us",
-                "297aec1691edf7b3a21781c8a825690db1e7c988",
-                "axiom/signed-backfill-us-35001504609-1",
-            ),
-            (
-                "us",
-                "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
-                "axiom/signed-backfill-us-35145159769-1",
-            ),
-            (
-                "us",
-                "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
-                "axiom/signed-backfill-us-35160240952-1",
-            ),
-            (
-                "us",
-                "b5273061fc5765dea04bf36f63de39bf40afc2d8",
-                "fix/1248-snap-immigration-status",
-            ),
-            (
-                "us",
-                "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
-                "codex/az-nested-engine-pin",
-            ),
-            (
-                "us",
-                "87c766a7ecc76d7d36272c648f6daf87b4669317",
-                "axiom/signed-backfill-us-38756101655-1",
-            ),
-            (
-                "us",
-                "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
-                "fl-snap-bbce-page5",
-            ),
-        }
-    )
+    # The full migrated sets are pinned in tests/test_reviewed_rulespec_records.py.
+    assert (country, reviewed_ref) in REVIEWED_RULESPEC_REFS
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill._git",
         lambda _repo, *_args: f"{reviewed_ref}\n".encode(),

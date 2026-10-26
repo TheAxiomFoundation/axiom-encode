@@ -985,6 +985,11 @@ def _install_pinned_codex_cli(
 
 
 _ENCODER_PACKAGE_PATHSPEC = "src/axiom_encode"
+# Code-owner-reviewed reviewed-RuleSpec admission records. They are data, not
+# encoder code: exported verbatim from the attested commit into the root-owned
+# runtime prefix, where promote-reviewed-candidate reads them.
+_REVIEWED_RULESPEC_REFS_PATHSPEC = "data/reviewed-rulespec-refs"
+_REVIEWED_RULESPEC_REFS_EXPORT = "reviewed-rulespec-refs"
 # Files whose in-tree version must agree for the encoder to declare one version,
 # and the paths whose change after a version bump is "unversioned encoder drift".
 # Mirrors the invariant cli.py enforces in Git mode.
@@ -1387,6 +1392,73 @@ def _export_encoder_package(
     return package
 
 
+def _export_reviewed_rulespec_refs(
+    trusted_git: Path, git_dir: Path, home: Path, commit: str, staging: Path
+) -> Path:
+    """Export the tracked admission records at ``commit`` with raw tree reads.
+
+    Only regular non-executable blobs are materialized (mode 0644); a symlink,
+    gitlink, executable or escaping path refuses provisioning. A commit without
+    records yields an empty directory, which admits no reviewed head. The
+    strict record loader validates layout and content at promotion time.
+    """
+
+    listing = _hardened_git(
+        trusted_git,
+        git_dir,
+        home,
+        "ls-tree",
+        "-r",
+        "-z",
+        commit,
+        "--",
+        _REVIEWED_RULESPEC_REFS_PATHSPEC,
+    )
+    export_root = staging / _REVIEWED_RULESPEC_REFS_EXPORT
+    export_root.mkdir(mode=0o755)
+    export_root.chmod(0o755)
+    resolved_root = export_root.resolve()
+    prefix = _REVIEWED_RULESPEC_REFS_PATHSPEC + "/"
+    for entry in (entry for entry in listing.split(b"\0") if entry):
+        meta, separator, raw_path = entry.partition(b"\t")
+        fields = meta.split(b" ")
+        if separator != b"\t" or len(fields) != 3:
+            raise SystemExit(
+                f"refusing to provision: malformed ls-tree entry: {entry!r}"
+            )
+        mode = fields[0].decode("ascii", "replace")
+        oid = fields[2].decode("ascii", "replace")
+        relative = os.fsdecode(raw_path)
+        if (
+            fields[1] != b"blob"
+            or mode != "100644"
+            or re.fullmatch(r"[0-9a-f]{40,64}", oid) is None
+            or not relative.startswith(prefix)
+        ):
+            raise SystemExit(
+                "refusing to provision: unsupported reviewed RuleSpec record "
+                f"tree entry {mode} {fields[1]!r} at {relative}"
+            )
+        parts = relative[len(prefix) :].split("/")
+        destination = export_root.joinpath(*parts)
+        if any(part in {"", ".", ".."} for part in parts) or not (
+            destination.resolve().is_relative_to(resolved_root)
+        ):
+            raise SystemExit(
+                "refusing to provision: reviewed RuleSpec record path escapes "
+                f"its root: {relative}"
+            )
+        blob = _hardened_git(trusted_git, git_dir, home, "cat-file", "blob", oid)
+        for parent in reversed(destination.relative_to(export_root).parents):
+            directory = export_root / parent
+            if not directory.exists():
+                directory.mkdir(mode=0o755)
+                directory.chmod(0o755)
+        destination.write_bytes(blob)
+        destination.chmod(0o644)
+    return export_root
+
+
 def _tree_hash_update(hasher: "hashlib._Hash", relative_path: str, raw: bytes) -> None:
     relative_bytes = relative_path.encode("utf-8")
     hasher.update(len(relative_bytes).to_bytes(8, "big"))
@@ -1620,6 +1692,7 @@ def _verify_and_export_encoder_snapshot(
     package = _export_encoder_package(
         trusted_git, git_dir, home, encoder_commit, staging
     )
+    _export_reviewed_rulespec_refs(trusted_git, git_dir, home, encoder_commit, staging)
     return declared_version, package
 
 
@@ -1786,6 +1859,15 @@ def provision(
             # time via Path(__file__).parent) so the recorded tree digest binds
             # the executing bytes.
             package_tree_sha256 = _deterministic_package_tree_sha256(installed_package)
+            # Inside the runtime prefix, so the supervisor's trusted-tree checks
+            # (root-owned, no symlinks or special files) cover the records, and
+            # the CLI locates them from its own prefix rather than an argument.
+            assert encoder_staging is not None
+            shutil.copytree(
+                encoder_staging / _REVIEWED_RULESPEC_REFS_EXPORT,
+                runtime / _REVIEWED_RULESPEC_REFS_EXPORT,
+                symlinks=True,
+            )
         if sys.platform == "linux":
             if not patchelf:
                 patchelf = shutil.which("patchelf")
