@@ -2407,11 +2407,13 @@ _NUMBERED_MANUAL_HEADING_LABEL = re.compile(
 )
 # A ZIP+4 extension. PDF extraction can split it after its hyphen
 # (`22314-\n1500`) or space it on the same line (`20001 - 3710;`, only
-# before punctuation or a line end). A hyphen that opens a new line is a
-# bullet (`22314\n- 1500, ...`), never an extension.
+# before punctuation, a line end or a telephone number: `22902 -2964
+# 434-970-3160`). A hyphen that opens a new line is a bullet
+# (`22314\n- 1500, ...`), never an extension.
 _US_ZIP_PLUS_FOUR_EXTENSION = (
     r"(?:-[ \t]*(?:\r?\n[ \t]*)?\d{4}"
-    r"|[ \t]+-[ \t]*\d{4}(?=[ \t]*(?:[;,)]|\.(?!\d)|\r?\n|\Z)))(?![\d-])"
+    r"|[ \t]+-[ \t]*\d{4}(?=[ \t]*(?:[;,)]|\.(?!\d)|\r?\n|\Z)"
+    r"|[ \t]+(?:\(\d{3}\)[ \t]*|\d{3}[-.])\d{3}-\d{4}\b))(?![\d-])"
 )
 # Telephone numbers, post-office boxes, ZIP+4 codes and letter-prefixed form
 # numbers (`Schedule K-210`) on US forms and notices.

@@ -324,9 +324,12 @@ def test_split_zip_plus_four_is_still_masked():
         "Write to Alexandria, VA 22314-\n1500\nPhone",
         "Write to 1320 Braddock Place, Alexandria, VA 22314-\n1500 Phone",
         "Write to 800 I Street, NW, Washington, DC 20001 - 3710; phone",
+        # Virginia Form 760 instructions: a locality contact list.
+        "Charlottesville City - 540 P.O. Box 2964, Charlottesville, VA 22902 -2964 "
+        "434-970-3160 Chesapeake City",
     ):
         values = _values(source)
-        assert 1500 not in values and 3710 not in values, source
+        assert not {1500, 3710, 2964} & {abs(value) for value in values}, source
 
 
 def test_amount_on_the_same_line_as_an_address_stays_demanded():
