@@ -15205,14 +15205,15 @@ _LEADING_PAGE_NUMBER_LINE = re.compile(r"[ \t]*(?P<page>[0-9]{1,4})[ \t]*\r?\n")
 # hour`, `14\r\npercent`, `14\ntaxable years`, `14\nto 18 years`) makes the
 # number an amount whose unit wrapped onto the next line, not a page number.
 # A unit may follow up to two modifier words (`U.S. dollars`, `consecutive
-# months`). A range word counts only before a number or a comparison word, so
-# a page that opens with `To qualify, ...` keeps its page number masked.
+# months`). A range or list word (`to`, `through`, `or`, `and`) counts only
+# before a number or a comparison word, so a page that opens with
+# `To qualify, ...` keeps its page number masked.
 _LEADING_PAGE_NUMBER_QUANTITY_CONTINUATION = re.compile(
     r"\s*(?:[%\u00a2]"
     r"|(?:[A-Za-z][A-Za-z.'\-]*[ \t]+){0,2}"
     r"(?:dollars?|cents?|usd|percent(?:age)?s?|per|seconds?|minutes?|hours?"
     r"|days?|weeks?|months?|quarters?|years?|times|miles?)\b"
-    r"|(?:to|through|or)\s+\$?\d"
+    r"|(?:to|through|or|and)\s+\$?\d"
     r"|or\s+(?:more|less|fewer|greater|older|younger|over|under)\b)",
     re.IGNORECASE,
 )

@@ -161,6 +161,9 @@ def test_replay_page_amounts_stay_demanded(citation, source, page):
         "or more qualifying children.",
         "to 18 years of age.",
         "through 17 years of age.",
+        # Coordinated amounts.
+        "and 12 percent brackets apply.",
+        "or $20 per hour, whichever is greater.",
     ),
 )
 def test_page_index_amount_with_wrapped_unit_stays_demanded(line_break, continuation):
