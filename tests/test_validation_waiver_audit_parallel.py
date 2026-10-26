@@ -22,14 +22,13 @@ def _release_stub():
     )
 
 
-class _FakeFuture:
+class _FakeFuture(cli.concurrent.futures.Future):
     def __init__(self, value):
-        self._value = value
-
-    def result(self):
-        if isinstance(self._value, Exception):
-            raise self._value
-        return self._value
+        super().__init__()
+        if isinstance(value, Exception):
+            self.set_exception(value)
+        else:
+            self.set_result(value)
 
 
 class _FakePool:
@@ -49,7 +48,10 @@ class _FakePool:
 
     def submit(self, fn, chunk, *args):
         type(self).submitted.append((fn, tuple(chunk), args))
-        return _FakeFuture(type(self).chunk_results[chunk[0]])
+        value = type(self).chunk_results[chunk[0]]
+        if not isinstance(value, Exception):
+            value = cli._WaiverAuditTaskResult(value, "")
+        return _FakeFuture(value)
 
 
 @pytest.fixture(autouse=True)
@@ -192,13 +194,11 @@ def _run_parallel(paths, monkeypatch, workers="2", composer=None):
 
 def test_parallel_results_are_merged_and_sorted(monkeypatch):
     paths = [f"us/{index:03d}.yaml" for index in range(20)]
-    # Interleaved worker slices separate adjacent expensive modules; return
-    # each worker's rows reversed to prove the merge restores sorted order.
-    for offset in range(2):
-        piece = paths[offset::2]
-        _FakePool.chunk_results[piece[0]] = [
-            {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
-            for path in reversed(piece)
+    # Deliberately return rows out of order to prove the merge restores the
+    # serial order even when task completion/response order differs.
+    for submitted, returned in zip(paths, reversed(paths), strict=True):
+        _FakePool.chunk_results[submitted] = [
+            {"path": returned, "passed": False, "fingerprint": f"fp-{returned}"}
         ]
     results = _run_parallel(
         list(reversed(paths)), monkeypatch, composer=Path("/composer")
@@ -207,8 +207,9 @@ def test_parallel_results_are_merged_and_sorted(monkeypatch):
     submitted_paths = [
         path for _fn, chunk_paths, _args in _FakePool.submitted for path in chunk_paths
     ]
-    assert submitted_paths == paths[::2] + paths[1::2]
+    assert submitted_paths == paths
     for _fn, _chunk, args in _FakePool.submitted:
+        assert len(_chunk) == 1
         assert args == (
             "/repo",
             "/corpus",
@@ -221,13 +222,11 @@ def test_parallel_results_are_merged_and_sorted(monkeypatch):
 
 def test_parallel_detects_lost_results(monkeypatch):
     paths = [f"us/{index:03d}.yaml" for index in range(20)]
-    for offset in range(2):
-        piece = paths[offset::2]
-        rows = [
+    for path in paths:
+        _FakePool.chunk_results[path] = [
             {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
-            for path in piece
         ]
-        _FakePool.chunk_results[piece[0]] = rows[:-1] if offset == 0 else rows
+    _FakePool.chunk_results[paths[0]] = []
     with pytest.raises(RuntimeError, match="corrupted module set"):
         _run_parallel(paths, monkeypatch)
 
@@ -235,29 +234,23 @@ def test_parallel_detects_lost_results(monkeypatch):
 def test_parallel_detects_duplicate_masking_missing(monkeypatch):
     # Same cardinality, wrong multiset: one path duplicated, one omitted.
     paths = [f"us/{index:03d}.yaml" for index in range(20)]
-    for offset in range(2):
-        piece = paths[offset::2]
-        rows = [
+    for path in paths:
+        _FakePool.chunk_results[path] = [
             {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
-            for path in piece
         ]
-        if offset == 0:
-            rows[-1] = dict(rows[0])
-        _FakePool.chunk_results[piece[0]] = rows
+    _FakePool.chunk_results[paths[-1]] = _FakePool.chunk_results[paths[0]]
     with pytest.raises(RuntimeError, match="duplicated"):
         _run_parallel(paths, monkeypatch)
 
 
 def test_parallel_propagates_worker_failure(monkeypatch):
     paths = [f"us/{index:03d}.yaml" for index in range(20)]
-    for offset in range(2):
-        piece = paths[offset::2]
-        _FakePool.chunk_results[piece[0]] = (
+    for index, path in enumerate(paths):
+        _FakePool.chunk_results[path] = (
             ValueError("worker exploded")
-            if offset == 0
+            if index == 0
             else [
                 {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
-                for path in piece
             ]
         )
     with pytest.raises(ValueError, match="worker exploded"):
