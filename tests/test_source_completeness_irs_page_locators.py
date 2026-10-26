@@ -1,7 +1,8 @@
 """An IRS PDF page's printed page number is a locator, not a recall demand.
 
 The excerpts are the opening bytes of the Rev. Proc. 2025-32 and Notice
-2025-67 page sources in the offline US replay benchmark (#1891). Since 0.2.2217
+2025-67 page sources in the offline US replay benchmark (#1891, fixtures at
+359a2c907). Since 0.2.2217
 the extractor no longer treats a number alone on a line as structural, so each
 page started to demand its own page number.
 """
@@ -55,7 +56,7 @@ REPLAY_PAGES = (
     (
         f"{NOTICE}/page-4",
         "4\n\nhousehold is increased from $35,625 to $36,375; the limitation "
-        "under section 25B(b)(1)(B) is increased from $38,250 to $39,375.",
+        "under section 25B(b)(1)(B) is increased from $38,250 to $39,375;",
         4,
     ),
 )
@@ -120,13 +121,63 @@ def test_replay_page_number_is_not_demanded(citation, source, page):
     assert page not in _demanded(_issues(source, citation))
 
 
+REPLAY_PAGE_DEMANDS = {
+    f"{REV_PROC}/page-13": {15},
+    f"{REV_PROC}/page-14": {5120},
+    f"{REV_PROC}/page-15": {8680, 13020, 18290},
+    f"{REV_PROC}/page-18": {1, 14, 1098, 2002},
+    f"{NOTICE}/page-4": {35625, 36375, 38250, 39375},
+}
+
+
 @pytest.mark.parametrize(
     ("citation", "source", "page"), REPLAY_PAGES, ids=[c for c, *_ in REPLAY_PAGES]
 )
 def test_replay_page_amounts_stay_demanded(citation, source, page):
-    demanded = _demanded(_issues(source, citation))
-    assert demanded
-    assert {value for value, _ in _inventory(source, citation)} >= demanded
+    assert _demanded(_issues(source, citation)) == REPLAY_PAGE_DEMANDS[citation]
+
+
+@pytest.mark.parametrize("line_break", ("\n", "\r\n"), ids=("lf", "crlf"))
+@pytest.mark.parametrize(
+    "continuation",
+    (
+        # Currency.
+        "dollars per hour may be reimbursed.",
+        "cents per mile is the standard rate.",
+        # Percentage.
+        "percent of taxable income is the maximum payment.",
+        "% of taxable income is the maximum payment.",
+        # Duration.
+        "months is the maximum benefit duration.",
+        "years after the close of the taxable year.",
+        "days after the date of the notice.",
+        "weeks of benefits may be paid.",
+        # Rate or range.
+        "per hour may be reimbursed.",
+        "or more qualifying children.",
+    ),
+)
+def test_page_index_amount_with_wrapped_unit_stays_demanded(line_break, continuation):
+    source = "14" + line_break + continuation
+    citation = f"{REV_PROC}/page-14"
+    assert _inventory(source, citation) == [(14, 0)]
+    assert _demanded(_issues(source, citation)) == {14}
+
+
+@pytest.mark.parametrize("line_break", ("\n", "\r\n"), ids=("lf", "crlf"))
+def test_wrapped_unit_after_a_blank_line_stays_demanded(line_break):
+    source = "14" + line_break * 2 + "dollars per hour may be reimbursed."
+    assert _demanded(_issues(source, f"{REV_PROC}/page-14")) == {14}
+
+
+def test_masked_page_number_lets_later_geography_recognition_run():
+    # The page-number mask runs before context-sensitive recognizers. Once the
+    # page number is masked, `48 contiguous states` opens the text and is read
+    # as geography; the operative amount stays demanded.
+    source = "14\n48 contiguous states have an allowance of $500."
+    citation = f"{REV_PROC}/page-14"
+    assert _demanded(_issues(source, "")) == {14, 48, 500}
+    assert _demanded(_issues(source, citation)) == {500}
 
 
 @pytest.mark.parametrize(

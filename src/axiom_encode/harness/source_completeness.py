@@ -15201,6 +15201,15 @@ _IRS_PAGED_GUIDANCE_CITATION = re.compile(
     r"us/guidance/irs/(?:rev-proc|notice)-\d{4}-\d+/page-(?P<page>[1-9]\d{0,3})"
 )
 _LEADING_PAGE_NUMBER_LINE = re.compile(r"[ \t]*(?P<page>[0-9]{1,4})[ \t]*\r?\n")
+# Text after the number's line that continues a quantity (`14\ndollars per
+# hour`, `14\r\npercent`, `14\nmonths`) makes the number an amount whose unit
+# wrapped onto the next line, not a page number. Such a number stays demanded.
+_LEADING_PAGE_NUMBER_QUANTITY_CONTINUATION = re.compile(
+    r"\s*(?:[%\u00a2]|(?:dollars?|cents?|usd|percent(?:age)?s?|per"
+    r"|seconds?|minutes?|hours?|days?|weeks?|months?|quarters?|years?"
+    r"|calendar|business|consecutive|full|times|miles?|or|to|through)\b)",
+    re.IGNORECASE,
+)
 
 
 def _irs_page_locator_numeric_recall_spans(
@@ -15210,14 +15219,21 @@ def _irs_page_locator_numeric_recall_spans(
 
     Revenue procedure and notice pages start with the printed page number
     alone on the first line. Only that exact line, equal to the citation's own
-    page index, is a locator; any other leading number stays demanded.
+    page index and not followed by text that continues a quantity, is a
+    locator; any other leading number stays demanded.
     """
 
     citation = _IRS_PAGED_GUIDANCE_CITATION.fullmatch(corpus_citation_path)
     if citation is None:
         return
     line = _LEADING_PAGE_NUMBER_LINE.match(source_text)
-    if line is not None and line.group("page") == citation.group("page"):
+    if (
+        line is not None
+        and line.group("page") == citation.group("page")
+        and not _LEADING_PAGE_NUMBER_QUANTITY_CONTINUATION.match(
+            source_text, line.end()
+        )
+    ):
         yield line.span("page")
 
 
@@ -15239,6 +15255,9 @@ def authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path
     )
     source_text = mask(source_text, form_numeric_locator_spans(source_text))
+    # This mask runs before the context-sensitive recognizers below, so they
+    # see the text after the page number. For example, a page that starts with
+    # `48 contiguous states` after its page number is then read as geography.
     source_text = mask(
         source_text,
         _irs_page_locator_numeric_recall_spans(
