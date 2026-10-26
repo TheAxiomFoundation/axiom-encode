@@ -1336,9 +1336,12 @@ def test_contract_rejects_generated_v1_with_wrong_citation(tmp_path: Path) -> No
 
 def _in_place_legacy_checkout(
     tmp_path: Path,
+    *,
+    jurisdiction: str = "us-me",
+    jurisdiction_manifest: bool = False,
 ) -> tuple[Path, Path, SimpleNamespace]:
     checkout = tmp_path / "rulespec-us"
-    content_root = checkout / "us-me"
+    content_root = checkout / jurisdiction
     primary = content_root / "policies/income_tax/pilot_liability_pipeline.yaml"
     companion = primary.with_name("pilot_liability_pipeline.test.yaml")
     primary.parent.mkdir(parents=True)
@@ -1347,8 +1350,8 @@ def _in_place_legacy_checkout(
         "module:\n"
         "  source_verification:\n"
         "    corpus_citation_paths:\n"
-        "      - us-me/guidance/revenue/rate-schedule\n"
-        "      - us-me/statute/36/5111\n"
+        f"      - {jurisdiction}/guidance/revenue/rate-schedule\n"
+        f"      - {jurisdiction}/statute/36/5111\n"
         "rules: []\n"
     )
     companion.write_text("[]\n")
@@ -1360,8 +1363,11 @@ def _in_place_legacy_checkout(
             companion.read_bytes()
         ).hexdigest(),
     }
+    manifest_root = content_root if jurisdiction_manifest else checkout
+    manifest_suffix = "" if jurisdiction_manifest else f"{jurisdiction}/"
     manifest = (
-        checkout / ".axiom/encoding-manifests/us-me/policies/income_tax/"
+        manifest_root
+        / f".axiom/encoding-manifests/{manifest_suffix}policies/income_tax/"
         "pilot_liability_pipeline.json"
     )
     manifest.parent.mkdir(parents=True)
@@ -1377,8 +1383,8 @@ def _in_place_legacy_checkout(
     _git(checkout, "add", ".")
     _git(checkout, "commit", "-qm", "base")
     source = SimpleNamespace(
-        requested="us-me/guidance/revenue/rate-schedule",
-        citation_path="us-me/guidance/revenue/rate-schedule",
+        requested=f"{jurisdiction}/guidance/revenue/rate-schedule",
+        citation_path=f"{jurisdiction}/guidance/revenue/rate-schedule",
         body="official schedule",
         resolved_source=object(),
     )
@@ -1456,6 +1462,128 @@ def test_contract_binds_in_place_plural_source_and_unmarked_v1(
         relative,
         relative.with_name("pilot_liability_pipeline.test.yaml"),
     ]
+
+
+def test_arizona_in_place_historical_owner_layout_binds_contract_and_receipt(
+    tmp_path: Path,
+) -> None:
+    checkout, content_root, source = _in_place_legacy_checkout(
+        tmp_path, jurisdiction="us-az", jurisdiction_manifest=True
+    )
+    primary = Path("us-az/policies/income_tax/pilot_liability_pipeline.yaml")
+    historical_owner = Path(
+        "us-az/.axiom/encoding-manifests/policies/income_tax/"
+        "pilot_liability_pipeline.json"
+    )
+    model_owner = Path(
+        ".axiom/encoding-manifests/us-az/policies/income_tax/"
+        "pilot_liability_pipeline.json"
+    )
+    with patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source):
+        contract = _resolve_legacy_replacement_contract(
+            source_raw=primary,
+            destination_raw=primary,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source,
+            corpus_release=SimpleNamespace(),
+        )
+    assert contract.legacy_manifest.path == historical_owner
+    assert not (checkout / model_owner).exists()
+    legacy = {
+        "owner_class": "v1-manual-hmac-untrusted",
+        "trusted_generated_provenance": False,
+        "manifest": {
+            "path": historical_owner.as_posix(),
+            "sha256": contract.legacy_manifest.sha256,
+        },
+        "files": [
+            {"path": item.path.as_posix(), "sha256": item.sha256}
+            for item in contract.deleted_files
+        ],
+    }
+    replacement = {
+        "source": primary.as_posix(),
+        "destination": primary.as_posix(),
+        "model_manifest_path": model_owner.as_posix(),
+    }
+    replacements, issues = _legacy_replacement_authoritative_map(
+        checkout,
+        base_commit=contract.base_commit,
+        manifest_label=model_owner.as_posix(),
+        legacy=legacy,
+        replacement=replacement,
+    )
+    assert issues == []
+    assert replacements is not None
+
+    legacy["manifest"] = {**legacy["manifest"], "path": model_owner.as_posix()}
+    replacements, issues = _legacy_replacement_authoritative_map(
+        checkout,
+        base_commit=contract.base_commit,
+        manifest_label=model_owner.as_posix(),
+        legacy=legacy,
+        replacement=replacement,
+    )
+    assert replacements is None
+    assert "legacy replacement manifest does not belong to source" in issues
+
+
+def test_in_place_historical_owner_layout_rejects_ambiguous_owners(
+    tmp_path: Path,
+) -> None:
+    checkout, content_root, source = _in_place_legacy_checkout(
+        tmp_path, jurisdiction="us-az", jurisdiction_manifest=True
+    )
+    primary = Path("us-az/policies/income_tax/pilot_liability_pipeline.yaml")
+    canonical_owner = (
+        checkout / ".axiom/encoding-manifests/us-az/policies/income_tax/"
+        "pilot_liability_pipeline.json"
+    )
+    canonical_owner.parent.mkdir(parents=True)
+    canonical_owner.write_bytes(
+        (
+            checkout / "us-az/.axiom/encoding-manifests/policies/income_tax/"
+            "pilot_liability_pipeline.json"
+        ).read_bytes()
+    )
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "ambiguous historical owners")
+    with (
+        patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source),
+        pytest.raises(ValueError, match="exact tracked v1 HMAC ownership manifest"),
+    ):
+        _resolve_legacy_replacement_contract(
+            source_raw=primary,
+            destination_raw=primary,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source,
+            corpus_release=SimpleNamespace(),
+        )
+
+
+def test_receipt_authority_rejects_malformed_source_without_crashing(
+    tmp_path: Path,
+) -> None:
+    checkout, _content_root, _source = _generated_unicode_checkout(tmp_path)
+    legacy, replacement = _generated_unicode_receipt_blocks(checkout)
+    replacement["source"] = None
+    base_commit = subprocess.run(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    replacements, issues = _legacy_replacement_authoritative_map(
+        checkout,
+        base_commit=base_commit,
+        manifest_label=".axiom/encoding-manifests/us/statutes/42/1437c-1.json",
+        legacy=legacy,
+        replacement=replacement,
+    )
+    assert replacements is None
+    assert any("source path is not canonical" in issue for issue in issues)
 
 
 def test_contract_rejects_in_place_source_choice_outside_first_legacy_slot(

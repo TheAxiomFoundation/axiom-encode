@@ -9193,10 +9193,17 @@ def _legacy_replacement_authoritative_map(
         issues.append("legacy replacement source ownership classification is invalid")
 
     legacy_manifest = legacy.get("manifest")
-    expected_legacy_manifest = _applied_encoding_manifest_path(source_path)
+    try:
+        expected_legacy_manifest = _legacy_replacement_base_manifest_path(
+            repo_path, base_commit, source_path
+        )
+    except RuntimeError as exc:
+        issues.append(f"legacy replacement source manifest is ambiguous: {exc}")
+        expected_legacy_manifest = None
     legacy_manifest_raw: bytes | None = None
     if (
         not isinstance(legacy_manifest, dict)
+        or expected_legacy_manifest is None
         or set(legacy_manifest) != {"path", "sha256"}
         or legacy_manifest.get("path") != expected_legacy_manifest.as_posix()
         or not isinstance(legacy_manifest.get("sha256"), str)
@@ -32813,7 +32820,14 @@ def _resolve_legacy_replacement_contract(
             "signed corpus unit"
         )
 
-    legacy_manifest_path = _applied_encoding_manifest_path(source)
+    try:
+        legacy_manifest_path = _legacy_replacement_base_manifest_path(
+            policy_checkout_path, base_commit, source
+        )
+    except RuntimeError as exc:
+        raise ValueError(
+            "legacy replacement requires its exact tracked v1 HMAC ownership manifest"
+        ) from exc
     if tracked.get(legacy_manifest_path) != "100644":
         raise ValueError(
             "legacy replacement requires its exact tracked v1 HMAC ownership manifest"
@@ -59028,6 +59042,8 @@ def _apply_transaction_relative_path(checkout_root: Path, target: Path) -> str:
 def _is_canonical_apply_transaction_target(
     checkout_root: Path,
     relative: Path,
+    *,
+    historical_manifest_deletion: bool = False,
 ) -> bool:
     """Return whether a journal path is one sanctioned live mutation target."""
 
@@ -59046,6 +59062,19 @@ def _is_canonical_apply_transaction_target(
 
     if canonical_tail(relative, suffix=RULESPEC_FILE_SUFFIX):
         return True
+    if historical_manifest_deletion:
+        parts = relative.parts
+        if (
+            len(parts) >= 6
+            and parts[1 : 1 + len(APPLIED_ENCODING_MANIFEST_DIR.parts)]
+            == APPLIED_ENCODING_MANIFEST_DIR.parts
+        ):
+            manifest_tail = Path(
+                parts[0], *parts[1 + len(APPLIED_ENCODING_MANIFEST_DIR.parts) :]
+            )
+            return canonical_tail(
+                manifest_tail, suffix=".json"
+            ) and not relative.name.endswith(".test.json")
     if relative in _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS:
         return True
     for receipt_dir in (
@@ -59074,11 +59103,14 @@ def _is_canonical_apply_transaction_target(
 def _apply_transaction_target_relative_path(
     checkout_root: Path,
     target: Path,
+    *,
+    historical_manifest_deletion: bool = False,
 ) -> str:
     relative_value = _apply_transaction_relative_path(checkout_root, target)
     if not _is_canonical_apply_transaction_target(
         checkout_root,
         Path(relative_value),
+        historical_manifest_deletion=historical_manifest_deletion,
     ):
         raise RuntimeError(
             "Apply transaction target is outside the canonical RuleSpec/manifest "
@@ -59249,7 +59281,11 @@ def _load_apply_transaction_journal(
         ):
             raise RuntimeError("Apply transaction journal path is unsafe")
         relative = Path(path_value)
-        if not _is_canonical_apply_transaction_target(checkout_root, relative):
+        if not _is_canonical_apply_transaction_target(
+            checkout_root,
+            relative,
+            historical_manifest_deletion=entry.get("delete") is True,
+        ):
             raise RuntimeError("Apply transaction journal target is not canonical")
         if path_value in seen_paths:
             raise RuntimeError("Apply transaction journal lists a duplicate target")
@@ -59507,6 +59543,7 @@ def _install_apply_transaction(
     expected_originals: Mapping[Path, str | None] | None = None,
     pre_install_check: Callable[[], None] | None = None,
     post_install_check: Callable[[], None] | None = None,
+    historical_manifest_deletions: frozenset[Path] = frozenset(),
 ) -> None:
     """Durably install a byte-exact set with killed-process recovery."""
 
@@ -59531,8 +59568,14 @@ def _install_apply_transaction(
         for target, digest in (expected_originals or {}).items()
     }
     relative_targets = {
-        target: _apply_transaction_target_relative_path(checkout_root, target)
-        for target, _raw in normalized_files
+        target: _apply_transaction_target_relative_path(
+            checkout_root,
+            target,
+            historical_manifest_deletion=(
+                raw is None and target in historical_manifest_deletions
+            ),
+        )
+        for target, raw in normalized_files
     }
 
     with _exclusive_apply_transaction_lock(checkout_root):
@@ -59803,6 +59846,11 @@ def _require_apply_post_install_closure(
 
     expected_post_files = dict(expected_policy_files)
     if legacy_replacement is not None:
+        historical_manifest = legacy_replacement.legacy_manifest.path
+        if historical_manifest.parts[:1] == (content_root.name,):
+            expected_post_files.pop(
+                Path(*historical_manifest.parts[1:]).as_posix(), None
+            )
         for deleted in legacy_replacement.deleted_files:
             if deleted.path.parts[:1] == (content_root.name,):
                 expected_post_files.pop(
@@ -60305,6 +60353,11 @@ def _apply_generated_encoding_result(
         expected_originals=expected_originals,
         pre_install_check=pre_install_check,
         post_install_check=post_install_check,
+        historical_manifest_deletions=(
+            frozenset({checkout_root / legacy_replacement.legacy_manifest.path})
+            if legacy_replacement is not None
+            else frozenset()
+        ),
     )
     applied.append(manifest_path)
     if receipt_relative is not None:
@@ -60741,6 +60794,43 @@ def _require_applied_manifest_not_shrunk(
         + ". Re-run the signing workflow against the full branch diff using "
         "base ref origin/main, or pass --allow-shrink to confirm this removal."
     )
+
+
+def _legacy_replacement_base_manifest_path(
+    repo_path: Path, base_commit: str, source: Path
+) -> Path:
+    """Find the sole Git-bound v1 owner in either historical manifest layout."""
+
+    if (
+        len(source.parts) < 3
+        or source.is_absolute()
+        or source.as_posix() != str(source)
+        or any(part in {"", ".", ".."} for part in source.parts)
+    ):
+        raise RuntimeError("Migration source has no canonical jurisdiction path")
+    canonical = _applied_encoding_manifest_path(source)
+    jurisdiction = (
+        Path(source.parts[0]) / APPLIED_ENCODING_MANIFEST_DIR / Path(*source.parts[1:])
+    ).with_suffix(".json")
+    present = [
+        candidate
+        for candidate in (canonical, jurisdiction)
+        if _rulespec_migration_git_bytes(
+            repo_path,
+            "ls-tree",
+            "-z",
+            "--full-tree",
+            "--",
+            base_commit,
+            candidate.as_posix(),
+        )
+    ]
+    if len(present) != 1:
+        raise RuntimeError(
+            "Migration base must contain exactly one historical ownership manifest"
+        )
+    _rulespec_migration_base_blob(repo_path, base_commit, present[0])
+    return present[0]
 
 
 def _applied_encoding_manifest_path(relative_output: Path) -> Path:

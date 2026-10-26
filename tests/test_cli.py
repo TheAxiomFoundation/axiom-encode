@@ -17827,6 +17827,9 @@ rules:
         dependent.write_text(dependent_body(old_hash, "1.85"))
         dependent.with_name("benefit.test.yaml").write_text("[]\n")
         old_manifest = (
+            checkout / "us-az/.axiom/encoding-manifests/policies/des/faa5/expanded.json"
+        )
+        new_manifest = (
             checkout / ".axiom/encoding-manifests/us-az/policies/des/faa5/expanded.json"
         )
         old_manifest.parent.mkdir(parents=True)
@@ -17879,6 +17882,7 @@ rules:
             scheduled_dependent_paths=(dependent_rel,),
         )
         assert contract.scheduled_dependents[0].source_citation == dependent_citation
+        assert contract.legacy_manifest.path == old_manifest.relative_to(checkout)
 
         output_root = tmp_path / "out"
 
@@ -17976,13 +17980,15 @@ rules:
         authorized = authorized_changed_paths(checkout, corpus_root=corpus_path)
         assert primary_rel in authorized
         assert dependent_rel in authorized
+        assert not old_manifest.exists()
+        assert new_manifest.exists()
         waiver_sha256 = hashlib.sha256(
             (checkout / "known-validation-gaps.yaml").read_bytes()
         ).hexdigest()
         verified, _root, _digest, issues = (
             _load_verified_applied_encoding_manifest_payload(
                 checkout,
-                old_manifest.relative_to(checkout).as_posix(),
+                new_manifest.relative_to(checkout).as_posix(),
                 signing_broker=TEST_APPLY_SIGNING_BROKER,
                 expected_waiver_set_sha256=waiver_sha256,
                 expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
@@ -18048,6 +18054,8 @@ rules:
         )
         assert primary_rel.as_posix() in staged
         assert dependent_rel.as_posix() in staged
+        assert old_manifest.relative_to(checkout).as_posix() in staged
+        assert new_manifest.relative_to(checkout).as_posix() in staged
         with (
             patch.dict(
                 os.environ,
@@ -19662,6 +19670,23 @@ rules:
             _recover_apply_transaction(checkout)
 
         assert journal_path.exists()
+
+    def test_apply_transaction_historical_manifest_is_deletion_only(self, tmp_path):
+        from axiom_encode.cli import _apply_transaction_target_relative_path
+
+        checkout = tmp_path / "rulespec-us"
+        (checkout / "us-az/policies").mkdir(parents=True)
+        historical = (
+            checkout / "us-az/.axiom/encoding-manifests/policies/des/faa5/expanded.json"
+        )
+        with pytest.raises(RuntimeError, match="outside the canonical"):
+            _apply_transaction_target_relative_path(checkout, historical)
+        assert (
+            _apply_transaction_target_relative_path(
+                checkout, historical, historical_manifest_deletion=True
+            )
+            == historical.relative_to(checkout).as_posix()
+        )
 
     def test_apply_transaction_rejects_duplicate_journal_keys(self, tmp_path):
         checkout = tmp_path / "rulespec-us"
