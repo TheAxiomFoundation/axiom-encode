@@ -167,8 +167,11 @@ def test_replay_page_amounts_stay_demanded(citation, source, page):
         "taxable\nyears is the maximum carryforward period.",
         "U.S.\u00a0dollars per hour may be reimbursed.",
         "but not more than 12 consecutive calendar months.",
+        "but no more than 12 consecutive calendar months.",
+        "consecutive 12-month periods.",
         # Mixed number.
         "\u00bd months of 2014.",
+        "1/2 months after the end of the limitation year.",
         # Coordinated amounts.
         "and 12 percent brackets apply.",
         "or $20 per hour, whichever is greater.",

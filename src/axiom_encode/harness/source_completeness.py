@@ -15208,15 +15208,18 @@ _LEADING_PAGE_NUMBER_LINE = re.compile(r"[ \t]*(?P<page>[0-9]{1,4})[ \t]*\r?\n")
 # months`). A range or list word (`to`, `through`, `or`, `and`) counts only
 # before a number or a comparison word, so a page that opens with
 # `To qualify, ...` keeps its page number masked. A fraction glyph (`2\n½
-# months`) completes a mixed number.
+# months`, `9\n1/2 months`) completes a mixed number, and a hyphenated
+# duration (`3\nconsecutive 12-month periods`) counts as a unit.
 _LEADING_PAGE_NUMBER_QUANTITY_CONTINUATION = re.compile(
     r"\s*(?:[%\u00a2\u00bc-\u00be\u2150-\u215e]"
     r"|(?:[A-Za-z][A-Za-z.'\-]*\s+){0,2}"
     r"(?:dollars?|cents?|usd|percent(?:age)?s?|per|seconds?|minutes?|hours?"
     r"|days?|weeks?|months?|quarters?|years?|times|miles?)\b"
     r"|(?:to|through|or|and)\s+"
-    r"(?:(?:not\s+)?(?:less|more|fewer|greater)\s+than\s+)?\$?\d"
-    r"|but\s+(?:not\s+)?(?:less|more|fewer|greater)\s+than\s+\$?\d"
+    r"(?:(?:(?:not|no)\s+)?(?:less|more|fewer|greater)\s+than\s+)?\$?\d"
+    r"|but\s+(?:(?:not|no)\s+)?(?:less|more|fewer|greater)\s+than\s+\$?\d"
+    r"|\d+\s*[/\u2044]\s*\d+"
+    r"|(?:[A-Za-z][A-Za-z.'\-]*\s+){0,2}\d+-(?:hour|day|week|month|quarter|year)s?\b"
     r"|(?:or|and)\s+(?:more|less|fewer|greater|older|younger|over|under)\b)",
     re.IGNORECASE,
 )
