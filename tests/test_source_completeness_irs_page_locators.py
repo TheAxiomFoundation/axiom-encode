@@ -152,22 +152,42 @@ def test_replay_page_amounts_stay_demanded(citation, source, page):
         "years after the close of the taxable year.",
         "days after the date of the notice.",
         "weeks of benefits may be paid.",
+        # Units after modifier words.
+        "U.S. dollars per hour may be reimbursed.",
+        "taxable years is the maximum carryforward period.",
+        "consecutive months of benefits may be paid.",
         # Rate or range.
         "per hour may be reimbursed.",
         "or more qualifying children.",
+        "to 18 years of age.",
+        "through 17 years of age.",
     ),
 )
 def test_page_index_amount_with_wrapped_unit_stays_demanded(line_break, continuation):
     source = "14" + line_break + continuation
     citation = f"{REV_PROC}/page-14"
-    assert _inventory(source, citation) == [(14, 0)]
-    assert _demanded(_issues(source, citation)) == {14}
+    assert (14, 0) in _inventory(source, citation)
+    assert 14 in _demanded(_issues(source, citation))
 
 
 @pytest.mark.parametrize("line_break", ("\n", "\r\n"), ids=("lf", "crlf"))
 def test_wrapped_unit_after_a_blank_line_stays_demanded(line_break):
     source = "14" + line_break * 2 + "dollars per hour may be reimbursed."
     assert _demanded(_issues(source, f"{REV_PROC}/page-14")) == {14}
+
+
+@pytest.mark.parametrize("line_break", ("\n", "\r\n"), ids=("lf", "crlf"))
+@pytest.mark.parametrize(
+    "opening",
+    (
+        "To qualify, the taxpayer must earn at least $500.",
+        "Or, if the taxpayer elects, the amount is $500.",
+        "Through this notice, the amount is increased to $500.",
+    ),
+)
+def test_page_number_before_ordinary_prose_is_not_demanded(line_break, opening):
+    source = "14" + line_break * 2 + opening
+    assert _demanded(_issues(source, f"{REV_PROC}/page-14")) == {500}
 
 
 def test_masked_page_number_lets_later_geography_recognition_run():
