@@ -2352,6 +2352,20 @@ _CONTIGUOUS_STATES_NUMERIC_RECALL_IDENTIFIER = re.compile(
     r"(?<![\w.,])48(?=[ \t]+contiguous[ \t]+states\b)",
     flags=re.IGNORECASE,
 )
+# A table column label that names a jurisdiction set, such as USDA's
+# `Household Size 48 States, District of Columbia, Guam, Virgin Islands`.
+# The capitalized `States` must be followed directly by a listed jurisdiction
+# (District of Columbia, D.C., DC, Guam or Virgin Islands); `48 States` alone,
+# `48 states` and `48 months` keep their demand. The span helper also requires
+# the column caption `Household Size` (or bare/definite syntax) before it.
+_JURISDICTION_SET_LABEL_NUMERIC_RECALL_IDENTIFIER = re.compile(
+    r"(?<![\w.,])48(?=[ \t]+States[ \t]*(?:,|&|and\b)[ \t]*(?:the[ \t]+)?"
+    r"(?:District[ \t]+of[ \t]+Columbia\b|D\.[ \t]?C\.|DC\b|Guam\b|"
+    r"Virgin[ \t]+Islands\b))"
+)
+_JURISDICTION_SET_LABEL_CAPTION = re.compile(
+    r"(?:(?<!\w)the|(?<![\w$])Household[ \t]+Size)\Z", re.IGNORECASE
+)
 _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
     r"\bWAC[ \t]+\d+-\d+-\d+[A-Za-z]?"
     r"(?:[ \t]*(?:,|and|or|through|to)[ \t]*\d+-\d+-\d+[A-Za-z]?)*"
@@ -2383,6 +2397,27 @@ _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL = re.compile(
     r"|\bP\.?\s*O\.?\s*Box\s+\d+\b"
     r"|\b[A-Z]{2}\s+\d{5}\s*-\s*\d{4}\b"
     r"|\b(?:Schedule|Form)[ \t]+[A-Z]{1,3}-\d+[A-Z]*(?:-\d+[A-Z]*)*\b"
+)
+# A complete US postal address: house number, capitalized street name and
+# street suffix, an optional directional and suite/room, then `City, ST
+# 12345[-6789]` with a USPS state code. Only the whole address is removed, so
+# its house number and ZIP code are never demanded. A number after a currency
+# sign or `USD` (also across one space), digit, decimal point or comma (`$1,320
+# Braddock Place ...`) is not a house number, and an address without the
+# city/state/ZIP tail keeps every number demanded.
+_US_STREET_ADDRESS_NUMERIC_RECALL = re.compile(
+    r"(?<![\w.,$¢£¥€₹₩])(?<![$¢£¥€₹₩][ \t])(?<!(?i:usd)[ \t])\d{1,6}"
+    r"\s+[A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,4}\s+"
+    r"(?:Avenue|Ave\.?|Boulevard|Blvd\.?|Center|Drive|Dr\.?|Lane|Ln\.?|Parkway|"
+    r"Pkwy\.?|Place|Pl\.?|Plaza|Road|Rd\.?|Street|St\.?|Way)(?![\w'’-])"
+    r"(?:,?\s+[NS]\.?[EW]\.?(?![\w'’-]))?"
+    r"(?:,\s*(?:Suite|Ste\.?|Room|Rm\.?)\s+(?=[A-Z]*\d)[A-Z\d]{1,6}(?:-\d{1,6})?"
+    r"(?![\w'’-]))?"
+    r",\s*[A-Za-z .'-]+,\s*"
+    r"(?:A[KLRSZ]|C[AOT]|D[CE]|FL|G[AU]|HI|I[ADLN]|K[SY]|LA|M[ADEINOPST]|"
+    r"N[CDEHJMVY]|O[HKR]|P[AR]|RI|S[CD]|T[NX]|UT|V[AIT]|W[AIVY])"
+    # PDF extraction can split a ZIP+4 code at its hyphen.
+    r"\s+\d{5}(?:\s*-\s*\d{4})?(?!\d)"
 )
 # Paginated US manuals open each page with its page number and a revision
 # stamp: the Oregon Programs Eligibility Notebook reads `93 (07/2026) Chapter
@@ -15195,6 +15230,19 @@ def _contiguous_states_numeric_recall_spans(
             r"(?<!\w)the$", source_text[max(0, before - 4) : before], re.IGNORECASE
         ):
             yield identifier.span()
+    # The same geography as a table column label. Only text start, `the`, or
+    # the `Household Size` column caption may precede it: a currency, sign,
+    # number or any other word (`of`, `than`, `USD`) keeps the 48 demanded.
+    for identifier in _JURISDICTION_SET_LABEL_NUMERIC_RECALL_IDENTIFIER.finditer(
+        source_text
+    ):
+        before = identifier.start()
+        while before > 0 and source_text[before - 1].isspace():
+            before -= 1
+        if before == 0 or _JURISDICTION_SET_LABEL_CAPTION.search(
+            source_text, max(0, before - 32), before
+        ):
+            yield identifier.span()
 
 
 def authoritative_numeric_recall_text(
@@ -15352,13 +15400,7 @@ def authoritative_numeric_recall_text(
         ),
         cleaned,
     )
-    cleaned = sub(
-        r"\b\d{1,6}\s+[A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,4}\s+"
-        r"(?:Avenue|Boulevard|Center|Drive|Lane|Place|Plaza|Road|Street|Way)\b"
-        r",\s*[A-Za-z .'-]+,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?",
-        "",
-        cleaned,
-    )
+    cleaned = sub(_US_STREET_ADDRESS_NUMERIC_RECALL, "", cleaned)
     if _US_CORPUS_CITATION_PATH.match(corpus_citation_path):
         # US-only: a German line such as `1.000 Euro Freibetrag` would
         # otherwise read as a numbered heading.

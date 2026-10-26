@@ -1,0 +1,1 @@
+Stop complete-source numeric recall from demanding the 48 in a `48 States, District of Columbia, ...` jurisdiction-set table label (after `Household Size`, `the`, or at text start), and recognize more complete US postal addresses (street abbreviations, directionals, suites, USPS state codes) while keeping amounts glued to a currency sign out of the address mask.
