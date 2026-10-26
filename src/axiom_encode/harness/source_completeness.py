@@ -2357,15 +2357,22 @@ _CONTIGUOUS_STATES_NUMERIC_RECALL_IDENTIFIER = re.compile(
 # The capitalized `States` must be followed directly by a listed jurisdiction
 # (District of Columbia, D.C., DC, Guam or Virgin Islands); `48 States` alone,
 # `48 states` and `48 months` keep their demand. The span helper also requires
-# the column caption `Household Size` directly before it: in prose, even
-# `The 48 States and DC must approve ...` can state an operative count.
+# the column caption `Household Size` directly before it and the table's first
+# row (`1 $1,305`) after the column headers: in prose, even `The 48 States and
+# DC must approve ...` can state an operative count, and a row such as
+# `Maximum Household Size 48 States, ...` is not a header.
 _JURISDICTION_SET_LABEL_NUMERIC_RECALL_IDENTIFIER = re.compile(
-    r"(?<![\w.,])48(?=[ \t]+States[ \t]*(?:,|&|and\b)[ \t]*(?:the[ \t]+)?"
+    r"(?<![\w.,])48(?= States[ \t]*(?:,|&|and\b)[ \t]*(?:the[ \t]+)?"
     r"(?:District[ \t]+of[ \t]+Columbia\b|D\.[ \t]?C\.|DC\b|Guam\b|"
     r"Virgin[ \t]+Islands\b))"
 )
 _JURISDICTION_SET_LABEL_CAPTION = re.compile(
-    r"(?<![\w$])Household[ \t]+Size\Z", re.IGNORECASE
+    r"(?<![\w$])(?<!(?i:maximum|minimum) )Household[ \t]+Size\Z", re.IGNORECASE
+)
+# Only column-header words (no digit, currency sign or line-free run longer
+# than 200 characters) may separate the label from row `1 $<amount>`.
+_JURISDICTION_SET_LABEL_FIRST_ROW = re.compile(
+    r"[^\d$]{0,200}?(?<!\S)1[ \t]+\$[ \t]*\d"
 )
 _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
     r"\bWAC[ \t]+\d+-\d+-\d+[A-Za-z]?"
@@ -2390,27 +2397,30 @@ _NUMBERED_MANUAL_HEADING_LABEL = re.compile(
     r"Business|Calendar|Working)\b)"
     r"(?P<title>[A-Z][A-Za-z'’&()/-]*(?:[ \t,]+[A-Za-z'’&()/-]+){1,15})[ \t]*$)"
 )
+# A ZIP+4 extension. PDF extraction can split it at its hyphen; a split
+# extension counts only before punctuation or a line end, so a following
+# bullet such as `\n- 1500 dollars ...` keeps its amount.
+_US_ZIP_PLUS_FOUR_EXTENSION = (
+    r"(?:-\d{4}|\s*-\s*\d{4}(?=[ \t]*(?:[;,)]|\.(?!\d)|\r?\n|\Z)))(?![\d-])"
+)
 # Telephone numbers, post-office boxes, ZIP+4 codes and letter-prefixed form
-# numbers (`Schedule K-210`) on US forms and notices. PDF extraction can split
-# a ZIP+4 code at its hyphen.
+# numbers (`Schedule K-210`) on US forms and notices.
 _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL = re.compile(
     r"(?:\(\d{3}\)\s*|\b(?:1-)?\d{3}[-.])\d{3}-\d{4}\b"
     r"|\bP\.?\s*O\.?\s*Box\s+\d+\b"
-    r"|\b[A-Z]{2}\s+\d{5}\s*-\s*\d{4}\b"
+    rf"|\b[A-Z]{{2}}\s+\d{{5}}{_US_ZIP_PLUS_FOUR_EXTENSION}"
     r"|\b(?:Schedule|Form)[ \t]+[A-Z]{1,3}-\d+[A-Z]*(?:-\d+[A-Z]*)*\b"
 )
 # A complete US postal address: house number, capitalized street name and
 # street suffix, an optional directional and suite/room, then `City, ST
 # 12345[-6789]` with a USPS state code. Only the whole address is removed, so
 # its house number and ZIP code are never demanded. A number after a digit,
-# decimal point or comma, or after a currency sign or `USD` across any
+# sign, decimal point or comma, or after a currency sign or `USD` across any
 # whitespace (`$1,320 Braddock Place ...`, see `_us_street_address_or_amount`),
 # is not a house number, and an address without the city/state/ZIP tail keeps
-# every number demanded. A ZIP+4 code split at its hyphen (PDF extraction) is
-# read only on the same line and before punctuation or a line end, so a
-# following `- 1500 dollars` bullet stays demanded.
+# every number demanded.
 _US_STREET_ADDRESS_NUMERIC_RECALL = re.compile(
-    r"(?<![\w.,$¢£¥€₹₩])\d{1,6}"
+    r"(?<![\w.,$¢£¥€₹₩+\-−])\d{1,6}"
     r"\s+[A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,4}\s+"
     r"(?:Avenue|Ave\.?|Boulevard|Blvd\.?|Center|Drive|Dr\.?|Lane|Ln\.?|Parkway|"
     r"Pkwy\.?|Place|Pl\.?|Plaza|Road|Rd\.?|Street|St\.?|Way)(?![\w'’-])"
@@ -2420,17 +2430,20 @@ _US_STREET_ADDRESS_NUMERIC_RECALL = re.compile(
     r",\s*[A-Za-z .'-]+,\s*"
     r"(?:A[KLRSZ]|C[AOT]|D[CE]|FL|G[AU]|HI|I[ADLN]|K[SY]|LA|M[ADEINOPST]|"
     r"N[CDEHJMVY]|O[HKR]|P[AR]|RI|S[CD]|T[NX]|UT|V[AIT]|W[AIVY])"
-    r"\s+\d{5}(?:-\d{4}|[ \t]*-[ \t]*\d{4}(?=[ \t]*(?:[;,)]|\.(?!\d)|\r?\n|\Z)))?"
-    r"(?![\d-])"
+    rf"\s+\d{{5}}(?:{_US_ZIP_PLUS_FOUR_EXTENSION})?(?![\d-])"
 )
-_US_STREET_ADDRESS_CURRENCY_PREFIX = re.compile(r"(?:[$¢£¥€₹₩]|\b(?i:usd))\s*\Z")
+_US_STREET_ADDRESS_CURRENCY_PREFIX = re.compile(r"(?:[$¢£¥€₹₩]|\b(?i:usd))\Z")
 
 
 def _us_street_address_or_amount(match: re.Match[str]) -> str:
     """Remove a postal address unless its first number reads as an amount."""
 
-    window = match.string[max(0, match.start() - 16) : match.start()]
-    if _US_STREET_ADDRESS_CURRENCY_PREFIX.search(window):
+    before = match.start()
+    while before > 0 and match.string[before - 1].isspace():
+        before -= 1
+    if _US_STREET_ADDRESS_CURRENCY_PREFIX.search(
+        match.string, max(0, before - 4), before
+    ):
         return match.group(0)
     return ""
 
@@ -15247,8 +15260,9 @@ def _contiguous_states_numeric_recall_spans(
         ):
             yield identifier.span()
     # The same geography as a table column label. Only the `Household Size`
-    # column caption may precede it: text start, `the`, a currency, sign,
-    # number or any other word (`of`, `than`, `USD`) keeps the 48 demanded.
+    # column caption may precede it (text start, `the`, a currency, sign,
+    # number or any other word keeps the 48 demanded), and the table's first
+    # household-size row must follow the column headers.
     for identifier in _JURISDICTION_SET_LABEL_NUMERIC_RECALL_IDENTIFIER.finditer(
         source_text
     ):
@@ -15257,7 +15271,7 @@ def _contiguous_states_numeric_recall_spans(
             before -= 1
         if _JURISDICTION_SET_LABEL_CAPTION.search(
             source_text, max(0, before - 32), before
-        ):
+        ) and _JURISDICTION_SET_LABEL_FIRST_ROW.match(source_text, identifier.end()):
             yield identifier.span()
 
 
