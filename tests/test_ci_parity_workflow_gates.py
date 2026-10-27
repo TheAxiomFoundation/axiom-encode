@@ -469,9 +469,8 @@ def test_execute_workflow_gates_end_to_end_runs_repository_tests_last(
         arguments: list[str], cwd: Path, *, environment: dict[str, str] | None = None
     ) -> tuple[int, str]:
         assert cwd == repo
-        assert environment is not None and not any(
-            name.startswith("PYTEST_") for name in environment
-        )
+        assert environment is not None
+        assert not any(name.startswith("PYTEST_") for name in environment)
         events.append(("process", tuple(arguments)))
         return 0, "1 passed\n"
 

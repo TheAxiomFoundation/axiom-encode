@@ -578,8 +578,9 @@ def test_composition_uses_explicit_roots_and_credential_free_environment(
         "--rulespec-root",
         str(policy_repo.parent),
     ]
-    assert "OPENAI_API_KEY" not in observed["env"]
-    assert "AXIOM_RULESPEC_REPO_ROOTS" not in observed["env"]
+    composer_names = set(observed["env"])
+    assert "OPENAI_API_KEY" not in composer_names
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in composer_names
 
 
 def _admitted_runtime_stub(
@@ -1168,10 +1169,11 @@ def test_rulespec_engine_env_excludes_model_and_repository_credentials(
     env = pipeline._rulespec_engine_env()
 
     assert env["NON_SENSITIVE_SENTINEL"] == "preserved"
-    assert "OPENAI_API_KEY" not in env
-    assert "ANTHROPIC_API_KEY" not in env
-    assert "GH_TOKEN" not in env
-    assert "AXIOM_REPO_TOKEN" not in env
+    names = set(env)
+    assert "OPENAI_API_KEY" not in names
+    assert "ANTHROPIC_API_KEY" not in names
+    assert "GH_TOKEN" not in names
+    assert "AXIOM_REPO_TOKEN" not in names
 
 
 def test_rulespec_compile_roots_ignore_ambient_env_and_sibling_roots(
@@ -1376,8 +1378,9 @@ def test_rulespec_compile_passes_only_explicit_root_arguments(monkeypatch, tmp_p
         "--output",
         str(output_path),
     ]
-    assert "AXIOM_RULESPEC_REPO_ROOTS" not in captured["env"]
-    assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in captured["env"]
+    engine_names = set(captured["env"])
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in engine_names
+    assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in engine_names
 
 
 def test_rulespec_engine_binary_ignores_ambient_path(monkeypatch, tmp_path):
@@ -1473,9 +1476,13 @@ def test_rulespec_validation_run_compiled_scrubs_ambient_root_env(
     assert outputs is not None
     assert outputs["us:statutes/1/1#benefit"]["value"]["value"] == 6
     assert captured_env is not None
-    assert "AXIOM_RULESPEC_REPO_ROOTS" not in captured_env
-    assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in captured_env
-    assert str(stale_root) not in captured_env.values()
+    names = set(captured_env)
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in names
+    assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in names
+    names_holding_stale_root = sorted(
+        name for name, value in captured_env.items() if value == str(stale_root)
+    )
+    assert names_holding_stale_root == []
 
 
 def _write_engine_pinned_toolchain(checkout_root: Path, engine_ref: str) -> Path:

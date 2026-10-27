@@ -526,11 +526,17 @@ def _complete_test_eval_suite(
     axiom_rules_path = tmp_path / "axiom-rules-engine"
     axiom_rules_path.mkdir(exist_ok=True)
     call_index = 0
+    signing_keys = {
+        EVAL_EVIDENCE_PRIVATE_KEY_ENV,
+        APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV,
+    }
+    visible_signing_keys: list[str] = []
 
     def fake_source_results(**kwargs):
         nonlocal call_index
-        assert EVAL_EVIDENCE_PRIVATE_KEY_ENV not in os.environ
-        assert APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV not in os.environ
+        # run_eval_suite records an exception raised here as a failed case, so
+        # an assert here would never fail the test. Check once the suite returns.
+        visible_signing_keys.extend(sorted(signing_keys & set(os.environ)))
         call_index += 1
         results = []
         for raw_spec in kwargs["runner_specs"]:
@@ -552,6 +558,7 @@ def _complete_test_eval_suite(
             policy_repo_path=tmp_path / "rulespec-us",
             corpus_release=corpus_release,
         )
+    assert visible_signing_keys == []
     return manifest, corpus_release, output_root, axiom_rules_path
 
 
@@ -4816,7 +4823,7 @@ class TestClaudePromptEval:
         ):
             assert flag in command
         assert "bypassPermissions" not in command
-        child_environment = mock_run.call_args.kwargs["env"]
+        child_names = set(mock_run.call_args.kwargs["env"])
         for name in (
             EVAL_EVIDENCE_PRIVATE_KEY_ENV,
             APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV,
@@ -4824,7 +4831,7 @@ class TestClaudePromptEval:
             "AXIOM_ENCODE_SIGNING_BROKER_PID",
             "AXIOM_ENCODE_SIGNING_BROKER_ACTIVE",
         ):
-            assert name not in child_environment
+            assert name not in child_names
         assert response.text == "review complete"
 
 
@@ -16832,8 +16839,9 @@ class TestEvalSuiteManifest:
         metrics = _fake_eval_result("runner", "citation").metrics
 
         def evaluate_without_private_key(**_kwargs):
-            assert EVAL_EVIDENCE_PRIVATE_KEY_ENV not in os.environ
-            assert APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV not in os.environ
+            names = set(os.environ)
+            assert EVAL_EVIDENCE_PRIVATE_KEY_ENV not in names
+            assert APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV not in names
             return metrics
 
         with patch(

@@ -1456,11 +1456,12 @@ def test_drift_regenerator_uses_fixed_argv_and_minimal_environment(
     assert kwargs["shell"] is False
     assert kwargs["timeout"] == regeneration.REGENERATION_TIMEOUT_SECONDS
     assert kwargs["env"]["OPENAI_API_KEY"] == "openai-test-key"
-    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" not in kwargs["env"]
-    assert "ANTHROPIC_API_KEY" not in kwargs["env"]
-    assert "GH_TOKEN" not in kwargs["env"]
-    assert "GITHUB_TOKEN" not in kwargs["env"]
-    assert "AXIOM_REPO_TOKEN" not in kwargs["env"]
+    child_names = set(kwargs["env"])
+    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" not in child_names
+    assert "ANTHROPIC_API_KEY" not in child_names
+    assert "GH_TOKEN" not in child_names
+    assert "GITHUB_TOKEN" not in child_names
+    assert "AXIOM_REPO_TOKEN" not in child_names
     assert regenerated == "outputs:\n  result: 1\n"
 
     # Exercise the fixed argv through the real child parser and canonical
@@ -2011,9 +2012,9 @@ def test_drift_child_environment_rejects_release_public_key_forwarding(monkeypat
     monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
     monkeypatch.setenv("AXIOM_CORPUS_RELEASE_PUBLIC_KEY", "counterfeit")
 
-    env = regeneration.child_environment("openai")
+    names = set(regeneration.child_environment("openai"))
 
-    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" not in env
+    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" not in names
 
 
 def test_drift_child_environment_excludes_apply_manifest_signer(monkeypatch):
@@ -2024,9 +2025,9 @@ def test_drift_child_environment_excludes_apply_manifest_signer(monkeypatch):
         "must-not-leak",
     )
 
-    env = regeneration.child_environment("openai")
+    names = set(regeneration.child_environment("openai"))
 
-    assert "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY" not in env
+    assert "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY" not in names
 
 
 def test_drift_github_cli_environment_excludes_model_credentials(monkeypatch):
@@ -2037,8 +2038,9 @@ def test_drift_github_cli_environment_excludes_model_credentials(monkeypatch):
     env = cli_commands._github_cli_environment()
 
     assert env["GH_TOKEN"] == "github-test-key"
-    assert "OPENAI_API_KEY" not in env
-    assert "ANTHROPIC_API_KEY" not in env
+    names = set(env)
+    assert "OPENAI_API_KEY" not in names
+    assert "ANTHROPIC_API_KEY" not in names
 
 
 def test_drift_cli_rejects_removed_shell_template():
@@ -3562,7 +3564,9 @@ def test_drift_issue_publisher_uses_fixed_gh_argv(monkeypatch):
         drift.DriftReport([result]),
         "owner/repo",
     ) == ["issue-url"]
-    assert len(calls) == 2
+    # The calls carry GitHub CLI's environment; count them by command alone.
+    commands = [command for command, _kwargs in calls]
+    assert len(commands) == 2
     label_argv, label_kwargs = calls[0]
     issue_argv, issue_kwargs = calls[1]
     assert label_argv == [

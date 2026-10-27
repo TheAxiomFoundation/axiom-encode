@@ -76,9 +76,10 @@ def test_repository_tests_run_without_pytest_or_git_overrides(
 
     environment = _repository_test_environment()
 
-    assert "PYTEST_ADDOPTS" not in environment
-    assert "PYTEST_PLUGINS" not in environment
-    assert "GIT_DIR" not in environment
+    names = set(environment)
+    assert "PYTEST_ADDOPTS" not in names
+    assert "PYTEST_PLUGINS" not in names
+    assert "GIT_DIR" not in names
     assert environment["KEEP_ME"] == "1"
 
 
@@ -581,7 +582,8 @@ def test_python_build_probe_matches_the_in_process_label() -> None:
         sysconfig.get_config_var("Py_GIL_DISABLED"),
         sysconfig.get_config_var("Py_DEBUG"),
     )
-    assert ci_parity._python_build_of(Path(sys.executable), os.environ) == in_process
+    probed = ci_parity._python_build_of(Path(sys.executable), os.environ)
+    assert probed == in_process
 
 
 def test_debug_or_other_implementation_is_a_python_mismatch(

@@ -48,6 +48,7 @@ from axiom_encode.ci_parity import (
     ci_verdict,
 )
 from axiom_encode.corpus_materialize import NO_FETCH_ENV, fetch_disabled
+from tests.environment_assertions import changed_names
 
 VERDICT_RANK = {"PASS": 0, "PASS-WITH-MISMATCHED-DEPS": 1, "FAIL": 2}
 SPEC = GateSpec("gate", "Gate", "subcommand", (), "1-2")
@@ -195,7 +196,8 @@ def test_embedded_python_sees_the_step_environment_and_no_runner_context(
 
     expected = _without(environment, "GIT_", "GITHUB_", "RUNNER_", "PYTHON")
     expected.update(step)
-    assert seen["env"] == expected
+    changed = changed_names(expected, seen["env"])
+    assert changed == []
 
 
 @settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
@@ -229,9 +231,11 @@ def test_supervised_cli_sees_the_supervisor_child_environment(
         expected[NO_FETCH_ENV] = "1"
     expected.update(step)
     assert code == 0
-    assert seen == expected
+    changed = changed_names(expected, seen)
+    assert changed == []
     # The in-process run leaves the caller's environment as it found it.
-    assert restored == environment
+    restored_changes = changed_names(environment, restored)
+    assert restored_changes == []
 
 
 @pytest.mark.parametrize(
@@ -253,7 +257,8 @@ def test_supervised_cli_keeps_the_callers_corpus_placement_opt_out(
         mock.patch("axiom_encode.cli.main", fake_main),
     ):
         _run_cli(["validate"], supervised=True)
-        assert os.environ == {NO_FETCH_ENV: value}
+        changed = changed_names({NO_FETCH_ENV: value}, os.environ)
+        assert changed == []
 
     assert seen == {"no_fetch": "1" if kept else None}
 

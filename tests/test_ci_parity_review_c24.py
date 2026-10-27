@@ -28,6 +28,7 @@ from axiom_encode import ci_parity, cli
 from axiom_encode import corpus_materialize as cm
 from axiom_encode.harness import eval_evidence
 from axiom_encode.toolchain import local_corpus_release_verification
+from tests.environment_assertions import changed_names
 from tests.release_object_fixtures import TEST_RELEASE_PUBLIC_KEY
 from tests.test_corpus_materialize import (
     PROVISIONS,
@@ -92,7 +93,8 @@ def test_no_fetch_opt_out_reaches_every_gate(
     assert code == 0
     assert cm.fetch_disabled({cm.NO_FETCH_ENV: seen["no_fetch"] or ""})
     assert not (root / REG_PROVISIONS).exists()
-    assert os.environ.get(cm.NO_FETCH_ENV) == "1"
+    no_fetch = os.environ.get(cm.NO_FETCH_ENV)
+    assert no_fetch == "1"
 
 
 def _rulespec_checkout(tmp_path: Path, sha: str) -> Path:
@@ -163,15 +165,19 @@ def test_repository_pytest_environment_keeps_only_the_no_fetch_opt_out(
 
     environment = ci_parity._repository_test_environment(run)
 
-    assert environment.get(cm.NO_FETCH_ENV) == ("1" if kept else None)
+    no_fetch = environment.get(cm.NO_FETCH_ENV)
+    assert no_fetch == ("1" if kept else None)
     assert not any(name.startswith("R2_") for name in environment)
-    assert cm.CACHE_ENV not in environment
+    names = set(environment)
+    assert cm.CACHE_ENV not in names
     assert environment["HOME"] == str(run.temp / "repository-test-home")
     monkeypatch.delenv(cm.NO_FETCH_ENV, raising=False)
     without = ci_parity._repository_test_environment(run)
-    assert {
+    expected = {
         name: value for name, value in environment.items() if name != cm.NO_FETCH_ENV
-    } == without
+    }
+    changed = changed_names(expected, without)
+    assert changed == []
 
 
 @pytest.mark.parametrize("opt_out", [True, False], ids=["opt-out", "default"])
@@ -309,7 +315,8 @@ def test_children_get_the_adopted_utf8_locale_without_c_utf8(
                 repo=Path("/unavailable"), base_ref="base", json=True
             )
             assert ci_parity.run_ci(args) == 1
-            assert dict(os.environ) == ambient
+            changed = changed_names(ambient, os.environ)
+            assert changed == []
         monkeypatch.undo()
         assert real(locale.LC_CTYPE) == "C"
     finally:

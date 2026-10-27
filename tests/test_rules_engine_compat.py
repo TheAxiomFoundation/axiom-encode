@@ -37,7 +37,8 @@ def test_current_explicit_root_contract_is_preferred(monkeypatch):
     command, kwargs = calls[0]
     assert command[command.index("--rulespec-root") + 1] == "/rulespec-us"
     assert "--exclusive-rulespec-roots" not in command
-    assert "AXIOM_RULESPEC_REPO_ROOTS" not in kwargs["env"]
+    engine_names = set(kwargs["env"])
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in engine_names
 
 
 def test_composed_program_uses_dedicated_surface_without_legacy_fallback(monkeypatch):

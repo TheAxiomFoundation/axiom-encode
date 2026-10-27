@@ -415,5 +415,6 @@ def test_snapscreener_runner_scrubs_attestation_signing_keys(tmp_path, monkeypat
         run_payloads([{"state_or_territory": "CO"}], api_js=tmp_path / "api.js") == []
     )
     assert captured_env is not None
-    assert EVAL_EVIDENCE_PRIVATE_KEY_ENV not in captured_env
-    assert APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV not in captured_env
+    names = set(captured_env)
+    assert EVAL_EVIDENCE_PRIVATE_KEY_ENV not in names
+    assert APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV not in names

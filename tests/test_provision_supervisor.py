@@ -1584,15 +1584,13 @@ class TestTrustedGit:
         )
         assert wrapped.returncode != 0
         assert {path.name for path in pack_root.iterdir()} == packs_before
-        assert (
-            subprocess.run(
-                [git, "-C", str(partial), "cat-file", "-e", object_id],
-                check=False,
-                capture_output=True,
-                env=no_lazy_environment,
-            ).returncode
-            != 0
+        still_missing = subprocess.run(
+            [git, "-C", str(partial), "cat-file", "-e", object_id],
+            check=False,
+            capture_output=True,
+            env=no_lazy_environment,
         )
+        assert still_missing.returncode != 0
 
     def test_installed_wrapper_disables_replacement_objects(self, tmp_path):
         git = shutil.which("git")

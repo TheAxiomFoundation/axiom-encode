@@ -27,6 +27,7 @@ from axiom_encode.harness.policyengine_runtime import (
     policyengine_subprocess_environment,
     rulespec_country_from_root,
 )
+from tests.environment_assertions import changed_names
 
 
 def _git(root: Path, *args: str) -> str:
@@ -464,9 +465,11 @@ def test_probe_itself_launches_with_i_and_s_and_scrubs_environment(
     command = observed["command"]
     assert isinstance(command, list)
     assert command[1:4] == ["-I", "-S", "-B"]
-    assert observed["env"] == policyengine_subprocess_environment()
-    assert "PYTHONPATH" not in observed["env"]
-    assert "TOKEN" not in observed["env"]
+    changed = changed_names(policyengine_subprocess_environment(), observed["env"])
+    assert changed == []
+    child_names = set(observed["env"])
+    assert "PYTHONPATH" not in child_names
+    assert "TOKEN" not in child_names
     assert payload["isolated"] == 1
     assert payload["no_site"] == 1
 
@@ -523,15 +526,22 @@ def test_production_trust_has_no_current_user_or_environment_relaxation():
 
 
 def test_policyengine_subprocess_environment_is_fixed():
-    assert policyengine_subprocess_environment() == {
-        "PATH": "/nonexistent",
-        "HOME": "/nonexistent",
-        "LC_ALL": "C",
-        "LANG": "C",
-        "PYTHONDONTWRITEBYTECODE": "1",
-        "PYTHONHASHSEED": "0",
-    }
-    assert not set(policyengine_subprocess_environment()) & set(os.environ) - {
+    environment = policyengine_subprocess_environment()
+    changed = changed_names(
+        environment,
+        {
+            "PATH": "/nonexistent",
+            "HOME": "/nonexistent",
+            "LC_ALL": "C",
+            "LANG": "C",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONHASHSEED": "0",
+        },
+    )
+    assert changed == []
+    fixed_names = set(environment)
+    ambient_names = set(os.environ)
+    assert not fixed_names & ambient_names - {
         "PATH",
         "HOME",
         "LC_ALL",

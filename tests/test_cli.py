@@ -8631,16 +8631,21 @@ rules:
 
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
-        assert len(captured_envs) == 2
+        env_count = len(captured_envs)
+        assert env_count == 2
         compile_command = next(cmd for cmd in captured_commands if "compile" in cmd)
         assert compile_command[compile_command.index("--rulespec-root") + 1] == str(
             repo.resolve()
         )
         for env in captured_envs:
             assert env is not None
-            assert "AXIOM_RULESPEC_REPO_ROOTS" not in env
-            assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in env
-            assert str(stale_repo) not in env.values()
+            names = set(env)
+            assert "AXIOM_RULESPEC_REPO_ROOTS" not in names
+            assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in names
+            names_holding_stale_repo = sorted(
+                name for name, value in env.items() if value == str(stale_repo)
+            )
+            assert names_holding_stale_repo == []
 
     def test_discovery_skips_axiom_dependency_tree(self, tmp_path):
         root = tmp_path / "workspace"

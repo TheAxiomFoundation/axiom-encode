@@ -82,6 +82,7 @@ from axiom_encode.toolchain import (
     RuleSpecToolchainError,
     local_corpus_release_verification,
 )
+from tests.environment_assertions import changed_names
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
@@ -542,7 +543,8 @@ def test_run_embedded_python_withholds_ambient_actions_context(
         "NOT_GITHUB_PREFIXED": "kept-too",
         "EXTRA_STEP_ENV": "1",
     }
-    assert dict(os.environ) == before
+    changed = changed_names(before, os.environ)
+    assert changed == []
 
 
 def test_run_embedded_python_defaults_and_undecodable_output(tmp_path: Path) -> None:
@@ -1589,7 +1591,8 @@ def test_supervised_run_cli_mirrors_the_supervisor_child_environment(
         "--root",
         "x",
     ]
-    assert dict(os.environ) == before_environ
+    changed = changed_names(before_environ, os.environ)
+    assert changed == []
     assert os.getcwd() == before_cwd
     assert sys.argv == before_argv
 
@@ -1613,11 +1616,13 @@ def test_unsupervised_run_cli_keeps_ambient_axiom_environment(
     assert seen["AXIOM_SECRET_TOKEN"] == "withheld"
     assert seen["AXIOM_ENCODE_WAIVER_AUDIT_WORKERS"] == "9"
     assert seen["AXIOM_RULESPEC_REPO_ROOTS"] == "/repo:/rulespec-us"
-    assert "GIT_CONFIG_GLOBAL" not in seen
-    assert "GIT_TERMINAL_PROMPT" not in seen
+    seen_names = set(seen)
+    assert "GIT_CONFIG_GLOBAL" not in seen_names
+    assert "GIT_TERMINAL_PROMPT" not in seen_names
     # Without cwd the working directory is left as it is.
     assert record["cwd"] == os.getcwd()
-    assert dict(os.environ) == before_environ
+    changed = changed_names(before_environ, os.environ)
+    assert changed == []
 
 
 def test_environment_overrides_apply_after_supervised_withholding(
@@ -1643,7 +1648,8 @@ def test_environment_overrides_apply_after_supervised_withholding(
     assert seen[WAIVER_AUDIT_WORKERS_ENV] == "2"
     assert seen["AXIOM_RULESPEC_REPO_ROOTS"] == "/repo:/rulespec-us"
     assert seen["GIT_TERMINAL_PROMPT"] == "1"
-    assert "AXIOM_SECRET_TOKEN" not in seen
+    seen_names = set(seen)
+    assert "AXIOM_SECRET_TOKEN" not in seen_names
 
 
 @pytest.mark.parametrize("scenario", ["ambient-git-dir", "env-injected-config"])
@@ -1702,7 +1708,8 @@ def test_run_cli_reports_exceptions_and_restores_process_state(
 
     assert code == 1
     assert output == "stdout line\nstderr line\nRuntimeError: boom\n"
-    assert dict(os.environ) == before_environ
+    changed = changed_names(before_environ, os.environ)
+    assert changed == []
     assert os.getcwd() == before_cwd
     assert sys.argv == before_argv
 
@@ -1723,7 +1730,8 @@ def test_run_cli_restores_process_state_when_interrupted(
     with pytest.raises(KeyboardInterrupt):
         _run_cli(["validate", "x"], cwd=tmp_path, supervised=True)
 
-    assert dict(os.environ) == before_environ
+    changed = changed_names(before_environ, os.environ)
+    assert changed == []
     assert os.getcwd() == before_cwd
     assert sys.argv == before_argv
 

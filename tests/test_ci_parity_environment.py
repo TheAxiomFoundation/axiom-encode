@@ -24,6 +24,7 @@ from axiom_encode import ci_parity
 from axiom_encode.ci_parity import GateSpec
 from axiom_encode.engine_binding import EnginePin, resolve_pinned_engine_binary
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+from tests.environment_assertions import changed_names
 
 PIN = "6f11be2655f79dd0a3b582db46525f58332ca120"
 ENGINE_PIN = "a" * 40
@@ -421,8 +422,9 @@ def test_engine_build_binds_fresh_debug_despite_stale_release(
     assert snapshot != engine
     assert snapshot.is_relative_to(run.temp)
     assert calls[0][1]["env"]["CARGO_TARGET_DIR"] == str(snapshot / "target")
-    assert "RUSTFLAGS" not in calls[0][1]["env"]
-    assert "GIT_DIR" not in calls[0][1]["env"]
+    cargo_names = set(calls[0][1]["env"])
+    assert "RUSTFLAGS" not in cargo_names
+    assert "GIT_DIR" not in cargo_names
     pipeline = SimpleNamespace(axiom_rules_path=view, _log_event=lambda *_: None)
     bound = ValidatorPipeline._unverified_axiom_rules_binary(pipeline)
     assert bound.resolve() == view / "target" / "debug" / "axiom-rules-engine"
@@ -901,7 +903,8 @@ def test_repository_pytest_gate_uses_venv_and_ci_step_environment(
         Path(environment["RULESPEC_TEST_FILE_LIST"]).read_text()
         == "zz/statutes/a.test.yaml\n"
     )
-    assert "DRAIN_BASE" not in environment and "RULESPEC_SHADOW" not in environment
+    names = set(environment)
+    assert "DRAIN_BASE" not in names and "RULESPEC_SHADOW" not in names
     assert environment["GIT_CONFIG_GLOBAL"] == os.devnull
     assert environment["GIT_CONFIG_NOSYSTEM"] == "1"
     assert not any(
@@ -1215,7 +1218,8 @@ def test_runner_clock_and_locale_are_invariant_and_restored(
                 "LC_ALL": "C.UTF-8",
                 "encoding": "UTF8",
             }
-            assert dict(os.environ) == ambient
+            changed = changed_names(ambient, os.environ)
+            assert changed == []
             assert locale_module.setlocale(locale_module.LC_CTYPE) == "C"
     finally:
         time.tzset()

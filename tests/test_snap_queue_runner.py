@@ -53,10 +53,10 @@ def test_subprocess_env_drops_removed_policyengine_interpreter_overrides(
     monkeypatch.setenv("AXIOM_ENCODE_POLICYENGINE_US_PYTHON", "/ambient/us")
     monkeypatch.setenv("AXIOM_ENCODE_POLICYENGINE_UK_PYTHON", "/ambient/uk")
 
-    env = module.build_subprocess_env()
+    names = set(module.build_subprocess_env())
 
-    assert "AXIOM_ENCODE_POLICYENGINE_US_PYTHON" not in env
-    assert "AXIOM_ENCODE_POLICYENGINE_UK_PYTHON" not in env
+    assert "AXIOM_ENCODE_POLICYENGINE_US_PYTHON" not in names
+    assert "AXIOM_ENCODE_POLICYENGINE_UK_PYTHON" not in names
 
 
 def test_iter_manifest_queue_candidates_includes_federal_rules_us(
