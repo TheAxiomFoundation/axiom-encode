@@ -1,0 +1,1 @@
+A lower-scale quantity after a money amount is read through its printed continuation before any of it composes ("מחזור של שלושה מיליון ושני אלפים ו־500 עובדים" is 3,000,000 and 2,500 workers), and a construct chain qualifies the amount noun that binds the number ("מחזור העסקאות השנתי של 3 מיליון ו־20 עובדים" is 3,000,000 and twenty workers).

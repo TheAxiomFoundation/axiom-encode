@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 import scripts.enforce_attempt_budget as budget_mod
@@ -14,6 +17,7 @@ from scripts.enforce_attempt_budget import (
 )
 
 CITATION = "us-ky/statute/krs/141.020/document-1"
+DE_CITATION = "de/statute/estg/78"
 
 
 def _run(
@@ -408,6 +412,7 @@ class TestMainExitContract:
         monkeypatch.setenv("REPAIR_RUN_ID", repair_run_id)
         monkeypatch.setenv("ATTEMPT_BUDGET_OVERRIDE", override)
         monkeypatch.setenv("ATTEMPT_BUDGET", budget)
+        monkeypatch.delenv("ATTEMPT_BUDGET_BY_CITATION_JSON", raising=False)
         monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
 
     def _stub_api(
@@ -447,6 +452,46 @@ class TestMainExitContract:
         self._stub_api(monkeypatch, self.FAILING_HISTORY)
         assert budget_mod.main() == 0
 
+    def test_scoped_limit_keeps_us_blocked_and_blocks_fourth_de_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._set_env(monkeypatch)
+        monkeypatch.setenv(
+            "ATTEMPT_BUDGET_BY_CITATION_JSON",
+            json.dumps(
+                {
+                    DE_CITATION: {
+                        "budget": 4,
+                        "expires_at": (
+                            datetime.now(timezone.utc) + timedelta(days=1)
+                        ).isoformat(),
+                        "reason": "Reviewed dependency-link fix before one additional retry",
+                    }
+                }
+            ),
+        )
+        de_history = [
+            _run(i, f"2026-08-12T{i:02d}:00:00Z", "failure", citation=DE_CITATION)
+            for i in (11, 12, 13)
+        ]
+        self._stub_api(monkeypatch, self.FAILING_HISTORY + de_history)
+        assert budget_mod.main() == 1  # US remains at three, with enforcement on.
+        monkeypatch.setenv("CITATION", DE_CITATION)
+        assert budget_mod.main() == 0
+        de_history.append(
+            _run(14, "2026-08-12T14:00:00Z", "failure", citation=DE_CITATION)
+        )
+        self._stub_api(monkeypatch, self.FAILING_HISTORY + de_history)
+        assert budget_mod.main() == 1  # A numeric limit, never report-only.
+
+    def test_invalid_scoped_configuration_keeps_guard_enforced(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._set_env(monkeypatch)
+        monkeypatch.setenv("ATTEMPT_BUDGET_BY_CITATION_JSON", "{broken")
+        self._stub_api(monkeypatch, self.FAILING_HISTORY)
+        assert budget_mod.main() == 1
+
     def test_under_budget_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._set_env(monkeypatch)
         self._stub_api(monkeypatch, self.FAILING_HISTORY[:2])
@@ -475,6 +520,73 @@ class TestMainExitContract:
             "REPAIR_RUN_ID",
             "ATTEMPT_BUDGET",
             "ATTEMPT_BUDGET_OVERRIDE",
+            "ATTEMPT_BUDGET_BY_CITATION_JSON",
         ):
             monkeypatch.delenv(name, raising=False)
         assert budget_mod.main() == 0
+
+
+class TestConfiguredCitationBudget:
+    NOW = datetime(2026, 9, 9, tzinfo=timezone.utc)
+    ENTRY = {
+        "budget": 4,
+        "expires_at": "2026-09-10T00:00:00Z",
+        "reason": "Triage complete",
+    }
+
+    @pytest.mark.parametrize(
+        "citation", [CITATION, DE_CITATION + "/child", "DE/statute/estg/78"]
+    )
+    def test_only_exact_citation_matches(self, citation: str) -> None:
+        assert (
+            budget_mod.configured_citation_budget(
+                json.dumps({DE_CITATION: self.ENTRY}),
+                citation=citation,
+                fallback=3,
+                now=self.NOW,
+            )
+            == 3
+        )
+
+    @pytest.mark.parametrize(
+        "expires_at",
+        ["2026-09-08T23:59:59Z", "2026-09-09T00:00:00Z", "2026-09-09T02:00:00+02:00"],
+    )
+    def test_expired_entry_restores_existing_limit(self, expires_at: str) -> None:
+        entry = {**self.ENTRY, "expires_at": expires_at}
+        assert (
+            budget_mod.configured_citation_budget(
+                json.dumps({DE_CITATION: entry}),
+                citation=DE_CITATION,
+                fallback=2,
+                now=self.NOW,
+            )
+            == 2
+        )
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("budget", True),
+            ("budget", 0),
+            ("budget", -1),
+            ("budget", 4.0),
+            ("budget", "4"),
+            ("reason", " "),
+            ("reason", None),
+            ("expires_at", "2026-09-10"),
+            ("expires_at", None),
+            ("expires_at", "tomorrow"),
+            ("extra", "typo"),
+        ],
+    )
+    def test_invalid_selected_entry_is_rejected(
+        self, field: str, value: object
+    ) -> None:
+        with pytest.raises(ValueError):
+            budget_mod.configured_citation_budget(
+                json.dumps({DE_CITATION: {**self.ENTRY, field: value}}),
+                citation=DE_CITATION,
+                fallback=3,
+                now=self.NOW,
+            )

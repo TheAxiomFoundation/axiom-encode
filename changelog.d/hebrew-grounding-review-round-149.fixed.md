@@ -1,0 +1,1 @@
+A rate's predicate keeps its own connectors ("הריבית תעמוד על 10 או 30%", "תהיה לפחות", "תהיה בשיעור של" are two rates), and a reference number between the rate word and a separate fine ("לפי סעיף 5") no longer hides the fine's own noun from the check that keeps the rate away from it.

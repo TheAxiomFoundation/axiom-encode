@@ -1,0 +1,20 @@
+- name: housing_credit_ceiling_uses_minimum_amount
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/page-15#input.state_population: 1000000
+  output:
+    us:policies/irs/rev-proc-2025-32/page-15#state_housing_credit_ceiling: 3953600
+- name: housing_credit_ceiling_uses_population_amount
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/page-15#input.state_population: 2000000
+  output:
+    us:policies/irs/rev-proc-2025-32/page-15#state_housing_credit_ceiling: 6832000

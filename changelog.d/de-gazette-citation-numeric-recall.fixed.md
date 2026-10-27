@@ -1,0 +1,1 @@
+Exclude complete German EU regulation identifiers and parenthesized ABl/GMBl publication citations from numeric recall so journal issue and page numbers do not become executable parameters; retain adjacent and mixed operative amounts.

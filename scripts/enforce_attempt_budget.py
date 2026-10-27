@@ -273,6 +273,33 @@ def _append_summary(lines: list[str]) -> None:
         fh.write("\n".join(lines) + "\n")
 
 
+def configured_citation_budget(
+    raw: str, *, citation: str, fallback: int, now: datetime
+) -> int:
+    """Resolve an expiring exact-citation limit without disabling enforcement."""
+    if not raw.strip():
+        return fallback
+    configuration = json.loads(raw)
+    if not isinstance(configuration, dict):
+        raise ValueError("citation budget configuration must be an object")
+    if citation not in configuration:
+        return fallback
+    entry = configuration[citation]
+    if not isinstance(entry, dict) or set(entry) != {"budget", "expires_at", "reason"}:
+        raise ValueError("citation budget requires budget, expires_at and reason")
+    budget = entry["budget"]
+    if type(budget) is not int or budget < 1:
+        raise ValueError("citation budget must be a positive integer")
+    if not isinstance(entry["reason"], str) or not entry["reason"].strip():
+        raise ValueError("citation budget requires a triage reason")
+    if not isinstance(entry["expires_at"], str):
+        raise ValueError("citation budget expiration must be an ISO datetime")
+    expiration = datetime.fromisoformat(entry["expires_at"])
+    if expiration.tzinfo is None or expiration.utcoffset() is None:
+        raise ValueError("citation budget expiration must include a timezone")
+    return budget if expiration > now else fallback
+
+
 def _render_summary(
     decision: Decision, *, citation: str, enforced: bool, blocked: bool
 ) -> list[str]:
@@ -291,15 +318,33 @@ def _render_summary(
             "- **Blocked before the signing environment and any model call.** "
             "Triage the failing gate first (see axiom-encode#1494 for why "
             "regeneration alone rarely fixes these). To proceed anyway, set "
-            "the repository variable `ATTEMPT_BUDGET_OVERRIDE` to `true` (or "
-            "raise `ATTEMPT_BUDGET`), re-dispatch, and unset it after triage."
+            "an expiring exact-citation limit in repository variable "
+            "`ATTEMPT_BUDGET_BY_CITATION_JSON` (see "
+            "`docs/targeted-reencode-attempt-budget.md`). This retains the "
+            "other citations' limits. The repository-wide alternatives are "
+            "`ATTEMPT_BUDGET_OVERRIDE=true` or raising `ATTEMPT_BUDGET`; "
+            "remove temporary settings after the reviewed retry."
         )
     elif not enforced:
         lines.append(
-            "- Report-only: queue dispatch, authenticated repair path, or override; "
+            "- Report-only: queue dispatch, authenticated repair path, "
+            "deterministic migration, or override; "
             "not blocking."
         )
     return lines
+
+
+def is_retired_source_metadata_plan(source_bundle_json: str) -> bool:
+    """Recognize the model-free lane; the protected resolver validates it."""
+
+    try:
+        payload = json.loads(source_bundle_json)
+    except (ValueError, RecursionError):
+        return False
+    return isinstance(payload, dict) and payload.get("schema_version") in (
+        "axiom-encode/retired-source-metadata-migration-plan/v1",
+        "axiom-encode/retired-source-metadata-migration-plan/v2",
+    )
 
 
 def main() -> int:
@@ -309,6 +354,9 @@ def main() -> int:
     workflow_file = os.environ.get("WORKFLOW_FILE", "targeted-signed-reencode.yml")
     queue_id = os.environ.get("QUEUE_ID", "").strip()
     repair_run_id = os.environ.get("REPAIR_RUN_ID", "").strip()
+    metadata_migration = is_retired_source_metadata_plan(
+        os.environ.get("SOURCE_BUNDLE_JSON", "")
+    )
     override = os.environ.get("ATTEMPT_BUDGET_OVERRIDE", "").strip().lower()
     try:
         budget = int(os.environ.get("ATTEMPT_BUDGET", str(DEFAULT_BUDGET)))
@@ -316,6 +364,19 @@ def main() -> int:
         budget = DEFAULT_BUDGET
     if budget < 1:
         budget = DEFAULT_BUDGET
+    try:
+        budget = configured_citation_budget(
+            os.environ.get("ATTEMPT_BUDGET_BY_CITATION_JSON", ""),
+            citation=citation,
+            fallback=budget,
+            now=datetime.now(timezone.utc),
+        )
+    except (ValueError, TypeError):
+        print(
+            "attempt-budget: invalid citation budget configuration; "
+            "retaining the repository-wide budget.",
+            file=sys.stderr,
+        )
     try:
         lookback_days = int(os.environ.get("LOOKBACK_DAYS", str(DEFAULT_LOOKBACK_DAYS)))
     except ValueError:
@@ -356,7 +417,12 @@ def main() -> int:
             lambda run_id: _fetch_run_jobs(repo=repo, token=token, run_id=run_id)
         ),
     )
-    enforced = queue_id == "" and repair_run_id == "" and override != "true"
+    enforced = (
+        queue_id == ""
+        and repair_run_id == ""
+        and not metadata_migration
+        and override != "true"
+    )
     blocked = enforced and decision.exhausted
     print(
         f"attempt-budget: citation={citation} streak={decision.streak} "
@@ -374,6 +440,11 @@ def main() -> int:
         print(
             "attempt-budget: repair replay is authenticated by the protected "
             "resolver; not blocking."
+        )
+    if metadata_migration:
+        print(
+            "attempt-budget: retired source metadata migration makes no model call; "
+            "not blocking."
         )
     return 1 if blocked else 0
 

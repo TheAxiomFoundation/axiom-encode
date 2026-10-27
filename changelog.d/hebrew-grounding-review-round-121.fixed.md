@@ -1,0 +1,1 @@
+Within a condition ש before ו is a root letter, never the relative prefix, so "אם התשלומים הם 500, 2 או 3 מיליון שקלים שוכרת הדירה תשלם, והיתרה תוחזר" keeps 500, while the relative ש on any subject, one word or titled, shows its verb within six words ("אחוזים מההכנסה ששופט יקבע, תחול ההוראה" reads three rates); the ועדה family is the exception.

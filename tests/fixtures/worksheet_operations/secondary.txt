@@ -1,0 +1,214 @@
+CRA Form T2209 2025 Federal Foreign Tax Credits
+
+Federal Foreign Tax Credits
+General information
+This credit is for foreign income or profits taxes you paid on income sourced from a country other than Canada and reported
+on your Canadian return. Tax treaties with other countries may affect whether you are eligible for this credit.
+Notes
+You may have deducted an amount on line 25600 of your return for income that is not taxable in Canada under a
+tax treaty. In this case, do not include that income in your "Net foreign non-business income" (line 43300) or in your
+"Net foreign business income" (line 43900). Also, do not include any foreign tax paid on it in your "Non-business income
+tax paid to a foreign country" (line 43100) or in your "Business income tax paid to a foreign country" (line 43400).
+Where a foreign pension income qualifies as pension income eligible for income splitting under the Income Tax Act (ITA)
+and the pensioner (transferring spouse) and the receiving spouse have jointly elected to split such foreign pension
+income, any related foreign taxes paid may also be split on the same basis. The total of the split foreign taxes claimed by
+the pensioner and the receiving spouse cannot be more than the pensioner's total foreign taxes paid in relation to the
+split foreign pension income. For more information about splitting pension income, see Form T1032, Joint Election to
+Split Pension Income for 2025.
+If you paid tax to more than one foreign country, and the total foreign taxes paid to all foreign countries was more than $200,
+do the applicable calculation shown on this form for non-business and business taxes paid to each country on a separate sheet
+in Canadian dollars. Enter the total amount on this form.
+In most cases, the foreign tax credit amount you can claim for each foreign country is whichever is less:
+(cid:129) the foreign income tax you actually paid
+(cid:129) the tax otherwise payable in Canada on your net income from that country
+Note
+If you paid tax on income from property sourced outside of Canada (other than real or immovable property), your
+non-business foreign tax credit for that income cannot be more than 15% of your net income from that property. However,
+you may be able to deduct the part of the foreign taxes you paid over 15% on line 23200 of your return.
+The Canada Revenue Agency (CRA) considers your contribution to a foreign public pension plan as a non-business income tax
+for foreign tax credit purposes when the following two conditions apply:
+(cid:129) You are required to make the contribution under the legislation of the foreign country
+Note
+Contributions made under the United States (U.S.) Federal Insurance Contributions Act (FICA), including Social Security
+and Medicare taxes, qualify for this credit.
+(cid:129) It is reasonable to conclude that you will not be eligible for any financial benefit from your contribution considering that
+the employment in the foreign country was temporary and for a short period of time
+How to claim this credit
+(cid:129) Do all of your calculations in Canadian dollars
+(cid:129) If you were a member of a partnership and are entitled to claim a part of the foreign taxes the partnership paid, include in
+your calculations the amount shown in the financial statements or in box 171 and box 172 of your T5013 slip, Statement of
+Partnership Income
+(cid:129) Claim the amount from line 13 of this form on line 40500 of your return. The amount on line 13 should not be more than
+the amount on line 42900 of your return
+Your federal foreign tax credit on non-business income may be less than the tax you paid to a foreign country. If this is the
+case, and you were not a resident of Quebec on December 31, 2025, you may be able to claim a provincial or territorial foreign
+tax credit. To help you calculate the credit, complete Form T2036, Provincial or Territorial Foreign Tax Credit. Attach a copy of
+the form to your paper return.
+If you were a resident of Quebec on December 31, 2025, see Revenu Quebec's Guide to the Income Tax Return.
+T2209 E (25) (Ce formulaire est disponible en français.) Page 1 of 5
+
+Also, on line 23200 of your return, you may be able to deduct the amount of net foreign taxes you paid for which you have
+not received a federal, provincial or territorial foreign tax credit. This does not include certain taxes you paid, such as those
+on amounts you could have deducted under a tax treaty on line 25600 of your return. For more information, see Income Tax
+Folio S5-F2-C1, Foreign Tax Credit.
+Note
+You may have earned foreign income in your Tax-Free Savings Account (TFSA). If this is the case, do not include this
+income in your "Net foreign non-business income" (line 43300). Also, do not include any foreign tax paid on it in your
+"Non-business income tax paid to a foreign country" (line 43100).
+Supporting documents
+If you are filing electronically, keep all your documents in case the CRA asks to see them later.
+If you are filing a paper return, include your documents, such as a notice of assessment or other similar document from the
+foreign tax authority, showing foreign taxes you paid, and a note showing your calculations. You must also include this form.
+If you paid taxes to the U.S., attach your Form W-2, U.S. 1040 return, U.S. Account Transcript, and any other supporting
+documents that apply.
+If any of your documents are in a foreign language, the CRA needs a copy of the original documents written in the foreign
+language with an acceptable English or French translation. To be acceptable, the translation has to include the signatory's
+name, printed in the Latin alphabet, and has to meet one of the following conditions:
+(cid:129) It is certified by an official with the authority to administer an oath or solemn declaration (commissioner of oaths,
+notary public, or lawyer) unless it was done by a translator who is a member in good standing of one of the provincial
+or territorial organizations of translators and interpreters of Canada
+(cid:129) It has the seal and signature of an official from the foreign country's embassy, high commission, or consulate confirming
+it is a true translation
+(cid:129) It has the signature of a Chartered Professional Accountant (CPA) confirming it is a true translation
+(cid:129) It includes a written statement indicating the profession and the signature of a teacher, professor or a religious leader
+confirming it is a true translation
+Note
+For the translation to be acceptable, your name cannot be the same as the signatory's.
+T2209 E (25) Page 2 of 5
+
+Protected B when completed
+Federal Foreign Tax Credits
+Use this form to calculate the amount you can deduct from your federal tax for 2025. If this claim is for a year before 2025,
+go to canada.ca/cra-forms to get a previous version of this form.
+You can claim this credit if you were resident in Canada at any time in the tax year and you had to include, on your Canadian
+return, income sourced from a country other than Canada for which you paid non-business or business taxes to that foreign
+country.
+Send only one Form T2209 per tax year. If your total foreign taxes paid to all foreign countries was more than $200, calculate
+the total foreign taxes paid for each foreign country on a separate sheet and enter the total on this form.
+For more information, see Income Tax Folio S5-F2-C1, Foreign Tax Credit.
+Country or countries for which you are making this claim:
+Federal non-business foreign tax credit
+Non-business income tax paid to a foreign country (1) 43100 (cid:129) 1
+Net foreign
+non-business income (2) 43300
+× Basic federal tax (4) = 2
+Net income (3)
+Enter whichever is less:
+the amount from line 1 or line 2. Federal non-business foreign tax credit 3
+The amount on line 3 should not be more than the total of the amount on line 42900 of your return plus any federal surtax
+on income earned outside of Canada. For provinces and territories, except Quebec, the amount of the federal surtax is on
+line 127 of your return. For Quebec, the amount of the federal surtax is on line 131 of your return. For deemed residents of
+Canada, the amount of the federal surtax is on line 132 of your return.
+Federal business foreign tax credit
+Business income tax paid to a foreign country (5) for the year, plus any unused foreign tax credits
+for that country for the 10 years (6) before, and the 3 years after this year 43400 (cid:129) 4
+Net foreign
+business income (7) 43900
+× Basic federal tax (8) = 5
+Net income (3)
+Federal surtax on income allocated to "Other (Outside Canada)":
+Amount from line 10 of Part 2 of Form T2203, Provincial and Territorial Taxes for Multiple
+Jurisdictions, or 48% of the amount from line 42900 of your return. Enter the amount that applies
+to the country or countries you identified at the top of this page. + 6
+Add lines 5 and 6. = 7
+Add basic federal tax (8) and the amount from line 6. 8
+Enter the amount from line 3, if any. – 9
+Line 8 minus line 9 = (cid:379) 10
+Enter whichever is less:
+the amount from line 4, 7 or 10. Federal business foreign tax credit 11
+Federal foreign tax credit
+Enter the amount from line 3, if any. (cid:379) + 12
+Add lines 11 and 12. Federal foreign tax credit = 13
+The amount on line 13 should not be more than the total of the amount on line 42900 of your return, plus any federal surtax
+on income earned outside of Canada. For every province and territory, except Quebec, the amount of the federal surtax is
+on line 127 of your return. For Quebec, the amount of the federal surtax is on line 131 of your return. For deemed residents
+of Canada, the amount of the federal surtax is on line 132 of your return.
+Enter the amount from line 13 on line 40500 of your return.
+See the privacy notice on your return.
+T2209 E (25) (Ce formulaire est disponible en français.) Page 3 of 5
+
+(1) Non-business income tax paid to a foreign country
+Total of non-business income or profits tax you paid to that country or to a political subdivision of that country for the year,
+minus any part of this tax that is deductible under subsection 20(11) or deducted under subsection 20(12) of the ITA.
+Non-business income tax paid to a foreign country does not include tax that can reasonably be attributed to an amount that:
+(cid:129) any other person or partnership has received, or is entitled to receive from the foreign country
+(cid:129) relates to taxable capital gains from that country, and you or your spouse or common-law partner claimed a capital gains
+deduction for that income
+(cid:129) was deductible as income exempt from tax under a tax treaty between Canada and that country
+(cid:129) was taxable in the foreign country because you were a citizen of that country, and relates to income from a source
+within Canada
+Note
+The CRA considers any amount of tax you paid to a foreign government in excess of the amount you had to pay
+according to a tax treaty as a voluntary contribution and does not qualify as foreign taxes paid.
+(2) Net foreign non-business income
+Net amount you calculate when the non-business income you earned in a foreign country is more than the non-business
+losses you incurred in that country. When you calculate the non-business income and losses, claim the allowable expenses
+and deductions relating to the foreign income or loss. Subtract all of the following from your foreign non-business income:
+(cid:129) your income from that foreign country for which you claimed a capital gains deduction
+(cid:129) your income that was, under a tax treaty between Canada and that country, deductible as exempt from tax in Canada
+or in that country
+(cid:129) your foreign resource and exploration and development expenses
+(cid:129) a deduction you claimed under subsections 20(11) or 20(12) and under subsection 4(3) of the ITA relating to the foreign
+income, including any deduction claimed for:
+– your foreign union dues
+– your contributions to a foreign pension plan or a social security arrangement
+– your foreign carrying charges
+Do not reduce your foreign non-business income by any deduction you claimed for a dividend you received from a
+controlled foreign affiliate. If your net foreign non-business income is more than your net income, use your net income
+in the calculation.
+For more information on deductions claimed under subsections 20(11) and 20(12) of the ITA, see Income Tax
+Folio S5-F2-C1, Foreign Tax Credit.
+Note
+Include only your foreign non-business income for the part of the year you were a resident of Canada.
+(3) Net income
+Amount from line 23600 of your return (or the amount you would have entered if the instructions said "if negative, show in
+brackets") plus the amount on line 68360 of Form T1206, Total split income, minus any:
+(cid:129) amount deductible as a Canadian Forces personnel and police deduction (line 24400 of your return)
+(cid:129) amount deductible as security options deductions (line 24900 of your return)
+(cid:129) amount deductible as an other payments deduction (line 25000 of your return)
+(cid:129) net capital losses of other years you claimed (line 25300 of your return)
+(cid:129) capital gains deduction for qualifying business transfer or qualifying cooperative conversion you claimed (line 25395 of
+your return)
+(cid:129) capital gains deduction you claimed (line 25400 of your return)
+(cid:129) amounts deductible as net employment income from a prescribed international organization, as foreign income exempt
+under a tax treaty, or as adult basic education tuition assistance (included on line 25600 of your return)
+T2209 E (25) Page 4 of 5
+
+(4) Basic federal tax
+Line 42900 of your return plus any:
+(cid:129) federal dividend tax credit (line 40425 of your return)
+(cid:129) federal surtax on income allocated to "Other (Outside Canada)" (line 10 of Part 2 of Form T2203
+or 48% of the amount from line 42900 of your return)
+minus any:
+(cid:129) refundable Quebec abatement (line 44000 of your return or line 15 of Part 2 of Form T2203)
+(cid:129) federal refundable First Nations abatement (line 44100 of your return)
+Note
+If you were a resident of Quebec, basic federal tax is the amount on line 42900 of your return plus any:
+(cid:129) federal dividend tax credit (line 40425 of your return)
+minus any:
+(cid:129) refundable Quebec abatement (line 44000 of your return or line 15 of Part 2 of Form T2203)
+(5) Business income tax paid to a foreign country
+Total of business income or profits tax you paid to a country or a political subdivision of a country for the year. If you were a
+resident of Quebec, multiply this amount by 55%. It does not include any part of the business income tax that can be
+reasonably attributed to an amount that any other person or partnership has received or is entitled to receive from a country,
+or that was payable on income that was exempt from tax under a tax treaty between Canada and that country.
+Note
+The CRA considers any amount of tax you paid to a foreign government in excess of the amount you had to pay
+according to a tax treaty as a voluntary contribution and does not qualify as foreign taxes paid.
+(6) Unused business foreign tax credits
+Unused business foreign tax credits can be carried forward 10 years and carried back 3 years.
+(7) Net foreign business income
+Net amount by which the business income you earned in a foreign country is more than the business losses you incurred
+in that country. When you calculate the business income and losses, claim the allowable expenses and deductions relating
+to the foreign income or loss, including foreign resource and exploration and development expenses. Also reduce your
+foreign business income by any income from that country that was, under a tax treaty between Canada and that country,
+exempt from tax in Canada or in that country. If your net foreign business income is more than your net income, use your
+net income in the calculation.
+Note
+Include only the foreign business income for the part of the year you were a resident of Canada.
+(8) Basic federal tax
+Line 42900 of your return plus any federal dividend tax credit (line 40425 of your return).
+Note
+If you were a resident of Quebec, these instructions do not apply. Instead, follow the instructions for Quebec residents
+in note (4) above to calculate the "Basic federal tax" at line 5 of this form.
+T2209 E (25) Page 5 of 5

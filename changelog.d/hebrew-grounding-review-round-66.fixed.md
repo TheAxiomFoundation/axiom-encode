@@ -1,0 +1,1 @@
+A percent noun or sign right after a printed scale amount, or after the scale word a range's endpoints share, makes the value a rate before its span is reserved: "3 אלפים אחוזים" is 30, as "שלושת אלפים אחוזים" is, and "2 עד 3 אלפים אחוזים" runs from 20 to 30.

@@ -1,0 +1,1 @@
+A verb earlier in the clause governs a fraction word across a prepositional phrase and no further ("שילם לעובדת החדשה חמישית השכר" is a fifth; "קיבל פנייה חמישית מן הציבור" is a fifth request), and a schedule's statute is named in its construct form too ("תוספת חמישית של פקודת מס הכנסה" is a schedule).

@@ -1,0 +1,1 @@
+A listed ש-noun takes its second-person possessives too ("שאלתך", "שאלתכם"), so "אם התשלומים הם 500, 2 או 3 מיליון שקלים שאלתך תועבר לוועדה, והיתרה תוחזר" keeps 500; a bare glyph is a scaled amount's remainder ("3 אלפים ו־½ שקלים" is 3,000.5); a glyph rate keeps its fractional tail ("2½% וחצי" is 0.03); and a thousands-grouped whole joins its glyph ("1,000½" is 1,000.5).

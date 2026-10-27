@@ -1,0 +1,22 @@
+1
+A winter energy payment is payable,—
+a
+if the person’s qualifying benefit is a main benefit under this Act, in 22 weekly instalments; or
+b
+if the person’s qualifying benefit is New Zealand superannuation or a veteran’s pension, in 11 fortnightly instalments.
+2
+The amount of an instalment is ascertained by dividing the appropriate rate per winter period set out in Part 8 of Schedule 4 ,—
+a
+for recipients of a main benefit under this Act, by 22; or
+b
+for recipients of New Zealand superannuation or a veteran’s pension, by 11.
+3
+However, the amount ascertained under subsection (2) must be rounded up to the nearest whole cent, and then reduced to reflect any 1 or more days of the week or fortnight covered by the instalment that are days for which—
+a
+the person is not entitled to the payment; or
+b
+the payment is not payable (for example, under section 220 ).
+4
+An instalment must be paid on the relevant payment date.
+5
+This section overrides sections 297 , 311(1) , and 338 .

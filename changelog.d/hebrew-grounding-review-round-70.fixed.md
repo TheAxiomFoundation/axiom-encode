@@ -1,0 +1,1 @@
+A printed fraction that continues a scaled percentage is read with the whole ("שלושת אלפים ו־200 1/2 אחוזים וחצי" is 3,200.51 percent), the scaled-percentage grid grows to 98 cells, and the continuation check reuses one token index per pass, so a document of thousands of scaled percentages scans in linear time.

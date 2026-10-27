@@ -1,0 +1,1 @@
+A bound after a fraction of a unit keeps the fraction ("עשירית שקל לפחות" is 0.1, "חמישית שנה לפחות" 0.2) while a temporal phrase still keeps an ordinal ("לידה חמישית שנה לאחר"); and a coordinated list of amounts after a reference noun keeps every amount however many joins it has ("תוספת 1 או 2 או 3 שקלים" and "תוספת 1, 2 או 3 שקלים" are 1, 2 and 3).

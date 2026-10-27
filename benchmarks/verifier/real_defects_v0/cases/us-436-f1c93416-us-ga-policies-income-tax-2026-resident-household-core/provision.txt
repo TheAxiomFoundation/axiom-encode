@@ -1,0 +1,2999 @@
+--- Source: us-ga/statute/48/48-7-20 ---
+(a) A tax is imposed upon every resident of this state with respect to the Georgia taxable net income of the taxpayer as defined in Code Section 48-7-27. A tax is imposed upon every nonresident with respect to such nonresident’s Georgia taxable net income not otherwise exempted which is received by the taxpayer from services performed, property owned, proceeds of any lottery prize awarded by the Georgia Lottery Corporation, or from business carried on in this state. Except as otherwise provided in this chapter, the tax imposed by this subsection shall be levied, collected, and paid annually.
+(b) (1) The tax imposed pursuant to subsection (a) of this Code section shall be computed in accordance with the following tables:
+SINGLE PERSON If Georgia Taxable Net Income Is: The Tax Is: Not over $750.00 1% Over $750.00 but not over $2,250.00 $7.50 plus 2% of amount over $750.00 Over $2,250.00 but not over $3,750.00 $37.50 plus 3% of amount over $2,250.00 Over $3,750.00 but not over $5,250.00 $82.50 plus 4% of amount over $3,750.00 Over $5,250.00 but not over $7,000.00 $142.50 plus 5% of amount over $5,250.00 Over $7,000.00 $230.00 plus 5.75% of amount over $7,000.00 MARRIED PERSON FILING A SEPARATE RETURN If Georgia Taxable Net Income Is: The Tax Is: Not over $500.00 1% Over $500.00 but not over $1,500.00 $5.00 plus 2% of amount over $500.00 Over $1,500.00 but not over $2,500.00 $25.00 plus 3% of amount over $1,500.00 Over $2,500.00 but not over $3,500.00 $55.00 plus 4% of amount over $2,500.00 Over $3,500.00 but not over $5,000.00 $95.00 plus 5% of amount over $3,500.00 Over $5,000.00 $170.00 plus 5.75% of amount over $5,000.00 HEAD OF HOUSEHOLD AND MARRIED PERSONS FILING A JOINT RETURN If Georgia Taxable Net Income Is: The Tax Is: Not over $1,000.00 1% Over $1,000.00 but not over $3,000.00 $10.00 plus 2% of amount over $1,000.00 Over $3,000.00 but not over $5,000.00 $50.00 plus 3% of amount over $3,000.00 Over $5,000.00 but not over $7,000.00 $110.00 plus 4% of amount over $5,000.00 Over $7,000.00 but not over $10,000.00 $190.00 plus 5% of amount over $7,000.00 Over $10,000.00 $340.00 plus 5.75% of amount over $10,000.00
+Click to view
+(2) To facilitate the computation of the tax by those taxpayers whose federal adjusted gross income together with the adjustments set out in Code Section 48-7-27 for use in arriving at Georgia taxable net income is less than $10,000.00, the commissioner may construct tax tables which may be used by the taxpayers at their option. The tax shown to be due by the tables shall be computed on the bases of the standard deduction and the tax rates specified in paragraph (1) of this subsection. Insofar as practicable, the tables shall produce a tax approximately equivalent to the tax imposed by paragraph (1) of this subsection.
+(c) The amount deducted and withheld by an employer from the wages of an employee pursuant to Article 5 of this chapter, relating to current income tax payments, shall be allowed the employee as a credit against the tax imposed by this Code section. Amounts paid by an individual as estimated tax under Article 5 of this chapter shall constitute payments on account of the tax imposed by this Code section. The amount withheld or paid during any calendar year shall be allowed as a credit or payment for the taxable year beginning in the calendar year in which the amount is withheld or paid.
+(d) The tax imposed by this Code section applies to the Georgia taxable net income of estates and trusts, which shall be computed in the same manner as in the case of a single individual. The tax shall be computed on the Georgia taxable net income and shall be paid by the fiduciary.
+History. Ga. L. 1931, Ex. Sess., p. 3, § 24; Code 1933, § 92-3101; Ga. L. 1937, p. 109, § 2; Ga. L. 1937-38, Ex. Sess., p. 150, § 2; Ga. L. 1955, Ex. Sess., p. 27, § 1; Ga. L. 1960, p. 1005, § 1; Ga. L. 1971, p. 605, §§ 1, 2; Ga. L. 1975, p. 857, § 1; Code 1933, § 91A-3601, enacted by Ga. L. 1978, p. 309, § 2; Ga. L. 1979, p. 5, § 62; Ga. L. 1987, p. 191, § 2; Ga. L. 1994, p. 597, § 2; Ga. L. 2018, p. 8, §§ 1-2, 1-3/HB 918.
+Delayed effective date.
+Code Section 48-7-20 is set out twice in this Code. This version is effective until January 1, 2024. For version effective January 1, 2024, see the following version.
+Cross references.
+Legislative review of taxation, § 28-12-1.
+Editor’s notes.
+Ga. L. 1987, p. 191, § 10, not codified by the General Assembly, provides that this Act is applicable to taxable years ending on or after March 11, 1987, and that a taxpayer with a taxable year ending on or after January 1, 1987, and before March 11, 1987, may elect to have the provisions of that Act apply.
+Ga. L. 1987, p. 191, § 10, not codified by the General Assembly, also provided that tax, penalty, and interest liabilities and refund eligibility for prior taxable years shall not be affected by that Act.
+Ga. L. 1987, p. 191, § 10, not codified by the General Assembly, also provided that provisions of the federal Tax Reform Act of 1986 and of the Internal Revenue Code of 1986 which as of January 1, 1987, were not yet effective become effective for purposes of Georgia taxation on the same dates as they become effective for federal purposes.
+Ga. L. 1994, p. 597, § 4, not codified by the General Assembly, provides that this Act shall be applicable to all taxable years beginning on or after January 1, 1994.
+Ga. L. 2018, p. 8, § 3-1(b)/HB 918, not codified by the General Assembly, provides, in part, that this Act “shall be applicable to all taxable years beginning on or after January 1, 2019.”
+Ga. L. 2018, p. 8, § 3-1(c)/HB 918, not codified by the General Assembly, provides, in part, that this Act “shall become effective upon passage of a joint resolution that is signed by the Governor ratifying such sections by both houses of the Georgia General Assembly on or after January 13, 2020, and upon such passage shall be applicable to all taxable years beginning on or after January 1, 2020. Should Sections 1-3 and 1-5 of this Act become effective as prescribed in the foregoing, both sections shall expire by operation of law on the last moment of December 31, 2025, and revert to the language of paragraph (1) of subsection (b) of Code Section 48-7-20 and subsection (a) of Code Section 48-7-21, respectively, as they existed on the day immediately preceding the effective date of this Act.” Paragraph (b)(1), as amended by Ga. L. 2018, p. 8, § 1-3/HB 918, is not set out owing to the delayed effective date. If a joint resolution as described herein is passed and signed by the Governor, paragraph (b)(1) will read as follows:
+“(b)(1) The tax imposed pursuant to subsection (a) of this Code section shall be computed in accordance with the following tables:
+SINGLE PERSON If Georgia Taxable Net Income Is: The Tax Is: Not over $750.00 1% Over $750.00 but not over $2,250.00 $7.50 plus 2% of amount over $750.00 Over $2,250.00 but not over $3,750.00 $37.50 plus 3% of amount over $2,250.00 Over $3,750.00 but not over $5,250.00 $82.50 plus 4% of amount over $3,750.00 Over $5,250.00 but not over $7,000.00 $142.50 plus 5% of amount over $5,250.00 Over $7,000.00 $230.00 plus 5.5% of amount over $7,000.00 MARRIED PERSON FILING A SEPARATE RETURN If Georgia Taxable Net Income Is: The Tax Is: Not over $500.00 1% Over $500.00 but not over $1,500.00 $5.00 plus 2% of amount over $500.00 Over $1,500.00 but not over $2,500.00 $25.00 plus 3% of amount over $1,500.00 Over $2,500.00 but not over $3,500.00 $55.00 plus 4% of amount over $2,500.00 Over $3,500.00 but not over $5,000.00 $95.00 plus 5% of amount over $3,500.00 Over $5,000.00 $170.00 plus 5.5% of amount over $5,000.00 HEAD OF HOUSEHOLD AND MARRIED PERSONS FILING A JOINT RETURN If Georgia Taxable Net Income Is: The Tax Is: Not over $1,000.00 1% Over $1,000.00 but not over $3,000.00 $10.00 plus 2% of amount over $1,000.00 Over $3,000.00 but not over $5,000.00 $50.00 plus 3% of amount over $3,000.00 Over $5,000.00 but not over $7,000.00 $110.00 plus 4% of amount over $5,000.00 Over $7,000.00 but not over $10,000.00 $190.00 plus 5% of amount over $7,000.00 Over $10,000.00 $340.00 plus 5.5% of amount over $10,000.00”
+Click to view
+As of May 2022, a joint resolution has not passed.
+Ga. L. 2022, p. 114, § 4-1/HB 1437, not codified by the General Assembly, repeals and reserves Section 1-3 of Ga. L. 2018, p. 8, § 1-3/HB 918.
+Ga. L. 2022, p. 114, § 4-1/HB 1437, not codified by the General Assembly, revises subsection (b) of Ga. L. 2018, p. 8, § 3-1/HB 918 to read in pertinent part: “(1) Section 1-2 of this Act shall become effective upon the approval of this Act by the Governor or upon this Act becoming law without such approval and shall be applicable to all taxable years beginning on January 1, 2019, and ending December 31, 2019; provided, however, that the revisions to Code Section 48-7-20 made by Section 1-2 of this Act shall be subject to the revisions made by Acts approved by the Governor or that became or become law without such approval after March 2, 2018, and became or become applicable to tax years beginning on or after January 1, 2020.”
+Law reviews.
+For article, “Revenue and Taxation: Amend Titles 48, 2, 28, 33, 36, 46, and 50 of the Official Code of Georgia Annotated, Relating Respectively to Revenue and Taxation, Agriculture, the General Assembly, Insurance, Local Government, Public Utilities, and State Government,” see 28 Georgia St. U.L. Rev. 217 (2011).
+For comment on Forrester v. Culpepper, 194 Ga. 744, 22 S.E.2d 595 (1942), see 6 Ga. B. J. 155 (1943).
+JUDICIAL DECISIONS
+Constitutionality of income tax rates. —
+Georgia Laws 1929, p. 92 (see now O.C.G.A. T. 48, C. 7) does not violate Ga. Const. 1877, Art. VII, Sec. II, Para. I (see now Ga. Const. 1983, Art. VII, Sec. I, Para. III), which declared that all taxation shall be uniform upon the same class of subjects, and ad valorem on all property subject to be taxed within the territorial limits of the authority levying the tax, for the reason that income is distinguished from property from which income flows, with the result that income was not property within the meaning of this provision, and did not need to be levied ad valorem. Green & Milam v. State Revenue Comm'n, 188 Ga. 442, 4 S.E.2d 144, 1939 Ga. LEXIS 551 (1939).
+Legislative intent as to income earned outside state before becoming resident. —
+Former Code 1933, §§ 92-3002, 92-3101, 92-3112, 92-3302 (see now O.C.G.A. §§ 48-7-1, 48-7-20, and 48-7-30), when construed together, authorize if the statutes do not compel the interpretation that the legislature did not intend to impose a tax upon such portion of the income of a resident as was derived by the resident from sources outside the state before the date on which the individual became a resident of this state. Forrester v. Culpepper, 194 Ga. 744, 22 S.E.2d 595, 1942 Ga. LEXIS 663 (1942) (commented on in) 6 Ga. B.J. 155 (1943).
+Income earned by a nonresident but received after becoming a resident. —
+Income earned by a cash basis taxpayer outside the state before becoming a resident is taxable under former Code 1933, Ch. 92-31 (see now O.C.G.A. T. 48, C. 7) if actually or constructively received after becoming a resident. Rogers v. Chilivis, 141 Ga. App. 407, 233 S.E.2d 451, 1977 Ga. App. LEXIS 1926, cert. denied, 434 U.S. 891, 98 S. Ct. 266, 54 L. Ed. 2d 176, 1977 U.S. LEXIS 3551 (1977).
+Application to sentencing guidelines. —
+In determining the amount of the tax loss for purposes of calculating the defendant’s offense level for tax evasion under U.S. Sentencing Guidelines Manual § 2T1.1(c)(1), a court took into account the defendant’s state tax liability in accordance with the six percent rate specified in O.C.G.A. § 48-7-20 for individual taxpayers. United States v. Campbell, No. 1:04-CR-0424-RWS, 2006 U.S. Dist. LEXIS 96565 (N.D. Ga. June 15, 2006), aff'd, 491 F.3d 1306, 2007 U.S. App. LEXIS 16722 (11th Cir. 2007).
+OPINIONS OF THE ATTORNEY GENERAL
+Resident must pay tax on income earned outside state. — Resident of this state is required to pay state income taxes, notwithstanding the fact that the resident’s income is earned in another state. 1952-53 Ga. Op. Att'y Gen. 443.
+Becoming legal resident or domiciliary of another state. — To become a legal resident or domiciliary of another state one must not only reside there but must do so with the intention of giving up one’s legal residence or domicile in Georgia. 1969 Op. Atty Gen. No. 69-171.
+Payments by check, tendered by municipal corporation to municipal officers and employees for unused sick leave, are, if the payments are legal, income and subject to taxation. 1971 Op. Atty Gen. No. U71-16.
+RESEARCH REFERENCES
+Am. Jur. 2d.
+71 Am. Jur. 2d, State and Local Taxation, § 356.
+ALR.
+Constitutionality of provisions of income tax law as regards income of husband and wife, 78 A.L.R. 352.
+Deductions in respect of leasehold in computing income tax, 82 A.L.R. 332.
+Inhabitancy or residence, within provisions of income tax law as equivalent of domicile, 82 A.L.R. 982.
+Income tax in respect of exchange of properties, 102 A.L.R. 6.
+Income tax in respect of salaries of public officers and employees, 114 A.L.R. 1190.
+When dividends on corporate stock become taxable as income to a taxpayer making his return on a cash basis, 120 A.L.R. 1280; 143 A.L.R. 596; 158 A.L.R. 1432; 167 A.L.R. 303.
+Income tax in respect of salaries of public officers and employees, 120 A.L.R. 1477; 122 A.L.R. 1393; 125 A.L.R. 1421.
+Computation of income tax of husband and wife as affected by the fact that they make a joint return, 121 A.L.R. 650; 131 A.L.R. 984.
+Computation of income tax as affected by fact that taxpayer was domiciled within state for only part of taxable year, 126 A.L.R. 455.
+Liability of settlor, in absence of express provision in income tax law, for income tax on income of revocable trust or on trust income distributable to him, 159 A.L.R. 100.
+Constitutionality, construction, and application provisions of state tax law for conformity with federal income tax law or administrative and judicial interpretation, 42 A.L.R.2d 797.
+
+--- Source: us-ga/statute/48/48-7A-3 ---
+(a) Except as otherwise provided in subsection (e) of this Code section, each resident taxpayer who files an individual income tax return for a taxable year and who is not claimed or is not otherwise eligible to be claimed as a dependent by another taxpayer for federal or Georgia individual income tax purposes may claim a tax credit against the resident taxpayer’s individual income tax liability for the taxable year for which the individual income tax return is being filed; provided that:
+(1) A husband and wife filing a joint return shall each be deemed a dependent for purposes of such joint return; and
+(2) A husband and wife filing separate returns for a taxable year for which a joint return could have been filed by them shall claim only the tax credit to which they would have been entitled had a joint return been filed.
+(b) Each taxpayer may claim a tax credit in the amount indicated for each adjusted gross income bracket as shown in the schedule below multiplied by the number of dependents which the taxpayer is entitled to claim. Each taxpayer 65 years of age or over may claim double the tax credit.
+TAX CREDIT SCHEDULE Adjusted Gross Income Tax Credit Under $6,000.00 $ 26.00 6,000.00 but not more than 7,999.00 20.00 8,000.00 but not more than 9,999.00 14.00 10,000.00 but not more than 14,999.00 8.00 15,000.00 but not more than 19,999.00 5.00
+Click to view
+(c) The tax credit claimed by a resident taxpayer pursuant to this Code section shall be deductible from the resident taxpayer’s individual income tax liability, if any, for the tax year in which it is properly claimed; provided, however, that in no event shall the total amount of the tax credit under this Code section for a taxable year exceed the taxpayer’s income tax liability. Any unused credit amount shall not be allowed to be carried forward to the taxpayer’s succeeding years’ tax liability. No such credit shall be allowed the taxpayer against prior years’ tax liability.
+(d) All claims for a tax credit under this Code section, including any amended claims, must be filed on or before the end of the twelfth month following the close of the taxable year for which the credit may be claimed. Failure to comply with this subsection shall constitute a waiver of the right to claim the credit.
+(e) Any individual who receives a food stamp allotment for all or any part of a taxable year shall not be entitled to claim a credit under this Code section for that taxable year.
+(e.1) Any individual incarcerated or confined in any city, county, municipal, state, or federal penal or correctional institution for all or any part of a taxable year shall not be entitled to claim a credit under this Code section for that taxable year.
+(f) The commissioner shall be authorized by rule and regulation to provide for the proper administration of this Code section.
+History. Code 1981, § 48-7A-3, enacted by Ga. L. 1991, p. 87, § 1; Ga. L. 1995, p. 10, § 48; Ga. L. 2004, p. 410, § 7; Ga. L. 2009, p. 8, § 48/SB 46; Ga. L. 2010, p. 1163, § 5/HB 1069.
+Editor’s notes.
+Ga. L. 2004, p. 410, § 1, not codified by the General Assembly, provides that: “This Act shall be known and may be cited as the ‘State and Local Tax Revision Act of 2004.’ ”
+Ga. L. 2010, p. 1163, § 7/HB 1069, not codified by the General Assembly, provides that the amendment to this Code section shall be applicable to all taxable years beginning on or after January 1, 2010.
+Law reviews.
+For article, “Revenue and Taxation: Amend Titles 48, 2, 28, 33, 36, 46, and 50 of the Official Code of Georgia Annotated, Relating Respectively to Revenue and Taxation, Agriculture, the General Assembly, Insurance, Local Government, Public Utilities, and State Government,” see 28 Georgia St. U.L. Rev. 217 (2011).
+
+--- Source: us-ga/form/it-511/2025/document-1 ---
+GEORGIA DEPARTMENT of REVENUE
+
+2029
+
+Georgia Individual Income Tax
+
+Forms and Instructions
+
+ioe 21:
+
+Form 500
+
+Individual Income Tax Return
+
+Form IND-CR
+
+Individual Credit Form
+
+Filing Tips
+
+Instructions and Help for Taxpayers
+
+Tax Credits List of Credits and Codes
+
+dor.georgia.gov @ 1-877-423-6711
+
+Follow us on social media:
+
+ing £4X 19)
+
+GEORGIA DEPARTMENT of REVENUE
+
+om The ommissioner
+
+Did you know that by registering an account with the Department of Revenue’s Georgia Tax Center (GTC), you can sign up to receive notifications when any activity takes place on your account? These notifications help you closely monitor your tax status and help combat fraudulent activity. Visit https://gtc.dor.ga.gov to register. For assistance, ou may visit our self-service instructional videos:
+
+Did you also know that taxpayers who file their returns electronically and have their refunds directly depos-
+
+ited into their bank accounts receive their reftunds much more quickly than those who file a paper return? If
+
+you have been considering electronic filing, some of the benefits include:
+
+« Faster and more accurate processing
+
+* Receiving your refund more quickly by either mail or direct deposit
+
+* The ability to file from your home PC or have your taxes prepared by a professional electronic return originator
+
+* — Elimination of mailing paper returns
+
+The Department of Revenue encourages taxpayers to take time to review and adjust their Georgia income tax withholding if they received a substantial refund last year. By reducing withholding amounts, taxpayers have immediate use of their earnings and will not have to wait until the following year to get their money. Please use the Form G-4 (or G-4P if you are receiving a pension) to determine your withholding allowances. These forms can be found on the Department's website at https://dor.georgia.gov.
+
+If you file electronically and need to make a payment, you may pay by electronic check using the Georgia Tax Center. Visit gtc.dor.ga.gov or visit our self-service instructional videos: httos://dor.georgia.gov/taxes/qgeorgia-tax-center-help/how-videos.
+
+For additional information, contact the Taxpayer Customer Contact Center at 1-877-423-6711.
+
+The Department of Revenue, as outlined in the Taxpayer Bill of Rights, will provide “fair, courteous, and timely service” to the taxpayers of Georgia. We have implemented several initiatives to ensure we uphold that stan- dard. Our mission is to administer the tax laws of the State of Georgia fairly and efficiently in order to promote public confidence and compliance while providing excellent customer service.
+
+Visit https://dor.georgia.gov/taxpayer-bill-rights to view a copy of the Taxpayer Bill of Rights.
+
+David J. Burge Revenue Commissioner
+
+2 2025 IT-511 Instructions Booklet
+
+Georgia Department of Revenue
+
+Inside this Booklet Online Assistance
+
+Find us Online by going to dor.georgia.gov: ¢« Download Tax Forms
+
+« Find Answers to Frequently Asked Questions * Access Where's My Refund
+
+« View the Taxpayer Bill of Rights
+
+* Find Georgia Regulations
+
+Get help with: * Refunds « Web Access
+
+Customer Contact Center: 1-877-423-6711 https://dor.georgia.gov/taxes/taxes-individuals
+
+Where's My Refund? Check the status of your refund online at https://gtc.dor.ga.gov or by calling 1-877-423-6711.
+
+Please allow 12 weeks to receive refunds. The Department is taking additional fraud prevention measures to ensure tax refunds are issued to the correct individuals.
+
+You will receive your refund via paper check if you are a first-time Georgia filer or if you have not filed your taxes in five or more years. This applies for both electronic and paper return filers.
+
+Note: A claim for refund must be made within three (3) years from the later of the date the tax was paid or the due date of the return, including extensions.
+
+freefile> Free Electronic Filing »
+
+The Department of Revenue has partnered with certain software companies to offer free and/or low cost online filing services to Georgia taxpayers under the Free File Alliance Program. Under this agreement, qual- ified taxpayers can prepare and file their Georgia individual income tax returns for free or a low cost using approved software.
+
+Each software company has income limitations and other restrictions for their free services. Please review each company’s offer before selecting a product. For more information, visit our website at dor.georgia. gov/free-file-alliance.
+
+If you do not qualify for free electronic services, you may file electronically using software produced by an approved software provider listed on our website https://dor.georgia.gov/approved-software-providers.
+
+3 2025 IT-511 Instructions Booklet
+
+& ) GEORGIA
+
+TAX CENTER
+
+What is the Georgia Tax Center?
+
+The Georgia Tax Center (GTC) is the Department of Revenue’s secure self-service customer facing portal for making online Individual or Business Tax payments and for corresponding with the Department of Revenue.
+
+Who can Sign Up for GTC?
+
+Any individual who has filed an Individual Income Tax Return or would like to submit a Georgia estimated tax payment is eligible to use GTC.
+
+GTC Features
+
+You will be able to do the following without a GTC login:
+
+* Check refund status
+
+* Make quick payments (estimated tax payments or assessment payments) * Protest proposed assessments
+
+* Request penalty waivers
+
+¢ Submit additional documentation
+
+A login is required to do the following:
+
+* Receive notification when a return is filed with your Social Security Number (SSN) or Individual Tax Identification Number (ITIN), or a refund has been issued
+
+* Submit an Installment Agreement Request (Payment Plan)
+
++ Request an Offer in Compromise (OIC)
+
++ Submit a Power of Attorney (POA)
+
+« View your 1099-G electronically
+
+* View account balance
+
+* Manage your tax credits
+
+* Make payments as a direct debit from a US bank and/or using credit or debit cards.
+
+« Perform general account maintenance - address change, preapproval of credits, view credits, etc.
+
+How Do | Sign Up?
+
+To use GTC, visit our website at gtc.dor.ga.gov. First-time users must register before accessing tax accounts. To register, you will need:
+
+* Social Security Number (SSN) or Individual Tax Identification Number (ITIN) + Federal Adjusted Gross Income (Federal AGI) from the most recently filed Georgia return * Avalid e-mail address
+
+Note: Third-party filers can sign up for GTC to access their client’s information with the proper docu- mentation and authorization. For more information see: https://dor.georgia.gov/taxes/information-tax-professionals/third-party-filers
+
+Please visit our website to sign up for access to GTC, find helpful links, instructions, and how to videos: https://dor.georgia.gov/georgia-tax-center-help/how-videos
+
+4 2025 IT-511 Instructions Booklet
+
+Taxpayer’s Assistance and Resources
+
+Find us on the web by going to dor.georgia.gov ¢« Download Tax Forms
+
+« Find Answers to Frequently Asked Questions * Access Where's My Refund
+
+« View the Taxpayer Bill of Rights
+
+* Find Georgia Regulations
+
+Customer Contact Center: 1-877-423-6711 https://dor.georgia.gov/taxes/taxes-individuals
+
+Get help with: ¢« Refunds * Billing
+
+« GTC Web Access
+
+Helpful Resources and Services
+
+* Volunteer Income Tax Assistance (VITA) see dor.georgia.gov/need-help-your-taxes or call 1-800-906-9887
+
+* Free File Alliance see dor.georgia.gov/free-file-alliance
+
+* AARP - Senior citizens call 1-888-AARPNOW (1-888-227-7669) from February 1 to April 15
+
+* Georgia Relay - Deaf and hard of hearing taxpayers (TDD) visit georgiarelay.org
+
+« Department of Labor visit www.dol.georgia.gov
+
+* Internal Revenue Service (IRS) visit httos://www.irs.gov
+
+Federal Tax Changes/Conformity, Legislation, and other Policy Information
+
+Visit dor.georgia.gov/taxes/tax-rules-and-policies for more information on:
+
+* Federal Tax Changes/Conformity with Federal Changes * Regulations ¢ Rules and Policies
+
+For legislative information see: dor.georgia.gov/legislation-summaries
+
+Georgia conforms to the Internal Revenue Code, as amended, provided for in federal law enacted on or before January 1, 2025. Georgia has not adopted the federal tax law changes in the federal One Big Beautiful Bill Act because the Act was signed on July 4, 2025. For more details on Georgia's conformity to federal tax laws, please see https://dor.georgia.gov/taxes/tax-rules-and-policies/income-tax-federal-tax-changes.
+
+5 2025 IT-511 Instructions Booklet
+
+2-D Barcode
+
+oe
+
+The two-dimensional (2D) barcode that appears on your return is the encoded information you entered on your return. This barcode reduces errors and saves time in processing the return. The 2D barcode is only visible after your return has been printed.
+
+Volunteer Income Tax
+
+Assistance (VITA)
+
+The VITA program was established by the IRS to assist qualified individuals with free electronic tax preparation services. Assistance is geared towards individuals with low to moderate income (less than $67,000 per year). The preparers are IRS-certified and can prepare basic income tax returns. There are several VITA locations in the metro area and throughout Georgia. For more information, visit our website at dor.georgia.gov/need-help-your-taxes.
+
+Payment Agreement
+
+Request
+
+You must meet the following criteria for a payment agreement:
+
+* — Returns for all years must be filed
+
+* Agreements are up to 60 months
+
+* Payments should be made through automatic
+
+debit from your bank account
+
+Note: There is a set up cost associated with initiating a payment agreement.
+
+Payment requests may be submitted online via the Georgia Tax Center (GTC) at gtc.dor.ga.gov. Please contact the Payment Agreement Section at 404- 417-2122 or via e-mail to payment.plan@dor.ga.gov to determine eligibility. For more information on Payment Agreements, visit our website at https://dor. georgia.gov/installment-agreements-faq.
+
+Payment Options
+
+GTC accepts individual income and estimated tax payments. For information about GTC payment op- tions, visit our website at gtc.dor.ga.gov or visit our
+
+self-service instructional videos at dor.georgia.gov/
+
+georgia-tax-center-help.
+
+The Georgia Department of Revenue accepts Visa, American Express, MasterCard, Discover, PayPal, or electronic check as payment for current year individual income tax due on original Forms 500 and 500ES, as well as for liabilities presented to taxpayers via Georgia Department of Revenue assessment notices. Payments can be made on GTC. Electronic check payments can be made outside a GTC logon; all other payments require a GTC account.
+
+There is a convenience fee added to credit cards and PayPal for this service that is paid directly to the payment processing company (This does not apply to electronic checks).
+
+P PayPal
+
+DISCOVER AIVIERICAN
+
+HEIW Oke
+
+VISA || (aie:
+
+EXPRESS
+
+For more information on payments, visit our website at https://dor.georgia.gov/taxes/how-do-i-make- tax-payment or contact the Taxpayer Services Customer Contact Center at 1-877-423-6711.
+
+2025 IT-511 Instructions Booklet
+
+NOTE: Sending your return by certified mail delays the processing of your return and refund.
+
+Mailing Address
+
+Tax Returns
+
+Form 500 without payment: Form 500 with payment: PROCESSING CENTER PROCESSING CENTER
+
+GEORGIA DEPARTMENT OF REVENUE GEORGIA DEPARTMENT OF REVENUE PO BOX 740392 PO BOX 740399
+
+ATLANTA, GA 30374-0392 ATLANTA, GA 30374-0399
+
+Form 500X Amended: PROCESSING CENTER
+
+GEORGIA DEPARTMENT OF REVENUE PO BOX 740318
+
+ATLANTA, GA 30374-0318
+
+Payments without Return
+
+Form 500-ES Individual Estimate Tax Voucher PROCESSING CENTER
+
+GEORGIA DEPARTMENT OF REVENUE
+
+PO BOX 740319
+
+ATLANTA, GA 30374-0319
+
+Form 525-TV Payment Voucher
+
+Note: If you filed electronically and are making a payment by check PROCESSING CENTER
+
+GEORGIA DEPARTMENT OF REVENUE
+
+PO BOX 740323
+
+ATLANTA, GA 30374-0323
+
+Form IT-560 Extension Payment Voucher PROCESSING CENTER
+
+GEORGIA DEPARTMENT OF REVENUE
+
+PO BOX 105198
+
+ATLANTA, GA 30348-5198
+
+7 2025 IT-511 Instructions Booklet
+
+Return Filing Tips
+
+Filing Checklist
+
+/ Have you considered filing your return electronically? It is safe and convenient to file electronically. For more information, visit dor.georgia.gov/why-should-i-file-electronically
+
+/ Checked that the Social Security Number(s) and/or Individual Tax Identification Number (ITIN) on the return are accurate and complete
+
+/ Added all the dependents’ information, if applicable / Reviewed each line for accuracy and verified calculations
+
+. Amounts are rounded to the nearest dollar
+
+_
+
+Correctly calculated the tax amount using the applicable rate
+
+/ Completed the Income Statement Detail section where Georgia income tax was withheld on Forms W-2s, 1099s, G2-RPs, G2-LPs, G2-As, and/or G2-FLs. Attached/included the forms with my returns.
+
+_
+
+Signed and dated the return / Both spouses signed the joint return, even if only one spouse earned the income * Note: Anyone paid to prepare the return must also sign the return / Completed Form 500 Pages 1-5 and included all applicable schedules and IND-CRs
+
+* Note: Schedule 2 credits must be filed electronically
+
+_
+
+Completed and submitted Form 500 Pages 1-5 and any applicable schedules and IND-CRs
+
+/ Mailed the return to the correct address
+
+Dos and Don'ts for Filing Returns Do
+
+/ Docomplete and submit Form 500 Pages 1-5
+
+_
+
+Do include your W-2(s), 1099(s), G2-RP(s) and other supporting income statements
+
+_
+
+Do include a copy of your federal return and all applicable schedules if your Federal Adjusted Gross Income (AGI) is higher than $40,000 or if your gross income is less than your W-2s
+
+Do complete the Income Statement Details section for Georgia tax withheld
+
+Do send your return, check/money order, along with the 525-TV voucher to the address on the return
+
+Qa NA
+
+Do use GTC or the Form IT-560 to make an extension payment
+
+_
+
+Do make your check or money order payable to the Georgia Department of Revenue
+
+Do not include cents on your return. Round to the nearest dollar X Do not staple your W-2(s), 1099(s) and other forms to your return
+
+X Do not use the Form 500 to correct a previously filed return - Use Form 500X
+
+Note: Sending your return by certified mail delays the processing of your return and refund
+
+8 2025 IT-511 Instructions Booklet
+
+2025 Income Tax Changes: Effective January 1, 2025, the income tax rate is 5.19%. Form 500EZ has been discontinued and is no longer accepted for tax years beginning on or after January 1, 2025. Taxpayers should use Georgia Form 500 for all filings from the 2025 tax year forward.
+
+45-day Period to File an Appeal or Protest Beginning July 1, 2025, taxpayers will have 45 days to take action based on the following notices:
+
+* From the date of a notice of proposed assessment, they have 45 days to file a protest.
+
+* Following a notice of refund denial or notice of partial payment, they also have 45 days to submit a protest.
+
+* Upon issuance of the Official Assessment and Demand for Payment Notice, taxpayers have 45 days to file a petition with the Tax Tribunal or the Georgia Tax Court.
+
+Update to Final Determination Date for Reporting Federal Changes: Taxpayers must report any federal changes or corrections resulting from a federal audit within 180 days of the final determination date. When those changes result from an amended federal return, a federal refund claim, an administrative adjustment request, or a similar report filed under Section 6225(c) of the Internal Revenue Code, the final determination date is the date the amended return, claim, adjustment request, or related report is filed.
+
+Subtraction for Hurricane Helene Disaster Relief Payments: For taxable years beginning on or after January 1, 2025, and ending on or before December 31, 2029, taxpayers can subtract from Georgia taxable income payments received from a Federal or Georgia disaster relief or assistance grant program for agricultural losses suffered due to Hurricane Helene during the 2024 calendar year.
+
+The programs must be administered by Georgia or its instrumentalities or the United States Department of Agriculture and established specifically to address agricultural losses suffered due to Hurricane Helene during the 2024 calendar year. The subtraction is only
+
+allowed to the extent the payments were included in Federal adjusted gross income.
+
+Georgia Tax Court and Pending Tax Tribunal Cases Starting July 1, 2026, the Georgia Tax Court will officially succeed the Tax Tribunal and begin accepting tax appeal petitions. Also, any cases pending before the Tax Tribunal as of June 30, 2026, are transferred to the Georgia Tax Court. Any petitioner with a case pending before the Tax Tribunal has until December 31, 2025, to submit a written demand to not transfer their case to the Georgia Tax Court. On June 30, 2026, any unresolved cases that were requested not to be transferred to the Georgia Tax Court are dismissed.
+
+Subtraction for Federal Crop Insurance Proceeds Received for Hurricane Helene: For taxable years beginning on or after January 1, 2025, and ending on or before December 31, 2025, taxpayers can subtract from Georgia taxable income federal crop insurance proceeds received for the destruction or damage to crops due to Hurricane Helene during the 2024 calendar year. The subtraction is only allowed to the extent the proceeds were included in Federal adjusted gross income.
+
+Tax Credit Changes
+
+Georgia Eligible Itemizer Tax Credit: Full-year and part-year residents who itemize their deductions shall be entitled to a credit up to the amount of $300 per taxpayer. The credit cannot be greater than the tax liability and cannot be carried forward to future returns. This credit is claimed on Form 500, Line 19.
+
+Child and Dependent Care Expense Credit (Credit Code 202): The amount of the credit has been increased to 50 percent of the federal child and dependent care expense credit.
+
+Credit Carryforward Years Reduced for Several Credits: The number of carryforward years for several 2025 income tax credits have been reduced. In addition, installment periods for certain credits have been reduced. For more information on income tax credits and their carryforward periods, please see https://dor.georgia.gov/tax-credits.
+
+New Tax Credit: Timber Tax Credit (2025) (Credit Code 155): This is a refundable income tax credit for taxpayers that suffered damage due to Hurricane Helene during 2024. Taxpayers must request
+
+2025 IT-511 Instructions Booklet
+
+preapproval electronically from the Department through the Georgia Tax Center by December 3], 2025. The aggregate amount of tax credits allowed is $200 million. The credit can be sold to a Georgia taxpayer, but the credit is not refundable for the purchaser of the credit. The credit must be claimed on or before December 3], 2030. For more information, refer to O.C.G.A. §48-7-40.37.
+
+Converted Vehicle Tax Credit (Credit Code 156): This is acredit for the conversion of a conventionally fueled vehicle to a converted vehicle that is registered in Georgia. A converted vehicle is a motor vehicle that is retrofitted to be fueled solely by an alternative fuel and meets the emission standards for low-emission vehicles when operating on such alternative fuel or the emission standards for zero emission vehicles as defined under the rules of regulations of the Board of Natural Resources. The amount of the credit is the lesser of 10 percent of the cost of conversion or $2,500.00. A certification issued by the Environmental Protection Division of the Department of Natural Resources must be provided with the return to claim the credit. Any credit claimed but not used may be carried forward for three years from the year of conversion. For more information, refer to O.C.G.A. §48-7-40.16
+
+Qualified Rural Hospital Organization Expense Tax Credit (Credit Code 136): The credit has been extended through December 31, 2029. For the first half of each calendar year, the individual credit limit is now set at $25,000 for members of limited liability companies, Subchapter “S” corporation shareholders, and partners in partnerships. Additionally, the annual aggregate cap has been raised to $100 million. Taxpayers who receive preapproval on or before September 30 must make their contributions within 180 days of preapproval, but not later than October 3. Those preapproved after September 30 must make their contributions by December 31. If a taxpayer submits a credit preapproval request for an amount that exceeds the yearly contribution cap for their chosen rural hospital organization, the request will not be denied. Instead, the requested amount will be attributed to the chosen rural hospital organization up to its yearly contribution cap, and the remaining amount will be attributed to the next available rural hospital organization with the highest financial need
+
+that has not yet reached its yearly contribution cap. For more information, refer to O.C.G.A. §48-7-29.20 and Regulation 560-7-8-.57.
+
+General Information
+
+When to File. Calendar year taxpayers are required to file on or before April 15, 2026. Fiscal year taxpayers must file on or before the 15th day of the fourth month after the close of their taxable year.
+
+Extension to File. The Georgia return must be filed along with a copy of Federal Form 4868 or the IRS confirmation letter on or before the extended Federal due date. If you do not need a Federal extension, you may use Georgia Form IT-303 to request an extension to file your Georgia return.
+
+An extension to file does not extend the date for paying the tax. Taxes must be paid by the statutory due date to avoid late payment penalties and interest. The amount paid should be entered on Form 500, Line 26.
+
+Amended Returns. File Form 500X to correct information reported on Form 500. Do _ not use Form 500 to correct a _ previously filed return or use Form 500X as an original return.
+
+When is Electronic Filing Required? Electronic filing is required for the following:
+
+* Taxpayers that remit payments by electronic funds transfer, whether on a mandatory or voluntary basis, must file all associated returns electronically.
+
+* A return preparer who prepares an income tax return, must electronically file the return when the Federal counterpart of such return is required to be filed electronically pursuant to the Internal Revenue Code of 1986 or Internal Revenue Service regulations.
+
+« A return is required to be electronically filed if the return generates, allocates, claims, utilizes, or includes in any manner a series 100 tax credit (see page 36).
+
+10 2025 IT-511 Instructions Booklet
+
+Penalty and Interest. Tax not paid by the statutory due date of the return is subject to interest and 0.5 percent late payment penalty per month, or fraction thereof. Also, a monthly late filing penalty is imposed at a rate of 5 percent of the tax not paid by the original due date. Interest accrues until the tax due has been paid in full. The combined total of late filing and late payment penalty cannot exceed 25 percent of the tax not paid by the original due date. An extension of time for filing the return does not extend the date for making the payment. Additional penalties may apply as follows:
+
+* Frivolous Return Penalty - $1,000. (A frivolous return is one that contains incorrect or insufficient information necessary to accurately compute the appropriate tax liability with the intent to delay or impede Georgia tax law or is based on a frivolous position.)
+
+Negligent Underpayment Penalty - 5 percent of the underpaid amount.
+
+Fraudulent Underpayment Penalty 50
+
+percent of the underpaid amount.
+
+Failure to File Estimated Tax Penalty - 9 percent per year for the period of underpayment. Use Form 500 UET to calculate the penalty.
+
+Interest that accrues beginning July 1, 2016, accrues at an annual rate equal to the Federal Reserve prime rate plus 3 percent. The interest rate will be reviewed and may be adjusted in January of each subsequent calendar year. See https:// dor.georgia.gov/annual-notice-interest-rate- adjustment for the annual interest rate. For more information on Penalties and Interest, see: https:// dor.georgia.gov/penalty-and-interest-rates.
+
+Assessments. If your return is reviewed and it is determined that you owe additional taxes, generally, you will be issued a Proposed Assessment. Once a Proposed Assessment is issued, you have 45 days to submit a protest on the Georgia Tax Center (GTC) website. After 45 days, the Department will issue an Official Assessment and Demand for Payment. You then have 45 days to file an appeal with either the Georgia Tax Tribunal or in the appropriate Superior Court. For more information and rights as a taxpayer, see the Taxpayer Bill of Rights on the Department's website at https://dor.georgia.gov.
+
+11
+
+Supporting Documents. The Department will request information to support the amounts listed on your Georgia income tax return and related schedules when necessary. However, in addition to withholding statements (W-2s, 1099s, G2-RPs, etc.) where taxes were withheld you must include the following documentation with your Georgia return when it is filed for the following situations:
+
+The amount on Form 500, Line 8 is $40,000 or more, or less than the total income on your W-2(s) - submit a copy of Pages 1, 2, and Schedule 1 of your Federal return (the Federal Schedule 1 must be included if a copy was submitted with your Federal return).
+
+You itemize deductions - submit a copy of Federal Form 1040 Schedule A.
+
+You claim the Georgia child and dependent care expense credit - submit the appropriate Federal child care credit schedule.
+
+You claim a credit for taxes paid to another state(s)- submit a copy of your return filed with the other state(s).
+
+Address Changes. You must notify the Department of your address change. Notification of an address change can be made through GTC inside a logon, or by calling 1-877-423-6711 or writing the new address on your tax return and checking the address change box.
+
+Name Changes. The Department currently requires a copy of one of the following documents plus a copy of a photo ID reflecting name change.
+
+Legal document reflecting name change:
+
+* Superior Court Order/Decree/Certificate * Marriage Certificate/Divorce Decree
+
+Social Security Card Valid photo ID issued reflecting name change:
+
+* US State or US Territory issued ID card (front and back)
+
+US Passport
+
+These documents should be submitted with your tax return.
+
+2025 IT-511 Instructions Booklet
+
+Injured Spouse Relief. If the IRS has taken your share of a refund to pay for a liability owed by your spouse, you are an injured spouse. Offsets may have been for Child Support, Student Loan, Unemployment Insurance Payments, etc.
+
+Documentation that is needed for an Injured Spouse claim:
+
+* Federal Form 8379 “Injured Spouse Allocation”
+
+* Original or amended Federal return
+
+* All W-2’s and W-2G’s for both spouses and any Forms 1099 showing state income tax withholding
+
+Send the information to revenue.taxpayerservice@ dor.ga.gov.
+
+Innocent Spouse Relief. Individuals who were granted innocent spouse relief by the Internal Revenue Service may be eligible for relief from liability for Georgia tax, interest and penalty.
+
+Georgia law O.C.G.A. §48-7-86(g) allows relief from a Georgia liability when:
+
+* The liability was caused by the unreported or incorrectly reported income of a person on a joint return.
+
+* The person requesting relief has proof that he or she did not know, and did not have reason to know, the income was omitted or reported incorrectly.
+
+* Under the circumstances, it is inequitable to hold the person responsible for tax on the unreported or incorrectly reported income.
+
+* The person was granted relief from a Federal tax balance under Section 6015 of the Internal Revenue Code.
+
+Documentation that is needed for the Innocent Spouse claim:
+
+* IRS final determination letter-email to Compliance.ResearchUnit@dor.ga.gov
+
+Individual Retirement Accounts. The provisions concerning taxability and conversion from a traditional IRA to a Roth IRA are the same for Georgia
+
+and the Internal Revenue Service.
+
+Withholding on Lump-sum Distributions. The payee of any non-periodic payment may elect to have withholding made on the non-periodic distributions from a pension, annuity, or similar fund.
+
+The election shall remain in effect until revoked by the payee. See Form G-4P for more information.
+
+Income from Partnerships and S Corporations. Nonresident partners must pay Georgia income tax on their portion of the partnership’s Georgia income. Nonresident shareholders must pay Georgia income tax on their portion of the S Corporation's Georgia income; resident shareholders and partners must report their total S Corporation or partnership income (but may be eligible for the credit for taxes paid to other states or a subtraction when the income is taxed at the entity level in Georgia or another state).
+
+Federal Audits. Whenever a Federal audit or other Federal adjustment results in a change in net income for any year, you are required to furnish, within 180 days, a Form 500X with supporting schedules and a copy of Form 1040 to the Georgia Department of Revenue reflecting all changes. Additionally, if the changes result in a refund, the refund must be claimed within one year from the date the changes are submitted. If you do not submit a return reflecting all changes and the State Revenue Commissioner receives this information in a report from the United States Government, the Commissioner will issue an assess- ment for tax due within five years from the date the report is received from the United States Government.
+
+A taxpayer who fails to notify the Commissioner within 180 days forfeits any Georgia refund as a result of an IRS audit if the normal statute of limitations has expired. However, 90 percent of any overpayment can be applied to a balance due for another year that is a result of the same IRS audit.
+
+For more information see https://dor.georgia.gov/ individual-income-tax-audits.
+
+Withholding
+
+Withholding is required on the member's share of the taxable income sourced to this state, whether distributed or not, from Partnerships, Limited Liability Companies, and S Corporations. Withholding should be reported on Form G2-A and entered on Form 500,
+
+12 2025 IT-511 Instructions Booklet
+
+Line 25. Include a copy of Form G2-A with your return.
+
+Withholding is also required on the sale or transfer of real property and associated tangible personal property by nonresidents of Georgia. Tax withheld is reported on Form G2-RP and should be entered on Form 500, Line 25. Include a copy of Form G2-RP with your return.
+
+FILING REQUIREMENTS
+
+Full-year Residents
+
+Full-year residents are taxed on all income, except tax-exempt income, regardless of the source or where derived. You are required to file a Georgia income tax return if:
+
+* You are required to file a Federal income tax;
+
+* You have income subject to Georgia income tax that is not subject to Federal income tax;
+
+* Your income exceeds the standard deduction as indicated below:
+
+Married filing jointly $24,000 Single $12,000 Married filing separately $12,000 Head of household $12,000 Qualifying surviving spouse $12,000
+
+These requirements apply as long as your legal residence is Georgia, even if you are absent from or live outside the state temporarily. A credit for taxes paid to another state is allowed. See the worksheet on page 34 for more information.
+
+Part-year and Nonresidents
+
+1. Part-year residents and nonresidents who work in Georgia or receive income from Georgia sources are required to file Geor- gia Form 500 and complete Form 500 Sched- ule 3 to calculate Georgia taxable income.
+
+2. Married part-year residents with income earned in Georgia whose spouse is a nonresident can file a separate return claiming their own allowable exemptions and deductions, or file a joint return.
+
+Part-year Residents
+
+1. If you are a legal resident of Georgia for only a portion of the tax year and are required to file a Federal income tax return, you are required to file a Georgia income tax return.
+
+2. Part-year residents who claim a credit for taxes paid to another state for income earned while a resident must include a copy of the individual income tax return filed with that state(s) with their Georgia return. Otherwise, the credit will not be allowed.
+
+Nonresidents
+
+1. Nonresidents who work in Georgia or receive income from Georgia sources and are required to file a Federal return are required to file a Georgia income tax return.
+
+2. Legal residents of other states are not required to file a Georgia tax return if their only activity for financial gain or profit in Georgia consists of performing services for an employer as an employee where the wages for such services do not exceed the lesser of five percent of the income received from performing services in all places during the taxable year or $5,000.
+
+3. A nonresident who receives deferred compensa- tion or income from the exercise of stock options that were earned in Georgia in a prior year is re- quired to pay tax on the income, but only if the prior year’s income exceeds the lesser of: 5 per- cent of the income received by the person in all places during the current taxable year; or $5,000. However, the income is not taxed if Federal law prohibits the state from taxing it. Federal law pro- hibits state taxation of some types of retirement income including pensions as well as income re- ceived from nonqualified deferred compensation plans if the income is paid out over the life expec- tancy of the person or at least 10 years. See Regu- lation 560-7-4-.05 for more information.
+
+13 2025 IT-511 Instructions Booklet
+
+Taxpayers Required to File Form 1040NR
+
+Individuals who are required to file Federal Form 1040NR must file Georgia Form 500. Similar to Federal income tax rules, most of these Georgia taxpayers are only allowed to deduct the applicable Georgia expenses reflected on Form 1040NR. Most taxpayers are not allowed to take the standard deduction and are allowed only limited itemized deductions as
+
+shown on Form 1040NR, Schedule A.
+
+Military Personnel Residents
+
+Military personnel who are legal residents of Georgia are subject to Georgia income tax on all income regardless of the source or where earned, unless specifically exempt by Georgia law. Military personnel who serve outside of the continental U.S. may file their Georgia income tax return within six months after they come back to the continental U.S. No penalties or interest will accrue during this period.
+
+Members of the National Guard or Air National Guard who are on active duty for a period of more than 90 consecutive days are allowed a tax credit against their individual income tax. The credit cannot exceed the amount expended for qualified life insurance premiums or the taxpayer's income tax liability and should be claimed on Form IND-CR 203.
+
+Military Nonresidents
+
+Military personnel who are not legal residents of Georgia are only required to file a Georgia income tax return if the person earns income during their off duty hours from sources in Georgia, if the person has income from property located in Georgia, the person receives business income from Georgia sources. If required, nonresident military personnel should file Georgia Form 500 and use Schedule 3 to calculate Georgia taxable income. (See pages 26-28 for in- structions on completing Schedule 3.)
+
+Spouses of Military Personnel
+
+A spouse of a military person shall neither lose nor acquire their legal residence solely to be with the military person serving in compliance with military
+
+orders but this provision only applies if the legal res- idence of the spouse is the same as the military per- son or the spouse of a military person has elected to use the same residence for purposes of taxation as the military person. Income for services performed by the spouse of a military person shall not be con- sidered Georgia income if the military person is not a legal resident of Georgia but this only applies if the spouse is in Georgia solely to be with the military per- son serving in compliance with military orders and the legal residence of the spouse is the same as the military person or the spouse of a military person has elected to use the same residence for purposes of taxation as the military person. The affected taxpayer should exclude the income on Schedule 3, Column C, Line 7 of the Form 500. No amounts should be entered on Schedule 3, Column A, Line 7 of Georgia Form 500.
+
+Combat Zone Pay
+
+Military income earned by a member of the Nation- al Guard or any reserve component of the armed services while stationed in a combat zone or sta- tioned in defense of the borders of the United States pursuant to military orders is not subject to Georgia income tax. The exclusion from income is only with respect to military income earned during the period covered by such military orders. A copy of the Fed- eral return must be enclosed with the Georgia return to claim this exclusion. The exclusion is limited to the amount included in Federal Adjusted Gross Income.
+
+Estimated Tax
+
+Estimated tax is required for each individual subject to Georgia income tax who reasonably expects to have gross income during the year which exceeds (1) exemption for dependents, plus (2) estimated deductions, plus (3) $1,000 of income not subject to withholding.
+
+Estimated tax required from persons not regarded as farmers or fishermen shall be filed on or before April15 of the taxable year, except if the estimated tax require- ments are first met on or after April 1 and before June 1, estimated tax must be filed by June 15; on or after June 1 but before September 1, by September 15; and on or after September 1, by January 15 of the following year. Individuals filing on a fiscal year basis ending
+
+14 2025 IT-511 Instructions Booklet
+
+after December 31 must file on corresponding dates.
+
+Other State’s Tax Return
+
+If you claim the credit for taxes paid to another state(s):
+
+* You must include a copy of your return filed with that state along with your Georgia return.
+
+« No credit for taxes paid to another state will be allowed unless the other state’s return is enclosed with the Georgia return.
+
+Filing for Dependents
+
+If the parent or guardian prepared the minor child’s or dependent’s return, the Department recommends that the parent or guardian check the box allowing the preparer to discuss the return with the Department. If this is not done, and the parent did not sign the return on the child’s behalf as allowed by IRS Publication 929, then the parent or guardian will have to be included on a Power of Attorney (Form RD-1061) prepared by the minor in order for the Department to discuss the return with the parent or guardian.
+
+Filing for Deceased Taxpayers
+
+The surviving spouse, administrator, or executor may file a return on behalf of a taxpayer who dies during the taxable year. When filing, use the same filing status that was used on the Federal income tax return. The due date for filing is the same as for Federal purposes.
+
+Note: To have a refund check in the name of a de- ceased taxpayer reissued, mail Georgia Form GA- 5347, a copy of the death certificate, and the infor- mation specified on Georgia Form GA-5347 along with the check to the address on the form.
+
+FORM 500 INSTRUCTIONS
+
+Lines 1 - 3:
+
+Print or type your name(s), address (including apartment number if applicable), Social Security Number(s), Date of Birth and check the checkbox if deceased in the spaces provided. Do not write both
+
+a street address and post office box in the address field.
+
+Line 4:
+
+Enter the appropriate number for your residency status.
+
+1. FULL YEAR RESIDENT-You lived in Georgia the en- tire year, regardless of temporary living arange- ments.
+
+2. PART-YEAR RESIDENT- You lived in Georgia part of the year. Or if one spouse is a resident and one is a part-year or nonresident. List the dates you lived in Georgia, and you must complete Schedule 3 to calculate Georgia taxable income.
+
+3. NONRESIDENT - You did not live in Georgia or, if filing Married Filing Jointly and neither lived in Georgia. You must complete Schedule 3 to calculate Georgia taxable income.
+
+Married Filing Jointly
+
+Taxpayers who are married filing jointly with mixed Georgia residencies are allowed to file separate returns claiming their own allowable exemptions, and deductions, or file a joint return. If filing a joint return:
+
+Enter 2: If one spouse is a resident and the oth- er is a part-year resident or nonresident,
+
+Enter 2: If both spouses are part-year residents,
+
+Enter 3: If both spouses are nonresidents
+
+Line 5:
+
+Enter the appropriate letter for your filing status. the same status that is on your Federal return.
+
+Use
+
+A - Single
+
+B - Married filing jointly;
+
+C - Married filing separately;
+
+D - Head of household or Qualifying surviving spouse
+
+Georgia recognizes same sex marriage.
+
+15 2025 IT-511 Instructions Booklet
+
+Exceptions:
+
+If one spouse is a resident and the other is a nonresident without any Georgia-source income, your Georgia return may be filed jointly or separately with each spouse claiming the appropriate exemptions and deductions.
+
+Line 6:
+
+Reserved
+
+Lines 7a - d: Dependents 7a: Enter the total number of qualified dependents.
+
+* Do not include yourself, your spouse, and/or dependent unborn children.
+
+* Georgia follows the Federal rules for qualified dependents.
+
+« If married filing separately, only one spouse may claim the dependent, and the prior Federal rules (those applicable when Federal exemptions were available for dependents) are used to determine who is entitled to claim the dependent.
+
+7b: Enter the number of unborn dependents.
+
+* The Unborn Dependent Exemption cannot be claimed if the child is born during the same tax year.
+
+« If the child is born during the tax year, include that dependent on Line 7a, not 7b. For more information, see https://dor.georgia.gov/life-act- guidance.
+
+7c: Enter the total number of dependents. « Add Lines 7a and 7b.
+
+7d: List the requested information about your qualified dependents in the spaces provided.
+
+* Do not include yourself, spouse and/or unborn dependents in this section.
+
+Line 8:
+
+Enter Federal adjusted gross income from Form 1040. Do not use Federal taxable income.
+
+16
+
+If the amount on Form 500, Line 8 is greater than $40,000 or less than the total income on your W-2s, you must submit a copy of your Federal Form 1040 (primary pages) and Schedule 1. The Federal Schedule 1 must be included if a copy was submitted with your Federal return.
+
+Line 9:
+
+You must adjust your Federal adjusted gross income if you have income that is taxable by the Federal Government but not taxable to Georgia or vice versa. You must document your adjustments on Schedule 1 and enter the total amount here. There are certain adjustments that must be added if applicable and some adjustments that may be subtracted. Please see pages 20-25 for more information about additions and subtractions. Note: Part-year residents and nonresidents must skip Lines 9-14 and follow the Schedule 3 instructions that begin on page 26.
+
+Line 10:
+
+Enter Georgia adjusted gross income (net total of Line 8 and Line 9).
+
+Line 11:
+
+Standard Deductions (Leave Line 11 blank if you itemize deductions on your Federal return)
+
+Enter the standard deduction that corresponds to your marital status. If you use the standard deduction on your Federal return, you must use the Georgia standard deduction on your Georgia return.
+
+Married filing jointly $24,000 Single $12,000 Married filing separately $12,000 Head of household $12,000 Qualifying surviving spouse $12,000
+
+Lines 12a-c: Itemized Deduction (Leave Lines 12a-c blank if you use the standard deduction)
+
+Note: If you itemize deductions on your Federal re- turn, or if you are married filing separately and your 2025 IT-511 Instructions Booklet
+
+spouse itemizes deductions, you must itemize de- ductions on your Georgia return. Include a copy of Federal Schedule A with your Georgia return.
+
+Line 12a: Enter the itemized deductions from your Federal Schedule A.
+
+Line 12b: Enter adjustments for income taxes other than Georgia and investment interest expense for the production of income exempt from Georgia tax.
+
+Line 12c: Subtract Line 12b from Line 12a, and enter the total.
+
+Note: For all taxpayers (full year, part year, and nonresident), if state & local income taxes were limited on the Federal return to $10,000 ($5,000 if married filing separately), the following formula should be used to determine the disallowed other state income taxes:
+
+* Other state income taxes divided by the total taxes on Line 5d of Schedule A multiplied by the lesser of the amount on Line 5d of Schedule A or $10,000 ($5,000 if married filing separately).
+
+¢ For part-year and nonresidents on the Schedule 3, the same computation should be used in arriving at the amount of itemized deductions that would then be subject to proration using the part-year/ nonresident income ratio on Form 500 Schedule 3 Line 9. Do not include state taxes paid by entities that pay income tax at the entity level.
+
+Line 13:
+
+Subtract Line 11 or 12c from Line 10, and enter the
+
+total.
+
+Lines 14: Dependent Exemption
+
+Multiply the number of dependents on Line 7c by $4,000 and enter the total.
+
+Line 15a:
+
+Subtract Line 14 from Line 13 (or enter Schedule 3, Line 14) to get your Georgia taxable income before Georgia Net Operating Losses (NOLs).
+
+Line 15b: Georgia NOL Utilized
+
+Net operating losses (NOLs) for tax years 2018 and later that are applied to Georgia income cannot exceed 80% of Georgia income before NOLs. Use the following worksheet to compute the net operating losses that can be used in the current year.
+
+1. NOL carry forward available for current year from years before 2018
+
+2. NOL carry forward available for current year from years 2018 and later
+
+3. Income before GA NOL (Line 15a of Form 500)
+
+4. NOL from Line 1 applied to current year
+
+5. NOL from Line 2 applied to current year (cannot exceed 80% of Line 3)
+
+6. Total NOL applied - add Lines 4 and 5, also enter on Line 15b of Form 500
+
+Line 15c:
+
+Subtract Line 15b from Line 15a.
+
+Line 16:
+
+Multiply the amount on Line 15c by 5.19%. Round to nearest dollar.
+
+Line 17:
+
+Complete the Low Income Credit Worksheet on page 35 to determine your credit amount. On Line 17a, enter the amount from Line 4 of the worksheet. On Line 17b, enter the credit amount from Line 5 of the worksheet. On Line 17c, enter the result from Line 6 of the worksheet.
+
+Note: You may claim the Low Income Credit if your Federal adjusted gross income is less than $20,000 and you are not claimed or eligible to be claimed as a dependent on another taxpayer’s Federal or Georgia income tax return. Part-year residents may only claim the credit if they were residents at the end of the tax year. Taxpayers filing a separate return for a taxable year in which a joint return could have been filed can only claim the credit that would have been allowed had a joint return been filed. You cannot claim this credit if you are an inmate in a correctional facility. This credit must be claimed on or before the end of the 12th month following the close of the
+
+17 2025 IT-511 Instructions Booklet
+
+tax year. The credit cannot exceed the taxpayer’s income tax liability.
+
+Line 18:
+
+Enter the other state(s) tax credit used. If you paid tax to more than one state, use the total of the other state’s income and the worksheet on page 34 to calculate the Other State’s Tax Credit.
+
+Note: You must include a copy of the return filed with the other state(s) with your Georgia return or the credit will not be allowed.
+
+Line 19: Georgia Eligible Itemizer Tax Credit
+
+A full-year or part-year resident who itemized and lived in Georgia 183 days or longer, or who is living in Georgia on the last day of the year may qualify for a tax credit of up to $300 per taxpayer. The credit must be claimed on Form 500, Line 19, cannot exceed the tax liability from Line 16, and cannot exceed your total tax liability.
+
+Line 20:
+
+Enter the amount of credits used from the last line of the IND-CR Summary Worksheet. The IND-CRs are located between Schedule 3 and Schedule 4 of the Form 500. You must include any applicable IND-CR forms when submitting your return.
+
+Line 21:
+
+Enter the amount of credits used from Schedule 2. The return must be filed electronically if series 100 tax credits are claimed or generated. If claiming credit code 125 (QEE), enter your Social Security Number and not the Federal Employer Identification Number of the Student Scholarship Organization. See pages 9, 21 and 36 for more information regarding credits.
+
+Line 22:
+
+Add Lines 17-21 to get the amount for total credits used. The amount cannot exceed Line 16.
+
+Line 23:
+
+Subtract Line 22 from Line 16. If zero or less, enter zero.
+
+Line 24:
+
+Only enter Georgia income tax withheld from W-2s and 1099s. Include a copy of these statements with your return or this amount will not be allowed.
+
+Line 25:
+
+Enter Georgia income tax withheld on G2-A, G2-FL, G2- LP, and/or G2-RP. Include a copy of these statements with your return or this amount will not be allowed.
+
+Note: Please complete the Income Statement Details Section. Only report income on which Georgia tax was withheld. Enter income from W-2s, 1099s, and G2-As on Line 4 GA Wages/Income. For other statements, complete Line 4 using the income reported from Form G2-RP Line 12 or Line 13; Form G2-LP Line 11. Enter zero for Form G2-FL.
+
+Claim of right under IRC § 1341. In most cases, if the deduction option is used, a claim of right deduction is included in Federal Adjusted Gross Income or itemized deductions; no adjustment is necessary on the Georgia return since that flows to the Georgia return.
+
+However, if the credit option is used, the calculated credit may be included on the “Georgia Income Tax Withheld” line of Form 500 or 500X, with an attached statement showing the calculation.
+
+Note: If the credit option is used, the taxpayer does not get a credit for the entire amount repaid, only the reduced tax from the prior year computed as if they did not receive the income in the prior year.
+
+Line 26:
+
+Enter estimated tax payments, including amounts credited from a previous return, and any payments made electronically or with Form IT-560.
+
+Line 27:
+
+Enter Schedule 2B Refundable Tax Credits. The return must be filed electronically to claim these credits.
+
+Line 28:
+
+Add Lines 24 through 27 and enter the total amount.
+
+18 2025 IT-511 Instructions Booklet
+
+Line 29:
+
+If Line 23 is more than Line 28, subtract Line 28 from Line 23 to calculate the balance due.
+
+Line 30:
+
+If Line 28 is more than Line 23, subtract Line 23 from
+
+Line 28 to calculate your overpayment.
+
+Line 31:
+
+Enter the amount you want credited to next year's estimated tax.
+
+Lines 32 - 41:
+
+Enter the amount you want to donate to the charities listed on the form. Amounts must be rounded to the nearest dollar and cannot be less than $1.
+
+Line 42:
+
+Enter the estimated tax penalty from Form 500 UET and include the form. If you were eligible for an estimated tax penalty exception on Form 500 UET, please check the “500 UET Exception Attached” box, include the revised penalty on Line 42 of the Form 500, and include the 500 UET with the return. If the revised penalty is zero, enter zero.
+
+Line 43:
+
+Enter the amount of late payment and/or late filing penalty.
+
+Line 44:
+
+Enter the amount of interest.
+
+Line 45:
+
+Add Lines 29 and 32 through 44 and enter the total amount due. Mail your return, 525-TV payment voucher, and payment to the address on the Form 500.
+
+Line 46:
+
+Subtract the sum of Lines 31 through 44 from Line 30 and enter the amount to be refunded to you. Enter this total as your refund amount.
+
+Direct Deposit Option
+
+Note: If you are a first-time Georgia filer or if you have not filed Georgia taxes in five or more years, you will receive your refund via paper check. This applies both to electronic and paper return filers.
+
+Line 46a: Complete the direct depos- it information
+
+NOTE: To prevent fraud, the Department will only re- fund electronically made payments to the account from which they were paid. E.g., if you made estimat- ed payments through GTC, they will not be refunded to a different account.
+
+Check the appropriate box (Checking or Savings) for the type of account. Do not check more than one box. You must check the correct box to ensure your direct deposit is accepted.
+
+Enter your nine digit routing number. The first two dig- its must be 01 through 12 or 21 through 32. Ask your financial institution for the correct routing number to enter on Line 46a if:
+
+* The routing number ona deposit slip is different from the routing number on your checks.
+
+* The deposit is to a savings account that does not allow you to write checks, or
+
+* Your checks state they are payable through a financial institution different from the one at which you have your checking account.
+
+Enter your account number from left to right and leave unused boxes blank. Include hyphens, but omit spaces and special symbols. The account number can be up to 17 characters (both numbers and letters).
+
+Example
+
+On the sample check, the routing number is 807100013. John Doe would use that routing number unless their financial institution instructed them to use a different routing number for direct deposits. The account number is 978653421. Do not include the check number. On the sample check on the next page, the check number is 5678.
+
+19 2025 IT-511 Instructions Booklet
+
+John Doe Sere 173 has Seroet Arppioeme, US 1S
+
+Pat 1 THE CADER OF ___ 4
+
+Routing Number Account Number
+
+fell LARS
+
+Jj i II I £) WHO? LOOO LIE TBESaGc he
+
+Direct Deposit Rejects
+
+If any of the following apply, your direct deposit request may be rejected and a check will be mailed:
+
+* Any numbers or letters are crossed out or whited out.
+
+« Aninvalid checking, savings, or routing number was entered.
+
+* Your financial institution may not allow a joint refund to be deposited into an individual account. The State of Georgia is notresponsible if a financial institution rejects a direct deposit.
+
+Signature Section
+
+Please sign and date your return. If filing a joint return, you and your spouse must sign and date the return. The paid preparer must sign the return. If the taxpayer and/or spouse is deceased, provide the date of death in the signature section and check the deceased checkbox on Page 1, Line 1.
+
+Schedule 1 Instructions
+
+Lines 1 - 6:
+
+Enter your additions to income (see Additions section for detailed information).
+
+Lines 7 - 13:
+
+Enter your subtractions from income (see Subtrac- tions section for detailed information).
+
+Note: A taxpayer with multiple additions (Schedule 1, Line 5) and subtractions (Schedule 1, Line 12) should include a separate worksheet listing all adjustments and write the total for those lines respectively.
+
+Line 14:
+
+Enter your total net adjustments here and on Line 9 of page 2 of Form 500.
+
+Note: Please complete and include your Retirement Income Exclusion calculation (Page 2 of Schedule 1), if you entered information on Schedule 1, Lines 7a, 7d, 7c, and/or 7f. Also, please complete and include the Military Retirement Income Exclusion calculation (Page 3 of Schedule 1) if you entered information on Schedule 1, Lines 7b and/or 7e.
+
+Additions
+
+The following adjustments must be added if applicable:
+
+1. Interest received from non-Georgia municipal bonds and dividends received from mutual funds that derived income from non-Georgia municipal bonds. These may only be reduced by direct and indirect interest expenses which are attributable to the income and which have not already been deducted in arriving at Federal adjusted gross income or itemized deductions.
+
+2. Loss carryovers from years when you were not subject to Georgia income tax.
+
+3. Lump sum distributions from employee benefit plans reported on IRS Form 4972.
+
+4. Depreciation because of differences in Georgia and Federal law during tax years 1981 through 1986.
+
+5. Adjustments due to Federal tax changes (see dor. georgia.gov/rules-policies/income-tax/income- tax-federal-tax-changes).
+
+6. Netoperating loss carryover deducted on Federal return.
+
+7. Payments for more than $600 in a taxable year made to employees who are not authorized employees and who are not excepted by Code Section 48-7-21.1. An authorized employee is someone legally allowed to work in the United States.
+
+20 2025 IT-511 Instructions Booklet
+
+8. Taxable portion of withdrawals on_ the Path2College 529 Plan (see Regulation 560-7-4- 04).
+
+9. For the Qualified Education Expense credit, the deduction relating to the credit. See Regulation 560-7-8-.47.
+
+10. For the Land Conservation credit, the deduction relating to the credit. See Regulation 560-7-8-.50 for more information.
+
+ll. For the Qualified Rural Hospital Organization Expense tax credit, the deduction relating to the credit. See Regulation 560-7-8-.57 for more information.
+
+12. For the Qualified Education Donation tax credit, the deduction relating to the credit. See Regulation 560-7-8-.60 for more information.
+
+13. For the Qualified Foster Child Donation tax credit, the deduction relating to the credit. See regulation 560-7-8-.68 for more information.
+
+14. For the Qualified Law Enforcement Donation tax credit, the deduction relating to the credit. See regulation 560-7-8-.69 for more information.
+
+If the contribution relating to the above credits is treated as a deduction of state taxes, then the following formula should be used to determine the disallowed state income taxes: Contribution treated as state income taxes divided by the total taxes on Line 5d of Schedule A multiplied by the lesser of the amount on Line 5d of Schedule A or $10,000 ($5,000 if Married Filing Separately).
+
+When other state income taxes and when the contribution relating to the above credits is treated as a deduction of state taxes, the Federally taxable state income tax refund that is later received may be eligible to be reduced. The reduction equals the Federally taxable refund times the proportion that was used to figure out how much of the deduction had to be reduced in the year of the deduction (contribution treated as state income taxes divided by the total taxes on Line 5d of Schedule A).
+
+If a taxpayer receives a state refund and is not required to include the refund in Federal AGI since they were subject to Federal Alternative Minimum
+
+Tax, they are not required to include the refund for Georgia purposes. Surplus refunds are not taxable for Georgia individual income tax purposes but may be Federally taxable.
+
+Georgia does not allow the 20% qualified business income deduction. (I.R.C. Section 199A). However, since Georgia starts with Federal AGI, no adjustment is necessary on the Georgia return.
+
+For owners of a pass-through entity or entities that have elected to pay tax at the entity level, see Regulation 560-7-3-.03(9)(a). Note: Enter your allocable share of loss that was apportioned and allocated at the entity level on Schedule 1, Line 5. Use description PTEADD.
+
+Subtractions The following adjustments may be SUBTRACTED:
+
+1. Retirement income. The maximum retirement in- come exclusion is $35,000 for taxpayers who are:
+
+A. 62-64 years of age, or
+
+B. less than 62 and permanently disabled to such an extent that they are unable to perform any type of gainful employment.
+
+The maximum retirement income exclusion is $65,000 for taxpayers who are 65 years of age or older.
+
+The exclusion is available for the taxpayer and their spouse; however, each must qualify on a separate basis. If both spouses qualify, each spouse may claim the amounts above. Income from property that is jointly owned should be allocated to each taxpayer at 50% of the total value. Up to $5,000 of the maximum allowable exclusion may be earned income. See the instructions on page 24 and complete Form 500, Schedule 1, Page 2.
+
+Part-year and nonresident filers are required to prorate the amount of retirement exclusion. For more information on how to calculate the prorated exclusion amount, see the instructions on page 24.
+
+2. Military Retirement Income. Up to $17,500 of military retirement income can be excluded for taxpayers under 62 years of age. An additional $17,500 can be excluded for such taxpayers with more than $17,500 of earned income in Georgia.
+
+2025 IT-511 Instructions Booklet
+
+The exclusion is available for the taxpayer and their spouse; however, each must qualify on a separate basis. If both spouses qualify, each spouse may claim the amounts above.
+
+Part-year residents and nonresidents are allowed to claim the military retirement income exclusion of $17,500 against the total military retirement income they received, but these taxpayers can only claim the additional military retirement exclusion of $17,500 after meeting the earned income threshold with Georgia-source earned income.
+
+3. Depreciation because of differences in Georgia and Federal law during tax years 1981 through 1986.
+
+4. Interest and dividends on U.S. Government bonds and other U.S. obligations. These must be reduced by direct and indirect interest expenses which are attributable to the income.
+
+Note: Interest received from the Federal National Mortgage Association, Government National Mortgage Association, and Federal Home Loan Mortgage Association, and/or from a repurchase agreement is taxable and should not be subtracted.
+
+5. Social Security or Railroad Retirement (Tier 1 and Tier 2) paid by the Railroad Retirement Board included in Federal adjusted gross income.
+
+6. Salaries and wages reduced from Federal taxable income because of the Federal Jobs Tax Credit.
+
+7. Individual retirement account, Keogh, and SEP plan withdrawals where tax has been paid to Georgia because of the difference between Georgia and Federal law for tax years 1981 through 1986.
+
+8. Dependent’s unearned income includedin parents’ Federal adjusted gross income.
+
+9. Income tax refunds from states other than Georgia included in Federal adjusted gross income. Do not subtract Georgia income tax refunds.
+
+10. Income from any fund, program, or system which is specifically exempted by Federal law or treaty.
+
+ll. Adjustment to Federal adjusted gross income for Georgia residents:
+
+* Shareholders with Subchapter S_ corporation income where the Subchapter S corporation election is not recognized by Georgia or another state; or
+
+« Partners in a partnership or members in an LLC where such entities’ income has been taxed at the entity level by another state.
+
+This adjustment is only allowed for the portion of income on which the tax was actually paid by the corporation or partnership to another state(s).
+
+The subtraction amount is calculated as follows:
+
+1. Determine the Georgia taxable net income received from the entity. This should include any income, gains, losses, and deductions from the entity which are separately reported and included on the taxpayer's return including any guaranteed payments received from a partnership. This does not include wages paid to the partner, shareholder, or member. However, if such wages are taxed by another state, the partner, shareholder, or member may be eligible for the other state(s) tax credit.
+
+2. Multiply the above income by the entity's apportionment ratio in such other state.
+
+A Georgia individual resident may take a subtraction for the entity’s income taxed in another state which imposes on the entity a tax on or measured by income. Income subject to the Texas Margin Tax is eligible for this subtraction. Please see Code Section 48-7-27(d) and Regulation 560-7-4-.01 for more information.
+
+In cases where the Subchapter S election is recognized by another state(s), the income should not be subtracted. Credit for taxes paid to other states may apply.
+
+12. Adjustment forteachers retired fromthe Teacher's Retirement System of Georgia for contributions paid between July 1,1987, and December 31, 1989, that were reported to and taxed by Georgia.
+
+13. The amount claimed by employers in food and beverage establishments who took a credit instead of a deduction on the Federal return for FICA tax paid on employee cash tips.
+
+22 2025 IT-511 Instructions Booklet
+
+14. An adjustment of 10% of qualified payments to classified subcontractors or $100,000, whichever is less, per taxable year by individuals, corporations, or partnerships that are party to state contracts. For more information, call the Department of Administrative Services at 404-657-6000 or visit their website: https://doas.ga.gov/state-purchasing/ information-for-suppliers-and-ga-businesses
+
+15. Deductible portion of contributions to the Path2College 529 Plan. The deduction is limited on a return to the amount contributed but cannot exceed $4,000 per beneficiary. If a married filing joint return is filed, then the amount cannot exceed $8,000 per beneficiary.
+
+16. Adjustments due to Federal tax changes (see https://dor.georgia.gov/taxes/tax-rules-and- policies/income-tax-federal-tax-changes).
+
+17. Combat Zone Pay Exclusion. See page 14 for more information.
+
+18. Organ Donation Expense Deduction up to $25,000 of unreimbursed travel expenses, lodging expenses, and lost wages incurred as a direct result of a taxpayer’s donation of all or part of a kidney, liver, pancreas, intestine, lung, or bone marrow during the taxable year.
+
+19. An amount equal to 100 percent of the premium paid by the taxpayer during the taxable year for high deductible health plans as defined by Section 223 of the Internal Revenue Code. The amount may only be deducted to the extent the deduction has not been included in Federal adjusted income and the expenses have not been provided from a health reimbursement arrangement and have not been included in itemized deductions. In the event the taxpayer claims the expenses as itemized deductions, the taxpayer should multiply the expense by the ratio of total allowed itemized deductions after the federal limitation to the total allowed itemized deductions before the federal limitation to determine the amount that is not allowed to be deducted pursuant to this paragraph. For example, the taxpayer has $1,000 in high deductible health insurance premiums. They also have $7,000 of other medical expenses which means they have total medical expenses of $8,000. After the limitation, the taxpayer is only allowed
+
+to deduct $2,000 of medical expenses. The $1,000 deduction must be reduced by $250 ($2,000/$8,000 x $1,000), and the taxpayer is allowed to deduct $750.
+
+20. Federally taxable interest received on Georgia municipal bonds designated as “Build America Bonds” under Section 54AA of the Internal Revenue Code of 1986. “Recovery Zone Economic Development Bonds” under Section 1400U-2 of the Internal Revenue Code or any other bond treated as a ‘Qualified Bond” under Section 6431(f) of the Internal Revenue Code are considered “Build America Bonds” for this purpose.
+
+21. Federally taxable interest received on Georgia municipal bonds issued by the State of Georgia and certain authorities or agencies of the State of Georgia for which there is a special exemption under Georgia law from Georgia tax on such interest.
+
+22. Interest eliminated from Federal itemized deductions due to the Federal Form 8396 credit.
+
+23. An amount equal to 100 percent of the payments made to and received by a disabled first responder pursuant to O.C.G.A. § 45-9-85 (Payment of indemnification for death or disability), provided that and to the extent such amounts are included in the taxpayer's Federal adjusted gross income and are not otherwise exempt from the tax imposed by this article under any other provision of law. The term ‘disabled first responders’ means a law enforcement officer, fireman, publicly employed emergency medical technician, or a surviving spouse of such an individual, receiving payments pursuant to O.C.G.A. § 45-9-85 (Payment of indemnification for death or disability) due to total permanent disability, organic brain damage, or death occurring in the line of duty.
+
+24. Exclusion of PTSD Benefits Received by First Responders: To the extent insurance benefit payments for occupational PTSD received by a first responder are included in the Federal AGI, it is exempt from Georgia taxation.
+
+25. For a firefighter, payments received pursuant to O.C.G.A. § 25-3-23(b)(2) (certain insurance benefits related to cancer) to the extent such amounts are included in the taxpayer’s Federal adjusted gross income and are not otherwise exempt on the Georgia return.
+
+23 2025 IT-511 Instructions Booklet
+
+Note regarding Achieving Better Life Experience (ABLE) Programs - No Deduction is allowed as a subtraction item for any contribution made pursuant to the Georgia ABLE Program or any other state ABLE programs.
+
+Retirement Income Exclusion
+
+Social Security and Railroad Retirement paid by the Railroad Retirement Board, exempt interest, or other income that is not taxable to Georgia should not be included in the retirement income exclusion calculation. Income or losses should be allocated to the person who owns the item. If any item is held jointly, the income or loss should be allocated to each taxpayer at 50%.
+
+Part-year residents and nonresidents must prorate the retirement income exclusion. The earned income portion and unearned income portion must be separately prorated. The earned income portion shall be prorated using the ratio of Georgia source earned income to total earned income computed as if the taxpayer were a resident of Georgia for the entire year. The unearned portion shall be prorated using the ratio of Georgia source unearned retirement income to total unearned retirement income computed as if the taxpayer were a resident of Georgia for the entire year.
+
+Retirement income does not include income received directly or indirectly from lotteries, gambling, illegal sources, or similar income.
+
+Rental, Royalty, or Partnership income that is subject to FICA tax or Self-employment tax should be included on Line 2 not Line 13. Trade or business income from an S Corporation in which the taxpayer or their spouse materially participated should be included on Line 2, not Line 13.
+
+Note:The date of birth is required for the Retirement Income Exclusion. If you are using the retirement income exclusion for disability, the date of disability is required.
+
+Part-year/Nonresident Retirement Exclusion Example
+
+Schedule 3: Column A Column B Column C
+
+Ln 1 Wages 68,300 45,800 22,500
+
+Ln 2 Interest and Dividends 82,500 82,500 0
+
+Ln 3 Business (income or loss) 0 0 0
+
+Ln 4 Other (income or loss) 325,150 100,000 225,150
+
+Ln 5 Total (Total Lines 1 thru 4) 475,950 228,300 247,650
+
+Ln 6 Total Adjustments from Form 1040 -12,000 -12,000 0
+
+Ln 7 Sch 1 Retirement Exclusion (from step 2 below) _-65,000_ -30,215 -34,785
+
+Ln 8 GA AGI 398,950 186,085 212,865
+
+Step 1 Determine the Everywhere and Georgia Parts of Retirement Exclusion Step 2 Determine the Part-year/Nonresident Retirement Exclusion Allowed
+
+Everywhere Georgia |Earned Portion
+
+Ln 1 Wages 68,300 22,500 |Earned Income Ratio Georgia 22,500
+
+Ln 2 Other Earned Income Everywhere 68,300 0.3294
+
+Ln 3 Total Earned Income (Use in step 2) 68,300 22,500 |Max Earned Income 5.000
+
+Ln 4 Max Earned Income 5,000 Georgia Earned Income Portion 1,647
+
+Ln 5 Lesser of Ln 3 or 4 5,000
+
+Ln 6 Interest 82,500 QO |Unearned Portion
+
+Ln 7 Dividend 0) 0 |Total Max Exclusion 65,000
+
+Ln 8 Alimony Portion Used on Earned Income 5,000
+
+Ln 9 Capital Gains 30,450 30,450 {Remaining Allowed on Unearned 60,000
+
+Ln 10 Other Income 75,150 0)
+
+Ln 11 Taxable IRA Unearned Income Ratio Georgia 225,150
+
+Ln 12 Taxable Pensions 24,850 0) Everywhere 407,650 0.5523
+
+Ln 13 Rent, Royalty, etc. 194,700 194,700
+
+Ln 14 Unearned Income - (Total Line 6 to 13) (Use in step 2) 407,650 225,150 |Georgia Unearned Income Portion 33,138 Total Retirement Exclusion Allowed from GA Income 34,785
+
+24 2025 IT-511 Instructions Booklet
+
+26. For a firefighter, an amount equal to 100% of any premium paid by the firefighter during the taxable year for coverage pursuant to O.C.G.A. 25-3-23(b)(2) (premiums paid to continue coverage by a firefighter that departs employment) to the extent such deduction has not been included in the taxpayer's Federal adjusted gross income and is not otherwise deductible on the Georgia return.
+
+27. Income received by a surviving family member that is based on the service record of a deceased veteran without regard to the age of the surviving family member.
+
+28. For owners of a pass-through entity or entities that have elected to pay tax at the entity level, see rule 560-7-3-.03(9)(a). Note: Enter your allocable share of income that was taxed at the entity level on Schedule 1, Line 12. Use description PTEDED. For more information, see https://dor.georgia.gov/hb-149- pass-through-entity-tax-faq.
+
+29. For taxable years beginning on or after January 1, 2025, and ending on or before December 31, 2029, a subtraction is allowed for Hurricane Helene disaster relief payments. The payments that qualify are those that are received from a Federal disaster relief or assistance grant program administered by Georgia or its instrumentalities or the United States Department of Agriculture, but only if the Federal grant program was established specifically to address agricultural losses suffered due to Hurricane Helene during the 2024 calendar year. Also, the subtraction is only allowed to the extent the income is included in Federal adjusted gross income.
+
+30. For taxable years beginning on or after January 1, 2025, and ending on or before December 31, 2025, a subtraction is allowed for federal crop insurance proceeds received for the destruction or damage to crops due to Hurricane Helene. The subtraction is only allowed to the extent the income is included in Federal adjusted gross income.
+
+Schedule 2: Credit Usage
+
+and Carryover (Series 100 Tax Credits)
+
+Note: Series 200 tax credit codes are claimed on the IND-CR forms.
+
+* A return is required to be electronically filed if the return claims, utilizes or includes in any manner a Series 100 tax credit. See page 36.
+
+* Georgia tax credits (Series 100) must be claimed on Schedule 2. For a list of tax credit codes (series 100), see page 36. Please see the Tax Credit Summaries on the Department's website (https:// dor.georgia.gov/tax-credits) regarding Line 10 credits that can be sold.
+
+« Refundable credits are claimed on Schedule 2B. Currently only the Timber Tax Credits (145 and 155) are refundable. The credits are refundable only to the taxpayer who incurred the loss. The credits are not refundable if they were purchased.
+
+« — If claiming any of the following credit codes, enter your SSN and not the FEIN of the donation/non- profit organization:
+
+125—Qualified Education Expense Credit
+
+136—Qualified Rural Hospital Organization Expense Credit
+
+140—Qualified Education Donation Credit
+
+150—Qualified Law Enforcement Donation Credit
+
+151—Qualified Foster Child Donation Credit
+
+* Total the Schedule 2 credits used for this tax year, and enter the total on Line 21 of Form 500 or 500X.
+
+* The taxpayer must indicate which credits are being used. The total amount used from all Schedule 2s, IND-CRs, other state(s) tax credit, and from the low income credit cannot exceed the tax liability listed on Line 16 of Form 500 or 500X.
+
+25 2025 IT-511 Instructions Booklet
+
+« If a credit is eligible for carryover to this tax year, complete the Schedule 2, even if the credit is not used in this tax year.
+
+« If the same credit originated from multiple persons or entities, enter information for each person or entity on separate lines of this schedule.
+
+* Credit certificate numbers are issued by the Department of Revenue for pre-approved credits. Once a credit is pre-approved, an official letter will be issued by the Department. This letter will contain the certificate number for the generator of the credit. If the credit is allowed to be transferred, a new certificate number will be issued from the Department to the recipient of the transferred credit. If applicable, enter the credit certificate number where indicated. If you do not have a certificate number, this field should be left blank.
+
+* See the relevant forms, statutes, and regulations to determine how the credit is allocated to the owners, to determine when carryovers expire, and to see if the credit is limited to a certain percentage of tax.
+
+* Before the Georgia tax credit carryovers are applied to the next tax year, the amount must be reduced by any amounts elected to be applied to withholding in the current tax year (for businesses only) and by any carryovers that have expired.
+
+* For the credit generated this year, list the Company/Individual Name, FEIN/SSN, and Credit Certificate number, if applicable. Purchased credits should also be included. If the credit originated with this taxpayer, enter this taxpayer’s name and SSN.
+
+Disregarded Single Member LLC Credit Instructions. If the taxpayer owns a disregarded single member LLC, the single member LLC should be disregarded for filing purposes. All credits should be claimed on the owner's return. All tax credit forms should be filed in the name of the single member LLC but included with the owner's return. This is necessary so that the returns can be processed and the credits passed to the proper taxpayer.
+
+Schedule 3: Part-Year and
+
+Nonresidents
+
+Include copies of applicable returns and schedules with your Georgia return. Column A must equal Column B plus Column C.
+
+LINES 1- 4, Column A: List your income as if you were a Georgia resident.
+
+LINES 1- 4, Column B: List your income not taxable to Georgia.
+
+LINES 1 - 4, Column C: income.
+
+List your Georgia taxable
+
+LINE 5, Columns A, B, and C: Enter the total of Lines 1- 4in Columns A, B, and C respectively.
+
+LINES 6 - 7, Column A: List adjustments from your Federal return on Line 6; list adjustments allowed by Georgia law on Line 7. See the Line 9 instructions on pages 20-25 for adjustments.
+
+LINES 6 - 7, Column B: List adjustments that do not apply to Georgia residency or do not apply because of taxable income earned as a nonresident.
+
+LINES 6 - 7, Column C: List adjustments from the Federal return that apply to Georgia on Line 6; list Georgia adjustments on Line 7. See the Line 9 instructions on pages 20-24 for adjustments.
+
+LINES 8, Columns A, B, and C: Subtract Line 6 from Line 5 in each column; and add or subtract Line 7 from Line 5 in each column. Enter the total for each column on Line 8 A, B, and C respectively.
+
+LINE 9: Divide Line 8, Column C by Line 8, Column A to calculate the ratio of Georgia income to total income.
+
+The percentage on Schedule 3, Line 9 is zero if the Georgia adjusted gross income (AGI) is zero or negative. If the adjusted Federal AGI is zero or negative, Line 9 percentage is 100%. The ratio cannot be entered as a negative percentage and it cannot exceed 100%. The percentage is also considered to be 100% if both the adjusted Federal and Georgia AGI are zero or negative. In this case, the taxpayer is entitled to the full exemption amount and deductions.
+
+26 2025 IT-511 Instructions Booklet
+
+Georgia Form500
+
+(Rev. 07/09/25) Schedule 3
+
+Example for Completing Schedule 3
+
+Basis of example: A Single, Head of household, or Married filing separately taxpayer is a nonresident filer. Their Federal adjusted gross income is $50,000. Their income consists of $48,000 in wages and salaries plus interest and/or dividends totaling $4,000. They also have $2,000 of adjustments on their Federal Schedule 1. The taxpayer has one
+
+Part-Year Nonresident dependent and Georgia adjustments of $-500 from Form 500, Schedule 1. Their 2025 Schedule 3 would be completed as follows: A d booklet i (Approved booklet version) NOT USE LINES 9 THRU 14 OF PAGES 2AND3FORM 500 or 500X SCHEDULE 3 COMPUTATION OF GEORGIA TAXABLE INCOME FOR ONLY PART-YEAR RESIDENTS AND NONRESIDENTS. Column A must equal Column B plus Column C. See IT-511 Tax Booklet for other state(s) tax credits. FEDERAL INCOME AFTER GEORGIA ADJUSTMENT INCOME NOT TAXABLE TO GEORGIA GEORGIA INCOME (COLUMN A) (COLUMN B) (COLUMN C) 1. WAGES, SALARIES, TIPS, etc 1. _WAGES, SALARIES, TIPS, etc 1. _WAGES, SALARIES, TIPS, etc 1418}, lololo}, 00 1212], L415 [3 |. 0 [3 le], [51417]. 0 2. INTEREST AND DIVIDENDS 2. INTEREST AND DIVIDENDS 2. INTEREST AND DIVIDENDS 4! Lololo], 00 9/5 |4 |. 0 3], lo la |e |. 0 b] J ) J j J 3. BUSINESS INCOME OR (LOSS) 3. BUSINESS INCOME OR (LOSS) 3. BUSINESS INCOME OR (LOSS) 00 b] J . 00 ) J . 00 J ] . 4. OTHER INCOME OR (LOSS) 4. OTHERINCOME OR (LOSS) 4. OTHERINCOME OR (LOSS) 00 00 3 J 00 b] J . b] y] . 5. TOTAL INCOME: TOTAL LINES 1 THRU 4 5. TOTAL INCOME: TOTAL LINES 1 THRU 4 5. TOTAL INCOME: TOTAL LINES 1 THRU 4 5|2] |0 jo jo | 00 2 12 |, 14 0 [7 |, 00 13 19 J,15 19 13 |, 00 y) y] . . 1 6. TOTAL ADJUSTMENTS FROM FORM 1040 6. TOTAL ADJUSTMENTS FROM FORM 1040 6. TOTAL ADJUSTMENTS FROM FORM 1040 2| | o/o]0] oo 2] |ololo} oo 00 y) y] . y) J . y] b] . 7. TOTAL ADJUSTMENTS FROM FORM 500, 7. TOTAL ADJUSTMENTS FROM FORM 500, 7. TOTAL ADJUSTMENTS FROM FORM 500, SCHEDULE SCHEDULE 1 SCHEDULE 1 - 00 - 00 ; 51010], 00 ; ; . ; 51010], 8. ADJUSTED GROSS INCOME: 8. ADJUSTED GROSS INCOME: 8. ADJUSTED GROSS INCOME: LINE 5 PLUS OR MINUS LINES 6 AND 7 LINE 5 PLUS OR MINUS LINES 6 AND 7 LINE 5 PLUS OR MINUS LINES 6 AND 7 419} | s5lol|o}_ 00 1}0| [40 }7], 00 39}, Lolo|3]}, 0 b] J . J 3 5 b) 9. RATIO: Divide Line 8, Column C by Line 8, Column A ° Enter percentage here (% cannot be negative and cannot exceed 100%)....escseeeseeeeee 9. 71 8].1918] % (See IT-511 Tax Booklet) 10. Standard Deduction [X] itemized] oiececccccccecccccccsescccsssssssssssessesessesessssseeseeen 10. 11] 2}, 01 0} 0}. 00 (For Standard Deduction - Enter $12,000 if the filing status is Single, Married filing separately, Head of household or Qualifying surviving spouse. If filing status is Married filing jointly, enter $24,000) 11. Enter the number on Line 7c from Form 500 or 500X 1} multiply by $4,000... 11. ) 4},,|010|0}, 00 12. Total Deductions and Exemptions: Add Lines 10 and 11........ccccccccsccseseceteeseteesees 12. ; 1/6 jy O1010). 00 13. Multiply Line 12 by Ratio on Line 9 and enter reSUult..........ccccceceseceseteceeseteteeseeees 13. ; 1| 2 y 61 31 7]- 00 14. Income before GA NOL: Subtract Line 13 from Line 8, Column C 00 Enter here and on Line 15a, Page 3 of Form 500 or Form 500X..........cccccsescseesenees 14. ) 216 ) 4|5/6].
+
+27 2025 IT-511 Instructions Booklet
+
+LINE 10: If itemizing, enter the amount from Federal Schedule A reduced by income taxes paid to other states and expenses for the production of non- Georgia income. Include a copy of Federal Schedule A with your Georgia income tax return. If using the standard deduction, enter the amount for your filing status as indicated below.
+
+Married filing jointly $24,000 Single $12,000 Married filing separately $12,000 Head of household $12,000 Qualifying surviving spouse $12,000
+
+LINES 11: Multiply Form 500, Line 7c by $4,000 and enter the total.
+
+LINE 12: Add Lines 10 and 11. LINE 13: Multiply Line 12 by the ratio on Line 9.
+
+LINE 14: Subtract Line 13 from Line 8, Column C. This is your Georgia taxable income. Enter here and on Form 500 Line 15a.
+
+Schedule 4: 500 Net Operating Loss
+
+Instructions — 2023 tax year and forward
+
+Whatis a Net Operating Loss (NOL)?
+
+If your deductions for the year are more than your income for the year, you may have a net operating loss (NOL).
+
+Types of Net Operating Loss (NOL):
+
+For tax years beginning on or after January 1, 2018, select the type of NOL.
+
+* NormalLoss: A Normal Loss can only be carried forward until exhausted.
+
++ Insurance loss (2) year: An Insurance Loss can be carried back two (2) years and carried forward for 20 years or until exhausted.
+
++ Farm Loss (2) Year: A Farm Loss can be carried back two (2) years and carried forward until exhausted.
+
+General Instructions
+
+A Georgia Net Operating Loss (NOL) must be computed separately from any Federal NOL. It is possible to have a Federal NOL, but not a Georgia NOL. In computing the Georgia NOL, only amounts attributable to Georgia can be used.
+
+The Schedule 4 must be completed and filed with the 500 or 500X return no later than 3 years from the due date of the loss year income tax return, including any extensions which have been granted.
+
+Net operating losses (NOLs) for tax years 2018 and later that are applied to Georgia income cannot exceed 80% of Georgia income before NOLs. Use Schedule 4 to compute the net operating losses that can be used in the following year.
+
+Note: For taxable years beginning on or after January 1, 2023, use the Schedule 4 Net Operating Loss Application to compute the Individual net operating loss. For taxable years prior to tax year 2022, use the Form 500 NOL return to compute the net operating loss.
+
+Within 90 days from the last day of the month in which this return is filed, the Commissioner of Revenue shall make a limited examination of the schedule and disallow without further action any schedule containing errors of Computation not correctable or having material omissions. A decrease of tax determined for prior years will first be credited against any unpaid tax and any remaining balance will be refunded to the taxpayer without interest within the 90-day period.
+
+Note: Schedule 4 shall constitute a claim for credit or refund.
+
+If the commissioner should determine that the amount credited or refunded by an application is in excess of the amount properly attributable to the carryback with respect to which such amount was credited or refunded, the commissioner may assess the amount of the excess as a deficiency as if it were due to a mathematical error appearing on the face
+
+28 2025 IT-511 Instructions Booklet
+
+of the return.
+
+For additional information, see Rule 560-7-4-.01
+
+What must be included when claim- ing an NOL
+
+1. Copy of Federal return (1040) including pages 1 and 2. Also include Schedules 1, A, C, D, E or F where a loss is generated.
+
+2. Copy of Federal returns (1040) for the carryback years that include pages 1 and 2, Schedule 1, Schedule A, and any schedules that were recalculated in carryback year(s).
+
+3. Copy of Georgia returns for the carryback or carryforward years. A copy of the Federal Form 1045 should be included for the carryback.
+
+Be sure to include all required forms listed above and complete all lines of the Schedule 4 that apply. Otherwise, your application may be disallowed.
+
+Determine whether you have a Geor- gia NOL and its amount:
+
+Complete the Schedule 4, Net Operating Loss Application. If Line 8 is zero or more, you do not qualify for a Georgia NOL.
+
+How to calculate an NOL:
+
+Please see Schedule 4, Part| Computation Instructions.
+
+When and how to use an NOL Carry- back:
+
+The carryback period may be waived and the NOL carried forward.
+
+Election: A taxpayer is bound by the Federal election to forego the carryback period. A copy of this election should be attached to the Georgia return. If there is a Georgia NOL but no Federal NOL, the taxpayer may make an election “for Georgia purposes only” under the same rules and restrictions as the Federal election. The Schedule 4 should be attached and completed even when the carryback period is foregone.
+
+Example: A taxpayer has a large Net Operating Loss in 2017 (both Federal and Georgia). With a timely filed Federal return, they include a statement that elects to forgo the carryback period. Therefore, they must carry their Georgia (as well as their Federal) NOL forward without first carrying it back. Any portion not absorbed after 20 years is lost. Losses generated in 2018 and forward can be used until exhausted, with the exception of insurance losses.
+
+Carryback an NOL to a previous year:
+
+Schedule 4, page 3 carryback schedule should be left blank when not carrying back an NOL.
+
+An NOL carryback adjustment must be filed on Schedule 4, page 3 for an individual taxpayer who desires a refund of taxes afforded by carryback of a net operating loss.
+
+Do not file a 500X return for prior years to apply the carryback of an NOL.
+
+Generally, an NOL must be carried back (if applicable) and forward in the procedural sequence of taxable periods provided by Section 172 of the Internal Revenue Code of 1986, as defined in Code Section 48-1-2. For taxable years ending on or before December 31, 2017, generally the carryback period is 2 years (with special rules for farmers (5 years), casualty losses (3 years); specified liability loss (10 years), small business loss attributable to Federally declared disasters (3 years).
+
+For losses incurred in taxable years ending after December 31, 2017, there is no carryback (with a 2- year carryback for farmers) and unlimited carryover. Insurance Loss has a 2-year carryback, with a 20 year carryforward limitation. Also, Georgia does not follow the following provisions:
+
+* Special carryback rules enacted in 2009.
+
+* Special rules relating to Gulf Opportunity Zone public utility casualty losses, I.R.C. Section 1400N(j).
+
+« 5 year carryback of NOLs attributable to Gulf Opportunity Zone losses, I.R.C. Section 1400N(k).
+
+« 5 year carryback of certain disaster losses, .R.C. Sections 172(b)(1)(j) and 172()).
+
+* The election to deduct public utility property losses attributable to May 4, 2007, Kansas
+
+29 2025 IT-511 Instructions Booklet
+
+storms and tornadoes in the fifth tax year before the year of the loss, I.R.C. Section 1400N(o).
+
+For losses incurred in taxable years ending after December 31, 2017. Georgia follows the CARES Act relating to no carryback and unlimited carryforward of net operating losses and also adopts the 2-year carryback for farming losses and the 2-year carryback and 20-year carryforward for certain insurance company net operating losses.
+
+Georgia has adopted the CARES Act for taxable years beginning on or after January 1, 2019, but did not adopt the revised net operating loss provisions in the CARES Act and the modification to the Code Section 461(I) limitation in the CARES Act.
+
+How toclaim an NOL:
+
+The NOL can be taken in future years or carried back to previous tax years.
+
+The NOL cannot be taken in the loss year. The loss year is the year in which the NOL occurred.
+
+Schedule 4, Part I: Computation In- structions Line 1:
+
+Enter amount from Form 500 or 500X, Line 15a.
+
+Line 2:
+
+Enter amount from Form 500 or 500xX, Line 14 for full year residents. For part-year and nonresident filers, see Part-Year and Nonresidents instructions.
+
+Line 3:
+
+Complete Schedule 4, Part Il (GA nonbusiness deductions) and enter the total from Line 18.
+
+Line 4:
+
+Enter as a positive number any Nonbusiness Capital losses over Nonbusiness Capital gains after the $3,000 Federal limitation. See Federal Form.
+
+Line 5:
+
+Reserved. Leave blank.
+
+Line 6:
+
+Add Lines 1-4.
+
+Line 7:
+
+Enter ILR.C. Section 461(I) loss eligible to be carried forward only. Enter as a negative amount.
+
+Georgia follows the I.R.C. Section 461(I) loss limitation. However, before the I.R.C. Section 461(I) loss limitation is applied, the taxpayer should compute the business income and deductions pursuant to the IR.C. as defined for Georgia purposes (with the LR.C. Section 168(k) disallowance, etc.). Then the I.R.C. Section 461(I) provisions should be applied. The LLR.C. Section 461(I) loss that is disallowed and is eligible to be carried forward should be entered on Line 7. See Federal Form.
+
+Line 8:
+
+If Line 6 is a negative amount, add Line 6 and Line 7. Enter this amount on Line 8 and above on the amount line for Total Loss(es).
+
+Line 6. Loss Amount -39,000 Line 7. I.R.C. Section -7,400 461(I) loss eligible to be
+
+carried forward only
+
+Line 8. Total Losses - 46,000
+
+If Line 6 is a positive amount, and there is an amount on Line 7, enter the amount from Line 7 on Line 8.
+
+Line 6. Loss Amount 39,000 Line 7. I.R.C. Section -7,400 461(I) loss eligible to be
+
+carried forward only
+
+Line 8. Total Losses -7,400
+
+If Line 8 is zero or more, you do not have an NOL.
+
+30 2025 IT-511 Instructions Booklet
+
+Schedule 4, Part II: NOL Worksheet Instructions
+
+Georgia Nonbusiness Income
+
+Line 1:
+
+Enter excess of Nonbusiness Capital gains over Nonbusiness Capital losses (See Federal Form). Enter as a positive number.
+
+Line 2:
+
+Enter Dividends income.
+
+Line 3:
+
+Enter Interest income.
+
+Line 4:
+
+Enter Alimony (received).
+
+Line 5:
+
+Enter Pension/ Annuities.
+
+Line 6:
+
+Enter the nonbusiness portion of the Retirement Income Exclusion (RIE) as a negative number on this line.
+
+This should be computed as follows. The total nonbusiness income (as it is defined for NOL purposes) that is included in the retirement exclusion should be divided by the total income that is included in the retirement exclusion. This percentage should then be multiplied by the retirement exclusion.
+
+Example: If the taxpayer has $8,000 in wages (only $5,000 of the wages can be included in the RIE), $20,000 in interest income, and $9,000 in S Corp income, the taxpayer would divide $20,000 by $34,000 and then multiply this by the retirement exclusion amount. When computing the percentage, use the following guidelines:
+
+1. If the total nonbusiness income that is included in the RIE is zero or less than zero, the percentage is zero. This would apply even if the total income that is included in the RIE is zero or less than zero.
+
+2. If the total nonbusiness income that is included in the RIE is greater than zero and exceeds the total income that is included in the RIE, the percentage is 100%. This would apply even if the total income that is included in the RIE is zero or less than zero.
+
+In situations where two people filed Married filing jointly, a separate computation should be made to determine each taxpayer’s portion of the RIE that is related to nonbusiness income.
+
+Note: Military Retirement Income Exclusion should be entered on Line 9 as a negative amount.
+
+Line 7:
+
+Enter Georgia adjustment for interest as a negative number for interest includible in federal gross income but exempt from state income taxes. The adjustment must be reduced by direct and indirect interest expenses attributable to the income. Examples include interest from U.S. Government bonds and other U.S. obligations, interest issued on Georgia municipal bonds issued by the State of Georgia, and interest issued on Georgia municipal bonds designated as “Build America Bonds".
+
+Enter Georgia adjustment for interest as a positive number for interest exempt from federal income but not from state income taxes.
+
+Line 8:
+
+Enter Georgia adjustment for non-Georgia municipal interest as a positive number.
+
+Line 9:
+
+Enter any other adjustments.
+
+Line 10:
+
+Add the total of Lines 1-9. Enter total Nonbusiness Income.
+
+Georgia Nonbusiness Deductions Line 11:
+
+Enter the standard deduction amount from Form 500/500X Line 11 or enter the itemized deduction amount from Form 500/500X Line 12c less casualty
+
+2025 IT-511 Instructions Booklet
+
+and theft losses, Federal Form 2106 deductions, and state and local income taxes for full year residents.
+
+For part-year and nonresident filers, see Part-Year and Nonresident instructions.
+
+Line 12:
+
+Enter contributions to self-employed pension plan or Keogh (Federal form) amount.
+
+Line 13:
+
+Enter Alimony Paid as a positive amount.
+
+Line 14:
+
+Enter forfeited interest/penalty on early withdrawal amount.
+
+Line 15:
+
+Enter contributions on a deductible IRA amount.
+
+Line 16:
+
+Enter any other adjustments amount.
+
+Line 17:
+
+Add Lines 11-16 and enter total Nonbusiness Deduc- tions amount.
+
+Line 18:
+
+Excess of Nonbusiness Deductions (Line 17) less Nonbusiness Income (Line 10). If zero or less, enter zero.
+
+Part III: Carryback Computation of Overpayments
+
+The following applies only to losses that allow a carryback:
+
+* If the loss is only being carried forward, leave Part Ill: Carryback blank.
+
+« An Insurance loss can be carried back two years.
+
+* AFarm loss can be carried back two years.
+
+« When carrying back an NOL, apply the loss to the oldest applicable tax year first.
+
+32
+
+Line 1:
+
+Enter the Federal adjusted gross income excluding the Federal NOL. Line 1 should not be reduced by the Federal or Georgia NOL. Enter the amount from Form
+
+500/500x, Line 8.
+
+Line 2:
+
+Enter the Net Adjustments from Schedule 1, Line 14.
+
+Line 3:
+
+For the earliest carryback year, in column (b) enter the NOL from Schedule 4, Part 1, Line 8 that is allowed to be carried back. Enter as a negative amount.
+
+Line 4:
+
+Add the net total of Lines 1, 2, and 3 for the Georgia adjusted gross income.
+
+Line 5:
+
+Enter the standard deduction amount from Form 500/500x, Line llc or the itemized deduction amount from Form 500/500xX Line 12c less casualty and theft losses, Federal Form 2106 deductions, and state and local income taxes for full year residents.
+
+For part-year and nonresidents, recalculate the prorated deductions after the application of the NOL. See NOL part-year and nonresident instructions.
+
+Line 6:
+
+Subtract Line 5 from Line 4.
+
+Line 7:
+
+Enter amount from Form 500/500x, Line 14c for full year residents. For part-year and nonresidents, recalculate the prorated exemptions after the application of the NOL.
+
+Line 8:
+
+Subtract Line 7 from Line 6 for the taxable income. Part-year and nonresident filers must prorate their deductions based on how the deductions are claimed:
+
+2025 IT-511 Instructions Booklet
+
+Line 9:
+
+Multiply Line 8 by the applicable Georgia tax rate. See the applicable IT-511 Tax Booklet to determine the tax rate.
+
+Line 10:
+
+The credit for taxes paid to other states should be recomputed based on the new Georgia AGI and deductions. Other credits that are based on liability should be adjusted accordingly. Any credits that are not allowed and that are eligible for carryforward can be carried forward. Do not enter an amount greater than Line 9.
+
+Line 11:
+
+Subtract Line 10 from Line 9.
+
+Line 12:
+
+Enter Line 11 of column (b) in column (a).
+
+Line 13:
+
+Subtract Line 12 from Line 11.
+
+Part-Year and Nonresidents
+
+InN computing the Georgia NOL, only amounts attributable to Georgia can be used.
+
+Part I, Line 2:
+
+To prorate your exemptions, multiply Schedule 3, Line ll by Schedule 3, Line 9.
+
+Part II, Line 11:
+
+Part-year and nonresident filers must prorate their deductions based on how the deductions are claimed:
+
+« |temized deductions — Schedule 3, Line 10: Less casualty, Federal Form 2106 deductions, and state and local income taxes. Multiply the total by Schedule 3, Line 9.
+
+¢ Standard deductions - Schedule 3, Line 10 multiplied by Schedule 3, Line 9.
+
+Worksheet
+
+Schedule 3, Line 10 Schedule 3, Line 9 x Prorated Deductions =
+
+Example: Itemized Deduction.
+
+Schedule 3, Line 10 15,000
+
+Schedule 3, Line 9 x 78.98%
+
+Prorated Deductions = 11,847 Example: Standard Deduction
+
+Schedule 3, Line 10 12,000
+
+Schedule 3, Line 9 Xx 78.98%
+
+Prorated Deductions = 9,478
+
+Part Ill, Line 5:
+
+Part-year and nonresident filers must prorate their deductions based on how the deductions are claimed:
+
+« |temized deductions — Schedule 3, Line 10a: Less casualty, Federal Form 2106 deductions, and state and local income taxes. Multiply the total by Schedule 3, Line 9.
+
+* Standard deductions - Schedule 3: Add Line 10a plus Line 10b, then multiply the total by Schedule 3, Line 9.
+
+* Georgia Itemized deductions - Do not prorate; utilize the full amount.
+
+33 2025 IT-511 Instructions Booklet
+
+WORKSHEET FOR OTHER STATE(S) TAX CREDIT
+
+Georgia allows a credit for tax paid to another state on income taxable to Georgia and the other state. Use these worksheets to compute the other state(s) tax credit for full-year and part-year residents. Do not file these worksheets with your return. Keep them for your records.
+
+Enter the Total Tax Credit on Form 500 Line 18. Include a copy of tax return(s) filed with other state(s). The credit is for state (including Washington DC) and U.S. local income tax only. The tax must have been imposed on net income. No other income taxes such as foreign local, foreign city, foreign province, foreign country, U.S. Possession, etc., qualify for this credit.
+
+FULL-YEAR RESIDENTS
+
+1.
+
+Other state(s) adjusted gross income
+
+%
+
+%
+
+2. Georgia adjusted gross income (Line 10, Form 500)
+
+3. Ratio: Line 1 divided by Line 2
+
+4. Georgia standard or itemized deductions
+
+5. Georgia credit for dependents from Form 500, Line 14
+
+6. Total of Line 4 and Line 5
+
+7. Line 6 multiplied by ratio on Line 3
+
+8. Income for computation of credit (Line 1 less Line 7)
+
+9. Tax at Georgia rate (use the applicable tax rate)
+
+10. Tax shown on return(s) filed with other state(s)*
+
+11. Total Tax Credit (Lesser of Line 9 or Line 10) to be entered on Line 18 of Form 500
+
+PART-YEAR RESIDENTS
+
+1. Income earned in other state(s) while a Georgia resident
+
+2. Georgia adjusted gross income (Line 8, Column C of Form 500, Schedule 3)
+
+3. Ratio: Line 1 divided by Line 2
+
+4. Georgia standard or itemized deductions and Georgia dependent exemption after applying the ratio on Schedule 3 (Line 13, Schedule 3, Form 500)
+
+5. Line 4 multiplied by ratio on Line 3
+
+6. Income for computation of credit (Line 1 less Line 5)
+
+7. Tax at Georgia rate (use applicable tax rate)
+
+8. Tax shown on return(s) filed with other state(s) for income taxed by Georgia”
+
+9. Total Tax Credit (Lesser of Line 7 or Line 8) to be entered on Line 18 of Form 500
+
+*The amount entered must be reduced by credits that have been allowed by the other
+
+States.
+
+34
+
+2025 IT-511 Instructions Booklet
+
+LOW INCOME CREDIT WORKSHEET
+
+All claims for the low income credit, including claims on amended returns, must be filed on or before the end of the 12th month following the close of the tax year for which the credit may be claimed.
+
+1. Enter the amount from Form 500, Line 8........... ccc cccccccsceeseceececceccecceececeseeuusuuaueueeeseeesseceeseeeeceuseeeusueaeueeaeeeeesseeeess
+
+2. Enter the number of exemptions. Exemptions are self, spouse and natural or legally adopted children.......... Note: For purposes of the low income credit, dependents do not include those unborn with a detectable heartbeat
+
+3. Enter 1 if you or your spouse is 65 or older; enter 2 if you and your spouse are 65 or OIde?.............:cceeceeeeerees Note: The taxpayer and/or spouse's Date of Birth must be entered on Line 6 of Form 500
+
+4. Add Lines 2 and 3, enter on Line 17a Of FOrm 500... cccccccccccccesseeeeeeeeeececceceecceeeceseeeuusauaaeaeeeeseeseeeeseeneeeeees
+
+5. Find the credit that corresponds to your income in the table below and enter on Line 17b of Form 500,
+
+6. Multiply Line 4 by Line 5; enter the total on Line 17¢ Of FOrM 500............ccccccceeseecceseseeeeeeeseeeeecseeeeeessneeteessseeees
+
+Credit Table: Federal Adjusted Gross Income Credit Under $6,000 $26 $6,000 but not more than $7,999 $20 $8,000 but not more than $9,999 $14 $10,000 but not more than $14,999 $ 8 $15,000 but not more than $19,999 $5
+
+SCHEDULE FOR ESTIMATING GEORGIA INCOME TAXES
+
+(Amounts must be rounded.) Please see the Form 500ES which includes important information regarding how to file and pay estimated tax. 1. Federal adjusted gross income expected during the current year $
+
+2. Additions to income $ (See instructions on page 20)
+
+3. Balance $
+
+4. Social Security $
+
+(See subtraction instructions on page 21)
+
+5. Railroad Retirement $ (See subtraction instructions on page 21)
+
+6. Applicable Retirement Exclusion $ 7. Other deductions $ (See instructions on pages 21-25) 8. Balance (Subtract Lines 4 - 7 from Line 3) $ 9. Exemption for Dependents $ 10. Standard or Itemized deductions $ 11. Taxable income (Subtract Lines 9 and 10 from Line 8) $ 12. Tax on amount on Line 11 (Use applicable tax rate) $
+
+13. Withholding Tax and other credits $
+
+14. Amount from prior year’s return to be credited to this year’s estimate $
+
+15. Estimated Tax due this year (Subtract Lines 13 and 14 from Line 12) (See 500ES) $
+
+35 2025 IT-511 Instructions Booklet
+
+The following credits from the Taxpayer or from the ownership of a S Corp, LLC, LLP, or Partnership Interest which will be reflected on the Individual’s K-1 must be listed on Form 500, Schedule 2. The entity information and credit type code must be included. Additional documentation for claiming a credit is required where indicated.
+
+NOTE: Credit code numbers are subject to change annually. Current code numbers are listed below. See Form IND-CR for information about additional tax credits.
+
+NOTE: A return is required to be filed electronically if the return generates, allocates, claims, utilizes, or includes in any manner a Series 100 tax credit.
+
+Refundable credits are claimed on Schedule 2B. Currently only the Timber Tax Credit (145 and 155) are refundable, The credits are refundable only to the taxpayer who incurred the loss. The credits are not refundable if they were purchased.
+
+Disregarded Single Member LLC Credit Instructions. If the taxpayer owns a disregarded single member LLC, the single member LLC should be disregarded for filing purposes. All credits should be claimed on the owner’s return. All tax credit forms should be filed in the name of the single member LLC but included with the owner's return. This is necessary so that the returns can be processed and the credits flow to the proper taxpayer.
+
+For additional information credits, please visit the Georgia Department of Revenue website at dor.georgia.gov/taxes/tax- credits.
+
+Code Nameof Credit
+
+102 - Employer's Credit for Approved Employee Retraining
+
+103 - Employer's Jobs Tax Credit
+
+104 - Employer's Credit for Purchasing Child Care Property
+
+105 - Employer's Credit for Providing or Sponsoring Child Care for Employees
+
+106 - Manufacturer's Investment Tax Credit
+
+107 - Optional Investment Tax Credit
+
+109 - Low Income Housing Credit
+
+1ll- Business Enterprise Vehicle Credit
+
+112 - Research Tax Credit
+
+113 - Headquarters Tax Credit
+
+114 - Port Activity Tax Credit
+
+115 - Bank Tax Credit
+
+118 - New Facilities Jobs Credit
+
+119 - Electric Vehicle Charger Credit
+
+120 - New Manufacturing Facilities Property Credit
+
+121 - Historic Rehabilitation Credit for Historic Homes
+
+122 - Film Tax Credit (Use code 133 if the credit is for a Qualified Interactive Entertainment Pro- duction Company)
+
+124 - Land Conservation Credit
+
+125 - Qualified Education Expense Credit
+
+126 - Seed-Capital Fund Credit
+
+128 - Wood Residual Credit
+
+129- Qualified Health Insurance Expense Credit 130 - Quality Jobs Tax Credit
+
+131 - Alternate Port Activity Tax Credit 132 - Qualified Investor Tax Credit
+
+Code Nameof Credit
+
+133 - Film Tax Credit for a Qualified Interactive Entertainment Production Company
+
+135 - Historic Rehabilitation Tax Credit for any Other Certified Structures (not a historic home)
+
+136 - Qualified Rural Hospital Organization Expense Tax Credit
+
+138 - Postproduction Film Tax Credit
+
+139 - Small Postproduction Film Tax Credit
+
+140 - Qualified Education Donation Tax Credit
+
+141 - Musical Tax Credit
+
+142 - Rural Zone Tax Credits
+
+143 - Agribusiness and Rural Jobs Tax Credit
+
+144 - Post-Consumer Waste Materials Tax Credit
+
+145 - Timber Tax Credit
+
+146 - Railroad Track Maintenance Tax Credit
+
+147 - Personal Protective Equipment Manufacturer Jobs Tax Credit
+
+148 - Life Sciences Manufacturing Job Tax Credit
+
+149 - Historic Rehabilitation Tax Credit for Historic Homes and Other Certified Structures Earn- ing $300K or less
+
+150 - Qualified Law Enforcement Donation Credit
+
+151 - Qualified Foster Child Donation Credit
+
+152 - Historic Rehabilitation Credit for Historic Homes
+
+153 - Historic Rehabilitation for Other Certified Structures
+
+154 - Rural Healthcare Professional Credit
+
+155 - Timber Tax Credit (2025)
+
+156 - Converted Vehicle Tax Credit
+
+157 - Employer's Job Tax Credit (2025)
+
+158 - Port Activity Job Tax Credit (2025)
+
+159 - Port Activity Manufacturing Tax Credit (2025)
+
+160 - Life Science Manufactoring Jobs Tax Credit (2025)
+
+161 - Rural Zone Tax Credit (2025)
+
+2025 IT-511 Instructions Booklet
+
+EXAMPLE OF HOW TO FILL OUT A TAX CREDITS SCHEDULE FOR CREDITS THAT DO NOT REQUIRE PRE-APPROVAL
+
+If receiving the same credit type from multiple entities, you must complete one tax credit schedule for each credit code. For the credit generated this tax year, list the Company Name and ID number if applicable. If the credit originated with this taxpayer, enter this taxpayer’s name and ID#. Only enter a certificate number if the Department has provided a letter with your unique certificate number because the credit is preapproved. Purchased credits and credits received from an allocation from a pass-through entity should also be included on this schedule. If a credit is purchased from a previous year the credit should be claimed as a previous year credit on line 2.
+
+> = Schedule 2 > Georgia Form500 Page 1 J (Rev. 07/09/25) ] | Schedule 2 2607304017 YOUR SOCIAL SECURITY NUMBER | Georgia Tax Credits 123-45-6789 < 2025 inoproved software version) < O SCHEDULE 2 GEORGIA TAX CREDIT USAGE AND CARRYOVER See IT-511 Tax Booklet O 1. Credit Code oo... cccccceccessssssssieesssseessntineessnstineessnnietesstiisisinsiesiseitensitsieeitees 1. 103 — — Z 2. Credit remaining from previous years (If from a business, do not include Z O amounts elected to be applied to withholding)...................cceeeeeee eee 2 O 3. COMPANY/INDIVIDUAL NAME Y TAXPAYER NAME YY _ CREDIT CERTIFICATE # FEIN/SSN CREDIT GENERATED THIS TAX YEAR a Q 123-45-6789 45000 C) 4. COMPANY/INDIVIDUAL NAME | | | XYZ LLC | | | — CREDIT CERTIFICATE # FEIN/SSN CREDIT GENERATED THIS TAX YEAR — Ul | 99-0909099 3000 Ul | 5. COMPANY/INDIVIDUAL NAME Q ABC COMPANY Q | | | CREDIT CERTIFICATE # FEIN/SSN CREDIT GENERATED THIS TAX YEAR | | | | 11-0101011 2000 l — 6. COMPANY/INDIVIDUAL NAME — | | | CREDIT CERTIFICATE # FEIN/SSN CREDIT GENERATED THIS TAX YEAR | | | mM 7. COMPANY/INDIVIDUAL NAME Mm CREDIT CERTIFICATE # FEIN/SSN CREDIT GENERATED THIS TAX YEAR , ) 8. COMPANY/INDIVIDUAL NAME ) = CREDIT CERTIFICATE # FEIN/SSN CREDIT GENERATED THIS TAX YEAR = — 9. Total available credit for this tax year (sum of Lines 2 through 8).................60000085 9. 50000 — = = Q 10. Enter the amount of the credit sold (only certain credits can be sold, Q see IT-511 Tax Booklet) ........... cc ccice cece cence eee eeee eee eeee este eeeeeteeeeeeeeeeeeeeeeeeeseeeeeeees 10. LL 141. Credit used for this tax: yea lis ciscesonnesserenmareresenenusauzeacenermeae are 11. 5000 LL Y 12. Potential carryover to next tax year, if applicable (Line 9 less Lines 10 and 11)..... 12. 45000 x O m = O
+
+37 2025 IT-511 Instructions Booklet
+
+EXAMPLE OF HOW TO FILL OUT A TAX CREDITS SCHEDULE FOR CREDITS THAT REQUIRE PRE-APPROVAL
+
+If receiving the same credit type from multiple entities, you must complete one tax credit schedule for each credit code. For the credit generated this tax year, list the Company Name and ID number if applicable. If the credit originated with this taxpayer, enter this taxpayer’s name and ID#. Only enter a certificate number if the Department has provided a letter with your unique certificate number because the credit is preapproved. Purchased credits and credits received from an allocation from a pass-through entity should also be included on this schedule. If a credit is purchased from a previous year the credit should be claimed as a previous year credit on line 2.
+
+> || Schedule 2 > Georgia Form500 Page 1 J (Rev. 07/09/25) J | Schedule 2 2607304017 YOUR SOCIAL SECURITY NUMBER | Georgia Tax Credits 6 (Approved software version) ng O SCHEDULE 2 GEORGIA TAX CREDIT USAGE AND CARRYOVER See IT-511 Tax Booklet O TV. Credit Code ooo ccccccceesessseseeesseteesesteeessottititintetettetententtteitententeneeees 1. 125 = — Z 2. Credit remaining from previous years (If from a business, do not include Z O amounts elected to be applied to withholding)......................eceeeeee eee Zz O 3. COMPANY/INDIVIDUAL NAME Y TAXPAYER NAME Y [= CREDIT CERTIFICATE # FEIN/SSN CREDIT GENERATED THIS TAX YEAR — QO 0011223344 123-45-6789 10000 QC) | Nl | 4. COMPANY/INDIVIDUAL NAME | | | — CREDIT CERTIFICATE # FEIN/SSN CREDIT GENERATED THIS TAX YEAR — ‘a 5. COMPANY/INDIVIDUAL NAME 2 | | | CREDIT CERTIFICATE # FEIN/SSN CREDIT GENERATED THIS TAX YEAR | | | — 6. COMPANY/INDIVIDUAL NAME — | | | CREDIT CERTIFICATE # FEIN/SSN CREDIT GENERATED THIS TAX YEAR | l | mM 7. COMPANY/INDIVIDUAL NAME mM ; CREDIT CERTIFICATE # FEIN/SSN CREDIT GENERATED THIS TAX YEAR ; ) 8. COMPANY/INDIVIDUAL NAME ) = CREDIT CERTIFICATE # FEIN/SSN CREDIT GENERATED THIS TAX YEAR = — 9. Total available credit for this tax year (sum of Lines 2 through 8).................00000ee 9. 10000 _— — — Q 10. Enter the amount of the credit sold (only certain credits can be sold, Q see IT-511 Tax Booklet) .......0.. 0.00. cccce cc eeee cc ece ese eee cee seetaeeeesueeeesueseeeeaeeeesaeeeeeeeeeeneees 10. LL 14; Credit used for this taxcy @ a liccnncescerueareneesaneracennenannareree rset eE EEE 11. LU x 12. Potential carryover to next tax year, if applicable (Line 9 less Lines 10 and 11)..... 42. 10000 ag O m= =a O
+
+38 2025 IT-511 Instructions Booklet
+
+Checkoff Georgia
+
+Pick an Amount €& Make it Count!
+
+Pick an amount and make it count by donating on your State Income Tax Return form to one or more of the following Checkoff Georgia charitable organizations.
+
+Give Wildlife Chance
+
+Tf
+
+Human Services
+
+GrorotA DeraRtMeNT OF
+
+Community Heatta
+
+Divison of Public Healt GEORGIA
+
+Core
+
+CENTER for ONCOLOGY RESEARCH & EDUCATION
+
+GSFA
+
+Georgia Student Finance Authority
+
+The Georgia Wildlife Conservation Fund protects and preserves Georgia’s nongame wild- life, including bald eagles, sea turtles, and other animals that are not hunted, trapped or fished. Georgia Department of Natural Resources / 2067 U.S. Hwy 278 SE / Social Circle, GA 30025 / 706-557-3213 / http://georgiawildlife.com
+
+The Georgia Fund for Children and Elderly provides programs for preschool children with spe- cial needs plus home-delivered meals and transportation for elders. DHS Division Aging Services / 404-657-5258 /http://aging.georgia.gov/georgia-fund-children-and-elderly, DCH /Division of Public Health / MCH / Children and Youth with Special Needs / 866-552-4464 / http.://dph.georgia.gov
+
+The Georgia Cancer Research Fund supports innovative and promising research on all types of cancer. Funds often provide seed money for pilot projects to help scientists obtain data needed to win grants from national cancer organizations. Georgia Center for Oncology Research and Education / 999 Peachtree St. NE, Suite 400 / Atlanta, GA 30309 / 404-523-8735
+
+The Georgia Land Conservation Program provides funds for land conservation to protect natural resources and increase the state’s economic competitiveness. Georgia Environmental Finance Authority / 47 Trinity Ave SW, Fifth Floor / Atlanta, GA 30334
+
+The Georgia National Guard Foundation Inc. provides emergency relief assistance to the soldiers and airmen of the Georgia National Guard and other qualified members of the Georgia Depart- ment of Defense. Georgia National Guard Foundation/ 1000 Halsey Ave. BLDG. 447/ Marietta, GA 30060 / 678-569-5704 / http://georgiaguardfamily.org/
+
+The Dog and Cat Sterilization Fund provides financial support for the sterilization of dogs and cats, as well as education to the public about the healthy benefits of animal sterilization. DCSF / 19 Martin Luther King Jr. Drive SW/ Atlanta, GA 30334 / 855-424-5423 / http://agr.georgia.gov
+
+The Saving the Cure Fund is designed to encourage the donation, collection and storage of stem cells from postnatal tissue and fluid; make such stem cells available for medical research and
+
+treatment; promote principled and ethical stem cell research; and to encourage stem cell research with immediate clinical and medical applications.
+
+Realizing Educational Achievement Can Happen (REACH) Program provides low-income
+
+academically promising students with the academic, social, and financial support needed to graduate from high school, access college, and achieve post-secondary success. Georgia
+
+Student Finance Authority / 2082 East Exchange Place / Tucker, GA 30084 / 770-724-9252 | httos:/www.gafutures.org/hope-state-aid-programs/scholarships-grants/reach-georgia/
+
+The Public Safety Memorial Grant Program administered by the Georgia Student Finance Authority, provides educational aid to children whose parents are/were public safety employees and were disabled or killed in the line of duty, Recipients attend eligible colleges and universities in Georgia. Georgia Student Finance Authority / 2082 East Exchange Place / Tucker, GA 30084 /(800) 505-4732 / https://www.gafutures.org/hope-state-aid-programs/scholarships-grants/ public-safety-memorial-grant/
+
+Disabled Veterans’ Scholarship Fund administered by the Technical College System of Geor- gia Foundation provides workforce and educational skills training at its network of 22 technical colleges throughout Georgia. Your donation will provide scholarships to disabled veterans pur- suing their education. TCSG.edu/ 1800 Century Place NE/ Atlanta GA. 30045 / 404-679-5466/
+
+https://tcsgfoundation.org/ . 39 2025 IT-511 Instructions Booklet
+
+THIS PAGE IS INTENTIONALLY LEFT BLANK
+
+it?
+
+2600405917
+
+| Please print your numbers like this in black or blue i
+
+nk:|
+
+Georgia Form 500 (Rev. 07/09/25) Qq 8 7 6
+
+Individual Income Tax Return
+
+5|4|3|2Z}1|O
+
+Georgia Department of Revenue
+
+2025 (Approved booklet version)
+
+Page | Fiscal Year - - Beginning STATE ISSUED ; YOUR DRIVER’S Fiscal Year - - LICENSE/STATE ID Ending YOUR FIRST NAME MI YOUR SOCIAL SECURITY NUMBER
+
+LAST NAME (For Name Change See IT-511 Tax Booklet) SUFFIX Your Date of Birth
+
+1. [| _ . [_](Check box if deceased)
+
+SPOUSE’S FIRST NAME MI SPOUSE’S SOCIAL SECURITY NUMBER
+
+LAST NAME SUFFIX Spouse’s Date of Birth
+
+[| - - [](Check box if deceased)
+
+ADDRESS (NUMBER AND STREET or P.O. BOX) (Use 2nd address line for Apt, Suite or Building Number) L] CHECK IF ADDRESS HAS CHANGED
+
+CITY (Please insert a space if the city has multiple names) STATE ZIP CODE
+
+(COUNTRY IF FOREIGN)
+
+Residency Status 4. Enter your Residency Status with the appropriate number 4. [|
+
+1. FULL- YEAR RESIDENT 2. PART- YEAR RESIDENT TO
+
+3. NONRESIDENT
+
+Omit Lines 9 thru 14 and use Form 500 Schedule 3 if you are a part-year or nonresident filer.
+
+Filing Status 5. Enter Filing Status with appropriate letter (See 1T-511 Tax Booklet)..........0...000cccccccccccececeeceeeeeeeeeeeeeeeeeeeaeeeseeseseeeseeseaees 5. A. Single C. Married filing separately (Spouse’s social security number must be entered above) B. Married filing jointly D. Head of household or Qualifying surviving spouse 6. RESCrVEd oo. cn nnn een eee e eee eee ne Senne e eee ccna ae eeeeeeeeeeeseeeeeeaaaaeaeeeeeeeeseeseessgeaeeaes 6.
+
+7a. Number of Qualified Dependents* [ [1] 7b. Number of Unborn Dependents [ [1] 7c. Total Number of Dependents [ [1]
+
+*Enter details on Line 7d., and DO NOT include yourself, spouse and/or your unborn dependents. See IT-511 Tax Booklet.
+
+|_| All Pages (1-5) are required for processing |
+
+Individual Income Tax Return
+
+Georgia Department of Revenue 2600405927 YOUR SOCIAL SECURITY NUMBER Page 2 7d. Qualified Dependents. If you have more than 4 dependents, attach a list of additional dependents). First Name, MI. Last Name Social Security Number Relationship to You First Name, MI. Last Name Social Security Number Relationship to You First Name, MI. Last Name Social Security Number Relationship to You First Name, MI. Last Name Social Security Number Relationship to You
+
+> INCOME COMPUTATIONS
+
+If amount on line 8, 9, 10, 13 or 15 is negative, use the minus sign (-). Example -3456.
+
+8. Federal adjusted gross income (From Federal Form 1040)............c::cccccsssseceeeseeteees 8.
+
+(Do not use FEDERAL TAXABLE INCOME) If the amount on Line 8 is $40,000 or more, or your gross income is less than your
+
+W-2s you must include a copy of your Federal Form 1040 Pages 1, 2, and Schedule 1.
+
+9. Adjustments from Form 500 Schedule 1 (See IT-511 Tax Booklet) ...............008 9. 10. Georgia adjusted gross income (Net total of Line 8 and Line 9)........... eee 10. 11. Standard Deduction (Do not use FEDERAL STANDARD DEDUCTION)................ 11.
+
+(See IT-511 Tax Booklet)
+
+Enter $12,000 if the filing status from Line 5 is A, C, or D. If the filing status is B, enter $24,000.
+
+Use EITHER Line 11 OR Line 12c. (Do not write on both lines).
+
+12. Total Itemized Deductions used in computing Federal Taxable Income. If you use itemized deductions, you must include Federal Schedule A.
+
+a. Federal Itemized Deductions (Schedule A- Form 1040).........:::cceceseecteeeeeeees 12a. b. Less adjustments: (See IT-511 Tax Booklet).............:::ceccescccecssseeesessteeeeessseeees 12b. c. Georgia Total Itemized DEdUCTIONS.............cceececcecccesteeeeeseeeeeecsseeeeeeeseeeeesetseeeseees 12c. 13. Subtract either Line 11 or Line 12c from Line 10; enter balance... 13.
+
+|_| All Pages (1-5) are required for processing
+
+|_| [| Georgia Form 500 Individual Income Tax Return
+
+Georgia Department of Revenue 2600405937 YOUR SOCIAL SECURITY NUMBER Page 3 14. Enter the number from Line 7c Multiply by $4,000..........0.c:eeeeeeeeeeeees 14. j . 00 15a. Income before GA NOL (Line 13 less Line 14 or Schedule 3, Line 14)......... 15a. j 5 .00 15b. Georgia NOL utilized (Cannot exceed Line 15a or the amount after applying the 80% limitation, see IT-511 Tax Booklet for more information)... 15b. j 5 00 15c. Georgia Taxable Income (Subtract Line 15b from Line 15a)... 15c. ; 5 . 00 16. Tax (Multiply Line 15c by 5.19%. Round to the nearest dollar) «0... 16. 5 5 . 00 00 17. Low Income Credit 17a. 17D. Ld eerie 17c. . 18. Other State(s) Tax Credit (Include a copy of the other state(s) return) ....... 18. j ] 00 19. Georgia Eligible Itemizer Tax Credit (See IT-511 Tax Booklet).................. 19. 5 j 00 20. Credits used from IND-CR Summary Worksheet ............::::ccccccssseeeeestseeeees 20. 5 j .00 21. Total Credits Used from Schedule 2 Georgia Tax Credits (must be filed 21. 00 electronically) J ] . 22. Total Credits Used (sum of Lines 17-21) cannot exceed Line 16 ........cceceeeeeeseeeseeeeees 22. j 5 -00 23. Balance (Subtract Line 22 from Line 16) if zero or less than zero, enter zero.... 23. j j .00
+
+INCOME STATEMENT DETAILS Only enter income on which Georgia tax was withheld. Enter income from W-2s, 1099s, and G2-As on Line 4 GA Wages/Income. For other income statements complete Line 4 using the income reported from Form G2-RP Line 12 or 13; Form G2-LP Line 11, or for Form G2-FL enter zero.
+
+(INCOME STATEMENT A) (INCOME STATEMENT B) (INCOME STATEMENT C) 1. WITHHOLDING TYPE: 1. WITHHOLDING TYPE: 1. WITHHOLDING TYPE: Olw-2 [c2a [ coir Owz2 cea [cop Olw-2 [1c62a [J coi [l1099 [1 c2rt_ [] c2-rp Ll1099 [J cG2--t [ cG2-rp [l1099 [1 G2rt [] G2-rP 2. EMPLOYER/PAYER FEDERAL 2. EMPLOYER/PAYER FEDERAL 2. EMPLOYER/PAYER FEDERAL ID NUMBER (FEIN) L] ssn L] ID NUMBER (FEIN) _] ssn [_] ID NUMBER (FEIN) L] ssn []
+
+3. _EMPLOYER/PAYER STATE WITHHOLDING ID 3. EMPLOYER/PAYER STATE WITHHOLDING ID 3. EMPLOYER/PAYER STATE WITHHOLDING ID
+
+4. GA WAGES / INCOME 4. GA WAGES / INCOME 4. GA WAGES / INCOME
+
+,] J . ,] J . ,] J . 5. GA TAX WITHHELD 5. GA TAX WITHHELD 5. GA TAX WITHHELD
+
+) ) " 5 ) " ) ; .
+
+PLEASE COMPLETE INCOME STATEMENT DETAILS ON PAGE 4. All Pages (1-5) are required for processing
+
+Individual Income Tax Return
+
+Georgia Department of Revenue 2600405947 Page 4 (INCOME STATEMENT D) (INCOME STATEMENT E) 1. WITHHOLDING TYPE: 1. WITHHOLDING TYPE: OC] w-2 [] G2a [] Ga-tp CL] w-2[Je2a [] Go2-Lp [C1 1099 [] c2rt [] corp L] 1099 []c2rL [] G2rp 2. EMPLOYER/PAYER FEDERAL 2. EMPLOYER/PAYER FEDERAL D NUMBER (FEIN) SSN D NUMBER (FEIN) SSN
+
+3. EMPLOYER/PAYER STATE WITHHOLDING ID 3. EMPLOYER/PAYER STATE WITHHOLDING ID
+
+LI] PELE} LETT ETT ELT
+
+4. GA WAGES / INCOME 4. GAWAGES / INCOME
+
+J J . ] J 5. GA TAX WITHHELD 5. GA TAX WITHHELD
+
+J J . ] J
+
+24. Georgia Income Tax Withheld on Wages and 1099s ..............0..ceeeeeeeeees (Enter Tax Withheld Only and include W-2s and/or 1099s)
+
+25. Other Georgia Income Tax Withheld.....................ccccccceceseeeeeeesteeeesssseees (Must include G2-A, G2-FL, G2-LP and/or G2-RP)
+
+26. Estimated Tax paid for 2025 and Form IT-560 0.0.0.0... cece ceeeseeeeeeeeeeeeeeeeeee
+
+27. Schedule 2B Refundable Tax Credits............:ccccccccceeeeeeeeeeeteeeeeeeeeeeeenneeeesees (Cannot be claimed unless filed electronically)
+
+28. Total prepayment credits (Add Lines 24, 25, 26 and 27)..........cccccceeeesseeeees
+
+29. If Line 23 exceeds Line 28, subtract Line 28 from Line 23 and enter DAlANCE GUC........ceeeecccccccesccceceecaeeeceeeceeeeseceeeseeeeeeeeessseeeeeeeessssaeeeeessaeaeeeeees
+
+30. If Line 28 exceeds Line 23, subtract Line 23 from Line 28 and enter O)V<1 50> 001-10 | ee eee
+
+31. Amount to be credited to 2026 ESTIMATED TAX ..........cccsetseeteeeeeeeees 32. Georgia Wildlife Conservation Fund (No gift of less than $1.00)............... 33. Georgia Fund for Children and Elderly (No gift of less than $1.00).......... 34. Georgia Cancer Research Fund (No gift of less than $1.00) ............00 35. Georgia Land Conservation Program (No gift of less than $1.00)............. 36. Georgia National Guard Foundation (No gift of less than $1.00)............... 37. Dog & Cat Sterilization Fund (No gift of less than $1.00)............:e 38. Saving the Cure Fund (No gift of less than $1.00)............::eesceeeeeeeeeeeeee
+
+39. Realizing Educational Achievement Can Happen (REACH) Program .....::sse1ee (No gift of less than $1.00)
+
+24.
+
+25.
+
+00
+
+All Pages (1-5) are required for processing
+
+YOUR SOCIAL SECURITY NUMBER
+
+(INCOME STATEMENT F) WITHHOLDING TYPE:
+
+[CL] w2 []cG2a [] corp [] 1099 [] G2rL [] G2-RP EMPLOYER/PAYER FEDERAL D NUMBER (FEIN) SSN
+
+EMPLOYER/PAYER STATE WITHHOLDING ID
+
+GA WAGES / INCOME
+
+’ ’ _ 0 GA TAX WITHHELD 00 ’ ’ " 00 ’ ’ " ’ ’ 00 _ 00 ’ ’ ’ ’ _ 00 ’ ’ _ 00 _ 00 ’ ’ _ 00 ’ ’ _ 00 ’ ’ 00 ; . 00 ; . 00 ; . ’ . 00 ’ _ 00 ’ . 00 ’ . 00 ’ . 00 =
+
+|_| [| Georgia Form 500 Individual Income Tax Return
+
+Georgia Department of Revenue 2600405957 YOUR SOCIAL SECURITY NUMBER
+
+2025 Page 5 . ;
+
+40. Public Safety Memorial Grant (No gift of less than $1.00) oe 40. 5 . 00 41. Disabled Veterans’ Scholarship Fund (No gift of less than $1.00) .................. 41. 5 . 00 42. Form 500 UET (Estimated tax penalty) CJ 500 UET exception attached..... 42. ; 5 . 00 43. Penalty: Late Payment and/or Late Filing ........cccccccccccscceseessssesescssesessseesesteeseeess 43. ) , . 00 44. INTCESE oo. ccccceecesaeeceececececcseessseeeeeeeeeeecceeeeesssaeeeeeeseceeseeeeeetsssseeaeeeeeeeeees 44. , j . 00 45. (If you owe) Add Lines 29, 32 through 44...........ccccccsccssscecseeeesseecseeessetessaeecaees 45. j j . 00
+
+MAKE CHECK PAYABLE TO GEORGIA DEPARTMENT OF REVENUE, Mail to: GEORGIA DEPARTMENT OF REVENUE PROCESSING CENTER, PO BOX 740399 ATLANTA, GA 30374-0399
+
+46. (If you are due a refund) Subtract the sum of Lines 31 thru 44 from Line 30 THIS IS YOUR REFUND...........cccccceeeeeeeeeeeeeee ee eeeeeeeeeeeeeeeseeseeeaaaeeeeeeaseneneeeeeneeeeeaees 46. . 00
+
+Refund Due Mail To: GEORGIA DEPARTMENT OF REVENUE PROCESSING CENTER, PO BOX 740392 ATLANTA, GA 30374-0392 If you do not enter Direct Deposit information or if you are a first time filer you will be issued a paper check.
+
+46a. Direct Deposit (U.S. Accounts Only) Type: Checking CL Savings oO Routing Account Number Number
+
+Mail pages 1-5 and any applicable schedules, forms, documentation. DO NOT staple pages. I/We declare under the penalties of perjury that I/we have examined this return (including accompanying schedules and statements) and to the best of my/our knowledge and belief, it is true, correct, and complete. If prepared by a person other than the taxpayer(s), this declaration is based on all information of which the preparer has knowledge.
+
+Taxpayer's Signature Spouse’s Signature Taxpayer's Date of Death Spouse’s Date of Death Taxpayer's Signature Date Taxpayer's Phone Number Spouse’s Signature Date
+
+By providing my e-mail address | am authorizing the Georgia Department of Revenue to electronically notify me at the below e-mail address regarding any updates to my account(s).
+
+Taxpayer's E-mail Address CT
+
+| authorize DOR to discuss this return with the named preparer.
+
+Preparer’s Phone Number
+
+Signature of Preparer Name of Preparer Other Than Taxpayer Preparer’s FEIN
+
+Preparer’s Firm Name Preparer’s SSN/PTIN/SIDN
+
+|_| All Pages (1-5) are required for processing |
+
+THIS PAGE IS INTENTIONALLY LEFT BLANK
+
+it?
+
+| Georgia Form500
+
+(Rev. 07/09/25) Schedule 1 Adjustments to Income
+
+2 02 5 (Approved booklet version)
+
+2607205917
+
+Schedule 1 Page 1
+
+YOUR SOCIAL SECURITY NUMBER
+
+| SCHEDULE 1 ADJUSTMENTS to INCOME BASED on GEORGIA LAW
+
+See IT-511 Tax Booklet
+
+ADDITIONS to INCOME
+
+1. Interest on Non-Georgia Municipal and State Bonds
+
+2. LUMP SUM DIStFiIDUTIONS oo... eee cs eeeeeeseeeeseecscscsescseeeececsceeeeeeeneeeeeeeseeeeeeeeees
+
+3. D@PreCiation ......e.esececececcseseseseseseseseseseseseeeseeeeeesescaeeeacaesescseseueseeecseeeasaeaseeseseaeeeteneeseeeaees
+
+4. Net operating loss carryover deducted on Federal return
+
+5. Other (Specify)
+
+6. Total Additions (Enter sum of Lines 1-5 here)
+
+SUBTRACTION from INCOME (See IT-511 Tax Booklet)
+
+7. Retirement Income Exclusion Taxpayer
+
+a. Retirement Income Exclusion - Complete Schedule 1, page 2.
+
+b. Military Retirement Income Exclusion (Must be under 62 years of age) - Complete Schedule 1, page 3. 7b.
+
+c. Date of Disability:
+
+Spouse
+
+Type of Disability:
+
+d. Retirement Income Exclusion - Complete Schedule 1, page 2.
+
+e. Military Retirement Income Exclusion (Must be under 62 years of age) - Complete Schedule 1, page 3. 7e.
+
+f. Date of
+
+Disability:
+
+8. Social Security Benefits (Taxable portion from Federal return)
+
+Type of Disability:
+
+9. Path2College 529 Plan .........ccecccccccsscecceecsseeeeeseeeeeccsseeeeceseeeeessneeeeeseneaeess
+
+10. Interest on United States Obligations (See IT-511 Tax Booklet)...............00
+
+11. D@Preciation .........cccccceeecccec cee ceeeeeeeceeeeaeeeeeeeeeeeececesaaeaeaeeeeeeeeeeseseeeeenaeeeeeeees
+
+12. Other Adjustments (Specify)
+
+13. Total Subtractions (Enter sum of Lines 7-12 here)
+
+14. Net Adjustments (Line 6 less Line 13). Enter Net Total here and on
+
+Line 9 of Page 2 (+ or -) of Form 500 or 500X
+
+14.
+
+7f.
+
+Bs ssseseee
+
+L_ Schedule1 Georgia Form900 Page 2 (Rev. 07/09/25)
+
+Schedule 1 2607205927 YOUR SOCIAL SECURITY NUMBER Adjustments to Income -
+
+2 02 5 (Approved booklet version)
+
+| SCHEDULE 1 RETIREMENT INCOME EXCLUSION See IT-511 Tax Booklet (TAXPAYER) (SPOUSE) 1. Salary and WaQ@S.......cccccssssseeesssseesessseeeen ; ; _ 00 ; ; _ 00 2. Other Earned Income (Losses)...............+- ) j . 00 ) j . 00 3. Total Earned Income...............:cccceeeeeeees j ) . 00 ) 5 . 00 4. Maximum Earned Income..............c:ceeee 5 olo] ol oO 5 O10] 0! OO ’ ’ " 5 ) . 5. The lesser of Line 3 or 4; if zero or less, Ca) (-) d=) 0 re 5 5 . 00 5 j . 00 6. Interest INCOME...........cccccceeesecssseeeeeteees ) 5 . 00 ; ) . 00 7. Dividend INCOME ...........ccccccccsesecssseseeseeeeee 5 j . 00 ) 5 . 00 8. ALIMONY. ...csscnsnnnistnnnnnnensnnnseee ; ; . 0 ; ; _ 00 9. Capital Gains (LOSS@S)..........ccccceeeeeees 5 y . 00 j j . 00 10. Other Income (LOSS6S)............::c::eseeeeee 5 j " 00 5 y . 00 (See IT-511 Tax Booklet) 11. Taxable IRA Distributions... ; ; . 00 ; ; . 00 12. Taxable PensiONs...........cccceeseeseesesnees j j . 00 5 5 . 00 13. Rental, Royalty, Partnership, S Corp, etc. Income (Losses).....(See IT-511 Tax Booklet) ; ; _ 00 ; ; _ 00 14. Total of Lines 6 through 13; if zero or less, QNLEL ZOLO ..eecceccseeceecssecseeseeeseessscsereesesseeess 00 00 y y . 5 5 . 00 00 15. Add Lines 5 and 14 oo. cccsceeteseeesteetens 5 5 " j y . 16. Maximum Allowable Exclusion® «0.0. ; ; 00 ; ; 00 17. The lesser of Lines 15 and 16; enter here and on Form 500, Schedule 1, Lines 7a & d for Re- ) j . 00 ; ) . 00
+
+tirement Exclusion or Lines 7c & f for Retire- ment Exclusion for Disability...........00.0ce
+
+*If age 62-64 or less than age 62 and permanently disabled enter $35,000, or if age 65 or older enter $65,000.
+
+L_ Schedule1 Hi Georgia Form)00 Page 3 (Rev. 07/09/25)
+
+Schedule 1 2607205937 YOUR SOCIAL SECURITY NUMBER Adjustments to Income - -
+
+2 02 5 (Approved booklet version)
+
+| SCHEDULE 1 MILITARY RETIREMENT INCOME EXCLUSION See IT-511 Tax Booklet
+
+Do | Qualify for Military Retirement Exclusion?
+
+1. Do you have any military retirement income?
+
+No. You do not qualify. Do not complete this page.
+
+m Yes. You may qualify if you meet the age requirements. 2. Are you under the age of 62?
+
+No. You do not qualify. Do not complete this page.
+
+m Yes. You qualify for Military Retirement Income Exclusion. Complete this page. 3. Include this page with your Form 500/500X, if applicable.
+
+(TAXPAYER) (SPOUSE)
+
+1. Taxable Military Retirement from 1099-R 5 j . 00 ) 5 . 00 2. Base Military Exclusion...........:0cceeeee ) 1|7 ; 5 {0 {0 . 00 ) 1{7 ; 5 {0 }0 . 00 3. Enter the lesser of Line 1 or Line 2 ......... ) j . 00 ; ) . 00 If your taxable military retirement is less than 17,501 STOP HERE and enter line 3 on Schedule 1, Line 7b and 7e. 4. Taxable Georgia Salary and Wages............... ; ) . 00 ; ) . 00 5. Other Earned Georgia Income............:::0008 ) j . 00 ) 5 . 00 6. Total Georgia Earned INCOME...........csceceeeee 5 5 . 00 5 5 . 00 If your Georgia earned income is less than 17,501 STOP HERE and enter line 3 on Schedule 1, Line 7b and 7e. 7. Total additional Military Exclusion allowed........ ; 315}, 10 J9 |0 |, 00 ; 345],{0 }0 JO}, 00 8. Enter the lesser of Line 1 or Line 7. Enter
+
+this amount on Schedule 1, Lines 7b and e....... ) ; . 00 ) ; . 00
+
+Georgia Form (Rev. 07/09/25) Schedule 3
+
+500
+
+Part-Year Nonresident
+
+2025 (Approved booklet version)
+
+2607405917
+
+Schedule 3 Page 1
+
+YOUR SOCIAL SECURITY NUMBER
+
+DO NOT USE LINES 9 THRU 14 OF PAGES 2 AND 3 FORM 500 or 500X
+
+SCHEDULE 3 COMPUTATION OF GEORGIA TAXABLE INCOME FOR ONLY PART-YEAR RESIDENTS AND NONRESIDENTS. Column A must equal Column B plus Column C.
+
+See IT-511 Tax Booklet for other state(s) tax credits.
+
+FEDERAL INCOME AFTER GEORGIA ADJUSTMENT
+
+(COLUMN A)
+
+1. WAGES, SALARIES, TIPS, etc
+
+2. _INTEREST AND
+
+DIVIDEN
+
+3. BUSINESS INCOME OR (LOSS)
+
+4. OTHER INCOME
+
+: TOTAL LINES 1 THRU 4
+
+6. TOTAL ADJUSTMENTS FROM FORM 1040
+
+7. TOTAL ADJUSTMENTS FROM FORM 500,
+
+CHEDULE
+
+8. ADJUSTED GROSS INCOME:
+
+LINE 5 PLUS OR
+
+MINUS LI
+
+NES 6AND7
+
+00
+
+00
+
+INCOM
+
+E NOT TAXABLE TO GEORGIA (COLUMN B)
+
+1. _WAGES, SALARIES, TIPS, etc
+
+2. INTEREST
+
+AND DIVIDENDS
+
+3. BUSINESS
+
+J 4. OTHERINC!
+
+OME OR (LOSS)
+
+5. TOTAL INCOME: TOTAL LINES 1 THRU 4
+
+JUSTMENTS FROM FORM 1040
+
+7. TOTAL ADJ
+
+USTMENTS FROM FORM 500,
+
+SCHEDULE 1
+
+8. ADJUSTED GROSS INCOME:
+
+LINE 5 PLU
+
+SOR MINUS LINES 6AND7
+
+9. RATIO: Divide Line 8, Column C by Line 8, Column A Enter percentage here (% cannot be negative and cannot exceed 100%)..........::::00
+
+(See IT-511 Tax Booklet)
+
+10. Standard Deduction LJ Itemized LJ (For Standard Deduction - Enter $12,000 if the filing status is Single, Married filing separately, Head
+
+of household or Qualifying surviving spouse. If filing is Married filing jointly, enter $24,000)
+
+11. Enter the number on Line 7c from Form 500 or 500X
+
+multiply by $4,000...
+
+12. Total Deductions and Exemptions: Add Lines 10 and 11....0...........ccceeeeeeeeeeeeeeeee
+
+13. Multiply Line 12 by Ratio on Line 9 and enter result
+
+14. Income before GA NOL: Subtract Line 13 from Line 8, Column C Enter here and on Line 15a, Page 3 of Form 500 or Form 500X..............:::eeeeeeeee
+
+10.
+
+12.
+
+13.
+
+GEORGIA INCOME (COLUMN C)
+
+WAGE , SALARIES, TIPS
+
+etc
+
+INTEREST AND
+
+DIVIDENDS
+
+BUSINESS INCOME OR (LOS:
+
+S)
+
+. OTHER INCOME
+
+TOTAL INCOME: TOTAL
+
+TOTAL ADJUSTMENTS FRO
+
+M FORM 1040
+
+TOTAL ADJUSTMENTS FROM FORM 500,
+
+SCHEDULE 1
+
+ADJUSTED GROSS INCOME: LINE 5 PLUS OR MINUS LINES 6 AND 7
+
+%
+
+MUST INCLUDE PAGES 1-5 OF FORM 500
+
+2607605917
+
+Georgia Form)00
+
+(Rev. 07/09/25)
+
+Schedule 4 Net Operating Loss Application
+
+2025 (Approved booklet version)
+
+Page 1
+
+YOUR SOCIAL SECURITY NUMBER
+
+YOUR FIRST NAME ML LAST NAME SUFFIX TYPE OF LOSS: PORTION: TYPE OF LOSS: PORTION: L] NORMAL Loss ; _ 00 f FaRMLoss _ 00 3 (2) YEAR I L] INSURANCE LOSS . 00 Total Loss(es 5 . 00 ’ ’ (2) YEAR
+
+For the following pages, Parts, I, Il and Ill use the minus sign (-) for all negative amounts. Example -3456. See IT-511 Tax
+
+Booklet for detailed instructions. Example -| 3 5161 QO y | . Part | - Computation: 1. Georgia Income before NOL (Form 500, Line 15a) ........ceeeseecesssssteeeeeeeeseeeees 1. j . 2. Georgia Exemption (Part-year/Nonresident, see instrUctiOns).........:::cccceeeeeeeeeeeeeeee 2. ; . 3. Excess Nonbusiness Deductions (NOL Worksheet Part Il, Line 18)................... 3. ; . 4. Excess of Nonbusiness Capital losses over Nonbusiness Capital gains after $3,000 Federal limitation (Federal form) ........cccccccccccccccesecccssseeseecsseecsseeeaeee 4. ; . 5. RESCPVECL.....sesececcceseeeeeseeeseeeseeeecseeeceeeeceesaeeeesesaeeesaeeaceesaseesaeeeseeeeseesaeeesaesaeesareesateatensaeeeeateas 5. 6. Total of Lines 1 - 4 See instructions... ccececeeeeeeeeeeeeeeeeeeeeseeeeeeeeeeeeeeteneeeetees 6. 5 . 7. IRC Section 461(I) loss eligible to be carried forward OMly...........c0:ccccccceeeseeeeeeee 7. . (Enter as a negative amount) 8. Total Loss (eS) See INStrUCtIONS............. ccc cccceccccceeceeeeeteeeeeeeeeseeesteeeeeeeeeseeetieaaees 8. . (Must be a negative amount for a loss) Is the loss only being carried forward? L] YES L] NO If no, complete Part Ill and attach a copy of Federal Form 1045.
+
+MUST INCLUDE PAGES 1-5 OF FORM 500
+
+MUST INCLUDE PAGES 1-5 OF FORM 500
+
+= Georgia Form500 (Rev. 07/09/25)
+
+Schedule 4 2607605927 Net Operating Loss Application 2025 (Approved booklet version)
+
+Part Il: NOL Worksheet
+
+Georgia Nonbusiness Income
+
+1. Excess of Nonbusiness Capital gains over Nonbusiness Capital losses ................... 2. DIVIDONS o.oo. ee cece ceeeseeeeeeeeeeeceeeeeeeeeaeeaeeaeeeeeaeseeeeeeesaesaesaesaesaeeaseeseeseeseeseesaesaeeaeeaseaneeees 3. INGCPESt cece e eter ee tee tenant teers eeeeeaaaeaeeeeeeeeeeeeeaeeeeeeeeeeeeesneeaeeeeeeeseeeeneaaaes A. Alimony (reCeiVed) 00.0... cccecccceesseeeeeeeeeeseeeseeeeeeeeeeecseeaeeeeeeeeseeeeseteeeeeeeeseeeaes 5. Pensions/ANnuiti€S ..........c cc ecceceeeceeceeeeeeneeeeeeeaeeeeceeeeeeeeaeeeseeeeeeeeceeeeeeseeaeeeeensanees 6. GA adjustment for retirement ExClUSION ..............ceeeecceceeeeeeeeeseeteeeeeeeeeesesstaeeaees 7. GA adjustment for U.S. Interest .......... ccc cccecccccccecceseeeteeeeeeeeeeceesseseeeeeeeesseseeeeaees 8. GA adjustment for non-Georgia municipal interest.................ccccceeeeeeeeeeessteeees 9. Other (specify) | ceeecssessessestsstsatesaesssstsatsatecevseeaeeers
+
+10. Total Nonbusiness Income (Add Lines 1-9) ....cceeccesssecseesssseesecseesessnseseeeeeeteaeeeeaes
+
+Georgia Nonbusiness Deductions
+
+11. Enter your standard deduction or itemized deductions less casualty, Federal form 2106 deductions, and state and local income taxes (See instructions)................
+
+12. Contributions to self-employed pension plan or K@OgN ...........ccceeeceesteeeeeeeeeeeeee 13. AliIMONY (Paid) «22... eee eeeeecec cee ceeeeeneeeeeeeeeeeeceeeeaeeeeeeceeeceseeesaeeeeeeesseeeseeseeeeeeeesenenaea
+
+14. Forfeited interest/penalty on early withdrawal ..............cccccecceceeeeeseeeeeteeeeeeeeeeeeeeaes
+
+15. Contribution to a deductible IRA.............ccccccccccsssssssssssssseeseeseeeecceececceeeceeeeeeeeeeeeeees
+
+16. Other (specify) |
+
+17. Total Nonbusiness Deductions (Add Lines 11-16) oe... eeeeeeseeeeeeeteeeeeeeeeeeeeeees
+
+18. Excess of Nonbusiness Deductions (Line 17) less Nonbusiness Income (Line 10) If zero or less, enter zero. Enter here and on Form 500 Net Operating Loss
+
+Application Part 1, LING 3 ooo... ccccececceeeeeeeeeeeeeeeeeeeeeeeeeeeeeeseeeeeeeeeeaeaeeeeeeeeeenees
+
+Schedule4 [i Page 2 YOUR SOCIAL SECURITY NUMBER 00 J J 00 J J _ 00 J J 00 J J . 00 J J . 00 J J . 00 J J . 00 J J . 00 j j j j . 00 00 J J . 00 J J . 00 J J . 00 J J . 00 J J . 00 J J . 00 J J . J J . 00
+
+MUST INCLUDE PAGES 1-5 OF FORM 500
+
+| Schedule4 [Hf Georgia Form}00 Page 3
+
+(Rev. 07/09/25) 2607605937 YOUR SOCIAL SECURITY NUMBER Schedule 4
+
+Net Operating Loss Application 2025 (Approved booklet version)
+
+Part Ill: Carryback
+
+*YEAR ENDED
+
+Apply to oldest tax year applicable first
+
+(a) Return as filed or liability as last (b) Liability after application
+
+Computation of overpayments determined 1. Federal adjusted gross income j 5 . 00 j 5 . 00
+
+(exclude Federal NOL) 00 00 2. Georgia adjustments. See instructions . .
+
+J I ,] J
+
+3. Net operating loss. See instructions j 5 . 00 4. Georgia adjusted gross income. 5 j 1 00 5 j 1 00
+
+Net total of Lines 1, 2 and 3 5. Deductions. See instructions 5 5 . 00 5 5 . 00 6. Subtract Line 5 from Line 4 5 j 1 00 5 5 1 00 7. Exemptions. See instructions j j 1 00 j 5 1 00 8. Taxable income. Subtract Line 7 from Line 6 j 5 . 00 j 5 . 00
+
+00 00
+
+9. Income Tax 5 j . 5 j . 10. Credits. See instructions j j . 00 j j . 00 11. Tax after credits. Subtract Line 10 from Line 9 j 5 1 00 j 5 1 00 12. Enter Line 11 column (b) 5 j . 00 13. Decrease in tax. Subtract Line 12 from Line 11 j 5 . 00
+
+| Schedule4 I Georgia Form}00 Page 4
+
+(Rev. 07/09/25) 2607605947 YOUR SOCIAL SECURITY NUMBER Schedule 4
+
+Net Operating Loss Application 2025 (Approved booklet version)
+
+Part Ill: Carryback
+
+*YEAR ENDED
+
+Apply to oldest tax year applicable first
+
+(a) Return as filed or liability as last (b) Liability after application Computation of overpayments determined ; , 00 1. Federal adjusted gross income j 5 . j 5 . (exclude Federal NOL) 00 00 2. Georgia adjustments. See instructions j j . j j . , , ; 00 3. Net operating loss. See instructions 5 j . 4. Georgia adjusted gross income. j j 1 00 j j 1 00 Net total of Lines 1, 2 and 3 5. Deductions. See instructions 5 ] . 00 5 ] . 00 6. Subtract Line 5 from Line 4 5 j 1 00 j 5 1 00 7. Exemptions. See instructions j j . 00 j 5 . 00 8. Taxable income. Subtract Line 7 from Line 6 5 j . 00 5 j . 00 9. Income Tax 5 j . 00 5 j . 00 10. Credits. See instructions j j . 00 j j . 00 11. Tax after credits. Subtract Line 10 from Line 9 5 j 1 00 5 j 1 00 12. Enter Line 11 column (b) j 5 . 00 ; . . 00 13. Decrease in tax. Subtract Line 12 from Line 11 j 5 .
+
+THIS PAGE IS INTENTIONALLY LEFT BLANK
+
+it?
+
+= P rom IND-CR 201 age 4 State of Georgia Individual Credit Form
+
+Georgia Department of Revenue 2608005919
+
+2025 (Rev. 07/09/25) (Approved booklet version)
+
+YOUR SOCIAL SECURITY NUMBER
+
+— Include with Form 500 or 500X, if this schedule is applicable.—
+
+Disabled Person Home Purchase or Retrofit Credit - Tax Credit 201
+
+O.C.G.A.§ 48-7-29.1 provides a disabled person credit equal to the lesser of $500 per residence or the taxpayer’s income tax liability for the purchase of a new single-family home that contains all of the accessibility features listed below. It also provides a credit equal to the lesser of the cost or $125 to retrofit an existing single-family home with one or more of these features. The disabled person must be the taxpayer or the taxpayer’s spouse if a joint return is filed. Qualified features are:
+
+™ One no-step entrance allowing access into the residence. H@ Interior passage doors providing at least a 32-inch-wide opening.
+
+@ Reinforcements in bathroom walls allowing installation of grab bars around the toilet, tub, and shower, where
+
+such facilities are provided.
+
+Light switches and outlets placed in accessible locations.
+
+To qualify for this credit, the disabled person must be permanently disabled and have been issued a permanent parking permit by the Department of Revenue or have been issued a special permanent parking permit by the Department of Revenue.
+
+This credit can be carried forward 3 years. For more information, see Regulation 560-7-8-.44.
+
+1. Credit remaining from previOUS YCaMS...........:ccccccceceeeeeeeeeeeeeeeeccneeceeeeecaeeeeeeeeeeeeteeeneenteaees 1. [| j
+
+2. Purchase of a home that contains all four accessibility features OR total of accessibility
+
+features added to retrofit a home (up to $125 per feature) cannot exceed $500 DEP FESIDCNCE....... eee eee eee c cece cee eeneeeeeeeeaeeeeeeceeaeseaeeseeescaeessaesaeeseeseneesseeseaeesseesensesseeeeneetegts 2. 5
+
+3. Credit used this tax year (enter here and include on IND-CR Summary ] Worksheet Line 1).........cccccccccssccssccsssccsscecseccsseeessecsseecseccsecessecssescseecsseccsseesseecsesseeenseenes 3. 5
+
+4. Potential carryover to next tax year (Line 1 plus Line 2 less Line 3) «0... eeeeeeees 4. 5
+
+00
+
+| Form IN D-CR 202 State of Georgia Individual Credit Form
+
+Georgia Department of Revenue 2608105919 2025 (Rev. 07/09/25) (Approved booklet version)
+
+— Include with Form 500 or 500X, if this schedule is applicable. —
+
+Child and Dependent Care Expense Credit - Tax Credit 202
+
+Page |
+
+YOUR SOCIAL SECURITY NUMBER
+
+O0.C.GA. § 48-7-29.10 provides taxpayers with a credit for qualified child & dependent care expenses. The credit is a percentage of the credit claimed and allowed under Internal Revenue Code § 21 and claimed by the taxpayer on the taxpayer’s Federal
+
+income tax return. This credit cannot be carried forward. The credit is computed as follows:
+
+1. Amount of child & dependent care expense credit claimed on Federal Form 1040.
+
+2. Georgia allowable rate ..............cccccceecccceeeeeeeeecaeeeeeeeeeeeeeeeeeeeeeaeeeeeeeaaaeeeeeesesaaaeees
+
+3. Allowable Child & Dependent Care Expense Credit (Line 1 X .50)....... ce eeeeeeeees
+
+4.Credit used this tax year (enter here and include on IND-CR Summary Worksheet
+
+1. ; . > 50% 3. ; . 0 4. j " 00
+
+| p = rom IND-CR 203 age 4 State of Georgia Individual Credit Form
+
+Georgia Department of Revenue 2608205919 2025 (Rev. 07/09/25) (Approved booklet version)
+
+YOUR SOCIAL SECURITY NUMBER
+
+— Include with Form 500 or 500X, if this schedule is applicable. —
+
+Georgia National Guard/Air National Guard Credit - Tax Credit 203
+
+0.C.GA. § 48-7-29.9 provides a tax credit for Georgia residents who are members of the National Guard or Air National Guard and are on active duty full time in the United States Armed Forces, or active duty training in the United States Armed Forces for a period of more than 90 consecutive days. The credit shall be claimed and allowed in the year in which the majority of such
+
+days are served. In the event an equal number of consecutive days are served in two calendar years, then the exclusion shall be claimed and allowed in the year in which the ninetieth day occurs. The credit shall apply with respect to each taxable year in
+
+which such member serves for such qualifying period of time. The credit cannot exceed the amount expended for qualified life insurance premiums nor the taxpayer’s income tax liability. Qualified life insurance premiums are the premiums paid for
+
+insurance coverage through the service member’s Group Life Insurance Program administered by the United States Department of Veterans Affairs. Any unused tax credit may be carried forward for up to three (3) tax years to offset future tax liabilities. Credits may not be carried back to offset prior years’ tax liabilities.
+
+1. Credit remaining from previOUS YCaIS............ccccccecceeeeeeeeeeeeeeeteeeneeeeeeeeaeeees 1. ; j . 00
+
+2. Enter amount of qualified life iInSUraNCe PrEMIUMS ..........ccceetetseetseeeseseseteeeee 2. . 00
+
+3.Credit used this tax year (enter here and include on IND-CR Summary Worksheet Line 3)......ccccccscsccesssesesesessssesececscesecssesssscetecessesesesesestsesteteteseees 3. 00
+
+4. Carryover to next tax year (Line 1 plus Line 2 less Line 3)... eee 4. 5 . 00
+
+a Form IND-CR 204 ll | | I|
+
+State of Georgia Individual Credit Form | | | | | ||
+
+Georgia Department of Revenue 2608305919
+
+2025 (Rev. 07/09/25) (Approved booklet version)
+
+— Include with Form 500 or 500X, if this schedule is applicable. —
+
+Qualified Caregiving Expense Credit - Tax Credit 204
+
+Page |
+
+YOUR SOCIAL SECURITY NUMBER
+
+O0.C.GA. § 48-7-29.2 provides a qualified caregiving expense credit equal to 10 percent of the cost of qualified caregiving expenses for a qualifying family member. The credit cannot exceed $150. Qualified services include Home health agency services, personal care services, personal care attendant services, homemaker services, adult day care, respite care, or health care equipment and other supplies which have been determined by a physician to be medically necessary. Services must be obtained from an organization or individual not related to the taxpayer or the qualifying family member.
+
+The qualifying family member must be at least age 62 or been determined disabled by the Social Security Administration. A qualifying family member includes the taxpayer or an individual who is related to the taxpayer by blood, marriage or adoption.
+
+Qualified caregiving expenses do not include expenses that were subtracted to arrive at Georgia net taxable income or for which amounts were excluded from Georgia net taxable income. There is no carryover or carry-back available. The credit cannot exceed the taxpayer’s income tax liability. For more information, see Regulation 560-7-8-.43.
+
+Qualifying Family Member Name:
+
+Name:
+
+SS# - - Relationship
+
+Age, if 62 or over If disabled, date of disability i: i Additional Qualifying Family Member Name, if applicable:
+
+Name:
+
+SS# - - Relationship
+
+Age, if 62 or over If disabled, date of disability - -
+
+1. Qualified Caregiving EXPENSES.......... ccc ceeceeeeeeeeeeeeeeeeeeeteeeeeeeeeeeeeeeteeentiaaeeeeeeeenees 2. Percentage limitation.................ccccceceeceeeeeeeeeeeeeeeeeeeeeeeceaeeeeeeeesaaeeeeeeeeeaeeeeeeeeenaas 3. Line 1 multiplied by LING 2.0.0... e eter eee eeeeeeeeaeeaeeeeeeeeeeeeeeeeeeeeaeees 4. Maximum Credit... cece e eee erent eee e eee deere eeee eee eeaaaaaeneeeeeeeeeeeaeaaaees 5. Enter the lesser of Line 3 or Line 4 0... eeceeeeeeeeeneeeeeeeeeeeeeeeeeeeeeeeeeeneeeeseeeeaneees
+
+6. Credit used this tax year (enter here and include on IND-CR Summary Worksheet
+
+| p = rom IND-CR 206 age 4 State of Georgia Individual Credit Form
+
+Georgia Department of Revenue 2608505919 2025 (Rev. 07/09/25) (Approved booklet version)
+
+YOUR SOCIAL SECURITY NUMBER
+
+— Include with Form 500 or 500X, if this schedule is applicable. —
+
+Disaster Assistance Credit - Tax Credit 206
+
+0.C.G.A. § 48-7-29.4 provides for a credit for a taxpayer who receives disaster assistance during a taxable year from the Georgia Emergency Management and Homeland Security Agency or the Federal Emergency Management Agency. The amount of the credit is equal to $500 or the actual amount of the disaster assistance, whichever is less. The credit cannot exceed the taxpayer’s income tax liability. Any unused tax credit may be carried forward for up to three (3) tax years to offset future tax liabilities. Credits may not be carried back to offset prior years’ tax liabilities. The approval letter from the disaster assistance agency must be enclosed with the return.
+
+The following types of assistance qualify:
+
+— Grants from the Department of Human Services’ Individual and Family Grant Program.
+
+@ Grants from GEMA/HS and/or FEMA.
+
+H@ Loans from the Small Business Administration that are due to disasters declared by the President or Governor.
+
+Disaster assistance agency
+
+1. Credit remaining from previoUS YeaIS...........ce cece eeeeteeeeeeeetteeeeeeteeneeeeeeees 1. ; . 00 2. Date assistance WaS re@CEiVed..............ccccceeeeeeeeceeeceeeeeeeeeeeeeeeeeaeeeaaaaeeneeeenees 2. : 3. Amount of the disaster assistance reCeiVed................cccceeeeeeeeeeeeeeeetteeeeeeeeees 3. ) " 00 4. MaXiMUM Credit.............ccccccccceeceeeeeseeeeeeeeecseeseeseaseeeseeeeeeseeeeeeeeeeeeeeeeeeeeeeses 4. 3) 0 0 _ 0 , , 00 5. Enter the lesser of Line 3 or Lin€ 4...........ccccccccececeeeeeeeeecneeeeeeeeeeeeeeeesnsnnaeeeeeees 5. ) " 6. Credit used this tax year (enter here and include in IND-CR Summary 00 Worksheet Line 6)..........cccccesceeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeseeeeeesseaeeeeeseeeeeeeseeneeeees 6. j . 7. Carryover to next tax year (Line 1 plus Line 5 less Line 6) ......... eee 7 j . 00
+
+a Form IND-CR 207 ll | I| I]
+
+State of Georgia Individual Credit Form
+
+Georgia Department of Revenue 2608605919
+
+2025 (Rev. 07/09/25) (Approved booklet version)
+
+YOUR SOCIAL SECURITY NUMBER
+
+— Include with Form 500 or 500X, if this schedule is applicable. —
+
+Rural Physicians Credit - Tax Credit 207
+
+O.C.G.A. § 48-7-29 provides for a $5,000 tax credit for rural physicians. The tax credit may be claimed for not more than
+
+five years. There is no carryover or carry-back available. The credit cannot exceed the taxpayer’s income tax liability. In
+
+order to qualify, the physician must, on or before May 15, 2024, meet the following conditions:
+
+1. The physician must have started working in a rural county after July 1, 1995. If the physician worked in a rural county prior to that date, a period of at least three years must have elapsed before the physician returns to work in a rural county.
+
+2. The physician must practice and reside in a rural county. For taxable years beginning on or after January 1, 2003, a physician qualifies for the credit if they practice in a rural county and reside in a county contiguous to a rural county. A rural county is defined as one with 65 or fewer persons per square mile according to the United States Decennial Census of 1990 or any future such census. For taxable years beginning on or after January 1, 2012, the United States Decennial Census of 2010 is used. For taxable years beginning on or after January 1, 2022, the United States Decennial Census of 2020 is used (see regulation 560-7-8-.20 for transition rules). A listing of rural counties for purposes of the rural physicians credit may be obtained at the following web page: dor.georgia.gov
+
+3. The physician must be licensed to practice medicine in Georgia, primarily admit patients to a rural hospital, and practice in the fields of family practice, obstetrics and gynecology, pediatrics, internal medicine, or general surgery. A rural hospital is defined as an acute-care hospital located in a rural county that contains 80 or fewer beds. For taxable years beginning on or after January 1, 2003, a rural hospital is defined as an acute-care hospital located in a rural county that contains 100 or fewer beds. For more information, see Regulation 560-7-8-.20.
+
+Only enter the information for the taxpayer and/or the spouse if they are a rural physician.
+
+Taxpayer Spouse 1. County of residence 1. County of residence 2. County of practice 2. County of practice 3. Type of practice 3. Type of practice 4. Date started working as a rural physician 4. Date started working as a rural physician 5. Number of hospital beds in the rural hospital 5. Number of hospital beds in the rural hospital
+
+LI, LI,
+
+6. Rural physicians credit, enter $5,000 per rural physician......... 6 5 . 00 7. Credit used this tax year (enter here and include on IND-CR Summary Worksheet Line 7).........::ccceeeeeeeeeeeteeeeeeeenneeeeeeeneeeeees 7. j . 00
+
+a Form IND-CR 208 ll | I| I|
+
+State of Georgia Individual Credit Form
+
+Georgia Department of Revenue 2608705919
+
+2025 (Rev. 07/09/25) (Approved booklet version)
+
+YOUR SOCIAL SECURITY NUMBER
+
+— Include with Form 500 or 500X, if this schedule is applicable. —
+
+Adoption of a Foster Child Credit for Adoptions Occurring in Taxable Years Beginning on or After
+
+January 1, 2008 and before January 1, 2021 - Tax Credit 208
+
+Georgia Code Section 48-7-29.15 provides an income tax credit for the adoption of a qualified foster child. The amount of the credit is $2,000 per qualified foster child per taxable year, commencing with the year in which the adoption becomes final, and ending in the year in which the adopted child attains the age of 18. This credit applies to adoptions occurring in the taxable years beginning on or after January 1, 2008 and before January 1, 2021. Any unused credit can be carried
+
+forward until used.
+
+1. Credit remaining from previOUS VaIS.............cccceeeeeeeeeeeceeeeeeeeeeeeeteteees 1. j
+
+2. Enter $2,000 per qualified foster ChiId...........ccccccccccsscccssccsseeesseesseeeses 2. 5
+
+3. Credit used this tax year (enter here and include on IND-CR Summary Worksheet Line 8)..........:: cece eens ene eens sees seeeteeeeseeeseeeseeeeesneeeeeengs 3. j
+
+4. Carryover to next year (Line 1 plus Line 2 less Line 3).......... eee 4.
+
+00
+
+00
+
+a Form IND-CR 209 ll | I| I]
+
+State of Georgia Individual Credit Form
+
+Georgia Department of Revenue 2608805919
+
+2025 (Rev. 07/09/25) (Approved booklet version)
+
+YOUR SOCIAL SECURITY NUMBER
+
+— Include with Form 500 or 500X, if this schedule is applicable. —
+
+Eligible Single-Family Residence Tax Credit - Tax Credit 209
+
+0.C.GA. § 48-7-29.17 provides taxpayers a credit for the purchase of an eligible single-family residence located in Georgia. An eligible single-family residence is a single-family structure (including a condominium unit as defined in O.C.G.A.§ 44-3-71) that is occupied for residential purposes by a single family, that is:
+
+a) Any residence (including a new residence, one occupied at the time of sale, or a previously occupied residence) that was
+
+for sale prior to May 11, 2009 and that remained for sale after May 11, 2009; or
+
+b)Aresidence with respect to which a foreclosure event has taken place and which is owned by the mortgagor or the mortgagor’s agent; or
+
+c) An owner-occupied residence with respect to which the owner’s acquisition indebtedness was in default on or before March 1, 2009. Acquisition indebtedness is debt incurred in acquiring, constructing, or substantially improving a qualified residence
+
+and which is secured by such residence. Refinanced debt is acquisition debt if at least a portion of such debt refinances the
+
+principal amount of existing acquisition indebtedness.
+
+A taxpayer is allowed the tax credit for a purchase of one eligible single-family residence made between June 1, 2009 and November 30, 2009. The credit amount is the lesser of 1.2 percent of the purchase price of the eligible single-family residence
+
+or $1,800.00. The amount of the tax credit that may be claimed and allowed in a single tax year cannot exceed the lesser of 1/3 of the credit or the taxpayer’s income tax liability. Any unused tax credit can be carried forward but cannot be carried back.
+
+The taxpayer must have claimed the credit in 2009 in order to claim the unused credit below.
+
+1. Total credit. (Enter amount from 2009 IND-CR, Part 9, Line 5.)..............:ceeeeeeeeteees 1. j 00 2.Maximum allowed Per year............::cccceeeececceceeeeeeeeeeeeeeeeeeeeeeeaaaaaeeseeeeeeeeeeeeeeeeaeaeeaea 2. 33.33% 3.Maximum credit allowed, (multiply Line 1 by Line 2)..0..... cc eeeeeeeeeeeneeeeteeneeeees 3. , . 00 4. Enter unused credit (Total credit less amounts used in previous years)...........00 4. ; . 00 5. Credit allowed, lesser of Line 3 Of LiN€ 4.0.0.0... eccec ccc cee cee entecneeeeeneeeeeneeeeeneeees 5. ; _ 00 6. Credit used this tax year (enter here and include on IND-CR Summary Worksheet LINC 9)... eee eee eee eee cence eee e eee e reas eeeeeseeeesaeeseeeeeeaeseeeeseaeeseeseeeeseeeseaeesneeseneesseseneesseenges 6. ; _ 00 7. Carryover to next tax year (Line 4 less Line 6)...........ecceceeeeeeeeeeeeeeteeeeeeteneeeeeteeneeees 7 . 00
+
+| p = rom IND-CR 212 age 4 State of Georgia Individual Credit Form
+
+Georgia Department of Revenue 2644405919
+
+2025 (Rev. 07/09/25) (Approved booklet version)
+
+YOUR SOCIAL SECURITY NUMBER
+
+— Include with Form 500 or 500X, if this schedule is applicable. —
+
+Community Based Faculty Preceptor Tax Credit - Tax Credit 212
+
+0.C.G.A. § 48-7-29.22 provides an income tax credit for a community based faculty preceptor that conducts a preceptorship rotation(s). This tax credit is applicable for taxable years beginning on or after January 1, 2019 and ending on or before December 31, 2026.
+
+For a community based faculty preceptor who is a physician as defined in O.C.G.A. § 43-34-21, the credit shall accrue on a per preceptorship rotation basis in the amount of $500 for the first, second, or third preceptorship rotation and $1,000 for the fourth, fifth, sixth, seventh, eighth, ninth, or tenth preceptorship rotation completed in one calendar year. For a community based faculty preceptor who is an advanced practice registered nurse as defined in O.C.G.A. § 43-26-3 or a physician assistant as defined in
+
+O.C.G.A. § 43-34-102, the credit shall accrue on a per preceptorship rotation basis in the amount of $375 for the first, second, or third preceptorship rotation and $750 for the fourth, fifth, sixth, seventh, eighth, ninth, or tenth preceptorship rotation completed in one calendar year. An individual shall not accrue credit for more than ten preceptorship rotations in one calendar year. The credit cannot be carried forward and cannot be carried back. Certification from the Area Health Education Centers Program Office at Augusta University must be enclosed with the return.
+
+By filing this form | certify that | did not receive payment during such tax year from any source for the training of a medical student, advanced practice registered nurse student, or physician assistant student.
+
+A. Community Based Faculty Preceptor Tax Credit for a physician
+
+First through Third Rotation
+
+1. Number of Rotations (enter no more than 3) | x " 00 1. [| j . 00
+
+(not to exceed $1,500)
+
+Fourth through Tenth Rotation
+
+2. Number of Rotations (enter no more than 7) [| X 4] j 0 0 0 " 00 2. LI, . 00 (not to exceed $7,000)
+
+3. Add Line 1 and Line 2, Current Year Credit Amount (cannot exceed $8,500)............. 3. [] j . 00
+
+B. Community Based Faculty Preceptor Tax Credit for an advanced practice registered nurse or physician assistant.
+
+First through Third Rotation
+
+1. Number of Rotations (enter no more than 3) L] X 3 i ) " 00 1. a J . 00 (not to exceed $1,125)
+
+Fourth through Tenth Rotation
+
+2. Number of Rotations (enter no more than 7) [| Xx Uf -) 0 . 00 2. L | j . 00 (not to exceed $5,250)
+
+3. Add Line 1 and Line 2, Current Year Credit Amount (cannot exceed $6,375)............. 3. L_ | j . 00 C. Community Based Faculty Preceptor Tax Credit Total 1.Credit used this year (enter no more than the total of Line A3 and Line B3)(enter here 00 and include on IND-CR Summary Worksheet Line 10)......... cc eeeeeeeeeeeeteeeeeeeeneeees 1. j .
+
+a Form IND-CR 213 ll | Ill
+
+State of Georgia Individual Credit Form
+
+Georgia Department of Revenue 2644505919
+
+2025 (Rev. 07/09/25) (Approved booklet version)
+
+YOUR SOCIAL SECURITY NUMBER
+
+— Include with Form 500 or 500X, if this schedule is applicable. —
+
+Adoption of a Foster Child Credit for Adoptions Occurring in Taxable Years Beginning on or After
+
+January 1, 2021- Tax Credit 213
+
+0.C.G.A. § 48-7-29.15 provides an income tax credit for the adoption of a qualified foster child. This credit applies to adoptions occurring in taxable years beginning on or after January 1, 2021. The amount of the credit is $6,000 per qualified foster child per taxable year, commencing with the year in which the adoption becomes final, for five taxable years and $2,000 per qualified foster child per taxable year thereafter, and ending in the year in which the adopted child
+
+attains the age of 18. This credit cannot be carried forward.
+
+1. Enter $6,000 per qualified foster child (if in first five taxable years
+
+Of the Adoption)..............:ccccccceccceeeeeeeeeeeeeecceceeeeeeeeeeeeeeeeececcnneeeseesereeeeteees 1. j 2. Enter $2,000 per qualified foster child (for years after first five
+
+taxable years Of AGOPTION)..............cccccceeeeeeeeeeceeneeeeeeeeeeeeeeeseeenscnceeeeeeeeeeees 2. 3. Add Line 1 and Line 2, Current Year Credit Amount ................::c::00cceees 3. j
+
+4. Credit used this year (enter no more than the amount on line 3)(enter here and include on IND-CR Summary Worksheet Line 11)............... 4. j
+
+00
+
+a Form IND-CR 214 ll | Ill
+
+State of Georgia Individual Credit Form
+
+Georgia Department of Revenue 2644605919 2025 (Rev. 07/09/25) (Approved booklet version)
+
+YOUR SOCIAL SECURITY NUMBER
+
+— Include with Form 500 or 500X, if this schedule is applicable.—
+
+Teacher Recruitment and Retention Credit — Tax Credit 214
+
+A taxpayer who is designated by the Department of Education as a participating teacher in the teacher recruitment and retention program provided for in Code Section 20-2-251 shall be allowed a credit against the tax imposed by Code Section 48-7-20 in an amount equal to $3,000.00 per school year for up to five school years, which must be consecutive. Only teachers who have been designated as qualifying by the Department of Education should complete this form.
+
+For more information about the designation: https:/Awww.gadoe.org
+
+Please note:
+
+m Each designated teacher may claim a credit amount of $3,000.00 per qualifying school year for no more than five school years, which must be consecutive, subject to conditions set forth in Code Section 20-2-251.
+
+@ The credit taken on any year tax return cannot exceed your tax liability for the year. m@ Any unused amounts of the credit can be carried forward for three years.
+
+For more information, see Georgia Code Sections 20-2-251 and 48-7-29.23.
+
+1. Credit remaining from previOUS Year ..............c:ccceeceeeceeeeeeeteeeeeenncaeeeeeeeeeeeeesesececneaeeeeeeeeeess 1. [| j . 00 2. Credit generated this tax Year oo... ececccececeeeeeeeeneeeeeeeeneeeseteeneeeeseseneeeeeeeteneeeeeeseneeeeeeneas 2. L_ | j . 00 3. Total credit available (Line 1 + Line 2)... cccccceececceeeeccceeeeeeeeeeeeeeececaeeeeeeeeeeeeeteeeenenaes 3. [| 5 . 00 4. Credit used this tax year (enter here and include on IND-CR Summary Worksheet
+
+Lime 12) ceeccsseccscecssessessssssssessessssssessssssssessesssssscesssstssessessasusessssssisvessssssivessessusssssessissssssssseeees 4 | | ; . 00 5. Potential carryover to next tax year (Line 3 less Line 4)...............c::cccceeceeeeeeeeeeeeeeeeeteeeeeeees 5. [| j . 00
+
+| Georgia Form I N D -C R Summary Worksheet (Rev. 07/09/25)
+
+State of Georgia Individual Credit Form 2605905919
+
+Georgia Department of Revenue
+
+2025 (Approved booklet version)
+
+on
+
+5.
+
+Page | =
+
+IND-CR SUMMARY SCHEDULE WORKSHEET
+
+through 214).
+
+YOUR SOCIAL SECURITY NUMBER
+
+. Only Georgia Individual Tax Credits (series 200) are claimed on Form IND-CR supporting schedules (IND-CR 201
+
+Enter the amount of credit used for the current tax year from each applicable IND-CR schedules on Lines 1-12. If there is a credit remaining from previous years eligible for carryover for this tax year, the supporting IND-CR
+
+schedule must be completed even if the credit is not used for this tax year. The total of Line 13 should be entered on Form 500 or Form 500X, Page 3, Line 20.
+
+All applicable IND-CR schedules must be attached to Form 500 or Form 500X for the credit(s) to be allowed
+
+on the return.
+
+Note: The other state(s) tax credit and low income credit are claimed directly on Form 500. Series 100 Georgia tax
+
+credits (except Schedule 2B refundable tax credits) are claimed on Form 500 Schedule 2 and returns that include the series 100 credits must be filed electronically. The total credit amount used from the low income credit, the other state(s) tax credit, all IND-CR schedules, and all Schedule 2s cannot exceed the tax liability listed on Line 16 of Form 500 or 500X.
+
+12.
+
+13.
+
+. Disabled Person Home Purchase or Retrofit Credit (IND-CR 201, Line 3) ............ 1.
+
+. Child and Dependent Care Expense Credit (IND-CR 202, Line 4) ..............0 2.
+
+. Georgia National Guard /Air National Guard Credit (IND-CR 203, Line 3) ............ 3.
+
+. Qualified Caregiving Expense Credit (IND-CR 204, Line 6) 0.0.0.0... eee 4.
+
+. RESCPVE 0... eeeeceeeeeeeeeeeeneee teers eee eeeeneeeeeeeeeeteeeeaeeeeeeeeeeeeeetieeeeeeeeeseeeenieeeeeeeeeeeeeenaeees 5. Disaster Assistance Credit (IND-CR 206, Line 6) .............. ccc eeeeteeeteeeeeeeeeees 6
+
+. Rural Physicians Credit (IND-CR 207, Line 7) ..............eccceeeeeeeeeeeeenneeeeeeeeeeeeeeaes 7.
+
+. Adoption of a Foster Child Credit for Adoptions Occurring in Taxable Years
+
+Beginning on or After January 1, 2008 and Before January 1, 2021
+
+(IND-CR 208, Line 3).......... ce ccceeeeeeeeeeee eee eeenee eee teeaeeeeeeeeaaeeeeseseeeeeeeeeeeaeeeeeeenaeeees 8. . Eligible Single-Family Residence Credit (IND-CR 209, Line 6) ............... eee 9. . Community Based Faculty Preceptor Credit (IND-CR 212, Line C1) ...........0.. 10. . Adoption of a Foster Child Credit for Adoptions Occurring in Taxable Years
+
+Beginning on or After January 1, 2021 (IND-CR 213, Line 4).........0.00 11.
+
+Teacher Recruitment and Retention Credit (IND-CR 214, Line 4).......... ee 12.
+
+Total of Lines 1 through 12 (Enter here and on Form 500/500X, Page 3 Line 20) 13.
+
+_ 00 ’
+
+_ 00 ’
+
+_ 00 ’
+
+_ 00 ’
+
+_ 00 ’ ; .
+
+_ 00 ’
+
+_ 00 ’
+
+_ 00 ’
+
+_ 00 ’
+
+_ 00 ’
+
+_ 00 ’
+
+All applicable IND-CR Schedules (201, etc.) must be attached to Form 500 or Form 500X.
+
+Keep IND-CR Summary Worksheet for your records. |
+
+THIS PAGE IS INTENTIONALLY LEFT BLANK
+
+it?
+
+STATE OF GEORGIA DEPARTMENT OF REVENUE TAXPAYER SERVICES DIVISION 2595 CENTURY PKWY. NE ATLANTA, GA 30345-3173
+
+Page 40

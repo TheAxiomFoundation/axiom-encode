@@ -1,0 +1,1 @@
+A coordinated quantity after a reference noun keeps its lower endpoint whatever shape the upper one takes ("2 עד 3 1⁄2 שקלים" is 2 and 3.5, "2 עד שלושים ואחד אלף מאתיים ושלושים וחמישה שקלים" 2 and 31,235); and only a unit of measure after an ordinal-shaped word says fraction, so "דרגה חמישית זכאית" and "דרגה חמישית מקבלת" keep their fifth grade while "עשירית שקל" stays a tenth.

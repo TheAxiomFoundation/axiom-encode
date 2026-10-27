@@ -1,0 +1,4 @@
+(c) Each applicant that is not exempt must include its unique entity identifier
+in each application it submits to the Federal agency. If a consortium is
+eligible for an award and the agency makes the award to a lead entity for the
+consortium, the unique entity identifier of the lead applicant must be used.

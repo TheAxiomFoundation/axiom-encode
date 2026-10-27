@@ -1,0 +1,1 @@
+Allow an explicit atomic source transaction v3 to scope complete-source validation to source modules while a reviewed replacement target retains normal compile, proof, test, and repository validation.

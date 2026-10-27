@@ -1,0 +1,1 @@
+An operand that carries a currency mark of its own, a sign before it or a currency word or sign after it, shares no percent unit and no scale word whatever join follows it ("הקנס יהיה $500 או 2% מהמחזור" keeps 500, "הסכום הוא בין ₪ 500 ל־3 מיליון שקלים" keeps 500), in both range passes and their walks back.

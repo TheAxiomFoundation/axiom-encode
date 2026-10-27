@@ -1,0 +1,1 @@
+Within a condition the doubled-vav spelling "שוועדת" joins the ועדה exception to the root-letter rule, and the lexical ש-nouns a statute uses (שליח, שכן, שמאי) are listed, so "אם התשלומים הם 500, 2 או 3 מיליון שקלים שליח החברה ישלם, והיתרה תוחזר" keeps 500.

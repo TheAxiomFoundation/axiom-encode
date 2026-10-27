@@ -1,0 +1,141 @@
+# Exact native run39536963804 Judgment wrappers and their declared Bool inputs.
+# Original full policy SHA256 8a6775eee53c35028680361004bd645a5e4efe9dc0daa170ed8deb646f5f111a.
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: ca/policy/cra/t1-2025/t1-income-net-taxable-income/step-2
+    source_sha256: 88e38d85594e8d0126b0d0593da04bb261d8f4cc1eb242540822f00570c66199
+  summary: Step 2 reports income from all sources inside and outside Canada. Line
+    21 adds lines 1 to 20; line 27 adds lines 22 to 26; line 28 adds lines 21 and
+    27; line 32 adds lines 29 to 31; line 33 reports total income by adding lines
+    28 and 32.
+inputs:
+- name: employment_insurance_entry_reported_line_11900
+  dtype: Bool
+  entity: Person
+  period: Year
+- name: old_age_security_entry_reported_line_11300
+  dtype: Bool
+  entity: Person
+  period: Year
+- name: federal_supplements_entry_reported_line_14600
+  dtype: Bool
+  entity: Person
+  period: Year
+rules:
+- name: reported_employment_insurance_entry_reported_line_11900
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: CRA 2025 T1 Step 2 line 8/11900 reports EI and other benefits; the entered-amount
+    observation reflects the Step 3 wording.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/t1-income-net-taxable-income/step-2
+          excerpt: 'Line 8 and line 11900: Employment insurance (EI) and other benefits
+            (box 14 of the T4E slip) ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/t1-income-net-taxable-income/primary-document
+          excerpt: T1 2025
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/t1-income-net-taxable-income/primary-document
+          excerpt: T1 2025
+      - path: versions[0].formula
+        kind: predicate
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/t1-income-net-taxable-income/step-3
+          excerpt: You entered an amount for EI and other benefits on line 11900 and
+            the amount on line 23400 is more than $82,125
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: employment_insurance_entry_reported_line_11900
+- name: reported_old_age_security_entry_reported_line_11300
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: CRA 2025 T1 Step 2 line 3/11300 reports OAS pension; the entered-amount
+    observation reflects the Step 3 wording.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/t1-income-net-taxable-income/step-2
+          excerpt: 'Line 3 and line 11300: Old age security (OAS) pension (box 18
+            of the T4A(OAS) slip) ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/t1-income-net-taxable-income/primary-document
+          excerpt: T1 2025
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/t1-income-net-taxable-income/primary-document
+          excerpt: T1 2025
+      - path: versions[0].formula
+        kind: predicate
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/t1-income-net-taxable-income/step-3
+          excerpt: You entered an amount for OAS pension on line 11300 or net federal
+            supplements paid on line 14600 and the amount on line 23400 is more than
+            $93,454
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: old_age_security_entry_reported_line_11300
+- name: reported_federal_supplements_entry_reported_line_14600
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: CRA 2025 T1 Step 2 line 31/14600 reports net federal supplements; the entered-amount
+    observation reflects the Step 3 wording.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/t1-income-net-taxable-income/step-2
+          excerpt: 'Line 31 and line 14600: Net federal supplements paid (box 21 of
+            the T4A(OAS) slip) ^'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/t1-income-net-taxable-income/primary-document
+          excerpt: T1 2025
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/t1-income-net-taxable-income/primary-document
+          excerpt: T1 2025
+      - path: versions[0].formula
+        kind: predicate
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/t1-income-net-taxable-income/step-3
+          excerpt: You entered an amount for OAS pension on line 11300 or net federal
+            supplements paid on line 14600 and the amount on line 23400 is more than
+            $93,454
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: federal_supplements_entry_reported_line_14600
+units:
+- name: CAD
+  kind: currency
+  minor_units: 2

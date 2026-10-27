@@ -1,0 +1,1 @@
+A bare printed fraction after a scaled amount is read whole whatever the spacing around its slash ("3 מיליון ו־1 / 2 אחוזים" is 3,000,000 and half a percent; "3 מיליון ו־1 / 2 שקלים" 3,000,000.5), a fraction before a percent sign is one rate ("1/2%" is half a percent, not two), and a fraction's denominator before the sign is never a rate of its own.

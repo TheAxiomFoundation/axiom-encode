@@ -1,0 +1,1 @@
+A unit word distributes over "או" and a sign or a bare scale word does not: "125 או 150 אחוזים" and "2 או 3 מיליון שקלים" share their unit, "50 או 2%" and "500 או 3 מיליון" keep the number before "או", a rate word in the same clause makes a signed pair share ("בשיעור של 2 או 3%"), a range must ascend ("בין 500 ל־3 מיליון" runs from 500 shekels), and "תוספת" is no rate word.

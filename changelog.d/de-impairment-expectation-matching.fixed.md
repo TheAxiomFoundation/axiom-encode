@@ -1,0 +1,1 @@
+Recognize the complete German expected-impairment condition without accepting subtype-only or clinical-record flags. Preserve source and selector negation, and restrict age-relative selectors to one comparison so compound predicates cannot borrow a source witness.

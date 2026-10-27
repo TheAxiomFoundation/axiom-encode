@@ -1,0 +1,1 @@
+Ship each attempt's model, token counts, and estimated cost inside the `iterations` payload synced to Supabase, matching the local encoding DB, so an escalated run (Terra, then Sol) can be re-priced from the remote row; attempts that recorded no usage stay absent rather than publishing zeros.

@@ -109,6 +109,9 @@ def test_generic_encoder_prompt_adds_completeness_only_when_enabled():
         complete_prompt
     )
     assert "The output path\n  is not a source citation" in complete_prompt
+    assert "`us/regulation/7/273/10(a)(1)`" in complete_prompt
+    assert "display-style `7 CFR 273.10(a)(1)` alone" in complete_prompt
+    assert "`us/regulation/7/273/10(a)(1)`" not in default_prompt
     assert (
         "authoritative branch is exactly a bare `Repealed.` tombstone"
         in complete_prompt
@@ -279,6 +282,9 @@ def test_eval_prompt_adds_completeness_only_when_enabled(tmp_path):
         complete_prompt
     )
     assert "The output path\n  is not a source citation" in complete_prompt
+    assert "`us/regulation/7/273/10(a)(1)`" in complete_prompt
+    assert "display-style `7 CFR 273.10(a)(1)` alone" in complete_prompt
+    assert "`us/regulation/7/273/10(a)(1)`" not in default_prompt
     assert (
         "authoritative branch is exactly a bare `Repealed.` tombstone"
         in complete_prompt
@@ -399,6 +405,7 @@ def test_eval_prompt_rejects_retry_feedback_without_matching_candidate(tmp_path)
 def test_run_model_eval_forces_tests_and_forwards_complete_mode(tmp_path):
     source_unit = object()
     result = object()
+    compose = tmp_path / "axiom-compose"
     with (
         patch.object(evals, "_validate_eval_oracle_runtime"),
         patch.object(evals, "resolve_corpus_source_unit", return_value=source_unit),
@@ -419,6 +426,7 @@ def test_run_model_eval_forces_tests_and_forwards_complete_mode(tmp_path):
             include_tests=False,
             require_complete_source_unit=True,
             validation_retry_feedback=("prior validator issue",),
+            axiom_compose_path=compose,
         )
 
     assert actual == [result]
@@ -427,10 +435,12 @@ def test_run_model_eval_forces_tests_and_forwards_complete_mode(tmp_path):
     assert run_single.call_args.kwargs["validation_retry_feedback"] == (
         "prior validator issue",
     )
+    assert run_single.call_args.kwargs["axiom_compose_path"] == compose
 
 
 def test_repair_revalidation_keeps_complete_mode(tmp_path):
     metrics = SimpleNamespace(ci_issues=["repairable"])
+    compose = tmp_path / "axiom-compose"
     with (
         patch.object(evals, "evaluate_artifact", return_value=metrics) as evaluate,
         patch.object(
@@ -446,6 +456,7 @@ def test_repair_revalidation_keeps_complete_mode(tmp_path):
             source_text="Source body",
             local_corpus_release=object(),
             require_complete_source_unit=True,
+            axiom_compose_path=compose,
         )
 
     assert actual is metrics
@@ -453,4 +464,7 @@ def test_repair_revalidation_keeps_complete_mode(tmp_path):
     assert all(
         call.kwargs["require_complete_source_unit"] is True
         for call in evaluate.call_args_list
+    )
+    assert all(
+        call.kwargs["axiom_compose_path"] == compose for call in evaluate.call_args_list
     )

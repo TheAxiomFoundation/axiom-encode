@@ -1,0 +1,36 @@
+# Signing-critical code. Every change to these files needs a code-owner review;
+# branch protection enforces it with no administrator bypass.
+#
+# This is the first layer, not the whole boundary. The signing job also runs the
+# rest of the encoder package, its dependency and build declarations, and any
+# workflow that selects a key-bearing environment. Until those are covered (or the
+# signing job runs a separately reviewed, pinned encoder), signing keeps its
+# per-run human approval.
+
+# The workflow that signs with the apply key, and the reviewed-candidate
+# allowlists it admits.
+/.github/workflows/targeted-signed-reencode.yml @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/prepare_signed_backfill.py @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/corpus_artifact_transport.py @PavelMakarchuk @MaxGhenis
+
+# The signer, the signing supervisor, the broker and the trust bootstrap.
+/cmd/axiom-encode-apply-signer/ @PavelMakarchuk @MaxGhenis
+/cmd/axiom-encode-signing-supervisor/ @PavelMakarchuk @MaxGhenis
+/scripts/provision_verification_supervisor.py @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/signing_broker.py @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/_trusted_signing_bootstrap.py @PavelMakarchuk @MaxGhenis
+/go.mod @PavelMakarchuk @MaxGhenis
+/go.sum @PavelMakarchuk @MaxGhenis
+
+# Scripts the signing job runs on the same runner, before or during signing,
+# that can read the key from the step environment or replace code it later runs.
+/scripts/prepare_signed_backfill.py @PavelMakarchuk @MaxGhenis
+/scripts/prepare_signed_queue.py @PavelMakarchuk @MaxGhenis
+/scripts/extract_repair_candidate.py @PavelMakarchuk @MaxGhenis
+/scripts/verify_repair_base_advance.py @PavelMakarchuk @MaxGhenis
+/scripts/materialize_corpus_release.py @PavelMakarchuk @MaxGhenis
+/scripts/provision_axiom_compose_runtime.py @PavelMakarchuk @MaxGhenis
+/scripts/prepare_retired_source_metadata.py @PavelMakarchuk @MaxGhenis
+
+# This file.
+/.github/CODEOWNERS @PavelMakarchuk @MaxGhenis

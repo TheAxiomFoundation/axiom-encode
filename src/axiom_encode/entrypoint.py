@@ -13,6 +13,11 @@ import sys
 
 
 def main() -> int | None:
+    # Supervised runs start Python with -I, which ignores PYTHONUNBUFFERED, so
+    # stdout on a pipe is block-buffered; flush progress lines as they happen.
+    from axiom_encode.encode_timing import line_buffer_stdout
+
+    line_buffer_stdout()
     # This must run before importing ``axiom_encode.cli``. Production private
     # keys remain inside external signers; the mutable Python process that can
     # later launch model subprocesses receives only a confined broker capability.
@@ -29,6 +34,14 @@ def main() -> int | None:
         from axiom_encode.source_hash import run_check_source_staleness
 
         return run_check_source_staleness(argv[1:])
+    if argv and argv[0] == "corpus-fetch":
+        from axiom_encode.corpus_materialize import run_corpus_fetch
+
+        return run_corpus_fetch(argv[1:])
+    if argv and argv[0] == "export-core-build-spec":
+        from axiom_encode.core_export import run_export_core_build_spec
+
+        return run_export_core_build_spec(argv[1:])
     from axiom_encode.cli import main as cli_main
 
     return cli_main()

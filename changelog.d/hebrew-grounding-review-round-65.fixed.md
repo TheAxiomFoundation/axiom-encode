@@ -1,0 +1,1 @@
+A bare dual scales its fractional tail by the thousand ("אלפיים וחצי" is 2,500, as "שני אלפים וחצי" is), and "כולל" is the adjective "total" before a threshold predicate alone ("הכולל לא יעלה על"), the verb "includes" before "לא פחות מ־" and the like, so "הסיוע כולל לא פחות מ־3 אלפים ו־200 מיטות" counts 3,200 beds.

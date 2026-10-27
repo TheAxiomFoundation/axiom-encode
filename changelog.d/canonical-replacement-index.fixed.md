@@ -1,0 +1,1 @@
+Allow an authenticated legacy replacement to create a previously absent canonical provision index entry from its final validated YAML. Bind the resulting index into the signed replacement receipt and independently reconstruct its required inventory from immutable base records.

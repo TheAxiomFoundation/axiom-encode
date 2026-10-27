@@ -1,0 +1,1 @@
+The first item of a reference, printed or spelled, is no half of a coordinated quantity ("תוספת 2 עד 3 שקלים" and "תוספת שתיים עד שלוש נקודות זיכוי" are 2 and 3, while "סעיף 2 עד 3" stays a reference); and a unit after an ordinal-shaped fraction word says fraction ("עשירית שקל" is 0.1, "עשירית שנייה" 0.1, "חמישית נקודת זיכוי" 0.2), while "לידה עשירית" keeps its ordinal.

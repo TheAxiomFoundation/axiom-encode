@@ -53,8 +53,8 @@ def _unique_manifest_identity(
     manifest_paths: tuple[PurePosixPath, ...],
     *,
     label: str,
-) -> str:
-    """Resolve one legacy or canonical manifest path, rejecting ambiguity."""
+) -> str | None:
+    """Resolve an optional legacy or canonical manifest, rejecting ambiguity."""
 
     identities = tuple(
         identity
@@ -62,10 +62,7 @@ def _unique_manifest_identity(
         if (identity := _blob_identity(repository, commit, path)) is not None
     )
     if not identities:
-        raise ValueError(
-            f"repair replay target identity is missing at its {label} RuleSpec base: "
-            "ownership manifest"
-        )
+        return None
     if len(identities) != 1:
         raise ValueError(
             f"repair replay target identity is ambiguous at its {label} RuleSpec "
@@ -111,15 +108,17 @@ def verify_base_advance(
     ).stdout.strip()
     if source_commit != source_ref:
         raise ValueError("repair source RuleSpec ref does not identify its commit")
+    new_source = rulespec_path == ""
     repository_path = (
-        PurePosixPath(rulespec_path)
-        if rulespec_path is not None
-        else PurePosixPath(country, path)
+        PurePosixPath(rulespec_path) if rulespec_path else PurePosixPath(country, path)
     )
     jurisdiction = repository_path.parts[0] if repository_path.parts else ""
     if (
         repository_path.is_absolute()
-        or (rulespec_path is not None and repository_path.as_posix() != rulespec_path)
+        or (
+            rulespec_path not in (None, "")
+            and repository_path.as_posix() != rulespec_path
+        )
         or len(repository_path.parts) < 3
         or JURISDICTION_PATTERN.fullmatch(jurisdiction) is None
         or (jurisdiction != country and not jurisdiction.startswith(f"{country}-"))
@@ -144,12 +143,18 @@ def verify_base_advance(
     for tracked_path in tracked_paths:
         path_identity = PurePosixPath(tracked_path)
         source_identity = _blob_identity(repository, source_ref, path_identity)
+        current_identity = _blob_identity(repository, current_ref, path_identity)
+        if new_source:
+            if source_identity is not None or current_identity is not None:
+                raise ValueError(
+                    "new-source repair destination already exists at a RuleSpec base"
+                )
+            continue
         if source_identity is None:
             raise ValueError(
                 "repair replay target identity is missing at its source RuleSpec "
                 f"base: {tracked_path}"
             )
-        current_identity = _blob_identity(repository, current_ref, path_identity)
         if current_identity is None:
             raise ValueError(
                 "repair replay target identity is missing at its current RuleSpec "
@@ -159,9 +164,26 @@ def verify_base_advance(
             raise ValueError(
                 "repair replay target identity changed after its source RuleSpec base"
             )
+    # An exact-base replay cannot have drifted: the authenticated failed-run
+    # artifact and the current checkout identify the same commit, and the
+    # target plus companion test blobs were verified above.  Legacy targets
+    # being converted by the encoder may not have an ownership manifest yet;
+    # requiring one here would make their first protected repair impossible.
+    if source_ref == current_ref:
+        return
     manifest_paths = tuple(
         dict.fromkeys((legacy_manifest_path, canonical_manifest_path))
     )
+    if new_source:
+        if any(
+            _blob_identity(repository, commit, manifest_path) is not None
+            for commit in (source_ref, current_ref)
+            for manifest_path in manifest_paths
+        ):
+            raise ValueError(
+                "new-source repair manifest already exists at a RuleSpec base"
+            )
+        return
     source_manifest_identity = _unique_manifest_identity(
         repository,
         source_ref,
@@ -174,6 +196,8 @@ def verify_base_advance(
         manifest_paths,
         label="current",
     )
+    # A legacy target can be unsigned at both bases. Its RuleSpec and test
+    # blobs are still pinned above; reject any ownership transition or drift.
     if source_manifest_identity != current_manifest_identity:
         raise ValueError(
             "repair replay target identity changed after its source RuleSpec base"

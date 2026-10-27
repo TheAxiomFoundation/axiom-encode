@@ -1,0 +1,1 @@
+A printed mixed rate after a scaled amount keeps the amount ("3 מיליון ו־3 וחצי אחוזים" is 3,000,000 and 3.5 percent; "ו־3 ושלושה רבעים%" likewise), and a shared-scale range reads a מ prefix attached to a spelled lower endpoint as the bound ("משלושה לחמישה מיליון" runs from 3,000,000; "מחצי לשלושה מיליון" from 500,000).

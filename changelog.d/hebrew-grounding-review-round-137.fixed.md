@@ -1,0 +1,1 @@
+Every reader that drops a maqaf after a prefix drops an ASCII hyphen too, so the definite ordinal "ה-שני" is the ordinal it is ("הילד ה-שני אחוז וחצי" keeps 2 and reads 0.015) and a hyphen-bound range endpoint joins its range ("משניים ל-שלושה אחוזים" is 0.02 to 0.03, "בין שלושה ל-חמישה מיליון" three to five million).

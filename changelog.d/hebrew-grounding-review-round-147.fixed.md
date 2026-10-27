@@ -1,0 +1,1 @@
+The last fixed windows in the Hebrew grammar give way to the clause: padding before a line wrap no longer hides the comma that joins a list, a rate word reaches its pair across any modifiers in its clause ("הריבית השנתית החלה על יתרת ההלוואה הכוללת תהיה 10 או 30%" is two rates), and a money context reaches its amount across any of its connectors.

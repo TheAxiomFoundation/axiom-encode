@@ -1,0 +1,1 @@
+Record each generation attempt's model, token counters, and estimated cost inside the run's `iterations`, so a run that escalated across models (Terra, then Sol) can be re-priced from its own record. Attempts that reported no usage keep `None`, never `0`.

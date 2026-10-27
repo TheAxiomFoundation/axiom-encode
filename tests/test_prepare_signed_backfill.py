@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import errno
 import hashlib
 import json
 import os
@@ -11,20 +10,19 @@ from pathlib import Path, PurePosixPath
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-import scripts.prepare_signed_backfill as signed_backfill
 from axiom_encode.cli import _legacy_replacement_manifest_issues
 from axiom_encode.legacy_replacement import (
     migrate_legacy_exact_dependent_source_verification,
     receipt_identity_payload,
     receipt_identity_sha256,
 )
+from axiom_encode.prepare_signed_backfill import _classify_dependent_cascade
 from scripts.prepare_signed_backfill import (
     MAX_CANONICAL_REFRESH_BUNDLE_CITATIONS,
     MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES,
     MAX_SOURCE_BUNDLE_JSON_BYTES,
-    REVIEWED_RULESPEC_PR_BASE_BRANCHES,
+    REVIEWED_RULESPEC_PR_BASES,
     REVIEWED_RULESPEC_REFS,
-    _checkout_path_exists_without_indirection,
     _normalize_required_test_cases,
     _retired_manifest_inventory_without_entry,
     authorize_legacy_index_manifest_shrink,
@@ -185,6 +183,7 @@ def test_split_atomic_source_input_preserves_legacy_source_array() -> None:
     assert split_atomic_source_input('["us-ri/statute/44-30-1"]') == {
         "canonical_refresh_bundle": [],
         "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
         "source_bundle": ["us-ri/statute/44-30-1"],
     }
 
@@ -200,6 +199,7 @@ def test_split_atomic_source_input_selects_canonical_refresh_mode() -> None:
     ) == {
         "canonical_refresh_bundle": [addition],
         "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
         "source_bundle": [],
     }
 
@@ -225,8 +225,94 @@ def test_split_atomic_source_input_selects_v2_structured_refresh_mode() -> None:
     assert split_atomic_source_input(json.dumps(payload)) == {
         "canonical_refresh_bundle": [],
         "primary_required_test_cases": [required_case],
+        "require_complete_source_unit": True,
         "source_bundle": [],
     }
+
+
+def test_split_atomic_source_input_selects_v3_scoped_validation() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v3",
+        "source_bundle": ["us/regulation/7/273/4"],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": False,
+    }
+
+    assert split_atomic_source_input(json.dumps(payload)) == {
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": False,
+        "source_bundle": ["us/regulation/7/273/4"],
+    }
+
+
+def test_split_atomic_source_input_rejects_nonboolean_v3_scope() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v3",
+        "source_bundle": [],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": "false",
+    }
+
+    with pytest.raises(ValueError, match="must be a boolean"):
+        split_atomic_source_input(json.dumps(payload))
+
+
+def test_split_atomic_source_input_selects_v4_manifest_only_refresh() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v4",
+        "source_bundle": [],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "manifest_only_refresh": True,
+    }
+
+    assert split_atomic_source_input(json.dumps(payload)) == {
+        "canonical_refresh_bundle": [],
+        "manifest_only_refresh": True,
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "source_bundle": [],
+    }
+
+
+def test_split_atomic_source_input_selects_v5_reviewed_candidate_promotion() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v5",
+        "source_bundle": [],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "manifest_only_refresh": False,
+        "reviewed_candidate_promotion": True,
+    }
+
+    assert split_atomic_source_input(json.dumps(payload)) == {
+        "canonical_refresh_bundle": [],
+        "manifest_only_refresh": False,
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "reviewed_candidate_promotion": True,
+        "source_bundle": [],
+    }
+
+
+def test_split_atomic_source_input_rejects_mixed_reviewed_candidate_mode() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v5",
+        "source_bundle": ["us/regulation/7/273/4"],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "manifest_only_refresh": False,
+        "reviewed_candidate_promotion": True,
+    }
+
+    with pytest.raises(ValueError, match="cannot mix"):
+        split_atomic_source_input(json.dumps(payload))
 
 
 @pytest.mark.parametrize("period_kind", ["month", "benefit_week"])
@@ -285,6 +371,7 @@ def test_split_atomic_source_input_cli_emits_normalized_object(
 
     assert capsys.readouterr().out == (
         '{"canonical_refresh_bundle":[],"primary_required_test_cases":[],'
+        '"require_complete_source_unit":true,'
         '"source_bundle":["us-ri/statute/44-30-1"]}\n'
     )
 
@@ -1127,8 +1214,8 @@ def _git(repo: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-def _repo(tmp_path: Path, *, country: str = "us") -> Path:
-    repo = tmp_path / f"rulespec-{country}"
+def _repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "rulespec-us"
     repo.mkdir()
     _git(repo, "init", "-b", "main")
     _git(repo, "config", "user.name", "Test")
@@ -1168,16 +1255,19 @@ def _write_signed_change(repo: Path) -> tuple[Path, Path]:
 def _retired_inventory_replacement_repo(
     tmp_path: Path,
     *,
-    country: str = "us",
     inventory_text: str | None = None,
-    include_inventory: bool = True,
+    target_path: str = "us/policies/income_tax/schedule.yaml",
 ) -> tuple[Path, Path, Path, Path]:
-    repo = _repo(tmp_path, country=country)
-    target = repo / f"{country}/policies/income_tax/schedule.yaml"
+    repo = _repo(tmp_path)
+    country_repo = tmp_path / f"rulespec-{Path(target_path).parts[0]}"
+    if repo != country_repo:
+        repo.rename(country_repo)
+        repo = country_repo
+    target = repo / target_path
     target.parent.mkdir(parents=True)
     target.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
     manifest = (
-        repo / f".axiom/encoding-manifests/{country}/policies/income_tax/schedule.json"
+        repo / ".axiom/encoding-manifests" / Path(target_path).with_suffix(".json")
     )
     manifest.parent.mkdir(parents=True)
     manifest.write_text(
@@ -1185,19 +1275,18 @@ def _retired_inventory_replacement_repo(
         encoding="utf-8",
     )
     inventory = repo / "tests/test_encoding_manifests.py"
-    if include_inventory:
-        inventory.parent.mkdir(parents=True)
-        manifest_relative = manifest.relative_to(repo).as_posix()
-        inventory.write_text(
-            inventory_text
-            or (
-                "KNOWN_RETIRED_SCHEMA_MANIFESTS: frozenset[str] = frozenset({\n"
-                f"    '{manifest_relative}',\n"
-                f"    '.axiom/encoding-manifests/{country}/statutes/other.json',\n"
-                "})\n"
-            ),
-            encoding="utf-8",
-        )
+    inventory.parent.mkdir(parents=True)
+    manifest_relative = manifest.relative_to(repo).as_posix()
+    inventory.write_text(
+        inventory_text
+        or (
+            "KNOWN_RETIRED_SCHEMA_MANIFESTS: frozenset[str] = frozenset({\n"
+            f"    '{manifest_relative}',\n"
+            "    '.axiom/encoding-manifests/us/statutes/other.json',\n"
+            "})\n"
+        ),
+        encoding="utf-8",
+    )
     _git(repo, "add", ".")
     _git(repo, "commit", "-m", "add retired target")
 
@@ -1231,36 +1320,96 @@ def _retired_inventory_replacement_repo(
     return repo, target, manifest, inventory
 
 
-def _ignore_retired_manifest_inventory(repo: Path) -> None:
-    exclude = repo / ".git/info/exclude"
-    exclude.write_text(
-        exclude.read_text(encoding="utf-8") + "\ntests/test_encoding_manifests.py\n",
-        encoding="utf-8",
+def _replacement_without_inventory(tmp_path: Path):
+    repo, target, manifest, inventory = _retired_inventory_replacement_repo(
+        tmp_path, target_path="de/statutes/estg/66.yaml"
+    )
+    _git(repo, "rm", inventory.relative_to(repo).as_posix())
+    _git(repo, "commit", "-m", "remove optional retired inventory")
+    return repo, target, manifest, inventory
+
+
+@pytest.mark.parametrize("remove_parent", [False, True])
+def test_reconcile_inventory_missing_from_repository(
+    tmp_path: Path, remove_parent: bool
+):
+    repo, target, _manifest, inventory = _replacement_without_inventory(tmp_path)
+    inventory.parent.mkdir(exist_ok=True)
+    if remove_parent:
+        inventory.parent.rmdir()
+    assert (
+        reconcile_retired_manifest_inventory(repo, target.relative_to(repo).as_posix())
+        is None
     )
 
 
-def _record_retired_inventory_leaf_stats(
-    monkeypatch: pytest.MonkeyPatch,
-) -> list[tuple[int | None, bool]]:
-    original_stat = signed_backfill._DESCRIPTOR_STAT
-    calls: list[tuple[int | None, bool]] = []
+@pytest.mark.parametrize("kind", ["untracked", "ignored", "dangling", "parent_symlink"])
+def test_reconcile_absent_head_inventory_rejects_live_paths(tmp_path: Path, kind: str):
+    repo, target, _manifest, inventory = _replacement_without_inventory(tmp_path)
+    inventory.parent.mkdir(exist_ok=True)
+    if kind == "parent_symlink":
+        inventory.parent.rmdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        inventory.parent.symlink_to(outside, target_is_directory=True)
+    elif kind == "dangling":
+        inventory.symlink_to("missing")
+    else:
+        inventory.write_text("unexpected inventory\n", encoding="utf-8")
+    if kind in {"ignored", "dangling", "parent_symlink"}:
+        (repo / ".git/info/exclude").write_text("/tests\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="retired manifest inventory"):
+        reconcile_retired_manifest_inventory(repo, target.relative_to(repo).as_posix())
 
-    def recording_stat(
-        path: str | bytes | int | os.PathLike[str] | os.PathLike[bytes],
-        *,
-        dir_fd: int | None = None,
-        follow_symlinks: bool = True,
-    ) -> os.stat_result:
-        if path == "test_encoding_manifests.py":
-            calls.append((dir_fd, follow_symlinks))
-        return original_stat(
-            path,
-            dir_fd=dir_fd,
-            follow_symlinks=follow_symlinks,
-        )
 
-    monkeypatch.setattr(signed_backfill, "_DESCRIPTOR_STAT", recording_stat)
-    return calls
+def test_reconcile_inventory_rejects_tracked_deletion(tmp_path: Path):
+    repo, target, _manifest, inventory = _retired_inventory_replacement_repo(tmp_path)
+    inventory.unlink()
+    with pytest.raises(ValueError, match="changed before exact reconciliation"):
+        reconcile_retired_manifest_inventory(repo, target.relative_to(repo).as_posix())
+
+
+def test_reconcile_absent_inventory_still_validates_manifest(tmp_path: Path):
+    repo, target, manifest, _inventory = _replacement_without_inventory(tmp_path)
+    manifest.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="not an exact signed-v5 model apply"):
+        reconcile_retired_manifest_inventory(repo, target.relative_to(repo).as_posix())
+
+
+def test_reconcile_absent_inventory_rejects_symlinked_repo_root(tmp_path: Path):
+    repo, target, _manifest, _inventory = _replacement_without_inventory(tmp_path)
+    target_relative = target.relative_to(repo).as_posix()
+    actual = repo.with_name("actual-checkout")
+    repo.rename(actual)
+    repo.symlink_to(actual, target_is_directory=True)
+    with pytest.raises(ValueError, match="unsafe repository root"):
+        reconcile_retired_manifest_inventory(repo, target_relative)
+
+
+def test_reconcile_inventory_rejects_nonregular_head_entry(tmp_path: Path):
+    repo, target, _manifest, inventory = _retired_inventory_replacement_repo(tmp_path)
+    inventory.unlink()
+    inventory.symlink_to("missing")
+    _git(repo, "add", inventory.relative_to(repo).as_posix())
+    _git(repo, "commit", "-m", "inventory symlink")
+    with pytest.raises(ValueError, match="not a regular HEAD file"):
+        reconcile_retired_manifest_inventory(repo, target.relative_to(repo).as_posix())
+
+
+def test_reconcile_inventory_git_failure_is_not_absence(tmp_path: Path, monkeypatch):
+    import scripts.prepare_signed_backfill as implementation
+
+    repo, target, _manifest, _inventory = _replacement_without_inventory(tmp_path)
+    original_git = implementation._git
+
+    def failing_git(repo, *args):
+        if args[0] == "ls-tree":
+            raise subprocess.CalledProcessError(128, ["git", *args])
+        return original_git(repo, *args)
+
+    monkeypatch.setattr(implementation, "_git", failing_git)
+    with pytest.raises(subprocess.CalledProcessError):
+        reconcile_retired_manifest_inventory(repo, target.relative_to(repo).as_posix())
 
 
 def test_reconcile_retired_manifest_inventory_is_end_to_end_authorized(
@@ -1371,411 +1520,6 @@ def test_reconcile_retired_manifest_inventory_is_noop_when_absent(
         PurePosixPath(target.relative_to(repo).as_posix()),
         PurePosixPath(manifest.relative_to(repo).as_posix()),
     }
-
-
-def test_rulespec_be_reconcile_is_noop_without_retired_manifest_inventory(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repo, target, manifest, inventory = _retired_inventory_replacement_repo(
-        tmp_path,
-        country="be",
-        include_inventory=False,
-    )
-    inventory.parent.mkdir()
-    leaf_stats = _record_retired_inventory_leaf_stats(monkeypatch)
-
-    assert not inventory.exists()
-    assert (
-        _git(
-            repo,
-            "ls-tree",
-            "--full-tree",
-            "HEAD",
-            "--",
-            inventory.relative_to(repo).as_posix(),
-        )
-        == ""
-    )
-    assert (
-        reconcile_retired_manifest_inventory(
-            repo,
-            target.relative_to(repo).as_posix(),
-        )
-        is None
-    )
-    assert len(leaf_stats) == 1
-    assert leaf_stats[0][0] is not None
-    assert leaf_stats[0][1] is False
-    assert authorized_changed_paths(repo) == {
-        PurePosixPath(target.relative_to(repo).as_posix()),
-        PurePosixPath(manifest.relative_to(repo).as_posix()),
-    }
-
-
-@pytest.mark.parametrize("entry_kind", ["regular", "dangling-symlink"])
-def test_reconcile_retired_manifest_inventory_rejects_ignored_worktree_entry(
-    tmp_path: Path,
-    entry_kind: str,
-) -> None:
-    repo, target, _manifest, inventory = _retired_inventory_replacement_repo(
-        tmp_path,
-        include_inventory=False,
-    )
-    _ignore_retired_manifest_inventory(repo)
-    inventory.parent.mkdir(parents=True)
-    if entry_kind == "regular":
-        inventory.write_text("ignored but present\n", encoding="utf-8")
-        assert inventory.is_file()
-        assert not inventory.is_symlink()
-    else:
-        inventory.symlink_to("missing-test_encoding_manifests.py")
-        assert inventory.is_symlink()
-        assert not inventory.exists()
-
-    with pytest.raises(
-        ValueError,
-        match="absent from HEAD but not safely absent from the worktree",
-    ):
-        reconcile_retired_manifest_inventory(
-            repo,
-            target.relative_to(repo).as_posix(),
-        )
-
-
-def test_reconcile_retired_manifest_inventory_rejects_appearing_leaf(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repo, target, _manifest, inventory = _retired_inventory_replacement_repo(
-        tmp_path,
-        include_inventory=False,
-    )
-    _ignore_retired_manifest_inventory(repo)
-    inventory.parent.mkdir(parents=True)
-    original_open = signed_backfill._DESCRIPTOR_OPEN
-    appeared = False
-    required_flags = os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-
-    def appear_after_parent_open(
-        path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
-        flags: int,
-        mode: int = 0o777,
-        *,
-        dir_fd: int | None = None,
-    ) -> int:
-        nonlocal appeared
-        descriptor = original_open(path, flags, mode, dir_fd=dir_fd)
-        if path == "tests" and dir_fd is not None and not appeared:
-            assert flags & required_flags == required_flags
-            inventory.write_text("appeared before leaf probe\n", encoding="utf-8")
-            appeared = True
-        return descriptor
-
-    monkeypatch.setattr(
-        signed_backfill,
-        "_DESCRIPTOR_OPEN",
-        appear_after_parent_open,
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="absent from HEAD but not safely absent from the worktree",
-    ):
-        reconcile_retired_manifest_inventory(
-            repo,
-            target.relative_to(repo).as_posix(),
-        )
-    assert appeared
-    assert inventory.read_text(encoding="utf-8") == "appeared before leaf probe\n"
-
-
-def test_reconcile_retired_manifest_inventory_rejects_symlinked_ancestor(
-    tmp_path: Path,
-) -> None:
-    repo, target, _manifest, inventory = _retired_inventory_replacement_repo(
-        tmp_path,
-        include_inventory=False,
-    )
-    outside = tmp_path / "outside-tests"
-    outside.mkdir()
-    outside_inventory = outside / inventory.name
-    outside_inventory.write_text("outside sentinel\n", encoding="utf-8")
-    inventory.parent.symlink_to(outside, target_is_directory=True)
-
-    with pytest.raises(
-        ValueError,
-        match="absent from HEAD but not safely absent from the worktree",
-    ):
-        reconcile_retired_manifest_inventory(
-            repo,
-            target.relative_to(repo).as_posix(),
-        )
-
-    assert outside_inventory.read_text(encoding="utf-8") == "outside sentinel\n"
-
-
-def test_reconcile_retired_manifest_inventory_pins_replaced_ancestor(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repo, target, _manifest, inventory = _retired_inventory_replacement_repo(
-        tmp_path,
-        include_inventory=False,
-    )
-    _ignore_retired_manifest_inventory(repo)
-    inventory.parent.mkdir()
-    inventory.write_text("pinned inventory\n", encoding="utf-8")
-    pinned_parent = repo / "tests-pinned"
-    outside = tmp_path / "outside-tests"
-    outside.mkdir()
-    original_stat = signed_backfill._DESCRIPTOR_STAT
-    replaced = False
-
-    def replace_parent_before_leaf_stat(
-        path: str | bytes | int | os.PathLike[str] | os.PathLike[bytes],
-        *,
-        dir_fd: int | None = None,
-        follow_symlinks: bool = True,
-    ) -> os.stat_result:
-        nonlocal replaced
-        if path == inventory.name and dir_fd is not None and not replaced:
-            assert follow_symlinks is False
-            inventory.parent.rename(pinned_parent)
-            inventory.parent.symlink_to(outside, target_is_directory=True)
-            replaced = True
-        return original_stat(
-            path,
-            dir_fd=dir_fd,
-            follow_symlinks=follow_symlinks,
-        )
-
-    monkeypatch.setattr(
-        signed_backfill,
-        "_DESCRIPTOR_STAT",
-        replace_parent_before_leaf_stat,
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="absent from HEAD but not safely absent from the worktree",
-    ):
-        reconcile_retired_manifest_inventory(
-            repo,
-            target.relative_to(repo).as_posix(),
-        )
-
-    assert replaced
-    assert (pinned_parent / inventory.name).read_text(encoding="utf-8") == (
-        "pinned inventory\n"
-    )
-    assert not (outside / inventory.name).exists()
-
-
-def test_checkout_presence_rejects_symlinked_repo_root(tmp_path: Path) -> None:
-    actual_repo = tmp_path / "rulespec-us-actual"
-    inventory = actual_repo / "tests/test_encoding_manifests.py"
-    inventory.parent.mkdir(parents=True)
-    inventory.write_text("original inventory\n", encoding="utf-8")
-    repo = tmp_path / "rulespec-us"
-    repo.symlink_to(actual_repo, target_is_directory=True)
-
-    with pytest.raises(ValueError) as raised:
-        _checkout_path_exists_without_indirection(
-            repo,
-            PurePosixPath("tests/test_encoding_manifests.py"),
-            label="retired manifest inventory",
-        )
-
-    assert isinstance(raised.value.__cause__, OSError)
-    assert inventory.read_text(encoding="utf-8") == "original inventory\n"
-
-
-def test_checkout_presence_pins_open_repo_across_replacement(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repo = tmp_path / "rulespec-us"
-    inventory = repo / "tests/test_encoding_manifests.py"
-    inventory.parent.mkdir(parents=True)
-    inventory.write_text("original inventory\n", encoding="utf-8")
-    pinned_repo = tmp_path / "rulespec-us-pinned"
-    original_open = signed_backfill._DESCRIPTOR_OPEN
-    replaced = False
-    required_flags = os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-
-    def replace_repo_after_open(
-        path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
-        flags: int,
-        mode: int = 0o777,
-        *,
-        dir_fd: int | None = None,
-    ) -> int:
-        nonlocal replaced
-        descriptor = original_open(path, flags, mode, dir_fd=dir_fd)
-        if dir_fd is None and Path(path) == repo and not replaced:
-            assert flags & required_flags == required_flags
-            repo.rename(pinned_repo)
-            (repo / "tests").mkdir(parents=True)
-            replaced = True
-        return descriptor
-
-    monkeypatch.setattr(signed_backfill, "_DESCRIPTOR_OPEN", replace_repo_after_open)
-
-    assert _checkout_path_exists_without_indirection(
-        repo,
-        PurePosixPath("tests/test_encoding_manifests.py"),
-        label="retired manifest inventory",
-    )
-    assert replaced
-    assert (pinned_repo / "tests/test_encoding_manifests.py").is_file()
-    assert not (repo / "tests/test_encoding_manifests.py").exists()
-
-
-@pytest.mark.parametrize("phase", ["root-open", "ancestor-open", "leaf-stat"])
-def test_checkout_presence_rejects_unexpected_descriptor_errors(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    phase: str,
-) -> None:
-    repo = tmp_path / "rulespec-us"
-    (repo / "tests").mkdir(parents=True)
-    triggered = False
-    if phase == "root-open":
-        original_open = signed_backfill._DESCRIPTOR_OPEN
-
-        def fail_root_open(
-            path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
-            flags: int,
-            mode: int = 0o777,
-            *,
-            dir_fd: int | None = None,
-        ) -> int:
-            nonlocal triggered
-            if dir_fd is None and Path(path) == repo:
-                triggered = True
-                raise OSError(errno.EIO, "simulated repository inspection failure")
-            return original_open(path, flags, mode, dir_fd=dir_fd)
-
-        monkeypatch.setattr(
-            signed_backfill,
-            "_DESCRIPTOR_OPEN",
-            fail_root_open,
-        )
-    elif phase == "ancestor-open":
-        original_open = signed_backfill._DESCRIPTOR_OPEN
-
-        def fail_ancestor_open(
-            path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
-            flags: int,
-            mode: int = 0o777,
-            *,
-            dir_fd: int | None = None,
-        ) -> int:
-            nonlocal triggered
-            if path == "tests" and dir_fd is not None:
-                triggered = True
-                raise OSError(errno.EIO, "simulated ancestor inspection failure")
-            return original_open(path, flags, mode, dir_fd=dir_fd)
-
-        monkeypatch.setattr(
-            signed_backfill,
-            "_DESCRIPTOR_OPEN",
-            fail_ancestor_open,
-        )
-    else:
-        original_stat = signed_backfill._DESCRIPTOR_STAT
-
-        def fail_leaf_stat(
-            path: str | bytes | int | os.PathLike[str] | os.PathLike[bytes],
-            *,
-            dir_fd: int | None = None,
-            follow_symlinks: bool = True,
-        ) -> os.stat_result:
-            nonlocal triggered
-            if path == "test_encoding_manifests.py" and dir_fd is not None:
-                triggered = True
-                raise OSError(errno.EIO, "simulated leaf inspection failure")
-            return original_stat(
-                path,
-                dir_fd=dir_fd,
-                follow_symlinks=follow_symlinks,
-            )
-
-        monkeypatch.setattr(
-            signed_backfill,
-            "_DESCRIPTOR_STAT",
-            fail_leaf_stat,
-        )
-
-    with pytest.raises(ValueError) as raised:
-        _checkout_path_exists_without_indirection(
-            repo,
-            PurePosixPath("tests/test_encoding_manifests.py"),
-            label="retired manifest inventory",
-        )
-
-    assert triggered
-    assert isinstance(raised.value.__cause__, OSError)
-    assert raised.value.__cause__.errno == errno.EIO
-
-
-@pytest.mark.parametrize("entry_kind", ["directory", "fifo"])
-def test_reconcile_retired_manifest_inventory_rejects_nonregular_leaf(
-    tmp_path: Path,
-    entry_kind: str,
-) -> None:
-    if entry_kind == "fifo" and not hasattr(os, "mkfifo"):
-        pytest.skip("FIFO creation is unavailable")
-    repo, target, _manifest, inventory = _retired_inventory_replacement_repo(
-        tmp_path,
-        include_inventory=False,
-    )
-    _ignore_retired_manifest_inventory(repo)
-    inventory.parent.mkdir()
-    if entry_kind == "directory":
-        inventory.mkdir()
-    else:
-        os.mkfifo(inventory)
-
-    with pytest.raises(
-        ValueError,
-        match="absent from HEAD but not safely absent from the worktree",
-    ):
-        reconcile_retired_manifest_inventory(
-            repo,
-            target.relative_to(repo).as_posix(),
-        )
-
-
-@pytest.mark.parametrize(
-    ("capability", "unsupported_value"),
-    [
-        ("_DESCRIPTOR_OS_IS_POSIX", False),
-        ("_DESCRIPTOR_O_DIRECTORY", None),
-        ("_DESCRIPTOR_O_NOFOLLOW", None),
-        ("_DESCRIPTOR_O_CLOEXEC", None),
-        ("_DESCRIPTOR_OPEN_SUPPORTS_DIR_FD", False),
-        ("_DESCRIPTOR_STAT_SUPPORTS_DIR_FD", False),
-        ("_DESCRIPTOR_STAT_SUPPORTS_NOFOLLOW", False),
-    ],
-)
-def test_checkout_presence_rejects_unsupported_descriptor_traversal(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capability: str,
-    unsupported_value: object,
-) -> None:
-    repo = tmp_path / "rulespec-us"
-    repo.mkdir()
-    monkeypatch.setattr(signed_backfill, capability, unsupported_value)
-
-    with pytest.raises(ValueError, match="descriptor traversal is unsupported"):
-        _checkout_path_exists_without_indirection(
-            repo,
-            PurePosixPath("tests/test_encoding_manifests.py"),
-            label="retired manifest inventory",
-        )
 
 
 def test_reconcile_retired_manifest_inventory_is_noop_without_inventory_symbol(
@@ -1941,13 +1685,8 @@ def test_stage_rejects_nonexact_retired_manifest_inventory_edit(
 
 def test_reconcile_retired_manifest_inventory_requires_normal_model_apply(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    repo, target, manifest, _inventory = _retired_inventory_replacement_repo(
-        tmp_path,
-        include_inventory=False,
-    )
-    leaf_stats = _record_retired_inventory_leaf_stats(monkeypatch)
+    repo, target, manifest, _inventory = _retired_inventory_replacement_repo(tmp_path)
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     payload["tool"] = "axiom-encode encode --apply --replace-legacy-rulespec-path"
     manifest.write_text(json.dumps(payload) + "\n", encoding="utf-8")
@@ -1957,64 +1696,6 @@ def test_reconcile_retired_manifest_inventory_requires_normal_model_apply(
             repo,
             target.relative_to(repo).as_posix(),
         )
-    assert leaf_stats == []
-
-
-def test_reconcile_absent_retired_inventory_requires_changed_apply_manifest(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repo, target, manifest, _inventory = _retired_inventory_replacement_repo(
-        tmp_path,
-        include_inventory=False,
-    )
-    leaf_stats = _record_retired_inventory_leaf_stats(monkeypatch)
-    manifest.write_text(
-        json.dumps({"schema_version": "axiom-encode/applied-rulespec/v1"}) + "\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="lacks its exact changed apply manifest"):
-        reconcile_retired_manifest_inventory(
-            repo,
-            target.relative_to(repo).as_posix(),
-        )
-    assert leaf_stats == []
-
-
-@pytest.mark.parametrize(
-    "mutation",
-    ["wrong-digest", "missing-target", "duplicate-target"],
-)
-def test_reconcile_absent_retired_inventory_requires_exact_target_binding(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    mutation: str,
-) -> None:
-    repo, target, manifest, _inventory = _retired_inventory_replacement_repo(
-        tmp_path,
-        include_inventory=False,
-    )
-    leaf_stats = _record_retired_inventory_leaf_stats(monkeypatch)
-    payload = json.loads(manifest.read_text(encoding="utf-8"))
-    applied_files = payload["applied_files"]
-    assert isinstance(applied_files, list)
-    target_record = applied_files[0]
-    assert isinstance(target_record, dict)
-    if mutation == "wrong-digest":
-        target_record["sha256"] = "0" * 64
-    elif mutation == "missing-target":
-        target_record["path"] = "us/policies/income_tax/other.yaml"
-    else:
-        applied_files.append(dict(target_record))
-    manifest.write_text(json.dumps(payload) + "\n", encoding="utf-8")
-
-    with pytest.raises(ValueError, match="does not bind exact target bytes"):
-        reconcile_retired_manifest_inventory(
-            repo,
-            target.relative_to(repo).as_posix(),
-        )
-    assert leaf_stats == []
 
 
 def _legacy_receipt_identity(receipt: dict[str, object]) -> dict[str, object]:
@@ -2135,6 +1816,7 @@ def _write_legacy_replacement_change(
     companion_only_plural_exact_dependent: bool = False,
     destination_predecessor: bool = False,
     retained_successor: bool = False,
+    new_index_destination: bool = False,
     legacy_owner_class: str = "v1-hmac-untrusted",
 ) -> tuple[Path, Path, Path, Path]:
     old_rule = repo / "us/statutes/47:32.yaml"
@@ -2188,6 +1870,19 @@ def _write_legacy_replacement_change(
     metadata = repo / ".axiom/index/provisions_to_rules.json"
     metadata.parent.mkdir(parents=True)
     metadata.write_text('{"module":"us:statutes/47:32"}\n', encoding="utf-8")
+    if new_index_destination:
+        metadata.write_text(
+            json.dumps(
+                {
+                    "provisions": {
+                        "legacy/source": [
+                            {"module": "us/statutes/47:32.yaml", "via": ["module"]}
+                        ]
+                    }
+                }
+            )
+            + "\n"
+        )
     dependent = repo / "us/policies/income_tax/dependent.yaml"
     if scheduled_pending:
         dependent.parent.mkdir(parents=True)
@@ -2997,6 +2692,50 @@ def test_stage_authorized_changes_stages_only_manifest_and_applied_files(
     assert _git(repo, "diff", "--cached", "--name-only").splitlines() == sorted(
         [str(manifest.relative_to(repo)), str(rule.relative_to(repo))]
     )
+
+
+def test_stage_reviewed_candidate_promotion_stages_only_new_manifest(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    rule = repo / "us/regulations/7-cfr/273/4.yaml"
+    companion = rule.with_name("4.test.yaml")
+    rule.parent.mkdir(parents=True)
+    rule.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+    companion.write_text("[]\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "review candidate")
+    reviewed_ref = _git(repo, "rev-parse", "HEAD")
+    manifest = repo / ".axiom/encoding-manifests/us/regulations/7-cfr/273/4.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "axiom-encode/applied-rulespec/v5",
+                "tool": "axiom-encode promote-reviewed-candidate",
+                "backend": None,
+                "reviewed_rulespec_ref": reviewed_ref,
+                "applied_files": [
+                    {
+                        "path": rule.relative_to(repo).as_posix(),
+                        "sha256": hashlib.sha256(rule.read_bytes()).hexdigest(),
+                    },
+                    {
+                        "path": companion.relative_to(repo).as_posix(),
+                        "sha256": hashlib.sha256(companion.read_bytes()).hexdigest(),
+                    },
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    stage_authorized_changes(repo)
+
+    assert _git(repo, "diff", "--cached", "--name-only").splitlines() == [
+        manifest.relative_to(repo).as_posix()
+    ]
 
 
 def test_stage_authorized_changes_rejects_git_transformed_index_bytes(
@@ -4161,6 +3900,363 @@ def test_validate_dependent_cascade_rejects_incomplete_direct_dependents(
         )
 
 
+def test_validate_dependent_cascade_accepts_exact_proof_import_subset(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "policies/usda/snap/maximum.yaml")
+    pinned = _write_module(
+        repo,
+        "statutes/7/2017/a.yaml",
+        imports=("us:policies/usda/snap/maximum",),
+    )
+    pinned.write_text(
+        pinned.read_text().replace(
+            "rules: []",
+            """rules:
+  - name: allotment
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:policies/usda/snap/maximum#maximum
+              hash: sha256:deadbeef""",
+        )
+    )
+    _write_module(
+        repo,
+        "regulations/7-cfr/273/10.yaml",
+        imports=("us:policies/usda/snap/maximum",),
+    )
+
+    assert validate_dependent_cascade(
+        repo,
+        "us/policy/usda/snap/maximum",
+        "us/statute/7/2017/a",
+        allow_proof_import_subset=True,
+    ) == (pinned.relative_to(repo / "us"),)
+
+
+def test_validate_dependent_cascade_rejects_nonproof_subset_even_when_allowed(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "policies/usda/snap/maximum.yaml")
+    _write_module(
+        repo,
+        "statutes/7/2017/a.yaml",
+        imports=("us:policies/usda/snap/maximum",),
+    )
+    _write_module(
+        repo,
+        "regulations/7-cfr/273/10.yaml",
+        imports=("us:policies/usda/snap/maximum",),
+    )
+
+    with pytest.raises(ValueError, match="does not exactly match"):
+        validate_dependent_cascade(
+            repo,
+            "us/policy/usda/snap/maximum",
+            "us/statute/7/2017/a",
+            allow_proof_import_subset=True,
+        )
+
+
+@pytest.mark.parametrize("also_direct", [False, True])
+def test_validate_dependent_cascade_accepts_source_parent_child(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    also_direct: bool,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "statutes/7/2012/j.yaml")
+    first = _write_module(
+        repo,
+        "regulations/7-cfr/273/10.yaml",
+        imports=("us:statutes/7/2012/j",),
+    )
+    first.write_text(
+        first.read_text().replace(
+            "rules: []",
+            """rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef""",
+        )
+    )
+    second = _write_module(
+        repo,
+        "regulations/7-cfr/273/11/c.yaml",
+        imports=("us:regulations/7-cfr/273/10",)
+        + (("us:statutes/7/2012/j",) if also_direct else ()),
+    )
+    second.write_text(
+        second.read_text().replace(
+            "rules: []",
+            """module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/11
+rules:
+  - name: nonhousehold_member_treatment
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:regulations/7-cfr/273/10#shelter_deduction
+              hash: sha256:deadbeef""",
+        )
+    )
+    if not also_direct:
+        _write_module(
+            repo,
+            "regulations/7-cfr/273/9.yaml",
+            imports=("us:statutes/7/2012/j",),
+        )
+
+    dependents, mode = _classify_dependent_cascade(
+        repo,
+        "us/statute/7/2012/j",
+        "us/regulation/7/273/10",
+        "us/regulation/7/273/11",
+        target_rulespec_path="us/statutes/7/2012/j.yaml",
+        allow_proof_import_subset=True,
+    )
+
+    expected_mode = "all-direct-proof-chain" if also_direct else "proof-import-chain"
+    assert mode == expected_mode
+    assert dependents == (
+        first.relative_to(repo / "us"),
+        second.relative_to(repo / "us"),
+    )
+    if also_direct:
+        _, without_subset_opt_in = _classify_dependent_cascade(
+            repo,
+            "us/statute/7/2012/j",
+            "us/regulation/7/273/10",
+            "us/regulation/7/273/11/c",
+            target_rulespec_path="us/statutes/7/2012/j.yaml",
+        )
+        assert without_subset_opt_in == "all-direct-proof-chain"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "prepare_signed_backfill.py",
+            "validate-dependent-cascade",
+            str(repo),
+            "us/statute/7/2012/j",
+            "--target-rulespec-path",
+            "us/statutes/7/2012/j.yaml",
+            "--allow-proof-import-subset",
+            "--json",
+            "us/regulation/7/273/10",
+            "us/regulation/7/273/11",
+        ],
+    )
+    prepare_signed_backfill_main()
+    assert json.loads(capsys.readouterr().out) == {
+        "mode": expected_mode,
+        "paths": [
+            "us/regulations/7-cfr/273/10.yaml",
+            "us/regulations/7-cfr/273/11/c.yaml",
+        ],
+    }
+
+
+def test_validate_dependent_cascade_classifies_proof_subset_chain_with_sibling(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "statutes/7/2012/j.yaml")
+    first = _write_module(
+        repo,
+        "regulations/7-cfr/273/10.yaml",
+        imports=("us:statutes/7/2012/j",),
+    )
+    first.write_text(
+        first.read_text().replace(
+            "rules: []",
+            """rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef""",
+        )
+    )
+    second = _write_module(
+        repo,
+        "regulations/7-cfr/273/11/c.yaml",
+        imports=("us:statutes/7/2012/j", "us:regulations/7-cfr/273/10"),
+    )
+    second.write_text(
+        second.read_text().replace(
+            "rules: []",
+            """module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/11
+rules:
+  - name: nonhousehold_member_treatment
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef
+          - kind: import
+            import:
+              target: us:regulations/7-cfr/273/10#shelter_deduction
+              hash: sha256:deadbeef""",
+        )
+    )
+    _write_module(
+        repo,
+        "regulations/7-cfr/273/9.yaml",
+        imports=("us:statutes/7/2012/j",),
+    )
+
+    dependents, mode = _classify_dependent_cascade(
+        repo,
+        "us/statute/7/2012/j",
+        "us/regulation/7/273/10",
+        "us/regulation/7/273/11",
+        target_rulespec_path="us/statutes/7/2012/j.yaml",
+        allow_proof_import_subset=True,
+    )
+
+    assert mode == "proof-import-subset-chain"
+    assert dependents == (
+        first.relative_to(repo / "us"),
+        second.relative_to(repo / "us"),
+    )
+
+
+def test_validate_dependent_cascade_rejects_unattested_source_parent_child(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "statutes/7/2012/j.yaml")
+    first = _write_module(
+        repo,
+        "regulations/7-cfr/273/10.yaml",
+        imports=("us:statutes/7/2012/j",),
+    )
+    first.write_text(
+        first.read_text().replace(
+            "rules: []",
+            """rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef""",
+        )
+    )
+    second = _write_module(
+        repo,
+        "regulations/7-cfr/273/11/c.yaml",
+        imports=("us:regulations/7-cfr/273/10",),
+    )
+    second.write_text(
+        second.read_text().replace(
+            "rules: []",
+            """module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/11/d
+rules:
+  - name: nonhousehold_member_treatment
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:regulations/7-cfr/273/10#shelter_deduction
+              hash: sha256:deadbeef""",
+        )
+    )
+
+    with pytest.raises(ValueError, match="source-parent dependent"):
+        _classify_dependent_cascade(
+            repo,
+            "us/statute/7/2012/j",
+            "us/regulation/7/273/10",
+            "us/regulation/7/273/11",
+            target_rulespec_path="us/statutes/7/2012/j.yaml",
+            allow_proof_import_subset=True,
+        )
+
+
+def test_validate_dependent_cascade_rejects_incomplete_two_hop_proof_chain(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "statutes/7/2012/j.yaml")
+    first = _write_module(
+        repo,
+        "regulations/7-cfr/273/10.yaml",
+        imports=("us:statutes/7/2012/j",),
+    )
+    first.write_text(
+        first.read_text().replace(
+            "rules: []",
+            """rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef""",
+        )
+    )
+    for section in ("c", "d"):
+        dependent = _write_module(
+            repo,
+            f"regulations/7-cfr/273/11/{section}.yaml",
+            imports=("us:regulations/7-cfr/273/10",),
+        )
+        dependent.write_text(
+            dependent.read_text().replace(
+                "rules: []",
+                f"""rules:
+  - name: treatment_{section}
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:regulations/7-cfr/273/10#shelter_deduction
+              hash: sha256:deadbeef""",
+            )
+        )
+
+    with pytest.raises(ValueError, match="does not exactly match"):
+        _classify_dependent_cascade(
+            repo,
+            "us/statute/7/2012/j",
+            "us/regulation/7/273/10",
+            "us/regulation/7/273/11/c",
+            target_rulespec_path="us/statutes/7/2012/j.yaml",
+            allow_proof_import_subset=True,
+        )
+
+
 def test_validate_rulespec_base_accepts_main_ancestor(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     base = _add_origin_main(repo)
@@ -4222,7 +4318,16 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "2a503a5c9a2227c363aceaece6c547429c3c0878"),
         ("us", "6535019ce780d9e78f10509f2fe7a2607fb2bdc4"),
         ("us", "c482ef6506c50b54236354926bbce1bcd6434132"),
+        ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
+        ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
+        ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
+        ("us", "b5273061fc5765dea04bf36f63de39bf40afc2d8"),
+        ("us", "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a"),
+        ("us", "87c766a7ecc76d7d36272c648f6daf87b4669317"),
+        ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
+        ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
+        ("ca", "94789006ce372a1967c258ef47c12b15a1fe511e"),
     ],
 )
 def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
@@ -4248,11 +4353,66 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "2a503a5c9a2227c363aceaece6c547429c3c0878"),
             ("us", "6535019ce780d9e78f10509f2fe7a2607fb2bdc4"),
             ("us", "c482ef6506c50b54236354926bbce1bcd6434132"),
+            ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
+            ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
+            ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
+            ("us", "b5273061fc5765dea04bf36f63de39bf40afc2d8"),
+            ("us", "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a"),
+            ("us", "87c766a7ecc76d7d36272c648f6daf87b4669317"),
+            ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
+            ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
+            ("ca", "94789006ce372a1967c258ef47c12b15a1fe511e"),
         }
     )
-    assert REVIEWED_RULESPEC_PR_BASE_BRANCHES == frozenset(
-        {("dk", "pin/dk-rulespec-2026-08-07"), ("us", "hard-cut/canonical-layout-us")}
+    assert REVIEWED_RULESPEC_PR_BASES == frozenset(
+        {
+            (
+                "dk",
+                "06489d04e7d4b8d424d1711d99df883c6411248a",
+                "pin/dk-rulespec-2026-08-07",
+            ),
+            (
+                "us",
+                "2a503a5c9a2227c363aceaece6c547429c3c0878",
+                "hard-cut/canonical-layout-us",
+            ),
+            (
+                "us",
+                "297aec1691edf7b3a21781c8a825690db1e7c988",
+                "axiom/signed-backfill-us-35001504609-1",
+            ),
+            (
+                "us",
+                "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+                "axiom/signed-backfill-us-35145159769-1",
+            ),
+            (
+                "us",
+                "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+                "axiom/signed-backfill-us-35160240952-1",
+            ),
+            (
+                "us",
+                "b5273061fc5765dea04bf36f63de39bf40afc2d8",
+                "fix/1248-snap-immigration-status",
+            ),
+            (
+                "us",
+                "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+                "codex/az-nested-engine-pin",
+            ),
+            (
+                "us",
+                "87c766a7ecc76d7d36272c648f6daf87b4669317",
+                "axiom/signed-backfill-us-38756101655-1",
+            ),
+            (
+                "us",
+                "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
+                "fl-snap-bbce-page5",
+            ),
+        }
     )
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill._git",
@@ -4306,15 +4466,186 @@ def test_validate_rulespec_base_accepts_exact_reviewed_protected_branch_tip(
     ) in git_calls
 
 
+@pytest.mark.parametrize(
+    ("reviewed_ref", "branch"),
+    [
+        (
+            "297aec1691edf7b3a21781c8a825690db1e7c988",
+            "axiom/signed-backfill-us-35001504609-1",
+        ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
+        (
+            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+            "axiom/signed-backfill-us-35160240952-1",
+        ),
+        (
+            "b5273061fc5765dea04bf36f63de39bf40afc2d8",
+            "fix/1248-snap-immigration-status",
+        ),
+        (
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "codex/az-nested-engine-pin",
+        ),
+        (
+            "87c766a7ecc76d7d36272c648f6daf87b4669317",
+            "axiom/signed-backfill-us-38756101655-1",
+        ),
+        (
+            "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
+            "fl-snap-bbce-page5",
+        ),
+    ],
+)
+def test_validate_rulespec_base_accepts_each_reviewed_protected_branch_tip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reviewed_ref: str,
+    branch: str,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    assert (
+        validate_rulespec_base(
+            repo,
+            "us",
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch=branch,
+        )
+        == "reviewed-head-pr"
+    )
+
+
+@pytest.mark.parametrize(
+    ("reviewed_ref", "branch"),
+    [
+        (
+            "297aec1691edf7b3a21781c8a825690db1e7c988",
+            "hard-cut/canonical-layout-us",
+        ),
+        (
+            "2a503a5c9a2227c363aceaece6c547429c3c0878",
+            "axiom/signed-backfill-us-35001504609-1",
+        ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35001504609-1",
+        ),
+        (
+            "297aec1691edf7b3a21781c8a825690db1e7c988",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35160240952-1",
+        ),
+        (
+            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
+        (
+            "b5273061fc5765dea04bf36f63de39bf40afc2d8",
+            "axiom/signed-backfill-us-35160240952-1",
+        ),
+        (
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "fix/1248-snap-immigration-status",
+        ),
+        (
+            "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
+            "codex/az-nested-engine-pin",
+        ),
+        (
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "fl-snap-bbce-page5",
+        ),
+        (
+            "87c766a7ecc76d7d36272c648f6daf87b4669317",
+            "main",
+        ),
+    ],
+)
+def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reviewed_ref: str,
+    branch: str,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    with pytest.raises(ValueError, match="artifact-only"):
+        validate_rulespec_base(
+            repo,
+            "us",
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch=branch,
+        )
+
+
+@pytest.mark.parametrize(
+    ("reviewed_ref", "branch"),
+    [
+        (
+            "2a503a5c9a2227c363aceaece6c547429c3c0878",
+            "hard-cut/canonical-layout-us",
+        ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
+        (
+            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+            "axiom/signed-backfill-us-35160240952-1",
+        ),
+        (
+            "b5273061fc5765dea04bf36f63de39bf40afc2d8",
+            "fix/1248-snap-immigration-status",
+        ),
+        (
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "codex/az-nested-engine-pin",
+        ),
+        (
+            "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
+            "fl-snap-bbce-page5",
+        ),
+        (
+            "87c766a7ecc76d7d36272c648f6daf87b4669317",
+            "axiom/signed-backfill-us-38756101655-1",
+        ),
+    ],
+)
 def test_validate_rulespec_base_rejects_stale_reviewed_protected_branch_tip(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    reviewed_ref: str,
+    branch: str,
 ) -> None:
     repo = tmp_path / "rulespec-us"
-    reviewed_ref = "b1a6e07af093d62f613f83afe26fcb4dd87de491"
 
     def fake_git(_repo: Path, *args: str) -> bytes:
-        if args[-1] == "refs/remotes/origin/hard-cut/canonical-layout-us":
+        if args[-1] == f"refs/remotes/origin/{branch}":
             return f"{'f' * 40}\n".encode()
         return f"{reviewed_ref}\n".encode()
 
@@ -4330,7 +4661,101 @@ def test_validate_rulespec_base_rejects_stale_reviewed_protected_branch_tip(
             "us",
             reviewed_ref,
             open_pr=True,
-            pr_base_branch="hard-cut/canonical-layout-us",
+            pr_base_branch=branch,
+        )
+
+
+def test_validate_rulespec_base_refuses_retired_nz_reviewed_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The s75e candidate merged as rulespec-nz#133; its reviewed ref is retired."""
+    repo = tmp_path / "rulespec-nz"
+    reviewed_ref = "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97"
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    for open_pr, branch in ((True, "nzhub/wep-s75e"), (False, None)):
+        with pytest.raises(
+            ValueError, match="neither on main nor an approved reviewed head"
+        ):
+            validate_rulespec_base(
+                repo,
+                "nz",
+                reviewed_ref,
+                open_pr=open_pr,
+                pr_base_branch=branch,
+            )
+
+
+@pytest.mark.parametrize(
+    ("country", "branch", "message"),
+    [
+        ("nz", "nzhub/wep-candidates", "neither on main nor an approved reviewed head"),
+        ("nz", "main", "neither on main nor an approved reviewed head"),
+        ("us", "nzhub/wep-s75e", "neither on main nor an approved reviewed head"),
+    ],
+)
+def test_validate_rulespec_base_rejects_nz_reviewed_candidate_other_pairs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    country: str,
+    branch: str,
+    message: str,
+) -> None:
+    repo = tmp_path / f"rulespec-{country}"
+    reviewed_ref = "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97"
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        validate_rulespec_base(
+            repo,
+            country,
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch=branch,
+        )
+
+
+def test_validate_rulespec_base_rejects_stale_reviewed_candidate_branch_tip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+    reviewed_ref = "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"
+    branch = "fl-snap-bbce-page5"
+
+    def fake_git(_repo: Path, *args: str) -> bytes:
+        if args[-1] == f"refs/remotes/origin/{branch}":
+            return f"{'f' * 40}\n".encode()
+        return f"{reviewed_ref}\n".encode()
+
+    monkeypatch.setattr("scripts.prepare_signed_backfill._git", fake_git)
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    with pytest.raises(ValueError, match="exact pull request base branch tip"):
+        validate_rulespec_base(
+            repo,
+            "us",
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch=branch,
         )
 
 
@@ -4398,3 +4823,165 @@ def test_validate_rulespec_base_rejects_unreviewed_non_main_head(
 
     with pytest.raises(ValueError, match="neither on main nor an approved"):
         validate_rulespec_base(repo, "us", head, open_pr=False)
+
+
+@pytest.mark.parametrize("omit_index", [False, True])
+def test_persisted_receipt_requires_generated_destination_index(
+    tmp_path: Path, omit_index: bool
+) -> None:
+    from axiom_encode.cli import _legacy_metadata_reconciliation_bytes
+    from axiom_encode.rulespec_path_migration import PlannedMove
+
+    repo = _repo(tmp_path)
+    manifest, receipt, _old_manifest, index = _write_legacy_replacement_change(
+        repo, new_index_destination=True
+    )
+    receipt_payload = json.loads(receipt.read_text())
+    outer = json.loads(manifest.read_text())
+    replacement = receipt_payload["replacement"]
+    destination = repo / replacement["destination"]
+    destination.write_text(
+        "format: rulespec/v1\nmodule:\n  source_verification:\n    corpus_citation_path: generated/source\nrules: []\n"
+    )
+    digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+    for item in replacement["live_files"]:
+        if item["path"] == replacement["destination"]:
+            item["sha256"] = digest
+    nested = receipt_payload["replacement_manifest"]
+    nested["applied_files"] = replacement["live_files"]
+    outer["replacement_manifest"] = nested
+    for item in outer["applied_files"]:
+        if item["path"] == replacement["destination"]:
+            item["sha256"] = digest
+    replacement["model_manifest_sha256"] = hashlib.sha256(
+        (json.dumps(nested, indent=2, sort_keys=True) + "\n").encode()
+    ).hexdigest()
+    base = receipt_payload["repository"]["base_commit"]
+    base_raw = subprocess.check_output(
+        ["git", "show", f"{base}:.axiom/index/provisions_to_rules.json"], cwd=repo
+    )
+    after, operations = _legacy_metadata_reconciliation_bytes(
+        Path(".axiom/index/provisions_to_rules.json"),
+        base_raw,
+        moves=[
+            PlannedMove(Path(replacement["source"]), Path(replacement["destination"]))
+        ],
+        new_destination_modules={replacement["destination"]: destination.read_bytes()},
+    )
+    index.write_bytes(after)
+    receipt_payload["schema_version"] = "axiom-encode/legacy-fresh-reencode-receipt/v4"
+    replacement.update(
+        destination_predecessor_class="absent",
+        destination_predecessor_files=[],
+        exact_dependents=[],
+        retained_successors=[],
+        rewrites=[],
+        metadata_reconciliations=[],
+    )
+    index_relative = index.relative_to(repo).as_posix()
+    outer["applied_files"] = [
+        item for item in outer["applied_files"] if item["path"] != index_relative
+    ]
+    if not omit_index:
+        replacement["metadata_reconciliations"] = [
+            {
+                "path": index_relative,
+                "before_sha256": hashlib.sha256(base_raw).hexdigest(),
+                "after_sha256": hashlib.sha256(after).hexdigest(),
+                "operations": list(operations),
+            }
+        ]
+        outer["applied_files"].insert(
+            len(replacement["live_files"]),
+            {"path": index_relative, "sha256": hashlib.sha256(after).hexdigest()},
+        )
+    receipt.write_text(json.dumps(receipt_payload, sort_keys=True) + "\n")
+    manifest.write_text(json.dumps(outer, sort_keys=True) + "\n")
+    _refresh_legacy_receipt_bindings(repo, manifest, receipt)
+    if omit_index:
+        with pytest.raises(
+            ValueError, match="metadata reconciliation inventory is not exact"
+        ):
+            authorized_changed_paths(repo)
+    else:
+        assert PurePosixPath(index_relative) in authorized_changed_paths(repo)
+    issues = _legacy_replacement_manifest_issues(
+        json.loads(manifest.read_text()),
+        repo_path=repo,
+        manifest_label=manifest.relative_to(repo).as_posix(),
+        signing_broker=Ed25519PrivateKey.generate().public_key(),
+        expected_waiver_set_sha256="b" * 64,
+        local_corpus_release=None,
+    )
+    # This fixture deliberately has incomplete model provenance. Exercise the
+    # complete persisted receipt verifier's independent metadata inventory.
+    index_issues = [
+        issue
+        for issue in issues
+        if "metadata reconciliation" in issue or "index postimage" in issue
+    ]
+    if omit_index:
+        assert any(
+            "metadata reconciliation inventory is not exact" in issue
+            for issue in index_issues
+        ), issues
+    else:
+        assert index_issues == [], issues
+
+
+@pytest.mark.parametrize("escaped", [False, True])
+def test_both_verifiers_reject_predecessor_with_encoded_base_owner(
+    tmp_path: Path,
+    escaped: bool,
+) -> None:
+    repo = _repo(tmp_path)
+    claimant = repo / ".axiom/encoding-manifests/us/policies/other-owner.json"
+    claimant.parent.mkdir(parents=True)
+    raw = json.dumps({"applied_files": [{"path": "us/statutes/47/32.yaml"}]})
+    if escaped:
+        raw = raw.replace("/", r"\/").replace("4", r"\u0034")
+    claimant.write_text(raw)
+    manifest, _receipt, _old_manifest, _metadata = _write_legacy_replacement_change(
+        repo,
+        destination_predecessor=True,
+    )
+    with pytest.raises(ValueError, match="already manifest-owned"):
+        authorized_changed_paths(repo)
+    issues = _legacy_replacement_manifest_issues(
+        json.loads(manifest.read_text()),
+        repo_path=repo,
+        manifest_label=manifest.relative_to(repo).as_posix(),
+        signing_broker=Ed25519PrivateKey.generate().public_key(),
+        expected_waiver_set_sha256="b" * 64,
+        local_corpus_release=None,
+    )
+    assert any("already manifest-owned" in issue for issue in issues)
+
+
+@pytest.mark.parametrize(
+    ("country", "requested"),
+    [
+        ("us", "94789006ce372a1967c258ef47c12b15a1fe511e"),
+        ("ca", "94789006ce372a1967c258ef47c12b15a1fe511f"),
+    ],
+)
+def test_reviewed_head_rejects_country_or_full_sha_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    country: str,
+    requested: str,
+) -> None:
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{requested}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+    with pytest.raises(
+        ValueError, match="neither on main nor an approved reviewed head"
+    ):
+        validate_rulespec_base(
+            tmp_path / f"rulespec-{country}", country, requested, open_pr=False
+        )

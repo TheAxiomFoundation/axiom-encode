@@ -1,0 +1,1 @@
+A currency mark counts across any whitespace, a newline or a thin space included, and every bidirectional control, and "בהתאמה" describes the pair it follows, not a value a singular copula states before the vav ("ההכנסה היא 500 ו־2 או 3% ממנה ינוכו ליחיד ולחברה, בהתאמה" keeps 500), while a plural copula still introduces the list ("הסכומים הם 1 ו־2 או 3 מיליון שקלים, בהתאמה").

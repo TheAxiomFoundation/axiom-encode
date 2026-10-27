@@ -1,0 +1,1 @@
+After a possessor of the amount noun, the way on to the number carries no bare preposition however many modifiers intervene: "הקצבה המחולקת לכל היותר בין 3 אלפים ו־200 עובדים" is an allocation distributed among at most 3,200 workers, and the count reads whole; "הקנס יהיה לכל היותר בין 3 ל־5 מיליון" still binds the money.

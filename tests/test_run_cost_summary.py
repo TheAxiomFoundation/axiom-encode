@@ -151,10 +151,26 @@ class TestPricingParity:
             output_tokens=6_126,
             reasoning_tokens=0,
         )
-        terra_cost = attempt_cost_usd(terra, rates_for_model(models, terra.model))
-        sol_cost = attempt_cost_usd(sol, rates_for_model(models, sol.model))
-        assert terra_cost == pytest.approx((60_793 * 2.0 + 1_431 * 12.0) / 1e6)
-        assert sol_cost == pytest.approx((78_035 * 5.0 + 6_126 * 30.0) / 1e6)
+        terra_rates = rates_for_model(models, terra.model)
+        sol_rates = rates_for_model(models, sol.model)
+        terra_cost = attempt_cost_usd(terra, terra_rates)
+        sol_cost = attempt_cost_usd(sol, sol_rates)
+        # The pin is the formula, not the rate: uncached input and output only,
+        # priced at whatever the current table says. Rates move; this must not.
+        assert terra_cost == pytest.approx(
+            (
+                60_793 * terra_rates.input_per_million
+                + 1_431 * terra_rates.output_per_million
+            )
+            / 1e6
+        )
+        assert sol_cost == pytest.approx(
+            (
+                78_035 * sol_rates.input_per_million
+                + 6_126 * sol_rates.output_per_million
+            )
+            / 1e6
+        )
 
 
 class TestTraceParsing:
@@ -261,7 +277,7 @@ class TestRendering:
         markdown, total = render_markdown(collect_attempts([tmp_path]), models, meta)
         assert total == pytest.approx(2.0)
         assert "Priced total: $2.0000" in markdown
-        assert "Rates v2" in markdown
+        assert f"Rates v{meta['version']}" in markdown
 
     def test_render_flags_unpriced_model(self, tmp_path: Path) -> None:
         _write_trace(
@@ -275,6 +291,36 @@ class TestRendering:
         markdown, total = render_markdown(collect_attempts([tmp_path]), models, meta)
         assert total == 0.0
         assert "Unpriced model(s): model-without-rates" in markdown
+
+    @pytest.mark.parametrize("model", ["gpt-6.1-sol", "gpt-6.1-sol-fast"])
+    def test_unverified_proxy_remains_unpriced(
+        self, tmp_path: Path, model: str
+    ) -> None:
+        _write_trace(
+            tmp_path,
+            "openai",
+            "unverified",
+            model=model,
+            input_tokens=1000,
+            output_tokens=100,
+        )
+        pricing = get_model_pricing(model)
+        assert pricing is not None
+        assert pricing.source_url.startswith("UNVERIFIED:")
+        models, meta = load_rates(DEFAULT_PRICING_PATH)
+        assert rates_for_model(models, model) is None
+        attempts = collect_attempts([tmp_path])
+        assert attempt_cost_usd(attempts[0], rates_for_model(models, model)) is None
+        assert (
+            estimate_usage_cost_breakdown(
+                model, TokenUsage(input_tokens=1000, output_tokens=100)
+            )
+            is None
+        )
+        markdown, total = render_markdown(attempts, models, meta)
+        assert "| unpriced |" in markdown
+        assert f"Unpriced model(s): {model}" in markdown
+        assert total == 0.0
 
     def test_render_no_traces(self) -> None:
         models, meta = load_rates(DEFAULT_PRICING_PATH)

@@ -14,10 +14,23 @@ Input refs are special. `<anchor>#input.X` declares an input slot on the
 consumer at `<anchor>` — `<anchor>` names the file that *reads* X, not the
 canonical producer of X. Rewriting the anchor on an input ref would move the
 slot to the producer's file, which is nonsense (a file does not consume its
-own output). For input refs we only rename the synonym; the consumer anchor
-is preserved. For non-input (output) refs the anchor is the consumer's
-reference to a producer, so we also redirect the anchor to the canonical
-producer.
+own output). For candidate-owned input refs we rename the synonym while
+preserving the consumer anchor. External input refs retain the imported
+module's existing slot name; overlay execution is responsible for proving
+that it resolves. For non-input (output) refs we redirect the anchor to the
+canonical producer as well.
+
+Vintaged concepts. A concept may list several accepted producers, one per
+vintage (`Concept.producer_anchors`, e.g. one SNAP cost-of-living module per
+fiscal year). Two rules follow:
+
+- A reference whose anchor is already an accepted producer is never moved to
+  another module. An FY2027 test asserting the FY2027 producer's output keeps
+  its FY2027 anchor.
+- A reference at a non-producer anchor is redirected only when the concept
+  has exactly one producer. With several there is no correct default, so the
+  anchor is left alone and validation reports `anchored_ref_miss` naming
+  every accepted producer. Repair never guesses a vintage.
 """
 
 from __future__ import annotations
@@ -36,15 +49,21 @@ ANCHORED_REF_RE = re.compile(
 def auto_repair_test_yaml_canonical_violations(
     yaml_paths: Iterable[Path],
     registry: ConceptRegistry,
+    *,
+    apply_anchor: str | None = None,
 ) -> list[Path]:
     """Rewrite blocked synonyms and bad anchors in *.test.yaml files in place.
 
     For every anchored ref `<anchor>#[input.]<name>` found in a test file:
-      - If `name` is a blocked synonym, replace `name` with the canonical, and
-        replace `anchor` with the canonical's producer_anchor if the registry
-        knows one.
-      - Else if `name` is a registered canonical at a different anchor,
-        replace `anchor` with the canonical's producer_anchor.
+      - If `name` is a blocked synonym on the candidate itself, replace `name`
+        with the canonical. Preserve external imported-module input slots.
+      - For non-input blocked synonyms whose anchor is not an accepted
+        producer, also replace `anchor` with the concept's single producer
+        anchor when it has exactly one.
+      - Else if `name` is a registered canonical at an anchor that is not an
+        accepted producer, replace `anchor` with the concept's single
+        producer anchor when it has exactly one; leave it unchanged when the
+        concept has several (validation then reports it).
 
     Returns the list of paths that were modified.
     """
@@ -53,14 +72,23 @@ def auto_repair_test_yaml_canonical_violations(
         if not path.exists() or not path.name.endswith(".test.yaml"):
             continue
         original = path.read_text()
-        rewritten = _rewrite_anchored_refs(original, registry)
+        rewritten = _rewrite_anchored_refs(
+            original,
+            registry,
+            apply_anchor=apply_anchor,
+        )
         if rewritten != original:
             path.write_text(rewritten)
             changed.append(path)
     return changed
 
 
-def _rewrite_anchored_refs(text: str, registry: ConceptRegistry) -> str:
+def _rewrite_anchored_refs(
+    text: str,
+    registry: ConceptRegistry,
+    *,
+    apply_anchor: str | None = None,
+) -> str:
     def repl(match: re.Match[str]) -> str:
         anchor, input_prefix, name = (
             match.group(1),
@@ -70,18 +98,36 @@ def _rewrite_anchored_refs(text: str, registry: ConceptRegistry) -> str:
         is_input_ref = bool(input_prefix)
         blocked = registry.lookup_synonym(name)
         if blocked is not None:
-            if is_input_ref and blocked.producer_anchor == anchor:
+            # An imported module's input slots must match the names that module
+            # actually exposes. Renaming a legacy external slot in the
+            # companion test without migrating the imported module makes a
+            # previously executable test silently lose its scenario-setting
+            # value. The overlay validator proves that preserved external refs
+            # resolve; canonical naming remains mandatory for the candidate's
+            # own input slots.
+            if is_input_ref and apply_anchor is not None and anchor != apply_anchor:
                 return match.group(0)
-            new_anchor = anchor if is_input_ref else (blocked.producer_anchor or anchor)
+            if is_input_ref and blocked.accepts_producer_anchor(anchor):
+                return match.group(0)
+            # An accepted producer anchor stays put (it is the unique anchor,
+            # or one of several); with several vintages and none named, keep
+            # the anchor and only rename.
+            new_anchor = (
+                anchor if is_input_ref else (blocked.unique_producer_anchor or anchor)
+            )
             return f"{new_anchor}#{input_prefix}{blocked.canonical_name}"
         canonical = registry.lookup_canonical(name)
         if (
             canonical is not None
             and canonical.has_producer
-            and canonical.producer_anchor != anchor
+            and not canonical.accepts_producer_anchor(anchor)
             and not is_input_ref
         ):
-            return f"{canonical.producer_anchor}#{input_prefix}{name}"
+            target = canonical.unique_producer_anchor
+            if target is None:
+                # Ambiguous vintage: validation reports it; never guess.
+                return match.group(0)
+            return f"{target}#{input_prefix}{name}"
         return match.group(0)
 
     return ANCHORED_REF_RE.sub(repl, text)

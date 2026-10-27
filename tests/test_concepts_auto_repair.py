@@ -115,6 +115,57 @@ def test_repair_preserves_consumer_anchor_on_input_refs(tmp_path: Path):
     assert "us:regulations/7-cfr/273/10#input." not in text
 
 
+def test_repair_preserves_legacy_input_name_on_external_consumer(tmp_path: Path):
+    """Do not rename an executable input slot owned by an imported module."""
+    registry = load_concept_registry()
+    drift = _write(
+        tmp_path,
+        "drift.test.yaml",
+        """
+        - name: allotment_uses_imported_net_income
+          period: 2026-01
+          input:
+            us:statutes/7/2014/e/6/A#input.snap_monthly_household_income: 1000
+          output:
+            us:statutes/7/2017/a#snap_net_income_for_allotment: 1000
+        """,
+    )
+
+    changed = auto_repair_test_yaml_canonical_violations(
+        [drift],
+        registry,
+        apply_anchor="us:statutes/7/2017/a",
+    )
+
+    assert changed == []
+    assert "#input.snap_monthly_household_income: 1000" in drift.read_text()
+
+
+def test_repair_still_renames_candidate_owned_input(tmp_path: Path):
+    registry = load_concept_registry()
+    drift = _write(
+        tmp_path,
+        "drift.test.yaml",
+        """
+        - name: local_input_uses_blocked_synonym
+          period: 2026-01
+          input:
+            us:statutes/7/2017/a#input.snap_monthly_household_income: 1000
+        """,
+    )
+
+    changed = auto_repair_test_yaml_canonical_violations(
+        [drift],
+        registry,
+        apply_anchor="us:statutes/7/2017/a",
+    )
+
+    assert changed == [drift]
+    assert "us:statutes/7/2017/a#input.snap_total_gross_income: 1000" in (
+        drift.read_text()
+    )
+
+
 def test_repair_preserves_producer_relation_child_input_refs(tmp_path: Path):
     """A producer may use a child/member input to derive a household-level
     canonical output. That input must not be rewritten to the output concept.

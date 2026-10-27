@@ -1,0 +1,1 @@
+A schedule reference is unmasked only where the fraction reader itself reads a fraction ("התוספת החמישית מהווה חלק מהחוק" stays the fifth schedule), and a verb of paying, including or constituting anywhere earlier in the clause says a fraction follows, a recipient between them or not ("שילם לעובדת החדשה חמישית השכר", "הקצבה כוללת חמישית מן התקבולים" are fifths).

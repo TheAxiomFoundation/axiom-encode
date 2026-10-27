@@ -12,6 +12,9 @@ import runpy
 import tarfile
 from pathlib import Path, PurePosixPath
 
+from axiom_encode.constants import DEFAULT_OPENAI_ESCALATION_MODEL
+from axiom_encode.corpus_resolver import require_canonical_corpus_citation_path
+
 SCHEMA = "axiom-encode/failed-reencode-diagnostics/v1"
 FAILED_CANDIDATE_SCHEMA = "axiom-encode/failed-encode-candidate/v1"
 FAILED_CANDIDATE_KEYS = {
@@ -34,6 +37,13 @@ COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 RUNNER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 JURISDICTION_PATTERN = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]+)*")
 VERSION_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+_-]{0,127}")
+REPAIR_LANES = frozenset({"target", "dependent"})
+# A source lane that escalated carries both generations; the escalation
+# model's candidate is the final one. Older failed runs escalated to
+# gpt-5.6-sol, so their artifacts stay selectable for repair.
+ESCALATION_RUNNERS = tuple(
+    dict.fromkeys((f"openai-{DEFAULT_OPENAI_ESCALATION_MODEL}", "openai-gpt-5.6-sol"))
+)
 MAX_RETAINED_ISSUES = 4096
 CONTRACT = runpy.run_path(
     Path(__file__).parents[1] / "src/axiom_encode/repair_candidate_contract.py"
@@ -41,7 +51,11 @@ CONTRACT = runpy.run_path(
 BACKFILL_CONTRACT = runpy.run_path(
     Path(__file__).with_name("prepare_signed_backfill.py")
 )
-SPLIT_ATOMIC_SOURCE_INPUT = BACKFILL_CONTRACT["split_atomic_source_input"]
+SPLIT_ATOMIC_SOURCE_INPUT = BACKFILL_CONTRACT["immutable_atomic_source_contract"]
+PARSE_ATOMIC_SOURCE_INPUT = BACKFILL_CONTRACT["split_atomic_source_input"]
+RESOLVE_ATOMIC_REPAIR_MODE = BACKFILL_CONTRACT["resolve_atomic_repair_mode"]
+CITATION_RULESPEC_PATH = BACKFILL_CONTRACT["citation_rulespec_path"]
+MAX_ISSUES_BYTES = CONTRACT["FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES"]
 MAX_CANDIDATE_BYTES = CONTRACT["VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES"]
 SINGLE_TARGET_MODE_FIELDS = {
     "dependent_citation": None,
@@ -144,12 +158,14 @@ def _verified_generated_file(
     members: dict[str, tarfile.TarInfo],
     files: dict[str, dict[str, object]],
     relative_path: str,
+    *,
+    max_bytes: int = MAX_CANDIDATE_BYTES,
 ) -> bytes:
     entry = files.get(relative_path)
     if entry is None:
         raise ValueError(f"repair metadata does not bind {relative_path}")
     member = _regular_member(members, f"generated/{relative_path}")
-    data = _read_member(bundle, member, max_bytes=MAX_CANDIDATE_BYTES)
+    data = _read_member(bundle, member, max_bytes=max_bytes)
     if (
         len(data) != entry["size"]
         or hashlib.sha256(data).hexdigest() != entry["sha256"]
@@ -179,9 +195,9 @@ def _retained_candidate(
         return None
     try:
         metadata = json.loads(
-            _verified_generated_file(bundle, members, files, issues_path).decode(
-                "utf-8", errors="strict"
-            )
+            _verified_generated_file(
+                bundle, members, files, issues_path, max_bytes=MAX_ISSUES_BYTES
+            ).decode("utf-8", errors="strict")
         )
     except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
         raise ValueError("retained repair candidate metadata is invalid") from exc
@@ -241,13 +257,23 @@ def _expected_module_path(country: str, replace_rulespec_path: str) -> str:
 
 def _repair_lane_for_atomic_source(
     metadata: dict[str, object], expected_atomic_source: object
-) -> str:
+) -> tuple[str, list[str]]:
     try:
         expected = SPLIT_ATOMIC_SOURCE_INPUT(expected_atomic_source)
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         raise ValueError("expected atomic source input is invalid") from exc
     if expected["canonical_refresh_bundle"]:
         raise ValueError("repair replay does not support canonical refresh bundles")
+    if "atomic_source_input" in metadata:
+        prior = PARSE_ATOMIC_SOURCE_INPUT(metadata["atomic_source_input"])
+        if "repair_mode" in prior:
+            expected_execution = {
+                "requested_mode": prior["repair_mode"],
+                "mode": prior["repair_mode"],
+                "tests_only": prior["repair_mode"] == "tests_only",
+            }
+            if metadata.get("repair_execution") != expected_execution:
+                raise ValueError("repair artifact v6 execution mode is not bound")
     has_atomic = "atomic_source_input" in metadata
     has_legacy_source = "source_bundle_input" in metadata
     has_legacy_refresh = "canonical_refresh_bundle_input" in metadata
@@ -267,10 +293,32 @@ def _repair_lane_for_atomic_source(
             ) from exc
         if split != expected:
             raise ValueError("repair artifact metadata mismatch: atomic_source_input")
-        return "target-preflight" if expected["source_bundle"] else "target"
+        if not expected["source_bundle"]:
+            return "target", ["target"]
+        generated_lanes = metadata.get("generated_lanes")
+        if generated_lanes == ["target-preflight"]:
+            return "target-preflight", ["target-preflight"]
+        source_lanes = [
+            f"source-{index:02d}"
+            for index in range(1, len(expected["source_bundle"]) + 1)
+        ]
+        final_lanes = sorted(["target", "target-preflight", *source_lanes])
+        replayed_final_lanes = sorted(["target", *source_lanes])
+        partial_source_lanes = sorted(["target-preflight", *source_lanes])
+        if generated_lanes in (final_lanes, replayed_final_lanes):
+            return "target", generated_lanes
+        if generated_lanes == partial_source_lanes:
+            return "target-preflight", generated_lanes
+        if generated_lanes == source_lanes:
+            return "source-only", generated_lanes
+        raise ValueError(
+            "repair artifact generated lanes do not bind a target preflight "
+            "or final composed target"
+        )
     if expected != {
         "canonical_refresh_bundle": [],
         "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
         "source_bundle": [],
     }:
         raise ValueError(
@@ -285,25 +333,153 @@ def _repair_lane_for_atomic_source(
             "repair artifact is not a compatible single-target run: "
             "canonical_refresh_bundle_input"
         )
-    return "target"
+    return "target", ["target"]
 
 
-def extract_candidate(args: argparse.Namespace) -> dict[str, str]:
+def _write_candidate_pair(
+    root: Path,
+    relative_path: str,
+    candidate: bytes,
+    tests: bytes,
+) -> None:
+    output = root / relative_path
+    test_output = output.with_suffix(".test.yaml")
+    output.parent.mkdir(parents=True, exist_ok=False)
+    for path, data in ((output, candidate), (test_output, tests)):
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(descriptor, "wb", closefd=True) as target:
+                descriptor = -1
+                target.write(data)
+                target.flush()
+                os.fsync(target.fileno())
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+
+
+def _source_repair_candidates(
+    bundle: tarfile.TarFile,
+    members: dict[str, tarfile.TarInfo],
+    files: dict[str, dict[str, object]],
+    *,
+    destination: Path,
+    country: str,
+    source_citations: list[str],
+    source_rulespec_paths_json: str | None,
+) -> list[dict[str, str]]:
+    if source_rulespec_paths_json is None:
+        return []
+    try:
+        source_rulespec_paths = json.loads(source_rulespec_paths_json)
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise ValueError("expected source RuleSpec paths are invalid") from exc
+    if (
+        not isinstance(source_rulespec_paths, list)
+        or len(source_rulespec_paths) != len(source_citations)
+        or any(not isinstance(path, str) for path in source_rulespec_paths)
+    ):
+        raise ValueError("expected source RuleSpec paths are invalid")
+
+    extracted: list[dict[str, str]] = []
+    for index, (citation, rulespec_path) in enumerate(
+        zip(source_citations, source_rulespec_paths, strict=True), start=1
+    ):
+        lane = f"source-{index:02d}"
+        expected_module = _expected_module_path(country, rulespec_path)
+        candidate_pattern = re.compile(
+            rf"{re.escape(lane)}/({RUNNER_PATTERN.pattern})/"
+            rf"{re.escape(expected_module)}"
+        )
+        runners = sorted(
+            {
+                match.group(1)
+                for path in files
+                if (match := candidate_pattern.fullmatch(path)) is not None
+                and f"{lane}/{match.group(1)}/"
+                f"{expected_module.removesuffix('.yaml')}.test.yaml"
+                in files
+            }
+        )
+        escalated = [name for name in ESCALATION_RUNNERS if name in runners]
+        if escalated:
+            runner = escalated[0]
+        elif len(runners) == 1:
+            runner = runners[0]
+        else:
+            raise ValueError(
+                f"repair artifact does not bind one final source candidate: {lane}"
+            )
+        candidate_path = f"{lane}/{runner}/{expected_module}"
+        tests_path = (
+            f"{lane}/{runner}/{expected_module.removesuffix('.yaml')}.test.yaml"
+        )
+        candidate = _verified_generated_file(bundle, members, files, candidate_path)
+        tests = _verified_generated_file(bundle, members, files, tests_path)
+        root = destination / "source-candidates" / lane / runner
+        _write_candidate_pair(root, expected_module, candidate, tests)
+        extracted.append(
+            {
+                "citation": citation,
+                "lane": lane,
+                "path": expected_module,
+                "root": str(root),
+                "runner": runner,
+                "rulespec_sha256": hashlib.sha256(candidate).hexdigest(),
+                "tests_sha256": hashlib.sha256(tests).hexdigest(),
+            }
+        )
+    return extracted
+
+
+def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
     destination = Path(args.destination).resolve()
     destination.mkdir(parents=True, exist_ok=False)
+    requested_repair_lane = getattr(args, "repair_lane", "target")
+    if requested_repair_lane not in REPAIR_LANES:
+        raise ValueError("repair lane must be target or dependent")
+    # Preserve legacy validation order and apply the explicit wrapper's scope
+    # to direct extractor callers as well as the workflow.
+    try:
+        requested_wrapper = json.loads(args.atomic_source_json)
+    except (TypeError, ValueError):
+        requested_wrapper = None
+    if isinstance(requested_wrapper, dict) and requested_wrapper.get("schema") == (
+        "axiom-encode/atomic-source-transaction/v6"
+    ):
+        RESOLVE_ATOMIC_REPAIR_MODE(
+            args.atomic_source_json,
+            {
+                "REPAIR_RUN_ID": str(args.workflow_run_id),
+                "CITATION": args.citation,
+                "REPLACE_RULESPEC_PATH": args.replace_rulespec_path or "",
+                "EXISTING_SIGNED_IMPORTS_JSON": args.existing_signed_imports_json,
+                "DEPENDENT_CITATION": args.citation
+                if requested_repair_lane == "dependent"
+                else "",
+            },
+        )
+    transaction_citation = getattr(args, "transaction_citation", None) or args.citation
+    transaction_rulespec_path = (
+        getattr(args, "transaction_rulespec_path", None)
+        or args.replace_rulespec_path
+        or None
+    )
     expected_fields = {
-        "citation": args.citation,
+        "citation": transaction_citation,
         "country": args.country,
         "encoder_commit": args.encoder_commit,
         "corpus_ref": args.corpus_ref,
+        "replace_rulespec_path": transaction_rulespec_path,
         "rules_engine_ref": args.rules_engine_ref,
-        "replace_rulespec_path": args.replace_rulespec_path,
         "workflow_run_id": args.workflow_run_id,
     }
-    expected_module = _expected_module_path(
-        args.country,
-        args.replace_rulespec_path,
-    )
+    if args.replace_rulespec_path:
+        expected_rulespec_path = args.replace_rulespec_path
+    else:
+        canonical_citation = require_canonical_corpus_citation_path(args.citation)
+        expected_rulespec_path = str(CITATION_RULESPEC_PATH(canonical_citation))
+    expected_module = _expected_module_path(args.country, expected_rulespec_path)
 
     with tarfile.open(args.archive, mode="r:") as bundle:
         members = _member_index(bundle)
@@ -331,24 +507,97 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, str]:
             and not args.allow_rulespec_base_advance
         ):
             raise ValueError("repair artifact metadata mismatch: rulespec_ref")
-        for field, expected in SINGLE_TARGET_MODE_FIELDS.items():
+        expected_mode_fields = dict(SINGLE_TARGET_MODE_FIELDS)
+        expected_mode_fields["existing_signed_imports_input"] = (
+            args.existing_signed_imports_json
+        )
+        if requested_repair_lane == "dependent":
+            expected_mode_fields["dependent_citation"] = args.citation
+        for field, expected in expected_mode_fields.items():
             if field not in metadata or metadata[field] != expected:
                 raise ValueError(
                     f"repair artifact is not a compatible single-target run: {field}"
                 )
-        repair_lane = _repair_lane_for_atomic_source(metadata, args.atomic_source_json)
+        try:
+            expected_atomic_source = SPLIT_ATOMIC_SOURCE_INPUT(args.atomic_source_json)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise ValueError("expected atomic source input is invalid") from exc
+        if requested_repair_lane == "target":
+            repair_lane, expected_generated_lanes = _repair_lane_for_atomic_source(
+                metadata, args.atomic_source_json
+            )
+        else:
+            if "repair_mode" in PARSE_ATOMIC_SOURCE_INPUT(args.atomic_source_json):
+                raise ValueError("v6 cannot select a dependent repair lane")
+            try:
+                expected_atomic_source = SPLIT_ATOMIC_SOURCE_INPUT(
+                    args.atomic_source_json
+                )
+                prior_atomic_source = SPLIT_ATOMIC_SOURCE_INPUT(
+                    metadata["atomic_source_input"]
+                )
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise ValueError(
+                    "dependent repair artifact atomic source input is invalid"
+                ) from exc
+            empty_atomic_source = {
+                "canonical_refresh_bundle": [],
+                "primary_required_test_cases": [],
+                "require_complete_source_unit": True,
+                "source_bundle": [],
+            }
+            if (
+                expected_atomic_source != empty_atomic_source
+                or prior_atomic_source != empty_atomic_source
+            ):
+                raise ValueError(
+                    "dependent repair replay requires empty atomic source inputs"
+                )
+            prior_primary_path = metadata.get("replace_rulespec_path")
+            if not isinstance(prior_primary_path, str):
+                raise ValueError(
+                    "dependent repair artifact primary RuleSpec path is invalid"
+                )
+            _expected_module_path(args.country, prior_primary_path)
+            repair_lane = "dependent"
+            expected_generated_lanes = ["dependent", "target"]
         if metadata.get("workflow_run_attempt") != 1:
             raise ValueError("repair artifact must come from workflow attempt 1")
         if metadata.get("failed_steps") != ["encode_apply"]:
             raise ValueError(
                 "repair artifact is not an encode/apply validation failure"
             )
-        if metadata.get("generated_lanes") != [repair_lane]:
+        if metadata.get("generated_lanes") != expected_generated_lanes:
             raise ValueError(
                 f"repair artifact must contain only the {repair_lane} lane"
             )
+        is_partial_source_repair = (
+            repair_lane == "target-preflight"
+            and expected_generated_lanes != ["target-preflight"]
+        )
 
         files = _metadata_file_map(metadata)
+        source_rulespec_paths_json = getattr(args, "source_rulespec_paths_json", None)
+        if repair_lane == "source-only":
+            source_candidates = _source_repair_candidates(
+                bundle,
+                members,
+                files,
+                destination=destination,
+                country=args.country,
+                source_citations=expected_atomic_source["source_bundle"],
+                source_rulespec_paths_json=source_rulespec_paths_json,
+            )
+            return {
+                "root": "",
+                "lane": repair_lane,
+                "path": "",
+                "rulespec_sha256": "",
+                "tests_sha256": "",
+                "runner": "",
+                "source_rulespec_ref": source_rulespec_ref,
+                "source_candidates": source_candidates,
+            }
         repair_pattern = re.compile(
             rf"{re.escape(repair_lane)}/({RUNNER_PATTERN.pattern})/"
             rf"{re.escape(expected_module[:-5])}\.repair\.json"
@@ -358,23 +607,45 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, str]:
             for path in files
             if repair_pattern.fullmatch(path) is not None
         ]
-        if len(repair_matches) != 1:
-            raise ValueError("repair artifact must bind one final repair manifest")
-        repair_path, repair_match = repair_matches[0]
-        assert repair_match is not None
-        runner = repair_match.group(1)
-        repair_payload = json.loads(
-            _verified_generated_file(bundle, members, files, repair_path).decode(
-                "utf-8", errors="strict"
+        if len(repair_matches) == 1:
+            repair_path, repair_match = repair_matches[0]
+            assert repair_match is not None
+            runner = repair_match.group(1)
+            repair_payload = json.loads(
+                _verified_generated_file(bundle, members, files, repair_path).decode(
+                    "utf-8", errors="strict"
+                )
             )
-        )
-        if (
-            not isinstance(repair_payload, dict)
-            or repair_payload.get("schema_version") != "axiom-encode/repair-manifest/v1"
-            or repair_payload.get("citation") != args.citation
-            or repair_payload.get("runner") != runner
-        ):
-            raise ValueError("final repair manifest identity is invalid")
+            if (
+                not isinstance(repair_payload, dict)
+                or repair_payload.get("schema_version")
+                != "axiom-encode/repair-manifest/v1"
+                or repair_payload.get("citation") != args.citation
+                or repair_payload.get("runner") != runner
+            ):
+                raise ValueError("final repair manifest identity is invalid")
+        elif len(repair_matches) == 0 and is_partial_source_repair:
+            candidate_pattern = re.compile(
+                rf"{re.escape(repair_lane)}/({RUNNER_PATTERN.pattern})/"
+                rf"{re.escape(expected_module)}"
+            )
+            runners = sorted(
+                {
+                    match.group(1)
+                    for path in files
+                    if (match := candidate_pattern.fullmatch(path)) is not None
+                    and f"{repair_lane}/{match.group(1)}/"
+                    f"{expected_module.removesuffix('.yaml')}.test.yaml"
+                    in files
+                }
+            )
+            if len(runners) != 1:
+                raise ValueError(
+                    "successful target preflight must bind one final candidate"
+                )
+            runner = runners[0]
+        else:
+            raise ValueError("repair artifact must bind one final repair manifest")
 
         retained = _retained_candidate(
             bundle,
@@ -393,29 +664,35 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, str]:
             candidate, tests = retained
             runner = "retained-best"
 
+        if source_rulespec_paths_json is not None and not (
+            repair_lane == "target" or is_partial_source_repair
+        ):
+            raise ValueError(
+                "source repair candidates require a final composed target artifact "
+                "or completed target preflight and source lanes"
+            )
+        source_candidates = _source_repair_candidates(
+            bundle,
+            members,
+            files,
+            destination=destination,
+            country=args.country,
+            source_citations=expected_atomic_source["source_bundle"],
+            source_rulespec_paths_json=source_rulespec_paths_json,
+        )
+
     root = destination / runner
-    output = root / expected_module
-    test_output = output.with_suffix(".test.yaml")
-    output.parent.mkdir(parents=True, exist_ok=False)
-    for path, data in ((output, candidate), (test_output, tests)):
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        try:
-            with os.fdopen(descriptor, "wb", closefd=True) as target:
-                descriptor = -1
-                target.write(data)
-                target.flush()
-                os.fsync(target.fileno())
-        finally:
-            if descriptor >= 0:
-                os.close(descriptor)
+    _write_candidate_pair(root, expected_module, candidate, tests)
 
     return {
         "root": str(root),
+        "lane": repair_lane,
         "path": expected_module,
         "rulespec_sha256": hashlib.sha256(candidate).hexdigest(),
         "tests_sha256": hashlib.sha256(tests).hexdigest(),
         "runner": runner,
         "source_rulespec_ref": source_rulespec_ref,
+        "source_candidates": source_candidates,
     }
 
 
@@ -431,7 +708,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--rulespec-ref", required=True)
     parser.add_argument("--allow-rulespec-base-advance", action="store_true")
     parser.add_argument("--atomic-source-json", required=True)
+    parser.add_argument("--existing-signed-imports-json", default="[]")
     parser.add_argument("--replace-rulespec-path", required=True)
+    parser.add_argument("--repair-lane", choices=sorted(REPAIR_LANES), default="target")
+    parser.add_argument("--source-rulespec-paths-json")
+    parser.add_argument("--transaction-citation")
+    parser.add_argument("--transaction-rulespec-path")
     parser.add_argument("--workflow-run-id", required=True)
     return parser
 
