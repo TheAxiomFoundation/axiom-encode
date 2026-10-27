@@ -286,6 +286,63 @@ def test_ambiguous_rule_names_do_not_hide_differences():
     )
 
 
+def test_identical_inventory_entries_are_one_rule():
+    # A sibling dependency root re-lists its own checkout; a rule listed twice
+    # is still one rule, while a conflicting date for that rule stays ambiguous.
+    assert (
+        diff.classify(VALUE, REFUSAL, [RULE, dict(RULE)], "2025-05-11")
+        == "EXPECTED_PRESTART_REFUSAL"
+    )
+    conflicting = dict(RULE, effective_from="2025-05-11")
+    for rules in ([RULE, conflicting], [conflicting, RULE]):
+        assert diff.classify(VALUE, REFUSAL, rules, "2025-05-11") == "DIFF"
+
+
+DATED_RULES = [
+    RULE,
+    dict(RULE, module="dk/statutes/unrelated.yaml", effective_from="2030-01-01"),
+    dict(RULE, effective_from="2025-05-11"),
+    dict(RULE, rule="other"),
+]
+
+
+@given(
+    old=st.sampled_from(
+        [VALUE, {"error": "parameter `rate` has no value at 2025-05-11"}, REFUSAL]
+    ),
+    new=st.sampled_from([VALUE, REFUSAL, {"value": 2}]),
+    start=st.sampled_from(["2025-05-11", "2025-05-12"]),
+    rules=st.lists(st.sampled_from(DATED_RULES), max_size=6),
+)
+def test_classification_depends_only_on_distinct_inventory_entries(
+    old, new, start, rules
+):
+    distinct = list({json.dumps(rule, sort_keys=True): rule for rule in rules}.values())
+    assert diff.classify(old, new, rules, start) == diff.classify(
+        old, new, distinct, start
+    )
+
+
+def test_sibling_dependency_roots_inventory_each_module_once(tmp_path):
+    checkout, root, module = _calendar_regression_module(tmp_path)
+    neighbour = checkout / "de-sn" / "statutes" / "estg" / "66.yaml"
+    neighbour.parent.mkdir(parents=True)
+    shutil.copyfile(module, neighbour)
+    subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+    subprocess.run(["git", "-C", str(checkout), "add", "."], check=True)
+    # run() resolves every dependency root to its checkout's top.
+    modules, dated = diff.collect_modules(
+        checkout, root, (checkout, checkout, checkout), []
+    )
+    assert [name for name, _, _ in modules] == ["de/statutes/estg/66.yaml"]
+    entries = Counter((rule["module"], rule["rule"]) for rule in dated)
+    assert set(entries.values()) == {1}
+    assert {name for name, _ in entries} == {
+        "de/statutes/estg/66.yaml",
+        "de-sn/statutes/estg/66.yaml",
+    }
+
+
 def test_seed_prefers_dependent_output_over_unrelated_case():
     artifact = dict(
         program=dict(
@@ -895,9 +952,11 @@ def test_classifier_identity_for_generated_outcomes(outcome, start, rules):
     )
 
 
-@pytest.mark.parametrize("shorthand", [False, True])
+@pytest.mark.parametrize(
+    "shorthand,sibling", [(False, False), (True, False), (False, True)]
+)
 def test_shorthand_inventory_and_boundaries_real_engine(
-    real_engine, tmp_path, shorthand
+    real_engine, tmp_path, shorthand, sibling
 ):
     checkout = tmp_path / "rulespec-de"
     root = checkout / "de"
@@ -926,6 +985,14 @@ def test_shorthand_inventory_and_boundaries_real_engine(
     case = yaml.safe_load((fixtures / "66.test.yaml").read_text())[0]
     case["period"] = "2026-02"
     module.with_suffix(".test.yaml").write_text(yaml.safe_dump([case], sort_keys=False))
+    dependencies = []
+    if sibling:
+        # A sibling subtree resolves to this same checkout, so it re-lists the
+        # root's own module (the batch layout that hid Belgium's refusals).
+        neighbour = checkout / "de-sn" / "statutes" / "estg" / "66.yaml"
+        neighbour.parent.mkdir(parents=True)
+        shutil.copyfile(fixtures / "66.yaml", neighbour)
+        dependencies.append(neighbour.parents[2])
     subprocess.run(
         ["git", "init", "-q", str(checkout)], check=True, capture_output=True
     )
@@ -967,7 +1034,7 @@ def test_shorthand_inventory_and_boundaries_real_engine(
         new_engine_ref=new_ref,
         as_of=date(2026, 2, 15),
         out_dir=tmp_path / "shorthand-report",
-        rulespec_dependency_root=[],
+        rulespec_dependency_root=dependencies,
     )
     assert diff.run(args) == 0
     report = json.loads((args.out_dir / "report.json").read_text())

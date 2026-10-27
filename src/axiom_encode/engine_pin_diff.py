@@ -287,13 +287,16 @@ def classify(old: dict, new: dict, dated_rules: list[dict], period_start: str) -
     old_refusal = OLD_DATE_REFUSAL.fullmatch(old.get("error", ""))
     old_ok = "value" in old or (old_refusal and old_refusal[1] == period_start)
     if old_ok and match and match[2] == period_start:
-        matches = []
+        # Identical entries are one rule; distinct rules sharing the name stay
+        # ambiguous and leave the difference visible.
+        matches = {}
         for rule in dated_rules:
             qualified = f"{rule['module'].removesuffix('.yaml').replace('/', ':', 1)}#{rule['rule']}"
             if match[1] in (rule.get("runtime_name", rule["rule"]), qualified):
-                matches.append(rule)
+                key = (qualified, rule["effective_from"], rule["effective_to"])
+                matches[key] = rule
         if len(matches) == 1:
-            rule = matches[0]
+            (rule,) = matches.values()
             if period_start < rule["effective_from"] or (
                 rule["effective_to"] is not None and period_start > rule["effective_to"]
             ):
@@ -657,6 +660,51 @@ def run(args, *, executor=execute) -> int:
         return _run(args, root, checkout, roots, output, Path(workspace), executor)
 
 
+def collect_modules(checkout, root, roots, selected):
+    """Return the selected modules under root and the dated rules reachable from it.
+
+    Dependency roots resolve to their checkouts, so a sibling subtree of the
+    root's own checkout lists files already read. Each file is inventoried
+    once: a repeated entry would make its rules look ambiguous to classify().
+    """
+    modules = []
+    classification_inventory = []
+    inventoried = set()
+
+    def rulespec(path):
+        if path.suffix not in (".yaml", ".yml") or path.name.endswith(
+            (".test.yaml", ".test.yml")
+        ):
+            return None
+        payload = yaml.safe_load(path.read_text())
+        if isinstance(payload, dict) and payload.get("format") == "rulespec/v1":
+            return payload
+        return None
+
+    def admit(path, name, payload):
+        if path.resolve() not in inventoried:
+            inventoried.add(path.resolve())
+            classification_inventory.extend(inventory(payload, name))
+
+    for name in _git(checkout, "ls-files", "-z").split("\0"):
+        path = checkout / name
+        if not path.is_relative_to(root) or (payload := rulespec(path)) is None:
+            continue
+        admit(path, name, payload)
+        if selected and not any(
+            path == candidate or path.is_relative_to(candidate)
+            for candidate in selected
+        ):
+            continue
+        modules.append((name, path, payload))
+    for dependency in roots[1:]:
+        for name in _git(dependency, "ls-files", "-z").split("\0"):
+            path = dependency / name
+            if (payload := rulespec(path)) is not None:
+                admit(path, name, payload)
+    return modules, classification_inventory
+
+
 def _run(args, root, checkout, roots, confined_output, workspace, executor):
     from . import cli
 
@@ -682,33 +730,7 @@ def _run(args, root, checkout, roots, confined_output, workspace, executor):
             binary=str(binary),
             binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
         )
-    tracked = _git(checkout, "ls-files", "-z").split("\0")
-    modules = []
-    classification_inventory = []
-    for name in tracked:
-        path = checkout / name
-        if not path.is_relative_to(root) or path.suffix not in (".yaml", ".yml"):
-            continue
-        if path.name.endswith((".test.yaml", ".test.yml")):
-            continue
-        payload = yaml.safe_load(path.read_text())
-        if isinstance(payload, dict) and payload.get("format") == "rulespec/v1":
-            classification_inventory.extend(inventory(payload, name))
-            if selected and not any(
-                path == candidate or path.is_relative_to(candidate)
-                for candidate in selected
-            ):
-                continue
-            modules.append((name, path, payload))
-    for dependency in roots[1:]:
-        for name in _git(dependency, "ls-files", "-z").split("\0"):
-            if not name.endswith((".yaml", ".yml")) or name.endswith(
-                (".test.yaml", ".test.yml")
-            ):
-                continue
-            payload = yaml.safe_load((dependency / name).read_text())
-            if isinstance(payload, dict) and payload.get("format") == "rulespec/v1":
-                classification_inventory.extend(inventory(payload, name))
+    modules, classification_inventory = collect_modules(checkout, root, roots, selected)
     if not modules:
         raise ValueError("No RuleSpec modules selected")
     dated = [rule for name, _, payload in modules for rule in inventory(payload, name)]
