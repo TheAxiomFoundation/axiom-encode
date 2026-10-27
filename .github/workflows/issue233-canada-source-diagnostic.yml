@@ -45,7 +45,7 @@ jobs:
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       with:
         repository: TheAxiomFoundation/axiom-rules-engine
-        ref: 89571cc2a938707fd60a5489b951135345697296
+        ref: 363c6a6c56f7ad130996b63f7a09cfd4c3d9b021
         path: axiom-rules-engine
         fetch-depth: 0
         persist-credentials: false
@@ -82,11 +82,11 @@ jobs:
         test "${origin%.git}" = https://github.com/TheAxiomFoundation/axiom-encode
         git -C axiom-encode fetch --no-tags origin main
         git -C axiom-encode merge-base --is-ancestor 4956c8305ee155f476a3c0c6dbe8efbd443626a4 FETCH_HEAD
-        test "$(git -C axiom-rules-engine rev-parse HEAD)" = 89571cc2a938707fd60a5489b951135345697296
+        test "$(git -C axiom-rules-engine rev-parse HEAD)" = 363c6a6c56f7ad130996b63f7a09cfd4c3d9b021
         origin="$(git -C axiom-rules-engine remote get-url origin)"
         test "${origin%.git}" = https://github.com/TheAxiomFoundation/axiom-rules-engine
         git -C axiom-rules-engine fetch --no-tags origin main
-        git -C axiom-rules-engine merge-base --is-ancestor 89571cc2a938707fd60a5489b951135345697296 FETCH_HEAD
+        git -C axiom-rules-engine merge-base --is-ancestor 363c6a6c56f7ad130996b63f7a09cfd4c3d9b021 FETCH_HEAD
         test "$(git -C axiom-corpus rev-parse HEAD)" = d24cbde7e6d125a6f859f43c188b0ffbd115b835
         origin="$(git -C axiom-corpus remote get-url origin)"
         test "${origin%.git}" = https://github.com/TheAxiomFoundation/axiom-corpus
@@ -117,7 +117,7 @@ jobs:
         (cd axiom-encode && uv sync --frozen --python 3.14)
         axiom-encode/.venv/bin/axiom-encode engine-bind \
           --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine" \
-          --pin 89571cc2a938707fd60a5489b951135345697296 \
+          --pin 363c6a6c56f7ad130996b63f7a09cfd4c3d9b021 \
           > "$report/engine-bind-setup.json"
         cp axiom-rules-engine/target/release/axiom-rules-engine.provenance.json "$report/engine-provenance.json"
         axiom-encode/.venv/bin/python --version > "$RUNNER_TEMP/ca-diagnostic/runtime-versions.txt"
@@ -215,13 +215,13 @@ jobs:
           --trusted-python-package-root /opt/axiom-verification/python/lib/python3.14/site-packages/axiom_encode \
           -- /opt/axiom-verification/axiom-encode engine-bind \
           --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine" \
-          --pin 89571cc2a938707fd60a5489b951135345697296 --no-build \
+          --pin 363c6a6c56f7ad130996b63f7a09cfd4c3d9b021 --no-build \
           > "$report/engine-bind-protected.json" 2> "$report/engine-bind-protected.stderr.log"
         result=0
         for module in ca/policies/cra/benefits-2026/federal-family-and-climate-benefits.yaml ca/policies/revenu-quebec/tp1-2025/main-return.yaml; do
           label="$(basename "$module" .yaml)"
           code=0
-          timeout --signal=TERM --kill-after=30s 1200s     /opt/axiom-verification/axiom-encode-signing-supervisor     --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json     --trusted-python-runtime-root /opt/axiom-verification/python     --trusted-python-import-root /opt/axiom-verification/python/lib/python3.14/site-packages     --trusted-python-package-root /opt/axiom-verification/python/lib/python3.14/site-packages/axiom_encode     -- /opt/axiom-verification/axiom-encode validate "$GITHUB_WORKSPACE/rulespec-ca/$module"     --json --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"     --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"     --axiom-rules-engine-ref 89571cc2a938707fd60a5489b951135345697296     > "$report/$label.json" 2> "$report/$label.stderr.log" || code=$?
+          timeout --signal=TERM --kill-after=30s 1200s     /opt/axiom-verification/axiom-encode-signing-supervisor     --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json     --trusted-python-runtime-root /opt/axiom-verification/python     --trusted-python-import-root /opt/axiom-verification/python/lib/python3.14/site-packages     --trusted-python-package-root /opt/axiom-verification/python/lib/python3.14/site-packages/axiom_encode     -- /opt/axiom-verification/axiom-encode validate "$GITHUB_WORKSPACE/rulespec-ca/$module"     --json --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"     --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"     --axiom-rules-engine-ref 363c6a6c56f7ad130996b63f7a09cfd4c3d9b021     > "$report/$label.json" 2> "$report/$label.stderr.log" || code=$?
           printf '%s\n' "$code" > "$report/$label.exit-code.txt"
           if [ "$code" -ne 0 ]; then result=1; fi
         done
