@@ -1,5 +1,7 @@
 import copy
+import hashlib
 import json
+import os
 import shutil
 import subprocess
 from collections import Counter
@@ -597,6 +599,12 @@ def test_end_to_end_same_engine(real_engine, tmp_path):
         check=True,
         capture_output=True,
     )
+    second = module.with_name("67.yaml")
+    second.write_text(module.read_text())
+    second.with_suffix(".test.yaml").write_text(
+        module.with_suffix(".test.yaml").read_text().replace("estg/66#", "estg/67#")
+    )
+    subprocess.run(["git", "-C", str(checkout), "add", "."], check=True)
     ref = diff._git(real_engine.root, "rev-parse", "HEAD")
     args = SimpleNamespace(
         root=root,
@@ -609,8 +617,23 @@ def test_end_to_end_same_engine(real_engine, tmp_path):
         out_dir=tmp_path / "report",
         rulespec_dependency_root=[],
     )
-    assert diff.run(args) == 0
+    from axiom_encode.harness import validator_pipeline
+
+    scopes = {}
+
+    def execute_with_scope(binary, artifact, payload, env):
+        scope = validator_pipeline._RULESPEC_RESOLUTION_CACHE.get()
+        assert scope is not None
+        scopes.setdefault(artifact.name, []).append(scope)
+        return diff.execute(binary, artifact, payload, env)
+
+    assert diff.run(args, executor=execute_with_scope) == 0
+    assert validator_pipeline._RULESPEC_RESOLUTION_CACHE.get() is None
+    assert set(scopes) == {"0.json", "1.json"}
+    assert all(all(scope is seen[0] for scope in seen) for seen in scopes.values())
+    assert scopes["0.json"][0] is not scopes["1.json"][0]
     report = json.loads((args.out_dir / "report.json").read_text())
+    assert len(report["modules"]) == 2
     assert report["cases"]
     assert any(case["kind"] == "boundary" for case in report["cases"])
     assert any(
@@ -619,3 +642,621 @@ def test_end_to_end_same_engine(real_engine, tmp_path):
     assert set(
         row["classification"] for case in report["cases"] for row in case["comparisons"]
     ) == {"PASS"}
+
+
+@given(
+    kind=st.sampled_from(["month", "tax_year"]),
+    seed_start=st.dates(min_value=date(1901, 1, 1), max_value=date(2096, 12, 31)),
+    as_of=st.dates(min_value=date(1902, 1, 1), max_value=date(2097, 12, 31)),
+    margins=st.lists(
+        st.tuples(st.integers(0, 400), st.integers(0, 400)),
+        min_size=1,
+        max_size=10,
+    ),
+)
+@settings(deadline=None)
+def test_current_calendar_requests_preserve_input_and_relation_coverage(
+    kind, seed_start, as_of, margins
+):
+    import calendar
+
+    if kind == "month":
+        seed_start = seed_start.replace(day=1)
+        seed_end = seed_start.replace(
+            day=calendar.monthrange(seed_start.year, seed_start.month)[1]
+        )
+    else:
+        next_start = date(
+            seed_start.year + 1,
+            seed_start.month,
+            min(
+                seed_start.day,
+                calendar.monthrange(seed_start.year + 1, seed_start.month)[1],
+            ),
+        )
+        seed_end = next_start - timedelta(days=1)
+    original = request(
+        start=seed_start.isoformat(), length=(seed_end - seed_start).days
+    )
+    original["queries"][0]["period"]["period_kind"] = kind
+    original["queries"].append(copy.copy(original["queries"][0]))
+    for collection in ("inputs", "relations"):
+        original["dataset"][collection] = [
+            dict(
+                name=f"{collection}_{index}",
+                interval=dict(
+                    start=(seed_start - timedelta(days=leading)).isoformat(),
+                    end=(seed_end + timedelta(days=trailing)).isoformat(),
+                ),
+            )
+            for index, (leading, trailing) in enumerate(margins)
+        ]
+    # The compact companion translator can alias input and relation intervals.
+    original["dataset"]["relations"].append(original["dataset"]["inputs"][0])
+    snapshot = copy.deepcopy(original)
+    shifted = diff.current_request(original, as_of)
+    assert original == snapshot
+    query = shifted["queries"][0]["period"]
+    assert query["start"] <= as_of.isoformat() <= query["end"]
+    for collection in ("inputs", "relations"):
+        for before, after in zip(
+            original["dataset"][collection], shifted["dataset"][collection], strict=True
+        ):
+            interval = after["interval"]
+            assert interval["start"] <= query["start"]
+            assert interval["end"] >= query["end"]
+            for endpoint, seed_endpoint in (("start", seed_start), ("end", seed_end)):
+                assert (
+                    date.fromisoformat(interval[endpoint])
+                    - date.fromisoformat(query[endpoint])
+                ) == (date.fromisoformat(before["interval"][endpoint]) - seed_endpoint)
+
+
+def test_current_calendar_shared_query_and_fixture_intervals_translate_once():
+    original = request(start="2026-02-01", length=27, input_length=27)
+    interval = original["queries"][0]["period"]
+    interval["period_kind"] = "month"
+    original["dataset"]["inputs"][0]["interval"] = interval
+    original["dataset"]["relations"].append(dict(name="members", interval=interval))
+    original["queries"].append(copy.copy(original["queries"][0]))
+    shifted = diff.current_request(original, date(2028, 2, 15))
+    for item in shifted["dataset"]["inputs"] + shifted["dataset"]["relations"]:
+        assert item["interval"]["start"] == "2028-02-01"
+        assert item["interval"]["end"] == "2028-02-29"
+    assert all(
+        query["period"]["start"] == "2028-02-01"
+        and query["period"]["end"] == "2028-02-29"
+        for query in shifted["queries"]
+    )
+
+
+def _calendar_regression_module(tmp_path):
+    checkout = tmp_path / "rulespec-de"
+    root = checkout / "de"
+    module = root / "statutes" / "estg" / "66.yaml"
+    module.parent.mkdir(parents=True)
+    fixtures = (
+        Path(__file__).parent
+        / "fixtures"
+        / "source_completeness"
+        / "estg_66_rounding_input_stage"
+        / "minimally_fixed"
+    )
+    shutil.copyfile(fixtures / "66.yaml", module)
+    shutil.copyfile(fixtures / "66.test.yaml", module.with_suffix(".test.yaml"))
+    return checkout, root, module
+
+
+def test_current_leap_month_executes_with_real_engine(real_engine, tmp_path):
+    import os
+
+    from axiom_encode.rules_engine_compat import run_rulespec_compile
+
+    checkout, root, module = _calendar_regression_module(tmp_path)
+    artifact_path = tmp_path / "compiled.json"
+    compiled = run_rulespec_compile(
+        binary=real_engine.binary,
+        program=module,
+        rulespec_roots=[checkout],
+        output=artifact_path,
+        cwd=real_engine.root,
+        env=os.environ.copy(),
+    )
+    assert compiled.returncode == 0, compiled.stderr or compiled.stdout
+    artifact = json.loads(artifact_path.read_text())
+    case = yaml.safe_load(module.with_suffix(".test.yaml").read_text())[0]
+    case["period"] = "2026-02"
+    payload = diff.build_request(
+        module.with_suffix(".test.yaml"), case, artifact, root, (checkout,)
+    )
+    payload.pop("_companion_parameters", None)
+    current = diff.current_request(payload, date(2028, 2, 15))
+    assert current["queries"][0]["period"]["end"] == "2028-02-29"
+    outcome = diff.execute(
+        real_engine.binary, artifact_path, current, os.environ.copy()
+    )
+    assert "value" in outcome, outcome
+    output = "de:statutes/estg/66#kindergeld_payable_for_month"
+    assert outcome["value"][0][output]["outcome"] == "holds"
+
+
+def test_identical_missing_input_refusals_are_incomplete(real_engine, tmp_path):
+    checkout, root, _module = _calendar_regression_module(tmp_path)
+    subprocess.run(["git", "init", str(checkout)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(checkout), "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(checkout),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-m",
+            "Fixture",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    ref = diff._git(real_engine.root, "rev-parse", "HEAD")
+    args = SimpleNamespace(
+        root=root,
+        paths=[],
+        old_engine=real_engine.root,
+        new_engine=real_engine.root,
+        old_engine_ref=ref,
+        new_engine_ref=ref,
+        as_of=date(2028, 2, 15),
+        out_dir=tmp_path / "report",
+        rulespec_dependency_root=[],
+    )
+    failure = {"error": "missing input `required` over 2028-02-01..2028-02-29"}
+    assert diff.run(args, executor=lambda *args: failure) == 1
+    report = json.loads((args.out_dir / "report.json").read_text())
+    assert report["incomplete"]
+    assert report["counts"]["PASS"] == 0
+    assert all("missing input" in item["error"] for item in report["incomplete"])
+    assert report["counts"]["PASS"] == 0
+    assert any(case["kind"] == "current" for case in report["cases"])
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        {"formula": "1", "effective_from": "2025-05-12", "effective_to": "2025-12-31"},
+        {"formula": "1", "from": "2025-05-12", "to": "2025-12-31"},
+        {"formula": "1", "from": "2025-05-12", "to": "2025-12-31", "versions": []},
+        {
+            "versions": [
+                {
+                    "formula": "1",
+                    "effective_from": "2025-05-12",
+                    "effective_to": "2025-12-31",
+                }
+            ]
+        },
+        {"versions": [{"formula": "1", "from": "2025-05-12", "to": "2025-12-31"}]},
+        {
+            "formula": "2",
+            "effective_from": "2020-01-01",
+            "versions": [{"formula": "1", "from": "2025-05-12", "to": "2025-12-31"}],
+        },
+    ],
+)
+def test_inventory_normalizes_engine_single_version_shapes(shape):
+    rule = dict(name="amount", kind="derived", **shape)
+    assert diff.inventory({"rules": [rule]}, RULE["module"]) == [RULE]
+
+
+@pytest.mark.parametrize(
+    "shape,expected_count",
+    [
+        ({"formula": "1"}, 1),
+        ({"effective_from": "2025-05-12"}, 1),
+        ({"from": "2025-05-12"}, 1),
+        ({"effective_to": "2025-12-31"}, 0),
+        ({"to": "2025-12-31"}, 0),
+        ({"formula": None, "effective_from": None}, 0),
+        ({"versions": []}, 0),
+        ({"versions": [{}, {}], "formula": "1"}, 2),
+    ],
+)
+def test_effective_version_normalization_matches_engine_conditions(
+    shape, expected_count
+):
+    # Formula-only and date-only shorthand normalize here, just as in Rust;
+    # compilation remains responsible for rejecting their missing required field.
+    assert len(diff.effective_versions(shape)) == expected_count
+
+
+JSON_SCALARS = st.none() | st.booleans() | st.integers() | st.text()
+JSON_VALUES = st.recursive(
+    JSON_SCALARS,
+    lambda children: (
+        st.lists(children, max_size=4)
+        | st.dictionaries(st.text(), children, max_size=4)
+    ),
+    max_leaves=20,
+)
+
+
+@given(
+    outcome=st.dictionaries(st.text(), JSON_VALUES, max_size=6),
+    start=st.dates(min_value=date(1, 1, 1), max_value=date(9999, 12, 31)),
+    rules=st.lists(st.just(RULE), max_size=4),
+)
+@settings(deadline=None)
+def test_classifier_identity_for_generated_outcomes(outcome, start, rules):
+    assert (
+        diff.classify(outcome, copy.deepcopy(outcome), rules, start.isoformat())
+        == "PASS"
+    )
+
+
+@pytest.mark.parametrize("shorthand", [False, True])
+def test_shorthand_inventory_and_boundaries_real_engine(
+    real_engine, tmp_path, shorthand
+):
+    checkout = tmp_path / "rulespec-de"
+    root = checkout / "de"
+    module = root / "statutes" / "estg" / "66.yaml"
+    module.parent.mkdir(parents=True)
+    fixtures = (
+        Path(__file__).parent
+        / "fixtures"
+        / "source_completeness"
+        / "estg_66_rounding_input_stage"
+        / "minimally_fixed"
+    )
+    payload = yaml.safe_load((fixtures / "66.yaml").read_text())
+    rule = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "kindergeld_payable_for_month"
+    )
+    if shorthand:
+        rule.update(rule.pop("versions")[0])
+        rule["effective_to"] = "2026-12-31"
+    else:
+        rule["versions"][0]["effective_to"] = "2026-12-31"
+    payload["rules"] = [rule]
+    module.write_text(yaml.safe_dump(payload, sort_keys=False))
+    case = yaml.safe_load((fixtures / "66.test.yaml").read_text())[0]
+    case["period"] = "2026-02"
+    module.with_suffix(".test.yaml").write_text(yaml.safe_dump([case], sort_keys=False))
+    subprocess.run(
+        ["git", "init", "-q", str(checkout)], check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "-C", str(checkout), "add", "."], check=True, capture_output=True
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(checkout),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "Fixture",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    old_root = Path(
+        os.environ.get("AXIOM_PIN_DIFF_OLD_ENGINE_ROOT", str(real_engine.root))
+    )
+    old_ref = diff._git(old_root, "rev-parse", "HEAD")
+    new_ref = diff._git(real_engine.root, "rev-parse", "HEAD")
+    historical = "AXIOM_PIN_DIFF_OLD_ENGINE_ROOT" in os.environ
+    if historical:
+        assert old_ref == "05eac9d2f89dabe5c6673176260762cef3a58f47"
+        assert new_ref == "32bc1c124724ebbb2187a196a3b228cfb2a14721"
+    args = SimpleNamespace(
+        root=root,
+        paths=[],
+        old_engine=old_root,
+        new_engine=real_engine.root,
+        old_engine_ref=old_ref,
+        new_engine_ref=new_ref,
+        as_of=date(2026, 2, 15),
+        out_dir=tmp_path / "shorthand-report",
+        rulespec_dependency_root=[],
+    )
+    assert diff.run(args) == 0
+    report = json.loads((args.out_dir / "report.json").read_text())
+    assert report["modules"][0]["compile_errors"] == {"old": None, "new": None}
+    assert report["inventory"] == [
+        dict(
+            module="de/statutes/estg/66.yaml",
+            rule="kindergeld_payable_for_month",
+            effective_from="2025-01-01",
+            effective_to="2026-12-31",
+        )
+    ]
+    boundaries = {
+        item["period_start"]: item
+        for item in report["cases"]
+        if item["kind"] == "boundary"
+    }
+    assert set(boundaries) == {
+        "2024-12-31",
+        "2025-01-01",
+        "2025-01-02",
+        "2026-12-30",
+        "2026-12-31",
+        "2027-01-01",
+    }
+    assert "value" in boundaries["2025-01-01"]["outcomes"]["new"]["explain"]
+    if historical:
+        before = boundaries["2024-12-31"]
+        assert "value" in before["outcomes"]["old"]["explain"]
+        assert (
+            next(
+                row["classification"]
+                for row in before["comparisons"]
+                if row["comparison"] == "old/new explain"
+            )
+            == "EXPECTED_PRESTART_REFUSAL"
+        )
+
+
+def _tracked_hashes(checkout):
+    return {
+        name: hashlib.sha256((checkout / name).read_bytes()).hexdigest()
+        for name in diff._git(checkout, "ls-files", "-z").split("\0")
+        if name
+    }
+
+
+def _confinement_checkout(base):
+    checkout, root, module = _calendar_regression_module(base)
+    subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+    subprocess.run(["git", "-C", str(checkout), "add", "."], check=True)
+    return checkout, root, module
+
+
+@pytest.mark.parametrize("target_checkout", ["root", "dependency"])
+@pytest.mark.parametrize(
+    "planted",
+    [
+        "report.json",
+        "report.md",
+        "artifacts/old",
+        "artifacts/new/0.json",
+        "artifacts/new/0.request.json",
+    ],
+)
+def test_reused_output_links_preserve_every_tracked_byte(
+    tmp_path, monkeypatch, planted, target_checkout
+):
+    checkout, root, module = _confinement_checkout(tmp_path / "main")
+    dependency, dependency_root, dependency_module = _confinement_checkout(
+        tmp_path / "dependency"
+    )
+    output = tmp_path / "evidence"
+    link = output / planted
+    link.parent.mkdir(parents=True)
+    victim = module if target_checkout == "root" else dependency_module
+    link.symlink_to(
+        victim.parent
+        if planted == "artifacts/old"
+        else victim.with_suffix(".test.yaml")
+    )
+    before = {path: _tracked_hashes(path) for path in (checkout, dependency)}
+    monkeypatch.setattr(
+        diff,
+        "bind",
+        lambda *args: pytest.fail("Output admission must precede engine binding"),
+    )
+    args = SimpleNamespace(
+        root=root,
+        out_dir=output,
+        rulespec_dependency_root=[dependency_root],
+        paths=[],
+        old_engine=checkout,
+        new_engine=checkout,
+        old_engine_ref="a" * 40,
+        new_engine_ref="a" * 40,
+    )
+    try:
+        with pytest.raises(ValueError, match="Symlink|Unsafe"):
+            diff.run(args)
+    finally:
+        assert {path: _tracked_hashes(path) for path in before} == before
+
+
+@pytest.mark.parametrize(
+    "destination", ["root", "dependency", "linked-root", "linked-external"]
+)
+def test_out_dir_refuses_checkouts_and_symlinks(tmp_path, monkeypatch, destination):
+    checkout, root, _ = _confinement_checkout(tmp_path / "main")
+    dependency, dependency_root, _ = _confinement_checkout(tmp_path / "dependency")
+    output = (
+        root.parent / "evidence" if destination == "root" else dependency / "evidence"
+    )
+    if destination.startswith("linked"):
+        target = checkout if destination == "linked-root" else tmp_path / "external"
+        target.mkdir(exist_ok=True)
+        output = tmp_path / "linked"
+        output.symlink_to(target, target_is_directory=True)
+    monkeypatch.setattr(
+        diff,
+        "bind",
+        lambda *args: pytest.fail("Output admission must precede engine binding"),
+    )
+    args = SimpleNamespace(
+        root=root,
+        out_dir=output,
+        rulespec_dependency_root=[dependency_root],
+        paths=[],
+        old_engine=checkout,
+        new_engine=checkout,
+        old_engine_ref="a" * 40,
+        new_engine_ref="a" * 40,
+    )
+    with pytest.raises(ValueError, match="outside|Unsafe"):
+        diff.run(args)
+
+
+def test_output_atomic_replacement_preserves_hardlinked_source(tmp_path):
+    checkout, _root, module = _confinement_checkout(tmp_path / "main")
+    output = tmp_path / "evidence"
+    output.mkdir()
+    os.link(module, output / "report.json")
+    before = _tracked_hashes(checkout)
+    with diff.ConfinedOutput(output) as confined:
+        confined.write(Path("report.json"), b"new report\n")
+    assert _tracked_hashes(checkout) == before
+    assert (output / "report.json").read_bytes() == b"new report\n"
+
+
+def test_output_refuses_directory_link_planted_after_admission(tmp_path):
+    checkout, _root, module = _confinement_checkout(tmp_path / "main")
+    output = tmp_path / "evidence"
+    before = _tracked_hashes(checkout)
+    with diff.ConfinedOutput(output) as confined:
+        (output / "artifacts").symlink_to(module.parent, target_is_directory=True)
+        with pytest.raises(OSError):
+            confined.write(Path("artifacts/66.yaml"), b"overwrite")
+    assert _tracked_hashes(checkout) == before
+
+
+def test_output_replaces_destination_link_without_following_race(tmp_path, monkeypatch):
+    checkout, _root, module = _confinement_checkout(tmp_path / "main")
+    output = tmp_path / "evidence"
+    before = _tracked_hashes(checkout)
+    original_replace = os.replace
+
+    def plant_then_replace(source, destination, **kwargs):
+        (output / destination).symlink_to(module)
+        return original_replace(source, destination, **kwargs)
+
+    monkeypatch.setattr(os, "replace", plant_then_replace)
+    with diff.ConfinedOutput(output) as confined:
+        confined.write(Path("report.json"), b"safe\n")
+    assert _tracked_hashes(checkout) == before
+    assert not (output / "report.json").is_symlink()
+
+
+def test_run_retains_leap_day_fiscal_anchor(real_engine, tmp_path):
+    checkout, root, module = _confinement_checkout(tmp_path)
+    case = yaml.safe_load(module.with_suffix(".test.yaml").read_text())[0]
+    case["period"] = {
+        "period_kind": "tax_year",
+        "start": "2024-02-29",
+        "end": "2025-02-27",
+    }
+    module.with_suffix(".test.yaml").write_text(yaml.safe_dump([case]))
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(checkout),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-am",
+            "Fixture",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    ref = diff._git(real_engine.root, "rev-parse", "HEAD")
+    args = SimpleNamespace(
+        root=root,
+        paths=[],
+        old_engine=real_engine.root,
+        new_engine=real_engine.root,
+        old_engine_ref=ref,
+        new_engine_ref=ref,
+        as_of=date(2027, 3, 1),
+        out_dir=tmp_path / "report",
+        rulespec_dependency_root=[],
+    )
+    assert diff.run(args, executor=lambda *args: VALUE) == 0
+    report = json.loads((args.out_dir / "report.json").read_text())
+    current = next(case for case in report["cases"] if case["kind"] == "current")
+    for payload in current["requests"].values():
+        assert payload["queries"][0]["period"]["start"] == "2027-02-28"
+        assert payload["queries"][0]["period"]["end"] == "2028-02-28"
+        assert all(
+            item["interval"]["end"] >= "2028-02-28"
+            for item in payload["dataset"]["inputs"]
+        )
+
+
+def test_output_parent_components_refused_before_creating_checkout_children(tmp_path):
+    checkout, root, _ = _confinement_checkout(tmp_path)
+    output = checkout / "planted" / ".." / ".." / "evidence"
+    assert not output.resolve().is_relative_to(checkout)
+    args = SimpleNamespace(root=root, out_dir=output, rulespec_dependency_root=[])
+    with pytest.raises(ValueError, match="parent component"):
+        diff.run(args)
+    assert not (checkout / "planted").exists()
+
+
+def test_temporary_root_in_checkout_is_refused_without_writability_probe(
+    tmp_path, monkeypatch
+):
+    checkout, root, _ = _confinement_checkout(tmp_path)
+    monkeypatch.setenv("TMPDIR", str(checkout))
+    monkeypatch.setattr(
+        diff.tempfile,
+        "gettempdir",
+        lambda: pytest.fail("Do not probe writability inside a checkout"),
+    )
+    output = tmp_path / "evidence"
+    args = SimpleNamespace(root=root, out_dir=output, rulespec_dependency_root=[])
+    with pytest.raises(ValueError, match="temporary directory"):
+        diff.run(args)
+    assert not output.exists()
+
+
+def test_checkout_confinement_checks_ancestor_identity(tmp_path, monkeypatch):
+    checkout = tmp_path / "rulespec-de"
+    checkout.mkdir()
+    alias = tmp_path / "RULESPEC-DE"
+    output = alias / "not-created" / "evidence"
+    original_samefile = Path.samefile
+
+    def samefile(path, other):
+        if path == alias and other == checkout:
+            return True
+        return original_samefile(path, other)
+
+    monkeypatch.setattr(Path, "samefile", samefile)
+    assert diff.inside_checkout(output, (checkout,))
+    assert not output.exists()
+
+
+def test_request_translation_has_a_fresh_resolution_scope(monkeypatch, tmp_path):
+    from axiom_encode import cli
+    from axiom_encode.harness import validator_pipeline
+
+    scopes = []
+
+    def translate(*args, **kwargs):
+        scope = validator_pipeline._RULESPEC_RESOLUTION_CACHE.get()
+        assert scope is not None
+        scopes.append(scope)
+        return request()
+
+    monkeypatch.setattr(cli, "_execute_rulespec_test_case", translate)
+    artifact = {"program": {"derived": [], "parameters": [], "relations": []}}
+    for _ in range(2):
+        assert (
+            diff.build_request(
+                tmp_path / "test.test.yaml", {}, artifact, tmp_path, (tmp_path,)
+            )
+            == request()
+        )
+        assert validator_pipeline._RULESPEC_RESOLUTION_CACHE.get() is None
+    assert scopes[0] is not scopes[1]

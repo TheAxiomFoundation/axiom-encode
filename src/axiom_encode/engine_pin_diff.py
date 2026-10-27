@@ -6,9 +6,14 @@ import calendar
 import copy
 import hashlib
 import json
+import os
 import re
+import secrets
+import stat
 import subprocess
+import tempfile
 from collections import Counter
+from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -38,6 +43,123 @@ OLD_DATE_REFUSAL = re.compile(
 )
 
 
+class ConfinedOutput:
+    """Publish through held directory descriptors, never through linked paths."""
+
+    def __init__(self, path: Path):
+        self.path = path.absolute()
+        if ".." in self.path.parts:
+            raise ValueError(f"Unsafe --out-dir parent component: {self.path}")
+        self.fd = None
+
+    @staticmethod
+    @contextmanager
+    def directory(path: Path, *, parent_fd: int | None = None):
+        fd = (
+            os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+            if parent_fd is None
+            else os.dup(parent_fd)
+        )
+        try:
+            for part in path.parts:
+                if part == "/":
+                    continue
+                if part in (".", ".."):
+                    raise ValueError(f"Unsafe output component: {part}")
+                try:
+                    os.mkdir(part, mode=0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+                child = os.open(
+                    part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd
+                )
+                os.close(fd)
+                fd = child
+            yield fd
+        finally:
+            os.close(fd)
+
+    @classmethod
+    def reject_links(cls, fd: int):
+        with os.scandir(fd) as entries:
+            for entry in entries:
+                mode = entry.stat(follow_symlinks=False).st_mode
+                if stat.S_ISLNK(mode):
+                    raise ValueError(f"Symlink in --out-dir: {entry.name}")
+                if stat.S_ISDIR(mode):
+                    child = os.open(
+                        entry.name,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=fd,
+                    )
+                    try:
+                        cls.reject_links(child)
+                    finally:
+                        os.close(child)
+
+    def __enter__(self):
+        try:
+            with self.directory(self.path) as fd:
+                self.reject_links(fd)
+                self.fd = os.dup(fd)
+        except OSError as error:
+            raise ValueError(f"Unsafe --out-dir: {self.path}: {error}") from error
+        return self
+
+    def __exit__(self, *exc):
+        os.close(self.fd)
+
+    def write(self, relative: Path, data: bytes):
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(f"Unsafe output path: {relative}")
+        with self.directory(relative.parent, parent_fd=self.fd) as fd:
+            try:
+                mode = os.stat(relative.name, dir_fd=fd, follow_symlinks=False).st_mode
+            except FileNotFoundError:
+                pass
+            else:
+                if not stat.S_ISREG(mode):
+                    raise ValueError(f"Non-regular output file: {relative}")
+            temporary = f".engine-pin-diff-{secrets.token_hex(16)}"
+            file_fd = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=fd,
+            )
+            try:
+                with os.fdopen(file_fd, "wb") as stream:
+                    stream.write(data)
+                # replace does not dereference the destination (including a
+                # link planted after the check); held dirfds fix the parent.
+                os.replace(temporary, relative.name, src_dir_fd=fd, dst_dir_fd=fd)
+            finally:
+                try:
+                    os.unlink(temporary, dir_fd=fd)
+                except FileNotFoundError:
+                    pass
+
+
+def publish_text(out_dir: Path, name: str, contents: str):
+    with ConfinedOutput(out_dir) as output:
+        output.write(Path(name), contents.encode())
+
+
+def inside_checkout(path: Path, checkouts: tuple[Path, ...]) -> bool:
+    if any(path.resolve().is_relative_to(root.resolve()) for root in checkouts):
+        return True
+    # resolve() need not canonicalize case/Unicode aliases on macOS. Existing
+    # ancestor identities also protect descendants that do not exist yet.
+    for ancestor in (path, *path.parents):
+        for root in checkouts:
+            try:
+                if ancestor.samefile(root):
+                    return True
+            except FileNotFoundError:
+                pass
+    return False
+
+
 def add_parser(subparsers):
     parser = subparsers.add_parser("engine-pin-diff", help=__doc__)
     parser.add_argument("--root", type=Path, required=True)
@@ -53,14 +175,27 @@ def add_parser(subparsers):
     parser.add_argument("paths", nargs="*", type=Path)
 
 
+def effective_versions(rule: dict) -> list[dict]:
+    """Mirror RuleDefinition.effective_versions, including shorthand aliases."""
+    versions = rule.get("versions") or []
+    if versions:
+        return versions
+    if (
+        rule.get("formula") is not None
+        or rule.get("effective_from", rule.get("from")) is not None
+    ):
+        return [rule]
+    return []
+
+
 def inventory(payload: dict, module: str) -> list[dict]:
     found = []
     for rule in payload.get("rules", []):
-        versions = rule.get("versions") or []
+        versions = effective_versions(rule)
         if rule.get("kind") != "derived" or len(versions) != 1:
             continue
         version = versions[0]
-        start = str(version.get("effective_from", version.get("from", "0001-01-01")))
+        start = str(version.get("effective_from", version.get("from")) or "0001-01-01")
         end = version.get("effective_to", version.get("to"))
         if start == "0001-01-01" and end is None:
             continue
@@ -116,17 +251,29 @@ def _anniversary(start: date, year: int) -> date:
 
 
 def current_request(request: dict, as_of: date) -> dict:
+    """Preserve fixture margins around the final current calendar period."""
     period = request["queries"][0]["period"]
     start = current_start(period, as_of)
-    shifted = shift_request(request, (start - date.fromisoformat(period["start"])).days)
-    for query in shifted["queries"]:
-        if period["period_kind"] == "month":
-            query["period"]["end"] = start.replace(
-                day=calendar.monthrange(start.year, start.month)[1]
-            ).isoformat()
-        elif period["period_kind"] == "tax_year":
-            query["period"]["end"] = (
-                _anniversary(start, start.year + 1) - timedelta(days=1)
+    start_delta = start - date.fromisoformat(period["start"])
+    if period["period_kind"] == "month":
+        end = start.replace(day=calendar.monthrange(start.year, start.month)[1])
+    elif period["period_kind"] == "tax_year":
+        end = _anniversary(
+            date.fromisoformat(period["start"]), start.year + 1
+        ) - timedelta(days=1)
+    else:
+        return shift_request(request, start_delta.days)
+    end_delta = end - date.fromisoformat(period["end"])
+    shifted = copy.deepcopy(request)
+    intervals = [query["period"] for query in shifted["queries"]]
+    for collection in ("inputs", "relations"):
+        intervals.extend(item["interval"] for item in shifted["dataset"][collection])
+    # The request translator can share one interval between queries and facts.
+    # Translate each object once, retaining both leading and trailing margins.
+    for interval in {id(item): item for item in intervals}.values():
+        for endpoint, delta in (("start", start_delta), ("end", end_delta)):
+            interval[endpoint] = (
+                date.fromisoformat(interval[endpoint]) + delta
             ).isoformat()
     return shifted
 
@@ -271,7 +418,30 @@ def comparisons(
                 classification="PASS" if old_parameters == new_parameters else "DIFF",
             )
         )
-    return rows
+    pairs = {
+        "old/new explain": (
+            engine_outcomes["old"]["explain"],
+            engine_outcomes["new"]["explain"],
+        ),
+        **{
+            f"{side} explain/fast": (modes["explain"], modes["fast"])
+            for side, modes in engine_outcomes.items()
+            if "fast" in modes
+        },
+    }
+    return [
+        row
+        for row in rows
+        if not (
+            row["classification"] == "PASS"
+            and row["comparison"] in pairs
+            and all(missing_input(outcome) for outcome in pairs[row["comparison"]])
+        )
+    ]
+
+
+def missing_input(outcome: dict) -> bool:
+    return bool(re.search(r"\bmissing input\b", outcome.get("error", "")))
 
 
 def companion_needs_repair(kind: str, rows: list[dict], old_outcome: dict) -> bool:
@@ -345,8 +515,8 @@ def write_report(report: dict, out_dir: Path) -> Counter:
         row["classification"] for case in report["cases"] for row in case["comparisons"]
     )
     report["counts"] = {label: counts[label] for label in CLASSES}
-    (out_dir / "report.json").write_text(
-        json.dumps(report, indent=2, default=str) + "\n"
+    publish_text(
+        out_dir, "report.json", json.dumps(report, indent=2, default=str) + "\n"
     )
     lines = [
         "# Engine pin differential",
@@ -359,7 +529,7 @@ def write_report(report: dict, out_dir: Path) -> Counter:
         "## Counts",
         "",
         *[f"- {label}: {counts[label]}" for label in CLASSES],
-        f"- Incomplete preparations: {len(report.get('incomplete', []))}",
+        f"- Incomplete coverage: {len(report.get('incomplete', []))}",
         "",
         "## Non-PASS comparisons",
         "",
@@ -380,9 +550,9 @@ def write_report(report: dict, out_dir: Path) -> Counter:
                 f"| {label} | {row['comparison']} | {row['classification']} | {detail} |"
             )
     if report.get("incomplete"):
-        lines.extend(["", "## Incomplete preparations", ""])
+        lines.extend(["", "## Incomplete coverage", ""])
         lines.extend(f"- {json.dumps(error)}" for error in report["incomplete"])
-    (out_dir / "report.md").write_text("\n".join(lines) + "\n")
+    publish_text(out_dir, "report.md", "\n".join(lines) + "\n")
     return counts
 
 
@@ -415,26 +585,29 @@ def build_request(
 
     program = artifact["program"]
     derived = index(program.get("derived", []))
-    result = cli._execute_rulespec_test_case(
-        test_file,
-        case,
-        case_name=str(case.get("name", "no-case")),
-        compiled_path=Path("<request-only>"),
-        binary=Path("<request-only>"),
-        axiom_rules_path=Path("<request-only>"),
-        env={},
-        parameter_by_id=index(program.get("parameters", [])),
-        derived_ids=set(derived),
-        derived_by_id=derived,
-        declared_relation_names={
-            str(item["name"]) for item in program.get("relations", [])
-        },
-        declared_relation_slots=cli._rulespec_declared_relation_slots(artifact),
-        compiled_relations=program.get("relations", []),
-        policy_repo_path=root,
-        rulespec_roots=roots,
-        request_only=True,
-    )
+    # Reuse the caller's guarded module scope, or bound standalone resolution
+    # to this preparation. Never carry resolver state into another module.
+    with cli._rulespec_resolution_cache_scope():
+        result = cli._execute_rulespec_test_case(
+            test_file,
+            case,
+            case_name=str(case.get("name", "no-case")),
+            compiled_path=Path("<request-only>"),
+            binary=Path("<request-only>"),
+            axiom_rules_path=Path("<request-only>"),
+            env={},
+            parameter_by_id=index(program.get("parameters", [])),
+            derived_ids=set(derived),
+            derived_by_id=derived,
+            declared_relation_names={
+                str(item["name"]) for item in program.get("relations", [])
+            },
+            declared_relation_slots=cli._rulespec_declared_relation_slots(artifact),
+            compiled_relations=program.get("relations", []),
+            policy_repo_path=root,
+            rulespec_roots=roots,
+            request_only=True,
+        )
     if not isinstance(result, dict):
         raise ValueError(json.dumps(result))
     return result
@@ -448,15 +621,46 @@ def run(args, *, executor=execute) -> int:
     if cli.canonical_rulespec_root_identity(root) is None:
         raise ValueError("--root must be an exact RuleSpec jurisdiction content root")
     checkout = Path(_git(root, "rev-parse", "--show-toplevel"))
-    out_dir = args.out_dir.resolve()
+    confined_output = ConfinedOutput(args.out_dir)
+    out_dir = confined_output.path
     roots = (
         checkout,
-        *(path.resolve(strict=True) for path in args.rulespec_dependency_root),
+        *(
+            Path(_git(path.resolve(strict=True), "rev-parse", "--show-toplevel"))
+            for path in args.rulespec_dependency_root
+        ),
     )
-    if any(
-        out_dir == authorized or authorized in out_dir.parents for authorized in roots
-    ):
+    if inside_checkout(out_dir, roots):
         raise ValueError("--out-dir must be outside all authorized RuleSpec checkouts")
+    # gettempdir() probes candidates by writing a file. Check containment
+    # before any such probe, including when TMPDIR itself is a checkout.
+    temporary_root = Path(
+        os.environ.get("TMPDIR")
+        or os.environ.get("TEMP")
+        or os.environ.get("TMP")
+        or "/tmp"
+    ).resolve(strict=True)
+    if inside_checkout(temporary_root, roots):
+        raise ValueError(
+            "Compiler temporary directory must be outside RuleSpec checkouts"
+        )
+    # Compiler/composer writers do not expose no-follow flags. Give them only
+    # fresh private paths, never reused evidence paths, and publish their bytes
+    # through ConfinedOutput. TemporaryDirectory creates its directory with
+    # exclusive mkdir and mode 0700, outside all admitted checkouts.
+    with (
+        confined_output as output,
+        tempfile.TemporaryDirectory(
+            prefix="hub-epm-compile-", dir=temporary_root
+        ) as workspace,
+    ):
+        return _run(args, root, checkout, roots, output, Path(workspace), executor)
+
+
+def _run(args, root, checkout, roots, confined_output, workspace, executor):
+    from . import cli
+
+    out_dir = confined_output.path
     selected = []
     for candidate in args.paths:
         candidate = (
@@ -478,7 +682,6 @@ def run(args, *, executor=execute) -> int:
             binary=str(binary),
             binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
         )
-    out_dir.mkdir(parents=True, exist_ok=True)
     tracked = _git(checkout, "ls-files", "-z").split("\0")
     modules = []
     classification_inventory = []
@@ -533,19 +736,28 @@ def run(args, *, executor=execute) -> int:
         for side, engine in engines.items()
     }
     env = pipelines["new"]._rulespec_engine_env()
-    for module_index, (name, path, payload) in enumerate(modules):
+
+    @cli._rulespec_resolution_cache_scope()
+    def compare_module(module_index, module):
+        name, path, payload = module
         module_record = dict(
             path=name, blob_sha=_git(checkout, "hash-object", str(path))
         )
         report["modules"].append(module_record)
         artifacts, compilation = {}, {}
         for side in engines:
-            directory = out_dir / "artifacts" / side
+            directory = workspace / "artifacts" / side
             directory.mkdir(parents=True, exist_ok=True)
             artifact = directory / f"{module_index}.json"
             compiled, compiled_payload = pipelines[side]._compile_rulespec_to_artifact(
                 path, artifact
             )
+            for generated in directory.iterdir():
+                if generated.is_symlink() or not generated.is_file():
+                    raise ValueError(f"Unsafe compiler output: {generated}")
+                confined_output.write(
+                    generated.relative_to(workspace), generated.read_bytes()
+                )
             compilation[side] = (
                 None
                 if compiled.returncode == 0
@@ -574,7 +786,9 @@ def run(args, *, executor=execute) -> int:
                 )
             if rule["effective_to"]:
                 end = date.fromisoformat(rule["effective_to"])
-                boundary_dates.extend((end, end + timedelta(days=1)))
+                boundary_dates.extend(
+                    end + timedelta(days=delta) for delta in (-1, 0, 1)
+                )
             for boundary in boundary_dates:
                 case = copy.deepcopy(seed)
                 case["output"] = {output: None}
@@ -616,12 +830,21 @@ def run(args, *, executor=execute) -> int:
                                 date.fromisoformat(period[endpoint])
                                 + timedelta(days=delta)
                             ).isoformat()
+                        if variant == "current":
+                            # Determine calendar length from the original seed,
+                            # including Feb-29 fiscal anniversaries, before the
+                            # translator builds fixtures and parameter values.
+                            translated_case["period"] = current_request(
+                                {
+                                    "queries": [{"period": period}],
+                                    "dataset": {"inputs": [], "relations": []},
+                                },
+                                args.as_of,
+                            )["queries"][0]["period"]
                         request = build_request(
                             test_file, translated_case, artifacts[side], root, roots
                         )
                         parameters = request.pop("_companion_parameters", {})
-                        if variant == "current":
-                            request = current_request(request, args.as_of)
                         saved_requests[side] = copy.deepcopy(request)
                     except (ValueError, KeyError, OSError) as error:
                         preparation_error = {"error": str(error)}
@@ -638,7 +861,7 @@ def run(args, *, executor=execute) -> int:
                     else:
                         outcomes[side] = run_modes(
                             Path(engines[side]["binary"]),
-                            out_dir / "artifacts" / side / f"{module_index}.json",
+                            workspace / "artifacts" / side / f"{module_index}.json",
                             request,
                             env,
                             modes,
@@ -649,6 +872,18 @@ def run(args, *, executor=execute) -> int:
                                 mode: dict(outcome, companion_parameters=parameters)
                                 for mode, outcome in outcomes[side].items()
                             }
+                        for mode, outcome in outcomes[side].items():
+                            if missing_input(outcome):
+                                report["incomplete"].append(
+                                    dict(
+                                        module=name,
+                                        case=case.get("name"),
+                                        kind=variant,
+                                        engine=side,
+                                        mode=mode,
+                                        error=outcome["error"],
+                                    )
+                                )
                 context = (
                     inventory_context(artifacts["new"], classification_inventory)
                     if "new" in artifacts
@@ -673,6 +908,9 @@ def run(args, *, executor=execute) -> int:
                 )
                 report["cases"][-1]["source_case"] = copy.deepcopy(case)
         write_report(report, out_dir)
+
+    for module_index, module in enumerate(modules):
+        compare_module(module_index, module)
     counts = write_report(report, out_dir)
     print(json.dumps(dict(counts=report["counts"], report=str(out_dir / "report.md"))))
     return int(bool(counts["DIFF"] or counts["PARITY_BREAK"] or report["incomplete"]))

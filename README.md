@@ -119,22 +119,32 @@ recorded separately as `companion_parameters`, not represented as runtime-derive
 outputs. They reuse translated flat inputs, including table rows; parameter
 errors never replace runtime outcomes, and parameter changes have an independent
 DIFF comparison even alongside an expected derived refusal.
-Boundary probes query each dated single-version derived rule, preferring
-a direct or dependent-output companion; missing companions are marked `no_case`.
+Boundary probes inventory dated single-version derived rules, including the
+engine's top-level `formula` shorthand, and query the day before, the day of,
+and the day after each effective start and end. They prefer a direct or
+dependent-output companion; missing companions are marked `no_case`.
 
 Boundary periods retain their original duration; inputs and relations move by
 the same day delta. Current-period probes run Explain on both engines: months
 use calendar months, tax years retain their fiscal start, benefit weeks retain
 their weekday, and custom periods tile the original duration from its start.
-Date-valued facts are not changed. Generated requests and independently compiled
-artifacts live exclusively under `--out-dir`, outside all RuleSpec checkouts.
+Calendar periods are finalized before translating input and relation intervals,
+preserving their coverage when month or fiscal-year lengths change. Date-valued
+facts are not changed. Published requests and independently compiled artifacts
+live under `--out-dir`, outside `--root`'s repository and every
+`--rulespec-dependency-root` checkout. Compilation uses a fresh private temporary
+directory under the system temporary directory, removed afterward. The command
+rejects a symlinked output directory or any symlink inside an existing output directory, and creates output
+without following links.
 
 `report.json` retains refs, binary digests, module blob SHAs, requests, values and
 errors. `report.md` lists classification counts and every non-PASS comparison.
 Only a precisely identified out-of-window formula refusal is expected, and only
 after an old success or an old date refusal at the same period start (a dated
 parameter with no value yet, or another rule with no formula version); companion
-cases affected this way are flagged for encoder repair. DIFF, new-engine PARITY_BREAK, and incomplete preparations exit nonzero.
+cases affected this way are flagged for encoder repair. Matching missing-input
+refusals count as incomplete coverage. DIFF, new-engine PARITY_BREAK, and
+incomplete preparations or executions exit nonzero.
 Old-only parity breaks are evidence, not a migration gate. Do not move a pin
 with an unexplained on/after-start outcome change or new Explain/Fast disagreement.
 Cross-pin classification uses Explain as the established companion-runner
