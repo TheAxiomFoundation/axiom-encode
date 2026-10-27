@@ -1,1 +1,1 @@
-Allow targeted signed re-encodes to skip retired-manifest reconciliation only when the optional inventory is absent from both committed HEAD and the worktree, while retaining fail-closed manifest, target-binding, symlink, and race checks.
+Probe signed-backfill checkout paths through pinned no-follow directory descriptors, so a symlinked or swapped repository root or ancestor cannot redirect source-add conflict checks or authorized-publication staging, and only a proven missing path counts as absent.
