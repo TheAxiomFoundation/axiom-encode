@@ -152,7 +152,7 @@ from axiom_encode.harness.validator_pipeline import (
     ValidatorPipeline as _ValidatorPipeline,
 )
 from axiom_encode.repo_routing import find_policy_repo_root
-from tests.environment_assertions import expect
+from tests.environment_assertions import expect, throw
 from tests.real_engine import ABSENT_ROOT
 from tests.release_object_fixtures import bind_test_corpus_release
 
@@ -235,7 +235,7 @@ def test_validator_subprocess_capture_read_errors_are_reproducible():
 
     def fail_capture_read(path: Path, *_args, **_kwargs):
         captured_paths.append(path)
-        raise OSError(5, "synthetic capture read failure", str(path))
+        throw(OSError(5, "synthetic capture read failure", str(path)))
 
     errors: list[str] = []
     with patch.object(Path, "read_text", autospec=True, side_effect=fail_capture_read):
@@ -352,7 +352,7 @@ def test_rulespec_run_compiled_timeout_is_reproducible_across_temp_roots(
     )
 
     def timeout_with_command_path(command, **kwargs):
-        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        throw(subprocess.TimeoutExpired(command, kwargs["timeout"]))
 
     issue_sets: list[list[str]] = []
     with patch.object(

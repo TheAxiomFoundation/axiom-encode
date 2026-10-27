@@ -45,7 +45,7 @@ from axiom_encode.ci_parity import (
     resolve_roots,
     simulate_pull_request,
 )
-from tests.environment_assertions import changed_names, expect
+from tests.environment_assertions import Names, changed_names, expect, throw
 
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
 PIN_6F11BE26 = "6f11be2655f79dd0a3b582db46525f58332ca120"
@@ -230,7 +230,12 @@ def _plan(*shards: str, roots: str | None = None) -> ShardPlan:
 
 
 class _BatchRecorder:
-    """Stands in for _run_cli_batch; records every invocation it is handed."""
+    """Stands in for _run_cli_batch; records every invocation it is handed.
+
+    An invocation's environment is recorded wrapped in ``Names``: it compares
+    by value, but pytest prints only its names when a recorded invocation
+    differs from the one expected.
+    """
 
     def __init__(
         self,
@@ -249,10 +254,18 @@ class _BatchRecorder:
         keyring: tuple[str, ...],
         signing_roots: dict[str, str] | None = None,
     ) -> list[tuple[int, str]]:
-        assert jobs == 1
-        assert tuple(keyring) == KEYRING
-        assert not signing_roots
-        batch = list(invocations)
+        expect(jobs == 1, f"jobs={jobs}")
+        expect(tuple(keyring) == KEYRING, f"keyring={tuple(keyring)!r}")
+        expect(not signing_roots, f"signing_roots={signing_roots!r}")
+        batch = [
+            dataclasses.replace(
+                invocation,
+                environment=None
+                if invocation.environment is None
+                else Names(invocation.environment),
+            )
+            for invocation in invocations
+        ]
         self.batches.append(batch)
         if self.events is not None:
             self.events.extend(("batch", item.arguments) for item in batch)
@@ -323,7 +336,7 @@ def _no_real_encoder(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def refuse(name: str) -> Callable[..., Any]:
         def refused(*args: Any, **kwargs: Any) -> Any:
-            raise AssertionError(f"unexpected real {name} call: {args!r}")
+            throw(AssertionError(f"unexpected real {name} call: {args!r}"))
 
         return refused
 

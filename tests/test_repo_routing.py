@@ -32,6 +32,7 @@ from axiom_encode.repo_routing import (
     is_rulespec_source_checkout_root,
     jurisdiction_subdir_names,
 )
+from tests.environment_assertions import throw
 
 
 class ValidatorPipeline(_ValidatorPipeline):
@@ -686,7 +687,7 @@ def test_canonical_identity_rejects_observed_git_boundary_when_git_unavailable(
     plain_root.mkdir(parents=True)
 
     def unavailable_git(*_args, **_kwargs):
-        raise FileNotFoundError("git unavailable")
+        throw(FileNotFoundError("git unavailable"))
 
     monkeypatch.setattr("axiom_encode.repo_routing.subprocess.run", unavailable_git)
 
@@ -714,7 +715,7 @@ def test_checkout_inspection_categorizes_git_probe_launch_failures(
     _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
 
     def failed_git(*_args, **_kwargs):
-        raise error
+        throw(error)
 
     monkeypatch.setattr("axiom_encode.repo_routing.subprocess.run", failed_git)
 

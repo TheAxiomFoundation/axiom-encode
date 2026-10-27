@@ -25,6 +25,7 @@ from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import retired_apply as indexed_admission
+from tests.environment_assertions import throw
 
 RETIRED_APPLY_INVENTORY_SCHEMA = "axiom-encode/retired-apply-inventory/v1"
 _REPOSITORY = re.compile(r"TheAxiomFoundation/rulespec-[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -202,8 +203,8 @@ def _git(repo: Path, *arguments: str, ancestry: bool = False) -> bytes | bool:
     environment = _git_environment()
     executable = shutil.which("git", path=environment.get("PATH") or None)
     if executable is None:
-        raise ValueError(
-            "retired apply verification requires the trusted Git executable"
+        throw(
+            ValueError("retired apply verification requires the trusted Git executable")
         )
     result = subprocess.run(
         [executable, "-C", str(repo), *arguments],
@@ -215,7 +216,7 @@ def _git(repo: Path, *arguments: str, ancestry: bool = False) -> bytes | bool:
     if ancestry and result.returncode in {0, 1}:
         return result.returncode == 0
     if result.returncode != 0:
-        raise ValueError(f"retired apply history query failed: git {arguments[0]}")
+        throw(ValueError(f"retired apply history query failed: git {arguments[0]}"))
     return result.stdout
 
 

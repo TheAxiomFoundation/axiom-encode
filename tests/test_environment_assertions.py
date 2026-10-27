@@ -15,13 +15,21 @@ pytest prints when an assert fails. Its assertion rewriting
 
 Anything else (a subscript, a comprehension, a literal, an f-string) is printed
 as its result alone. Its traceback, in the default ``auto`` style, also prints
-the arguments of the test and of the function the assert failed in, whatever
-the assert says; frames between them are shortened to their source line.
-Below ``-vvv`` each argument is cut to 240 characters, which still holds an
-environment's first variables.
+the arguments of the test and of the function the failure was raised in,
+whatever the assert says; frames between them are shortened to their source
+line. ``Code.getargs`` (``_pytest/_code/code.py``) adds the flags for
+``*args`` and ``**kwargs`` (4 and 8) to the count of arguments, so a function
+taking either has its first few locals printed as well, and keyword-only
+arguments are printed only then. Below ``-vvv`` each argument is cut to 240
+characters, and a dict to its first four keys in sorted order at any
+verbosity, which still holds an environment's first variables.
 
 An assert is flagged when something it prints may be, or may hold, a whole
 environment, and a test is flagged (at its ``def``) when its arguments may.
+Where a function's printed arguments may, its every ``assert``, ``raise`` and
+``pytest.fail`` is flagged. Those arguments are read from the compiled
+function, and every parameter counts too, should pytest come to print
+keyword-only ones.
 The check tracks, for every value, the keys and positions that lead from it
 to an environment inside it. Environments start as:
 
@@ -33,52 +41,68 @@ to an environment inside it. Environments start as:
   ``.call_args``). This counts in a function that launches a process: one that
   names a launcher, patches ``subprocess``, passes ``env=`` or reads an
   ``"env"`` key. A fake defined in a fixture, a class or a helper counts too,
-  where a function that launches reads back what it recorded.
+  where a function that launches reads back what it recorded;
+- the ``env`` or ``environment`` field of a record that prints its fields (a
+  dataclass, this module's or one imported from ``axiom_encode``), wherever
+  one is built or a parameter is annotated with its class.
 
 They are followed through copies and filtered copies, assignments, and
 containers a test or a module-level helper stores them in or returns. They
-are followed into helpers' parameters, into what fixtures return or yield
-(this module's and its conftests'), and into what a module-level class's
-methods store on its instances. A plain class's instance prints as its name
-and address, so only reading its attributes counts. Reads back out by key or
-position follow them too. One value of an environment (``os.environ["X"]``,
-a ``.values()`` item) may be printed; a container or a joined text of them
-holds them all. A fake whose arguments hold an environment checks its call
-with ``expect`` rather than ``assert``, so the failing frame holds no
-environment; ``expect``'s own arguments are printed, and checked here.
+are followed into helpers' parameters, nested helpers' included, into what
+fixtures return or yield (this module's and its conftests'), and into what a
+module-level class's methods store on its instances and its properties
+return, its module bases' included. A plain class's instance, or one built
+on this module's plain classes alone, prints as its name and address, so
+only reading its attributes counts. Reads back out by key or position follow
+them too. One value of an environment (``os.environ["X"]``, a ``.values()``
+item, a value read by one of its own names) may be printed; a container or a
+joined text of them holds them all. Its names alone hold no values, and
+neither do values read by names the test chose. A fake whose arguments hold
+an environment checks its call with ``expect`` rather than ``assert``, and
+raises with ``throw`` rather than ``raise``, so the failing frame holds no
+environment; ``expect``'s and ``throw``'s own arguments are printed, and
+checked here. A fake that keeps what it is handed, to be compared whole,
+wraps each environment in ``Names``, which prints names alone; a
+``dataclasses.replace`` that swaps it in holds no environment.
 ``test_the_check_agrees_with_pytest`` runs pytest on examples of each shape to
 keep the model honest.
 
-The model flags more than pytest prints in one case. When ``==`` fails between
-two strings, sequences, sets or dicts, or a set comparison fails, pytest prints
-its own diff of the two results in place of what their operands would print.
-The operands' types are not known here, so such asserts are flagged as well.
+The model flags more than pytest prints in two cases. When ``==`` fails
+between two strings, sequences, sets or dicts, or a set comparison fails,
+pytest prints its own diff of the two results in place of what their operands
+would print. The operands' types are not known here, so such asserts are
+flagged as well. And a keyword-only parameter of a function taking neither
+``*args`` nor ``**kwargs`` is not printed, but counts here.
 
 It misses what it cannot see. A test that does not itself launch anything may
 read a mock the code under test launched through; ``mock.call_args.kwargs``
 then holds an environment, and pytest prints it as the receiver of
-``.get(...)``. Read such values by subscript. ``--tb=long`` and
-``--showlocals`` print every frame's arguments or locals, the code under
-test's included, and an exception raised inside the code under test or the
-standard library (``subprocess.run(..., check=True)``) prints the arguments of
-the frame that raised it. Those are outside what an assert can control.
+``.get(...)``. Read such values by subscript. A fake whose arguments hold an
+environment prints them when it raises by accident (a missing key).
+``--tb=long`` and ``--showlocals`` print every frame's arguments or locals,
+the code under test's included, and an exception raised inside the code under
+test or the standard library (``subprocess.run(..., check=True)``) prints the
+arguments of the frame that raised it. Those are outside what an assert can
+control.
 """
 
 from __future__ import annotations
 
 import ast
 import functools
+import inspect
 import os
 import re
 import subprocess
 import sys
+import types
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from tests.environment_assertions import changed_names
+from tests.environment_assertions import Names, changed_names
 
 TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parent
@@ -89,12 +113,15 @@ REPO = TESTS.parent
 # FRAGMENT leads to one of an environment's values instead: printing one value
 # is allowed, but a container of them (``list(os.environ.values())``) holds
 # them all.
+# A path ending in KEY leads to one of an environment's names, which may be
+# printed; a value read by one is a FRAGMENT.
 # A path through HIDDEN passes through an object that prints as its class
 # and address, not its attributes: ``recorder`` prints nothing it records,
 # but ``recorder.calls`` does.
 Path_ = tuple[object, ...]
 ANY = "*"
 FRAGMENT = "<value>"
+KEY = "<name>"
 HIDDEN = "<object>"
 # Deeper paths are dropped, which keeps the analysis finite.
 MAX_DEPTH = 6
@@ -135,19 +162,27 @@ def _descend(paths: Iterable[Path_], key: object) -> set[Path_]:
         path[1:]
         for path in paths
         if path
-        and path[0] not in (FRAGMENT, HIDDEN)
+        and path[0] not in (FRAGMENT, KEY, HIDDEN)
         and (key == ANY or path[0] == ANY or path[0] == key)
     }
 
 
 def _holds(paths: Iterable[Path_]) -> bool:
     """Whether printing a value with ``paths`` may print a whole environment."""
-    return any(path != (FRAGMENT,) and HIDDEN not in path for path in paths)
+    return any(
+        path != (FRAGMENT,) and KEY not in path and HIDDEN not in path for path in paths
+    )
+
+
+def _elements(paths: Iterable[Path_]) -> set[Path_]:
+    """The paths of the elements iterating a value with ``paths`` yields."""
+    paths = set(paths)
+    return _descend(paths, ANY) | ({(KEY,)} if () in paths else set())
 
 
 def _text(found: Iterable[set[Path_]]) -> set[Path_]:
     """The paths of text formatted from values with each of ``found``."""
-    found = list(found)
+    found = [{path for path in paths if KEY not in path} for paths in found]
     if any(_holds(paths) for paths in found):
         return {()}
     return {(FRAGMENT,)} if any(found) else set()
@@ -164,6 +199,49 @@ def _own_nodes(node: ast.AST) -> Iterator[ast.AST]:
         yield child
         if not isinstance(child, (*FUNCTIONS, ast.ClassDef)):
             yield from _own_nodes(child)
+
+
+def _dotted(node: ast.AST) -> str:
+    """``node``'s dotted name (``ci_parity.CliInvocation``), or ``""``."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        owner = _dotted(node.value)
+        return f"{owner}.{node.attr}" if owner else ""
+    return ""
+
+
+def _class_fields(tree: ast.Module) -> dict[str, tuple[str, ...]]:
+    """The annotated fields, in order, of each class ``tree`` defines whose
+    instances print them."""
+    classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
+    return {
+        name: tuple(
+            item.target.id
+            for item in node.body
+            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name)
+        )
+        for name, node in classes.items()
+        if _shows_attributes(node, classes)
+    }
+
+
+@functools.cache
+def _src_fields(module: str) -> dict[str, tuple[str, ...]]:
+    """``_class_fields`` of this package's module ``module``, if it is one."""
+    base = REPO / "src" / Path(*module.split("."))
+    for path in (base.with_suffix(".py"), base / "__init__.py"):
+        if path.is_file():
+            return _class_fields(ast.parse(path.read_text(encoding="utf-8")))
+    return {}
+
+
+def _code_objects(code: types.CodeType) -> Iterator[types.CodeType]:
+    """``code`` and the code objects of every function defined within it."""
+    yield code
+    for constant in code.co_consts:
+        if isinstance(constant, types.CodeType):
+            yield from _code_objects(constant)
 
 
 def _parameters(function: ast.AST) -> list[str]:
@@ -202,6 +280,8 @@ class _Scope:
     ) -> None:
         self.bindings = {name: set(paths) for name, paths in (bindings or {}).items()}
         self.launches = launches
+        # The functions defined within the one this scope binds, by name.
+        self.nested: dict[str, ast.AST] = {}
 
     def get(self, name: str) -> set[Path_]:
         return self.bindings.get(name, set())
@@ -218,19 +298,26 @@ def _name(node: ast.AST) -> str:
     return getattr(target, "id", getattr(target, "attr", ""))
 
 
-def _shows_attributes(owner: ast.ClassDef) -> bool:
+def _shows_attributes(
+    owner: ast.ClassDef, classes: Mapping[str, ast.ClassDef] | None = None
+) -> bool:
     """Whether printing an instance of ``owner`` may print its attributes.
 
     A plain class (or an exception) prints as its name and address; a
     dataclass, a class with its own ``__repr__``, or one built on another
-    class may print what it holds.
+    class may print what it holds, unless that class is one of ``classes``
+    that does not.
     """
     if any(getattr(node, "name", "") == "__repr__" for node in owner.body):
         return True
     if any(_name(decorator) != "final" for decorator in owner.decorator_list):
         return True
+    classes = classes or {}
     return any(
-        _name(base) != "object" and not _name(base).endswith(("Error", "Exception"))
+        _shows_attributes(classes[_dotted(base)], classes)
+        if _dotted(base) in classes
+        else _name(base) != "object"
+        and not _name(base).endswith(("Error", "Exception"))
         for base in owner.bases
     )
 
@@ -251,6 +338,12 @@ class _Check:
         recorded: bool = False,
     ) -> None:
         self.tree = tree
+        # Each function's code object, by name and first line (a decorated
+        # function's starts at its first decorator).
+        self.codes = {
+            (code.co_name, code.co_firstlineno): code
+            for code in _code_objects(compile(tree, "<test>", "exec"))
+        }
         # Whether every fake's recorded keyword arguments may hold an
         # environment, not only a launching function's own. A function the
         # module calls by name is not a fake: its callers are in view.
@@ -289,6 +382,16 @@ class _Check:
         self.classes = {
             node.name: node for node in tree.body if isinstance(node, ast.ClassDef)
         }
+        self.owners = {
+            method: name
+            for name, owner in self.classes.items()
+            for method in owner.body
+            if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        # Classes whose instances print a field named ``env`` or
+        # ``environment`` (such as ``CliInvocation``), by the dotted name this
+        # module uses: their fields, in order.
+        self.carriers = self._carriers(tree)
         # What each module-level helper returns, and what it stores into
         # each of its parameters (such as a fake ``main`` installer filling
         # the caller's record).
@@ -324,13 +427,83 @@ class _Check:
                     )
                     for path in self.scopes[method].get(_parameters(method)[0])
                 }
-                if not _shows_attributes(owner):
+                # A property reads as what it returns.
+                stored |= {
+                    path
+                    for method in owner.body
+                    if method in self.scopes
+                    and any(
+                        _name(decorator) in {"property", "cached_property"}
+                        for decorator in method.decorator_list
+                    )
+                    for node in _own_nodes(method)
+                    if isinstance(node, ast.Return)
+                    for path in _under(
+                        f".{method.name}", self.paths(node.value, self.scopes[method])
+                    )
+                }
+                # And it holds what its module bases' methods store.
+                stored |= {
+                    path[1:] if path[:1] == (HIDDEN,) else path
+                    for base in owner.bases
+                    for path in self.instances.get(_dotted(base), set())
+                }
+                if not _shows_attributes(owner, self.classes):
                     stored = _under(HIDDEN, stored)
                 changed |= stored != self.instances.get(name, set())
                 self.instances[name] = stored
             changed |= self.passing
 
     # -- where environments are --------------------------------------------
+
+    @staticmethod
+    def _carriers(tree: ast.Module) -> dict[str, tuple[str, ...]]:
+        carriers: dict[str, tuple[str, ...]] = {}
+
+        def add(prefix: str, classes: Mapping[str, tuple[str, ...]]) -> None:
+            for name, fields in classes.items():
+                if ENVIRONMENT_KEYS & set(fields):
+                    carriers[prefix + name] = fields
+
+        add("", _class_fields(tree))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                if node.module.partition(".")[0] != "axiom_encode":
+                    continue
+                classes = _src_fields(node.module)
+                for alias in node.names:
+                    local = alias.asname or alias.name
+                    add("", {local: classes.get(alias.name, ())})
+                    add(f"{local}.", _src_fields(f"{node.module}.{alias.name}"))
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.partition(".")[0] == "axiom_encode":
+                        add(f"{alias.asname or alias.name}.", _src_fields(alias.name))
+        return carriers
+
+    def _annotated(self, node: ast.AST | None) -> set[Path_]:
+        """The paths to environments in a value of the type ``node`` names."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            try:
+                node = ast.parse(node.value, mode="eval").body
+            except SyntaxError:
+                return set()
+        if node is None:
+            return set()
+        fields = self.carriers.get(_dotted(node), ())
+        if fields:
+            return {(f".{field}",) for field in fields if field in ENVIRONMENT_KEYS}
+        if isinstance(node, ast.BinOp):
+            return self._annotated(node.left) | self._annotated(node.right)
+        if isinstance(node, ast.Subscript):
+            parts = (
+                node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            )
+            inner = {path for part in parts for path in self._annotated(part)}
+            if _name(node.value) in {"Optional", "Union", "Annotated", "Final"}:
+                return inner
+            return _under(ANY, inner)
+        return set()
 
     @staticmethod
     def _key(node: ast.AST) -> object:
@@ -368,7 +541,11 @@ class _Check:
             inner = self.paths(node.value, scope)
             if isinstance(node.slice, ast.Slice):
                 return inner
-            return _descend(inner, self._key(node.slice))
+            key = self._key(node.slice)
+            # One value of an environment, read by one of its names.
+            named = (KEY,) in self.paths(node.slice, scope)
+            fragment = {(FRAGMENT,)} if named and () in inner else set()
+            return _descend(inner, key) | fragment
         if isinstance(node, ast.Dict):
             found: set[Path_] = set()
             for key, value in zip(node.keys, node.values):
@@ -426,12 +603,17 @@ class _Check:
                 return receiver
             if name in {"get", "pop", "setdefault"} and node.args:
                 default = arguments[1] if len(arguments) > 1 else set()
-                return _descend(receiver, self._key(node.args[0])) | default
+                key = self._key(node.args[0])
+                named = (KEY,) in arguments[0]
+                fragment = {(FRAGMENT,)} if named and () in receiver else set()
+                return _descend(receiver, key) | default | fragment
             # An environment's items and values hold its values: each one is
             # a fragment, and all of them together are the environment.
             whole = () in receiver
+            if name == "keys" and whole:
+                return {(ANY, KEY)}
             if name == "items":
-                return ({(), (ANY, 1, FRAGMENT)} if whole else set()) | {
+                return ({(), (ANY, 0, KEY), (ANY, 1, FRAGMENT)} if whole else set()) | {
                     (ANY, 1, *path[1:]) for path in receiver if path
                 }
             if name == "values":
@@ -440,7 +622,40 @@ class _Check:
                 }
             # Joined text holds every element's value.
             if name == "join" and node.args:
-                return {()} if _descend(first, ANY) else set()
+                values = {path for path in _descend(first, ANY) if KEY not in path}
+                return {()} if values else set()
+        fields = self.carriers.get(_dotted(function), ())
+        if fields:
+            # A carrier holds what its environment field is given.
+            found = set()
+            for position, argument in enumerate(node.args):
+                if isinstance(argument, ast.Starred):
+                    break
+                if position < len(fields) and fields[position] in ENVIRONMENT_KEYS:
+                    found |= _under(f".{fields[position]}", arguments[position])
+            for keyword in node.keywords:
+                if keyword.arg in ENVIRONMENT_KEYS:
+                    found |= _under(f".{keyword.arg}", self.paths(keyword.value, scope))
+            return found | self.instances.get(_dotted(function), set())
+        if (
+            name == "replace"
+            and node.args
+            and _dotted(function)
+            in {
+                "replace",
+                "dataclasses.replace",
+            }
+        ):
+            # ``dataclasses.replace``: the fields given are replaced.
+            given = {f".{keyword.arg}" for keyword in node.keywords}
+            found = {path for path in first if not path or path[0] not in given}
+            for keyword in node.keywords:
+                if keyword.arg:
+                    found |= _under(f".{keyword.arg}", self.paths(keyword.value, scope))
+            return found
+        if name == "Names":
+            # It prints an environment's names alone.
+            return set()
         if name in COPIES and (node.args or node.keywords):
             found = set(first)
             for keyword in node.keywords:
@@ -448,9 +663,9 @@ class _Check:
                 found |= inner if keyword.arg is None else _under(keyword.arg, inner)
             return found
         if name in SEQUENCES and node.args:
-            return _under(ANY, _descend(first, ANY))
+            return _under(ANY, _elements(first))
         if name == "next" and node.args:
-            return _descend(first, ANY)
+            return _elements(first)
         if name in TEXT:
             return _text(
                 [
@@ -475,7 +690,7 @@ class _Check:
         """
         passed = self.passed.get(getattr(function, "name", None), {})
         arguments = function.args
-        return {
+        seeds = {
             argument.arg: self.fixtures.get(argument.arg, set())
             | passed.get(argument.arg, set())
             | ({()} if argument.arg in ENVIRONMENT_KEYS else set())
@@ -483,15 +698,48 @@ class _Check:
             + arguments.args
             + arguments.kwonlyargs
         }
+        # A method reads what its class's methods store on the instance.
+        owner = self.owners.get(function)
+        parameters = _parameters(function)
+        if (
+            owner is not None
+            and parameters
+            and "staticmethod"
+            not in {_name(decorator) for decorator in function.decorator_list}
+        ):
+            seeds[parameters[0]] |= {
+                path[1:] if path[:1] == (HIDDEN,) else path
+                for path in self.instances.get(owner, set())
+            }
+        return seeds
 
     def _bind(self, function: ast.AST) -> _Scope:
         launches = _launches(function)
         scope = _Scope(self.globals.bindings, launches=self.recorded or launches)
         for name, paths in self._seeds(function).items():
             scope.bind(name, paths)
+        scope.nested = {
+            node.name: node
+            for node in ast.walk(function)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node is not function
+        }
         for node in ast.walk(function):
             if isinstance(node, FUNCTIONS):
                 arguments = node.args
+                if getattr(node, "name", None) not in self.called:
+                    # Code out of view passes a parameter declared to hold an
+                    # environment carrier one.
+                    for argument in (
+                        arguments.posonlyargs + arguments.args + arguments.kwonlyargs
+                    ):
+                        scope.bind(argument.arg, self._annotated(argument.annotation))
+                    for argument in (arguments.vararg, arguments.kwarg):
+                        if argument is not None:
+                            scope.bind(
+                                argument.arg,
+                                _under(ANY, self._annotated(argument.annotation)),
+                            )
                 for argument in (
                     arguments.posonlyargs + arguments.args + arguments.kwonlyargs
                 ):
@@ -593,7 +841,7 @@ class _Check:
             return any([self._store(target, found, scope) for target in targets])
         if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
             return self._store(
-                node.target, _descend(self.paths(node.iter, scope), ANY), scope
+                node.target, _elements(self.paths(node.iter, scope)), scope
             )
         if isinstance(node, ast.withitem) and node.optional_vars is not None:
             return self._store(
@@ -607,7 +855,9 @@ class _Check:
             stored = self._stored(node, scope)
             if stored:
                 changed |= self._store(function.value, stored, scope)
-        if isinstance(function, ast.Name) and function.id in self.helpers:
+        if isinstance(function, ast.Name) and function.id in scope.nested:
+            changed |= self._enter(scope.nested[function.id], node, scope)
+        elif isinstance(function, ast.Name) and function.id in self.helpers:
             self._pass(node, scope)
         if isinstance(function, ast.Name) and self.filled.get(function.id):
             helper = self.helpers[function.id]
@@ -619,6 +869,33 @@ class _Check:
             for keyword in node.keywords:
                 if keyword.arg in filled:
                     changed |= self._store(keyword.value, filled[keyword.arg], scope)
+        return changed
+
+    def _enter(self, function: ast.AST, node: ast.Call, scope: _Scope) -> bool:
+        """Bind a nested function's parameters to what ``node`` passes them."""
+        arguments = function.args
+        positional = [*arguments.posonlyargs, *arguments.args]
+        named = {argument.arg for argument in [*positional, *arguments.kwonlyargs]}
+        changed = False
+        for position, argument in enumerate(node.args):
+            if isinstance(argument, ast.Starred):
+                break
+            paths = self.paths(argument, scope)
+            if position < len(positional):
+                changed |= scope.bind(positional[position].arg, paths)
+            elif arguments.vararg is not None:
+                changed |= scope.bind(
+                    arguments.vararg.arg, _under(position - len(positional), paths)
+                )
+        for keyword in node.keywords:
+            paths = self.paths(keyword.value, scope)
+            if keyword.arg in named:
+                changed |= scope.bind(keyword.arg, paths)
+            elif arguments.kwarg is not None:
+                changed |= scope.bind(
+                    arguments.kwarg.arg,
+                    paths if keyword.arg is None else _under(keyword.arg, paths),
+                )
         return changed
 
     def _pass(self, node: ast.Call, scope: _Scope) -> None:
@@ -695,11 +972,15 @@ class _Check:
         elif shown:
             yield node
 
-    @staticmethod
-    def _arguments_hold(function: ast.AST, scope: _Scope) -> bool:
-        """Whether printing ``function``'s arguments may print an environment."""
+    def _arguments_hold(self, function: ast.AST, scope: _Scope) -> bool:
+        """Whether printing ``function``'s arguments may print an environment.
+
+        pytest prints the first names of its code object's ``co_varnames``,
+        as many as ``Code.getargs`` counts: assertion rewriting only adds
+        names, so the unrewritten code object's are as many or more.
+        """
         arguments = function.args
-        names = [
+        names = {
             argument.arg
             for argument in [
                 *arguments.posonlyargs,
@@ -709,7 +990,15 @@ class _Check:
                 arguments.kwarg,
             ]
             if argument is not None
-        ]
+        }
+        first = min(node.lineno for node in [function, *function.decorator_list])
+        code = self.codes[function.name, first]
+        count = (
+            code.co_argcount
+            + (code.co_flags & inspect.CO_VARARGS)
+            + (code.co_flags & inspect.CO_VARKEYWORDS)
+        )
+        names.update(code.co_varnames[:count])
         return any(_holds(scope.get(name)) for name in names)
 
     def leaks(self) -> list[int]:
@@ -720,7 +1009,8 @@ class _Check:
                 continue
             scope = self.scopes[function]
             # pytest's traceback shows the arguments of the failing test, and
-            # of the function whose assert failed, whatever the assert says.
+            # of the function the failure was raised in, whatever the assert
+            # says. ``pytest.fail`` hides its own frame, so it is its caller's.
             if function.name.startswith("test") and self._arguments_hold(
                 function, scope
             ):
@@ -732,15 +1022,22 @@ class _Check:
                     lines.extend(
                         node.lineno
                         for node in _own_nodes(frame)
-                        if isinstance(node, ast.Assert)
+                        if isinstance(node, (ast.Assert, ast.Raise))
+                        or (
+                            isinstance(node, ast.Call)
+                            and isinstance(node.func, ast.Attribute)
+                            and node.func.attr == "fail"
+                            and getattr(node.func.value, "id", "") == "pytest"
+                        )
                     )
             for node in ast.walk(function):
                 if (
                     isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Name)
-                    and node.func.id == "expect"
+                    and node.func.id in {"expect", "throw"}
                 ):
-                    # ``expect`` shows its arguments' values, as its own.
+                    # ``expect`` and ``throw`` show their arguments' values,
+                    # as their own.
                     shown = [*node.args, *(k.value for k in node.keywords)]
                     if any(_holds(self.paths(part, scope)) for part in shown):
                         lines.append(node.lineno)
@@ -823,13 +1120,14 @@ SENTINEL = "aaa-sentinel-value-not-secret"
 # Each test fails. Those named ``test_leaks_*`` print the sentinel's value.
 # Those named ``test_flagged_*`` don't, but are flagged (see the docstring).
 EXAMPLES = """
+import dataclasses
 import os
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 
-from tests.environment_assertions import changed_names, expect
+from tests.environment_assertions import Names, changed_names, expect, throw
 
 GLOBAL_ENVIRONMENT = dict(os.environ)
 helpers = SimpleNamespace(child_environment=lambda: dict(os.environ))
@@ -905,6 +1203,42 @@ def embedded_names(monkeypatch):
 
     monkeypatch.setattr(runner, "run_embedded", spy)
     return calls
+
+
+@dataclasses.dataclass(frozen=True)
+class Invocation:
+    command: str
+    environment: dict | None = None
+
+
+class BatchRecorder:
+    def __init__(self):
+        self.batches = []
+
+    def __call__(self, invocations: list[Invocation]):
+        self.batches.append(list(invocations))
+
+    @property
+    def invocations(self):
+        return [invocation for batch in self.batches for invocation in batch]
+
+
+class AuditRecorder(BatchRecorder):
+    def __call__(self, invocations: list[Invocation]):
+        super().__call__(invocations)
+
+
+class NamesRecorder:
+    def __init__(self):
+        self.invocations = []
+
+    def __call__(self, invocations: list[Invocation]):
+        for invocation in invocations:
+            self.invocations.append(
+                dataclasses.replace(
+                    invocation, environment=Names(invocation.environment)
+                )
+            )
 
 
 def test_leaks_restored_environment():
@@ -1122,6 +1456,58 @@ def test_leaks_expect_detail():
     expect("AAA_MISSING" in environment, environment)
 
 
+def test_leaks_fake_local():
+    def fake_run(*args, **kwargs):
+        environment = dict(os.environ)
+        assert args == (["cargo"],)
+
+    fake_run(["git"])
+
+
+def test_leaks_fake_raise():
+    def fake_run(command, **kwargs):
+        raise TimeoutError(command)
+
+    fake_run(["git"], env=dict(os.environ))
+
+
+def test_leaks_fake_fail():
+    def fake_run(command, **kwargs):
+        pytest.fail(f"unexpected {command}")
+
+    fake_run(["git"], env=dict(os.environ))
+
+
+def test_leaks_recorded_invocations():
+    recorder = BatchRecorder()
+    recorder([Invocation("check", dict(os.environ))])
+    assert recorder.invocations == []
+
+
+def test_leaks_inherited_recorder():
+    recorder = AuditRecorder()
+    recorder([Invocation("check", dict(os.environ))])
+    assert recorder.invocations == []
+
+
+def test_leaks_invocation_attribute():
+    invocation = Invocation("check", dict(os.environ))
+    assert not invocation.command
+
+
+def test_leaks_values_by_name():
+    values = [os.environ[name] for name in os.environ]
+    assert "AAA_MISSING" in values
+
+
+def test_leaks_nested_helper_mapping():
+    def check(mapping):
+        names = set(mapping)
+        assert "AAA_MISSING" in names
+
+    check(dict(os.environ))
+
+
 def test_restored_names():
     before = dict(os.environ)
     os.environ["AAA_CHANGED_TOO"] = "1"
@@ -1237,6 +1623,35 @@ def test_fake_expect():
     fake_run(["git"], env=dict(os.environ))
 
 
+def test_fake_throw():
+    def fake_run(command, **kwargs):
+        throw(TimeoutError(command))
+
+    fake_run(["git"], env=dict(os.environ))
+
+
+def test_local_past_the_printed_arguments():
+    def run(*options, ask=None):
+        command = ["pytest", *options]
+        report = "report"
+        environment = dict(os.environ)
+        assert ask is None, ask
+
+    run(ask="x")
+
+
+def test_wrapped_invocations():
+    recorder = NamesRecorder()
+    recorder([Invocation("check", dict(os.environ))])
+    assert recorder.invocations == []
+
+
+def test_values_by_constant_names():
+    environment = dict(os.environ)
+    values = [environment[name] for name in ("AAA_OTHER", "HOME")]
+    assert values == []
+
+
 def test_plain_object():
     fake = Recorder()
     fake(environment=dict(os.environ))
@@ -1257,6 +1672,13 @@ def test_flagged_diffed_lists():
 
 def test_flagged_diffed_strings():
     assert str(len(os.environ)) == "0"
+
+
+def test_flagged_keyword_only():
+    def fake_run(command, *, env):
+        assert command == "cargo"
+
+    fake_run("git", env=dict(os.environ))
 """
 
 
@@ -1311,11 +1733,11 @@ def test_the_check_agrees_with_pytest(tmp_path: Path) -> None:
     )
     reports = _failure_output(completed.stdout)
     printed = {name for name, text in reports.items() if SENTINEL in text}
-    diffed = {name for name in tests if "_flagged_" in name}
+    overflagged = {name for name in tests if "_flagged_" in name}
 
     assert sorted(reports) == sorted(tests)
     assert sorted(printed) == sorted(name for name in tests if "_leaks_" in name)
-    assert sorted(flagged) == sorted(printed | diffed)
+    assert sorted(flagged) == sorted(printed | overflagged)
 
 
 def test_changed_names_example() -> None:
@@ -1340,3 +1762,20 @@ def test_changed_names_is_empty_exactly_when_equal(
     assert set(changed) <= before.keys() | after.keys()
     for name in changed:
         assert (name in before, before.get(name)) != (name in after, after.get(name))
+
+
+values = st.dictionaries(
+    st.sampled_from(["A", "B", "C", "D"]), st.sampled_from(["", "0", "secret"])
+)
+
+
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(kept=values, other=values)
+def test_names_compares_by_value_and_prints_names(
+    kept: dict[str, str], other: dict[str, str]
+) -> None:
+    names = Names(kept)
+    assert (names == other) == (kept == other) == (other == names)
+    assert (names == Names(other)) == (kept == other)
+    assert dict(names) == kept
+    assert repr(names) == f"Names({sorted(kept)!r})"

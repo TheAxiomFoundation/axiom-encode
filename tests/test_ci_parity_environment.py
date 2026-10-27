@@ -24,7 +24,7 @@ from axiom_encode import ci_parity
 from axiom_encode.ci_parity import GateSpec
 from axiom_encode.engine_binding import EnginePin, resolve_pinned_engine_binary
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
-from tests.environment_assertions import changed_names, expect
+from tests.environment_assertions import changed_names, expect, throw
 
 PIN = "6f11be2655f79dd0a3b582db46525f58332ca120"
 ENGINE_PIN = "a" * 40
@@ -674,7 +674,7 @@ def test_repository_venv_probe_failure_is_a_recorded_mismatch(
     _mock_uv(run, monkeypatch)
 
     def unidentifiable(python, environment):
-        raise ValueError(f"cannot identify interpreter {python}: garbage")
+        throw(ValueError(f"cannot identify interpreter {python}: garbage"))
 
     monkeypatch.setattr(ci_parity, "_python_build_of", unidentifiable)
     assert ci_parity._repository_test_python(run) == sys.executable
@@ -702,7 +702,7 @@ def test_python_build_probe_timeout_is_a_value_error(
     def hang(command, **kwargs):
         timeout = kwargs["timeout"]
         expect(timeout == 60, timeout)
-        raise subprocess.TimeoutExpired(command, 60)
+        throw(subprocess.TimeoutExpired(command, 60))
 
     monkeypatch.setattr(ci_parity.subprocess, "run", hang)
     with pytest.raises(ValueError, match="did not answer"):

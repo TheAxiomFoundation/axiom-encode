@@ -16,7 +16,7 @@ from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import cli
-from tests.environment_assertions import changed_names, expect
+from tests.environment_assertions import changed_names, expect, throw
 from tests.test_encoder_manifest_ancestry import (
     _expected,
     _git,
@@ -653,9 +653,9 @@ def test_every_git_proof_stage_fails_closed(graph, monkeypatch, failure, fetched
             if current == index:
                 expect(tuple(command) == target, command)
                 if failure == "oserror":
-                    raise OSError("injected Git launch failure")
+                    throw(OSError("injected Git launch failure"))
                 if failure == "timeout":
-                    raise subprocess.TimeoutExpired(command, 30)
+                    throw(subprocess.TimeoutExpired(command, 30))
                 return subprocess.CompletedProcess(command, 128, "", "injected error")
             return real_run(command, **kwargs)
 

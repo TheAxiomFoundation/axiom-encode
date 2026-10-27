@@ -56,7 +56,7 @@ from axiom_encode.run_log import (
     fold_run,
     iter_events,
 )
-from tests.environment_assertions import expect
+from tests.environment_assertions import expect, throw
 from tests.eval_evidence_fixtures import (
     TEST_APPLY_PRIVATE_KEY_B64,
     TEST_APPLY_PUBLIC_KEY_B64,
@@ -1505,7 +1505,7 @@ def test_drift_regenerator_rejects_module_at_noncanonical_citation_path(
     def fake_run(*_args, **_kwargs):
         nonlocal called
         called = True
-        raise AssertionError("noncanonical module path reached subprocess")
+        throw(AssertionError("noncanonical module path reached subprocess"))
 
     monkeypatch.setattr(regeneration.subprocess, "run", fake_run)
     monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
@@ -1663,7 +1663,7 @@ def test_drift_publisher_rejects_invalid_diff_before_github_mutation(
     )
 
     def fail_github(*_args, **_kwargs):
-        raise AssertionError("invalid report reached GitHub CLI")
+        throw(AssertionError("invalid report reached GitHub CLI"))
 
     monkeypatch.setattr(cli_commands.subprocess, "run", fail_github)
     status = cli_commands.cmd_publish_drift_report(
@@ -1740,7 +1740,7 @@ def test_drift_regenerator_rejects_unsafe_module_paths(tmp_path, monkeypatch, mo
     def fake_run(*_args, **_kwargs):
         nonlocal called
         called = True
-        raise AssertionError("unsafe path reached subprocess")
+        throw(AssertionError("unsafe path reached subprocess"))
 
     monkeypatch.setattr(regeneration.subprocess, "run", fake_run)
 
@@ -1819,7 +1819,7 @@ def test_drift_regenerator_rejects_manifest_citation_traversal(tmp_path, monkeyp
     def fake_run(*_args, **_kwargs):
         nonlocal called
         called = True
-        raise AssertionError("unsafe citation reached subprocess")
+        throw(AssertionError("unsafe citation reached subprocess"))
 
     monkeypatch.setattr(regeneration.subprocess, "run", fake_run)
 

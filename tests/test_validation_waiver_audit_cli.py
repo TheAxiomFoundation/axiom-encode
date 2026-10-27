@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from axiom_encode import cli
+from tests.environment_assertions import throw
 from tests.release_object_fixtures import bind_test_corpus_release
 
 TEST_CORPUS_RELEASE = "validation-waiver-test-release"
@@ -458,8 +459,10 @@ def test_companion_parse_failure_is_deterministic_and_paths_are_normalized(
     _FakePipeline.result = _pipeline_result(passed=True)
 
     def fail_parse(*args, **kwargs):
-        raise ValueError(
-            f"bad test under {root}; engine={engine}; tmp={kwargs['tmp_path']}"
+        throw(
+            ValueError(
+                f"bad test under {root}; engine={engine}; tmp={kwargs['tmp_path']}"
+            )
         )
 
     with (

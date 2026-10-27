@@ -7,7 +7,7 @@ import pytest
 
 from axiom_encode import cli, repo_routing
 from axiom_encode.harness import validator_pipeline as vp
-from tests.environment_assertions import expect
+from tests.environment_assertions import expect, throw
 
 
 @pytest.fixture
@@ -65,7 +65,7 @@ def test_companion_scopes_are_per_file_and_per_invocation(
 def test_companion_scope_cleans_up_errors(companion_command, monkeypatch, error):
     def execute(*args, **kwargs):
         expect(vp._RULESPEC_RESOLUTION_CACHE.get() is not None)
-        raise error
+        throw(error)
 
     monkeypatch.setattr(cli, "_execute_rulespec_test_file", execute)
     with pytest.raises(type(error)):

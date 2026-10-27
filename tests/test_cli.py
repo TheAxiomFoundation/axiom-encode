@@ -364,6 +364,7 @@ from axiom_encode.repo_routing import (
 )
 from axiom_encode.signing_broker import get_signing_broker
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
+from tests.environment_assertions import throw
 from tests.eval_evidence_fixtures import (
     TEST_APPLY_PRIVATE_KEY_B64,
     TEST_APPLY_PUBLIC_KEY_B64,
@@ -8610,7 +8611,7 @@ rules:
                     ),
                     stderr="",
                 )
-            raise AssertionError(f"unexpected command: {cmd}")
+            throw(AssertionError(f"unexpected command: {cmd}"))
 
         args = MagicMock()
         _write_test_rulespec_toolchain(repo)

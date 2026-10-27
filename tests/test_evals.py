@@ -133,6 +133,7 @@ from axiom_encode.prompts import get_encoder_prompt
 from axiom_encode.repo_routing import find_policy_repo_root, monorepo_checkout_name
 from axiom_encode.signing_broker import get_signing_broker
 from axiom_encode.statute import CitationParts, citation_to_relative_rulespec_path
+from tests.environment_assertions import throw
 from tests.eval_evidence_fixtures import (
     install_test_eval_evidence_keys,
 )
@@ -8750,16 +8751,18 @@ class TestEvaluateArtifact:
             return Path("/opt/axiom-rules-engine")
 
         def compile_timeout(**kwargs):
-            raise subprocess.TimeoutExpired(
-                [
-                    str(kwargs["binary"]),
-                    "compile",
-                    "--program",
-                    str(kwargs["program"]),
-                    "--output",
-                    str(kwargs["output"]),
-                ],
-                timeout=60,
+            throw(
+                subprocess.TimeoutExpired(
+                    [
+                        str(kwargs["binary"]),
+                        "compile",
+                        "--program",
+                        str(kwargs["program"]),
+                        "--output",
+                        str(kwargs["output"]),
+                    ],
+                    timeout=60,
+                )
             )
 
         with (
