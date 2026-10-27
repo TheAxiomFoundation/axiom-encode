@@ -1605,8 +1605,10 @@ def test_supervised_run_cli_forwards_validated_ambient_audit_workers(
 
     code, _ = _run_cli(["--help"], supervised=True)
 
+    # Compare one value so a failure can't print the rest of the environment.
+    forwarded = record["environ"].get(WAIVER_AUDIT_WORKERS_ENV)
     assert code == 0
-    assert record["environ"].get(WAIVER_AUDIT_WORKERS_ENV) == workers
+    assert forwarded == workers
     assert os.environ[WAIVER_AUDIT_WORKERS_ENV] == workers
 
 
@@ -1630,10 +1632,17 @@ def test_supervised_run_cli_refuses_invalid_audit_workers_before_cli(
 
     code, output = _run_cli(["--help"], supervised=True, environment=environment)
 
+    # Compare names only so a failure can't print environment values; the
+    # fake main records the whole environment if it runs.
+    changed = sorted(
+        name
+        for name in set(before) | set(os.environ)
+        if before.get(name) != os.environ.get(name)
+    )
     assert code == 1
     assert WAIVER_AUDIT_WORKERS_ENV in output
-    assert record == {}
-    assert dict(os.environ) == before
+    assert sorted(record) == []
+    assert changed == []
 
 
 @pytest.mark.parametrize("pin", EMBEDDED_PINS)
