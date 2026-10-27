@@ -1645,9 +1645,12 @@ def test_waiver_gate_models_the_steps_declared_audit_workers(
 
     repo, _ = _waiver_repo(tmp_path, {})
     run = _run(repo, tmp_path, sha=pin)
-    run.workflow.step("validate", "Enforce validation waiver ratchet")["env"][
-        WAIVER_AUDIT_WORKERS_ENV
-    ] = workers
+    # The workflow comes from a cached helper: patch its step for this test only.
+    monkeypatch.setitem(
+        run.workflow.step("validate", "Enforce validation waiver ratchet")["env"],
+        WAIVER_AUDIT_WORKERS_ENV,
+        workers,
+    )
     monkeypatch.setenv(WAIVER_AUDIT_WORKERS_ENV, "32")
     seen: list[str | None] = []
 
