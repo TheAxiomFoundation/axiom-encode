@@ -13652,10 +13652,10 @@ def _path_is_deferred(
 
     if not path:
         return () in deferred_paths
-    return any(
-        deferred_path and path[: len(deferred_path)] == deferred_path
-        for deferred_path in deferred_paths
-    )
+    # A non-empty deferred path covers ``path`` exactly when it equals one of
+    # ``path``'s non-empty prefixes, so look the prefixes up instead of
+    # scanning every deferral for every branch.
+    return any(path[:length] in deferred_paths for length in range(1, len(path) + 1))
 
 
 def _branch_citation(
