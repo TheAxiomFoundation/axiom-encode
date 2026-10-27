@@ -1,0 +1,1 @@
+Schedule waiver-audit modules individually on the next idle worker while preserving standalone fingerprints and sorted JSON reports. Log each module's initial validation, companion, and fingerprint duration to stderr; batch setup and isolated discrepancy rechecks are excluded.
