@@ -1574,9 +1574,10 @@ def test_supervised_run_cli_mirrors_the_supervisor_child_environment(
     seen = record["environ"]
     assert {name for name in seen if name.startswith("AXIOM_")} == set(
         SUPERVISOR_FORWARDED_ENVIRONMENT
-    )
+    ) | {WAIVER_AUDIT_WORKERS_ENV}
     for name in SUPERVISOR_FORWARDED_ENVIRONMENT:
         assert seen[name] == f"forwarded-{name}"
+    assert seen[WAIVER_AUDIT_WORKERS_ENV] == "9"
     assert seen["GIT_CONFIG_GLOBAL"] == os.devnull
     assert seen["GIT_CONFIG_NOSYSTEM"] == "1"
     assert seen["GIT_TERMINAL_PROMPT"] == "0"
@@ -1592,6 +1593,73 @@ def test_supervised_run_cli_mirrors_the_supervisor_child_environment(
     assert dict(os.environ) == before_environ
     assert os.getcwd() == before_cwd
     assert sys.argv == before_argv
+
+
+@pytest.mark.parametrize("workers", ["0", "00", "01", "1", "9", "32"])
+def test_supervised_run_cli_forwards_validated_ambient_audit_workers(
+    monkeypatch: pytest.MonkeyPatch, workers: str
+) -> None:
+    record: dict[str, Any] = {}
+    _install_fake_main(monkeypatch, record)
+    monkeypatch.setenv(WAIVER_AUDIT_WORKERS_ENV, workers)
+
+    code, _ = _run_cli(["--help"], supervised=True)
+
+    assert code == 0
+    assert record["environ"].get(WAIVER_AUDIT_WORKERS_ENV) == workers
+    assert os.environ[WAIVER_AUDIT_WORKERS_ENV] == workers
+
+
+@pytest.mark.parametrize("source", ["ambient", "step"])
+@pytest.mark.parametrize(
+    "workers",
+    ["", " 4", "4 ", "+4", "-1", "4_0", "1e1", "0x4", "４", "33", "000", "9" * 4096],
+)
+def test_supervised_run_cli_refuses_invalid_audit_workers_before_cli(
+    monkeypatch: pytest.MonkeyPatch, source: str, workers: str
+) -> None:
+    record: dict[str, Any] = {}
+    _install_fake_main(monkeypatch, record)
+    monkeypatch.delenv(WAIVER_AUDIT_WORKERS_ENV, raising=False)
+    environment = None
+    if source == "ambient":
+        monkeypatch.setenv(WAIVER_AUDIT_WORKERS_ENV, workers)
+    else:
+        environment = {WAIVER_AUDIT_WORKERS_ENV: workers}
+    before = dict(os.environ)
+
+    code, output = _run_cli(["--help"], supervised=True, environment=environment)
+
+    assert code == 1
+    assert WAIVER_AUDIT_WORKERS_ENV in output
+    assert record == {}
+    assert dict(os.environ) == before
+
+
+@pytest.mark.parametrize("pin", EMBEDDED_PINS)
+@pytest.mark.parametrize("workers", ["1", "2"])
+def test_waiver_gate_models_the_steps_declared_audit_workers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pin: str, workers: str
+) -> None:
+    from tests.test_ci_parity_workflow_gates import _run, _spec, _waiver_repo
+
+    repo, _ = _waiver_repo(tmp_path, {})
+    run = _run(repo, tmp_path, sha=pin)
+    run.workflow.step("validate", "Enforce validation waiver ratchet")["env"][
+        WAIVER_AUDIT_WORKERS_ENV
+    ] = workers
+    monkeypatch.setenv(WAIVER_AUDIT_WORKERS_ENV, "32")
+    seen: list[str | None] = []
+
+    def audit() -> None:
+        seen.append(os.environ.get(WAIVER_AUDIT_WORKERS_ENV))
+
+    monkeypatch.setattr("axiom_encode.cli.main", audit)
+    result = ci_parity._gate_validation_waivers(run, _spec("validation_waivers", pin))
+
+    assert result.status == "PASS", result.output
+    assert seen == [workers] * len(run.plan.matrix)
+    assert os.environ[WAIVER_AUDIT_WORKERS_ENV] == "32"
 
 
 def test_unsupervised_run_cli_keeps_ambient_axiom_environment(
@@ -1627,6 +1695,7 @@ def test_environment_overrides_apply_after_supervised_withholding(
 ) -> None:
     record: dict[str, Any] = {}
     _install_fake_main(monkeypatch, record)
+    monkeypatch.setenv(WAIVER_AUDIT_WORKERS_ENV, "invalid ambient setting")
 
     _run_cli(
         ["validation-waivers", "audit"],
@@ -1930,6 +1999,25 @@ def test_run_cli_isolated_passes_keyring_on_stdin_only(
         for key in (CURRENT_KEY, RETIRED_KEY)
         for value in captured["env"].values()
     )
+
+
+def test_run_cli_isolated_bounds_the_synthetic_audit_workers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, Any] = {}
+
+    def worker(command, **kwargs):
+        seen.update(json.loads(kwargs["input"]))
+        return subprocess.CompletedProcess(command, 0, b"", b"")
+
+    monkeypatch.setattr(ci_parity.subprocess, "run", worker)
+    invocation = CliInvocation(
+        ("validation-waivers", "audit"), cwd=tmp_path, supervised=True
+    )
+
+    _run_cli_isolated(invocation, (), 64)
+
+    assert seen["environment"][WAIVER_AUDIT_WORKERS_ENV] == "32"
 
 
 @pytest.mark.parametrize("supervised", [True, False])

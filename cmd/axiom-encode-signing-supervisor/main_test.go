@@ -7,7 +7,11 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -165,7 +169,7 @@ func TestCleanChildEnvironmentForwardsApplyCheckoutIdentity(t *testing.T) {
 	for name, value := range values {
 		t.Setenv(name, value)
 	}
-	environment := cleanChildEnvironment(10, 11, "/trusted/bin", "/trusted")
+	environment := cleanChildEnvironment(10, 11, "/trusted/bin", "/trusted", "")
 	joined := "\n" + strings.Join(environment, "\n") + "\n"
 	for name, value := range values {
 		entry := "\n" + name + "=" + value + "\n"
@@ -395,7 +399,7 @@ func TestBrokerAllowsVerificationOnlyButRejectsAliasedSignerDescriptors(t *testi
 }
 
 func TestCleanChildEnvironmentSetsTrustedRuntimeMarker(t *testing.T) {
-	environment := cleanChildEnvironment(1234, 3, "/opt/axiom-verification", "/root")
+	environment := cleanChildEnvironment(1234, 3, "/opt/axiom-verification", "/root", "")
 	want := map[string]string{
 		trustedRuntimeEnv:  "1",
 		brokerActiveEnv:    "1",
@@ -606,4 +610,217 @@ func TestLegacyTrustRootsRetainsSizeBound(t *testing.T) {
 	if _, _, _, _, _, err := parseProtectedTrustRoots(retired, "/protected/trust.json"); err != nil {
 		t.Fatalf("v4 inventory cannot exceed legacy bound: %v", err)
 	}
+}
+
+// This contract is also consumed by Python without requiring a Go toolchain.
+type waiverAuditWorkersContract struct {
+	Env       string   `json:"env"`
+	MaxDigits int      `json:"max_digits"`
+	MaxValue  int      `json:"max_value"`
+	Accepted  []string `json:"accepted"`
+	Refused   []string `json:"refused"`
+}
+
+func loadWaiverAuditWorkersContract(t testing.TB) waiverAuditWorkersContract {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/waiver_audit_workers.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contract waiverAuditWorkersContract
+	if err := json.Unmarshal(raw, &contract); err != nil {
+		t.Fatal(err)
+	}
+	return contract
+}
+
+func TestCleanChildEnvironmentWithoutWaiverAuditWorkers(t *testing.T) {
+	const name = "AXIOM_ENCODE_WAIVER_AUDIT_WORKERS"
+	t.Setenv(name, "")
+	if err := os.Unsetenv(name); err != nil {
+		t.Fatal(err)
+	}
+	environment := cleanWaiverAuditWorkersTestEnvironment(t)
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, name+"=") {
+			t.Fatal("absent audit workers was added")
+		}
+	}
+	// All fixed entries match the pre-forwarding environment. Existing named
+	// parent passthroughs are checked elsewhere and need not expose their values.
+	fixed := make(map[string]string)
+	for _, entry := range environment {
+		name, value, _ := strings.Cut(entry, "=")
+		ambient := false
+		for _, parentName := range parentOnlyEnvironmentNames {
+			if name == parentName {
+				ambient = true
+				break
+			}
+		}
+		if !ambient {
+			fixed[name] = value
+		}
+	}
+	want := map[string]string{
+		"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_TERMINAL_PROMPT": "0", "HOME": "/trusted", "LANG": "C.UTF-8",
+		"PATH": "/trusted/bin", "PYTHONNOUSERSITE": "1", "PYTHONSAFEPATH": "1",
+		"PYTHONUNBUFFERED": "1", "PYTHONDONTWRITEBYTECODE": "1",
+		"XDG_CONFIG_HOME": "/trusted/.empty-config", "XDG_DATA_HOME": "/trusted/.empty-data",
+		brokerActiveEnv: "1", trustedRuntimeEnv: "1", brokerFDEnv: "11", brokerPIDEnv: "10",
+	}
+	if !reflect.DeepEqual(fixed, want) {
+		t.Fatal("absent setting changed fixed child environment")
+	}
+}
+
+func TestCleanChildEnvironmentForwardsWaiverAuditWorkers(t *testing.T) {
+	contract := loadWaiverAuditWorkersContract(t)
+	for _, raw := range contract.Accepted {
+		t.Run(raw, func(t *testing.T) {
+			t.Setenv(contract.Env, raw)
+			environment := cleanWaiverAuditWorkersTestEnvironment(t)
+			count := 0
+			for _, entry := range environment {
+				if strings.HasPrefix(entry, contract.Env+"=") {
+					count++
+					if entry != contract.Env+"="+raw {
+						t.Fatal("audit workers changed during forwarding")
+					}
+				}
+			}
+			if count != 1 {
+				t.Fatalf("expected one audit worker setting, got %d", count)
+			}
+		})
+	}
+}
+
+// Exercise main's actual exit path in a subprocess. Invalid settings must win
+// even over invalid command options: neither broker nor child can be started.
+func TestCleanChildEnvironmentRefusesMalformedWaiverAuditWorkers(t *testing.T) {
+	contract := loadWaiverAuditWorkersContract(t)
+	for index, raw := range contract.Refused {
+		t.Run(strconv.Itoa(index), func(t *testing.T) {
+			t.Setenv(contract.Env, raw)
+			t.Setenv("AXIOM_TEST_WAIVER_WORKERS_MAIN", "1")
+			command := exec.Command(os.Args[0], "-test.run=^TestWaiverAuditWorkersSupervisorMain$")
+			output, err := command.CombinedOutput()
+			if err == nil {
+				t.Fatal("supervisor accepted malformed audit workers")
+			}
+			exit, ok := err.(*exec.ExitError)
+			if !ok || exit.ExitCode() != 2 {
+				t.Fatalf("expected supervisor exit 2, got %v", err)
+			}
+			if !strings.Contains(string(output), "signing supervisor: "+contract.Env+" must be") {
+				t.Fatalf("expected named audit worker rejection before runtime/broker/child setup, got %s", output)
+			}
+		})
+	}
+}
+
+func TestWaiverAuditWorkersSupervisorMain(t *testing.T) {
+	if os.Getenv("AXIOM_TEST_WAIVER_WORKERS_MAIN") != "1" {
+		return
+	}
+	// These options cannot reach broker setup or child execution. Requiring the
+	// worker diagnostic proves refusal precedes all supervised command paths.
+	os.Args = []string{"axiom-encode-signing-supervisor", "--invalid-supervisor-option"}
+	main()
+	os.Exit(0)
+}
+
+// Exhaust the bounded decimal domain independently of the implementation.
+func TestWaiverAuditWorkersContract(t *testing.T) {
+	contract := loadWaiverAuditWorkersContract(t)
+	if contract.Env != waiverAuditWorkersEnv || contract.MaxDigits != waiverAuditWorkersMaxDigits || contract.MaxValue != waiverAuditWorkersMax {
+		t.Fatal("Go policy differs from the shared Python compatibility contract")
+	}
+	accepted := make(map[string]bool)
+	for _, raw := range contract.Accepted {
+		accepted[raw] = true
+	}
+	if len(accepted) != 43 {
+		t.Fatal("incomplete shared accepted set")
+	}
+	for digits := 1; digits <= 2; digits++ {
+		limit := 10
+		if digits == 2 {
+			limit = 100
+		}
+		for value := 0; value < limit; value++ {
+			raw := fmt.Sprintf("%0*d", digits, value)
+			if got := validateWaiverAuditWorkers(raw) == nil; got != accepted[raw] {
+				t.Fatalf("contract mismatch for %q: accepted=%v", raw, got)
+			}
+		}
+	}
+}
+
+func FuzzWaiverAuditWorkersEnvironment(f *testing.F) {
+	contract := loadWaiverAuditWorkersContract(f)
+	accepted := make(map[string]bool)
+	for _, raw := range contract.Accepted {
+		accepted[raw] = true
+		f.Add(raw)
+	}
+	for _, raw := range contract.Refused {
+		f.Add(raw)
+	}
+	f.Add("\x00")
+	f.Add("٤")
+	f.Fuzz(func(t *testing.T, raw string) {
+		want := accepted[raw]
+		if got := validateWaiverAuditWorkers(raw) == nil; got != want {
+			t.Fatalf("accepted=%v, well-formed=%v for %q", got, want, raw)
+		}
+		// NUL cannot enter an OS environment, but still exercises the parser
+		// above, so validation covers arbitrary strings without a skip.
+		if strings.ContainsRune(raw, 0) {
+			return
+		}
+		t.Setenv(contract.Env, raw)
+		workers, err := waiverAuditWorkersFromEnvironment()
+		if err != nil {
+			if want || workers != "" {
+				t.Fatal("refusal returned a forwardable setting")
+			}
+			return
+		}
+		if !want {
+			t.Fatal("invalid setting was not refused")
+		}
+		environment := cleanChildEnvironment(10, 11, "/trusted/bin", "/trusted", workers)
+		count := 0
+		for _, entry := range environment {
+			if strings.HasPrefix(entry, contract.Env+"=") {
+				count++
+				forwarded := strings.TrimPrefix(entry, contract.Env+"=")
+				if forwarded != raw {
+					t.Fatal("worker setting changed")
+				}
+				value, parseError := strconv.Atoi(forwarded)
+				expected, _ := strconv.Atoi(raw)
+				if parseError != nil || value != expected || value < 0 || value > contract.MaxValue {
+					t.Fatal("forwarded integer meaning changed")
+				}
+				// The shared Python test executes the real parser for every
+				// accepted spelling, including zero's serial-worker meaning.
+			}
+		}
+		if count != 1 {
+			t.Fatalf("expected one forwarded setting, got %d", count)
+		}
+	})
+}
+
+func cleanWaiverAuditWorkersTestEnvironment(t testing.TB) []string {
+	t.Helper()
+	workers, err := waiverAuditWorkersFromEnvironment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cleanChildEnvironment(10, 11, "/trusted/bin", "/trusted", workers)
 }

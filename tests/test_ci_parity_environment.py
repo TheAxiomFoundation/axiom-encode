@@ -1001,7 +1001,7 @@ def test_waiver_gate_uses_ci_workers_in_process(
     monkeypatch.setenv(ci_parity.WAIVER_AUDIT_WORKERS_ENV, "1")
     result = ci_parity._gate_validation_waivers(run, _spec("validation_waivers"))
     assert result.status == "PASS", result.output
-    assert seen == [4] * len(run.plan.matrix)
+    assert seen == [1] * len(run.plan.matrix)
     assert os.environ[ci_parity.WAIVER_AUDIT_WORKERS_ENV] == "1"
 
 

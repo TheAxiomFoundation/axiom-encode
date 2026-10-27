@@ -1647,7 +1647,7 @@ def _expected_audit(run: WorkflowRun, shard: str) -> CliInvocation:
         ),
         cwd=run.repo,
         supervised=True,
-        environment={ci_parity.WAIVER_AUDIT_WORKERS_ENV: "4"},
+        environment={ci_parity.WAIVER_AUDIT_WORKERS_ENV: "1"},
     )
 
 
