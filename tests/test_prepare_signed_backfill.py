@@ -16,6 +16,7 @@ from axiom_encode.legacy_replacement import (
     receipt_identity_payload,
     receipt_identity_sha256,
 )
+from axiom_encode.prepare_signed_backfill import _classify_dependent_cascade
 from scripts.prepare_signed_backfill import (
     MAX_CANONICAL_REFRESH_BUNDLE_CITATIONS,
     MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES,
@@ -3962,6 +3963,300 @@ def test_validate_dependent_cascade_rejects_nonproof_subset_even_when_allowed(
         )
 
 
+@pytest.mark.parametrize("also_direct", [False, True])
+def test_validate_dependent_cascade_accepts_source_parent_child(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    also_direct: bool,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "statutes/7/2012/j.yaml")
+    first = _write_module(
+        repo,
+        "regulations/7-cfr/273/10.yaml",
+        imports=("us:statutes/7/2012/j",),
+    )
+    first.write_text(
+        first.read_text().replace(
+            "rules: []",
+            """rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef""",
+        )
+    )
+    second = _write_module(
+        repo,
+        "regulations/7-cfr/273/11/c.yaml",
+        imports=("us:regulations/7-cfr/273/10",)
+        + (("us:statutes/7/2012/j",) if also_direct else ()),
+    )
+    second.write_text(
+        second.read_text().replace(
+            "rules: []",
+            """module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/11
+rules:
+  - name: nonhousehold_member_treatment
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:regulations/7-cfr/273/10#shelter_deduction
+              hash: sha256:deadbeef""",
+        )
+    )
+    if not also_direct:
+        _write_module(
+            repo,
+            "regulations/7-cfr/273/9.yaml",
+            imports=("us:statutes/7/2012/j",),
+        )
+
+    dependents, mode = _classify_dependent_cascade(
+        repo,
+        "us/statute/7/2012/j",
+        "us/regulation/7/273/10",
+        "us/regulation/7/273/11",
+        target_rulespec_path="us/statutes/7/2012/j.yaml",
+        allow_proof_import_subset=True,
+    )
+
+    expected_mode = "all-direct-proof-chain" if also_direct else "proof-import-chain"
+    assert mode == expected_mode
+    assert dependents == (
+        first.relative_to(repo / "us"),
+        second.relative_to(repo / "us"),
+    )
+    if also_direct:
+        _, without_subset_opt_in = _classify_dependent_cascade(
+            repo,
+            "us/statute/7/2012/j",
+            "us/regulation/7/273/10",
+            "us/regulation/7/273/11/c",
+            target_rulespec_path="us/statutes/7/2012/j.yaml",
+        )
+        assert without_subset_opt_in == "all-direct-proof-chain"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "prepare_signed_backfill.py",
+            "validate-dependent-cascade",
+            str(repo),
+            "us/statute/7/2012/j",
+            "--target-rulespec-path",
+            "us/statutes/7/2012/j.yaml",
+            "--allow-proof-import-subset",
+            "--json",
+            "us/regulation/7/273/10",
+            "us/regulation/7/273/11",
+        ],
+    )
+    prepare_signed_backfill_main()
+    assert json.loads(capsys.readouterr().out) == {
+        "mode": expected_mode,
+        "paths": [
+            "us/regulations/7-cfr/273/10.yaml",
+            "us/regulations/7-cfr/273/11/c.yaml",
+        ],
+    }
+
+
+def test_validate_dependent_cascade_classifies_proof_subset_chain_with_sibling(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "statutes/7/2012/j.yaml")
+    first = _write_module(
+        repo,
+        "regulations/7-cfr/273/10.yaml",
+        imports=("us:statutes/7/2012/j",),
+    )
+    first.write_text(
+        first.read_text().replace(
+            "rules: []",
+            """rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef""",
+        )
+    )
+    second = _write_module(
+        repo,
+        "regulations/7-cfr/273/11/c.yaml",
+        imports=("us:statutes/7/2012/j", "us:regulations/7-cfr/273/10"),
+    )
+    second.write_text(
+        second.read_text().replace(
+            "rules: []",
+            """module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/11
+rules:
+  - name: nonhousehold_member_treatment
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef
+          - kind: import
+            import:
+              target: us:regulations/7-cfr/273/10#shelter_deduction
+              hash: sha256:deadbeef""",
+        )
+    )
+    _write_module(
+        repo,
+        "regulations/7-cfr/273/9.yaml",
+        imports=("us:statutes/7/2012/j",),
+    )
+
+    dependents, mode = _classify_dependent_cascade(
+        repo,
+        "us/statute/7/2012/j",
+        "us/regulation/7/273/10",
+        "us/regulation/7/273/11",
+        target_rulespec_path="us/statutes/7/2012/j.yaml",
+        allow_proof_import_subset=True,
+    )
+
+    assert mode == "proof-import-subset-chain"
+    assert dependents == (
+        first.relative_to(repo / "us"),
+        second.relative_to(repo / "us"),
+    )
+
+
+def test_validate_dependent_cascade_rejects_unattested_source_parent_child(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "statutes/7/2012/j.yaml")
+    first = _write_module(
+        repo,
+        "regulations/7-cfr/273/10.yaml",
+        imports=("us:statutes/7/2012/j",),
+    )
+    first.write_text(
+        first.read_text().replace(
+            "rules: []",
+            """rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef""",
+        )
+    )
+    second = _write_module(
+        repo,
+        "regulations/7-cfr/273/11/c.yaml",
+        imports=("us:regulations/7-cfr/273/10",),
+    )
+    second.write_text(
+        second.read_text().replace(
+            "rules: []",
+            """module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/11/d
+rules:
+  - name: nonhousehold_member_treatment
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:regulations/7-cfr/273/10#shelter_deduction
+              hash: sha256:deadbeef""",
+        )
+    )
+
+    with pytest.raises(ValueError, match="source-parent dependent"):
+        _classify_dependent_cascade(
+            repo,
+            "us/statute/7/2012/j",
+            "us/regulation/7/273/10",
+            "us/regulation/7/273/11",
+            target_rulespec_path="us/statutes/7/2012/j.yaml",
+            allow_proof_import_subset=True,
+        )
+
+
+def test_validate_dependent_cascade_rejects_incomplete_two_hop_proof_chain(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "statutes/7/2012/j.yaml")
+    first = _write_module(
+        repo,
+        "regulations/7-cfr/273/10.yaml",
+        imports=("us:statutes/7/2012/j",),
+    )
+    first.write_text(
+        first.read_text().replace(
+            "rules: []",
+            """rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef""",
+        )
+    )
+    for section in ("c", "d"):
+        dependent = _write_module(
+            repo,
+            f"regulations/7-cfr/273/11/{section}.yaml",
+            imports=("us:regulations/7-cfr/273/10",),
+        )
+        dependent.write_text(
+            dependent.read_text().replace(
+                "rules: []",
+                f"""rules:
+  - name: treatment_{section}
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:regulations/7-cfr/273/10#shelter_deduction
+              hash: sha256:deadbeef""",
+            )
+        )
+
+    with pytest.raises(ValueError, match="does not exactly match"):
+        _classify_dependent_cascade(
+            repo,
+            "us/statute/7/2012/j",
+            "us/regulation/7/273/10",
+            "us/regulation/7/273/11/c",
+            target_rulespec_path="us/statutes/7/2012/j.yaml",
+            allow_proof_import_subset=True,
+        )
+
+
 def test_validate_rulespec_base_accepts_main_ancestor(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     base = _add_origin_main(repo)
@@ -4028,7 +4323,11 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
         ("us", "b5273061fc5765dea04bf36f63de39bf40afc2d8"),
         ("us", "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a"),
+        ("us", "87c766a7ecc76d7d36272c648f6daf87b4669317"),
+        ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
+        ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
+        ("ca", "94789006ce372a1967c258ef47c12b15a1fe511e"),
     ],
 )
 def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
@@ -4059,7 +4358,11 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
             ("us", "b5273061fc5765dea04bf36f63de39bf40afc2d8"),
             ("us", "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a"),
+            ("us", "87c766a7ecc76d7d36272c648f6daf87b4669317"),
+            ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
+            ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
+            ("ca", "94789006ce372a1967c258ef47c12b15a1fe511e"),
         }
     )
     assert REVIEWED_RULESPEC_PR_BASES == frozenset(
@@ -4098,6 +4401,16 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
                 "us",
                 "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
                 "codex/az-nested-engine-pin",
+            ),
+            (
+                "us",
+                "87c766a7ecc76d7d36272c648f6daf87b4669317",
+                "axiom/signed-backfill-us-38756101655-1",
+            ),
+            (
+                "us",
+                "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
+                "fl-snap-bbce-page5",
             ),
         }
     )
@@ -4176,6 +4489,14 @@ def test_validate_rulespec_base_accepts_exact_reviewed_protected_branch_tip(
             "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
             "codex/az-nested-engine-pin",
         ),
+        (
+            "87c766a7ecc76d7d36272c648f6daf87b4669317",
+            "axiom/signed-backfill-us-38756101655-1",
+        ),
+        (
+            "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
+            "fl-snap-bbce-page5",
+        ),
     ],
 )
 def test_validate_rulespec_base_accepts_each_reviewed_protected_branch_tip(
@@ -4242,6 +4563,18 @@ def test_validate_rulespec_base_accepts_each_reviewed_protected_branch_tip(
             "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
             "fix/1248-snap-immigration-status",
         ),
+        (
+            "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
+            "codex/az-nested-engine-pin",
+        ),
+        (
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "fl-snap-bbce-page5",
+        ),
+        (
+            "87c766a7ecc76d7d36272c648f6daf87b4669317",
+            "main",
+        ),
     ],
 )
 def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
@@ -4293,6 +4626,14 @@ def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
             "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
             "codex/az-nested-engine-pin",
         ),
+        (
+            "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
+            "fl-snap-bbce-page5",
+        ),
+        (
+            "87c766a7ecc76d7d36272c648f6daf87b4669317",
+            "axiom/signed-backfill-us-38756101655-1",
+        ),
     ],
 )
 def test_validate_rulespec_base_rejects_stale_reviewed_protected_branch_tip(
@@ -4302,6 +4643,100 @@ def test_validate_rulespec_base_rejects_stale_reviewed_protected_branch_tip(
     branch: str,
 ) -> None:
     repo = tmp_path / "rulespec-us"
+
+    def fake_git(_repo: Path, *args: str) -> bytes:
+        if args[-1] == f"refs/remotes/origin/{branch}":
+            return f"{'f' * 40}\n".encode()
+        return f"{reviewed_ref}\n".encode()
+
+    monkeypatch.setattr("scripts.prepare_signed_backfill._git", fake_git)
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    with pytest.raises(ValueError, match="exact pull request base branch tip"):
+        validate_rulespec_base(
+            repo,
+            "us",
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch=branch,
+        )
+
+
+def test_validate_rulespec_base_refuses_retired_nz_reviewed_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The s75e candidate merged as rulespec-nz#133; its reviewed ref is retired."""
+    repo = tmp_path / "rulespec-nz"
+    reviewed_ref = "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97"
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    for open_pr, branch in ((True, "nzhub/wep-s75e"), (False, None)):
+        with pytest.raises(
+            ValueError, match="neither on main nor an approved reviewed head"
+        ):
+            validate_rulespec_base(
+                repo,
+                "nz",
+                reviewed_ref,
+                open_pr=open_pr,
+                pr_base_branch=branch,
+            )
+
+
+@pytest.mark.parametrize(
+    ("country", "branch", "message"),
+    [
+        ("nz", "nzhub/wep-candidates", "neither on main nor an approved reviewed head"),
+        ("nz", "main", "neither on main nor an approved reviewed head"),
+        ("us", "nzhub/wep-s75e", "neither on main nor an approved reviewed head"),
+    ],
+)
+def test_validate_rulespec_base_rejects_nz_reviewed_candidate_other_pairs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    country: str,
+    branch: str,
+    message: str,
+) -> None:
+    repo = tmp_path / f"rulespec-{country}"
+    reviewed_ref = "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97"
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        validate_rulespec_base(
+            repo,
+            country,
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch=branch,
+        )
+
+
+def test_validate_rulespec_base_rejects_stale_reviewed_candidate_branch_tip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+    reviewed_ref = "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"
+    branch = "fl-snap-bbce-page5"
 
     def fake_git(_repo: Path, *args: str) -> bytes:
         if args[-1] == f"refs/remotes/origin/{branch}":
@@ -4521,3 +4956,32 @@ def test_both_verifiers_reject_predecessor_with_encoded_base_owner(
         local_corpus_release=None,
     )
     assert any("already manifest-owned" in issue for issue in issues)
+
+
+@pytest.mark.parametrize(
+    ("country", "requested"),
+    [
+        ("us", "94789006ce372a1967c258ef47c12b15a1fe511e"),
+        ("ca", "94789006ce372a1967c258ef47c12b15a1fe511f"),
+    ],
+)
+def test_reviewed_head_rejects_country_or_full_sha_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    country: str,
+    requested: str,
+) -> None:
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{requested}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+    with pytest.raises(
+        ValueError, match="neither on main nor an approved reviewed head"
+    ):
+        validate_rulespec_base(
+            tmp_path / f"rulespec-{country}", country, requested, open_pr=False
+        )

@@ -1,0 +1,76 @@
+CRA Form T2036 2025 Provincial or Territorial Foreign Tax Credit
+
+Protected B when completed
+Provincial or Territorial Foreign Tax Credit
+Use this form to calculate the foreign non-business income tax credit for 2025 that you can deduct from the income tax
+payable to the province or territory you resided in at the end of the tax year.
+This form does not apply to residents of Quebec.
+If you must pay minimum tax and you were a resident of Manitoba, you cannot claim a provincial foreign tax credit.
+Before you complete this form, calculate your federal foreign tax credit by using Form T2209, Federal Foreign Tax Credits. If
+the amount of the federal foreign non-business income tax credit you are entitled to deduct is equal to the foreign non-business
+tax you paid, your provincial or territorial foreign tax credit would be zero. As a result, you do not have to complete this form.
+If you paid tax to more than one foreign country, and the total of the non-business income taxes that you paid to all foreign
+countries was more than $200, do the calculation on a separate form for each country in Canadian dollars.
+Country or countries for which you are making this claim:
+Enter the amount from line 1 of Form T2209. 1
+Enter the amount from line 3 of Form T2209, unless you have to pay minimum tax.(1) – 2
+Line 1 minus line 2 = 3
+Net foreign
+non-business income (2) Provincial or territorial
+× = 4
+Net income (3) tax otherwise payable (4)
+Enter whichever amount is less: line 3 or line 4.
+The amount on line 5 should not be more than the amount entered Provincial or territorial
+on the line for provincial or territorial tax otherwise payable. foreign tax credit 5
+Enter the total from line 5 (for each country if applicable) on the line for the provincial or territorial foreign tax credit of
+Form 428. If you have to pay tax to more than one jurisdiction, enter the amount from line 5 on the applicable line in Part 4,
+Section 428MJ of Form T2203, Provincial and Territorial Taxes for Multiple Jurisdictions, only for the province or territory
+you resided in on the last day of the tax year.
+T2036 E (25) (Ce formulaire est disponible en français.) Page 1 of 2
+
+(1) If you must pay minimum tax, follow the instructions below:
+(cid:129) If you were a resident of British Columbia at the end of the year, enter the amount from line 3 of Form T2209 on line 2.
+(cid:129) If you were a resident of Ontario at the end of the year, follow the instructions that apply to your situation:
+– If the total non-business income taxes you paid to all foreign countries is $200 or less:
+1. Take the amount from line 1 of this form.
+2. Divide it by the sum of line 1 of this form and the amount on line 8 of Part 4 of Form T691, Alternative
+Minimum Tax.
+3. Multiply that result by the special foreign tax credit on line 11 of Part 4 of Form T691.
+4. Enter the result on line 2.
+– If the total non-business income taxes you paid to all foreign countries is more than $200, you must calculate for
+each country:
+1. Take the amount from line 1 of this form for that country.
+2. Divide it by the total foreign taxes paid for 2025 (to get this total, add the amount on line 7 of Part 4 of
+Form T691, Alternative Minimum Tax, divided by 66.6666% and the amount on line 8 of Part 4 of Form T691).
+3. Multiply that result by the special foreign tax credit on line 11 of Part 4 of Form T691.
+4. Enter the result on line 2 of the sheet for that country.
+(cid:129) If you were a resident of another province or territory at the end of the year, enter the part of special foreign tax credit
+(line 11 of Part 4 of Form T691) that relates to non-business income taxes you paid to a foreign country for 2025 on
+line 2.
+(2) Net foreign non-business income
+Enter the amount reported as net foreign non-business income from line 2 of Form T2209.
+(3) Net income
+Enter the amount reported as net income from line 2 of Form T2209.
+If you were a resident of Canada for part of the year, include the income for the part of the year you were a resident of
+Canada plus any income and losses referred to in paragraphs 115(1)(a) to (c) of the Income Tax Act as reported on your
+Canadian tax return, for the part of the year you were not a resident of Canada.
+If you paid tax to more than one jurisdiction in 2025, calculate this amount according to note (3) of Form T2209. However,
+instead of using "line 23600 of your return plus the amount on line 68360 of Form T1206" as stated in that note, use the
+amount allocated to your province or territory of residence in column 4 of Part 1 of Form T2203 to do the calculation.
+(4) Provincial or territorial tax otherwise payable
+If you were a resident of a province or territory other than Ontario, Alberta, or British Columbia, enter the amount of tax
+calculated before determining the provincial or territorial foreign tax credit by using the appropriate Form 428. However, if
+you have to pay tax to more than one jurisdiction, complete the applicable part of Section 428MJ of Form T2203 for the
+province or territory in which you resided at the end of the year.
+If you were a resident of Ontario, calculate this amount by entering "0" on lines 70 and 72 of Form ON428 and continue the
+calculation. The result from line 81 is your provincial or territorial tax otherwise payable. If you paid tax to more than one
+jurisdiction in 2025, calculate this amount by entering "0" on lines 43 and 45 in Part 4 of Section ON428MJ of Form T2203
+and continue the calculation. The amount from line 58 is your provincial or territorial tax otherwise payable.
+If you were a resident of Alberta, calculate your provincial or territorial tax otherwise payable by adding the amount from
+line 63 to the amount on line 68 of Form AB428 or by adding the amount from line 20 to the amount from line 36 in Part 4 of
+Section AB428MJ of Form T2203.
+If you were a resident of British Columbia at the end of the tax year, your provincial or territorial tax otherwise payable is
+the amount of tax excluding the provincial and territorial foreign tax credit and any British Columbia additional tax for
+minimum tax purposes from Form BC428 or Section BC428MJ of Form T2203.
+See the privacy notice on your return.
+T2036 E (25) Page 2 of 2

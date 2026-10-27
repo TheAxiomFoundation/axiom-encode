@@ -32,6 +32,7 @@ from axiom_encode.corpus_resolver import (
 from tests.release_object_fixtures import (
     TEST_RELEASE_PUBLIC_KEY,
     bind_test_corpus_release,
+    write_test_release_object,
 )
 
 CITATION = "us/statute/7/2014/e"
@@ -265,13 +266,19 @@ def test_scoped_parent_slice_drops_parent_source_history(tmp_path: Path):
             }
         ],
     )
-    source = resolve_local_corpus_source(parent, _release(tmp_path))
+    release = _release(tmp_path)
+    source = resolve_local_corpus_source(parent, release)
 
     scoped = scope_resolved_corpus_source(source, CITATION)
 
     assert scoped.body == "(e) Second rule."
     assert scoped.source_history == ()
     assert scoped.proof_evidence_text == scoped.body
+    assert scoped.selected_record.body == scoped.body
+    assert (
+        scoped.selected_record
+        == resolve_local_corpus_source(CITATION, release).selected_record
+    )
 
 
 def test_active_scope_beats_newer_inactive_duplicate(tmp_path: Path):
@@ -595,6 +602,170 @@ def test_named_local_release_requires_release_object(tmp_path: Path):
 
     with pytest.raises(InvalidCorpusReleaseError, match="release object not found"):
         _release(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("padding_scopes", "minimum_mib"),
+    [
+        # Just past the former 16 MiB cap, which rejected every wave-4 union.
+        (400, 16),
+        # A union of about 30 MiB pretty-printed must still load.
+        (650, 30),
+    ],
+)
+def test_release_object_larger_than_former_cap_loads_and_resolves(
+    tmp_path: Path, padding_scopes: int, minimum_mib: int
+):
+    version = "2026-01-01-active"
+    _write_rows(
+        tmp_path,
+        version,
+        [{"citation_path": CITATION, "body": "inside"}],
+    )
+    content_sha256 = write_test_release_object(
+        tmp_path,
+        TEST_RELEASE,
+        [("us", "statute", version)],
+        unmaterialized_scopes=[
+            ("us-zz", "manual", f"2026-01-01-padding-{index:04d}")
+            for index in range(padding_scopes)
+        ],
+        unmaterialized_sources_per_scope=100,
+    )
+    release_object = tmp_path / "releases" / TEST_RELEASE / f"{content_sha256}.json"
+    size = release_object.stat().st_size
+    assert minimum_mib * 1024 * 1024 < size <= corpus_resolver.MAX_RELEASE_OBJECT_BYTES
+
+    release = LocalCorpusRelease(
+        tmp_path,
+        TEST_RELEASE,
+        content_sha256,
+        TEST_RELEASE_PUBLIC_KEY,
+    )
+
+    assert len(release.scopes) == padding_scopes + 1
+    assert resolve_local_corpus_source(CITATION, release).body == "inside"
+
+
+def test_release_object_over_size_limit_is_rejected_before_read(
+    tmp_path: Path, monkeypatch
+):
+    _write_rows(
+        tmp_path,
+        "2026-01-01-active",
+        [{"citation_path": CITATION, "body": "inside"}],
+    )
+    content_sha256 = "0" * 64
+    release_object = tmp_path / "releases" / TEST_RELEASE / f"{content_sha256}.json"
+    release_object.parent.mkdir(parents=True)
+    with release_object.open("wb") as stream:
+        stream.truncate(corpus_resolver.MAX_RELEASE_OBJECT_BYTES + 1)
+
+    def unexpected_read(*args, **kwargs):
+        raise AssertionError("an oversized release object must not be read")
+
+    monkeypatch.setattr(corpus_resolver, "read_bounded_regular_file", unexpected_read)
+
+    with pytest.raises(
+        UnsafeCorpusPathError,
+        match=f"exceeds the {corpus_resolver.MAX_RELEASE_OBJECT_BYTES}-byte safety",
+    ):
+        LocalCorpusRelease(
+            tmp_path,
+            TEST_RELEASE,
+            content_sha256,
+            TEST_RELEASE_PUBLIC_KEY,
+        )
+
+
+def test_release_object_growing_past_size_limit_after_check_fails_closed(
+    tmp_path: Path, monkeypatch
+):
+    version = "2026-01-01-active"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [{"citation_path": CITATION, "body": "inside"}],
+    )
+    release = _release(tmp_path)
+    monkeypatch.setattr(
+        corpus_resolver,
+        "MAX_RELEASE_OBJECT_BYTES",
+        release.release_object_path.stat().st_size,
+    )
+    original = corpus_resolver._safe_file
+
+    def grow_after_check(root, candidate, *, label, max_bytes):
+        resolved = original(root, candidate, label=label, max_bytes=max_bytes)
+        if label == "corpus release object" and resolved is not None:
+            with resolved.open("ab") as stream:
+                stream.write(b" ")
+        return resolved
+
+    monkeypatch.setattr(corpus_resolver, "_safe_file", grow_after_check)
+
+    with pytest.raises(UnsafeCorpusPathError, match="byte safety limit"):
+        LocalCorpusRelease(
+            tmp_path,
+            TEST_RELEASE,
+            release.content_sha256,
+            TEST_RELEASE_PUBLIC_KEY,
+        )
+
+
+def test_bounded_read_rejects_oversized_file_before_reading(
+    tmp_path: Path, monkeypatch
+):
+    target = tmp_path / "release-object.json"
+    target.write_bytes(b"x" * 17)
+
+    def unexpected_read(descriptor, size):
+        raise AssertionError("an oversized file must not be read")
+
+    monkeypatch.setattr(os, "read", unexpected_read)
+
+    with pytest.raises(UnsafeCorpusPathError, match="16-byte safety limit"):
+        corpus_resolver.read_bounded_regular_file(
+            tmp_path,
+            target,
+            label="corpus release object",
+            max_bytes=16,
+        )
+
+
+def test_bounded_read_stops_at_limit_when_file_grows_after_fstat(
+    tmp_path: Path, monkeypatch
+):
+    target = tmp_path / "release-object.json"
+    target.write_bytes(b"x" * 16)
+    real_fstat = os.fstat
+    real_read = os.read
+    returned: list[int] = []
+
+    def fstat_then_grow(descriptor):
+        result = real_fstat(descriptor)
+        if os.path.samestat(result, os.stat(target)):
+            with target.open("ab") as stream:
+                stream.write(b"y" * (4 * 1024 * 1024))
+        return result
+
+    def counting_read(descriptor, size):
+        chunk = real_read(descriptor, size)
+        returned.append(len(chunk))
+        return chunk
+
+    monkeypatch.setattr(os, "fstat", fstat_then_grow)
+    monkeypatch.setattr(os, "read", counting_read)
+
+    with pytest.raises(UnsafeCorpusPathError, match="16-byte safety limit"):
+        corpus_resolver.read_bounded_regular_file(
+            tmp_path,
+            target,
+            label="corpus release object",
+            max_bytes=16,
+        )
+    assert sum(returned) == 17
 
 
 def test_does_not_invent_compact_uk_alias_for_corpus_path(tmp_path: Path):
@@ -2903,6 +3074,112 @@ def test_us_cfr_hierarchy_ignores_reused_nested_numeric_markers(tmp_path: Path):
     assert "(2) Verification of questionable information." not in resolved.body
 
 
+def test_pinned_cfr_273_11_c_slice_requires_exact_source_bytes(monkeypatch):
+    parent = "us/regulation/7/273/11"
+    body = (
+        "(a) First subsection.\n\n"
+        "(b) Second subsection.\n\n"
+        "(2) Nested condition.\n\n"
+        "(i) First Roman item.\n\n"
+        "(ii) Second Roman item.\n\n"
+        "(c) Treatment of income and resources of certain nonhousehold members.\n\n"
+        "(1) Target condition.\n\n"
+        "(2) Second target condition.\n\n"
+        "(d) Treatment of income and resources of other nonhousehold members."
+    )
+    monkeypatch.setattr(
+        corpus_resolver,
+        "_PINNED_CFR_273_11_PARENT_SHA256",
+        hashlib.sha256(body.encode()).hexdigest(),
+    )
+
+    assert corpus_resolver._slice_parent_body(
+        body, requested_path=f"{parent}/c", resolved_path=parent
+    ) == (
+        "(c) Treatment of income and resources of certain nonhousehold members.\n\n"
+        "(1) Target condition.\n\n"
+        "(2) Second target condition."
+    )
+    with pytest.raises(CorpusSourceSliceError, match="missing structural marker"):
+        corpus_resolver._slice_parent_body(
+            body.replace("Second target condition", "Changed target condition"),
+            requested_path=f"{parent}/c",
+            resolved_path=parent,
+        )
+
+
+def test_us_cfr_hierarchy_keeps_contiguous_roman_c_nested():
+    parent = "us/regulation/7/273/11"
+    body = (
+        "(a) First subsection.\n\n"
+        "(b) Second subsection.\n\n"
+        "(2) Nested condition.\n\n"
+        "(xcix) Ninety-nine.\n\n"
+        "(c) One hundred.\n\n"
+        "(ci) One hundred one.\n\n"
+        "(d) Next subsection."
+    )
+
+    assert (
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/b/2/c", resolved_path=parent
+        )
+        == "(c) One hundred."
+    )
+    with pytest.raises(CorpusSourceSliceError, match="missing structural marker"):
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/c", resolved_path=parent
+        )
+
+
+def test_us_cfr_hierarchy_keeps_skipped_roman_v_nested():
+    parent = "us/regulation/7/273/11"
+    body = (
+        "(u) Subsection.\n\n"
+        "(1) Condition.\n\n"
+        "(i) First.\n\n"
+        "(ii) Second.\n\n"
+        "(v) Fifth.\n\n"
+        "(vi) Sixth.\n\n"
+        "(w) Next subsection."
+    )
+
+    assert (
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/u/1/v", resolved_path=parent
+        )
+        == "(v) Fifth."
+    )
+    assert "(v) Fifth." in corpus_resolver._slice_parent_body(
+        body, requested_path=f"{parent}/u", resolved_path=parent
+    )
+    with pytest.raises(CorpusSourceSliceError, match="missing structural marker"):
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/v", resolved_path=parent
+        )
+
+
+def test_us_cfr_hierarchy_does_not_promote_roman_v_with_inline_numeric_reference():
+    parent = "us/regulation/7/273/11"
+    body = (
+        "(u) Subsection.\n\n"
+        "(1) Condition.\n\n"
+        "(i) First.\n\n"
+        "(ii) Second.\n\n"
+        "(v) Fifth. (1) A reference, not a child.\n\n"
+        "(vi) Sixth.\n\n"
+        "(w) Next subsection."
+    )
+
+    assert "(v) Fifth." in corpus_resolver._slice_parent_body(
+        body, requested_path=f"{parent}/u", resolved_path=parent
+    )
+    with pytest.raises(CorpusSourceSliceError, match="missing structural marker"):
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/v", resolved_path=parent
+        )
+
+
 def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
     version = "2026-01-01-children"
     _write_selector(tmp_path, [_scope(version)])
@@ -2910,7 +3187,12 @@ def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
         tmp_path,
         version,
         [
-            {"citation_path": CITATION, "body": None, "heading": "Parent"},
+            {
+                "citation_path": CITATION,
+                "body": None,
+                "heading": "Parent",
+                "metadata": {"amends": "principal document"},
+            },
             {
                 "citation_path": f"{CITATION}/2",
                 "body": "second",
@@ -2925,7 +3207,8 @@ def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
         ],
     )
 
-    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
+    release = _release(tmp_path)
+    resolved = resolve_local_corpus_source(CITATION, release)
 
     assert resolved.body == "First heading\n\nfirst\n\nsecond"
     assert [row.citation_path for row in resolved.component_rows] == [
@@ -2933,6 +3216,15 @@ def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
         f"{CITATION}/2",
     ]
     assert all(row.provision_file_sha256 for row in resolved.component_rows)
+    assert resolved.selected_record.row == resolved.row
+    assert resolved.selected_record.body == resolved.body
+    assert resolved.selected_record.heading == "Parent"
+    assert dict(resolved.selected_record.metadata) == {"amends": "principal document"}
+    records = list(iter_active_local_corpus_rows(release, include_bodyless=True))
+    selected = next(record for record in records if record.row == resolved.row)
+    assert selected.body == ""
+    assert selected.row.body_sha256 is None
+    assert selected.metadata == resolved.selected_record.metadata
 
 
 def test_metadata_parent_composes_descendants_in_hierarchy_preorder(tmp_path: Path):
@@ -3677,3 +3969,164 @@ def test_release_object_swap_to_outside_symlink_fails_closed(
             release.content_sha256,
             TEST_RELEASE_PUBLIC_KEY,
         )
+
+
+@pytest.mark.parametrize(
+    "status_fields,expected",
+    [
+        ({"metadata": {"status": "repealed"}}, True),
+        ({"metadata": {"status": "active"}}, False),
+        ({"metadata": {"status": "REPEALED"}}, False),
+        ({"metadata": {"status": "repealed "}}, False),
+        ({"status": "repealed"}, False),
+        ({}, False),
+    ],
+)
+def test_exact_release_row_status_can_authenticate_repeal(
+    tmp_path, status_fields, expected
+):
+    version = "2026-10-15-reviewed-repeal"
+    _write_selector(tmp_path, [_scope(version)])
+    child = CITATION + "/2"
+    _write_rows(
+        tmp_path,
+        version,
+        [{"citation_path": child, "body": None, **status_fields}],
+    )
+    release = _release(tmp_path)
+    assert corpus_resolver.local_corpus_row_is_repealed(child, release) is expected
+    # An exact descendant tombstone does not authenticate its parent or sibling.
+    assert not corpus_resolver.local_corpus_row_is_repealed(CITATION, release)
+    assert not corpus_resolver.local_corpus_row_is_repealed(CITATION + "/3", release)
+
+
+def test_repealed_row_status_refuses_aliases_and_ambiguous_rows(tmp_path):
+    version = "2026-10-15-ambiguous-repeal"
+    _write_selector(tmp_path, [_scope(version)])
+    row = {
+        "citation_path": CITATION,
+        "body": None,
+        "metadata": {"status": "repealed"},
+    }
+    _write_rows(tmp_path, version, [row, row])
+    release = _release(tmp_path)
+    with pytest.raises(InvalidCorpusCitationError):
+        corpus_resolver.local_corpus_row_is_repealed("7 USC 2014(e)", release)
+    with pytest.raises(AmbiguousCorpusSourceError):
+        corpus_resolver.local_corpus_row_is_repealed(CITATION, release)
+
+
+def test_coverage_repeal_status_uses_only_the_bound_exact_release_row(tmp_path):
+    from axiom_encode.harness import validator_pipeline as vp
+
+    version = "2026-10-15-bound-repeal"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {
+                "citation_path": CITATION + "/2",
+                "body": None,
+                "metadata": {"status": "repealed"},
+            }
+        ],
+    )
+    token = vp._AUTHORITATIVE_CORPUS_RELEASE.set(_release(tmp_path))
+    try:
+        assert vp._requested_corpus_row_is_repealed(CITATION + "/2")
+        assert not vp._requested_corpus_row_is_repealed(CITATION + "/3")
+        assert not vp._requested_corpus_row_is_repealed(None)
+    finally:
+        vp._AUTHORITATIVE_CORPUS_RELEASE.reset(token)
+
+
+@pytest.mark.parametrize("label", ["I", "i"])
+@pytest.mark.parametrize("status", ["repealed", "active", None])
+@pytest.mark.parametrize(
+    "request_form",
+    ["corpus", "human", "target", "rules_file", "rules_file_subsection", "precedence"],
+)
+def test_coverage_repeal_authenticates_case_sensitive_requested_row(
+    tmp_path, label, status, request_form
+):
+    import yaml
+
+    from axiom_encode.harness import validator_pipeline as vp
+
+    section = "us/statute/42/1"
+    citation = section + "/a" if request_form == "rules_file_subsection" else section
+    requested = f"{section}/a/2/{label}"
+    other = f"{section}/a/2/{label.swapcase()}"
+    source = (
+        '(a) "benefit" means payable.\n(2) A person is eligible.\n'
+        f"({label}) Repealed.\n(b) Effective date.\n"
+    )
+    version = "case-sensitive-repeal"
+    _write_selector(tmp_path, [_scope(version)])
+    rows = [{"citation_path": citation, "body": source}]
+    if status is not None:
+        rows.append(
+            {
+                "citation_path": requested,
+                "body": None if status == "repealed" else "An operative child.",
+                "metadata": {"status": status},
+            }
+        )
+    # A missing/active requested row must not borrow the other case's status.
+    # Positive cases have only the literal requested tombstone.
+    if status != "repealed":
+        rows.append(
+            {
+                "citation_path": other,
+                "body": None,
+                "metadata": {"status": "repealed"},
+            }
+        )
+    _write_rows(tmp_path, version, rows)
+    release = _release(tmp_path)
+    assert corpus_resolver.local_corpus_row_is_repealed(requested, release) is (
+        status == "repealed"
+    )
+    requested_source = {
+        "corpus": f" /{requested}/ ",
+        "human": f"42 USC 1(a)(2)({label})",
+        "target": f"us:statutes/42/1/a/2/{label}",
+        "rules_file": None,
+        "rules_file_subsection": None,
+        "precedence": requested,
+    }[request_form]
+    file_label = label.swapcase() if request_form == "precedence" else label
+    rules_file = tmp_path / f"statutes/42/1/a/2/{file_label}.yaml"
+
+    def issues(
+        *, summary=f"({label}) Repealed.", text=source, module_status="deferred"
+    ):
+        content = yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "module": {
+                    "status": module_status,
+                    "summary": summary,
+                    "source_verification": {"corpus_citation_path": citation},
+                },
+                "rules": [],
+            }
+        )
+        return vp.find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={citation: text},
+            requested_source=requested_source,
+            rules_file=rules_file,
+        )
+
+    token = vp._AUTHORITATIVE_CORPUS_RELEASE.set(release)
+    try:
+        assert len(issues()) == (0 if status == "repealed" else 1)
+        # Signed metadata supplements all of the original notice conditions.
+        assert len(issues(summary="(3) Repealed.")) == 1
+        assert len(issues(summary=f"({label}) An operative provision.")) == 1
+        assert len(issues(module_status="active")) == 1
+        assert len(issues(text=source.replace("Repealed.", "An operative child."))) == 1
+    finally:
+        vp._AUTHORITATIVE_CORPUS_RELEASE.reset(token)

@@ -20,7 +20,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from .client import JudgeClient
+from .client import JudgeClient, with_call_diagnostics
 from .run_log import (
     Finding,
     JudgeEvent,
@@ -216,7 +216,7 @@ def run(
         )
 
     confidence = payload.get("confidence")
-    return JudgeEvent(
+    event = JudgeEvent(
         stage=JudgeStage.DISPOSITION,
         verdict=Verdict.PASS if passed else Verdict.FLAG,
         confidence=coerce_confidence(confidence),
@@ -230,3 +230,4 @@ def run(
         subject_ref=disposition.disposition_id,
         extra={"arithmetic": arithmetic, "claim_consistent": claim_consistent},
     )
+    return with_call_diagnostics(event, call)

@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from .client import JudgeClient, truncate_provision
+from .client import JudgeClient, truncate_provision, with_call_diagnostics
 from .run_log import (
     Finding,
     JudgeEvent,
@@ -140,7 +140,7 @@ def run(
     ]
     verdict = Verdict.FLAG if gaps else Verdict.PASS
     confidence = payload.get("confidence")
-    return JudgeEvent(
+    event = JudgeEvent(
         stage=JudgeStage.GRID_ADEQUACY,
         verdict=verdict,
         confidence=coerce_confidence(confidence),
@@ -154,6 +154,7 @@ def run(
         subject_ref=suite_name,
         extra={"cells": cells},
     )
+    return with_call_diagnostics(event, call)
 
 
 def gaps_to_cells(event: JudgeEvent) -> list[dict[str, Any]]:

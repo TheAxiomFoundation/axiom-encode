@@ -84,6 +84,9 @@ def load_rates(path: Path) -> tuple[dict[str, Rates], dict]:
         data = tomllib.load(fh)
     models: dict[str, Rates] = {}
     for name, raw in (data.get("models") or {}).items():
+        if str(raw.get("source_url", "")).startswith("UNVERIFIED:"):
+            # Match the harness's unknown-cost behavior for provisional proxies.
+            continue
         models[name] = Rates(
             input_per_million=float(raw.get("input_per_million", 0.0)),
             output_per_million=float(raw.get("output_per_million", 0.0)),

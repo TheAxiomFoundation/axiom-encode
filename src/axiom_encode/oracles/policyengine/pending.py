@@ -37,6 +37,8 @@ from typing import Any
 
 import yaml
 
+from axiom_encode.yaml_serialization import safe_dump_yaml
+
 from ...repo_routing import is_composition_policy_repo_root
 
 PENDING_FILENAME = "oracle-coverage-pending.yaml"
@@ -414,7 +416,7 @@ def _dump_pending_file(
     payload["entries"] = [
         entry.as_dict() for entry in sorted(entries, key=lambda item: item.legal_id)
     ]
-    body = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+    body = safe_dump_yaml(payload, sort_keys=False, allow_unicode=False)
     return "\n".join(header) + "\n" + body
 
 

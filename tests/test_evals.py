@@ -129,6 +129,7 @@ from axiom_encode.legacy_replacement import (
     LegacyReplacementRetainedSuccessor,
     LegacyReplacementRewrite,
 )
+from axiom_encode.prompts import get_encoder_prompt
 from axiom_encode.repo_routing import find_policy_repo_root, monorepo_checkout_name
 from axiom_encode.signing_broker import get_signing_broker
 from axiom_encode.statute import CitationParts, citation_to_relative_rulespec_path
@@ -1104,6 +1105,95 @@ def test_repair_candidate_overlay_rejects_referenced_input_removal(
         )
 
 
+@pytest.mark.parametrize("stale_test_input", [False, True])
+def test_repair_candidate_overlay_can_remove_input_shadowed_by_derived_rule(
+    tmp_path, stale_test_input
+):
+    artifact_root = tmp_path / "generated"
+    rulespec_file = artifact_root / "statutes" / "7" / "2012" / "j.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    preserved_rulespec = """format: rulespec/v1
+inputs:
+  - name: member_meets_definition
+    entity: Person
+    dtype: Judgment
+    period: Month
+  - name: member_age
+    entity: Person
+    dtype: Integer
+    period: Month
+rules:
+  - name: member_meets_definition
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: member_age >= 60
+  - name: household_has_member
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: member_meets_definition
+"""
+    rulespec_file.write_text(
+        """format: rulespec/v1
+inputs:
+  - name: member_meets_definition
+    repair_remove: true
+rules: []
+""",
+        encoding="utf-8",
+    )
+    test_ref = (
+        "us:statutes/7/2012/j#input.member_meets_definition"
+        if stale_test_input
+        else "us:statutes/7/2012/j#input.member_age"
+    )
+    rulespec_file.with_suffix(".test.yaml").write_text(
+        f"""- name: household_case
+  period: 2026-01
+  input:
+    {test_ref}: 60
+  output:
+    us:statutes/7/2012/j#household_has_member: holds
+""",
+        encoding="utf-8",
+    )
+    candidate = ValidationRetryCandidate(
+        rulespec=preserved_rulespec,
+        tests="""- name: household_case
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.member_meets_definition: true
+  output:
+    us:statutes/7/2012/j#household_has_member: holds
+""",
+    )
+
+    if stale_test_input:
+        with pytest.raises(ValueError, match="remain referenced"):
+            evals_module._overlay_validation_retry_candidate(
+                rulespec_file,
+                artifact_root=artifact_root,
+                candidate=candidate,
+            )
+        return
+
+    repairs = evals_module._overlay_validation_retry_candidate(
+        rulespec_file,
+        artifact_root=artifact_root,
+        candidate=candidate,
+    )
+    merged = yaml.safe_load(rulespec_file.read_text(encoding="utf-8"))
+    assert {item["name"] for item in merged["inputs"]} == {"member_age"}
+    assert "removed_input:member_meets_definition" in repairs
+
+
 def test_repair_candidate_overlay_removes_explicit_named_tombstones(tmp_path):
     artifact_root = tmp_path / "generated"
     rulespec_file = artifact_root / "regulations" / "section.yaml"
@@ -1360,13 +1450,14 @@ def test_repair_candidate_overlay_normalizes_destination_root_deferrals(tmp_path
 def test_run_model_eval_appends_repair_parameters_after_existing_public_parameters():
     parameters = list(inspect.signature(run_model_eval).parameters)
 
-    assert parameters[-6:] == [
+    assert parameters[-7:] == [
         "required_import_targets",
         "legacy_replacement",
         "replacement_overlay_scope",
         "validation_retry_candidate",
         "repair_candidate_tests_only",
         "accept_valid_retry_candidate",
+        "codex_reasoning_effort",
     ]
 
 
@@ -1481,9 +1572,22 @@ def test_target_source_document_is_not_its_own_amendment_context(tmp_path):
         ],
     )
 
-    source_unit = resolve_corpus_source_unit("dk/statute/benefit/section-1", release)
-
-    assert source_unit.amendment_documents == ()
+    rows = tuple(corpus_resolver.iter_active_local_corpus_rows(release))
+    target = next(row for row in rows if row.row.citation_path.endswith("section-1"))
+    assert (
+        evals_module._discover_amendment_documents(
+            rows,
+            release=release,
+            target_row=target,
+            parent_document_row=None,
+            target_citation_path=target.row.citation_path,
+            target_source_path=target.row.source_path,
+            version=target.row.version,
+        )
+        == ()
+    )
+    with pytest.raises(ValueError, match="Unresolved amendment context"):
+        resolve_corpus_source_unit("dk/statute/benefit/section-1", release)
 
 
 def test_provision_inherits_document_identifiers_for_de_amendment_discovery(tmp_path):
@@ -3086,6 +3190,96 @@ def test_model_eval_uses_output_override_for_prompt_and_artifact_path(tmp_path):
     assert mock_prompt.call_args.kwargs["target_file_name"] == target.name
     assert mock_prompt.call_args.kwargs["target_ref_prefix"] == (
         "us-nc:policies/income_tax/pilot_liability_pipeline"
+    )
+
+
+def test_model_eval_marks_each_encode_try_phase_in_order(tmp_path):
+    """Inside an encode try, one generation walks prepare -> model call ->
+    staging -> validation -> result recording, each a timeline phase."""
+    from datetime import datetime, timezone
+
+    from axiom_encode.encode_timing import (
+        EncodeLoopTimer,
+        activate_encode_loop_timer,
+    )
+
+    corpus_release, _source_unit = _write_test_source_unit(
+        tmp_path,
+        "Authoritative source.",
+        citation_path="us-nc/statute/105/105-153.7",
+    )
+    policy_root = _canonical_rulespec_content_root(tmp_path, "us-nc")
+    target_relative = Path("policies/income_tax/pilot_liability_pipeline.yaml")
+    output_root = tmp_path / "out"
+
+    class TickingClock:
+        now = 100.0
+
+        def __call__(self) -> float:
+            self.now += 1.0
+            return self.now
+
+    clock = TickingClock()
+    timer = EncodeLoopTimer(
+        monotonic=clock,
+        origin=(clock.now, datetime(2026, 10, 7, tzinfo=timezone.utc)),
+        emit=None,
+    )
+
+    def generate(**kwargs):
+        output_file = kwargs["output_file"]
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        return (
+            EvalPromptResponse(text="generated", duration_ms=1),
+            True,
+            0,
+            frozenset({output_file}),
+        )
+
+    with (
+        activate_encode_loop_timer(timer),
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval_with_empty_artifact_retry",
+            side_effect=generate,
+        ),
+        patch(
+            "axiom_encode.harness.evals._evaluate_generated_artifact_with_repairs",
+            return_value=EvalArtifactMetrics(
+                compile_pass=True,
+                compile_issues=[],
+                ci_pass=True,
+                ci_issues=[],
+                embedded_source_present=False,
+                grounded_numeric_count=0,
+                ungrounded_numeric_count=0,
+                grounding=[],
+            ),
+        ),
+    ):
+        timer.start_try(1)
+        run_model_eval(
+            citations=["us-nc/statute/105/105-153.7"],
+            runner_specs=["openai:model-a"],
+            output_root=output_root,
+            policy_path=policy_root,
+            runtime_axiom_rules_path=tmp_path / "engine",
+            corpus_release=corpus_release,
+            mode="repo-augmented",
+            target_relative_output=target_relative,
+        )
+        timing = timer.finish_try()
+
+    assert [phase.name for phase in timing.phases] == [
+        "other",
+        "prepare",
+        "model_call",
+        "stage_candidate",
+        "candidate_validation",
+        "record_result",
+    ]
+    assert sum(phase.duration_ms for phase in timing.phases) == (
+        timing.wall_duration_ms
     )
 
 
@@ -4930,6 +5124,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Validation fails if a direct local `#input.*_exception_applies`" in prompt
     assert "imported test inputs from copied files" in prompt
     assert "Do not stub imported derived" in prompt
+    assert "cannot have the same name as a local derived rule" in prompt
+    assert "never put a fabricated" in prompt
     assert "never assign prohibited derived" in prompt
     assert (
         "classifications such as any imported or local `#input.filing_status`" in prompt
@@ -4953,10 +5149,10 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     )
     assert "Do not use Python-only functions such as `round(...)`" in prompt
     assert (
-        "Use `sum(relation.amount_fact)` only when `amount_fact` is a raw scalar fact"
+        "`sum(relation.local_derived)` evaluates that local derived rule for each related"
         in prompt
     )
-    assert "Do not use `sum(relation.local_output)`" in prompt
+    assert "do not invent a predicate fact for an unfiltered sum" in prompt
     assert "Do not write `amount + if condition: extra else: 0`" in prompt
     assert "Do not emit more than one `versions:` entry for `kind: derived`" in prompt
     assert (
@@ -4966,6 +5162,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "row_key" in prompt
     assert "column_key" in prompt
     assert "kind: derived_relation" in prompt
+    assert "data_relation.arguments" in prompt
+    assert "arguments: [Person, Household]" in prompt
     assert "derived_relation:" in prompt
     assert "arity: 2" in prompt
     assert "source_relation: member_of_household" in prompt
@@ -5286,6 +5484,49 @@ inputs:
     assert "`2026_section_40_18_5`" in guidance
     assert "exact mapped legacy surface names listed above are the only" in guidance
     assert "invalid" in guidance
+
+
+def test_existing_target_prompt_requires_relation_entity_repair(tmp_path):
+    target = tmp_path / "2026_section_40_18_5_schedule_before_credits.yaml"
+    target.write_text(
+        """format: rulespec/v1
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, TaxUnit]
+  - name: al_pit_2026_section_40_18_5_schedule_before_credits
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum(member_of_tax_unit.income)
+inputs:
+  - name: income
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+"""
+    )
+    context = EvalContextFile(
+        source_path=str(target),
+        workspace_path="context/existing_target.yaml",
+        import_path=(
+            "us-al:policies/income_tax/2026_section_40_18_5_schedule_before_credits"
+        ),
+        kind="existing_target",
+    )
+
+    guidance = _format_existing_target_contract_guidance([context])
+
+    assert "entity=TaxUnit (required relation-current-slot repair" in guidance
+    assert "legacy Person is invalid" in guidance
+    assert "explicit entity-repair note" in guidance
     assert "legacy input" in guidance
 
 
@@ -7029,6 +7270,99 @@ def test_review_findings_are_persisted_and_mandatory_in_prompt(tmp_path):
     assert persisted.read_text() == expected
     assert evidence["content"] == expected
     assert evidence["sha256"] == hashlib.sha256(expected.encode()).hexdigest()
+
+
+@pytest.mark.parametrize("prompt_kind", ["encoder", "eval"])
+def test_fresh_encoding_prompts_require_open_interpretations(tmp_path, prompt_kind):
+    citation = "us/manual/example/block-1"
+    if prompt_kind == "encoder":
+        prompt = get_encoder_prompt(
+            citation=citation,
+            output_path="manual/example/block-1.yaml",
+            corpus_citation_path=citation,
+        )
+    else:
+        workspace = prepare_eval_workspace(
+            citation=citation,
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="Review supplies at the start of each period.",
+            axiom_rules_path=_canonical_rulespec_content_root(tmp_path, "us"),
+            mode="cold",
+        )
+        prompt = _build_eval_prompt(
+            citation,
+            "cold",
+            workspace,
+            workspace.context_files,
+            target_file_name="block-1.yaml",
+        )
+
+    normalized = " ".join(prompt.split())
+    for topic in (
+        "source provisions conflict",
+        "reading departs from literal wording",
+        "question has been put to the publisher",
+        "module.interpretations[]",
+        "status: open",
+        "`alternatives` (`id`, `reading`, optional `effect`)",
+        "Every alternative requires a non-blank string `id` matching `^[a-z0-9]+(-[a-z0-9]+)*$`",
+        "unique within its interpretation",
+        "Its only allowed keys are `id`, `reading`, and `effect`",
+        "Never invent `ruling` or `confirmation`",
+        "recorded human ruling",
+        "mandatory review findings",
+        "organisations, never people",
+        "public https records",
+        "private identifiers and local paths out",
+    ):
+        assert topic in normalized
+
+
+def test_review_findings_carry_recorded_interpretation_ruling_to_repair_prompt(
+    tmp_path,
+):
+    policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
+    findings = tmp_path / "interpretation-ruling.md"
+    ruling = (
+        "For interpretation weekly-review, use status: ruled and copy:\n"
+        "ruling:\n"
+        "  by: Fictional Lantern Scheme Office\n"
+        "  date: 2024-10-10\n"
+        "  record: https://example.org/fictional-lantern/weekly-review\n"
+    )
+    findings.write_text(ruling)
+    workspace = prepare_eval_workspace(
+        citation="us/manual/example/block-1",
+        runner=parse_runner_spec("codex:gpt-5.4"),
+        output_root=tmp_path / "out",
+        source_text="Review supplies at the start of each period.",
+        axiom_rules_path=policy_repo_root,
+        mode="cold",
+        review_findings_paths=[findings],
+    )
+
+    prompt = _build_eval_prompt(
+        "us/manual/example/block-1",
+        "cold",
+        workspace,
+        workspace.context_files,
+        target_file_name="block-1.yaml",
+    )
+    evidence = json.loads(workspace.manifest_file.read_text())["review_findings_files"][
+        0
+    ]
+
+    assert ruling.rstrip() in prompt
+    assert "A supplied ruling permits `status: ruled`" in prompt
+    assert "exact `ruling` block" in prompt
+    assert "Never invent either block" in prompt
+    assert (
+        "moving the old reading into `alternatives` with a required non-blank "
+        "kebab-case `id` unique within that interpretation" in " ".join(prompt.split())
+    )
+    assert evidence["content"] == ruling
+    assert evidence["sha256"] == hashlib.sha256(ruling.encode()).hexdigest()
 
 
 def test_structured_review_contract_is_bound_into_context_manifest(tmp_path):
@@ -9241,7 +9575,13 @@ rules: []
         assert mock_evaluate.call_count == 4
         assert mock_repair.call_count == 3
 
-    def test_generated_eval_repair_expands_fail_fast_coverage_issues(self, tmp_path):
+    def test_generated_eval_repair_expands_fail_fast_coverage_issues(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "axiom_encode.cli._rulespec_companion_test_failures",
+            lambda *args, **kwargs: [],
+        )
         repo_path = _canonical_rulespec_content_root(tmp_path, "us")
         rulespec_file = repo_path / "statutes" / "7" / "2015" / "f.yaml"
         test_file = rulespec_file.with_name("f.test.yaml")
@@ -9904,6 +10244,76 @@ rules:
         assert rows == [
             {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
         ]
+
+    def test_generated_eval_repairs_local_scalar_relation_from_formula(self, tmp_path):
+        repo = _canonical_rulespec_content_root(tmp_path, "us-co")
+        rulespec_file = repo / "regulations" / "example.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: household_members
+    kind: data_relation
+    data_relation:
+      arity: 2
+  - name: household_has_eligible_member
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: count_where(household_members, member_is_eligible) > 0
+"""
+        )
+        test_file = rulespec_file.with_name("example.test.yaml")
+        test_file.write_text(
+            """- name: eligible_case
+  period: 2026-01
+  input:
+    us-co:regulations/example#relation.household_members:
+      - true
+  output:
+    us-co:regulations/example#household_has_eligible_member: holds
+"""
+        )
+        relation_issue = (
+            "Test case `eligible_case` input invalid: relation "
+            "`us-co:regulations/example#relation.household_members` item #1 "
+            "must be a mapping"
+        )
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                side_effect=[
+                    ValidationResult("ci", passed=False, issues=[relation_issue]),
+                    ValidationResult("ci", passed=True, issues=[]),
+                ],
+            ) as mock_ci,
+        ):
+            metrics = _evaluate_generated_artifact_with_repairs(
+                local_corpus_release=_write_test_corpus_provision(
+                    tmp_path / "bound-release"
+                ),
+                rulespec_file=rulespec_file,
+                policy_repo_root=repo,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="A household with an eligible member qualifies.",
+                skip_reviewers=True,
+            )
+
+        [case] = yaml.safe_load(test_file.read_text())
+        assert mock_ci.call_count == 2
+        assert metrics.ci_pass
+        assert case["input"][
+            "us-co:regulations/example#relation.household_members"
+        ] == [{"us-co:regulations/example#input.member_is_eligible": True}]
 
     def test_generated_eval_repairs_zero_branch_companions(self, tmp_path):
         repo = _canonical_rulespec_content_root(tmp_path, "us-co")
@@ -16433,6 +16843,172 @@ class TestEvalSuiteManifest:
             self.persisted_result_revalidation = mock_evaluate
             yield
 
+    @pytest.mark.parametrize("kind", ["citation", "source"])
+    def test_routed_amendment_suite_result_persists_and_resumes(
+        self, tmp_path, monkeypatch, kind
+    ):
+        from tests.test_amending_section_context import (
+            _AMENDING_SECTION,
+            _PRINCIPAL_TARGET,
+            _amendment_rows,
+        )
+
+        release = _write_test_corpus_release(tmp_path, _amendment_rows())
+        policy_root = _canonical_rulespec_content_root(tmp_path, "nz")
+        case = EvalSuiteCase(
+            kind=kind,
+            name="amending-section",
+            mode="cold",
+            **(
+                {"citation": _AMENDING_SECTION}
+                if kind == "citation"
+                else {"corpus_citation_path": _AMENDING_SECTION}
+            ),
+        )
+        manifest = EvalSuiteManifest(
+            name="Routed amendment suite",
+            path=tmp_path / "suite.yaml",
+            runners=["codex:gpt-5.4"],
+            mode="cold",
+            allow_context=[],
+            gates=EvalReadinessGates(),
+            cases=[case],
+        )
+        prompt_eval = Mock(
+            return_value=EvalPromptResponse(
+                text=(
+                    "=== FILE: 4.yaml ===\n"
+                    "format: rulespec/v1\n"
+                    "module:\n"
+                    "  source_verification:\n"
+                    f"    corpus_citation_path: {_PRINCIPAL_TARGET}\n"
+                    "  summary: Principal accommodation supplement provision.\n"
+                    "rules: []\n"
+                    "=== FILE: 4.test.yaml ===\n"
+                    "[]\n"
+                ),
+                duration_ms=1,
+                trace={},
+            )
+        )
+        monkeypatch.setattr(evals_module, "_run_prompt_eval", prompt_eval)
+        run_kwargs = {
+            "manifest": manifest,
+            "output_root": tmp_path / "out",
+            "axiom_rules_path": tmp_path / "axiom-rules-engine",
+            "policy_repo_path": policy_root.parent,
+            "corpus_release": release,
+        }
+
+        [result] = run_eval_suite(**run_kwargs)
+
+        assert result.success is True
+        assert result.citation == _PRINCIPAL_TARGET
+        assert result.amendment_request == _AMENDING_SECTION
+        assert Path(result.output_file).relative_to(
+            tmp_path / "out" / "01-amending-section" / result.runner
+        ) == _resolve_eval_output_path(_PRINCIPAL_TARGET)
+        ledger = json.loads(
+            (tmp_path / "out" / "suite-results.jsonl").read_text().strip()
+        )
+        assert ledger["result"]["citation"] == _PRINCIPAL_TARGET
+        assert ledger["result"]["amendment_request"] == _AMENDING_SECTION
+        case_identity = ledger["result"]["admission"]["case"]
+        assert case_identity["corpus_citation_path"] == _AMENDING_SECTION
+        signed_identity = json.loads(Path(result.verdict_file).read_text())["identity"]
+        assert signed_identity["citation"] == _PRINCIPAL_TARGET
+        assert signed_identity["amendment_request"] == _AMENDING_SECTION
+        assert result.source_attestation["requested_corpus_citation_path"] == (
+            _PRINCIPAL_TARGET
+        )
+
+        monkeypatch.setattr(
+            evals_module,
+            "_run_prompt_eval",
+            Mock(side_effect=AssertionError("resume must retain completed generation")),
+        )
+        [resumed] = run_eval_suite(**run_kwargs, resume_existing=True)
+
+        assert resumed.to_dict() == result.to_dict()
+        assert prompt_eval.call_count == 1
+
+    @pytest.mark.parametrize("kind", ["citation", "source"])
+    @pytest.mark.parametrize("forgery", ["target", "request", "attestation"])
+    def test_routed_amendment_suite_rejects_untrusted_identity(
+        self, tmp_path, kind, forgery
+    ):
+        from tests.test_amending_section_context import (
+            _AMENDING_SECTION,
+            _OTHER_TARGET,
+            _PRINCIPAL_TARGET,
+            _amendment_rows,
+        )
+
+        release = _write_test_corpus_release(tmp_path, _amendment_rows())
+        source = resolve_corpus_source_unit(_AMENDING_SECTION, release)
+        attestation = _expected_eval_source_attestation(
+            source, rulespec_root=_canonical_rulespec_content_root(tmp_path, "nz")
+        )
+        case = EvalSuiteCase(
+            kind=kind,
+            name="amending-section",
+            mode="cold",
+            **(
+                {"citation": _AMENDING_SECTION}
+                if kind == "citation"
+                else {"corpus_citation_path": _AMENDING_SECTION}
+            ),
+        )
+        result = _fake_eval_result("openai-gpt-5.4", _PRINCIPAL_TARGET)
+        result.amendment_request = _AMENDING_SECTION
+        result.source_attestation = dict(attestation)
+        if forgery == "target":
+            result.citation = _OTHER_TARGET
+        elif forgery == "request":
+            result.amendment_request = _AMENDING_SECTION + "/1"
+        else:
+            result.source_attestation = None
+
+        with pytest.raises(ValueError):
+            evals_module._validate_new_eval_suite_case_results(
+                case,
+                [result],
+                [parse_runner_spec("openai:gpt-5.4")],
+                expected_source_attestation=attestation,
+                source_unit=source,
+            )
+
+    def test_routed_amendment_suite_rejects_amending_artifact_path(self, tmp_path):
+        from tests.test_amending_section_context import (
+            _AMENDING_SECTION,
+            _PRINCIPAL_TARGET,
+        )
+
+        result = _fake_eval_result("openai-gpt-5.4", _PRINCIPAL_TARGET)
+        result.amendment_request = _AMENDING_SECTION
+        result.output_file = str(
+            tmp_path
+            / "out"
+            / "01-amending-section"
+            / result.runner
+            / _resolve_eval_output_path(_AMENDING_SECTION)
+        )
+        case = EvalSuiteCase(
+            kind="citation",
+            name="amending-section",
+            mode="cold",
+            citation=_AMENDING_SECTION,
+        )
+
+        with pytest.raises(ValueError, match="routed principal artifact path"):
+            evals_module._validate_eval_suite_result_generation_artifact_ownership(
+                result,
+                output_root=tmp_path / "out",
+                case_index=1,
+                case=case,
+                seen_paths=set(),
+            )
+
     def test_manifest_case_identity_exposes_oracle_mode(self, tmp_path):
         manifest = EvalSuiteManifest(
             name="Oracle identity",
@@ -22514,9 +23090,11 @@ class TestCodexPromptEvalPolicyEngineSkillIsolation:
 
         assert response.error is not None
         assert response.error.startswith(rejection)
-        assert "--model gpt-5.6-terra --escalation-model gpt-5.6-sol" in (
+        assert "The signed-in Codex account rejected the requested model." in (
             response.error
         )
+        assert "`encode --model MODEL --escalation-model MODEL`" in response.error
+        assert "`eval --runner claude:opus --runner codex:MODEL`" in response.error
 
 
 class TestUnexpectedAccessDetection:

@@ -1,0 +1,63 @@
+Section 5747.02 | Tax rates.
+
+(A) For the purpose of providing revenue for the support of schools and local government functions, to provide relief to property taxpayers, to provide revenue for the general revenue fund, and to meet the expenses of administering the tax levied by this chapter, there is hereby levied on every individual, trust, and estate residing in or earning or receiving income in this state, on every individual, trust, and estate earning or receiving lottery winnings, prizes, or awards pursuant to Chapter 3770. of the Revised Code, on every individual, trust, and estate earning or receiving winnings on casino or sports gaming, and on every individual, trust, and estate otherwise having nexus with or in this state under the Constitution of the United States, an annual tax measured as prescribed in divisions (A)(1) to (4) of this section.
+
+(1) In the case of trusts, the tax imposed by this section shall be measured by modified Ohio taxable income under division (C) of this section and levied in the same amount as the tax is imposed on estates as prescribed in division (A)(2) of this section.
+
+(2) In the case of estates, the tax imposed by this section shall be measured by Ohio taxable income. If the estate has not more than twenty-six thousand fifty dollars of such income, the tax shall be levied on such income at the rate of 1.38462% for taxable years beginning in 2024, 1.31287% for taxable years beginning in 2025, and 1.27448% for taxable years beginning in 2026 and thereafter. If the estate has income in excess of that amount, the tax shall be levied at the same rates prescribed in division (A)(3) of this section for individuals.
+
+(3) In the case of individuals, the tax imposed by this section on income other than taxable business income shall be measured by Ohio adjusted gross income, less taxable business income and less an exemption for the taxpayer, the taxpayer's spouse, and each dependent as provided in section 5747.025 of the Revised Code. If the balance thus obtained is equal to or less than twenty-six thousand fifty dollars, no tax shall be imposed on that balance. If the balance thus obtained is greater than twenty-six thousand fifty dollars, the tax is hereby levied as follows:
+
+(a) For taxable years beginning in 2024:
+
+OHIO ADJUSTED GROSS INCOME LESS TAXABLE BUSINESS INCOME AND EXEMPTIONS (INDIVIDUALS) OR MODIFIED OHIO TAXABLE INCOME (TRUSTS) OR OHIO TAXABLE INCOME (ESTATES) TAX More than $26,050 but not more than $100,000 $360.69 plus 2.75% of the amount in excess of $26,050 More than $100,000 $2,394.32 plus 3.5% of the amount in excess of $100,000
+
+(b) For taxable years beginning in 2025:
+
+OHIO ADJUSTED GROSS INCOME LESS TAXABLE BUSINESS INCOME AND EXEMPTIONS (INDIVIDUALS) OR MODIFIED OHIO TAXABLE INCOME (TRUSTS) OR OHIO TAXABLE INCOME (ESTATES) TAX More than $26,050 but not more than $100,000 $342.00 plus 2.75% of the amount in excess of $26,050 More than $100,000 $2,394.32 plus 3.125% of the amount in excess of $100,000
+
+(c) For taxable years beginning in 2026 and thereafter, $332.00 plus 2.75% of the amount in excess of $26,050.
+
+(4)(a) In the case of individuals, the tax imposed by this section on taxable business income shall equal three per cent of the result obtained by subtracting any amount allowed under division (A)(4)(b) of this section from the individual's taxable business income.
+
+(b) If the exemptions allowed to an individual under division (A)(3) of this section exceed the taxpayer's Ohio adjusted gross income less taxable business income, the excess shall be deducted from taxable business income before computing the tax under division (A)(4)(a) of this section.
+
+(5) Except as otherwise provided in this division, in August of each year, the tax commissioner shall make a new adjustment to the income amounts prescribed in divisions (A)(2) and (3) of this section by multiplying the percentage increase in the gross domestic product deflator computed that year under section 5747.025 of the Revised Code by each of the income amounts resulting from the adjustment under this division in the preceding year, adding the resulting product to the corresponding income amount resulting from the adjustment in the preceding year, and rounding the resulting sum to the nearest multiple of fifty dollars. The tax commissioner also shall recompute each of the tax dollar amounts to the extent necessary to reflect the new adjustment of the income amounts. To recompute the tax dollar amount corresponding to the lowest tax rate in division (A)(3) of this section, the commissioner shall multiply the tax rate prescribed in division (A)(2) of this section by the income amount specified in that division and as adjusted according to this paragraph. The rates of taxation shall not be adjusted.
+
+The adjusted amounts apply to taxable years beginning in the calendar year in which the adjustments are made and to taxable years beginning in each ensuing calendar year until a calendar year in which a new adjustment is made pursuant to this division. The tax commissioner shall not make a new adjustment in any year in which the amount resulting from the adjustment would be less than the amount resulting from the adjustment in the preceding year.
+
+(B)(1) The tax imposed by this section on a trust shall be computed by multiplying the Ohio modified taxable income of the trust by the rates prescribed by division (A) of this section.
+
+(2) A resident trust may claim a credit against the tax computed under division (B) of this section equal to the lesser of (a) the tax paid to another state or the District of Columbia on the resident trust's modified nonbusiness income, other than the portion of the resident trust's nonbusiness income that is qualifying investment income as defined in section 5747.012 of the Revised Code, or (b) the effective tax rate, based on modified Ohio taxable income, multiplied by the resident trust's modified nonbusiness income other than the portion of the resident trust's nonbusiness income that is qualifying investment income. The credit applies before any other applicable credits.
+
+(3) Any credit authorized against the tax imposed by this section applies to a trust subject to division (B) of this section only if the trust otherwise qualifies for the credit. To the extent that the trust distributes income for the taxable year for which a credit is available to the trust, the credit shall be shared by the trust and its beneficiaries. The tax commissioner and the trust shall be guided by applicable regulations of the United States treasury regarding the sharing of credits.
+
+(C) For the purposes of this section, "trust" means any trust described in Subchapter J of Chapter 1 of the Internal Revenue Code, excluding trusts that are not irrevocable as defined in division (I)(3)(b) of section 5747.01 of the Revised Code and that have no modified Ohio taxable income for the taxable year, charitable remainder trusts, qualified funeral trusts and preneed funeral contract trusts established pursuant to sections 4717.31 to 4717.38 of the Revised Code that are not qualified funeral trusts, endowment and perpetual care trusts, qualified settlement trusts and funds, designated settlement trusts and funds, and trusts exempted from taxation under section 501(a) of the Internal Revenue Code.
+
+(D) Nothing in division (A)(3) of this section shall prohibit an individual with an Ohio adjusted gross income, less taxable business income and exemptions, of twenty-six thousand fifty dollars or less from filing a return under this chapter to receive a refund of taxes withheld or to claim any refundable credit allowed under this chapter.
+
+Last updated July 11, 2025 at 11:55 AM
+
+Available Versions of this Section
+
+September 15, 2014 – House Bill 483 - 130th General Assembly [ View September 15, 2014 Version ]
+
+September 29, 2015 – House Bill 64 - 131st General Assembly [ View September 29, 2015 Version ]
+
+November 15, 2015 – Senate Bill 208 - 131st General Assembly [ View November 15, 2015 Version ]
+
+September 13, 2016 – House Bill 182, Senate Bill 208 - 131st General Assembly [ View September 13, 2016 Version ]
+
+September 29, 2017 – Amended by House Bill 49 - 132nd General Assembly [ View September 29, 2017 Version ]
+
+October 17, 2019 – Amended by House Bill 166 - 133rd General Assembly [ View October 17, 2019 Version ]
+
+March 27, 2020 – Amended by House Bill 197 - 133rd General Assembly [ View March 27, 2020 Version ]
+
+September 30, 2021 – Amended by House Bill 110 - 134th General Assembly [ View September 30, 2021 Version ]
+
+March 23, 2022 – Amended by House Bill 29 - 134th General Assembly [ View March 23, 2022 Version ]
+
+October 3, 2023 – Amended by House Bill 33 - 135th General Assembly [ View October 3, 2023 Version ]
+
+September 30, 2025 – Amended by House Bill 96 - 136th General Assembly [ View September 30, 2025 Version ]

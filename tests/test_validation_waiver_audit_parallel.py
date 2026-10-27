@@ -7,6 +7,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode import cli
 
@@ -22,14 +24,13 @@ def _release_stub():
     )
 
 
-class _FakeFuture:
+class _FakeFuture(cli.concurrent.futures.Future):
     def __init__(self, value):
-        self._value = value
-
-    def result(self):
-        if isinstance(self._value, Exception):
-            raise self._value
-        return self._value
+        super().__init__()
+        if isinstance(value, Exception):
+            self.set_exception(value)
+        else:
+            self.set_result(value)
 
 
 class _FakePool:
@@ -49,7 +50,10 @@ class _FakePool:
 
     def submit(self, fn, chunk, *args):
         type(self).submitted.append((fn, tuple(chunk), args))
-        return _FakeFuture(type(self).chunk_results[chunk[0]])
+        value = type(self).chunk_results[chunk[0]]
+        if not isinstance(value, (Exception, cli._WaiverAuditTaskResult)):
+            value = cli._WaiverAuditTaskResult(value, "")
+        return _FakeFuture(value)
 
 
 @pytest.fixture(autouse=True)
@@ -192,14 +196,11 @@ def _run_parallel(paths, monkeypatch, workers="2", composer=None):
 
 def test_parallel_results_are_merged_and_sorted(monkeypatch):
     paths = [f"us/{index:03d}.yaml" for index in range(20)]
-    # Contiguous chunks of the sorted list; return each chunk's rows reversed
-    # to prove the merge re-establishes deterministic order.
-    chunk = max(8, -(-len(paths) // (2 * 8)))
-    for start in range(0, len(paths), chunk):
-        piece = paths[start : start + chunk]
-        _FakePool.chunk_results[piece[0]] = [
-            {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
-            for path in reversed(piece)
+    # Deliberately return rows out of order to prove the merge restores the
+    # serial order even when task completion/response order differs.
+    for submitted, returned in zip(paths, reversed(paths), strict=True):
+        _FakePool.chunk_results[submitted] = [
+            {"path": returned, "passed": False, "fingerprint": f"fp-{returned}"}
         ]
     results = _run_parallel(
         list(reversed(paths)), monkeypatch, composer=Path("/composer")
@@ -208,8 +209,9 @@ def test_parallel_results_are_merged_and_sorted(monkeypatch):
     submitted_paths = [
         path for _fn, chunk_paths, _args in _FakePool.submitted for path in chunk_paths
     ]
-    assert submitted_paths == sorted(paths)
+    assert submitted_paths == paths
     for _fn, _chunk, args in _FakePool.submitted:
+        assert len(_chunk) == 1
         assert args == (
             "/repo",
             "/corpus",
@@ -222,14 +224,11 @@ def test_parallel_results_are_merged_and_sorted(monkeypatch):
 
 def test_parallel_detects_lost_results(monkeypatch):
     paths = [f"us/{index:03d}.yaml" for index in range(20)]
-    chunk = max(8, -(-len(paths) // (2 * 8)))
-    for start in range(0, len(paths), chunk):
-        piece = paths[start : start + chunk]
-        rows = [
+    for path in paths:
+        _FakePool.chunk_results[path] = [
             {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
-            for path in piece
         ]
-        _FakePool.chunk_results[piece[0]] = rows[:-1] if start == 0 else rows
+    _FakePool.chunk_results[paths[0]] = []
     with pytest.raises(RuntimeError, match="corrupted module set"):
         _run_parallel(paths, monkeypatch)
 
@@ -237,35 +236,113 @@ def test_parallel_detects_lost_results(monkeypatch):
 def test_parallel_detects_duplicate_masking_missing(monkeypatch):
     # Same cardinality, wrong multiset: one path duplicated, one omitted.
     paths = [f"us/{index:03d}.yaml" for index in range(20)]
-    chunk = max(8, -(-len(paths) // (2 * 8)))
-    for start in range(0, len(paths), chunk):
-        piece = paths[start : start + chunk]
-        rows = [
+    for path in paths:
+        _FakePool.chunk_results[path] = [
             {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
-            for path in piece
         ]
-        if start == 0:
-            rows[-1] = dict(rows[0])
-        _FakePool.chunk_results[piece[0]] = rows
+    _FakePool.chunk_results[paths[-1]] = _FakePool.chunk_results[paths[0]]
     with pytest.raises(RuntimeError, match="duplicated"):
         _run_parallel(paths, monkeypatch)
 
 
 def test_parallel_propagates_worker_failure(monkeypatch):
     paths = [f"us/{index:03d}.yaml" for index in range(20)]
-    chunk = max(8, -(-len(paths) // (2 * 8)))
-    for start in range(0, len(paths), chunk):
-        piece = paths[start : start + chunk]
-        _FakePool.chunk_results[piece[0]] = (
+    for index, path in enumerate(paths):
+        _FakePool.chunk_results[path] = (
             ValueError("worker exploded")
-            if start == 0
-            else [
-                {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
-                for path in piece
-            ]
+            if index == 0
+            else [{"path": path, "passed": False, "fingerprint": f"fp-{path}"}]
         )
     with pytest.raises(ValueError, match="worker exploded"):
         _run_parallel(paths, monkeypatch)
+
+
+def _interleaved_split_error(paths, workers, failing):
+    """The module whose error the pre-scheduling interleaved split raised.
+
+    Workers took slices ``paths[offset::workers]``; the parent collected the
+    slices in order and each slice's serial run stopped at its first failure.
+    """
+    for offset in range(workers):
+        for path in paths[offset::workers]:
+            if path in failing:
+                return path
+    return None
+
+
+def _failing_results(paths, failing, raised):
+    for path in paths:
+        error = ValueError(f"{path} invalid")
+        if path not in failing:
+            _FakePool.chunk_results[path] = [
+                {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
+            ]
+        elif path in raised:
+            # The task itself raised (for example a pickling error).
+            _FakePool.chunk_results[path] = error
+        else:
+            # The worker caught the module's exception and returned it.
+            _FakePool.chunk_results[path] = cli._WaiverAuditTaskResult([], "", error)
+
+
+def _run_parallel_in_order(paths, workers, completion):
+    _FakePool.submitted = []
+
+    def completed(futures):
+        return [futures[index] for index in completion]
+
+    with (
+        patch.dict(cli.os.environ, {cli._WAIVER_AUDIT_WORKERS_ENV: str(workers)}),
+        patch.object(
+            cli, "load_rulespec_local_corpus_release", return_value=_release_stub()
+        ),
+        patch.object(cli.concurrent.futures, "ProcessPoolExecutor", _FakePool),
+        patch.object(cli.concurrent.futures, "as_completed", completed),
+    ):
+        return cli._fingerprint_validation_waiver_modules_parallel(
+            [Path(p) for p in paths],
+            root=Path("/repo"),
+            corpus_path=Path("/corpus"),
+            axiom_rules_path=Path("/engine"),
+        )
+
+
+@pytest.mark.parametrize("completion", ["forward", "reverse"])
+def test_parallel_reports_the_interleaved_splits_error_in_any_completion_order(
+    completion,
+):
+    paths = [f"us/{index:03d}.yaml" for index in range(20)]
+    # The split gave slice 0 indices 0, 2, 4, ... and slice 1 indices 1, 3, ...
+    # Slice 0 was collected first, so index 2's error was the one raised even
+    # though index 1 sorts first.
+    _failing_results(paths, failing={paths[1], paths[2]}, raised={paths[1]})
+    order = list(range(len(paths)))
+    if completion == "reverse":
+        order.reverse()
+    with pytest.raises(ValueError, match=r"^us/002\.yaml invalid$"):
+        _run_parallel_in_order(paths, 2, order)
+
+
+@settings(max_examples=200, deadline=None)
+@given(data=st.data())
+def test_parallel_failure_is_completion_order_independent(data):
+    """Invariant: for any failing set, worker count and completion order, the
+    raised error is the one the interleaved split raised."""
+    count = data.draw(st.integers(min_value=2, max_value=12), label="modules")
+    workers = data.draw(st.integers(min_value=2, max_value=count), label="workers")
+    paths = [f"us/{index:03d}.yaml" for index in range(count)]
+    failing = data.draw(
+        st.sets(st.sampled_from(paths), min_size=1), label="failing modules"
+    )
+    raised = data.draw(st.sets(st.sampled_from(sorted(failing))), label="raised")
+    completion = data.draw(st.permutations(range(count)), label="completion order")
+    _FakePool.chunk_results = {}
+    _failing_results(paths, failing, raised)
+
+    expected = _interleaved_split_error(paths, workers, failing)
+    with pytest.raises(ValueError) as caught:
+        _run_parallel_in_order(paths, workers, completion)
+    assert str(caught.value) == f"{expected} invalid"
 
 
 def test_chunk_worker_builds_release_without_broker():

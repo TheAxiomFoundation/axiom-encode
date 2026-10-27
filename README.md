@@ -35,6 +35,13 @@ pipeline produces. The chartered admission model — where generation runs,
 what gets signed, and what CI is allowed to do — is
 [axiom-encode#1192](https://github.com/TheAxiomFoundation/axiom-encode/issues/1192).
 
+Signed re-encodes run centrally through this repository's
+[`targeted-signed-reencode.yml`](.github/workflows/targeted-signed-reencode.yml),
+behind the `production-signing` environment approval. The former key-migration
+and reusable caller-signing lanes were retired on 2026-10-14; jurisdiction
+repositories do not receive signing keys. See
+[signing deployment and secrets discipline](docs/trusted-signing-supervisor.md#workflow-deployment-and-secrets-discipline).
+
 If you are not running the supervised pipeline, you generally do not need
 this repo:
 
@@ -49,11 +56,14 @@ this repo:
 ## Installation
 
 ```bash
-uv sync
+uv sync --locked --extra dev
 ```
 
+This installs exactly what `uv.lock` pins, including the test and lint tools.
+CI builds its test environment with `uv sync --locked --python 3.13 --extra dev`.
 Without [uv](https://docs.astral.sh/uv/), create and activate a virtualenv,
-then `pip install -e ".[dev]"`.
+then `pip install -e ".[dev]"`, which resolves the latest compatible releases
+rather than the locked set.
 
 ## Usage
 
@@ -86,6 +96,14 @@ the output directory are not a second validation layout.
 explicit `--rulespec-dependency-root` pointing to the canonical country
 checkout; ambient environment and sibling checkout discovery are not used.
 
+Git probes for RuleSpec checkout identity and configuration use a 10-second
+timeout per attempt and retry once on timeout. On loaded hosts, set
+`AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS` to a finite positive number of seconds
+up to 300 to change that budget. Identity checks reject checkout admission after
+exhausted timeouts or Git launch failures. Configuration-discovery failures disable
+caching, so each inspection performs fresh identity checks. Invalid timeout
+values are rejected before Git is launched.
+
 `encode` resolves the requested citation to exactly one active
 `corpus.provisions` row before model generation. Each RuleSpec checkout must
 pin one signed release object in `.axiom/toolchain.toml` through
@@ -104,19 +122,31 @@ rows are rejected as ambiguous. If the named release or an unambiguous provision
 is unavailable, encoding stops before calling a model. Supabase run/session sync
 is a separate telemetry feature and never supplies legal source text.
 
+For enacted amendments, request the principal provision with amendment and
+commencement evidence attached from the pinned corpus release. See
+[Encoding enacted amendments before commencement](docs/amendment-encoding.md)
+for the dated-version pattern, the exact discovery metadata ingest must supply,
+and blockers for direct amending-provision requests with unresolved context.
+
+A corpus checkout that keeps its bytes outside git (`.axiom/corpus-locks/`) gets
+the pinned release's provisions placed on binding, each file verified against the
+release's sha256 and placed only where the checkout's own lock pins those bytes;
+`axiom-encode corpus-fetch` does the same explicitly. See
+[docs/corpus-bytes-outside-git.md](docs/corpus-bytes-outside-git.md).
+
 `encode` defaults to `--backend codex` with `gpt-6-luna`. Each section gets
 up to two validator-rejected generations on that model, then one generation
 with `gpt-6-sol`; use
 `--escalate-after`, `--escalation-model`, or `--no-escalation` to override that
-policy. On 2026-09-24 ChatGPT-account Codex auth rejected both GPT-6 models
-("not supported when using Codex with a ChatGPT account"); on that auth path pass
-`--model` and `--escalation-model` explicitly (for example `gpt-5.6-terra` and
-`gpt-5.6-sol`) until they are served there. The same default reaches `eval` and
+policy. Pass `--model gpt-6.1-sol --escalation-model gpt-6.1-sol` to select
+GPT-6.1 Sol explicitly. The same default reaches `eval` and
 `eval-source` (default runners `claude:opus` and `codex:gpt-6-luna`; `--runner`
 replaces the whole list, so pass `--runner claude:opus --runner
-codex:gpt-5.6-terra`) and the Codex reviewer (`AXIOM_ENCODE_REVIEWER_CLI=codex`,
+codex:gpt-6.1-sol`) and the Codex reviewer (`AXIOM_ENCODE_REVIEWER_CLI=codex`,
 or the fallback when the Claude CLI is missing; set
-`AXIOM_ENCODE_REVIEWER_CODEX_MODEL=gpt-5.6-terra`). Claude/Fable capacity is reserved
+`AXIOM_ENCODE_REVIEWER_CODEX_MODEL=gpt-6.1-sol`). Model availability depends on
+the signed-in account and Codex CLI; an actual account rejection includes
+guidance for selecting an available model. Claude/Fable capacity is reserved
 for orchestration, gating, and review rather than YAML generation. The Codex
 backend authenticates through the Codex CLI's `~/.codex/auth.json`
 (created by `codex login`, or an `OPENAI_API_KEY` recorded there); `CODEX_HOME`
@@ -124,6 +154,12 @@ overrides the directory and `OPENAI_API_KEY` in the environment also satisfies
 the check. When neither is present `encode` stops with a clear error before
 starting a run. Other backends stay available explicitly with
 `--backend claude` or `--backend openai`.
+
+Use `encode --codex-reasoning-effort high` to select Codex's reasoning effort
+for every generation and retry. The default is `low`; the value is passed as
+Codex's `model_reasoning_effort` config setting and recorded in the generation
+trace. Other backends ignore this option. Available effort values depend on
+the selected Codex model.
 
 `proof-validate` checks explicit RuleSpec proof trees without reviewers or
 oracles. Proof atoms must cite immutable release-bound corpus text or an
@@ -322,8 +358,16 @@ Repository CI should run:
 axiom-encode guard-generated \
   --repo "$GITHUB_WORKSPACE" \
   --corpus-path "$AXIOM_CORPUS_PATH" \
+  --base-ref "$PROTECTED_BASE_REF" \
   --all
 ```
+
+CI must supply `PROTECTED_BASE_REF` from its trusted review or dispatch context.
+When retired source metadata migration receipts are present, `--all` requires
+this protected base to admit each receipt's complete transaction, including
+every rewritten importer and replacement owner. The receipt's own
+`base_commit` does not establish which base CI trusts. Without an explicit
+protected base, the guard refuses the receipt and names its path.
 
 That guard protects atomic RuleSpec YAML under `legislation/`, `policies/`,
 `regulations/`, and `statutes/` unless it matches a root-owned encoder apply
@@ -349,6 +393,68 @@ source — plus
 in-content `module.encoding_provenance` (`encoder`, `model`, `run_id`,
 `reviewed_by`) and `module.validation` (oracle, `matches`/`mismatches`/
 `pending` status, `last_run` date) blocks. These fields are inert at runtime.
+
+`module.interpretations` records each reading adopted when provisions conflict,
+the encoding departs from literal text, or a question has been put to the
+publisher. It is also inert at runtime. **Synthetic example:** an encoder can
+record an unresolved reading for the invented Example District Council Support
+Scheme as follows. The citation, excerpt, and readings below are fictional:
+
+```yaml
+module:
+  interpretations:
+    - id: household-change-notice
+      question: Must each adult notify the council separately of a household change?
+      texts:
+        - corpus_citation_path: xx-fictional/manual/example-district-support-scheme/notifications
+          excerpt: "Applicants must notify the council when household circumstances change."
+      reading: One household notification satisfies the notice requirement.
+      alternatives:
+        - id: separate-adult-notices
+          reading: Each adult must notify the council separately.
+          effect: Applicants would need to send separate notices.
+      basis: The scheme addresses the household as one applicant.
+      status: open
+      affects:
+        - example_support_change_notice_required
+```
+
+Each entry requires a module-unique `id` matching
+`[a-z0-9]+(-[a-z0-9]+)*`, non-blank `question`, `reading`, and `basis`, and
+non-empty `texts`, `alternatives`, and `affects` lists. A text has only
+`corpus_citation_path` and `excerpt`; an alternative requires an `id` unique
+within its interpretation and matching `^[a-z0-9]+(-[a-z0-9]+)*$`, a `reading`,
+and an optional `effect`. Its only allowed keys are `id`, `reading`, and
+`effect`. All string fields, including optional fields when present,
+must be non-blank. Unknown keys are rejected throughout the block.
+Each canonical corpus citation must resolve, and its excerpt must match the
+corpus using the same normalization and matcher as source proof atoms.
+`affects` names must be local `rules[].name` values, never deferred outputs.
+Interpretation excerpts count toward neither proof obligations nor the
+complete-source coverage gate.
+
+The status controls the additional evidence blocks:
+
+| `status` | `ruling` | `confirmation` |
+| --- | --- | --- |
+| `open` | Forbidden | Forbidden |
+| `ruled` | Required | Forbidden |
+| `confirmed` | Required | Required |
+| `contradicted` | Required | Required |
+
+`ruling` contains `by` (the ruling organisation), `date` (a real `YYYY-MM-DD`
+date), and `record` (an https URL to a public PR, issue, or comment).
+`confirmation` contains `by` (the publisher organisation), `date`, and the
+publisher's verbatim `excerpt`, plus an optional public https `record`.
+Quote dates in YAML. Use organisations, never people's names, and omit private
+decision identifiers, session identifiers, and local paths. The encoder is
+instructed to create `open` entries only, and repair rounds to copy a recorded
+human ruling only when it is supplied through `--review-findings` (then
+`status: ruled`). Validation checks the shape of `ruling` and `confirmation`
+blocks, not where a ruling came from. A supplied publisher reply
+permits `confirmed` or `contradicted` only with both evidence blocks. A
+`contradicted` entry blocks validation: repair the module, move the old reading
+into `alternatives`, and set the new reading's status.
 
 Check every pinned module in a jurisdiction checkout against a local
 `axiom-corpus` checkout:
@@ -425,7 +531,9 @@ from axiom_encode.core_export import build_spec_from_eval_result
 spec, metadata = build_spec_from_eval_result(
     selected_result,
     root="us:statutes/26/32/a/1",
-    modules=[("us:statutes/26/32/b", Path("/explicit/rulespec-us/us/statutes/26/32/b.yaml"))],
+    modules=[
+        ("us:statutes/26/32/b", Path("/explicit/rulespec-us/us/statutes/26/32/b.yaml"))
+    ],
 )
 ```
 
@@ -634,5 +742,8 @@ changes and current evidence.
 
 - `docs/axiom-encode-methods-log.md` tracks the last meaningful harness changes,
   their hypotheses, and the evidence path to justify them later.
+- `docs/judge-stages.md` documents the judge stages, including the TypeSafe
+  System One pre-screen ahead of the statutory-fidelity referee and the
+  placeholder threshold the verifier track (#1657) must replace.
 - `docs/rulespec-proof-validation.md` defines the proof-tree contract that keeps
   immutable corpus evidence and executable RuleSpec separated.

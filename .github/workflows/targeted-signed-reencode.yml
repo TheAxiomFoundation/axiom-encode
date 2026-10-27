@@ -39,7 +39,7 @@ on:
         required: false
         type: string
       source_bundle_json:
-        description: JSON citation array, canonical_refresh_bundle object, or atomic-source-transaction/v2/v3/v4/v5 envelope for an independent refresh transaction
+        description: 'Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3; legacy citation array/refresh object, v2-v5 contract, or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} for an authenticated failed ordinary single-target repair'
         required: false
         default: "[]"
         type: string
@@ -152,6 +152,7 @@ jobs:
           CITATION: ${{ inputs.citation }}
           QUEUE_ID: ${{ inputs.queue_id }}
           REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          SOURCE_BUNDLE_JSON: ${{ inputs.source_bundle_json }}
           ATTEMPT_BUDGET: ${{ vars.ATTEMPT_BUDGET }}
           ATTEMPT_BUDGET_OVERRIDE: ${{ vars.ATTEMPT_BUDGET_OVERRIDE }}
           ATTEMPT_BUDGET_BY_CITATION_JSON: ${{ vars.ATTEMPT_BUDGET_BY_CITATION_JSON }}
@@ -401,10 +402,9 @@ jobs:
           git -C axiom-corpus merge-base --is-ancestor HEAD refs/remotes/origin/main
           git -C axiom-rules-engine merge-base --is-ancestor HEAD refs/remotes/origin/main
 
-      - name: Checkout RuleSpec-pinned axiom-compose
-        id: axiom_compose
+      - name: Parse RuleSpec-pinned axiom-compose reference
+        id: axiom_compose_request
         env:
-          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
           set -euo pipefail
@@ -430,6 +430,16 @@ jobs:
           print(value)
           PY
           )"
+          echo "ref=$compose_ref" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout RuleSpec-pinned axiom-compose
+        id: axiom_compose
+        env:
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          COMPOSE_REF: ${{ steps.axiom_compose_request.outputs.ref }}
+        run: |
+          set -euo pipefail
+          compose_ref="$COMPOSE_REF"
           if [ -z "$compose_ref" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "ref=" >> "$GITHUB_OUTPUT"
@@ -508,6 +518,69 @@ jobs:
           sudo chmod -R go-w /opt/axiom-compose-verification
           /opt/axiom-compose-verification/axiom-compose --help > /dev/null
 
+      - name: Validate optional authenticated corpus transport request
+        id: corpus_artifact_transport
+        env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+          CITATION: ${{ inputs.citation }}
+          REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
+          REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          QUEUE_ID: ${{ inputs.queue_id }}
+          QUEUE_ITEM_ID: ${{ inputs.queue_item_id }}
+          QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
+          QUEUE_ITEM_GENERATION_SHA256: ${{ inputs.queue_item_generation_sha256 }}
+          QUEUE_DISPATCHER_RUN_ID: ${{ inputs.queue_dispatcher_run_id }}
+          DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
+          SECOND_DEPENDENT_REVIEW_FINDING: ${{ inputs.second_dependent_review_finding }}
+          REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
+          LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
+          SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.second_legacy_exact_dependent_rulespec_path }}
+          EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
+          LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
+        run: |
+          set -euo pipefail
+          run_id="$(axiom-encode/.venv/bin/python -m axiom_encode.corpus_artifact_transport request)"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      # Deterministic metadata migrations carry an exact base-bound plan in
+      # source_bundle_json; GitHub's 25-input limit leaves no separate input.
+      - name: Resolve retired source metadata migration request
+        id: retired_source_metadata_request
+        env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
+          EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
+          LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
+          LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
+          QUEUE_DISPATCHER_RUN_ID: ${{ inputs.queue_dispatcher_run_id }}
+          QUEUE_ID: ${{ inputs.queue_id }}
+          QUEUE_ITEM_GENERATION_SHA256: ${{ inputs.queue_item_generation_sha256 }}
+          QUEUE_ITEM_ID: ${{ inputs.queue_item_id }}
+          QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
+          REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
+          REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
+          REVIEW_FINDING: ${{ inputs.review_finding }}
+          SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
+          SECOND_DEPENDENT_REVIEW_FINDING: ${{ inputs.second_dependent_review_finding }}
+          SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.second_legacy_exact_dependent_rulespec_path }}
+        run: |
+          set -euo pipefail
+          axiom-encode/.venv/bin/python \
+            axiom-encode/scripts/prepare_retired_source_metadata.py \
+            resolve-request "${ATOMIC_SOURCE_JSON:-[]}" --base-ref "$RULESPEC_REF" \
+            > "$RUNNER_TEMP/retired-source-metadata-plan.json"
+          if [ ! -s "$RUNNER_TEMP/retired-source-metadata-plan.json" ]; then
+            rm -f "$RUNNER_TEMP/retired-source-metadata-plan.json"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Resolve trusted prior-run repair candidate
         id: repair_candidate
         if: ${{ inputs.repair_run_id != '' }}
@@ -545,16 +618,17 @@ jobs:
             <<< "$atomic_source_payload")"
           primary_required_test_cases_json="$(jq -cer \
             '.primary_required_test_cases' <<< "$atomic_source_payload")"
-          repair_tests_only=false
-          if jq -e 'type == "array" and length > 0' \
-            <<< "$primary_required_test_cases_json" > /dev/null; then
-            repair_tests_only=true
-          elif ! jq -e 'type == "array" and length == 0' \
-            <<< "$primary_required_test_cases_json" > /dev/null; then
-            echo "primary required test cases must be a JSON array" >&2
-            exit 1
-          fi
+          repair_mode_json="$(
+            axiom-encode/.venv/bin/python \
+              axiom-encode/scripts/prepare_signed_backfill.py \
+              resolve-atomic-repair-mode "${ATOMIC_SOURCE_JSON:-[]}"
+          )"
+          repair_tests_only="$(jq -r '.tests_only' <<< "$repair_mode_json")"
+          repair_mode="$(jq -er '.mode' <<< "$repair_mode_json")"
           echo "tests_only=$repair_tests_only" >> "$GITHUB_OUTPUT"
+          echo "mode=$repair_mode" >> "$GITHUB_OUTPUT"
+          echo "execution=$(jq -c '.execution' <<< "$repair_mode_json")" \
+            >> "$GITHUB_OUTPUT"
           if [ "$REPAIR_RUN_ID" = "35160240952" ]; then
             # Pilot only: the immutable, independently reviewed signed memo head.
             # The encoder's tests-only contract rejects any changed RuleSpec body.
@@ -801,7 +875,10 @@ jobs:
             >> "$GITHUB_OUTPUT"
 
       - name: Validate atomic source inputs
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
         env:
+          REPAIR_TESTS_ONLY: ${{ steps.repair_candidate.outputs.tests_only }}
+          REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
@@ -813,6 +890,7 @@ jobs:
           REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
           REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
           SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.second_legacy_exact_dependent_rulespec_path }}
           SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
         run: |
@@ -822,6 +900,9 @@ jobs:
               axiom-encode/scripts/prepare_signed_backfill.py \
               split-atomic-source-input "${ATOMIC_SOURCE_JSON:-[]}"
           )"
+          axiom-encode/.venv/bin/python axiom-encode/scripts/prepare_signed_backfill.py \
+            resolve-atomic-repair-mode "${ATOMIC_SOURCE_JSON:-[]}" \
+            --check-selected > /dev/null
           source_bundle_json="$(jq -cer '.source_bundle' \
             <<< "$atomic_source_payload")"
           canonical_refresh_bundle_json="$(jq -cer '.canonical_refresh_bundle' \
@@ -856,6 +937,36 @@ jobs:
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           if [ -n "${REPAIR_RUN_ID:-}" ]; then
+            canonical_refresh_primary_required_test_cases_json="[]"
+          fi
+          # Required cases on a standalone fresh replacement are a signing
+          # contract, not a request to trust or refresh a predecessor manifest.
+          if [ -z "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
+             [ -z "${REPAIR_RUN_ID:-}" ] && \
+             [ -n "${REPLACE_RULESPEC_PATH:-}" ] && \
+             [ "$primary_required_test_cases_json" != "[]" ] && \
+             jq -e '
+               .canonical_refresh_bundle == [] and
+               .require_complete_source_unit == true and
+               (.manifest_only_refresh // false) == false and
+               (.reviewed_candidate_promotion // false) == false
+             ' <<< "$atomic_source_payload" > /dev/null; then
+            if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
+               [ -n "${QUEUE_ID:-}" ] || \
+               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+               [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               ! jq -e '.source_bundle == []' <<< "$atomic_source_payload" > /dev/null || \
+               ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "required tests on fresh ordinary replacements cannot mix transaction modes" >&2
+              exit 1
+            fi
+            axiom-encode/.venv/bin/python axiom-encode/scripts/prepare_signed_backfill.py \
+              validate-fresh-primary-test-target "$RULESPEC_CHECKOUT" \
+              "$CITATION" "$REPLACE_RULESPEC_PATH" "$RULESPEC_REF" \
+              "$primary_required_test_cases_json" > /dev/null
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           source_bundle_args=(
@@ -965,13 +1076,84 @@ jobs:
             exit 1
           fi
 
+      - name: Download corpus export metadata
+        if: steps.corpus_artifact_transport.outputs.run_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          EXPORT_RUN: ${{ steps.corpus_artifact_transport.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$EXPORT_RUN" > "$RUNNER_TEMP/corpus-export-run.json"
+          gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$EXPORT_RUN/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-export-artifacts.json"
+
+      - name: Authenticate corpus export metadata without repository token
+        id: corpus_export_archive
+        if: steps.corpus_artifact_transport.outputs.run_id != ''
+        env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+          CITATION: ${{ inputs.citation }}
+          REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
+          REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          QUEUE_ID: ${{ inputs.queue_id }}
+          QUEUE_ITEM_ID: ${{ inputs.queue_item_id }}
+          QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
+          QUEUE_ITEM_GENERATION_SHA256: ${{ inputs.queue_item_generation_sha256 }}
+          QUEUE_DISPATCHER_RUN_ID: ${{ inputs.queue_dispatcher_run_id }}
+          DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
+          SECOND_DEPENDENT_REVIEW_FINDING: ${{ inputs.second_dependent_review_finding }}
+          REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
+          LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
+          SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.second_legacy_exact_dependent_rulespec_path }}
+          EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
+          LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
+        run: |
+          set -euo pipefail
+          artifact_id="$(axiom-encode/.venv/bin/python -m axiom_encode.corpus_artifact_transport validate-export \
+            --corpus-checkout axiom-corpus \
+            --run-metadata "$RUNNER_TEMP/corpus-export-run.json" \
+            --artifact-metadata "$RUNNER_TEMP/corpus-export-artifacts.json")"
+          echo "artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
+
+      - name: Download authenticated corpus export archive
+        if: steps.corpus_artifact_transport.outputs.run_id != ''
+        # Metadata is authenticated and <=17 MiB before transfer. The gh transfer
+        # uses GitHub's immutable artifact size and job timeout, then the no-token
+        # helper independently bounds reads and verifies exact length and digest.
+        env:
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          ARTIFACT_ID: ${{ steps.corpus_export_archive.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/corpus-export.zip"
+
       - name: Fetch pinned signed corpus release object
+        id: pinned_corpus_release
         shell: bash
         env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+          CITATION: ${{ inputs.citation }}
+          REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
+          REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          QUEUE_ID: ${{ inputs.queue_id }}
+          QUEUE_ITEM_ID: ${{ inputs.queue_item_id }}
+          QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
+          QUEUE_ITEM_GENERATION_SHA256: ${{ inputs.queue_item_generation_sha256 }}
+          QUEUE_DISPATCHER_RUN_ID: ${{ inputs.queue_dispatcher_run_id }}
+          DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
+          SECOND_DEPENDENT_REVIEW_FINDING: ${{ inputs.second_dependent_review_finding }}
+          REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
+          LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
+          SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.second_legacy_exact_dependent_rulespec_path }}
+          EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
+          LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
+          TRUST_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
           RELEASE_BASE_URL: https://pub-a8952f8657fc49fda358146ac001366c.r2.dev
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
-          QUEUE_ID: ${{ inputs.queue_id }}
-          QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
+          EXPORT_RUN: ${{ steps.corpus_artifact_transport.outputs.run_id }}
         run: |
           set -euo pipefail
           materializer=axiom-encode/scripts/materialize_corpus_release.py
@@ -999,7 +1181,7 @@ jobs:
           url="${RELEASE_BASE_URL%/}/releases/${release_name}/${release_sha}.json"
           curl --fail --silent --show-error --location \
             --proto '=https' --proto-redir '=https' --tlsv1.2 \
-            --max-filesize 16777216 \
+            --max-filesize 67108864 \
             --output "$public_object" "$url"
           jq -ce '[{"release_object": .}]' "$public_object" > "$response"
           release_commit="$(axiom-encode/.venv/bin/python "$materializer" \
@@ -1015,6 +1197,46 @@ jobs:
             echo "Pinned corpus checkout predates signed release provenance" >&2
             exit 1
           }
+          if [ -n "$EXPORT_RUN" ]; then
+            axiom-encode/.venv/bin/python -m axiom_encode.corpus_artifact_transport materialize \
+              --corpus-checkout axiom-corpus --toolchain "$toolchain" \
+              --run-metadata "$RUNNER_TEMP/corpus-export-run.json" \
+              --artifact-metadata "$RUNNER_TEMP/corpus-export-artifacts.json" \
+              --archive "$RUNNER_TEMP/corpus-export.zip" \
+              --release-object "axiom-corpus/releases/${release_name}/${release_sha}.json"
+          fi
+          echo "release_object=axiom-corpus/releases/${release_name}/${release_sha}.json" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch pinned corpus provision objects
+        shell: bash
+        env:
+          RELEASE_OBJECT: ${{ steps.pinned_corpus_release.outputs.release_object }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -d axiom-corpus/.axiom/corpus-locks ]; then
+            provision_paths_json="$(jq -e \
+              '[.content.artifacts[] | select(.artifact_class == "provisions") | .path]
+               | if length > 0 then . else error("no provision artifacts") end' \
+              "$RELEASE_OBJECT")"
+            mapfile -t provision_paths < <(jq -r '.[]' <<< "$provision_paths_json")
+            fetch_args=()
+            for path in "${provision_paths[@]}"; do
+              case "$path" in
+                data/corpus/provisions/*) fetch_args+=(--path "$path") ;;
+                *) echo "Unsafe corpus provision artifact path: $path" >&2; exit 1 ;;
+              esac
+            done
+            uv run --project axiom-corpus --locked --python 3.14 \
+              axiom-corpus-ingest corpus fetch --repo axiom-corpus \
+              --no-cache --verify "${fetch_args[@]}"
+          else
+            test -d axiom-corpus/data/corpus/provisions || {
+              echo "Pinned corpus checkout has neither locks nor provisions" >&2
+              exit 1
+            }
+          fi
 
       - name: Provision protected signing supervisor
         id: provision_signing_supervisor
@@ -1033,6 +1255,8 @@ jobs:
             ./cmd/axiom-encode-apply-signer
           sudo chown 0:0 /opt
           sudo chmod go-w /opt
+          test "$(stat -c '%u' /opt)" = "0"
+          test -z "$(find /opt -maxdepth 0 -perm /022)"
           sudo rm -rf /opt/axiom-verification
           sudo .venv/bin/python scripts/provision_verification_supervisor.py \
             --destination /opt/axiom-verification \
@@ -1161,19 +1385,28 @@ jobs:
              [ -z "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
             cascade_args+=(--allow-proof-import-subset)
           fi
+          cascade_args+=(--json)
           cascade_args+=("${dependent_citations[@]}")
-          cascade_mode="$("${cascade_args[@]}")"
+          cascade_result="$("${cascade_args[@]}")"
+          cascade_mode="$(jq -er '.mode' <<< "$cascade_result")"
+          dependent_paths_json="$(jq -cer '.paths' <<< "$cascade_result")"
+          jq -e --argjson count "${#dependent_citations[@]}" \
+            'type == "array" and length == $count and all(.[]; type == "string" and length > 0)' \
+            <<< "$dependent_paths_json" > /dev/null
           case "$cascade_mode" in
-            all-direct|proof-import-subset) ;;
+            all-direct|all-direct-proof-chain|proof-import-subset|proof-import-subset-chain|proof-import-chain) ;;
             *)
               echo "dependent cascade returned an invalid scheduling mode" >&2
               exit 1
               ;;
           esac
           printf 'DEPENDENT_CASCADE_MODE=%s\n' "$cascade_mode" >> "$GITHUB_ENV"
+          printf 'DEPENDENT_RULESPEC_PATHS_JSON=%s\n' "$dependent_paths_json" >> "$GITHUB_ENV"
 
       - name: Verify existing signed imports
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
         env:
+          REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
@@ -1197,6 +1430,9 @@ jobs:
             "$workflow_python" -I "$backfill_helper" \
               split-atomic-source-input "${ATOMIC_SOURCE_JSON:-[]}"
           )"
+          "$workflow_python" -I "$backfill_helper" \
+            resolve-atomic-repair-mode "${ATOMIC_SOURCE_JSON:-[]}" \
+            --check-selected > /dev/null
           source_bundle_json="$(jq -cer '.source_bundle' \
             <<< "$atomic_source_payload")"
           canonical_refresh_bundle_json="$(jq -cer '.canonical_refresh_bundle' \
@@ -1230,7 +1466,38 @@ jobs:
             fi
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
-          if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then
+          if [ -n "${REPAIR_RUN_ID:-}" ] || \
+             [ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then
+            canonical_refresh_primary_required_test_cases_json="[]"
+          fi
+          # Required cases on a standalone fresh replacement are a signing
+          # contract, not a request to trust or refresh a predecessor manifest.
+          if [ -z "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
+             [ -z "${REPAIR_RUN_ID:-}" ] && \
+             [ -n "${REPLACE_RULESPEC_PATH:-}" ] && \
+             [ "$primary_required_test_cases_json" != "[]" ] && \
+             jq -e '
+               .canonical_refresh_bundle == [] and
+               .require_complete_source_unit == true and
+               (.manifest_only_refresh // false) == false and
+               (.reviewed_candidate_promotion // false) == false
+             ' <<< "$atomic_source_payload" > /dev/null; then
+            if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
+               [ -n "${QUEUE_ID:-}" ] || \
+               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+               [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               ! jq -e '.source_bundle == []' <<< "$atomic_source_payload" > /dev/null || \
+               ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "required tests on fresh ordinary replacements cannot mix transaction modes" >&2
+              exit 1
+            fi
+            "$workflow_python" -I "$backfill_helper" \
+              validate-fresh-primary-test-target "$RULESPEC_CHECKOUT" \
+              "$CITATION" "$REPLACE_RULESPEC_PATH" "$RULESPEC_REF" \
+              "$primary_required_test_cases_json" > /dev/null
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           source_bundle_args=(
@@ -1346,21 +1613,45 @@ jobs:
           PY
           fi
 
-      - name: Encode, review, validate, and apply
-        id: encode_apply
+      - name: Migrate retired source metadata
+        id: retired_source_metadata_migration
+        if: steps.retired_source_metadata_request.outputs.enabled == 'true'
+        shell: &apply_signer_shell /usr/bin/bash --noprofile --norc -p -e -o pipefail {0}
         env:
-          # Flush encoder output as it is produced so a timeout or crash
-          # still leaves attempt records in the job log.
           PYTHONUNBUFFERED: "1"
           AXIOM_ENCODE_APPLY_SIGNING_KEY: ${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}
-          # Ship each run's cost ledger row (tokens, spend, attempt count) to
-          # the ops dashboard. Without these the encoder logs the run locally
-          # on the runner and prints "supabase_sync=skipped", and the ledger
-          # is discarded with the runner's temp dir.
-          AXIOM_ENCODE_SUPABASE_URL: ${{ secrets.AXIOM_ENCODE_SUPABASE_URL }}
-          AXIOM_ENCODE_SUPABASE_SECRET_KEY: ${{ secrets.AXIOM_ENCODE_SUPABASE_SECRET_KEY }}
+          LD_PRELOAD: ""
+          LD_AUDIT: ""
+          LD_LIBRARY_PATH: ""
+          RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          # The workflow-bound signer is the same apply authority used by the
+          # model lane. This step carries no model or telemetry credential.
+          exec /opt/axiom-verification/axiom-encode-apply-signer run \
+            --scope apply_ed25519 \
+            --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
+            --supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            --expected-github-repository TheAxiomFoundation/axiom-encode \
+            --allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/targeted-signed-reencode.yml@refs/heads/main \
+            --allowed-event-name workflow_dispatch \
+            -- /opt/axiom-verification/axiom-encode migrate-retired-source-metadata \
+            --plan "$RUNNER_TEMP/retired-source-metadata-plan.json" \
+            --policy-repo-path "$RULESPEC_CHECKOUT" \
+            --corpus-path "$GITHUB_WORKSPACE/axiom-corpus" \
+            > "$RUNNER_TEMP/retired-source-metadata-report.json"
+
+      - name: Encode, review, validate, and apply
+        id: prepare_encode_apply
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        env:
+          REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
+          PYTHONUNBUFFERED: "1"
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CITATION: ${{ inputs.citation }}
           CORPUS_REF: ${{ inputs.corpus_ref }}
           COUNTRY: ${{ inputs.country }}
@@ -1620,18 +1911,8 @@ jobs:
             fi
             args+=("$citation")
 
-            /opt/axiom-verification/axiom-encode-apply-signer run \
-              --scope apply_ed25519 \
-              --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
-              --supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
-              --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
-              --trusted-python-runtime-root /opt/axiom-verification/python \
-              --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
-              --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
-              --expected-github-repository TheAxiomFoundation/axiom-encode \
-              --allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/targeted-signed-reencode.yml@refs/heads/main \
-              --allowed-event-name workflow_dispatch \
-              -- "${args[@]}"
+            # Argument data only: the next step invokes the fixed owned signer.
+            printf '%s\0' "${args[@]}" > "$signing_queue/arguments"
           }
 
           if [ -n "$DEPENDENT_REVIEW_FINDING" ] && [ -z "$DEPENDENT_CITATION" ]; then
@@ -1726,8 +2007,8 @@ jobs:
             workflow_python="${AXIOM_TEST_PYTHON:-python}"
           fi
           if [ -n "$DEPENDENT_CITATION" ]; then
-            dependent_rulespec_path="$("$workflow_python" "$backfill_helper" \
-              citation-rulespec-path "$DEPENDENT_CITATION")"
+            dependent_rulespec_path="$(jq -er '.[0]' \
+              <<< "$DEPENDENT_RULESPEC_PATHS_JSON")"
           fi
           if [ -n "${REPAIR_CANDIDATE_ROOT:-}" ] && \
              [ "$REPAIR_RUN_LANE" = "dependent" ] && \
@@ -1736,11 +2017,13 @@ jobs:
             exit 1
           fi
           if [ -n "$SECOND_DEPENDENT_CITATION" ]; then
-            second_dependent_rulespec_path="$("$workflow_python" "$backfill_helper" \
-              citation-rulespec-path "$SECOND_DEPENDENT_CITATION")"
+            second_dependent_rulespec_path="$(jq -er '.[1]' \
+              <<< "$DEPENDENT_RULESPEC_PATHS_JSON")"
           fi
           scheduled_dependent_paths_json="[]"
-          if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ]; then
+          if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ] || \
+             [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain" ] || \
+             [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ]; then
             scheduled_dependent_paths_json="$(
               jq -cn \
                 --arg first "$dependent_rulespec_path" \
@@ -1753,6 +2036,9 @@ jobs:
             "$workflow_python" "$backfill_helper" split-atomic-source-input \
               "${ATOMIC_SOURCE_JSON:-[]}"
           )"
+          "$workflow_python" "$backfill_helper" \
+            resolve-atomic-repair-mode "${ATOMIC_SOURCE_JSON:-[]}" \
+            --check-selected > /dev/null
           source_bundle_json="$(jq -cer '.source_bundle' \
             <<< "$atomic_source_payload")"
           canonical_refresh_bundle_json="$(jq -cer '.canonical_refresh_bundle' \
@@ -1807,7 +2093,37 @@ jobs:
             fi
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
-          if [ "$REPAIR_TESTS_ONLY" = "true" ]; then
+          if [ -n "${REPAIR_RUN_ID:-}" ] || [ "$REPAIR_TESTS_ONLY" = "true" ]; then
+            canonical_refresh_primary_required_test_cases_json="[]"
+          fi
+          # Required cases on a standalone fresh replacement are a signing
+          # contract, not a request to trust or refresh a predecessor manifest.
+          if [ -z "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
+             [ -z "${REPAIR_RUN_ID:-}" ] && \
+             [ -n "${REPLACE_RULESPEC_PATH:-}" ] && \
+             [ "$primary_required_test_cases_json" != "[]" ] && \
+             jq -e '
+               .canonical_refresh_bundle == [] and
+               .require_complete_source_unit == true and
+               (.manifest_only_refresh // false) == false and
+               (.reviewed_candidate_promotion // false) == false
+             ' <<< "$atomic_source_payload" > /dev/null; then
+            if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
+               [ -n "${QUEUE_ID:-}" ] || \
+               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+               [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               ! jq -e '.source_bundle == []' <<< "$atomic_source_payload" > /dev/null || \
+               ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "required tests on fresh ordinary replacements cannot mix transaction modes" >&2
+              exit 1
+            fi
+            "$workflow_python" "$backfill_helper" \
+              validate-fresh-primary-test-target "$RULESPEC_CHECKOUT" \
+              "$CITATION" "$REPLACE_RULESPEC_PATH" "$RULESPEC_REF" \
+              "$primary_required_test_cases_json" > /dev/null
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           source_bundle_args=(
@@ -2071,6 +2387,35 @@ jobs:
               commit -m "$message"
           }
 
+          # Capture only named non-secret inputs, never the ambient environment.
+          : "${DEPENDENT_CASCADE_MODE:=}"
+          signing_queue="$RUNNER_TEMP/signed-encode"
+          mkdir -m 700 "$signing_queue"
+          declare -p \
+            REPAIR_MODE PYTHONUNBUFFERED ATOMIC_SOURCE_JSON \
+            CITATION CORPUS_REF COUNTRY REVIEW_FINDING \
+            REPAIR_CANDIDATE_PATH REPAIR_CANDIDATE_ROOT \
+            REPAIR_CANDIDATE_RULESPEC_SHA256 REPAIR_CANDIDATE_TESTS_SHA256 \
+            REPAIR_TESTS_ONLY REPAIR_RUN_ID REPAIR_RUN_LANE REPAIR_RULESPEC_PATH \
+            REPLACE_RULESPEC_PATH REPLACE_LEGACY_RULESPEC_PATH \
+            LEGACY_EXACT_DEPENDENT_RULESPEC_PATH \
+            SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH \
+            LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON QUEUE_ID \
+            DEPENDENT_CITATION DEPENDENT_REVIEW_FINDING \
+            SECOND_DEPENDENT_CITATION SECOND_DEPENDENT_REVIEW_FINDING \
+            EXISTING_SIGNED_IMPORTS_JSON RULESPEC_CHECKOUT RULESPEC_REF \
+            RULES_ENGINE_REF retained_successor_paths dependent_rulespec_path \
+            second_dependent_rulespec_path source_repair_candidates_json \
+            backfill_helper workflow_python DEPENDENT_CASCADE_MODE \
+            > "$signing_queue/state.sh"
+          declare -f run_signed_encode checkpoint_signed_changes \
+            > "$signing_queue/functions.sh"
+          operation_index=0
+          queue_operation() {
+            printf '%s\0' "$@" > "$signing_queue/operation.$operation_index"
+            operation_index=$((operation_index + 1))
+          }
+
           if [ "$reviewed_candidate_promotion" = "true" ]; then
             promotion_args=(
               /opt/axiom-verification/axiom-encode
@@ -2087,31 +2432,14 @@ jobs:
               promotion_args+=(--axiom-compose-path \
                 /opt/axiom-compose-verification/axiom-compose)
             fi
-            /opt/axiom-verification/axiom-encode-apply-signer run \
-              --scope apply_ed25519 \
-              --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
-              --supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
-              --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
-              --trusted-python-runtime-root /opt/axiom-verification/python \
-              --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
-              --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
-              --expected-github-repository TheAxiomFoundation/axiom-encode \
-              --allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/targeted-signed-reencode.yml@refs/heads/main \
-              --allowed-event-name workflow_dispatch \
-              -- "${promotion_args[@]}"
-            checkpoint_signed_changes \
+            queue_operation command "${promotion_args[@]}"
+            queue_operation checkpoint \
               "Promote reviewed candidate for ${CITATION} without regeneration"
-            cp "$RUNNER_TEMP/checkpoint-guard-generated.json" \
-              "$RUNNER_TEMP/target-guard-generated.json"
+            queue_operation copy-guard "$RUNNER_TEMP/target-guard-generated.json"
           elif [ "$canonical_refresh_enabled" = "true" ]; then
             refresh_index=0
             while IFS= read -r refresh_item; do
-              while IFS= read -r pending_refresh_item; do
-                "$workflow_python" "$backfill_helper" \
-                  verify-canonical-refresh-target "$RULESPEC_CHECKOUT" \
-                  "$pending_refresh_item" > /dev/null
-              done < <(jq -c ".[$refresh_index:][]" \
-                "$RUNNER_TEMP/canonical-refresh-bundle.json")
+              queue_operation verify-canonical-refresh "$refresh_index"
               refresh_citation="$(jq -er '.citation' <<< "$refresh_item")"
               refresh_rulespec_path="$(jq -er '.rulespec_path' <<< "$refresh_item")"
               refresh_deferred_output_contracts="$(
@@ -2127,18 +2455,15 @@ jobs:
                 refresh_finding="$(jq -er '.review_finding // ""' \
                   <<< "$refresh_item")"
               fi
-              run_signed_encode \
+              queue_operation encode \
                 "$refresh_citation" "$refresh_finding" false "$refresh_lane" \
                 "$refresh_rulespec_path" "" false \
                 "$refresh_deferred_output_contracts" \
                 "$refresh_required_test_cases"
-              "$workflow_python" "$backfill_helper" \
-                reconcile-retired-manifest-inventory \
-                "$RULESPEC_CHECKOUT" "$refresh_rulespec_path"
-              checkpoint_signed_changes \
+              queue_operation reconcile "$refresh_rulespec_path"
+              queue_operation checkpoint \
                 "Refresh signed canonical module for ${refresh_citation}"
-              cp "$RUNNER_TEMP/checkpoint-guard-generated.json" \
-                "$RUNNER_TEMP/${refresh_lane}-guard-generated.json"
+              queue_operation copy-guard "$RUNNER_TEMP/${refresh_lane}-guard-generated.json"
               refresh_index=$((refresh_index + 1))
             done < <(jq -c '.[]' \
               "$RUNNER_TEMP/canonical-refresh-bundle.json")
@@ -2156,84 +2481,77 @@ jobs:
               refresh_args+=(--axiom-compose-path \
                 /opt/axiom-compose-verification/axiom-compose)
             fi
-            /opt/axiom-verification/axiom-encode-apply-signer run \
-              --scope apply_ed25519 \
-              --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
-              --supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
-              --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
-              --trusted-python-runtime-root /opt/axiom-verification/python \
-              --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
-              --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
-              --expected-github-repository TheAxiomFoundation/axiom-encode \
-              --allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/targeted-signed-reencode.yml@refs/heads/main \
-              --allowed-event-name workflow_dispatch \
-              -- "${refresh_args[@]}"
-            checkpoint_signed_changes \
+            queue_operation command "${refresh_args[@]}"
+            queue_operation checkpoint \
               "Refresh signed manifest for ${CITATION} without changing RuleSpec"
-            cp "$RUNNER_TEMP/checkpoint-guard-generated.json" \
-              "$RUNNER_TEMP/target-guard-generated.json"
+            queue_operation copy-guard "$RUNNER_TEMP/target-guard-generated.json"
           else
             if [ "$source_bundle_enabled" = "true" ] && \
                [ "$source_repair_candidates_json" = "[]" ] && \
                [ -n "$REPLACE_RULESPEC_PATH" ] && \
                [ -z "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
-              run_signed_encode \
+              queue_operation encode \
                 "$CITATION" "$REVIEW_FINDING" false target-preflight \
                 "$REPLACE_RULESPEC_PATH" "" false "[]" "[]" \
                 "$target_require_complete_source_unit"
-              "$workflow_python" "$backfill_helper" \
-                reconcile-retired-manifest-inventory \
-                "$RULESPEC_CHECKOUT" "$REPLACE_RULESPEC_PATH"
-              checkpoint_signed_changes \
+              queue_operation reconcile "$REPLACE_RULESPEC_PATH"
+              queue_operation checkpoint \
                 "Canonicalize signed replacement target before source bundle"
-              cp "$RUNNER_TEMP/checkpoint-guard-generated.json" \
-                "$RUNNER_TEMP/target-preflight-guard-generated.json"
+              queue_operation copy-guard "$RUNNER_TEMP/target-preflight-guard-generated.json"
             fi
 
             source_index=0
             while IFS= read -r source_citation; do
               source_index=$((source_index + 1))
               source_lane="$(printf 'source-%02d' "$source_index")"
-              run_signed_encode \
+              queue_operation encode \
                 "$source_citation" "" true "$source_lane" "" "" false
-              checkpoint_signed_changes \
+              queue_operation checkpoint \
                 "Add signed source module for ${source_citation}"
-              cp "$RUNNER_TEMP/checkpoint-guard-generated.json" \
-                "$RUNNER_TEMP/${source_lane}-guard-generated.json"
+              queue_operation copy-guard "$RUNNER_TEMP/${source_lane}-guard-generated.json"
             done < "$RUNNER_TEMP/source-bundle-citations.txt"
 
             if [ -n "$DEPENDENT_CITATION" ]; then
               primary_target_only=true
-              if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ]; then
+              if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ] || \
+                 [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain" ] || \
+                 [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ]; then
                 primary_target_only=false
               fi
-              run_signed_encode \
+              queue_operation encode \
                 "$CITATION" "$REVIEW_FINDING" "$primary_target_only" target \
                 "$REPLACE_RULESPEC_PATH" "$REPLACE_LEGACY_RULESPEC_PATH" \
                 "$required_imports_enabled" "[]" \
                 "$primary_required_test_cases_json" \
                 "$target_require_complete_source_unit" \
                 "$scheduled_dependent_paths_json"
-              dependent_target_only=false
-              if [ -n "$SECOND_DEPENDENT_CITATION" ]; then
-                dependent_target_only=true
-              fi
+              # Validate the first dependent against its full importer closure.
+              # In a proof chain only the scheduled second dependent may retain
+              # a stale proof hash until its own signed re-encode below.
+              first_dependent_scheduled_paths_json="[]"
+              case "${DEPENDENT_CASCADE_MODE:-}" in
+                *-chain)
+                first_dependent_scheduled_paths_json="$(
+                  jq -cn --arg second "$second_dependent_rulespec_path" \
+                    '[$second]'
+                )"
+                  ;;
+              esac
               dependent_replacement_path=""
               if [ -n "${REPAIR_CANDIDATE_ROOT:-}" ] && \
                  [ "$REPAIR_RUN_LANE" = "dependent" ]; then
                 dependent_replacement_path="$dependent_rulespec_path"
               fi
-              run_signed_encode \
+              queue_operation encode \
                 "$DEPENDENT_CITATION" "$DEPENDENT_REVIEW_FINDING" \
-                "$dependent_target_only" dependent \
-                "$dependent_replacement_path" "" false
+                false dependent \
+                "$dependent_replacement_path" "" false "[]" "[]" true \
+                "$first_dependent_scheduled_paths_json"
               if [ -n "$SECOND_DEPENDENT_CITATION" ]; then
-                run_signed_encode \
-                  "$SECOND_DEPENDENT_CITATION" \
-                  "$SECOND_DEPENDENT_REVIEW_FINDING" false dependent-2 "" "" false
+                queue_operation second-dependent
               fi
             else
-              run_signed_encode \
+              queue_operation encode \
                 "$CITATION" "$REVIEW_FINDING" false \
                 target "$REPLACE_RULESPEC_PATH" \
                 "$REPLACE_LEGACY_RULESPEC_PATH" \
@@ -2246,16 +2564,353 @@ jobs:
                  [ "$source_repair_candidates_json" != "[]" ]; } && \
                [ -n "$REPLACE_RULESPEC_PATH" ] && \
                [ -z "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
-              "$workflow_python" "$backfill_helper" \
-                reconcile-retired-manifest-inventory \
-                "$RULESPEC_CHECKOUT" "$REPLACE_RULESPEC_PATH"
+              queue_operation reconcile "$REPLACE_RULESPEC_PATH"
             fi
 
             if [ "$source_bundle_enabled" = "true" ]; then
-              checkpoint_signed_changes \
+              queue_operation checkpoint \
                 "Compose signed source bundle for ${CITATION}"
             fi
           fi
+
+          printf '0\n' > "$signing_queue/cursor"
+          cat > "$signing_queue/advance.sh" <<'ADVANCE'
+          # Each invocation runs key-free post-signing work and prepares one request.
+          set -euo pipefail
+          signing_queue="$RUNNER_TEMP/signed-encode"
+          source "$signing_queue/state.sh"
+          source "$signing_queue/functions.sh"
+          IFS= read -r cursor < "$signing_queue/cursor"
+          rm -f "$signing_queue/arguments"
+          while [ -f "$signing_queue/operation.$cursor" ]; do
+            operation=()
+            while IFS= read -r -d '' argument; do
+              operation+=("$argument")
+            done < "$signing_queue/operation.$cursor"
+            cursor=$((cursor + 1))
+            printf '%s\n' "$cursor" > "$signing_queue/cursor"
+            case "${operation[0]}" in
+              encode)
+                run_signed_encode "${operation[@]:1}"
+                ;;
+              command)
+                printf '%s\0' "${operation[@]:1}" > "$signing_queue/arguments"
+                ;;
+              verify-canonical-refresh)
+                refresh_index="${operation[1]}"
+                while IFS= read -r pending_refresh_item; do
+                  "$workflow_python" "$backfill_helper" \
+                    verify-canonical-refresh-target "$RULESPEC_CHECKOUT" \
+                    "$pending_refresh_item" > /dev/null
+                done < <(jq -c ".[$refresh_index:][]" \
+                  "$RUNNER_TEMP/canonical-refresh-bundle.json")
+                ;;
+              second-dependent)
+                second_replacement_path=""
+                canonical_second_path="$("$workflow_python" "$backfill_helper" \
+                  citation-rulespec-path "$SECOND_DEPENDENT_CITATION")"
+                if [ "$second_dependent_rulespec_path" != "$canonical_second_path" ]; then
+                  second_replacement_path="$second_dependent_rulespec_path"
+                fi
+                run_signed_encode \
+                  "$SECOND_DEPENDENT_CITATION" \
+                  "$SECOND_DEPENDENT_REVIEW_FINDING" false dependent-2 \
+                  "$second_replacement_path" "" false
+                ;;
+              reconcile)
+                "$workflow_python" "$backfill_helper" \
+                  reconcile-retired-manifest-inventory \
+                  "$RULESPEC_CHECKOUT" "${operation[1]}"
+                ;;
+              checkpoint)
+                checkpoint_signed_changes "${operation[1]}"
+                ;;
+              copy-guard)
+                cp "$RUNNER_TEMP/checkpoint-guard-generated.json" "${operation[1]}"
+                ;;
+              *)
+                echo "unknown signed encode operation" >&2
+                exit 1
+                ;;
+            esac
+            if [ -f "$signing_queue/arguments" ]; then
+              if [ "${1:-}" = --require-complete ]; then
+                echo "signed encode exceeded the bounded signing slots" >&2
+                exit 1
+              fi
+              printf 'ready=true\n' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          printf 'ready=false\n' >> "$GITHUB_OUTPUT"
+          ADVANCE
+          bash "$signing_queue/advance.sh"
+
+      # Keep helpers between signatures outside the key environment. Nineteen
+      # slots cover sixteen sources, the target, and two dependents; completion
+      # refuses any pending signature if these existing input bounds change.
+      - name: Apply prepared signature 1
+        id: apply_signing_01
+        if: steps.prepare_encode_apply.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: &apply_signer_environment
+          PYTHONUNBUFFERED: "1"
+          AXIOM_ENCODE_APPLY_SIGNING_KEY: ${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}
+          LD_PRELOAD: ""
+          LD_AUDIT: ""
+          LD_LIBRARY_PATH: ""
+          AXIOM_ENCODE_SUPABASE_URL: ${{ secrets.AXIOM_ENCODE_SUPABASE_URL }}
+          AXIOM_ENCODE_SUPABASE_SECRET_KEY: ${{ secrets.AXIOM_ENCODE_SUPABASE_SECRET_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: &apply_prepared_signature |
+          set -euo pipefail
+          [ ! -L "$RUNNER_TEMP/signed-encode/arguments" ]
+          [ -f "$RUNNER_TEMP/signed-encode/arguments" ]
+          args=()
+          while IFS= read -r -d '' argument; do
+            args+=("$argument")
+          done < "$RUNNER_TEMP/signed-encode/arguments"
+          test "${#args[@]}" -gt 0
+          exec /opt/axiom-verification/axiom-encode-apply-signer run \
+            --scope apply_ed25519 \
+            --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
+            --supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            --expected-github-repository TheAxiomFoundation/axiom-encode \
+            --allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/targeted-signed-reencode.yml@refs/heads/main \
+            --allowed-event-name workflow_dispatch \
+            -- "${args[@]}"
+
+      - name: Prepare apply signature 2
+        id: prepare_apply_02
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: &prepare_next_apply |
+          set -euo pipefail
+          bash "$RUNNER_TEMP/signed-encode/advance.sh"
+
+      - name: Apply prepared signature 2
+        id: apply_signing_02
+        if: steps.prepare_apply_02.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 3
+        id: prepare_apply_03
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 3
+        id: apply_signing_03
+        if: steps.prepare_apply_03.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 4
+        id: prepare_apply_04
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 4
+        id: apply_signing_04
+        if: steps.prepare_apply_04.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 5
+        id: prepare_apply_05
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 5
+        id: apply_signing_05
+        if: steps.prepare_apply_05.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 6
+        id: prepare_apply_06
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 6
+        id: apply_signing_06
+        if: steps.prepare_apply_06.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 7
+        id: prepare_apply_07
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 7
+        id: apply_signing_07
+        if: steps.prepare_apply_07.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 8
+        id: prepare_apply_08
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 8
+        id: apply_signing_08
+        if: steps.prepare_apply_08.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 9
+        id: prepare_apply_09
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 9
+        id: apply_signing_09
+        if: steps.prepare_apply_09.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 10
+        id: prepare_apply_10
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 10
+        id: apply_signing_10
+        if: steps.prepare_apply_10.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 11
+        id: prepare_apply_11
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 11
+        id: apply_signing_11
+        if: steps.prepare_apply_11.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 12
+        id: prepare_apply_12
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 12
+        id: apply_signing_12
+        if: steps.prepare_apply_12.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 13
+        id: prepare_apply_13
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 13
+        id: apply_signing_13
+        if: steps.prepare_apply_13.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 14
+        id: prepare_apply_14
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 14
+        id: apply_signing_14
+        if: steps.prepare_apply_14.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 15
+        id: prepare_apply_15
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 15
+        id: apply_signing_15
+        if: steps.prepare_apply_15.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 16
+        id: prepare_apply_16
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 16
+        id: apply_signing_16
+        if: steps.prepare_apply_16.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 17
+        id: prepare_apply_17
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 17
+        id: apply_signing_17
+        if: steps.prepare_apply_17.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 18
+        id: prepare_apply_18
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 18
+        id: apply_signing_18
+        if: steps.prepare_apply_18.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Prepare apply signature 19
+        id: prepare_apply_19
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
+        run: *prepare_next_apply
+
+      - name: Apply prepared signature 19
+        id: apply_signing_19
+        if: steps.prepare_apply_19.outputs.ready == 'true'
+        shell: *apply_signer_shell
+        env: *apply_signer_environment
+        run: *apply_prepared_signature
+
+      - name: Complete signed encode checkpoints
+        id: encode_apply
+        if: ${{ !cancelled() && steps.prepare_encode_apply.outcome != 'skipped' && steps.retired_source_metadata_request.outputs.enabled != 'true' }}
+        env:
+          PRIOR_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          test "$PRIOR_STATUS" = success
+          bash "$RUNNER_TEMP/signed-encode/advance.sh" --require-complete
 
       - name: Summarize model spend
         id: run_cost_summary
@@ -2300,6 +2955,7 @@ jobs:
 
       - name: Verify existing signed import integrity
         id: verify_existing_signed_import_integrity
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
         env:
           RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
@@ -2333,9 +2989,70 @@ jobs:
             "$RUNNER_TEMP/existing-signed-import-inventory.json" \
             "$RUNNER_TEMP/existing-signed-import-inventory-final.json"
 
+      - name: Package retired source metadata migration changes
+        id: package_retired_source_metadata_changes
+        if: steps.retired_source_metadata_request.outputs.enabled == 'true'
+        env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
+        run: |
+          set -euo pipefail
+          workflow_python=(/opt/axiom-verification/python/bin/python -I)
+          test -x "${workflow_python[0]}"
+          artifact="$RUNNER_TEMP/targeted-reencode"
+          mkdir -p "$artifact"
+          # The early resolver selects a lane before the protected runtime is
+          # provisioned. Bind publication to the raw dispatch input instead.
+          dispatched_plan="$RUNNER_TEMP/retired-source-metadata-dispatched-plan.json"
+          printf '%s\n' "$ATOMIC_SOURCE_JSON" > "$dispatched_plan"
+          "${workflow_python[@]}" \
+            axiom-encode/scripts/prepare_retired_source_metadata.py changes \
+            --repo "$RULESPEC_CHECKOUT" --base-ref "$RULESPEC_REF" \
+            --request "$dispatched_plan" \
+            > "$artifact/retired-source-metadata-changes.json"
+          receipt_path="$(jq -r '.receipt_path' \
+            "$artifact/retired-source-metadata-changes.json")"
+          cp "$RULESPEC_CHECKOUT/$receipt_path" "$artifact/retired-source-metadata-receipt.json"
+          cp "$dispatched_plan" "$artifact/retired-source-metadata-plan.json"
+          cp "$RUNNER_TEMP/retired-source-metadata-report.json" "$artifact/retired-source-metadata-report.json"
+          cp "$RUNNER_TEMP/guard-generated.json" "$artifact/guard-generated.json"
+          git -C "$RULESPEC_CHECKOUT" diff --binary --full-index \
+            "$RULESPEC_REF" > "$artifact/tracked.patch"
+          git -C "$RULESPEC_CHECKOUT" ls-files --others --exclude-standard -z \
+            | tar -C "$RULESPEC_CHECKOUT" --null -czf "$artifact/untracked.tar.gz" --files-from -
+          git -C "$RULESPEC_CHECKOUT" status --short > "$artifact/status.txt"
+          jq -n \
+            --slurpfile changes "$artifact/retired-source-metadata-changes.json" \
+            --arg rulespec_base "$RULESPEC_REF" \
+            --arg rulespec_generated_head "$(git -C "$RULESPEC_CHECKOUT" rev-parse HEAD)" \
+            --arg encoder_commit "$(git -C axiom-encode rev-parse HEAD)" \
+            --arg corpus_commit "$(git -C axiom-corpus rev-parse HEAD)" \
+            --arg rules_engine_commit "$(git -C axiom-rules-engine rev-parse HEAD)" \
+            --arg workflow_run_id "$GITHUB_RUN_ID" \
+            --argjson workflow_run_attempt "$GITHUB_RUN_ATTEMPT" \
+            '{
+              schema: "axiom-encode/retired-source-metadata-migration-artifact/v1",
+              modules: $changes[0].modules,
+              plan_sha256: $changes[0].plan_sha256,
+              receipt_path: $changes[0].receipt_path,
+              receipt_sha256: $changes[0].receipt_sha256,
+              rulespec_base: $rulespec_base,
+              rulespec_generated_head: $rulespec_generated_head,
+              encoder_commit: $encoder_commit,
+              corpus_commit: $corpus_commit,
+              rules_engine_commit: $rules_engine_commit,
+              workflow_run_id: $workflow_run_id,
+              workflow_run_attempt: $workflow_run_attempt
+            }' > "$artifact/metadata.json"
+          test -s "$artifact/status.txt"
+
       - name: Package exact generated changes
         id: package_exact_generated_changes
+        if: steps.retired_source_metadata_request.outputs.enabled != 'true'
         env:
+          REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
+          REPAIR_TESTS_ONLY: ${{ steps.repair_candidate.outputs.tests_only }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
@@ -2415,6 +3132,9 @@ jobs:
           import subprocess
           import sys
           from pathlib import Path
+          from axiom_encode.prepare_signed_backfill import (
+              immutable_atomic_source_contract,
+          )
 
           from axiom_encode.corpus_resolver import (
               UnsafeCorpusPathError,
@@ -2506,20 +3226,23 @@ jobs:
               os.environ.get("SECOND_DEPENDENT_CITATION") or ""
           )
           replacement_path = os.environ.get("REPLACE_RULESPEC_PATH") or ""
-          atomic_source = json.loads(os.environ.get("ATOMIC_SOURCE_JSON") or "[]")
+          atomic_source_raw = json.loads(os.environ.get("ATOMIC_SOURCE_JSON") or "[]")
+          atomic_source = immutable_atomic_source_contract(
+              os.environ.get("ATOMIC_SOURCE_JSON") or "[]"
+          )
           manifest_only_refresh = (
-              isinstance(atomic_source, dict)
-              and atomic_source.get("schema") in {
+              isinstance(atomic_source_raw, dict)
+              and atomic_source_raw.get("schema") in {
                   "axiom-encode/atomic-source-transaction/v4",
                   "axiom-encode/atomic-source-transaction/v5",
               }
-              and atomic_source.get("manifest_only_refresh") is True
+              and atomic_source_raw.get("manifest_only_refresh") is True
           )
           reviewed_candidate_promotion = (
-              isinstance(atomic_source, dict)
-              and atomic_source.get("schema")
+              isinstance(atomic_source_raw, dict)
+              and atomic_source_raw.get("schema")
               == "axiom-encode/atomic-source-transaction/v5"
-              and atomic_source.get("reviewed_candidate_promotion") is True
+              and atomic_source_raw.get("reviewed_candidate_promotion") is True
           )
           legacy_source_path = (
               os.environ.get("REPLACE_LEGACY_RULESPEC_PATH") or ""
@@ -3659,6 +4382,7 @@ jobs:
           import subprocess
           import sys
           from pathlib import Path
+          from axiom_encode.prepare_signed_backfill import repair_execution_metadata
 
           def rev(path):
               return subprocess.check_output(
@@ -3779,6 +4503,13 @@ jobs:
               ),
               "pr_base_branch": os.environ["PR_BASE_BRANCH"],
               "repair_candidate": repair_candidate,
+              "atomic_source_input": os.environ.get("ATOMIC_SOURCE_JSON") or "[]",
+              "repair_execution": repair_execution_metadata(
+                  os.environ.get("ATOMIC_SOURCE_JSON") or "[]",
+                  os.environ.get("REPAIR_RUN_ID") or "",
+                  os.environ.get("REPAIR_MODE") or "",
+                  os.environ.get("REPAIR_TESTS_ONLY") or "",
+              ),
               "repair_run_id": os.environ.get("REPAIR_RUN_ID") or None,
               "queue_id": os.environ.get("QUEUE_ID") or None,
               "queue_item_id": os.environ.get("QUEUE_ITEM_ID") or None,
@@ -3804,7 +4535,7 @@ jobs:
 
       - name: Commit reviewed lane changes locally
         id: commit_reviewed_lane_changes
-        if: ${{ inputs.open_pr }}
+        if: ${{ inputs.open_pr && steps.retired_source_metadata_request.outputs.enabled != 'true' }}
         env:
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           COUNTRY: ${{ inputs.country }}
@@ -3849,10 +4580,43 @@ jobs:
               commit -m "Add signed encoding manifest for ${CITATION}"
           fi
 
+      - name: Verify reviewed lane pull request base
+        id: verify_reviewed_lane_pull_request_base
+        if: ${{ inputs.open_pr && steps.retired_source_metadata_request.outputs.enabled != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          git -C "$RULESPEC_CHECKOUT" fetch --no-tags origin \
+            "+refs/heads/${PR_BASE_BRANCH}:refs/remotes/origin/${PR_BASE_BRANCH}"
+          test "$(git -C "$RULESPEC_CHECKOUT" rev-parse \
+            "refs/remotes/origin/${PR_BASE_BRANCH}")" = "$RULESPEC_REF"
+
+      - name: Prepare reviewed lane pull request branch
+        id: reviewed_lane_pull_request_branch
+        if: ${{ inputs.open_pr && steps.retired_source_metadata_request.outputs.enabled != 'true' }}
+        env:
+          COUNTRY: ${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          workflow_python=(/opt/axiom-verification/python/bin/python -I)
+          if [ ! -x "${workflow_python[0]}" ]; then
+            workflow_python=("${AXIOM_TEST_PYTHON:-python}")
+          fi
+          branch="$("${workflow_python[@]}" \
+            axiom-encode/scripts/prepare_signed_backfill.py branch-name \
+            "$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
       - name: Push lane branch and open draft pull request
         id: publish_lane_pull_request
-        if: ${{ inputs.open_pr }}
+        if: ${{ !cancelled() && steps.verify_reviewed_lane_pull_request_base.outcome != 'skipped' && inputs.open_pr && steps.retired_source_metadata_request.outputs.enabled != 'true' }}
         env:
+          PRIOR_STATUS: ${{ job.status }}
           GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN }}
           COUNTRY: ${{ inputs.country }}
           CITATION: ${{ inputs.citation }}
@@ -3869,21 +4633,13 @@ jobs:
           QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
           REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+          PREPARED_BRANCH: ${{ steps.reviewed_lane_pull_request_branch.outputs.branch }}
         run: |
           set -euo pipefail
+          test "$PRIOR_STATUS" = success
           test -n "$GH_TOKEN"
-          workflow_python=(/opt/axiom-verification/python/bin/python -I)
-          if [ ! -x "${workflow_python[0]}" ]; then
-            workflow_python=("${AXIOM_TEST_PYTHON:-python}")
-          fi
           repo="TheAxiomFoundation/rulespec-${COUNTRY}"
-          git -C "$RULESPEC_CHECKOUT" fetch --no-tags origin \
-            "+refs/heads/${PR_BASE_BRANCH}:refs/remotes/origin/${PR_BASE_BRANCH}"
-          test "$(git -C "$RULESPEC_CHECKOUT" rev-parse \
-            "refs/remotes/origin/${PR_BASE_BRANCH}")" = "$RULESPEC_REF"
-          branch="$("${workflow_python[@]}" \
-            axiom-encode/scripts/prepare_signed_backfill.py branch-name \
-            "$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")"
+          branch="$PREPARED_BRANCH"
           source_bundle="$(tr -d '\n' < "$RUNNER_TEMP/source-bundle.json")"
           canonical_refresh_bundle="$(tr -d '\n' \
             < "$RUNNER_TEMP/canonical-refresh-bundle.json")"
@@ -3940,6 +4696,151 @@ jobs:
           cp "$RUNNER_TEMP/lane-pull-request.json" \
             "$RUNNER_TEMP/targeted-reencode/lane-pull-request.json"
 
+      - name: Commit retired source metadata migration locally
+        id: commit_retired_source_metadata_migration
+        if: ${{ inputs.open_pr && steps.retired_source_metadata_request.outputs.enabled == 'true' }}
+        env:
+          COUNTRY: ${{ inputs.country }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          workflow_python=(/opt/axiom-verification/python/bin/python -I)
+          test -x "${workflow_python[0]}"
+          helper=axiom-encode/scripts/prepare_retired_source_metadata.py
+          inventory="$RUNNER_TEMP/targeted-reencode/retired-source-metadata-changes.json"
+          request="$RUNNER_TEMP/retired-source-metadata-plan.json"
+          # Verify again before branch creation, and stage only literal paths
+          # from the exact receipt inventory. All extra staged paths refuse.
+          "${workflow_python[@]}" "$helper" verify \
+            --repo "$RULESPEC_CHECKOUT" --request "$request" --inventory "$inventory"
+          branch="$("${workflow_python[@]}" \
+            axiom-encode/scripts/prepare_signed_backfill.py branch-name \
+            "$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")"
+          git -C "$RULESPEC_CHECKOUT" switch -c "$branch"
+          "${workflow_python[@]}" "$helper" stage \
+            --repo "$RULESPEC_CHECKOUT" --request "$request" --inventory "$inventory"
+          git -C "$RULESPEC_CHECKOUT" \
+            -c core.hooksPath=/dev/null \
+            -c user.name=axiom-encode-bot \
+            -c user.email=axiom-encode-bot@users.noreply.github.com \
+            commit -m "Migrate retired source verification metadata"
+          "${workflow_python[@]}" "$helper" verify-committed \
+            --repo "$RULESPEC_CHECKOUT" --request "$request" --inventory "$inventory"
+
+      - name: Check retired source metadata publication token
+        id: check_retired_source_metadata_publication_token
+        if: ${{ inputs.open_pr && steps.retired_source_metadata_request.outputs.enabled == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+
+      - name: Verify retired source metadata migration before publication
+        if: ${{ inputs.open_pr && steps.retired_source_metadata_request.outputs.enabled == 'true' }}
+        env:
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          workflow_python=(/opt/axiom-verification/python/bin/python -I)
+          test -x "${workflow_python[0]}"
+          artifact="$RUNNER_TEMP/targeted-reencode"
+          inventory="$artifact/retired-source-metadata-changes.json"
+          "${workflow_python[@]}" \
+            axiom-encode/scripts/prepare_retired_source_metadata.py verify-committed \
+            --repo "$RULESPEC_CHECKOUT" --inventory "$inventory" \
+            --request "$RUNNER_TEMP/retired-source-metadata-plan.json"
+
+      - name: Verify retired source metadata pull request base
+        if: ${{ inputs.open_pr && steps.retired_source_metadata_request.outputs.enabled == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          git -C "$RULESPEC_CHECKOUT" fetch --no-tags origin \
+            "+refs/heads/${PR_BASE_BRANCH}:refs/remotes/origin/${PR_BASE_BRANCH}"
+          test "$(git -C "$RULESPEC_CHECKOUT" rev-parse \
+            "refs/remotes/origin/${PR_BASE_BRANCH}")" = "$RULESPEC_REF"
+
+      - name: Prepare retired source metadata pull request branch
+        id: retired_source_metadata_pull_request_branch
+        if: ${{ inputs.open_pr && steps.retired_source_metadata_request.outputs.enabled == 'true' }}
+        env:
+          COUNTRY: ${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          workflow_python=(/opt/axiom-verification/python/bin/python -I)
+          test -x "${workflow_python[0]}"
+          branch="$("${workflow_python[@]}" \
+            axiom-encode/scripts/prepare_signed_backfill.py branch-name \
+            "$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Push retired source metadata migration branch and open draft pull request
+        id: publish_retired_source_metadata_pull_request
+        if: ${{ !cancelled() && steps.check_retired_source_metadata_publication_token.outcome != 'skipped' && inputs.open_pr && steps.retired_source_metadata_request.outputs.enabled == 'true' }}
+        env:
+          PRIOR_STATUS: ${{ job.status }}
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN }}
+          COUNTRY: ${{ inputs.country }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+          PREPARED_BRANCH: ${{ steps.retired_source_metadata_pull_request_branch.outputs.branch }}
+        run: |
+          set -euo pipefail
+          test "$PRIOR_STATUS" = success
+          test -n "$GH_TOKEN"
+          artifact="$RUNNER_TEMP/targeted-reencode"
+          inventory="$artifact/retired-source-metadata-changes.json"
+          repo="TheAxiomFoundation/rulespec-${COUNTRY}"
+          branch="$PREPARED_BRANCH"
+          # The PR describes the concrete transaction and preserves its
+          # history outside the migrated modules; no source fidelity is claimed.
+          jq -r \
+            --arg base "$RULESPEC_REF" \
+            --arg url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '"Migrate retired source_verification metadata through the model-free protected signing lane. "
+             + "The receipt preserves removed values and plural citations; proof-import pins are cascaded to a fixed point.\n\n"
+             + "Base commit: `" + $base + "`\n"
+             + "Receipt: `" + .receipt_path + "`\n"
+             + "Receipt SHA-256: `" + .receipt_sha256 + "`\n"
+             + "Primaries: " + (.modules | join(", ")) + "\n"
+             + "Workflow: " + $url + "\n\n"
+             + "guard-generated replay and exact receipt change-set checks passed. "
+             + "Review the migration and waiver protocol before marking this draft ready. "
+             + "The manifests attest the deterministic transaction and do not assert source fidelity."' \
+            "$inventory" > "$RUNNER_TEMP/retired-source-metadata-pr-body.md"
+          jq -n \
+            --arg head "TheAxiomFoundation:${branch}" --arg base "$PR_BASE_BRANCH" \
+            --rawfile body "$RUNNER_TEMP/retired-source-metadata-pr-body.md" \
+            '{title: "Migrate retired source verification metadata", head: $head, base: $base, body: $body, draft: true}' \
+            > "$RUNNER_TEMP/retired-source-metadata-pr-request.json"
+          gh auth setup-git
+          git -C "$RULESPEC_CHECKOUT" -c core.hooksPath=/dev/null push \
+            "https://github.com/${repo}.git" "HEAD:refs/heads/${branch}"
+          gh api --method POST "repos/${repo}/pulls" \
+            --input "$RUNNER_TEMP/retired-source-metadata-pr-request.json" \
+            > "$RUNNER_TEMP/retired-source-metadata-pull-request.json"
+          if ! jq -e --arg branch "$PR_BASE_BRANCH" --arg sha "$RULESPEC_REF" \
+            '.base.ref == $branch and .base.sha == $sha' \
+            "$RUNNER_TEMP/retired-source-metadata-pull-request.json" > /dev/null; then
+            pr_number="$(jq -r '.number // empty' "$RUNNER_TEMP/retired-source-metadata-pull-request.json")"
+            if test -n "$pr_number"; then
+              gh api --method PATCH "repos/${repo}/pulls/${pr_number}" \
+                -f state=closed || echo "warning: failed to close stale-base PR" >&2
+            fi
+            git -C "$RULESPEC_CHECKOUT" push "https://github.com/${repo}.git" \
+              ":refs/heads/${branch}" || echo "warning: failed to delete stale-base branch" >&2
+            echo "created pull request does not target the reviewed base SHA" >&2
+            exit 1
+          fi
+          cp "$RUNNER_TEMP/retired-source-metadata-pull-request.json" "$artifact/lane-pull-request.json"
+
       - name: Finalize signed re-encode artifact checksums
         id: finalize_signed_reencode_artifact
         run: |
@@ -3947,7 +4848,15 @@ jobs:
           artifact="$RUNNER_TEMP/targeted-reencode"
           (
             cd "$artifact"
-            sha256sum * > SHA256SUMS
+            if [ -n "$(find . -type l -print -quit)" ]; then
+              echo "signed re-encode artifact contains a symlink" >&2
+              exit 1
+            fi
+            find . -type f ! -path ./SHA256SUMS -print0 |
+              LC_ALL=C sort -z |
+              xargs -0 -r sha256sum > SHA256SUMS
+            test -s SHA256SUMS
+            sha256sum --check SHA256SUMS
           )
 
       - name: Upload signed re-encode artifact
@@ -3963,6 +4872,7 @@ jobs:
         id: package_failed_reencode_diagnostics
         if: ${{ failure() && !cancelled() }}
         env:
+          REPAIR_EXECUTION_JSON: ${{ steps.repair_candidate.outputs.execution }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           CORPUS_REF: ${{ inputs.corpus_ref }}
@@ -3970,6 +4880,16 @@ jobs:
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
           ENCODE_APPLY_CONCLUSION: ${{ steps.encode_apply.conclusion }}
           ENCODE_APPLY_OUTCOME: ${{ steps.encode_apply.outcome }}
+          RETIRED_SOURCE_METADATA_REQUEST_CONCLUSION: ${{ steps.retired_source_metadata_request.conclusion }}
+          RETIRED_SOURCE_METADATA_REQUEST_OUTCOME: ${{ steps.retired_source_metadata_request.outcome }}
+          RETIRED_SOURCE_METADATA_MIGRATION_CONCLUSION: ${{ steps.retired_source_metadata_migration.conclusion }}
+          RETIRED_SOURCE_METADATA_MIGRATION_OUTCOME: ${{ steps.retired_source_metadata_migration.outcome }}
+          PACKAGE_RETIRED_SOURCE_METADATA_CHANGES_CONCLUSION: ${{ steps.package_retired_source_metadata_changes.conclusion }}
+          PACKAGE_RETIRED_SOURCE_METADATA_CHANGES_OUTCOME: ${{ steps.package_retired_source_metadata_changes.outcome }}
+          COMMIT_RETIRED_SOURCE_METADATA_MIGRATION_CONCLUSION: ${{ steps.commit_retired_source_metadata_migration.conclusion }}
+          COMMIT_RETIRED_SOURCE_METADATA_MIGRATION_OUTCOME: ${{ steps.commit_retired_source_metadata_migration.outcome }}
+          PUBLISH_RETIRED_SOURCE_METADATA_PULL_REQUEST_CONCLUSION: ${{ steps.publish_retired_source_metadata_pull_request.conclusion }}
+          PUBLISH_RETIRED_SOURCE_METADATA_PULL_REQUEST_OUTCOME: ${{ steps.publish_retired_source_metadata_pull_request.outcome }}
           EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
           FINALIZE_SIGNED_REENCODE_ARTIFACT_CONCLUSION: ${{ steps.finalize_signed_reencode_artifact.conclusion }}
           FINALIZE_SIGNED_REENCODE_ARTIFACT_OUTCOME: ${{ steps.finalize_signed_reencode_artifact.outcome }}
@@ -4031,6 +4951,30 @@ jobs:
           import stat
           import sys
           from pathlib import Path
+
+          def recorded_repair_selection():
+              # Resolve emits this only after validating the request. Keep setup
+              # failure packaging stdlib-only, including rejected requests that
+              # never produced a selection. This is not execution success.
+              raw = os.environ.get("REPAIR_EXECUTION_JSON") or ""
+              if not raw:
+                  return None
+              if len(raw) > 256:
+                  return None
+              try:
+                  selected = json.loads(raw)
+              except (ValueError, TypeError):
+                  return None
+              if not isinstance(selected, dict) or set(selected) != {
+                  "requested_mode", "mode", "tests_only"
+              }:
+                  return None
+              mode = selected["mode"]
+              if mode not in ("full_artifact", "tests_only") or (
+                  selected["requested_mode"] not in (mode, "legacy_inference")
+              ) or selected["tests_only"] is not (mode == "tests_only"):
+                  return None
+              return selected
 
           class UnsafeDiagnosticPathError(Exception):
               pass
@@ -4275,6 +5219,11 @@ jobs:
                   "VERIFY_EXISTING_SIGNED_IMPORT_INTEGRITY"
               ),
               "verify_generated_provenance": "VERIFY_GENERATED_PROVENANCE",
+              "retired_source_metadata_request": "RETIRED_SOURCE_METADATA_REQUEST",
+              "retired_source_metadata_migration": "RETIRED_SOURCE_METADATA_MIGRATION",
+              "package_retired_source_metadata_changes": "PACKAGE_RETIRED_SOURCE_METADATA_CHANGES",
+              "commit_retired_source_metadata_migration": "COMMIT_RETIRED_SOURCE_METADATA_MIGRATION",
+              "publish_retired_source_metadata_pull_request": "PUBLISH_RETIRED_SOURCE_METADATA_PULL_REQUEST",
           }
           step_outcomes = {}
           for step_id, env_prefix in step_env_prefixes.items():
@@ -4401,6 +5350,7 @@ jobs:
               "replace_rulespec_path": os.environ.get("REPLACE_RULESPEC_PATH")
               or None,
               "repair_candidate": repair_candidate,
+              "repair_execution": recorded_repair_selection(),
               "repair_run_id": os.environ.get("REPAIR_RUN_ID") or None,
               "rules_engine_ref": os.environ["RULES_ENGINE_REF"],
               "rulespec_ref": os.environ["RULESPEC_REF"],

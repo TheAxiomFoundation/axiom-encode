@@ -1,0 +1,239 @@
+format: rulespec/v1
+module:
+  summary: "Complete Schedule M for interest paid in 2025 on a student loan granted\n\
+    to you, or for an amount calculated for 2024 and carried forward.\n\u201CAdd lines\
+    \ 46 and 48.\u201D \u201CSubtract line 60 from line 52.\u201D"
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+    source_sha256: e8a905d1a3e9dd708c46ffc0090fafeeeb5c840a0c708a8c80dff2674b78c90a
+units:
+- name: CAD
+  kind: currency
+  minor_units: 2
+inputs:
+- name: schedule_m_carryforward_calculated_for_2024
+  entity: Person
+  dtype: Boolean
+  period: Year
+- name: schedule_m_unused_student_loan_interest_line_46
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+- name: schedule_m_student_loan_interest_paid_1998_through_2024
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+- name: schedule_m_student_loan_interest_used_for_previous_year_credits
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+- name: schedule_m_student_loan_interest_paid_2025_line_48
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+- name: schedule_m_student_loan_interest_claimed_line_60
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+rules:
+- name: schedule_m_unused_student_loan_interest_for_2025_line_46
+  kind: derived
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+  source: Revenu Quebec Schedule M 2025, instructions for line 46
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Also complete this schedule if, for 2024, you calculated an amount
+            for interest paid on a student loan and decided to carry the amount forward
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: or the amount shown in this respect on your 2024 notice of assessment
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: interest paid for 1998 through 2024 minus the interest already
+            used to calculate a credit for interest paid on a student loan for previous
+            years.
+      - path: versions[0].formula
+        kind: unit
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: a student loan granted to you
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Interest paid in 2025 on a student loan
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: 'Also complete this schedule if, for 2024, you calculated an amount
+            for interest paid on a student loan and decided to carry the amount forward
+
+            to a future year.'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: 'If interest was paid on your student loan after 1997, but in 2024
+            you did not calculate the amount that could be carried forward, enter
+            the result
+
+            of the following calculation on line 46: interest paid for 1998 through
+            2024 minus the interest already used to calculate a credit for interest
+            paid
+
+            on a student loan for previous years.'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: 'Unused portion of the interest paid on a student loan (line 62
+            of Schedule M for 2024
+
+            or the amount shown in this respect on your 2024 notice of assessment)'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 'if schedule_m_carryforward_calculated_for_2024: schedule_m_unused_student_loan_interest_line_46
+      else: schedule_m_student_loan_interest_paid_1998_through_2024 - schedule_m_student_loan_interest_used_for_previous_year_credits'
+- name: schedule_m_student_loan_interest_available_line_52
+  kind: derived
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+  source: Revenu Quebec Schedule M 2025, line 52
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Add lines 46 and 48.
+      - path: versions[0].formula
+        kind: unit
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: a student loan granted to you
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Interest paid in 2025 on a student loan
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_m_unused_student_loan_interest_for_2025_line_46 + schedule_m_student_loan_interest_paid_2025_line_48
+- name: schedule_m_student_loan_interest_claim_line_385
+  kind: derived
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+  source: Revenu Quebec Schedule M 2025, amount carried to return line 385
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Carry all or part of this amount to line 385 of your return.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Amount carried to line 385 of your 2025 return
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_m_student_loan_interest_claimed_line_60
+- name: schedule_m_student_loan_interest_carryforward_line_62
+  kind: derived
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+  source: Revenu Quebec Schedule M 2025, line 62
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Subtract line 60 from line 52.
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Amount that can be carried forward to a future year
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Interest paid in 2025 on a student loan
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest
+          excerpt: Revenu Quebec Schedule M 2025 - Interest Paid on a Student Loan
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_m_student_loan_interest_available_line_52 - schedule_m_student_loan_interest_claimed_line_60

@@ -1,0 +1,479 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-az/statute/43-1072
+    source_sha256: 30d1dc61d45b77e7820e088fdeed82cf9b20b6c2b85923dff17f8440f0d0680f
+  summary: “Household income” means income received by all household persons while
+    household members. “Income” includes adjusted gross income, capital gains excluded
+    from adjusted gross income, specified receipts, and the gross amount of a pension
+    or annuity not otherwise exempted under subsection I. For a claimant living with
+    a spouse or other persons, combined income must be less than $5,501. The shared-household
+    table ranges from $502 at $0–$2,500 to $56 at $5,351–$5,500; the credit is limited
+    to property taxes actually paid.
+  deferred_outputs:
+  - output: us-az:statutes/43-1072#a_subdivision_a_credit_amount
+    reason: Subsection A, paragraph 3, subdivision (a) and subsection B, paragraph
+      1 use a separate single-person income table, which is outside the encoded shared-household
+      table path.
+  - output: us-az:statutes/43-1072#property_tax_or_rent_credit_refund_and_setoff
+    reason: Subsections C-F and G state landlord-statement, refund, setoff, filing,
+      audit, deadline, extension, and one-claimant administration; these procedures
+      are not computed by the encoded amount rules.
+  - output: us-az:statutes/43-1072/b#shared_household_income_path
+    reason: A.R.S. § 43-1072(b) requires combined income of all persons residing in
+      the residence. The available encoding has no structural household-member relation
+      to identify and sum an arbitrary number of members; the supplied other-member
+      amount is only an aggregate boundary.
+  - output: us-az:statutes/43-1072#single_household_property_tax_or_rent_credit
+    reason: Subsection B(1)'s single-person household credit table and the related
+      A(3)(a) path are outside the encoded shared-household table branch.
+  - output: us-az:statutes/43-1072/g#deferred_g
+    reason: Generated module encodes the supported rules from this source, but this
+      source subparagraph depends on policy surfaces or entities that are not available
+      in the current RuleSpec context. It is deferred instead of being modeled as
+      a caller-supplied input or an unsupported local entity.
+rules:
+- name: claimant_minimum_age
+  kind: parameter
+  dtype: Count
+  source: 43-1072(A)(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-az/statute/43-1072
+          excerpt: attained the age of sixty-five years
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '65'
+- name: shared_household_income_limit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  period: Year
+  source: 43-1072(A)(3)(b)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-az/statute/43-1072
+          excerpt: less than five thousand five hundred one dollars
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '5501'
+- name: shared_household_credit_band_lower_bound
+  kind: parameter
+  dtype: Money
+  unit: USD
+  period: Year
+  indexed_by: shared_household_credit_band
+  source: 43-1072(B)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: parameter_table
+        source:
+          corpus_citation_path: us-az/statute/43-1072
+          table:
+            header: Household Income Tax Credit
+            row_key: Household Income
+            column_key: lower bound
+  versions:
+  - effective_from: '0001-01-01'
+    values:
+      0: 0
+      1: 2501
+      2: 2651
+      3: 2801
+      4: 2951
+      5: 3101
+      6: 3251
+      7: 3401
+      8: 3551
+      9: 3701
+      10: 3851
+      11: 4001
+      12: 4151
+      13: 4301
+      14: 4451
+      15: 4601
+      16: 4751
+      17: 4901
+      18: 5051
+      19: 5201
+      20: 5351
+- name: shared_household_credit_band_upper_bound
+  kind: parameter
+  dtype: Money
+  unit: USD
+  period: Year
+  indexed_by: shared_household_credit_band
+  source: 43-1072(B)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: parameter_table
+        source:
+          corpus_citation_path: us-az/statute/43-1072
+          table:
+            header: Household Income Tax Credit
+            row_key: Household Income
+            column_key: upper bound
+  versions:
+  - effective_from: '0001-01-01'
+    values:
+      0: 2500
+      1: 2650
+      2: 2800
+      3: 2950
+      4: 3100
+      5: 3250
+      6: 3400
+      7: 3550
+      8: 3700
+      9: 3850
+      10: 4000
+      11: 4150
+      12: 4300
+      13: 4450
+      14: 4600
+      15: 4750
+      16: 4900
+      17: 5050
+      18: 5200
+      19: 5350
+      20: 5500
+- name: shared_household_credit_table_amount
+  kind: parameter
+  dtype: Money
+  unit: USD
+  period: Year
+  indexed_by: shared_household_credit_band
+  source: 43-1072(B)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].values
+        kind: parameter_table
+        source:
+          corpus_citation_path: us-az/statute/43-1072
+          table:
+            header: Household Income Tax Credit
+            row_key: Household Income
+            column_key: Tax Credit
+  versions:
+  - effective_from: '0001-01-01'
+    values:
+      0: 502
+      1: 479
+      2: 457
+      3: 435
+      4: 412
+      5: 390
+      6: 368
+      7: 345
+      8: 323
+      9: 301
+      10: 279
+      11: 256
+      12: 234
+      13: 212
+      14: 189
+      15: 167
+      16: 145
+      17: 123
+      18: 100
+      19: 78
+      20: 56
+- name: shared_household_credit_band
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Year
+  source: 43-1072(B)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-az/statute/43-1072
+          excerpt: 'For a person eligible under subsection A, paragraph 3, subdivision
+            (b) of this section, according to the following table:'
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'if household_income >= shared_household_credit_band_lower_bound[0] and
+      household_income <= shared_household_credit_band_upper_bound[0]: 0 else: if
+      household_income >= shared_household_credit_band_lower_bound[1] and household_income
+      <= shared_household_credit_band_upper_bound[1]: 1 else: if household_income
+      >= shared_household_credit_band_lower_bound[2] and household_income <= shared_household_credit_band_upper_bound[2]:
+      2 else: if household_income >= shared_household_credit_band_lower_bound[3] and
+      household_income <= shared_household_credit_band_upper_bound[3]: 3 else: if
+      household_income >= shared_household_credit_band_lower_bound[4] and household_income
+      <= shared_household_credit_band_upper_bound[4]: 4 else: if household_income
+      >= shared_household_credit_band_lower_bound[5] and household_income <= shared_household_credit_band_upper_bound[5]:
+      5 else: if household_income >= shared_household_credit_band_lower_bound[6] and
+      household_income <= shared_household_credit_band_upper_bound[6]: 6 else: if
+      household_income >= shared_household_credit_band_lower_bound[7] and household_income
+      <= shared_household_credit_band_upper_bound[7]: 7 else: if household_income
+      >= shared_household_credit_band_lower_bound[8] and household_income <= shared_household_credit_band_upper_bound[8]:
+      8 else: if household_income >= shared_household_credit_band_lower_bound[9] and
+      household_income <= shared_household_credit_band_upper_bound[9]: 9 else: if
+      household_income >= shared_household_credit_band_lower_bound[10] and household_income
+      <= shared_household_credit_band_upper_bound[10]: 10 else: if household_income
+      >= shared_household_credit_band_lower_bound[11] and household_income <= shared_household_credit_band_upper_bound[11]:
+      11 else: if household_income >= shared_household_credit_band_lower_bound[12]
+      and household_income <= shared_household_credit_band_upper_bound[12]: 12 else:
+      if household_income >= shared_household_credit_band_lower_bound[13] and household_income
+      <= shared_household_credit_band_upper_bound[13]: 13 else: if household_income
+      >= shared_household_credit_band_lower_bound[14] and household_income <= shared_household_credit_band_upper_bound[14]:
+      14 else: if household_income >= shared_household_credit_band_lower_bound[15]
+      and household_income <= shared_household_credit_band_upper_bound[15]: 15 else:
+      if household_income >= shared_household_credit_band_lower_bound[16] and household_income
+      <= shared_household_credit_band_upper_bound[16]: 16 else: if household_income
+      >= shared_household_credit_band_lower_bound[17] and household_income <= shared_household_credit_band_upper_bound[17]:
+      17 else: if household_income >= shared_household_credit_band_lower_bound[18]
+      and household_income <= shared_household_credit_band_upper_bound[18]: 18 else:
+      if household_income >= shared_household_credit_band_lower_bound[19] and household_income
+      <= shared_household_credit_band_upper_bound[19]: 19 else: if household_income
+      >= shared_household_credit_band_lower_bound[20] and household_income <= shared_household_credit_band_upper_bound[20]:
+      20 else: -1'
+- name: eligible_under_shared_household_income_path
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: 43-1072(b)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-az/statute/43-1072
+          excerpt: Lived with a spouse or one or more persons and the combined income
+            from all sources in the taxable year of all persons residing in the residence
+            was less than five thousand five hundred one dollars.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: claimant_lived_with_spouse_or_one_or_more_persons and household_income
+      < shared_household_income_limit
+- name: claimant_meets_age_or_public_money_condition
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: 43-1072(A)(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-az/statute/43-1072
+          excerpt: Such resident attained the age of sixty-five years prior to or
+            during the taxable year or such resident is a recipient of public monies
+            under title 16 of the social security act
+  versions:
+  - effective_from: '0001-01-01'
+    formula: claimant_age >= claimant_minimum_age or claimant_is_recipient_of_public_monies_under_title_16_social_security_act
+- name: shared_household_claimant_credit_eligible
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: 43-1072(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-az/statute/43-1072
+          excerpt: if all of the following apply
+  versions:
+  - effective_from: '0001-01-01'
+    formula: claimant_meets_age_or_public_money_condition and claimant_paid_property_taxes_or_rent_during_taxable_year
+      and eligible_under_shared_household_income_path
+- name: shared_household_table_credit_amount
+  kind: derived
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+  source: 43-1072(B)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-az/statute/43-1072
+          excerpt: according to the following table
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'if shared_household_credit_band < 0: 0 else: shared_household_credit_table_amount[shared_household_credit_band]'
+- name: shared_household_property_tax_or_rent_credit
+  kind: derived
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+  source: 43-1072(B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-az/statute/43-1072
+          excerpt: the amount of property taxes actually paid during the taxable year
+            or the amount computed as follows, whichever is less
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'if shared_household_claimant_credit_eligible: min(property_taxes_or_rent_amount_paid_for_credit,
+      shared_household_table_credit_amount) else: 0'
+- name: member_income
+  kind: derived
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+  source: 43-1072(H)(6)(a)-(g), (I)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-az/statute/43-1072
+          excerpt: '"Income" means the sum of the following:'
+  versions:
+  - effective_from: '0001-01-01'
+    formula: department_adjusted_gross_income + capital_gains_excluded_from_adjusted_gross_income
+      + nontaxable_strike_benefits + nontaxable_federal_interest + state_or_political_subdivision_retirement_payments
+      + max(0, federal_retirement_program_payments - subsection_i_exempt_federal_retirement_program_payments)
+      + gross_pension_or_annuity_income
+- name: gross_pension_or_annuity_income
+  kind: derived
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+  source: 43-1072(g)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-az/statute/43-1072
+          excerpt: (g) The gross amount of any pension or annuity not otherwise exempted
+            except as provided in subsection I of this section.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: max(0, gross_pension_or_annuity_amount - pension_or_annuity_amount_exempt_under_subsection_i)
+- name: household_income
+  kind: derived
+  entity: Household
+  dtype: Money
+  unit: USD
+  period: Year
+  source: 43-1072(H)(5)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-az/statute/43-1072
+          excerpt: '"Household income" means all income received by all persons of
+            a household in a taxable year while members of the household.'
+  versions:
+  - effective_from: '0001-01-01'
+    formula: member_income + other_household_members_income_received_while_members
+inputs:
+- name: claimant_age
+  entity: Person
+  dtype: Count
+  period: Year
+- name: claimant_is_recipient_of_public_monies_under_title_16_social_security_act
+  entity: Person
+  dtype: Boolean
+  period: Year
+- name: claimant_lived_with_spouse_or_one_or_more_persons
+  entity: Person
+  dtype: Boolean
+  period: Year
+- name: claimant_paid_property_taxes_or_rent_during_taxable_year
+  entity: Person
+  dtype: Boolean
+  period: Year
+- name: property_taxes_or_rent_amount_paid_for_credit
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+- name: department_adjusted_gross_income
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+- name: capital_gains_excluded_from_adjusted_gross_income
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+- name: nontaxable_strike_benefits
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+- name: nontaxable_federal_interest
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+- name: state_or_political_subdivision_retirement_payments
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+- name: federal_retirement_program_payments
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+- name: subsection_i_exempt_federal_retirement_program_payments
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+- name: gross_pension_or_annuity_amount
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+- name: pension_or_annuity_amount_exempt_under_subsection_i
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+- name: other_household_members_income_received_while_members
+  entity: Household
+  dtype: Money
+  unit: USD
+  period: Year
+- name: capital_gains_already_included_in_department_adjusted_gross_income
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year

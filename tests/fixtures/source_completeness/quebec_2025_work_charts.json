@@ -1,0 +1,11 @@
+{
+  "citation": "ca/policy/revenu-quebec/tp1-2025/main-return",
+  "release": "ca-rulespec-2026-07-21-oracle-complete-v2",
+  "full_source_sha256": "f4a6e922fe69a7c1ea23346fe505ad41e019a7126022223dec3719791dadb5e7",
+  "character_span": [
+    0,
+    8301
+  ],
+  "slice_sha256": "cca701b7e4fff546e0ba908089d8844b2303c831f87075571bed849093e4eaf0",
+  "purpose": "Exact parser regression excerpt; not a new source unit or publication scope."
+}

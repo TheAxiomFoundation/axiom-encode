@@ -1,0 +1,1 @@
+Add an hourly SNAP dispatch queue (`scripts/snap_dispatch_queue.py`, `.github/workflows/snap-dispatch-queue.yml`) that builds non-overlapping, SNAP-only source units from the corpus release rulespec-us `main` pins, sends the next items to `targeted-signed-reencode.yml` on the current `main` tip, and records each run's outcome and pull request on the `encoding-queue-state` branch.
