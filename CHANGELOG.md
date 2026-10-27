@@ -1,3 +1,7 @@
+## 0.2.2257
+
+- Refresh the encoder version after merging the reviewed Canadian repair-head admission into the Arizona ECE transport branch.
+
 ## 0.2.2254
 
 - Recognize completed signed in-place source-bound dependents in the legacy replacement census, retaining source-citation, primary-proof, and fresh-manifest checks.
