@@ -96,6 +96,51 @@ the output directory are not a second validation layout.
 explicit `--rulespec-dependency-root` pointing to the canonical country
 checkout; ambient environment and sibling checkout discovery are not used.
 
+### Engine pin differentials
+
+Bind both engine checkouts with `engine-bind --axiom-rules-engine-path <checkout>
+--pin <40-hex-ref>` first. The differential requires verified binding receipts,
+checks each checkout's HEAD independently, and does not change a policy pin:
+
+```bash
+axiom-encode engine-pin-diff --root /path/to/rulespec-dk/dk \
+  --old-engine /path/to/old-engine --old-engine-ref "$OLD_REF" \
+  --new-engine /path/to/new-engine --new-engine-ref "$NEW_REF" \
+  --as-of 2026-10-27 --out-dir /path/to/evidence
+```
+
+Optional positional paths are relative to `--root` and select modules, companion
+files, or directories. Cross-country imports use `--rulespec-dependency-root`;
+composition modules also require `--axiom-compose-path`. Each engine compiles its
+own artifacts through the validation pipeline. Companion requests reuse the
+`test` request builder and preserve all outputs together, in Explain and Fast.
+Parameter-only expectations retain `test`'s shared parameter evaluator and are
+recorded separately as `companion_parameters`, not represented as runtime-derived
+outputs. They reuse translated flat inputs, including table rows; parameter
+errors never replace runtime outcomes, and parameter changes have an independent
+DIFF comparison even alongside an expected derived refusal.
+Boundary probes query each dated single-version derived rule, preferring
+a direct or dependent-output companion; missing companions are marked `no_case`.
+
+Boundary periods retain their original duration; inputs and relations move by
+the same day delta. Current-period probes run Explain on both engines: months
+use calendar months, tax years retain their fiscal start, benefit weeks retain
+their weekday, and custom periods tile the original duration from its start.
+Date-valued facts are not changed. Generated requests and independently compiled
+artifacts live exclusively under `--out-dir`, outside all RuleSpec checkouts.
+
+`report.json` retains refs, binary digests, module blob SHAs, requests, values and
+errors. `report.md` lists classification counts and every non-PASS comparison.
+Only a precisely identified out-of-window formula refusal is expected, and only
+after an old success or an old date refusal at the same period start (a dated
+parameter with no value yet, or another rule with no formula version); companion
+cases affected this way are flagged for encoder repair. DIFF, new-engine PARITY_BREAK, and incomplete preparations exit nonzero.
+Old-only parity breaks are evidence, not a migration gate. Do not move a pin
+with an unexplained on/after-start outcome change or new Explain/Fast disagreement.
+Cross-pin classification uses Explain as the established companion-runner
+baseline; each engine's Explain/Fast comparison and all four raw outcomes are
+retained, so an old Fast defect alone cannot turn into a blocking migration diff.
+
 Git probes for RuleSpec checkout identity and configuration use a 10-second
 timeout per attempt and retry once on timeout. On loaded hosts, set
 `AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS` to a finite positive number of seconds
