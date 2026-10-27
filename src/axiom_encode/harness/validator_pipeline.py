@@ -1481,8 +1481,32 @@ _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
     r"\b\d{1,2}(?:st|nd|rd|th)\s+day\s+of\s+(?:a|the)\s+month\b",
     re.IGNORECASE,
 )
+# Belgian legal French and Dutch write the percent sign out ("28 pour cent",
+# "2,5 pourcents", "9 procent") or abbreviate it ("60 pct."), and German
+# statutes abbreviate "vom Hundert" ("15 v. H."). A numeral after "pour cent"
+# counts a larger hundred ("5 pour cent mille habitants" is five per hundred
+# thousand, "3 pour cent vingt jours" three per hundred and twenty), so that
+# reading is no rate; "pour mille" is per mille and never matches.
+_FRENCH_NUMERAL_AFTER_POUR_CENT_BODY = (
+    r"(?:un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|"
+    r"treize|quatorze|quinze|seize|vingts?|trente|quarante|cinquante|"
+    r"soixante|septante|octante|huitante|nonante|mille|millions?|milliards?)"
+)
+_LOCALE_PERCENT_WORD_BODY = (
+    r"\bpour[ \t-]*cents?\b"
+    rf"(?![ \t-]*{_FRENCH_NUMERAL_AFTER_POUR_CENT_BODY}\b)|"
+    r"\bprocent(?:en|punt(?:en)?)?\b|"
+    r"\bpct\b\.?|"
+    r"\bv\.[ \t]?H\."
+)
+# A parenthesized figure a percent marker follows restates a rate and is no
+# subdivision label: "pour (75) p.c. remboursés". Only the Belgian and
+# German markers lift the mask, so an English or Hebrew outline reads as
+# it did.
 _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
     r"(?<![A-Za-z0-9])\((?:[A-Za-z]|[ivxlcdmIVXLCDM]+|0|[1-9]\d?(?:\.\d+)?)\)"
+    r"(?![ \t\u00a0\u202f]*(?i:\bp\.?[ \t]*c\.?\b|"
+    rf"{_LOCALE_PERCENT_WORD_BODY}))"
 )
 _TABLE_HEADING_PATTERN = re.compile(
     r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE
@@ -7537,18 +7561,32 @@ _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN = re.compile(
     _WRAP_SPACE_FRAGMENT + r"*(?:%|\bp\.?\s*c\.?\b)",
     re.IGNORECASE,
 )
+# The marker after a figure in the range and decimal-comma readers: "entre
+# 10 et 20 pour cent" and "van 10 tot 20 procent" are two rates each, as
+# "10 to 20 percent" is.
+_FIGURE_RATE_MARKER_BODY = (
+    r"(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b|"
+    r"\bProzent\b|\bvom\s+Hundert\b|"
+    rf"{_LOCALE_PERCENT_WORD_BODY})"
+)
+# French and German typography set a no-break space before the marker
+# ("28\u00a0%", "28\u202fProzent").
 _LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN = re.compile(
-    r"[ \t]*(?:"
+    r"[ \t\u00a0\u202f]*(?:"
     r"%|"
     r"\bp\.?[ \t]*c\.?\b|"
     r"\bpercent\b|"
     r"\bper[ \t-]+cent(?:um)?\b|"
     r"\bProzent\b|"
     r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
-    r"\bvom[ \t]+Hundert\b"
+    r"\bvom[ \t]+Hundert\b|"
+    rf"{_LOCALE_PERCENT_WORD_BODY}"
     r")",
     re.IGNORECASE,
 )
+# The closing parenthesis of a figure restated in parentheses ("(14,75)
+# p.c."), read before the marker that follows it.
+_PARENTHESIZED_FIGURE_CLOSE_PATTERN = re.compile(r"[ \t\u00a0\u202f]*\)")
 _GENERIC_RATE_MARKER_PATTERN = re.compile(
     r"(?:"
     r"%|"
@@ -7568,6 +7606,7 @@ _TABLE_RATE_HEADER_PATTERN = re.compile(
     r"\bProzent\b|"
     r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
     r"\bvom[ \t]+Hundert\b|"
+    rf"{_LOCALE_PERCENT_WORD_BODY}|"
     # The Hebrew percent noun, bare or behind a one-letter prefix: a column
     # headed "אחוזים מההכנסה" or "הניכוי ... באחוזים" holds percentages.
     r"(?<![\u0590-\u05ff])(?:[\u05d1\u05d4\u05d5\u05dc\u05de][\u05be-]?)?"
@@ -12089,7 +12128,7 @@ def _extract_percentage_context_values(text: str) -> set[float]:
     )
     for match in re.finditer(
         rf"\b({percentage_number})\s+{range_separator}\s+({percentage_number})"
-        r"\s*(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b)",
+        rf"\s*{_FIGURE_RATE_MARKER_BODY}",
         text,
         re.IGNORECASE,
     ):
@@ -12102,7 +12141,7 @@ def _extract_percentage_context_values(text: str) -> set[float]:
     for match in re.finditer(
         r"(?:^|(?<=[\s(\[,+\-−*/\"'`“”‘’]))"
         r"(-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+),\d{1,4})"
-        r"\s*(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b)",
+        rf"\s*{_FIGURE_RATE_MARKER_BODY}",
         text,
         re.IGNORECASE,
     ):
@@ -13636,6 +13675,7 @@ def _numeric_occurrence_has_local_rate_context(
     _, end = span
     return bool(
         _local_rate_context_after_number(text, end, profile=profile)
+        or _parenthesized_figure_rate_context(text, span, profile=profile)
         or _numeric_occurrence_has_rate_table_header(text, span, profile=profile)
     )
 
@@ -13987,6 +14027,45 @@ def _local_rate_context_after_number(
             boundaries=boundaries,
         )
     return bool(_LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN.match(text, end))
+
+
+def _parenthesized_figure_rate_context(
+    text: str,
+    span: tuple[int, int],
+    *,
+    profile: str,
+    boundaries: _NumericContextBoundaries | None = None,
+) -> bool:
+    """Return whether a rate marker follows a figure restated in parentheses.
+
+    Belgian statutes restate a figure in parentheses and put the marker after
+    them: "(14,75) p.c. du montant" and "pour (75) p.c." are rates. A figure
+    right before the opening parenthesis owns the marker instead ("5 (2) p.c."
+    is five percent and a note), so it blocks the reading, and an unopened
+    parenthesis ("2) p.c.", a list label) is no restatement.
+    """
+    if profile == "da-DK":
+        return False
+    start, end = span
+    opening = start - 1
+    while opening >= 0 and text[opening] in _LOCALE_NUMERIC_GROUPING_SPACES + "\t":
+        opening -= 1
+    if opening < 0 or text[opening] != "(":
+        return False
+    before = opening - 1
+    while before >= 0 and text[before] in _LOCALE_NUMERIC_GROUPING_SPACES + "\t":
+        before -= 1
+    if before >= 0 and text[before].isdigit():
+        return False
+    closing = _PARENTHESIZED_FIGURE_CLOSE_PATTERN.match(text, end)
+    if closing is None:
+        return False
+    return _local_rate_context_after_number(
+        text,
+        closing.end(),
+        profile=profile,
+        boundaries=boundaries,
+    )
 
 
 def _table_rate_header_matches(text: str, *, profile: str) -> bool:
@@ -14581,6 +14660,12 @@ class _LegacyNumericCollector:
             or _local_rate_context_after_number(
                 self.context_text,
                 end,
+                profile=self.profile,
+                boundaries=self.context_boundaries,
+            )
+            or _parenthesized_figure_rate_context(
+                self.context_text,
+                source_span,
                 profile=self.profile,
                 boundaries=self.context_boundaries,
             )
@@ -16571,7 +16656,7 @@ def _tokenize_numeric_occurrences_from_text(
     )
     for match in re.finditer(
         rf"\b({percentage_number})\s+{range_separator}\s+({percentage_number})"
-        r"\s*(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b)",
+        rf"\s*{_FIGURE_RATE_MARKER_BODY}",
         cleaned,
         re.IGNORECASE,
     ):
@@ -16593,7 +16678,7 @@ def _tokenize_numeric_occurrences_from_text(
     for match in re.finditer(
         r"(?:^|(?<=[\s(\[+\-−*/\"'`“”‘’])|(?<=(?<!\d),))"
         r"(-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+),\d{1,4})"
-        r"\s*(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b)",
+        rf"\s*{_FIGURE_RATE_MARKER_BODY}",
         cleaned,
         re.IGNORECASE,
     ):
