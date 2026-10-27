@@ -1499,14 +1499,22 @@ _LOCALE_PERCENT_WORD_BODY = (
     r"\bpct\b\.?|"
     r"\bv\.[ \t]?H\."
 )
-# A parenthesized figure a percent marker follows restates a rate and is no
-# subdivision label: "pour (75) p.c. remboursés". Only the Belgian and
-# German markers lift the mask, so an English or Hebrew outline reads as
-# it did.
+# Every marker that makes the figure right before it a rate.
+_RATE_MARKER_AFTER_FIGURE_BODY = (
+    r"%|"
+    r"\bp\.?[ \t]*c\.?\b|"
+    r"\bpercent\b|"
+    r"\bper[ \t-]+cent(?:um)?\b|"
+    r"\bProzent\b|"
+    r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
+    r"\bvom[ \t]+Hundert\b|"
+    rf"{_LOCALE_PERCENT_WORD_BODY}"
+)
+# A parenthesized figure a rate marker follows restates a rate and is no
+# subdivision label: "pour (75) p.c. remboursés".
 _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
     r"(?<![A-Za-z0-9])\((?:[A-Za-z]|[ivxlcdmIVXLCDM]+|0|[1-9]\d?(?:\.\d+)?)\)"
-    r"(?![ \t\u00a0\u202f]*(?i:\bp\.?[ \t]*c\.?\b|"
-    rf"{_LOCALE_PERCENT_WORD_BODY}))"
+    rf"(?![ \t\u00a0\u202f]*(?i:{_RATE_MARKER_AFTER_FIGURE_BODY}))"
 )
 _TABLE_HEADING_PATTERN = re.compile(
     r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE
@@ -7572,16 +7580,7 @@ _FIGURE_RATE_MARKER_BODY = (
 # French and German typography set a no-break space before the marker
 # ("28\u00a0%", "28\u202fProzent").
 _LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN = re.compile(
-    r"[ \t\u00a0\u202f]*(?:"
-    r"%|"
-    r"\bp\.?[ \t]*c\.?\b|"
-    r"\bpercent\b|"
-    r"\bper[ \t-]+cent(?:um)?\b|"
-    r"\bProzent\b|"
-    r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
-    r"\bvom[ \t]+Hundert\b|"
-    rf"{_LOCALE_PERCENT_WORD_BODY}"
-    r")",
+    rf"[ \t\u00a0\u202f]*(?:{_RATE_MARKER_AFTER_FIGURE_BODY})",
     re.IGNORECASE,
 )
 # The closing parenthesis of a figure restated in parentheses ("(14,75)
