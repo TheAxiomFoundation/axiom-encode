@@ -4327,6 +4327,7 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
+        ("ca", "94789006ce372a1967c258ef47c12b15a1fe511e"),
     ],
 )
 def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
@@ -4361,6 +4362,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
             ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
+            ("ca", "94789006ce372a1967c258ef47c12b15a1fe511e"),
         }
     )
     assert REVIEWED_RULESPEC_PR_BASES == frozenset(
@@ -4954,3 +4956,32 @@ def test_both_verifiers_reject_predecessor_with_encoded_base_owner(
         local_corpus_release=None,
     )
     assert any("already manifest-owned" in issue for issue in issues)
+
+
+@pytest.mark.parametrize(
+    ("country", "requested"),
+    [
+        ("us", "94789006ce372a1967c258ef47c12b15a1fe511e"),
+        ("ca", "94789006ce372a1967c258ef47c12b15a1fe511f"),
+    ],
+)
+def test_reviewed_head_rejects_country_or_full_sha_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    country: str,
+    requested: str,
+) -> None:
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{requested}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+    with pytest.raises(
+        ValueError, match="neither on main nor an approved reviewed head"
+    ):
+        validate_rulespec_base(
+            tmp_path / f"rulespec-{country}", country, requested, open_pr=False
+        )
