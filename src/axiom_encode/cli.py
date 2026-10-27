@@ -4594,14 +4594,19 @@ def _fingerprint_validation_waiver_modules_parallel(
     """Fingerprint waiver modules across worker processes.
 
     Submit one module per task to the executor's shared queue, so the next
-    idle worker takes the next unstarted module. Every task runs the serial
-    executor with fresh pipelines, temporary directory, and compile cache;
-    validate still opens a fresh resolution scope per module. Thus a task is
-    the standalone execution, independent of worker assignment or neighbors,
-    with process-specific paths canonicalized out of its outcome. A worker
-    failure fails the whole audit with the error the interleaved split would
-    have raised, whatever the completion order; results are re-sorted so
-    output order matches the serial code path exactly.
+    idle worker takes the next unstarted module. With two or more workers,
+    every task runs the serial executor with fresh pipelines, temporary
+    directory, and compile cache, so a task is the standalone execution,
+    independent of worker assignment or neighbors, with process-specific
+    paths canonicalized out of its outcome. With one worker, a single serial
+    call shares that setup across the batch, as before. Either way validate
+    opens a fresh resolution scope per module. A worker failure fails the
+    whole audit. For per-module failures after batch setup, the error is the
+    one the interleaved split would have raised, whatever the completion
+    order; input the old split's per-slice preflight rejected first (a path
+    outside a canonical checkout, say) can surface a different error, which
+    still rejects the audit. Results are re-sorted so output order matches
+    the serial code path exactly.
     """
     ordered = sorted(str(module) for module in modules)
     workers = _waiver_audit_worker_count(len(ordered))
