@@ -3775,7 +3775,15 @@ def test_the_fold_drops_every_format_character_and_hebrew_mark():
     # The surrogates YAML decodes an escaped astral mark into.
     assert _SURROGATES <= folded
     # Beyond them, only the invisible marks of no script.
-    for code in folded - format_characters - _HEBREW_POINTS - _SURROGATES:
+    default_ignorables = {
+        code
+        for low, high in hebrew.DEFAULT_IGNORABLE_RANGES
+        for code in range(low, high + 1)
+    }
+    assert default_ignorables <= folded
+    for code in (
+        folded - format_characters - _HEBREW_POINTS - _SURROGATES - default_ignorables
+    ):
         name = unicodedata.name(chr(code))
         assert unicodedata.category(chr(code)) == "Mn", name
         assert "VARIATION SELECTOR" in name or name == "COMBINING GRAPHEME JOINER"
@@ -3821,8 +3829,19 @@ def test_no_invisible_mark_inside_a_negator_hides_it(negator, position):
         )
 
     expected = verdicts(negator)
+    # Keep round 14's complete Cf/Mn family here. Round 15 separately
+    # enumerates every Default_Ignorable_Code_Point through all four guards
+    # and every token/position in test_source_completeness_hebrew_unicode.py;
+    # repeating those reserved code points for each old negator adds no
+    # coverage and multiplies the normal suite's analyzer work.
     marks = (
-        _unicode_format_characters() | _HEBREW_POINTS | hebrew.folded_marks()
+        _unicode_format_characters()
+        | _HEBREW_POINTS
+        | {
+            code
+            for code in hebrew.folded_marks()
+            if unicodedata.category(chr(code)) in {"Cf", "Mn"}
+        }
     ) - _SURROGATES
 
     assert expected == (False, False)

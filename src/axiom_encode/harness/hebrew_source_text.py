@@ -29,6 +29,14 @@ import unicodedata
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 
+from axiom_encode.harness._unicode_default_ignorables import DEFAULT_IGNORABLE_RANGES
+from axiom_encode.harness.hebrew_prefixes import (
+    PREFIX_BOUNDARY,
+    PREFIX_JOINT,
+    prefix_chain,
+    prefix_word,
+)
+
 HEBREW_LETTER_CLASS = "א-ת"
 _H = HEBREW_LETTER_CLASS
 
@@ -39,9 +47,10 @@ _H = HEBREW_LETTER_CLASS
 #   soft hyphen, the invisible operators U+2061-U+2064, U+180E and the tags;
 # - the Hebrew points and cantillation, category ``Mn`` in U+0591-U+05C7 (the
 #   maqaf, paseq, sof pasuq and inverted nun there are punctuation and stay);
-# - the variation selectors (Unicode's Variation_Selector property, whose code
-#   points are exactly the ``Mn`` ones named "... VARIATION SELECTOR ...") and
-#   the combining grapheme joiner, the invisible marks of no script;
+# - Unicode's ``Default_Ignorable_Code_Point`` property, including the
+#   unassigned code points it reserves for invisible characters. The checked-in
+#   range table comes from DerivedCoreProperties.txt for Python's Unicode
+#   version; scripts/generate_default_ignorable_table.py regenerates it;
 # - the surrogates (category ``Cs``), which are no characters: YAML decodes an
 #   escaped astral mark (``"\ud804\udcbd"``, U+110BD) into two of them, so a
 #   reason written with one would otherwise hide the word around it.
@@ -55,35 +64,30 @@ _HEBREW_MARK_BLOCK = (0x0591, 0x05C7)
 _PRESENTATION_FORMS = (0xFB1D, 0xFB4F)
 
 
-def _is_folded_mark(code: int, category: str) -> bool:
-    if category in ("Cf", "Cs"):
-        return True
-    if category != "Mn":
-        return False
-    name = unicodedata.name(chr(code), "")
-    return (
-        _HEBREW_MARK_BLOCK[0] <= code <= _HEBREW_MARK_BLOCK[1]
-        or "VARIATION SELECTOR" in name
-        or name == "COMBINING GRAPHEME JOINER"
-    )
-
-
 @functools.cache
 def folded_marks() -> frozenset[int]:
     """The code points ``fold_marks`` drops, read from the Unicode database.
 
     The database is read once, on first use, at C speed: the categories of
-    all code points map in one pass, and only the few thousand ``Mn`` marks
-    are named.
+    all code points map in one pass. Default ignorables come from the Unicode
+    property table, since ``unicodedata`` does not expose that property.
     """
 
     codes = range(sys.maxunicode + 1)
     categories = list(map(unicodedata.category, map(chr, codes)))
-    candidates = itertools.compress(
-        codes, map(frozenset(("Cf", "Cs", "Mn")).__contains__, categories)
+    format_and_surrogates = itertools.compress(
+        codes, map(frozenset(("Cf", "Cs")).__contains__, categories)
+    )
+    hebrew_marks = (
+        code
+        for code in range(_HEBREW_MARK_BLOCK[0], _HEBREW_MARK_BLOCK[1] + 1)
+        if categories[code] == "Mn"
+    )
+    default_ignorables = itertools.chain.from_iterable(
+        range(low, high + 1) for low, high in DEFAULT_IGNORABLE_RANGES
     )
     return frozenset(
-        code for code in candidates if _is_folded_mark(code, categories[code])
+        itertools.chain(format_and_surrogates, hebrew_marks, default_ignorables)
     )
 
 
