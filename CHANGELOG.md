@@ -1,3 +1,7 @@
+## 0.2.2260
+
+- Refresh the dependent exporter branch after the protected Arizona transport parent absorbed current main; retain both signed-transport and Canadian repair-head admission.
+
 ## 0.2.2259
 
 - Bump the encoder version after the previous protected Arizona transport parent refresh.
