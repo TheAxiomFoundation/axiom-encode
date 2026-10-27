@@ -956,7 +956,8 @@ def test_shorthand_inventory_and_boundaries_real_engine(
     historical = "AXIOM_PIN_DIFF_OLD_ENGINE_ROOT" in os.environ
     if historical:
         assert old_ref == "05eac9d2f89dabe5c6673176260762cef3a58f47"
-        assert new_ref == "32bc1c124724ebbb2187a196a3b228cfb2a14721"
+        # The new side is the real_engine fixture, which require() holds to the pin.
+        assert new_ref != old_ref
     args = SimpleNamespace(
         root=root,
         paths=[],
