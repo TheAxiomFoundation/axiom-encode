@@ -31,8 +31,10 @@ from dataclasses import dataclass, field
 
 from axiom_encode.harness._unicode_default_ignorables import DEFAULT_IGNORABLE_RANGES
 from axiom_encode.harness.hebrew_prefixes import (
+    HEBREW_PREFIX_LETTERS,
     PREFIX_BOUNDARY,
     PREFIX_JOINT,
+    PREFIX_JOINT_CHARS,
     prefix_chain,
     prefix_word,
 )
@@ -279,7 +281,7 @@ def cross_language_text(text: str) -> str | None:
 # read without them would lose its last letters and name another section.
 _GERESH_MARKS = "׳״'\"“”‘’"
 _MAQAF = "־"
-_NOT_HEBREW_BEFORE = rf"(?<![{_H}A-Za-z0-9_])"
+_NOT_HEBREW_BEFORE = PREFIX_BOUNDARY
 _NOT_HEBREW_AFTER = rf"(?![{_H}])"
 
 HEBREW_LETTER = re.compile(rf"[{_H}]")
@@ -686,14 +688,34 @@ def _native_label_pattern(label: str) -> str:
 # instrument's section, not the current one; ``לחוק זה`` keeps the current law.
 _INSTRUMENT_KIND = r"(?:חוק|פקוד[הת]|תקנות|צו)"
 _QUOTES = "״\"׳'“”‘’«»„"
+# These definite demonstratives are parsed words, not opaque title text.  Their
+# article accepts a visible prefix joint; identity comparison canonicalizes
+# only these known forms while all source text and locators remain unchanged.
+_DEFINITE_INSTRUMENT_BASES = (
+    "זה",
+    "זאת",
+    "אלה",
+    "אמור",
+    "אמורה",
+    "אמורים",
+    "אמורות",
+    "נ״ל",
+)
+_JOINTED_INSTRUMENT_ARTICLE = re.compile(
+    rf"^ה{PREFIX_JOINT}(?=(?:"
+    + "|".join(map(re.escape, _DEFINITE_INSTRUMENT_BASES))
+    + r")$)"
+)
+_THIS_INSTRUMENT_WORD = rf"(?:זה|זו|אלה|{prefix_word('ה')}(?:זה|זאת|אלה))"
 # How a citation names its instrument: ``לחוק``, ``בחוק``, ``מחוק``, ``מן
 # החוק``, ``מתוך חוק``, ``של החוק``, each optionally relative (``שבחוק``,
 # ``שמחוק``, ``אשר מתוך חוק``) and with the title optionally quoted
 # (``ל״חוק הביטוח הלאומי״``).
 _INSTRUMENT_INTRO = (
-    r"(?:של\s+|ל|(?:ש|אשר\s+)?(?:ב|מ|מן\s+|מתוך\s+))"
+    rf"(?:של\s+|{prefix_word('ל')}|(?:{prefix_word('ש')}|אשר\s+)?"
+    rf"(?:{prefix_word('ב')}|{prefix_word('מ')}|מן\s+|מתוך\s+))"
     # ``לאותו חוק``, ``לאותה פקודה``: "that law", a contextual reference.
-    rf"(?:אות(?:ו|ה|ם|ן)\s+)?[{_QUOTES}]?ה?[{_QUOTES}]?"
+    rf"(?:אות(?:ו|ה|ם|ן)\s+)?[{_QUOTES}]?(?:{prefix_word('ה')})?[{_QUOTES}]?"
 )
 _KIND_PATTERNS = {"חוק": "חוק", "פקודה": "פקוד[הת]", "תקנות": "תקנות", "צו": "צו"}
 
@@ -722,11 +744,11 @@ def _other_instrument_qualifier(current_kind: str) -> str:
         rf"(?!\s*(?:,\s*)?{_INSTRUMENT_INTRO}"
         rf"(?:(?!{current}{_NOT_HEBREW_AFTER}){_INSTRUMENT_KIND}{_NOT_HEBREW_AFTER}"
         rf"|{current}{_NOT_HEBREW_AFTER}"
-        rf"(?!\s+(?:זה|זו|הזה|הזאת|אלה|האלה){_NOT_HEBREW_AFTER})))"
+        rf"(?!\s+{_THIS_INSTRUMENT_WORD}{_NOT_HEBREW_AFTER})))"
     )
 
 
-_PROCLITICS = "[ובלמשכה]{0,3}"
+_PROCLITICS = prefix_chain("ובלמשכה", 3)
 # A section's letter suffix, with a geresh or gershayim as printed (``345י״א``).
 _SECTION_SUFFIX = rf"(?:[{_H}](?:[{_GERESH_MARKS}]?[{_H}])?[{_GERESH_MARKS}]?)?"
 
@@ -899,14 +921,18 @@ def cites_current_section(source: str, corpus_citation_path: str) -> bool:
 
 # --- Deferral precision -----------------------------------------------------
 
-_SIGNAL_PROCLITICS = r"(?:וש|שה|וה|ו|ש|ה)?"
+_SIGNAL_PROCLITICS = (
+    "(?:"
+    + "|".join(prefix_word(word) for word in ("וש", "שה", "וה", "ו", "ש", "ה"))
+    + ")?"
+)
 # A missing signal before its object: missing, not yet encoded and
 # unavailable (``בלתי זמין``), the English signal words. Plain "not encoded"
 # and "not available" are not English signals, so ``אינו מקודד`` and ``אינו
 # זמין`` are not either. With the article, the feminine forms are the noun
 # "subtraction" (``החסרה של הסכום``, plural ``החסרות``), so they are not read.
 _MISSING_SIGNAL = (
-    r"(?:חסר(?:ים)?|(?<!ה)חסר(?:ה|ות)"
+    rf"(?:חסר(?:ים)?|(?<!ה)(?<!ה{PREFIX_JOINT})חסר(?:ה|ות)"
     r"|(?:טרם|עדיין\s+(?:לא|אינו|אינה|אינם|אינן))\s+"
     r"(?:קודד(?:ה|ו)?|מקודד(?:ת|ים|ות)?)"
     r"|בלתי\s+(?:זמין|זמינ(?:ה|ים|ות)))"
@@ -914,6 +940,9 @@ _MISSING_SIGNAL = (
 _UNTIL_STATE = (
     r"(?:יקודד(?:ו)?|תקודד(?:נה)?|ייקבע(?:ו)?|תיקבע"
     r"|יהיה\s+זמין|תהיה\s+זמינה|יהיו\s+זמינ(?:ים|ות))"
+)
+_WITHOUT_SIGNAL = (
+    rf"(?:בלי|{prefix_word('ל')}לא|{prefix_word('מ')}בלי|{prefix_word('ב')}לא)"
 )
 
 # The Hebrew counterparts of ``_MISSING_DEPENDENCY_LANGUAGE``: missing,
@@ -929,20 +958,20 @@ MISSING_DEPENDENCY_LANGUAGE = (
     rf"{_NOT_HEBREW_BEFORE}{_SIGNAL_PROCLITICS}(?:"
     rf"{_MISSING_SIGNAL}{_NOT_HEBREW_AFTER}"
     rf"|דורש(?:ת|ים|ות)?{_NOT_HEBREW_AFTER}"
-    rf"|תלוי(?:ה|ים|ות)?\s+ב(?=[{_H}])"
-    rf"|עד\s+(?:ש(?=[{_H}])|אשר\s)"
-    rf"|(?:בלי|ללא|מבלי|בלא){_NOT_HEBREW_AFTER}"
-    rf"|(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד){_NOT_HEBREW_AFTER}"
+    rf"|תלוי(?:ה|ים|ות)?\s+{prefix_word('ב')}(?=[{_H}])"
+    rf"|עד\s+(?:{prefix_word('ש')}(?=[{_H}])|אשר\s)"
+    rf"|{_WITHOUT_SIGNAL}{_NOT_HEBREW_AFTER}"
+    rf"|(?:לא|אי)\s+(?:ניתן|אפשר)\s+{prefix_word('ל')}(?:חשב|קודד){_NOT_HEBREW_AFTER}"
     r")"
 )
 _SIGNAL = re.compile(
     rf"{_NOT_HEBREW_BEFORE}{_SIGNAL_PROCLITICS}(?:"
     rf"(?P<missing>{_MISSING_SIGNAL}){_NOT_HEBREW_AFTER}"
-    rf"|(?P<requires>דורש(?:ת|ים|ות)?{_NOT_HEBREW_AFTER}|תלוי(?:ה|ים|ות)?\s+ב(?=[{_H}]|$))"
-    rf"|(?P<until>עד\s+(?:(?:ש|אשר\s+)(?P<until_verb>{_UNTIL_STATE}){_NOT_HEBREW_AFTER}"
-    rf"|ש(?=[{_H}]|$)|אשר\s))"
-    rf"|(?P<without>(?:בלי|ללא|מבלי|בלא){_NOT_HEBREW_AFTER})"
-    rf"|(?P<cannot>(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד)"
+    rf"|(?P<requires>דורש(?:ת|ים|ות)?{_NOT_HEBREW_AFTER}|תלוי(?:ה|ים|ות)?\s+{prefix_word('ב')}(?=[{_H}]|$))"
+    rf"|(?P<until>עד\s+(?:(?:{prefix_word('ש')}|אשר\s+)(?P<until_verb>{_UNTIL_STATE}){_NOT_HEBREW_AFTER}"
+    rf"|{prefix_word('ש')}(?=[{_H}]|$)|אשר\s))"
+    rf"|(?P<without>{_WITHOUT_SIGNAL}{_NOT_HEBREW_AFTER})"
+    rf"|(?P<cannot>(?:לא|אי)\s+(?:ניתן|אפשר)\s+{prefix_word('ל')}(?:חשב|קודד)"
     rf"{_NOT_HEBREW_AFTER})"
     r")"
 )
@@ -959,7 +988,7 @@ _NEGATION_BRIDGE_WORDS = (
 # Words the negation may reach across: the negation itself and its bridge.
 _NEGATION_REACH_WORDS = 6
 # A space, maqaf or hyphen separates the negation from what it governs.
-_NEGATION_GAP = rf"[\s{_MAQAF}-]"
+_NEGATION_GAP = rf"(?:\s|{PREFIX_JOINT})"
 # The prefixes a negation takes, in their order: the conjunction ``ו``, then a
 # subordinator ``ש``, ``כש``, ``מש``, ``לכש`` or ``בש`` (``שלא``, ``משלא``
 # "since ... not", ``וכשלא`` "and when ... not"), or the Aramaic relative
@@ -969,14 +998,18 @@ _NEGATION_GAP = rf"[\s{_MAQAF}-]"
 # its own) are no negations, and neither is the rhetorical ``הלא``
 # ("surely"); ``test_each_prefix_of_a_negation_is_read_or_excluded`` lists
 # every prefix letter before ``לא`` and ``אין`` and why it is read or not.
-_NEGATION_PREFIX = r"ו?(?:(?:מ|כ|לכ|ב)?ש|ד)?"
+_NEGATION_PREFIX = (
+    rf"(?:{prefix_word('ו')})?"
+    rf"(?:(?:{prefix_word('מ')}|{prefix_word('כ')}|{prefix_word('לכ')}|{prefix_word('ב')})?"
+    rf"{prefix_word('ש')}|{prefix_word('ד')})?"
+)
 # ``בלתי`` ("not", "un-") is no other word after any chain of the prefix
 # letters: the conjunction ``ו``, the article ``ה``, the prepositions ``ב``,
 # ``כ``, ``ל`` and ``מ``, the relative ``ש`` and the Aramaic ``ד`` (``הבלתי``
 # "the un-", ``לבלתי`` "so as not to", ``ומבלתי``). So it is a negation
 # under every chain, as ``לא`` is under ``_NEGATION_PREFIX``.
-_PREFIX_LETTERS = "ובהכלמשד"
-_PREFIXED_BILTI = rf"[{_PREFIX_LETTERS}]*בלתי"
+_PREFIX_LETTERS = HEBREW_PREFIX_LETTERS
+_PREFIXED_BILTI = rf"{prefix_chain(_PREFIX_LETTERS)}בלתי"
 # The reason and source readers share the lexicon compiled below, after the
 # lexical exclusions for infinitives have been defined.
 # The English and German negators: ``_NEGATION_LANGUAGE`` in
@@ -1040,11 +1073,21 @@ _OTHER_LINK_NEGATION = re.compile(
 )
 
 # Words of a compound connective are separated by a space, a maqaf or a hyphen.
-_SEP = rf"(?:\s+|\s*[{_MAQAF}-]\s*)"
+_SEP = rf"(?:\s+|\s*{PREFIX_JOINT}\s*)"
+
+
+_ADVERSATIVE_PREFIX_WORDS = frozenset(
+    "למרות למעט מלבד ואילו ואולם מאידך מנגד בכל הגם לעומת העובדה בשעה בעת בזמן".split()
+)
 
 
 def _connective(words: str) -> str:
-    return _SEP.join(re.escape(word) for word in words.split())
+    return _SEP.join(
+        prefix_word(word[0]) + re.escape(word[1:])
+        if word in _ADVERSATIVE_PREFIX_WORDS
+        else re.escape(word)
+        for word in words.split()
+    )
 
 
 # Counterparts of ``_ADVERSATIVE_LANGUAGE``: although, but, despite, even
@@ -1071,7 +1114,8 @@ _INFINITIVE_GOVERNORS = (
 # Each governor is one word, one space before the infinitive; a lookbehind
 # per governor keeps each one fixed-width. The lookahead runs them only where
 # ``להוציא`` follows, so a scan does not pay for them at every word.
-_GOVERNED_INFINITIVE = "(?=להוציא)" + "".join(
+_EXCEPT_INFINITIVE = rf"{prefix_word('ל')}הוציא"
+_GOVERNED_INFINITIVE = rf"(?={_EXCEPT_INFINITIVE})" + "".join(
     rf"(?<!(?<![{_H}]){governor} )" for governor in _INFINITIVE_GOVERNORS.split()
 )
 _TIME_SPAN = (
@@ -1117,23 +1161,23 @@ _ADVERSATIVE_GLUED = (
 )
 ADVERSATIVE_LANGUAGE = (
     # ``להוציא`` ("except"), unless a modal makes it "to issue".
-    rf"{_NOT_HEBREW_BEFORE}(?:ו)?{_GOVERNED_INFINITIVE}להוציא{_NOT_HEBREW_AFTER}|"
+    rf"{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?{_GOVERNED_INFINITIVE}{_EXCEPT_INFINITIVE}{_NOT_HEBREW_AFTER}|"
     # ``בעוד`` ("while"), unless a span of time follows ("in a year").
-    rf"{_NOT_HEBREW_BEFORE}(?:ו)?בעוד{_NOT_HEBREW_AFTER}"
+    rf"{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?{prefix_word('ב')}עוד{_NOT_HEBREW_AFTER}"
     rf"(?!{_SEP}{_TIME_SPAN}{_NOT_HEBREW_AFTER})|"
     # ``אך`` ("but"), but not ``אך ורק`` ("only").
-    rf"{_NOT_HEBREW_BEFORE}(?:ו)?אך{_NOT_HEBREW_AFTER}(?!{_SEP}ורק{_NOT_HEBREW_AFTER})|"
-    rf"{_NOT_HEBREW_BEFORE}(?:ו)?(?:"
-    + "|".join(re.escape(word) for word in _ADVERSATIVE_WORDS.split())
+    rf"{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?אך{_NOT_HEBREW_AFTER}(?!{_SEP}ורק{_NOT_HEBREW_AFTER})|"
+    rf"{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?(?:"
+    + "|".join(_connective(word) for word in _ADVERSATIVE_WORDS.split())
     + "|"
     + "|".join(_connective(phrase) for phrase in _ADVERSATIVE_PHRASES)
     + rf"){_NOT_HEBREW_AFTER}"
-    + rf"|{_NOT_HEBREW_BEFORE}(?:ו)?(?:"
+    + rf"|{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?(?:"
     + "|".join(
-        rf"{_connective(phrase)}(?:{_SEP})?{glue}"
+        rf"{_connective(phrase)}(?:{_SEP})?{prefix_word(glue)}\s*"
         for phrase, glue in _ADVERSATIVE_GLUED
     )
-    + rf")(?=[{_H}])"
+    + r")(?=[^\W\d_])"
 )
 _ADVERSATIVE = re.compile(ADVERSATIVE_LANGUAGE)
 # The adversatives a reason is read for: ``_ADVERSATIVE_LANGUAGE`` in
@@ -1166,11 +1210,11 @@ _NAME_STOP_WORDS = (
 _NAME_WORD = (
     r"\s*(?!(?:"
     + "|".join(_NAME_STOP_WORDS.split())
-    + rf"){_NOT_HEBREW_AFTER})[{_QUOTES}]?[{_H}][{_H}{_GERESH_MARKS}{_MAQAF}{_QUOTES}-]*"
+    + rf"){_NOT_HEBREW_AFTER})[{_QUOTES}]?[{_H}][{_H}{_GERESH_MARKS}{re.escape(PREFIX_JOINT_CHARS)}{_QUOTES}]*"
 )
 _INSTRUMENT_NAME = (
     # ``חוק יסוד: כבוד האדם וחירותו``, ``חוק־יסוד:חופש העיסוק``.
-    rf"(?:\s*(?:[{_MAQAF}-]\s*)?יסוד\s*:)?"
+    rf"(?:\s*(?:{PREFIX_JOINT}\s*)?יסוד\s*:)?"
     rf"(?:{_NAME_WORD}){{0,6}}"
     r"(?:\s*\([^()\n]{1,40}\))?"
 )
@@ -1179,7 +1223,7 @@ _INSTRUMENT_NAME = (
 # colon-led continuation, or a number. Such a name identifies no law with
 # certainty.
 _NAME_CONTINUES = re.compile(
-    rf"(?:{_NAME_WORD})|\s*\(|\s*(?:[{_QUOTES}]\s*)?:\s*[{_H}]|\s*[{_MAQAF}-][{_H}]"
+    rf"(?:{_NAME_WORD})|\s*\(|\s*(?:[{_QUOTES}]\s*)?:\s*[{_H}]|\s*{PREFIX_JOINT}[{_H}]"
     # A number continues a title (``חוק התקציב לשנת הכספים 2025``), and so do
     # an edition (``[נוסח משולב]``) and an enactment date (``, התשנ״ה–1995``).
     r"|\s*\d|\s*\["
@@ -1188,7 +1232,7 @@ _NAME_CONTINUES = re.compile(
 SECTION_DEPENDENCY = re.compile(
     # A single section, as English's grammar reads ``section`` and not
     # ``sections``; a suffix it cannot read (``345b``) leaves it unread.
-    rf"{_NOT_HEBREW_BEFORE}(?P<proclitics>[ובלמשכה]{{0,3}})סעיף\s+"
+    rf"{_NOT_HEBREW_BEFORE}(?P<proclitics>{_PROCLITICS})סעיף\s+"
     rf"(?P<section>\d+{_SECTION_SUFFIX})(?![0-9A-Za-z{_H}{_GERESH_MARKS}])"
     rf"(?P<fragments>(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{0,{MAX_OUTLINE_DEPTH}}})"
     # A fragment the label grammar cannot read (``(1000)``, a glued ``(x)``),
@@ -1203,6 +1247,7 @@ SECTION_DEPENDENCY = re.compile(
 
 
 def _normalize_word(text: str) -> str:
+    text = _JOINTED_INSTRUMENT_ARTICLE.sub("ה", text)
     return "".join(char for char in text if char not in _GERESH_MARKS).translate(
         _FINAL_FORMS
     )
@@ -1234,7 +1279,7 @@ def _dependency_identity(
 _INSTRUMENT_MENTION = re.compile(
     # Any attached prefixes: ``שחוק``, ``כשהחוק``, ``ושבחוק``, ``מן החוק``.
     rf"{_NOT_HEBREW_BEFORE}(?:של\s+|(?:אשר\s+)?(?:מן\s+|מתוך\s+)?)?"
-    rf"[ובלמשכה]{{0,4}}[{_QUOTES}]?ה?[{_QUOTES}]?"
+    rf"{prefix_chain('ובלמשכה', 4)}[{_QUOTES}]?(?:{prefix_word('ה')})?[{_QUOTES}]?"
     rf"(?P<kind>{_INSTRUMENT_KIND})"
     rf"{_NOT_HEBREW_AFTER}"
     rf"(?P<name>{_INSTRUMENT_NAME})"
@@ -1252,7 +1297,7 @@ def _instrument_words(name: str) -> tuple[str, ...]:
     """Name words, with a parenthetical qualifier kept as one word."""
 
     def word(token: str) -> str:
-        return _normalize_word(token.strip(_QUOTES + _MAQAF + "-"))
+        return _normalize_word(token.strip(_QUOTES + PREFIX_JOINT_CHARS))
 
     return tuple(
         "(" + " ".join(word(part) for part in token[1:-1].split()) + ")"
@@ -1412,15 +1457,15 @@ _HEBREW_NEGATION_LANGUAGE = (
     rf"{_NOT_HEBREW_BEFORE}(?:"
     rf"(?P<ordinary_prefix>{_NEGATION_PREFIX})"
     r"(?:לא|אין|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|טרם|מעולם|לאו)"
-    rf"|(?P<bilti_prefix>[{_PREFIX_LETTERS}]*)בלתי"
-    rf"|(?P<lexical_prefix>[{_PREFIX_LETTERS}]*)"
-    r"(?:אסור(?:ה|ים|ות)?|בל|לבל|נאסר(?:ה|ו|ים|ות)?|איסור|מסרב(?:ת|ים|ות)?"
+    rf"|(?P<bilti_prefix>{prefix_chain(_PREFIX_LETTERS)})בלתי"
+    rf"|(?P<lexical_prefix>{prefix_chain(_PREFIX_LETTERS)})"
+    rf"(?:אסור(?:ה|ים|ות)?|בל|{prefix_word('ל')}בל|נאסר(?:ה|ו|ים|ות)?|איסור|מסרב(?:ת|ים|ות)?"
     # Prevented (``מנוע מלפעול``), not the noun "engine" (``מס על מנוע``).
-    rf"|מנוע(?:ה|ים|ות)?(?={_NEGATION_GAP}+מ[{_H}])"
+    rf"|מנוע(?:ה|ים|ות)?(?={_NEGATION_GAP}+{prefix_word('מ')}[{_H}])"
     # Refuses, will refuse, refused; unable (``נבצר מן המוסד``); fails,
     # will fail, failed, as English reads "refuses to", "unable to" and
     # "fails to".
-    r"|יסרב(?:ו)?|תסרב(?:נה|ו)?|סי?רב(?:ה|ו)?|לסרב|נבצר(?:ה)?"
+    rf"|יסרב(?:ו)?|תסרב(?:נה|ו)?|סי?רב(?:ה|ו)?|{prefix_word('ל')}סרב|נבצר(?:ה)?"
     r"|כושל(?:ת|ים|ות)?|נכשל(?:ה|ו|ים|ות)?|כשל(?:ה|ו)?|י?יכשל(?:ו)?|תי?כשל(?:נה|ו)?"
     # A prohibitive imperative (``אל תחשב``); ``אל`` before another word
     # starting with ``ת`` (``אל תושב``, "to a resident") is refused with it.
@@ -1436,14 +1481,17 @@ _HEBREW_NEGATION_LANGUAGE = (
     # Except, other than: ``להוציא`` but not the infinitive after a modal
     # (``יש להוציא רישיון``, "a license must be issued"), and ``זולת`` but not
     # the noun ``הזולת`` ("another person").
-    rf"|בלי|ללא|מבלי|בלא|למעט|מלבד|{_GOVERNED_INFINITIVE}להוציא|(?<!ה)זולת"
-    # אף is negative polarity with a following לא, not affirmative על אף.
+    rf"|{_WITHOUT_SIGNAL}|{prefix_word('ל')}מעט|{prefix_word('מ')}לבד"
+    rf"|{_GOVERNED_INFINITIVE}{_EXCEPT_INFINITIVE}|(?<!ה)(?<!ה{PREFIX_JOINT})זולת"
+    # אף is negative polarity with a following לא ("not even"), rather than
+    # the affirmative connective על אף / אף כי ("despite" / "although").
     rf"|אף(?=(?:{_NEGATION_GAP}+\w+){{0,6}}"
     rf"{_NEGATION_GAP}+{_NEGATION_PREFIX}לא{_NOT_HEBREW_AFTER}))"
     rf"{_NOT_HEBREW_AFTER}"
     rf"){_NOT_HEBREW_AFTER}"
     rf"|{_NOT_HEBREW_BEFORE}{_NEGATION_PREFIX}אי{_SEP}(?:אפשר|ניתן){_NOT_HEBREW_AFTER}"
-    rf"|{_NOT_HEBREW_BEFORE}(?:ו)?(?:פרט{_SEP}?ל|חוץ{_SEP}?מ)(?=[{_H}])"
+    rf"|{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?"
+    rf"(?:פרט{_SEP}?{prefix_word('ל')}|חוץ{_SEP}?{prefix_word('מ')})\s*(?=[^\W\d_])"
 )
 _REASON_NEGATION = re.compile(_HEBREW_NEGATION_LANGUAGE)
 _NEGATIONS = _REASON_NEGATION
@@ -1463,19 +1511,22 @@ _RELATIVE_LINK_VERBS = (
     "חושבה חושבו נכלל נכללה נכללו ייקבע ייקבעו יחושב יחושבו"
 )
 _RELATIVE_VERB_BEFORE_LINKER = re.compile(
-    rf"{_NOT_HEBREW_BEFORE}(?:ו)?(?:ש|אשר\s+)(?:"
+    rf"{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?(?:{prefix_word('ש')}|אשר\s+)(?:"
     + "|".join(_RELATIVE_LINK_VERBS.split())
     + rf"){_NOT_HEBREW_AFTER}\s*$"
 )
 _DISPLACEMENT = re.compile(
-    r"(?:(?:מ)?בלי\s+לגרוע|על\s+אף|אין\s+ב[^.;\n]{0,80}כדי\s+לגרוע)"
+    rf"(?:(?:{prefix_word('מ')})?בלי\s+{prefix_word('ל')}גרוע|על\s+אף"
+    rf"|אין\s+{prefix_word('ב')}[^.;\n]{{0,80}}כדי\s+{prefix_word('ל')}גרוע)"
     r"[^.;\n]{0,40}$"
 )
 _SOURCE_LINKER = re.compile(
     r"(?:"
-    rf"{_NOT_HEBREW_BEFORE}(?:ו|ש|וש)?(?P<under>לפי|על{_SEP}פי|עפ[״\"]י)\s*"
+    rf"{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')}|{prefix_word('ש')}|{prefix_word('וש')})?"
+    rf"(?P<under>{prefix_word('ל')}פי|על{_SEP}פי|עפ[״\"]י)\s*"
     # ``בהתאם להוראות סעיף``, "in accordance with the provisions of section".
-    rf"|{_NOT_HEBREW_BEFORE}(?:ו)?בהתאם\s+ל(?:הוראו?ת\s*)?"
+    rf"|{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?{prefix_word('ב')}התאם\s+"
+    rf"{prefix_word('ל')}(?:הוראו?ת\s*)?"
     r")$"
 )
 
@@ -2051,7 +2102,7 @@ def ends_with_negation(text: str) -> bool:
 # Membership is left out (חברות also means "companies"), and relation keeps
 # only יחסי, since ביחס ל is the preposition "with respect to".
 RUNTIME_GAP_LANGUAGE = (
-    rf"{_NOT_HEBREW_BEFORE}[ובהלמשכ]{{0,3}}(?:"
+    rf"{_NOT_HEBREW_BEFORE}{prefix_chain('ובהלמשכ', 3)}(?:"
     r"מי?נהלי(?:ת|ים|ות)?|לוח\s+(?:שנה|זמנים)|יכולת|יכולות|סיווג(?:ים|י)?"
     r"|תלונ(?:ה|ות|ת)|תוכן|תכנים|נתונ(?:ים|י)|נתון|חישוב\s+תאריכים|ייעוד"
     r"|קביע(?:ה|ת|ות)|הכרע(?:ה|ת|ות)|מסמ(?:ך|כים|כי)|אירוע(?:ים|י)?|עובדה"
@@ -2074,17 +2125,17 @@ _EXPLICIT_COMPUTATION = re.compile(
     # digits implies one from the run's first digit, so the lookbehind changes
     # no verdict and keeps a long run of digits from being retried at every
     # suffix.
-    rf"(?<!\d)\d+(?:[.,]\d+)?\s*%\s*(?:ו)?מ(?:ן\s)?(?=[{_H}])"
-    rf"|{_NOT_HEBREW_BEFORE}אחוז(?:ים)?\s+(?:ו)?מ(?:ן\s)?(?=[{_H}])"
-    rf"|{_NOT_HEBREW_BEFORE}(?:ו)?ב(?:ה)?שיעור(?:ים)?{_NOT_HEBREW_AFTER}"
+    rf"(?<!\d)\d+(?:[.,]\d+)?\s*%\s*(?:{prefix_word('ו')})?{prefix_word('מ')}(?:ן\s)?(?=[{_H}])"
+    rf"|{_NOT_HEBREW_BEFORE}אחוז(?:ים)?\s+(?:{prefix_word('ו')})?{prefix_word('מ')}(?:ן\s)?(?=[{_H}])"
+    rf"|{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?{prefix_word('ב')}(?:{prefix_word('ה')})?שיעור(?:ים)?{_NOT_HEBREW_AFTER}"
     rf"{_COMPUTATION_WINDOW}{{0,120}}"
-    rf"{_NOT_HEBREW_BEFORE}(?:ו)?מ(?:ה)?{_COMPUTATION_BASE}"
-    rf"|{_NOT_HEBREW_BEFORE}(?:ו)?מ(?:ה)?{_COMPUTATION_BASE}[{_H}]*"
-    rf"{_COMPUTATION_WINDOW}{{0,60}}{_NOT_HEBREW_BEFORE}(?:ו)?ב(?:ה)?שיעור(?:ים)?"
+    rf"{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?{prefix_word('מ')}(?:{prefix_word('ה')})?{_COMPUTATION_BASE}"
+    rf"|{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?{prefix_word('מ')}(?:{prefix_word('ה')})?{_COMPUTATION_BASE}[{_H}]*"
+    rf"{_COMPUTATION_WINDOW}{{0,60}}{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?{prefix_word('ב')}(?:{prefix_word('ה')})?שיעור(?:ים)?"
     rf"{_NOT_HEBREW_AFTER}"
-    rf"|{_NOT_HEBREW_BEFORE}(?:ו)?על\s+החלק\s+מ(?:ה)?{_COMPUTATION_BASE}"
-    rf"|{_NOT_HEBREW_BEFORE}[ובהלש]{{0,2}}(?:מכפלה|מכפלת|מוכפל(?:ת|ים|ות)?|כפול"
-    r"|מחולק(?:ת|ים|ות)?|בניכוי|ההפרש|הפרש|מחצית|שליש|רבע|פעמיים|כפליים"
+    rf"|{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?על\s+החלק\s+{prefix_word('מ')}(?:{prefix_word('ה')})?{_COMPUTATION_BASE}"
+    rf"|{_NOT_HEBREW_BEFORE}{prefix_chain('ובהלש', 2)}(?:מכפלה|מכפלת|מוכפל(?:ת|ים|ות)?|כפול"
+    rf"|מחולק(?:ת|ים|ות)?|{prefix_word('ב')}ניכוי|{prefix_word('ה')}הפרש|הפרש|מחצית|שליש|רבע|פעמיים|כפליים"
     rf"|יחושב(?:ו)?|תחושב|יעוגל(?:ו)?){_NOT_HEBREW_AFTER}"
 )
 

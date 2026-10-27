@@ -4958,7 +4958,7 @@ ROUND_15_REPRODUCERS = (
             "Missing section 2.",
             "neither",
         )
-        for joint in ("",)
+        for joint in ("־", "-", "‐", "‑")
         for noun, english in (("תשלום", "a payment"), ("חישוב", "a calculation"))
     ),
     (
@@ -6355,3 +6355,38 @@ def test_affirmative_af_connectives_are_not_negative_polarity(gap):
     text = "אף טענה שחסר סעיף 2 לא הוכחה"
     assert next(hebrew._REASON_NEGATION.finditer(text)).group() == "אף"
     assert next(iter(hebrew.link_negations(text))).group() == "אף"
+
+
+# The source vocabulary includes exclusions; sharing it intentionally gives
+# these leading fragments a conservative exclusion reading in reasons too.
+# English permits them before the missing claim. חוץ מזה / פרט לזה can also
+# mean "besides/apart from that"; the fragment gives no complete clause that
+# disambiguates the exclusion. This stricter class is deliberate and pinned
+# for both the Hebrew and mixed-English routes, rather than left implicit.
+ROUND_15_INTENDED_STRICTER_LEADING_EXCLUSIONS = tuple(
+    (route, mixed, english, "hebrew-stricter")
+    for route in ("il", "us")
+    for mixed, english in (
+        ("למעט missing section 2", "Except missing section 2."),
+        ("להוציא missing section 2", "Except missing section 2."),
+        ("זולת missing section 2", "Except missing section 2."),
+        ("חוץ מזה, missing section 2", "Besides that, missing section 2."),
+        ("פרט לזה, missing section 2", "Apart from that, missing section 2."),
+    )
+)
+
+
+@pytest.mark.parametrize(
+    ("route", "mixed", "english", "verdict"),
+    ROUND_15_INTENDED_STRICTER_LEADING_EXCLUSIONS,
+)
+def test_leading_exclusion_fragments_are_intentionally_stricter(
+    route, mixed, english, verdict
+):
+    translated = _english_accepted("a", english, REVIEW_ENGLISH_SOURCE)
+    actual = (
+        _accepted("a", mixed, REVIEW_SOURCE)
+        if route == "il"
+        else _english_accepted("a", mixed, REVIEW_ENGLISH_SOURCE)
+    )
+    assert (actual, translated) == _DIFFERENTIAL_VERDICTS[verdict]

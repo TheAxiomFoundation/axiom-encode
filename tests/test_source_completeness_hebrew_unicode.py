@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib.util
 import json
@@ -150,6 +151,35 @@ LABELS = tuple(
     f"({label})"
     for label in ("א", "ב", "ה1", "י״א", "יב׳", "1", "2א", "999", "א)(1)(א)(1)(א)(1")
 )
+
+
+def _literal_test_tokens():
+    """Include every token spelled in the pinned Hebrew test tables."""
+
+    literals = (
+        hebrew.fold_marks(node.value)
+        for node in ast.walk(ast.parse(Path(cases.__file__).read_text()))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    )
+    negators, signals, labels = set(NEGATORS), set(SIGNALS), set(LABELS)
+    negators.update(row[0] for row in cases.ROUND_15_NEGATOR_TRANSLATIONS)
+    for text in literals:
+        for pattern in (
+            hebrew._REASON_NEGATION,
+            hebrew._NEGATIONS,
+            hebrew._OTHER_NEGATION,
+        ):
+            negators.update(match.group() for match in pattern.finditer(text))
+        signals.update(match.group() for match in hebrew._SIGNAL.finditer(text))
+        labels.update(
+            f"({match.group(1)})"
+            for match in hebrew._CHAIN_LABEL.finditer(text)
+            if hebrew.parse_outline_label(match.group(1))
+        )
+    return tuple(sorted(negators)), tuple(sorted(signals)), tuple(sorted(labels))
+
+
+NEGATORS, SIGNALS, LABELS = _literal_test_tokens()
 
 
 @pytest.mark.parametrize(

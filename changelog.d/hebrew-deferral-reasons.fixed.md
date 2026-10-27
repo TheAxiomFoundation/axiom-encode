@@ -2,4 +2,4 @@ Read Hebrew statutes in the complete-source deferral check (axiom-encode#1882). 
 
 Round 15 reads every Unicode default-ignorable code point through the shared Hebrew fold, including reserved characters, while retaining visible punctuation and original source offsets.
 
-Round 15: share Hebrew negators, prefix grammar and lexical exclusions across reasons and source links, including prohibitive אל and טרם; preserve positive על אף.
+Round 15 unifies Hebrew reason/source negators and lexical exclusions (including prohibitive אל, טרם, and full מלא), preserves affirmative על אף, and reads visible maqaf/hyphen joints across every prefix reader.
