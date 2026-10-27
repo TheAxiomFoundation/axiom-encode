@@ -336,7 +336,9 @@ def _no_real_encoder(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def refuse(name: str) -> Callable[..., Any]:
         def refused(*args: Any, **kwargs: Any) -> Any:
-            throw(AssertionError(f"unexpected real {name} call: {args!r}"))
+            # Its arguments may hold an environment (_run_cli_batch's
+            # invocations do); the traceback shows which gate called it.
+            throw(AssertionError(f"unexpected real {name} call"))
 
         return refused
 

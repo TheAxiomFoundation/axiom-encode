@@ -29,7 +29,9 @@ environment, and a test is flagged (at its ``def``) when its arguments may.
 Where a function's printed arguments may, its every ``assert``, ``raise`` and
 ``pytest.fail`` is flagged. Those arguments are read from the compiled
 function, and every parameter counts too, should pytest come to print
-keyword-only ones.
+keyword-only ones. A ``raise`` is flagged too when the exception it raises, or
+its cause, may hold one, and so is a ``pytest.fail`` whose message may: pytest
+prints both. An exception holds what it is built with.
 The check tracks, for every value, the keys and positions that lead from it
 to an environment inside it. Environments start as:
 
@@ -63,7 +65,8 @@ raises with ``throw`` rather than ``raise``, so the failing frame holds no
 environment; ``expect``'s and ``throw``'s own arguments are printed, and
 checked here. A fake that keeps what it is handed, to be compared whole,
 wraps each environment in ``Names``, which prints names alone; a
-``dataclasses.replace`` that swaps it in holds no environment.
+``dataclasses.replace`` that swaps it in holds no environment, but what is
+read back out of it (a copy, its items, a value) is followed as before.
 ``test_the_check_agrees_with_pytest`` runs pytest on examples of each shape to
 keep the model honest.
 
@@ -118,11 +121,14 @@ REPO = TESTS.parent
 # A path through HIDDEN passes through an object that prints as its class
 # and address, not its attributes: ``recorder`` prints nothing it records,
 # but ``recorder.calls`` does.
+# A path through NAMES passes through a ``Names``, which prints its names
+# alone; what is read out of it (a copy, its items, a value) is not hidden.
 Path_ = tuple[object, ...]
 ANY = "*"
 FRAGMENT = "<value>"
 KEY = "<name>"
 HIDDEN = "<object>"
+NAMES = "<names>"
 # Deeper paths are dropped, which keeps the analysis finite.
 MAX_DEPTH = 6
 # Keyword arguments, and parameters, that carry a subprocess environment.
@@ -135,6 +141,8 @@ COPIES = frozenset({"dict", "copy", "deepcopy", "MappingProxyType"})
 SEQUENCES = frozenset({"list", "tuple", "sorted", "reversed", "set", "frozenset"})
 # Calls returning text that holds their arguments' values.
 TEXT = frozenset({"str", "repr", "format", "dumps", "pformat", "saferepr"})
+# Exceptions print the arguments they are built with.
+EXCEPTION = re.compile(r"(?:Error|Exception|Exit|Expired|Warning|Interrupt|Iteration)$")
 # Calls whose name says they build a process environment, and names that say
 # they build something else (a formula's or a rule's "environment", or an
 # object read from one).
@@ -156,11 +164,16 @@ LAUNCHES = re.compile(
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 
 
+def _unwrapped(paths: Iterable[Path_]) -> set[Path_]:
+    """The paths of what is read out of a value with ``paths``, ``Names`` too."""
+    return {path[1:] if path[:1] == (NAMES,) else path for path in paths}
+
+
 def _descend(paths: Iterable[Path_], key: object) -> set[Path_]:
     """The paths left after reading ``key`` from a value with ``paths``."""
     return {
         path[1:]
-        for path in paths
+        for path in _unwrapped(paths)
         if path
         and path[0] not in (FRAGMENT, KEY, HIDDEN)
         and (key == ANY or path[0] == ANY or path[0] == key)
@@ -170,13 +183,17 @@ def _descend(paths: Iterable[Path_], key: object) -> set[Path_]:
 def _holds(paths: Iterable[Path_]) -> bool:
     """Whether printing a value with ``paths`` may print a whole environment."""
     return any(
-        path != (FRAGMENT,) and KEY not in path and HIDDEN not in path for path in paths
+        path != (FRAGMENT,)
+        and KEY not in path
+        and HIDDEN not in path
+        and NAMES not in path
+        for path in paths
     )
 
 
 def _elements(paths: Iterable[Path_]) -> set[Path_]:
     """The paths of the elements iterating a value with ``paths`` yields."""
-    paths = set(paths)
+    paths = _unwrapped(paths)
     return _descend(paths, ANY) | ({(KEY,)} if () in paths else set())
 
 
@@ -191,6 +208,16 @@ def _text(found: Iterable[set[Path_]]) -> set[Path_]:
 def _under(key: object, paths: Iterable[Path_]) -> set[Path_]:
     """The paths of a container holding a value with ``paths`` at ``key``."""
     return {(key, *path) for path in paths if len(path) < MAX_DEPTH}
+
+
+def _is_fail(node: ast.AST) -> bool:
+    """Whether ``node`` calls ``pytest.fail``."""
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "fail"
+        and getattr(node.func.value, "id", "") == "pytest"
+    )
 
 
 def _own_nodes(node: ast.AST) -> Iterator[ast.AST]:
@@ -388,6 +415,20 @@ class _Check:
             for method in owner.body
             if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
+        # This module's exception classes, which print what they are built with.
+        self.exceptions: set[str] = set()
+        while True:
+            found = {
+                name
+                for name, owner in self.classes.items()
+                if any(
+                    EXCEPTION.search(_name(base)) or _name(base) in self.exceptions
+                    for base in owner.bases
+                )
+            }
+            if found <= self.exceptions:
+                break
+            self.exceptions |= found
         # Classes whose instances print a field named ``env`` or
         # ``environment`` (such as ``CliInvocation``), by the dotted name this
         # module uses: their fields, in order.
@@ -538,7 +579,7 @@ class _Check:
         if isinstance(node, (ast.NamedExpr, ast.Starred, ast.Await)):
             return self.paths(node.value, scope)
         if isinstance(node, ast.Subscript):
-            inner = self.paths(node.value, scope)
+            inner = _unwrapped(self.paths(node.value, scope))
             if isinstance(node.slice, ast.Slice):
                 return inner
             key = self._key(node.slice)
@@ -550,7 +591,9 @@ class _Check:
             found: set[Path_] = set()
             for key, value in zip(node.keys, node.values):
                 inner = self.paths(value, scope)
-                found |= inner if key is None else _under(self._key(key), inner)
+                found |= (
+                    _unwrapped(inner) if key is None else _under(self._key(key), inner)
+                )
             return found
         if isinstance(node, (ast.Tuple, ast.List)):
             return {
@@ -598,7 +641,7 @@ class _Check:
         arguments = [self.paths(argument, scope) for argument in node.args]
         first = arguments[0] if arguments else set()
         if isinstance(function, ast.Attribute):
-            receiver = self.paths(function.value, scope)
+            receiver = _unwrapped(self.paths(function.value, scope))
             if name == "copy" and not node.args:
                 return receiver
             if name in {"get", "pop", "setdefault"} and node.args:
@@ -655,12 +698,16 @@ class _Check:
             return found
         if name == "Names":
             # It prints an environment's names alone.
-            return set()
+            return _under(NAMES, first)
         if name in COPIES and (node.args or node.keywords):
-            found = set(first)
+            found = _unwrapped(first)
             for keyword in node.keywords:
                 inner = self.paths(keyword.value, scope)
-                found |= inner if keyword.arg is None else _under(keyword.arg, inner)
+                found |= (
+                    _unwrapped(inner)
+                    if keyword.arg is None
+                    else _under(keyword.arg, inner)
+                )
             return found
         if name in SEQUENCES and node.args:
             return _under(ANY, _elements(first))
@@ -675,6 +722,9 @@ class _Check:
             )
         if BUILDER.search(name) and not NOT_BUILDER.search(name):
             return {()}
+        if EXCEPTION.search(name) or name in self.exceptions:
+            # An exception prints what it is built with.
+            return {path for argument in arguments for path in _under(ANY, argument)}
         if isinstance(function, ast.Name):
             return self.returns.get(name, set()) | self.instances.get(name, set())
         return set()
@@ -1022,23 +1072,22 @@ class _Check:
                     lines.extend(
                         node.lineno
                         for node in _own_nodes(frame)
-                        if isinstance(node, (ast.Assert, ast.Raise))
-                        or (
-                            isinstance(node, ast.Call)
-                            and isinstance(node.func, ast.Attribute)
-                            and node.func.attr == "fail"
-                            and getattr(node.func.value, "id", "") == "pytest"
-                        )
+                        if isinstance(node, (ast.Assert, ast.Raise)) or _is_fail(node)
                     )
             for node in ast.walk(function):
                 if (
                     isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Name)
                     and node.func.id in {"expect", "throw"}
-                ):
+                ) or _is_fail(node):
                     # ``expect`` and ``throw`` show their arguments' values,
-                    # as their own.
+                    # as their own, and ``pytest.fail`` its message.
                     shown = [*node.args, *(k.value for k in node.keywords)]
+                    if any(_holds(self.paths(part, scope)) for part in shown):
+                        lines.append(node.lineno)
+                if isinstance(node, ast.Raise):
+                    # The exception raised, and its cause, are printed.
+                    shown = [node.exc, node.cause]
                     if any(_holds(self.paths(part, scope)) for part in shown):
                         lines.append(node.lineno)
                 if not isinstance(node, ast.Assert):
@@ -1226,6 +1275,10 @@ class BatchRecorder:
 class AuditRecorder(BatchRecorder):
     def __call__(self, invocations: list[Invocation]):
         super().__call__(invocations)
+
+
+class Captured(Exception):
+    pass
 
 
 class NamesRecorder:
@@ -1508,6 +1561,28 @@ def test_leaks_nested_helper_mapping():
     check(dict(os.environ))
 
 
+def test_leaks_names_copy():
+    wrapped = Names(os.environ)
+    captured = dict(wrapped)
+    assert captured is None
+
+
+def test_leaks_throw_payload():
+    throw(AssertionError(dict(os.environ)))
+
+
+def test_leaks_raise_payload():
+    raise ValueError(dict(os.environ))
+
+
+def test_leaks_module_exception():
+    raise Captured(dict(os.environ))
+
+
+def test_leaks_fail_message():
+    pytest.fail(f"environment: {dict(os.environ)}")
+
+
 def test_restored_names():
     before = dict(os.environ)
     os.environ["AAA_CHANGED_TOO"] = "1"
@@ -1644,6 +1719,15 @@ def test_wrapped_invocations():
     recorder = NamesRecorder()
     recorder([Invocation("check", dict(os.environ))])
     assert recorder.invocations == []
+
+
+def test_names_alone():
+    wrapped = Names(os.environ)
+    assert wrapped is None
+
+
+def test_raise_names():
+    raise ValueError(sorted(os.environ))
 
 
 def test_values_by_constant_names():
