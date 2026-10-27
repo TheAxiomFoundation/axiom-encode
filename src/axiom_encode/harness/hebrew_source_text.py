@@ -931,7 +931,7 @@ MISSING_DEPENDENCY_LANGUAGE = (
     rf"|דורש(?:ת|ים|ות)?{_NOT_HEBREW_AFTER}"
     rf"|תלוי(?:ה|ים|ות)?\s+ב(?=[{_H}])"
     rf"|עד\s+(?:ש(?=[{_H}])|אשר\s)"
-    rf"|(?:בלי|ללא|מבלי){_NOT_HEBREW_AFTER}"
+    rf"|(?:בלי|ללא|מבלי|בלא){_NOT_HEBREW_AFTER}"
     rf"|(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד){_NOT_HEBREW_AFTER}"
     r")"
 )
@@ -941,7 +941,7 @@ _SIGNAL = re.compile(
     rf"|(?P<requires>דורש(?:ת|ים|ות)?{_NOT_HEBREW_AFTER}|תלוי(?:ה|ים|ות)?\s+ב(?=[{_H}]|$))"
     rf"|(?P<until>עד\s+(?:(?:ש|אשר\s+)(?P<until_verb>{_UNTIL_STATE}){_NOT_HEBREW_AFTER}"
     rf"|ש(?=[{_H}]|$)|אשר\s))"
-    rf"|(?P<without>(?:בלי|ללא|מבלי){_NOT_HEBREW_AFTER})"
+    rf"|(?P<without>(?:בלי|ללא|מבלי|בלא){_NOT_HEBREW_AFTER})"
     rf"|(?P<cannot>(?:לא|אי)\s+(?:ניתן|אפשר)\s+(?:לחשב|לקודד)"
     rf"{_NOT_HEBREW_AFTER})"
     r")"
@@ -977,30 +977,8 @@ _NEGATION_PREFIX = r"ו?(?:(?:מ|כ|לכ|ב)?ש|ד)?"
 # under every chain, as ``לא`` is under ``_NEGATION_PREFIX``.
 _PREFIX_LETTERS = "ובהכלמשד"
 _PREFIXED_BILTI = rf"[{_PREFIX_LETTERS}]*בלתי"
-_NEGATED_SIGNAL_PREFIX = re.compile(
-    rf"{_NOT_HEBREW_BEFORE}(?:{_NEGATION_PREFIX}"
-    r"(?:לא|אין|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|כלל\s+לא)"
-    rf"|{_PREFIXED_BILTI})"
-    rf"(?:{_NEGATION_GAP}+(?:"
-    + "|".join(_NEGATION_BRIDGE_WORDS.split())
-    + rf"){_NOT_HEBREW_AFTER}){{0,4}}"
-    rf"{_NEGATION_GAP}*$"
-)
-# A negation also governs a signal from anywhere earlier in its clause, through
-# an assertion, evidence or epistemic complement however worded (``לא ניתן
-# לומר שחסרה``, ``אין כל ראיה לכך שחסרה``, ``טרם הוכח שחסרה``, ``לאו דווקא
-# חסרה``), and a negation between a signal and its citation leaves the claim
-# unread (``חסר מידע, לא ברור שחסרה הוראת סעיף 345ב``). A negation inside a
-# signal (``טרם קודד``, ``לא ניתן לחשב``, ``בלתי זמין``) is that signal's own.
-# ``בלתי`` ("un-", ``בלתי נכון ש`` "untrue that") negates as ``לא`` does,
-# under any chain of prefix letters (``הטענה הבלתי נכונה ש``).
-_REASON_NEGATION = re.compile(
-    rf"{_NOT_HEBREW_BEFORE}(?:{_NEGATION_PREFIX}"
-    r"(?:לא|אין|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|טרם|מעולם|לאו)"
-    rf"|{_PREFIXED_BILTI}){_NOT_HEBREW_AFTER}"
-    rf"|{_NOT_HEBREW_BEFORE}{_NEGATION_PREFIX}אי[\s{_MAQAF}-]+(?:אפשר|ניתן)"
-    rf"{_NOT_HEBREW_AFTER}"
-)
+# The reason and source readers share the lexicon compiled below, after the
+# lexical exclusions for infinitives have been defined.
 # The English and German negators: ``_NEGATION_LANGUAGE`` in
 # source_completeness, verbatim, which the shared checker passes in as
 # ``other_negations``; ``test_reason_negations_use_the_shared_vocabulary``
@@ -1422,10 +1400,21 @@ _OWNERSHIP_STOP = re.compile(rf";|\.(?!\d)|\n(?=[ \t]*\({OUTLINE_LABEL}\))")
 # stricter than English, which does not check ``under``. An English or German
 # negator (``_OTHER_NEGATION`` or ``_OTHER_LINK_NEGATION``) is a main-clause
 # negation.
-_NEGATIONS = re.compile(
-    rf"{_NOT_HEBREW_BEFORE}(?P<relative>ו?(?:(?:מ|כ|לכ|ב)?ש|ד))?(?:[ומה]{{0,2}})"
-    r"(?:אין|לא|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|אסור(?:ה|ים|ות)?|בל|לבל"
-    r"|נאסר(?:ה|ו|ים|ות)?|איסור|מסרב(?:ת|ים|ות)?|בלא"
+# One vocabulary and prefix policy for every Hebrew negation reader. The
+# ambiguous לא/אין family takes grammatical subordinators; a bare preposition
+# or article makes another word (מלא, כלא, הלא, מאין, בטרם). Unequivocal
+# negators, prohibitions and exclusions take Hebrew prefix chains. The words
+# בלי/מבלי/ללא/בלא are lexical "without", rather than a prefixed לא; when
+# one belongs to a missing-dependency signal, the reason reader exempts that
+# whole signal in _read_signals. Both contexts deliberately read אל before
+# any ת-word as prohibitive, including a ת-noun (the intended stricter case).
+_HEBREW_NEGATION_LANGUAGE = (
+    rf"{_NOT_HEBREW_BEFORE}(?:"
+    rf"(?P<ordinary_prefix>{_NEGATION_PREFIX})"
+    r"(?:לא|אין|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|טרם|מעולם|לאו)"
+    rf"|(?P<bilti_prefix>[{_PREFIX_LETTERS}]*)בלתי"
+    rf"|(?P<lexical_prefix>[{_PREFIX_LETTERS}]*)"
+    r"(?:אסור(?:ה|ים|ות)?|בל|לבל|נאסר(?:ה|ו|ים|ות)?|איסור|מסרב(?:ת|ים|ות)?"
     # Prevented (``מנוע מלפעול``), not the noun "engine" (``מס על מנוע``).
     rf"|מנוע(?:ה|ים|ות)?(?={_NEGATION_GAP}+מ[{_H}])"
     # Refuses, will refuse, refused; unable (``נבצר מן המוסד``); fails,
@@ -1447,15 +1436,26 @@ _NEGATIONS = re.compile(
     # Except, other than: ``להוציא`` but not the infinitive after a modal
     # (``יש להוציא רישיון``, "a license must be issued"), and ``זולת`` but not
     # the noun ``הזולת`` ("another person").
-    rf"|בלי|ללא|מבלי|למעט|מלבד|{_GOVERNED_INFINITIVE}להוציא|(?<!ה)זולת)"
+    rf"|בלי|ללא|מבלי|בלא|למעט|מלבד|{_GOVERNED_INFINITIVE}להוציא|(?<!ה)זולת"
+    # אף is negative polarity with a following לא, not affirmative על אף.
+    rf"|אף(?=(?:{_NEGATION_GAP}+\w+){{0,6}}"
+    rf"{_NEGATION_GAP}+{_NEGATION_PREFIX}לא{_NOT_HEBREW_AFTER}))"
     rf"{_NOT_HEBREW_AFTER}"
-    # ``בלתי`` under any chain of prefix letters (``הבלתי``, ``לבלתי``); a
-    # chain holding ``ש`` or ``ד`` opens a relative clause (``_is_relative``).
-    rf"|{_NOT_HEBREW_BEFORE}(?P<bilti_prefix>[{_PREFIX_LETTERS}]*)בלתי"
-    rf"{_NOT_HEBREW_AFTER}"
-    rf"|{_NOT_HEBREW_BEFORE}[ושכמה]{{0,2}}אי{_SEP}(?:אפשר|ניתן){_NOT_HEBREW_AFTER}"
+    rf"){_NOT_HEBREW_AFTER}"
+    rf"|{_NOT_HEBREW_BEFORE}{_NEGATION_PREFIX}אי{_SEP}(?:אפשר|ניתן){_NOT_HEBREW_AFTER}"
     rf"|{_NOT_HEBREW_BEFORE}(?:ו)?(?:פרט{_SEP}?ל|חוץ{_SEP}?מ)(?=[{_H}])"
 )
+_REASON_NEGATION = re.compile(_HEBREW_NEGATION_LANGUAGE)
+_NEGATIONS = _REASON_NEGATION
+_NEGATED_SIGNAL_PREFIX = re.compile(
+    rf"(?:{_HEBREW_NEGATION_LANGUAGE})"
+    rf"(?:{_NEGATION_GAP}+(?:"
+    + "|".join(_NEGATION_BRIDGE_WORDS.split())
+    + rf"){_NOT_HEBREW_AFTER}){{0,4}}"
+    rf"{_NEGATION_GAP}*$"
+)
+
+
 _RELATIVE_LINK_VERBS = (
     "נקבע נקבעה נקבעו נקבעים נקבעות הוגדר הוגדרה הוגדרו מוגדר מוגדרת מוגדרים "
     "מוגדרות נמנה נמנו מנוי מנויה מנויים מנויות קבוע קבועה קבועים קבועות חל חלה "
@@ -1499,8 +1499,11 @@ def _is_relative(negation: re.Match[str]) -> bool:
     main-clause negations.
     """
 
-    prefix = negation.group("bilti_prefix")
-    return bool(negation.group("relative")) or bool(prefix and set(prefix) & {"ש", "ד"})
+    prefix = "".join(
+        negation.group(name) or ""
+        for name in ("ordinary_prefix", "bilti_prefix", "lexical_prefix")
+    )
+    return bool(set(prefix) & {"ש", "ד"})
 
 
 def _link_resets(text: str, negation: re.Match[str], linker: re.Match[str]) -> bool:
