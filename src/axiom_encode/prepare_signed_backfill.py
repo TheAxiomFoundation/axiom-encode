@@ -74,6 +74,9 @@ REVIEWED_RULESPEC_REFS = frozenset(
     {
         # rulespec-ca#28: reviewed toolchain preparation; artifact-only.
         ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
+        # rulespec-ca#28: all protected artifact-only modes, including promotion.
+        # Evidence: docs/review-evidence/ca-947890-reviewed-head.md
+        ("ca", "94789006ce372a1967c258ef47c12b15a1fe511e"),
         (
             "dk",
             "06489d04e7d4b8d424d1711d99df883c6411248a",
