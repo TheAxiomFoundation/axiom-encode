@@ -173,8 +173,12 @@ def test_git_and_repository_test_environments_withhold_exactly_their_prefixes(
         git_environment = _git_environment()
         test_environment = _repository_test_environment()
 
-    assert git_environment == _without(environment, "GIT_")
-    assert test_environment == _without(environment, "GIT_", "PYTEST_", "PYTHON")
+    git_changes = changed_names(_without(environment, "GIT_"), git_environment)
+    assert git_changes == []
+    test_changes = changed_names(
+        _without(environment, "GIT_", "PYTEST_", "PYTHON"), test_environment
+    )
+    assert test_changes == []
 
 
 @settings(deadline=None)

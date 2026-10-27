@@ -1802,9 +1802,11 @@ def test_run_cli_batch_runs_in_process_in_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jobs: int, count: int
 ) -> None:
     calls = []
+    environments = []
 
     def fake_run_cli(arguments, *, environment, cwd, supervised):
-        calls.append((tuple(arguments), environment, cwd, supervised))
+        calls.append((tuple(arguments), cwd, supervised))
+        environments.append(environment)
         return len(calls) - 1, f"out {arguments[1]}\n"
 
     monkeypatch.setattr(ci_parity, "_run_cli", fake_run_cli)
@@ -1814,14 +1816,14 @@ def test_run_cli_batch_runs_in_process_in_order(
     results = _run_cli_batch(invocations, jobs=jobs, keyring=(CURRENT_KEY,))
 
     assert calls == [
-        (
-            invocation.arguments,
-            dict(invocation.environment or {}),
-            invocation.cwd,
-            invocation.supervised,
-        )
+        (invocation.arguments, invocation.cwd, invocation.supervised)
         for invocation in invocations
     ]
+    environment_changes = [
+        changed_names(dict(invocation.environment or {}), environment)
+        for invocation, environment in zip(invocations, environments, strict=True)
+    ]
+    assert environment_changes == [[] for _ in invocations]
     assert results == [(index, f"out file-{index}.yaml\n") for index in range(count)]
 
 
@@ -1953,7 +1955,9 @@ def test_isolated_cli_main_runs_under_the_local_keyring(
         seen.update(
             keys=toolchain_module._LOCAL_CORPUS_RELEASE_PUBLIC_KEYS.get(),
             arguments=arguments,
-            environment=environment,
+            environment_changes=changed_names(
+                {WAIVER_AUDIT_WORKERS_ENV: "1"}, environment
+            ),
             cwd=cwd,
             supervised=supervised,
         )
@@ -1976,7 +1980,7 @@ def test_isolated_cli_main_runs_under_the_local_keyring(
     assert seen == {
         "keys": (CURRENT_KEY, RETIRED_KEY),
         "arguments": ["validate", "a.yaml"],
-        "environment": {WAIVER_AUDIT_WORKERS_ENV: "1"},
+        "environment_changes": [],
         "cwd": tmp_path,
         "supervised": supervised,
     }

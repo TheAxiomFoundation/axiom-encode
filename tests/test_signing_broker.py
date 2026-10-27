@@ -35,6 +35,7 @@ from axiom_encode.signing_broker import (
     reject_direct_private_signing_environment,
     scrub_private_signing_environment,
 )
+from tests.environment_assertions import changed_names
 from tests.signing_broker_fixtures import SigningBrokerFixture
 
 APPLY_MANIFEST_SIGNING_PUBLIC_KEY_ENV = "AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY"
@@ -209,19 +210,24 @@ def test_scrub_removes_private_keys_and_broker_handles() -> None:
         "GIT_CONFIG_GLOBAL": "/hostile/gitconfig",
     }
 
-    assert scrub_private_signing_environment(environment) == {
-        "GIT_CONFIG_GLOBAL": os.devnull,
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_TERMINAL_PROMPT": "0",
-        "HOME": "/nonexistent",
-        "LANG": "C.UTF-8",
-        "PATH": "",
-        "PYTHONDONTWRITEBYTECODE": "1",
-        "PYTHONNOUSERSITE": "1",
-        "PYTHONSAFEPATH": "1",
-        "XDG_CONFIG_HOME": "/nonexistent",
-        "XDG_DATA_HOME": "/nonexistent",
-    }
+    scrubbed = scrub_private_signing_environment(environment)
+    changed = changed_names(
+        {
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_TERMINAL_PROMPT": "0",
+            "HOME": "/nonexistent",
+            "LANG": "C.UTF-8",
+            "PATH": "",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONNOUSERSITE": "1",
+            "PYTHONSAFEPATH": "1",
+            "XDG_CONFIG_HOME": "/nonexistent",
+            "XDG_DATA_HOME": "/nonexistent",
+        },
+        scrubbed,
+    )
+    assert changed == []
 
 
 @pytest.mark.parametrize(

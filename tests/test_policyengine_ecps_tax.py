@@ -2454,4 +2454,5 @@ def test_policyengine_data_certification_override_noop_for_populace(monkeypatch)
 
     ecps_tax._install_policyengine_data_certification_override()
 
-    assert "POLICYENGINE_SKIP_COUNTRY_IMPORTS" not in ecps_tax.os.environ
+    names = set(ecps_tax.os.environ)
+    assert "POLICYENGINE_SKIP_COUNTRY_IMPORTS" not in names

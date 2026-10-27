@@ -838,7 +838,8 @@ def test_repository_pytest_provisioning_failure_qualifies_the_verdict(
     run = _run(tmp_path)
     calls = _mock_uv(run, monkeypatch, failure_at=failure_at)
     assert ci_parity._repository_test_python(run) == sys.executable
-    assert len(calls) == failure_at
+    uv_commands = [command for command, _kwargs in calls]
+    assert len(uv_commands) == failure_at
     assert len(run.dependency_mismatches) == 1
     mismatch = run.dependency_mismatches[0]
     assert mismatch.name == "repository-test-environment"
@@ -884,7 +885,8 @@ def test_repository_pytest_gate_uses_venv_and_ci_step_environment(
     monkeypatch.setattr(ci_parity, "_run_process", pytest_process)
     result = ci_parity._gate_repository_tests(run, _spec("repository_tests"))
     assert result.status == "PASS"
-    assert len(calls) == 6
+    uv_commands = [command for command, _kwargs in calls]
+    assert len(uv_commands) == 6
     assert seen["command"] == [
         str(run.temp / "repository-test-venv" / "bin" / "python"),
         "-m",
@@ -952,10 +954,11 @@ def test_repository_environment_never_inherits_ambient_overrides(
         os.environ.update(ambient)
         if fetch_disabled(ambient):
             expected = {**expected, NO_FETCH_ENV: "1"}
-        assert (
-            ci_parity._repository_test_environment(run, interpreter="/venv/bin/python")
-            == expected
+        changed = changed_names(
+            expected,
+            ci_parity._repository_test_environment(run, interpreter="/venv/bin/python"),
         )
+        assert changed == []
 
 
 @given(

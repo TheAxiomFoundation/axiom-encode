@@ -345,7 +345,8 @@ def test_default_compile_rejection_and_ir_static_fallback(
         pipeline, "_run_rulespec_test_cases", lambda **kw: calls.append(kw) or []
     )
     result = pipeline._run_rulespec_ci(module)
-    assert calls == []
+    call_count = len(calls)
+    assert call_count == 0
     assert any("Test input assignment missing:" in issue for issue in result.issues)
 
 

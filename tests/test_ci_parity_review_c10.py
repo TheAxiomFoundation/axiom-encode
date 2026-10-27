@@ -410,6 +410,7 @@ def test_c10_repository_environment_is_invariant_for_all_home_values():
     from hypothesis import strategies as st
 
     from axiom_encode import ci_parity
+    from tests.environment_assertions import changed_names
 
     run = SimpleNamespace(
         paths={"engine": Path("/pinned/engine")},
@@ -427,7 +428,10 @@ def test_c10_repository_environment_is_invariant_for_all_home_values():
         with mock.patch.dict(os.environ, {"HOME": "/home/runner"}, clear=True):
             expected = ci_parity._repository_test_environment(run)
             os.environ["HOME"] = home
-            assert ci_parity._repository_test_environment(run) == expected
+            changed = changed_names(
+                expected, ci_parity._repository_test_environment(run)
+            )
+            assert changed == []
 
     invariant()
 

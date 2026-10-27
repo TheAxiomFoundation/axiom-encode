@@ -45,6 +45,7 @@ from axiom_encode.ci_parity import (
     resolve_roots,
     simulate_pull_request,
 )
+from tests.environment_assertions import changed_names
 
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
 PIN_6F11BE26 = "6f11be2655f79dd0a3b582db46525f58332ca120"
@@ -526,13 +527,17 @@ def test_simulated_pull_request_carries_base_head_and_event_context(
     assert simulation.number == 911
     assert simulation.base_is_ancestor is True
     assert simulation.ref == "refs/pull/911/merge"
-    assert simulation.github_environment(repo) == {
-        "GITHUB_EVENT_NAME": "pull_request",
-        "GITHUB_REF": "refs/pull/911/merge",
-        "GITHUB_REPOSITORY": RULESPEC_US,
-        "GITHUB_SHA": head,
-        "GITHUB_WORKSPACE": str(repo),
-    }
+    changed = changed_names(
+        {
+            "GITHUB_EVENT_NAME": "pull_request",
+            "GITHUB_REF": "refs/pull/911/merge",
+            "GITHUB_REPOSITORY": RULESPEC_US,
+            "GITHUB_SHA": head,
+            "GITHUB_WORKSPACE": str(repo),
+        },
+        simulation.github_environment(repo),
+    )
+    assert changed == []
     assert simulate_pull_request(repo, "origin/main").ref == ""
 
 

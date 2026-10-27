@@ -64,15 +64,18 @@ def test_companion_compiler_respects_module_kind(tmp_path, kind, composer_availa
             compiled_cache={},
             policy_repo_path=policy,
         )
+    # The calls carry the engine's environment; inspect them by program.
+    programs = [call["program"] for call in calls]
     if kind == "composition" and not composer_available:
-        assert calls == []
+        assert programs == []
         assert (
             "requires an explicit axiom-compose executable"
             in result["failures"][0]["message"]
         )
     else:
-        assert len(calls) == 1
-        assert bool(calls[0].get("composed")) == (kind == "composition")
+        assert len(programs) == 1
+        composed = calls[0].get("composed")
+        assert bool(composed) == (kind == "composition")
         assert calls[0]["program"].name == (
             "composed-program.yaml" if kind == "composition" else module.name
         )

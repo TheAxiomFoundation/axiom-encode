@@ -186,9 +186,9 @@ def test_reviewer_oracle_subprocess_scrubs_keys_and_broker_markers(monkeypatch):
         monkeypatch.setenv(name, f"{name}-sentinel")
     monkeypatch.setenv("PATH", "/hostile/bin")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/hostile/gitconfig")
-    scrubbed = scrub_attestation_signing_keys()
-    assert EVAL_EVIDENCE_PRIVATE_KEY_ENV not in scrubbed
-    assert APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV not in scrubbed
+    scrubbed_names = set(scrub_attestation_signing_keys())
+    assert EVAL_EVIDENCE_PRIVATE_KEY_ENV not in scrubbed_names
+    assert APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV not in scrubbed_names
     script = (
         "import json,os; print(json.dumps({"
         f"'eval_private': os.getenv('{EVAL_EVIDENCE_PRIVATE_KEY_ENV}'),"

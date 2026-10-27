@@ -16,6 +16,7 @@ from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import cli
+from tests.environment_assertions import changed_names
 from tests.test_encoder_manifest_ancestry import (
     _expected,
     _git,
@@ -449,9 +450,11 @@ def test_every_guard_git_command_scrubs_overrides_and_disables_graph_rewriting(
     assert calls
     for command, environment in calls:
         assert environment is not None
-        assert {
+        git_environment = {
             key: value for key, value in environment.items() if key.startswith("GIT_")
-        } == (_NEUTRAL_GIT_ENVIRONMENT)
+        }
+        changed = changed_names(_NEUTRAL_GIT_ENVIRONMENT, git_environment)
+        assert changed == []
         # The verification runtime's trusted git wrapper accepts only this form.
         assert command[1] == "-C", command
     if operation == "history":

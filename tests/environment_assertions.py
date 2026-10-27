@@ -14,14 +14,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+_MISSING = object()
 
-def changed_names(before: Mapping[str, str], after: Mapping[str, str]) -> list[str]:
+
+def changed_names(
+    before: Mapping[str, object], after: Mapping[str, object]
+) -> list[str]:
     """The names whose values differ between two environments, sorted.
 
-    A name set in only one of them counts as changed.
+    A name set in only one of them counts as changed, whatever its value.
     """
     return sorted(
         name
         for name in before.keys() | after.keys()
-        if before.get(name) != after.get(name)
+        if before.get(name, _MISSING) != after.get(name, _MISSING)
     )

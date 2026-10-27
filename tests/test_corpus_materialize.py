@@ -37,6 +37,7 @@ from axiom_encode.corpus_resolver import (
     UnmaterializedCorpusReleaseError,
     resolve_local_corpus_source,
 )
+from tests.environment_assertions import changed_names
 from tests.release_object_fixtures import (
     TEST_RELEASE_PUBLIC_KEY,
     write_test_release_object,
@@ -2683,12 +2684,16 @@ def test_git_runs_without_inherited_overrides_and_never_lazy_fetches():
             "SSH_ASKPASS": "/bin/askpass",
         }
     )
-    assert clean == {
-        "PATH": "/bin",
-        "GIT_NO_LAZY_FETCH": "1",
-        "GIT_NO_REPLACE_OBJECTS": "1",
-        "GIT_TERMINAL_PROMPT": "0",
-    }
+    changed = changed_names(
+        {
+            "PATH": "/bin",
+            "GIT_NO_LAZY_FETCH": "1",
+            "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_TERMINAL_PROMPT": "0",
+        },
+        clean,
+    )
+    assert changed == []
 
 
 @needs_git
