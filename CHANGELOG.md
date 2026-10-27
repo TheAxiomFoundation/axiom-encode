@@ -1,4 +1,4 @@
-## 0.2.2251
+## 0.2.2252
 
 - Admit the exact reviewed Canadian repair head for all protected artifact-only modes, including manifest refresh and reviewed-candidate promotion. Preserve publication restrictions and every signing and validation gate; link the admission evidence.
 
