@@ -19,6 +19,7 @@ import csv
 import difflib
 import fcntl
 import hashlib
+import io
 import json
 import math
 import os
@@ -29,6 +30,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import unicodedata
 from base64 import b64decode, b64encode
 from binascii import Error as BinasciiError
@@ -4314,6 +4316,27 @@ def _validation_waiver_path_replacements(
     return dict(sorted(replacements.items(), key=lambda item: (-len(item[0]), item[0])))
 
 
+@contextlib.contextmanager
+def _validation_waiver_module_timing(relative: str, *, enabled: bool) -> Iterator[None]:
+    """Log the initial audit's validation/companion/fingerprint time, off stdout.
+
+    Batch setup and isolated discrepancy rechecks are excluded. Rechecks and
+    public fingerprint commands do not opt in, so an audited module has one
+    timing line even when its outcome needs to be confirmed in isolation.
+    """
+    if not enabled:
+        yield
+        return
+    started = time.perf_counter()
+    try:
+        yield
+    finally:
+        elapsed = time.perf_counter() - started
+        # One write per line avoids interleaving partial lines from workers.
+        sys.stderr.write(f"validation-waivers audit: {relative} {elapsed:.3f}s\n")
+        sys.stderr.flush()
+
+
 def _fingerprint_validation_waiver_modules(
     modules: list[Path],
     *,
@@ -4323,6 +4346,7 @@ def _fingerprint_validation_waiver_modules(
     axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
+    log_timings: bool = False,
 ) -> list[dict[str, Any]]:
     """Execute validation and companions against one canonical checkout root.
 
@@ -4349,6 +4373,7 @@ def _fingerprint_validation_waiver_modules(
             axiom_compose_path=axiom_compose_path,
             rulespec_dependency_roots=rulespec_dependency_roots,
             corpus_release=corpus_release,
+            log_timings=log_timings,
         )
 
 
@@ -4361,6 +4386,7 @@ def _fingerprint_validation_waiver_modules_impl(
     axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
+    log_timings: bool = False,
 ) -> list[dict[str, Any]]:
     """Fingerprint every module; each validate opens its own resolution scope."""
 
@@ -4431,42 +4457,43 @@ def _fingerprint_validation_waiver_modules_impl(
             pipelines=list(pipelines.values()),
         )
         for relative, (module, content_root) in sorted(resolved_modules.items()):
-            pipeline = pipelines[content_root]
-            env = engine_envs[content_root]
-            rulespec_roots = compile_roots[content_root]
-            pipeline_result = pipeline.validate(module, skip_reviewers=True)
-            validate_outcome = _validation_waiver_validate_outcome(pipeline_result)
-            companion_outcome = _validation_waiver_companion_outcome(
-                module,
-                root=root,
-                policy_repo_path=content_root,
-                binary=binary,
-                pipeline=pipeline,
-                axiom_rules_path=engine_root,
-                env=env,
-                rulespec_roots=rulespec_roots,
-                tmp_path=tmp_path,
-                compiled_cache=compiled_cache,
-            )
-            canonical_bytes = _validation_waivers.canonicalize_outcome(
-                validate_outcome,
-                companion_outcome,
-                replacements=replacements,
-            )
-            digest = _validation_waivers.fingerprint_outcome(
-                validate_outcome,
-                companion_outcome,
-                replacements=replacements,
-            )
-            fingerprints.append(
-                {
-                    "path": relative,
-                    "passed": bool(validate_outcome["passed"])
-                    and bool(companion_outcome["passed"]),
-                    "fingerprint": digest,
-                    "outcome": json.loads(canonical_bytes.decode("utf-8")),
-                }
-            )
+            with _validation_waiver_module_timing(relative, enabled=log_timings):
+                pipeline = pipelines[content_root]
+                env = engine_envs[content_root]
+                rulespec_roots = compile_roots[content_root]
+                pipeline_result = pipeline.validate(module, skip_reviewers=True)
+                validate_outcome = _validation_waiver_validate_outcome(pipeline_result)
+                companion_outcome = _validation_waiver_companion_outcome(
+                    module,
+                    root=root,
+                    policy_repo_path=content_root,
+                    binary=binary,
+                    pipeline=pipeline,
+                    axiom_rules_path=engine_root,
+                    env=env,
+                    rulespec_roots=rulespec_roots,
+                    tmp_path=tmp_path,
+                    compiled_cache=compiled_cache,
+                )
+                canonical_bytes = _validation_waivers.canonicalize_outcome(
+                    validate_outcome,
+                    companion_outcome,
+                    replacements=replacements,
+                )
+                digest = _validation_waivers.fingerprint_outcome(
+                    validate_outcome,
+                    companion_outcome,
+                    replacements=replacements,
+                )
+                fingerprints.append(
+                    {
+                        "path": relative,
+                        "passed": bool(validate_outcome["passed"])
+                        and bool(companion_outcome["passed"]),
+                        "fingerprint": digest,
+                        "outcome": json.loads(canonical_bytes.decode("utf-8")),
+                    }
+                )
     return fingerprints
 
 
@@ -4525,7 +4552,38 @@ def _fingerprint_waiver_chunk(
             Path(path) for path in rulespec_dependency_roots
         ),
         corpus_release=corpus_release,
+        log_timings=True,
     )
+
+
+@dataclass
+class _WaiverAuditTaskResult:
+    """Private transport; only rows enter the public fingerprint result."""
+
+    rows: list[dict[str, Any]]
+    stderr: str
+    error: Exception | None = None
+
+
+def _fingerprint_waiver_task(*args: Any) -> _WaiverAuditTaskResult:
+    """Return worker diagnostics to the parent, including on validation failure.
+
+    A caller such as CI parity may redirect stderr into a StringIO. Forked
+    workers inherit private copies of that buffer, so only the parent can
+    reliably emit their timings into the caller's stream. Capture diagnostics
+    without changing the fingerprint rows or the phase measured by the serial
+    executor. Each task still has the chunk entrypoint's fresh standalone setup.
+    """
+    output = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(output):
+            rows = _fingerprint_waiver_chunk(*args)
+    except Exception as error:
+        # Returning the exception preserves its type/message, while the note
+        # retains the worker traceback that a normal failed Future would carry.
+        error.add_note(traceback.format_exc())
+        return _WaiverAuditTaskResult([], output.getvalue(), error)
+    return _WaiverAuditTaskResult(rows, output.getvalue())
 
 
 def _fingerprint_validation_waiver_modules_parallel(
@@ -4539,14 +4597,20 @@ def _fingerprint_validation_waiver_modules_parallel(
 ) -> list[dict[str, Any]]:
     """Fingerprint waiver modules across worker processes.
 
-    Each worker runs the unchanged serial executor over an interleaved slice
-    of the sorted module list with its own pipelines, temporary directory, and
-    compile cache. Interleaving prevents adjacent expensive modules from
-    landing on the same worker (for example tariff chapters in a validation
-    shard). Fingerprints are stable across the split because outcome
-    canonicalization replaces every process-specific path. A worker failure
-    fails the whole audit; results are re-sorted so output order matches the
-    serial code path exactly.
+    Submit one module per task to the executor's shared queue, so the next
+    idle worker takes the next unstarted module. With two or more workers,
+    every task runs the serial executor with fresh pipelines, temporary
+    directory, and compile cache, so a task is the standalone execution,
+    independent of worker assignment or neighbors, with process-specific
+    paths canonicalized out of its outcome. With one worker, a single serial
+    call shares that setup across the batch, as before. Either way validate
+    opens a fresh resolution scope per module. A worker failure fails the
+    whole audit. For per-module failures after batch setup, the error is the
+    one the interleaved split would have raised, whatever the completion
+    order; input the old split's per-slice preflight rejected first (a path
+    outside a canonical checkout, say) can surface a different error, which
+    still rejects the audit. Results are re-sorted so output order matches
+    the serial code path exactly.
     """
     ordered = sorted(str(module) for module in modules)
     workers = _waiver_audit_worker_count(len(ordered))
@@ -4558,6 +4622,7 @@ def _fingerprint_validation_waiver_modules_parallel(
             axiom_rules_path=axiom_rules_path,
             axiom_compose_path=axiom_compose_path,
             rulespec_dependency_roots=rulespec_dependency_roots,
+            log_timings=True,
         )
 
     corpus_release = load_rulespec_local_corpus_release(
@@ -4569,15 +4634,15 @@ def _fingerprint_validation_waiver_modules_parallel(
         corpus_release.content_sha256,
         corpus_release.public_key,
     )
-    chunks = [ordered[offset::workers] for offset in range(workers)]
     dependency_roots = tuple(str(path) for path in rulespec_dependency_roots)
 
     results: list[dict[str, Any]] = []
+    failures: list[tuple[tuple[int, int], Exception]] = []
     with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
         futures = [
             pool.submit(
-                _fingerprint_waiver_chunk,
-                chunk,
+                _fingerprint_waiver_task,
+                [module],
                 str(root),
                 str(corpus_path),
                 str(axiom_rules_path),
@@ -4585,10 +4650,31 @@ def _fingerprint_validation_waiver_modules_parallel(
                 release_identity,
                 str(axiom_compose_path) if axiom_compose_path else None,
             )
-            for chunk in chunks
+            for module in ordered
         ]
-        for future in futures:
-            results.extend(future.result())
+        index_of = {future: index for index, future in enumerate(futures)}
+        for future in concurrent.futures.as_completed(futures):
+            # The interleaved split this replaces raised the first failing
+            # module of the lowest failing slice (slice index % workers,
+            # position index // workers). Rank failures the same way so the
+            # reported error never depends on which worker finished first.
+            index = index_of[future]
+            rank = (index % workers, index // workers)
+            try:
+                task = future.result()
+            except Exception as error:
+                failures.append((rank, error))
+                continue
+            sys.stderr.write(task.stderr)
+            sys.stderr.flush()
+            if task.error is not None:
+                failures.append((rank, task.error))
+            results.extend(task.rows)
+
+    # The pool waits for submitted work even on failure. Drain every receipt
+    # first so completed modules' captured diagnostics are never discarded.
+    if failures:
+        raise min(failures, key=lambda failure: failure[0])[1]
 
     returned = sorted(result["path"] for result in results)
     if returned != ordered:
