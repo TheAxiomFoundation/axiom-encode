@@ -7,6 +7,7 @@ import pytest
 
 from axiom_encode import cli, repo_routing
 from axiom_encode.harness import validator_pipeline as vp
+from tests.environment_assertions import expect
 
 
 @pytest.fixture
@@ -39,8 +40,8 @@ def test_companion_scopes_are_per_file_and_per_invocation(
 
     def execute(path, **kwargs):
         cache = vp._RULESPEC_RESOLUTION_CACHE.get()
-        assert cache is not None
-        assert not cache.target_files
+        expect(cache is not None)
+        expect(not cache.target_files, cache.target_files)
         cache.target_files[("sentinel",)] = path
         caches.append(cache)
         routing.append(repo_routing._RULESPEC_ROUTING_CACHE.get())
@@ -63,7 +64,7 @@ def test_companion_scopes_are_per_file_and_per_invocation(
 @pytest.mark.parametrize("error", [ValueError("failed"), SystemExit(2)])
 def test_companion_scope_cleans_up_errors(companion_command, monkeypatch, error):
     def execute(*args, **kwargs):
-        assert vp._RULESPEC_RESOLUTION_CACHE.get() is not None
+        expect(vp._RULESPEC_RESOLUTION_CACHE.get() is not None)
         raise error
 
     monkeypatch.setattr(cli, "_execute_rulespec_test_file", execute)
@@ -75,7 +76,7 @@ def test_companion_scope_cleans_up_errors(companion_command, monkeypatch, error)
 
 def test_companion_scope_preserves_enclosing_routing(companion_command, monkeypatch):
     def execute(*args, **kwargs):
-        assert repo_routing._RULESPEC_ROUTING_CACHE.get() is routing
+        expect(repo_routing._RULESPEC_ROUTING_CACHE.get() is routing)
         return {"cases": 1, "compiled": 0, "failures": [{"message": "bad"}]}
 
     monkeypatch.setattr(cli, "_execute_rulespec_test_file", execute)

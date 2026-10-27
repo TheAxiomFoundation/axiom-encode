@@ -45,7 +45,7 @@ from axiom_encode.ci_parity import (
     resolve_roots,
     simulate_pull_request,
 )
-from tests.environment_assertions import changed_names
+from tests.environment_assertions import changed_names, expect
 
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
 PIN_6F11BE26 = "6f11be2655f79dd0a3b582db46525f58332ca120"
@@ -264,7 +264,11 @@ class _BatchRecorder:
 
 
 class _CliRecorder:
-    """Stands in for _run_cli; records argv, environment, cwd and supervision."""
+    """Stands in for _run_cli; records argv, environment, cwd and supervision.
+
+    An environment is recorded as its names: pytest prints what a failing
+    assert reads from ``calls``.
+    """
 
     def __init__(
         self,
@@ -286,7 +290,7 @@ class _CliRecorder:
         self.calls.append(
             {
                 "arguments": list(arguments),
-                "environment": environment,
+                "environment": None if environment is None else sorted(environment),
                 "cwd": cwd,
                 "supervised": supervised,
             }
@@ -469,9 +473,10 @@ def test_execute_workflow_gates_end_to_end_runs_repository_tests_last(
     def process(
         arguments: list[str], cwd: Path, *, environment: dict[str, str] | None = None
     ) -> tuple[int, str]:
-        assert cwd == repo
-        assert environment is not None
-        assert not any(name.startswith("PYTEST_") for name in environment)
+        expect(cwd == repo, cwd)
+        expect(environment is not None)
+        pytest_names = [name for name in environment if name.startswith("PYTEST_")]
+        expect(not pytest_names, pytest_names)
         events.append(("process", tuple(arguments)))
         return 0, "1 passed\n"
 

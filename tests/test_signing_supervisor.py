@@ -4886,14 +4886,18 @@ def _stub_signed_reencode_reconciliation(command: str, replacement: str) -> str:
 def _run_prepared_signed_reencode(
     command: str,
     *,
-    env: dict[str, str],
+    overrides: dict[str, str],
     check: bool = True,
     capture_output: bool = False,
     text: bool = True,
     cwd: Path = ROOT,
     signing_slots: int | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Run the workflow's init, signer, and advance steps in separate processes."""
+    """Run the workflow's init, signer, and advance steps in separate processes.
+
+    The steps see the ambient environment plus ``overrides``. The ambient one is
+    merged in here, not passed in: pytest prints a failing frame's arguments.
+    """
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
     )
@@ -4905,7 +4909,8 @@ def _run_prepared_signed_reencode(
         name: value if "${{" not in value else ""
         for name, value in initialization["env"].items()
     }
-    environment.update(env)
+    environment.update(os.environ)
+    environment.update(overrides)
     for name in PRIVATE_ENV_NAMES:
         environment.pop(name, None)
     assert not any(name in environment for name in PRIVATE_ENV_NAMES)
@@ -5148,7 +5153,6 @@ if mutation_path and len(calls_path.read_text(encoding="utf-8").splitlines()) ==
     signer_stub.chmod(0o700)
 
     environment = {
-        **os.environ,
         "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key",
         "AXIOM_TEST_PYTHON": sys.executable,
         "CALLS_PATH": str(calls_path),
@@ -5180,7 +5184,7 @@ if mutation_path and len(calls_path.read_text(encoding="utf-8").splitlines()) ==
         command,
         cwd=ROOT,
         check=True,
-        env=environment,
+        overrides=environment,
     )
 
     calls = [
@@ -5277,7 +5281,7 @@ if mutation_path and len(calls_path.read_text(encoding="utf-8").splitlines()) ==
         check=False,
         capture_output=True,
         text=True,
-        env={
+        overrides={
             **environment,
             "MUTATE_AFTER_FIRST_PATH": str(future_companion),
         },
@@ -5389,7 +5393,6 @@ if sys.argv[-1] == os.environ["CITATION"]:
     _prepare_empty_signed_import_inputs(runner_temp)
 
     environment = {
-        **os.environ,
         "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key",
         "AXIOM_TEST_PYTHON": sys.executable,
         "CALLS_PATH": str(calls_path),
@@ -5478,7 +5481,7 @@ if sys.argv[-1] == os.environ["CITATION"]:
             }
         )
 
-    _run_prepared_signed_reencode(command, check=True, env=environment)
+    _run_prepared_signed_reencode(command, check=True, overrides=environment)
 
     calls = [
         json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()
@@ -5711,8 +5714,7 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
     _run_prepared_signed_reencode(
         command,
         check=True,
-        env={
-            **os.environ,
+        overrides={
             "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key",
             "AXIOM_TEST_PYTHON": sys.executable,
             "CALLS_PATH": str(calls_path),
@@ -5877,8 +5879,7 @@ if os.environ["FAIL_SIGNER"] == "true" and len(calls.read_text().splitlines()) =
         command,
         check=False,
         signing_slots=18 if failure_point == "limit" else None,
-        env={
-            **os.environ,
+        overrides={
             "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key",
             "AXIOM_TEST_PYTHON": sys.executable,
             "ATOMIC_SOURCE_JSON": json.dumps(sources),
@@ -6128,8 +6129,7 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
     _run_prepared_signed_reencode(
         command,
         check=True,
-        env={
-            **os.environ,
+        overrides={
             "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key",
             "AXIOM_TEST_PYTHON": sys.executable,
             "CALLS_PATH": str(calls_path),
@@ -6200,7 +6200,6 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
     )
 
     environment = {
-        **os.environ,
         "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key",
         "AXIOM_TEST_PYTHON": sys.executable,
         "CALLS_PATH": str(calls_path),
@@ -6226,7 +6225,7 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
         "SIGNER_STUB": str(signer_stub),
         "ATOMIC_SOURCE_JSON": "[]",
     }
-    _run_prepared_signed_reencode(command, check=True, env=environment)
+    _run_prepared_signed_reencode(command, check=True, overrides=environment)
 
     calls = [
         json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()
@@ -6250,7 +6249,7 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
         check=False,
         capture_output=True,
         text=True,
-        env={**environment, "QUEUE_ID": "us-snap-all-states-2026-07"},
+        overrides={**environment, "QUEUE_ID": "us-snap-all-states-2026-07"},
     )
     assert blocked.returncode != 0
     assert (
@@ -6303,7 +6302,6 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
         "us-la/statutes/47:297/8.yaml",
     ]
     environment = {
-        **os.environ,
         "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key",
         "AXIOM_TEST_PYTHON": sys.executable,
         "CALLS_PATH": str(calls_path),
@@ -6328,7 +6326,7 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
         "ATOMIC_SOURCE_JSON": "[]",
     }
 
-    _run_prepared_signed_reencode(command, check=True, env=environment)
+    _run_prepared_signed_reencode(command, check=True, overrides=environment)
 
     calls = [
         json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()

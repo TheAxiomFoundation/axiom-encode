@@ -56,6 +56,7 @@ from axiom_encode.run_log import (
     fold_run,
     iter_events,
 )
+from tests.environment_assertions import expect
 from tests.eval_evidence_fixtures import (
     TEST_APPLY_PRIVATE_KEY_B64,
     TEST_APPLY_PUBLIC_KEY_B64,
@@ -2375,7 +2376,7 @@ def _at_or_under_opt(paths):
     return any(path == "/opt" or path.startswith("/opt/") for path in paths)
 
 
-def _opt_permission_suspects(run, env=None, working_directory=None):
+def _opt_permission_suspects(run, step_env=None, working_directory=None):
     """Return the lines of a step that could change the permissions of /opt or /.
 
     Deliberately conservative rather than a shell parser. When a step names a
@@ -2403,7 +2404,7 @@ def _opt_permission_suspects(run, env=None, working_directory=None):
     ancestor check still refuses to start on a loose /opt.
     """
 
-    context = [f"{name}={value}" for name, value in (env or {}).items()]
+    context = [f"{name}={value}" for name, value in (step_env or {}).items()]
     if working_directory:
         context.append(f"working-directory={working_directory}")
     code = []
@@ -3554,7 +3555,7 @@ def test_drift_issue_publisher_uses_fixed_gh_argv(monkeypatch):
         calls.append((command, kwargs))
         if command[1:3] == ["issue", "create"]:
             body_path = Path(command[command.index("--body-file") + 1])
-            assert body_path.is_file()
+            expect(body_path.is_file(), body_path)
             return types.SimpleNamespace(returncode=0, stdout="issue-url\n", stderr="")
         return types.SimpleNamespace(returncode=0, stdout="", stderr="")
 

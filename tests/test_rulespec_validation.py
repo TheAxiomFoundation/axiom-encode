@@ -152,6 +152,7 @@ from axiom_encode.harness.validator_pipeline import (
     ValidatorPipeline as _ValidatorPipeline,
 )
 from axiom_encode.repo_routing import find_policy_repo_root
+from tests.environment_assertions import expect
 from tests.real_engine import ABSENT_ROOT
 from tests.release_object_fixtures import bind_test_corpus_release
 
@@ -309,7 +310,7 @@ def test_validator_subprocess_cleanup_error_cannot_mask_timeout():
     cleanup_failures: list[str] = []
 
     def rmtree_with_cleanup_failure(path, *args, onexc=None, **kwargs):
-        assert onexc is not None
+        expect(onexc is not None)
         failing_path = str(Path(path) / "stdout.log")
         cleanup_failures.append(failing_path)
         onexc(

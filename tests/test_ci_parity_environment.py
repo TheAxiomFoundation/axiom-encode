@@ -24,7 +24,7 @@ from axiom_encode import ci_parity
 from axiom_encode.ci_parity import GateSpec
 from axiom_encode.engine_binding import EnginePin, resolve_pinned_engine_binary
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
-from tests.environment_assertions import changed_names
+from tests.environment_assertions import changed_names, expect
 
 PIN = "6f11be2655f79dd0a3b582db46525f58332ca120"
 ENGINE_PIN = "a" * 40
@@ -122,7 +122,7 @@ def _mock_engine_commands(monkeypatch: pytest.MonkeyPatch, cargo) -> None:
             return subprocess.CompletedProcess(
                 command, 0, "rustc 1.94.1\nrelease: 1.94.1\nhost: test-host\n", ""
             )
-        assert executable == "cargo", command
+        expect(executable == "cargo", command)
         return cargo(command, **kwargs)
 
     monkeypatch.setattr(ci_parity.subprocess, "run", child)
@@ -354,7 +354,8 @@ def test_changed_classifier_reports_origin_without_contaminating_json(
     )
 
     def filter_json(script, *, argv, **kwargs):
-        assert json.loads(Path(argv[0]).read_text()) == {"items": []}
+        coverage = json.loads(Path(argv[0]).read_text())
+        expect(coverage == {"items": []}, coverage)
         return 0, "Changed PolicyEngine oracle coverage passed for 0 output(s).\n", ""
 
     monkeypatch.setattr(ci_parity, "_run_embedded_python", filter_json)
@@ -630,7 +631,7 @@ def _mock_uv(run, monkeypatch: pytest.MonkeyPatch, *, failure_at: int | None = N
     def uv(command, **kwargs):
         if command[0] == "git":
             return actual_run(command, **kwargs)
-        assert command[0] == "uv", command
+        expect(command[0] == "uv", command)
         calls.append((command, kwargs))
         if command[1] == "venv":
             _binary(Path(command[-1]) / "bin" / "python", "venv")
@@ -699,7 +700,8 @@ def test_python_build_probe_timeout_is_a_value_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def hang(command, **kwargs):
-        assert kwargs["timeout"] == 60
+        timeout = kwargs["timeout"]
+        expect(timeout == 60, timeout)
         raise subprocess.TimeoutExpired(command, 60)
 
     monkeypatch.setattr(ci_parity.subprocess, "run", hang)

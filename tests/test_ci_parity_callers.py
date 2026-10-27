@@ -19,7 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -94,14 +94,33 @@ def _no_ambient_registry_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def embedded_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
-    """Record every embedded-script execution, then run the real script."""
+    """Record every embedded-script execution, then run the real script.
+
+    pytest prints this fixture's value when a test using it fails, so an
+    environment is recorded as its names and its ``GITHUB_OUTPUT`` path.
+    """
 
     calls: list[dict[str, Any]] = []
     real = ci_parity._run_embedded_python
 
-    def spy(script: str, **kwargs: Any) -> tuple[int, str, str]:
-        calls.append({"script": script, **kwargs})
-        return real(script, **kwargs)
+    def spy(
+        script: str,
+        *,
+        cwd: Path,
+        environment: Mapping[str, str] | None = None,
+        **options: Any,
+    ) -> tuple[int, str, str]:
+        calls.append(
+            {
+                "script": script,
+                "cwd": cwd,
+                "environment": None if environment is None else sorted(environment),
+                "github_output": None
+                if environment is None
+                else environment.get("GITHUB_OUTPUT"),
+            }
+        )
+        return real(script, cwd=cwd, environment=environment, **options)
 
     monkeypatch.setattr(ci_parity, "_run_embedded_python", spy)
     return calls
@@ -334,7 +353,8 @@ def test_rulespec_us_caller_resolves_every_input(
     (call,) = embedded_calls
     assert call["script"] == _resolver_body(_resolver_step(_us_caller())["run"])
     assert call["cwd"] == repo
-    assert call["environment"] == {"GITHUB_OUTPUT": os.devnull}
+    assert call["environment"] == ["GITHUB_OUTPUT"]
+    assert call["github_output"] == os.devnull
     # And the resolved caller satisfies "Validate immutable dependency inputs".
     verify_dependency_inputs(caller)
 
@@ -484,12 +504,12 @@ def test_anon_key_falls_back_to_environment(
     assert not any("environment-key-9c1d" in line for line in caller.resolutions)
 
 
-@pytest.mark.parametrize("environment", [None, ""], ids=["unset", "empty"])
+@pytest.mark.parametrize("anon_key", [None, ""], ids=["unset", "empty"])
 def test_anon_key_without_override_or_environment_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, environment: str | None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, anon_key: str | None
 ) -> None:
-    if environment is not None:
-        monkeypatch.setenv(RELEASE_REGISTRY_ANON_KEY_ENV, environment)
+    if anon_key is not None:
+        monkeypatch.setenv(RELEASE_REGISTRY_ANON_KEY_ENV, anon_key)
     repo = _rules_repo(tmp_path)
 
     with pytest.raises(ValueError) as excinfo:

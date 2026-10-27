@@ -30,6 +30,7 @@ from axiom_encode.oracles.snapscreener import (
     run_payloads,
     snapscreener_state_key,
 )
+from tests.environment_assertions import expect
 
 
 def test_set_input_value_updates_every_matching_legal_input():
@@ -154,7 +155,7 @@ def test_run_axiom_cases_uses_configured_california_member_entity(
     runtime_requests = []
 
     def fake_run(cmd, **kwargs):
-        assert "run-compiled" in cmd
+        expect("run-compiled" in cmd, cmd)
         runtime_requests.append(ecps_snap.json.loads(kwargs["input"]))
         return ecps_snap.subprocess.CompletedProcess(
             cmd,

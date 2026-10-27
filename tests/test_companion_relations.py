@@ -1,6 +1,7 @@
 import pytest
 
 from axiom_encode.companion_relations import executable_relation_directions
+from tests.environment_assertions import expect
 
 
 def fixture(current=1):
@@ -139,10 +140,11 @@ def test_cli_qualified_companion_uses_bare_executable_alias(monkeypatch, tmp_pat
 
     def capture(*args, **kwargs):
         dataset = json.loads(kwargs["input"])["dataset"]
-        assert all(
-            row["tuple"] == ["related_0", "case"] for row in dataset["relations"]
+        relations = dataset["relations"]
+        expect(
+            all(row["tuple"] == ["related_0", "case"] for row in relations), relations
         )
-        assert dataset["inputs"][0]["entity"] == "Person"
+        expect(dataset["inputs"][0]["entity"] == "Person", dataset["inputs"][0])
         raise Captured
 
     monkeypatch.setattr("axiom_encode.cli.subprocess.run", capture)

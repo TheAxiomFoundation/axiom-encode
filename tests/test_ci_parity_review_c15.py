@@ -16,6 +16,7 @@ from hypothesis import strategies as st
 
 from axiom_encode import ci_parity
 from axiom_encode.engine_binding import engine_binding_receipt_path
+from tests.environment_assertions import expect
 
 _REAL_RUN = subprocess.run
 _REAL_WHICH = shutil.which
@@ -174,7 +175,7 @@ class _Build:
             self.calls.append((command, kwargs))
             if name == "rustup":
                 self.rustup_calls += 1
-                assert command[1:] == ["show", "active-toolchain"]
+                expect(command[1:] == ["show", "active-toolchain"], command)
                 return subprocess.CompletedProcess(command, rustup_code, rustup, "")
             if name == "rustc":
                 return subprocess.CompletedProcess(
@@ -183,7 +184,7 @@ class _Build:
                     "rustc 1.94.1\nrelease: 1.94.1\nhost: c15-test-host\n",
                     "",
                 )
-            assert name == "cargo", command
+            expect(name == "cargo", command)
             self.cargo_calls += 1
             self.snapshot = Path(kwargs["cwd"])
             self.snapshot_files = _inventory(self.snapshot)
