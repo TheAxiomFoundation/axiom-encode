@@ -1,3 +1,7 @@
+## 0.2.2259
+
+- Bump the encoder version after the previous protected Arizona transport parent refresh.
+
 ## 0.2.2258
 
 - Bind historical Arizona SNAP manifest-owner replacement to the signed receipt and original Git bytes throughout protected packaging and publication.
@@ -5,6 +9,7 @@
 ## 0.2.2257
 
 - Allow one authenticated Arizona corpus export and up to seven distinct signed provision exports in the same fresh protected transaction, so R2-only federal dependencies are available without altering the source contract.
+- Refresh the encoder version after merging the reviewed Canadian repair-head admission into the Arizona ECE transport branch.
 
 ## 0.2.2256
 
@@ -13,7 +18,6 @@
 ## 0.2.2255
 
 - Prefetch authenticated signed corpus provision exports for protected runs whose release provisions are R2-only, with exact exporter, archive, release, and provision-byte checks.
-
 ## 0.2.2254
 
 - Recognize completed signed in-place source-bound dependents in the legacy replacement census, retaining source-citation, primary-proof, and fresh-manifest checks.
@@ -25,6 +29,7 @@
 ## 0.2.2252
 
 - Admit authenticated in-place legacy Arizona ECE replacement from a signed corpus artifact while preserving the existing RuleSpec identity and dependent references; keep distinct-path moves and unsupported transport modes rejected.
+- Admit the exact reviewed Canadian repair head for all protected artifact-only modes, including manifest refresh and reviewed-candidate promotion. Preserve publication restrictions and every signing and validation gate; link the admission evidence.
 
 ## 0.2.2248
 
