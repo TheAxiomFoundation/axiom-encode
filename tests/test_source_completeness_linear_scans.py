@@ -11,6 +11,7 @@ and a regression to a quadratic one quadruples.
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import dataclasses
 import functools
 import gc
@@ -18,7 +19,9 @@ import json
 import math
 import re
 import sys
+import threading
 import time
+import types
 import weakref
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
@@ -30,6 +33,7 @@ from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode.harness import source_completeness as sc
+from axiom_encode.harness.coverage_index import format_coverage_index
 from axiom_encode.harness.source_completeness import SourceStructureBranch
 from axiom_encode.harness.validator_pipeline import (
     extract_named_scalar_occurrences,
@@ -579,6 +583,20 @@ def _wide_outline(n: int) -> str:
     for letter in "abcdefgh":
         lines.append(f"({letter}) Provision.")
         lines.extend(f"({number}) Provision." for number in range(1, n // 8))
+    return "\n".join(lines)
+
+
+def _formula_outline(n: int) -> str:
+    """``_wide_outline`` with a formula and an exception in every paragraph."""
+
+    lines = []
+    for letter in "abcdefgh":
+        lines.append(f"({letter}) Benefit calculation.")
+        lines.extend(
+            f"({number}) The benefit equals income multiplied by 2 unless "
+            "residence is unverified."
+            for number in range(1, n // 8)
+        )
     return "\n".join(lines)
 
 
@@ -1360,7 +1378,34 @@ def test_branch_index_is_kept_per_tuple_for_one_scope():
         assert sc._source_branch_index(branches) is not index
 
 
-_ANY_PATHS = [["a", "b"], "ab", ("a", "b"), ("b",), (), (["x"],), ("a", ["x"]), ("ab",)]
+class _RaisingComponent:
+    """A hashable path component whose comparison raises; recognition never builds one."""
+
+    def __hash__(self) -> int:
+        return 7
+
+    def __eq__(self, other: object) -> bool:
+        raise RuntimeError("compared")
+
+
+class _Text(str):
+    """A string subclass, which recognition never builds."""
+
+
+_RAISING = _RaisingComponent()
+_ANY_PATHS = [
+    ["a", "b"],
+    "ab",
+    ("a", "b"),
+    ("b",),
+    (),
+    (["x"],),
+    ("a", ["x"]),
+    ("ab",),
+    (_RAISING,),
+    ("a", _RAISING),
+    (_Text("a"),),
+]
 
 
 @pytest.mark.parametrize("path", _ANY_PATHS)
@@ -1373,11 +1418,15 @@ _ANY_PATHS = [["a", "b"], "ab", ("a", "b"), ("b",), (), (["x"],), ("a", ["x"]), 
         frozenset(),
         frozenset({"ab"}),
         frozenset({"a", ("a",)}),
+        frozenset({("a", "b")}),
+        frozenset({(_RAISING,)}),
+        frozenset({(_Text("a"),)}),
     ],
 )
 def test_path_is_deferred_matches_main_on_any_path(path, deferred):
     # Main compared slices, so a list or string path never matched a tuple, and
-    # a string deferral never matched a tuple path; neither raised.
+    # a string deferral never matched a tuple path; neither raised. A component
+    # whose comparison raises raised only where main compared it.
     old = _outcome(lambda: _old_path_is_deferred(path, deferred))
 
     assert _outcome(lambda: sc._path_is_deferred(path, deferred)) == old
@@ -1506,7 +1555,7 @@ def test_entry_points_build_indexes_in_a_scope_and_drop_them():
             built.append(weakref.ref(self))
 
     def recorded_index(branches):
-        scoped.append(sc._SOURCE_INDEXES.get() is not None)
+        scoped.append(sc._open_source_indexes() is not None)
         return real_index(branches)
 
     source = _cited_outline(8)
@@ -1525,13 +1574,290 @@ def test_entry_points_build_indexes_in_a_scope_and_drop_them():
             "(b) Households are not eligible unless income is verified.",
             corpus_citation_path="us-or/manual/odhs/open/page-644",
         )
+        advice_built = len(built)
+        format_coverage_index(source, SNAP_CITATION)
     gc.collect()
 
     assert analyzer_built > 1
+    # The coverage formatter reaches the branch helpers from its own module.
+    assert len(built) > advice_built
     assert scoped and all(scoped)
     # Nothing outlives the call that built it.
     assert all(ref() is None for ref in built)
     assert sc._SOURCE_INDEXES.get() is None
+
+
+def test_fixture_coverage_index_matches_main():
+    for case in FIXTURE_CASES:
+        content, source, citation, _tests, _profile = case.values
+        old, cold, warm = _old_and_new(
+            functools.partial(
+                format_coverage_index, source, citation, candidate=content
+            )
+        )
+
+        assert cold == old, case.id
+        assert warm == cold, case.id
+
+
+def _in_thread(call: Callable[[], object], context: contextvars.Context) -> object:
+    """``call``'s outcome, run in a new thread inside ``context``."""
+
+    outcomes: list[object] = []
+    thread = threading.Thread(
+        target=context.run, args=(lambda: outcomes.append(_outcome(call)),)
+    )
+    thread.start()
+    thread.join(60)
+    assert not thread.is_alive()
+    return outcomes[0]
+
+
+def test_a_copied_context_neither_reads_nor_keeps_an_analysis_index():
+    branches = sc.recognize_source_structure(_wide_outline(32))
+    deferred = frozenset({branches[0].path})
+
+    def analysis_here():
+        with sc._source_index_scope():
+            return sc._source_branch_index(branches), sc._SOURCE_INDEXES.get()
+
+    with sc._source_index_scope():
+        scope = sc._SOURCE_INDEXES.get()
+        index = sc._source_branch_index(branches)
+        assert index is not None
+        assert sc._deferred_path_index(deferred) is not None
+        context = contextvars.copy_context()
+
+        # Another thread with this context scans, and an analysis there
+        # opens a scope of its own.
+        assert _in_thread(
+            lambda: (
+                sc._source_branch_index(branches),
+                sc._deferred_path_index(deferred),
+            ),
+            context,
+        ) == (None, None)
+        own, own_scope = _in_thread(analysis_here, context)
+        assert own is not None and own is not index
+        assert own_scope is not scope
+        index_ref = weakref.ref(index)
+        del index, own
+
+    gc.collect()
+    # The kept context still holds the ended scope, closed and empty, so the
+    # indexes are freed and nothing reads it again.
+    assert index_ref() is None
+    assert context.run(sc._SOURCE_INDEXES.get) is scope
+    assert not scope.is_open and not scope.branches and not scope.deferrals
+    assert context.run(sc._source_branch_index, branches) is None
+    assert context.run(sc._deferred_path_index, deferred) is None
+    later, later_scope = context.run(analysis_here)
+    assert later is not None and later_scope is not scope
+    assert _in_thread(analysis_here, context)[1] is not scope
+    assert not scope.branches and not scope.deferrals
+
+
+@pytest.mark.parametrize("raises", [False, True], ids=["returns", "raises"])
+def test_an_analysis_frees_indexes_a_copied_context_still_refers_to(raises):
+    kept: list[contextvars.Context] = []
+    seen: list[int] = []
+
+    def extract(text):
+        if not kept:
+            seen.append(len(sc._SOURCE_INDEXES.get().branches))
+            kept.append(contextvars.copy_context())
+            if raises:
+                raise RuntimeError("callback failed")
+        return extract_typed_numeric_inventory_occurrences_from_text(
+            text, profile="en-US"
+        )
+
+    def analysis():
+        return sc.analyze_complete_source_unit(
+            _no_rules(SNAP_CITATION),
+            _cited_outline(8),
+            corpus_citation_path=SNAP_CITATION,
+            test_cases=[],
+            extract_numeric_occurrences=extract,
+            extract_named_scalars=extract_named_scalar_occurrences,
+            numeric_value_is_grounded=numeric_value_is_grounded,
+        )
+
+    outcome = _outcome(analysis)
+    assert (outcome == ("RuntimeError", "callback failed")) is raises
+    assert kept and seen[0] > 0
+    scope = kept[0].run(sc._SOURCE_INDEXES.get)
+
+    assert sc._SOURCE_INDEXES.get() is None
+    assert not scope.is_open and not scope.branches and not scope.deferrals
+    # Later analyses in that context, here or in another thread, keep their
+    # own indexes and leave the ended scope empty.
+    kept[0].run(_outcome, analysis)
+    _in_thread(analysis, kept[0])
+    assert not scope.branches and not scope.deferrals
+
+
+# Field values recognition never gives a branch.
+_OTHER_FIELDS = [
+    pytest.param({"path": ""}, id="string-path"),
+    pytest.param({"path": ["a"]}, id="list-path"),
+    pytest.param({"path": ("a", _RAISING)}, id="raising-component"),
+    pytest.param({"path": (_Text("a"),)}, id="string-subclass-component"),
+    pytest.param({"path": (1,)}, id="int-component"),
+    pytest.param({"start": None}, id="none-start"),
+    pytest.param({"end": None}, id="none-end"),
+    pytest.param({"start": 0.0}, id="float-start"),
+    pytest.param({"end": True}, id="bool-end"),
+    pytest.param({"kind": None}, id="none-kind"),
+]
+
+
+@pytest.mark.parametrize("change", _OTHER_FIELDS)
+@pytest.mark.parametrize("position", [0, 3], ids=["first", "inner"])
+def test_branch_helpers_match_main_on_other_field_types(change, position):
+    source = _wide_outline(16)
+    branches = sc.recognize_source_structure(source)
+    odd = tuple(
+        dataclasses.replace(branch, **change) if index == position else branch
+        for index, branch in enumerate(branches)
+    )
+    deferred_sets = [frozenset({branches[0].path, branches[5].path}), frozenset()]
+    with contextlib.suppress(TypeError):
+        deferred_sets.append(frozenset({odd[position].path, branches[5].path}))
+
+    def helpers():
+        return [
+            (
+                _outcome(
+                    lambda: sc._is_marker_only_container(
+                        branch, branches=odd, source_text=source
+                    )
+                ),
+                _outcome(lambda: sc._source_branch_direct_text(branch, branches=odd)),
+                _outcome(
+                    lambda: _identity(
+                        odd,
+                        sc._most_specific_containing_branch(
+                            branch.start, branch.end, branches=odd
+                        ),
+                    )
+                ),
+                *(
+                    _outcome(
+                        lambda: sc._span_is_deferred(
+                            branch.start,
+                            branch.end,
+                            branches=odd,
+                            deferred_paths=deferred,
+                        )
+                    )
+                    for deferred in deferred_sets
+                ),
+                *(
+                    _outcome(lambda: sc._path_is_deferred(branch.path, deferred))
+                    for deferred in deferred_sets
+                ),
+            )
+            for branch in odd
+        ]
+
+    old, cold, warm = _old_and_new(helpers)
+
+    assert cold == old
+    assert warm == cold
+
+
+def test_branch_helpers_match_main_on_other_branch_objects():
+    # A tuple holding anything but source branches is scanned.
+    source = _wide_outline(16)
+    branches = sc.recognize_source_structure(source)
+    odd = tuple(
+        types.SimpleNamespace(**dataclasses.asdict(branch)) if index == 3 else branch
+        for index, branch in enumerate(branches)
+    )
+    deferred = frozenset({branches[0].path, branches[5].path})
+
+    def helpers():
+        return [
+            (
+                _outcome(
+                    lambda: sc._is_marker_only_container(
+                        branch, branches=odd, source_text=source
+                    )
+                ),
+                _outcome(lambda: sc._source_branch_direct_text(branch, branches=odd)),
+                _outcome(
+                    lambda: sc._span_is_deferred(
+                        branch.start, branch.end, branches=odd, deferred_paths=deferred
+                    )
+                ),
+                _outcome(
+                    lambda: _identity(
+                        odd,
+                        sc._most_specific_containing_branch(
+                            branch.start, branch.end, branches=odd
+                        ),
+                    )
+                ),
+            )
+            for branch in odd
+        ]
+
+    old, cold, warm = _old_and_new(helpers)
+
+    assert cold == old
+    assert warm == cold
+    with sc._source_index_scope():
+        assert sc._source_branch_index(odd) is None
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [(0.0, 3), (1, 2.5), (True, 3), (None, 3), (2, None), ("1", 3)],
+)
+def test_span_helpers_match_main_on_other_offset_types(start, end):
+    branches = sc.recognize_source_structure(_wide_outline(16))
+    deferred = frozenset({branches[0].path})
+
+    old, cold, warm = _old_and_new(
+        lambda: (
+            _outcome(
+                lambda: sc._span_is_deferred(
+                    start, end, branches=branches, deferred_paths=deferred
+                )
+            ),
+            _outcome(
+                lambda: _identity(
+                    branches,
+                    sc._most_specific_containing_branch(start, end, branches=branches),
+                )
+            ),
+        )
+    )
+
+    assert cold == old
+    assert warm == cold
+
+
+_MIXED_COMPONENTS = st.sampled_from(
+    ["a", "b", "ab", _Text("a"), 1, 1.0, True, None, b"a"]
+)
+_MIXED_PATHS = st.lists(_MIXED_COMPONENTS, max_size=4).map(tuple)
+
+
+@settings(max_examples=400, deadline=None)
+@given(
+    paths=st.lists(_MIXED_PATHS, max_size=6),
+    deferred=st.frozensets(_MIXED_PATHS, max_size=4),
+)
+def test_path_is_deferred_matches_main_on_mixed_components(paths, deferred):
+    # Equal components of other types (1, 1.0, True) match as main compared
+    # them; plain-string paths take the index.
+    expected = [_old_path_is_deferred(path, deferred) for path in paths]
+
+    with sc._source_index_scope():
+        assert [sc._path_is_deferred(path, deferred) for path in paths] == expected
+        assert [sc._path_is_deferred(path, deferred) for path in paths] == expected
 
 
 _COVERAGE_ARGS = {
@@ -1633,6 +1959,19 @@ def _analyzer_family(outline: Callable[[int], str], content: Callable[[int], str
         )
 
     return family
+
+
+def _coverage_index_family(n: int):
+    """The generation coverage index over an n-line ``_formula_outline``.
+
+    It runs in an empty context, as a caller outside any analysis runs it, so
+    the formatter must open its own scope.
+    """
+
+    source = _formula_outline(n)
+    return lambda: contextvars.Context().run(
+        format_coverage_index, source, SNAP_CITATION
+    )
 
 
 def _branch_helper_family(
@@ -1751,6 +2090,10 @@ def test_deferral_reason_cpu_growth_is_near_linear(family, sizes, budget):
             (200, 400, 800),
             12.0,
             id="analyzer-half-deferred",
+        ),
+        # The coverage formatter calls the branch helpers from its own module.
+        pytest.param(
+            _coverage_index_family, (400, 800, 1600), 4.0, id="coverage-index"
         ),
         pytest.param(
             _branch_helper_family(

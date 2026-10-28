@@ -22,6 +22,7 @@ import itertools
 import math
 import re
 import textwrap
+import threading
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
@@ -13659,11 +13660,9 @@ def _path_is_deferred(
         # deferral for every branch.
         index = _deferred_path_index(deferred_paths)
         if index is not None:
-            try:
-                return index.covers(path)
-            except TypeError:
-                # A path with an unhashable component cannot be looked up.
-                pass
+            verdict = index.covers(path)
+            if verdict is not None:
+                return verdict
     return any(
         deferred_path and path[: len(deferred_path)] == deferred_path
         for deferred_path in deferred_paths
@@ -13671,6 +13670,18 @@ def _path_is_deferred(
 
 
 _DEFERRED_PATH_END = object()
+_PLAIN_COMPONENT_TYPES = frozenset({str})
+
+
+def _plain_path(path: object) -> bool:
+    """Whether ``path`` is a tuple of plain strings, as recognition builds.
+
+    Lookups keyed by such components agree with the slice comparisons they
+    replace: plain strings hash and compare consistently and never raise. A
+    path of any other shape keeps the comparisons themselves.
+    """
+
+    return type(path) is tuple and _PLAIN_COMPONENT_TYPES.issuperset(map(type, path))
 
 
 class _DeferredPathIndex:
@@ -13683,13 +13694,15 @@ class _DeferredPathIndex:
     on every ask wherever tuples do not cache their hash (before 3.14).
     """
 
-    __slots__ = ("_trie", "_verdicts")
+    __slots__ = ("_depth", "_trie", "_verdicts")
 
     def __init__(self, deferred_paths: frozenset[tuple[str, ...]]) -> None:
         self._trie: dict[object, Any] = {}
+        self._depth = 0
         for deferred_path in deferred_paths:
             if not deferred_path:
                 continue
+            self._depth = max(self._depth, len(deferred_path))
             node = self._trie
             for part in deferred_path:
                 node = node.setdefault(part, {})
@@ -13697,19 +13710,27 @@ class _DeferredPathIndex:
         # Each entry holds its path, so the path's id cannot be reused.
         self._verdicts: dict[int, tuple[tuple[str, ...], bool]] = {}
 
-    def covers(self, path: tuple[str, ...]) -> bool:
-        """Whether a non-empty path of the set is a prefix of ``path``."""
+    def covers(self, path: tuple[str, ...]) -> bool | None:
+        """Whether a non-empty path of the set is a prefix of ``path``.
+
+        ``None`` when a component the slice comparisons would reach is not a
+        plain string, so the caller compares as before.
+        """
 
         entry = self._verdicts.get(id(path))
         if entry is not None and entry[0] is path:
             return entry[1]
+        # The comparisons reach no component past the longest deferral.
+        if not _PLAIN_COMPONENT_TYPES.issuperset(map(type, path[: self._depth])):
+            return None
         verdict = self._walk(path)
         self._verdicts[id(path)] = (path, verdict)
         return verdict
 
     def _walk(self, path: tuple[str, ...]) -> bool:
         node = self._trie
-        for part in path:
+        # Only the checked components: no deferral reaches past them.
+        for part in itertools.islice(path, self._depth):
             node = node.get(part)
             if node is None:
                 return False
@@ -13723,11 +13744,12 @@ def _deferred_path_index(
 ) -> _DeferredPathIndex | None:
     """The index of a frozen deferral set within one analysis, else ``None``.
 
-    A set holding anything but tuples is scanned: a trie would split a string
-    path into characters, which a slice comparison never matches.
+    A set holding anything but tuples of plain strings is scanned: a trie
+    would split a string path into characters, which a slice comparison never
+    matches, and other components may not compare as they hash.
     """
 
-    indexes = _SOURCE_INDEXES.get()
+    indexes = _open_source_indexes()
     if indexes is None:
         return None
     entry = indexes.deferrals.get(id(deferred_paths))
@@ -13735,7 +13757,7 @@ def _deferred_path_index(
         return entry[1]
     index = (
         _DeferredPathIndex(deferred_paths)
-        if all(type(deferred_path) is tuple for deferred_path in deferred_paths)
+        if all(_plain_path(deferred_path) for deferred_path in deferred_paths)
         else None
     )
     indexes.deferrals[id(deferred_paths)] = (deferred_paths, index)
@@ -21834,6 +21856,11 @@ class _SourceBranchIndex:
     helpers still apply that filter, so their results are unchanged. The path
     and span structures are built on first use, since some branch tuples are
     only ever asked one kind of question.
+
+    A structure is built only when the fields it reads have the types
+    recognition gives them (paths of plain strings, integer offsets), and a
+    lookup answers only a question of those types; otherwise it returns every
+    branch, so the helper's filter meets what it always met, in its order.
     """
 
     def __init__(self, branches: tuple[SourceStructureBranch, ...]) -> None:
@@ -21842,7 +21869,11 @@ class _SourceBranchIndex:
     @functools.cached_property
     def _paths(
         self,
-    ) -> tuple[_BranchPathNode, dict[tuple[str, ...], _BranchPathNode], list[int]]:
+    ) -> (
+        tuple[_BranchPathNode, dict[tuple[str, ...], _BranchPathNode], list[int]] | None
+    ):
+        if not all(_plain_path(branch.path) for branch in self.branches):
+            return None
         root = _BranchPathNode()
         nodes: dict[tuple[str, ...], _BranchPathNode] = {(): root}
         for index, branch in enumerate(self.branches):
@@ -21880,11 +21911,15 @@ class _SourceBranchIndex:
         return root, nodes, preorder
 
     @functools.cached_property
-    def _spans(self) -> tuple[list[int], list[int], int, list[float], bool]:
+    def _spans(self) -> tuple[list[int], list[int], int, list[float], bool] | None:
         # Branches ordered by start, under a max-segment tree of their ends: the
         # branches containing a span are those starting at or before it whose
         # end reaches its end.
         branches = self.branches
+        if not all(
+            type(branch.start) is int and type(branch.end) is int for branch in branches
+        ):
+            return None
         by_start = sorted(range(len(branches)), key=lambda i: branches[i].start)
         starts = [branches[index].start for index in by_start]
         leaves = 1
@@ -21903,7 +21938,9 @@ class _SourceBranchIndex:
         return by_start, starts, leaves, reach, in_branch_order
 
     def _node(self, path: tuple[str, ...]) -> _BranchPathNode | None:
-        root, nodes, _preorder = self._paths
+        paths = self._paths
+        assert paths is not None
+        root, nodes, _preorder = paths
         # A branch's own path finds its node in one lookup; a bare prefix walks.
         node: _BranchPathNode | None = nodes.get(path)
         if node is not None:
@@ -21918,12 +21955,9 @@ class _SourceBranchIndex:
     def children(self, path: tuple[str, ...]) -> list[SourceStructureBranch]:
         """Branches whose path is ``path`` plus one component."""
 
-        try:
-            node = self._node(path)
-        except TypeError:
-            # A path with an unhashable component cannot key the trie, so the
-            # caller's filter scans every branch.
+        if self._paths is None or not _plain_path(path):
             return list(self.branches)
+        node = self._node(path)
         if node is None:
             return []
         return [
@@ -21936,18 +21970,20 @@ class _SourceBranchIndex:
     def descendants(self, path: tuple[str, ...]) -> list[SourceStructureBranch]:
         """Branches whose path is longer than ``path`` and starts with it."""
 
-        try:
-            node = self._node(path)
-        except TypeError:
+        paths = self._paths
+        if paths is None or not _plain_path(path):
             return list(self.branches)
+        node = self._node(path)
         if node is None:
             return []
-        found = sorted(self._paths[2][node.first : node.last])
+        found = sorted(paths[2][node.first : node.last])
         return [self.branches[index] for index in found]
 
     def containing(self, start: int, end: int) -> list[SourceStructureBranch]:
         """Branches with ``branch.start <= start`` and ``end <= branch.end``."""
 
+        if self._spans is None or type(start) is not int or type(end) is not int:
+            return list(self.branches)
         return [
             self.branches[index]
             for index in sorted(self._containing_indexes(start, end))
@@ -21963,12 +21999,17 @@ class _SourceBranchIndex:
         found all at once and sorted.
         """
 
-        if not self._spans[4]:
+        spans = self._spans
+        if spans is None or type(start) is not int or type(end) is not int:
+            return iter(self.branches)
+        if not spans[4]:
             return iter(self.containing(start, end))
         return (self.branches[index] for index in self._containing_indexes(start, end))
 
     def _containing_indexes(self, start: int, end: int) -> Iterator[int]:
-        by_start, starts, leaves, reach, _in_branch_order = self._spans
+        spans = self._spans
+        assert spans is not None
+        by_start, starts, leaves, reach, _in_branch_order = spans
         limit = bisect.bisect_right(starts, start)
         pending = [(1, 0, leaves)]
         while pending:
@@ -21988,18 +22029,28 @@ class _SourceIndexes:
 
     Each is keyed by the id of the branch tuple or frozen deferral set it
     indexes, beside that object. The entry holds the object, so its id cannot
-    be reused while the analysis runs.
+    be reused while the analysis runs. Only the thread that opened the scope
+    reads them, and only while the scope is open.
     """
 
-    __slots__ = ("branches", "deferrals")
+    __slots__ = ("branches", "deferrals", "is_open", "owner")
 
     def __init__(self) -> None:
         self.branches: dict[
-            int, tuple[tuple[SourceStructureBranch, ...], _SourceBranchIndex]
+            int, tuple[tuple[SourceStructureBranch, ...], _SourceBranchIndex | None]
         ] = {}
         self.deferrals: dict[
             int, tuple[frozenset[tuple[str, ...]], _DeferredPathIndex | None]
         ] = {}
+        self.owner = threading.get_ident()
+        self.is_open = True
+
+    def close(self) -> None:
+        # A context copied during the analysis still refers to this object, so
+        # emptying it is what frees the indexes.
+        self.is_open = False
+        self.branches.clear()
+        self.deferrals.clear()
 
 
 # The indexes of the analysis in progress, which `_source_index_scope` sets.
@@ -22011,18 +22062,33 @@ _SOURCE_INDEXES: contextvars.ContextVar[_SourceIndexes | None] = contextvars.Con
 )
 
 
+def _open_source_indexes() -> _SourceIndexes | None:
+    """The indexes of the analysis this thread is running, else ``None``.
+
+    A thread started with a copy of an analysis's context, or a context kept
+    after the analysis ended, sees that analysis's scope; neither reads it.
+    """
+
+    indexes = _SOURCE_INDEXES.get()
+    if indexes is None or not indexes.is_open or indexes.owner != threading.get_ident():
+        return None
+    return indexes
+
+
 @contextlib.contextmanager
 def _source_index_scope() -> Iterator[None]:
     """Keep the indexes one analysis builds until it ends."""
 
-    if _SOURCE_INDEXES.get() is not None:
+    if _open_source_indexes() is not None:
         # An analysis run inside another shares the outer one's indexes.
         yield
         return
-    scope = _SOURCE_INDEXES.set(_SourceIndexes())
+    indexes = _SourceIndexes()
+    scope = _SOURCE_INDEXES.set(indexes)
     try:
         yield
     finally:
+        indexes.close()
         _SOURCE_INDEXES.reset(scope)
 
 
@@ -22032,16 +22098,21 @@ def _source_branch_index(
     """The index of an immutable branch tuple within one analysis, else ``None``.
 
     Analyses pass the same tuple to every per-branch helper, so the index is
-    built once per tuple. A list could change between calls, so it is scanned.
+    built once per tuple. A list could change between calls, so it is scanned,
+    and so is a tuple holding anything but source branches.
     """
 
-    indexes = _SOURCE_INDEXES.get()
+    indexes = _open_source_indexes()
     if indexes is None or type(branches) is not tuple or not branches:
         return None
     entry = indexes.branches.get(id(branches))
     if entry is not None and entry[0] is branches:
         return entry[1]
-    index = _SourceBranchIndex(branches)
+    index = (
+        _SourceBranchIndex(branches)
+        if all(type(branch) is SourceStructureBranch for branch in branches)
+        else None
+    )
     indexes.branches[id(branches)] = (branches, index)
     return index
 
@@ -38111,7 +38182,9 @@ def _source_branch_direct_text(
     """
 
     index = _source_branch_index(branches)
-    if index is None:
+    # The pool is chosen by testing the branch's kind and path up front, which
+    # the filter below does only per candidate; other field types keep it.
+    if index is None or not _plain_path(branch.path) or type(branch.kind) is not str:
         pool: Sequence[SourceStructureBranch] = branches
     elif (
         branch.kind == "sentence"
