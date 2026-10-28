@@ -62,8 +62,8 @@ environment's place; a mock standing in for a launcher raises through
   the function's;
 - a ``raise``, when the exception it raises or its cause may hold one, or what
   the call building it is passed, whatever its name; so too ``raising``'s
-  exception, a mock's ``side_effect``, a generator's ``throw``, a ``match=`` pattern,
-  ``pytest.fail``'s message, and what ``print``, ``pprint``,
+  exception, a mock's ``side_effect``, a generator's ``throw``, a ``match=``
+  pattern, ``pytest.fail``'s message, and what ``print``, ``pprint``,
   ``sys.stdout.write``, ``warnings.warn`` or a logger is passed. An exception
   holds what it is built with and what its class's methods store on it;
 - in a function that launches, a mock side effect that is an exception rather
@@ -75,16 +75,19 @@ environment's place; a mock standing in for a launcher raises through
   binds it to (``_REAL_RUN = subprocess.run``), whose ``env`` may hold one. A
   launcher reads its ``env`` as a mapping, so it is passed a ``Names``;
 - a call handing what may hold one to code out of view: a function the module
-  imports, or a method of anything but a class the module defines or a
-  container (a mock's ``assert_called_with``, ``functools.partial``,
-  ``os.execvpe`` among them). Should that code raise, pytest prints the
-  arguments of the frame it raised in, so a test hands it a ``Names`` (or a
-  minimal environment of its own);
-- a read or ``del`` of a variable of ``os.environ`` by subscript, a
-  one-argument ``pop`` or a ``popitem`` of it, and ``monkeypatch.delenv``
-  unless it is passed ``raising=False``. A test reads a variable through
-  ``environment_variable`` and unsets one through ``unset_variable``, which
-  raise the same ``KeyError`` holding the name alone.
+  imports, or a method of anything but a container or what is known to be an
+  instance of a class the module defines (``self``, ``cls``, ``super()``, a
+  call to the class, a name every binding of which is one), a mock's
+  ``assert_called_with``, ``functools.partial`` and ``os.execvpe`` among
+  them. Should that code raise, pytest prints the arguments of the frame it
+  raised in, so a test hands it a ``Names`` (or a minimal environment of its
+  own);
+- a read or ``del`` of a variable of ``os.environ`` (or a name bound to it) by
+  subscript, a one-argument ``pop`` or a ``popitem`` of it, and
+  ``monkeypatch.delenv`` unless it is passed ``raising=False``. A test reads a
+  variable through ``environment_variable`` and unsets one through
+  ``unset_variable``, which raise the same ``KeyError`` holding the name
+  alone.
 
 The check tracks, for every value, the keys and positions that lead from it
 to an environment inside it. Environments start as:
@@ -135,12 +138,14 @@ function's locals holds what that local does, unmasked by
 ``hides_environment``. A launcher, or code out of view, that a test or a
 fixture has replaced with a fake counts as what it replaced. A method of
 something the check cannot tell from code out of view counts as it, though it
-run no Python frame of its own (``dict.fromkeys``). An object that prints its
-attributes, one of them an environment, counts where it is passed to a
-function ``hides_environment`` wraps, which refuses it. And a function is
+run no Python frame of its own (``dict.fromkeys``) or be one of this module's
+(on an instance a fixture returns). An object that prints its attributes, one
+of them an environment, counts where it is passed to a function
+``hides_environment`` wraps, which refuses it. And a function is
 flagged whether or not anything in it can raise, unless all it does is return
 constants, and so is a read of ``os.environ`` by subscript, whether or not the
-variable is set.
+variable is set, and of a name the module binds to ``os.environ`` anywhere,
+whatever it is bound to where it is read.
 
 It misses what it cannot see. A test that does not itself launch anything may
 read a mock the code under test launched through; ``mock.call_args.kwargs``
@@ -164,13 +169,17 @@ wraps that was raised with no frame in the test's file to start from (as
 ``raising``'s is), the frame that wrapped it. A fake defined in the test's
 file and hidden would give pytest that frame to start from instead. A
 launcher reached through ``getattr(subprocess, name)``, or bound to a name
-other than by plain assignment, is not taken to be one. Setting a variable
-whose name the platform rejects (``=`` in it), through ``os.environ`` or
-``monkeypatch.setenv``, raises from ``os.environ``'s frame too; stores are not
-flagged. What a launched
-program prints is not taken to hold an environment: the signing supervisor's
-trusted runtime prints its own and its child's, so its tests print a run
-without its output and read the report through ``Names``.
+other than by plain assignment, is not taken to be one, and ``os.environ``
+bound to anything but a name (an attribute, a parameter's default) is not
+taken to be it. Setting variables to what the platform rejects raises from
+``os.environ``'s frames too: an empty name or one with ``=`` in it, a name or
+value holding a null byte, or a pair given to ``update`` that is not two
+items, through ``os.environ`` itself, its ``update`` or ``setdefault``, or
+``monkeypatch.setenv``. Setting is not flagged, so a test sets variables to
+names and strings it has written itself. What a launched program prints is
+not taken to hold an environment: the signing supervisor's trusted runtime
+prints its own and its child's, so its tests print a run without its output
+and read the report through ``Names``.
 """
 
 from __future__ import annotations
@@ -188,6 +197,7 @@ import types
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 
+import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
@@ -685,6 +695,24 @@ class _Check:
             for alias in node.names
             if alias.name in {"environ", "environb"}
         }
+        # Names bound to ``os.environ`` itself (``values = os.environ``),
+        # anywhere in the module.
+        self.live: set[str] = set()
+        while True:
+            bound = {
+                target.id
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr))
+                and node.value is not None
+                and self._is_environ(node.value)
+                for target in (
+                    node.targets if isinstance(node, ast.Assign) else [node.target]
+                )
+                if isinstance(target, ast.Name)
+            }
+            if bound <= self.live:
+                break
+            self.live |= bound
         # Imported names are never stored into: storing into ``os.environ``
         # does not make the ``os`` module something pytest prints.
         self.imports = {
@@ -753,7 +781,63 @@ class _Check:
             for method in owner.body
             if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
-        self.method_names = {method.name for method in self.method_classes}
+        # The methods of each class, its bases' in this module included, and
+        # the names bound to an instance of one (``fake = Recorder()``).
+        own = {
+            owner.name: {
+                method.name
+                for method in owner.body
+                if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            for owner in every_class
+        }
+        self.bases = {
+            owner.name: {_dotted(base) for base in owner.bases} for owner in every_class
+        }
+
+        def methods(name: str, seen: frozenset[str] = frozenset()) -> set[str]:
+            found = set(own.get(name, set()))
+            for base in self.bases.get(name, set()) - seen:
+                found |= methods(base, seen | {name})
+            return found
+
+        self.class_methods = {name: methods(name) for name in own}
+        # A name is an instance of one only if every binding of it, anywhere
+        # in the module, is a call to that class.
+        built = {
+            id(target): node.value.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id in own
+            for target in (
+                node.targets if isinstance(node, ast.Assign) else [node.target]
+            )
+            if isinstance(target, ast.Name)
+        }
+        bindings: dict[str, set[str | None]] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+                bindings.setdefault(node.id, set()).add(built.get(id(node)))
+            elif isinstance(node, ast.arg):
+                bindings.setdefault(node.arg, set()).add(None)
+            elif isinstance(node, ast.alias):
+                bindings.setdefault(node.asname or node.name, set()).add(None)
+            elif isinstance(node, (FUNCTIONS, ast.ClassDef)) and hasattr(node, "name"):
+                bindings.setdefault(node.name, set()).add(None)
+            elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)):
+                if node.name:
+                    bindings.setdefault(node.name, set()).add(None)
+            elif isinstance(node, ast.MatchMapping) and node.rest:
+                bindings.setdefault(node.rest, set()).add(None)
+        self.typed = {
+            name: owner
+            for name, owners in bindings.items()
+            if len(owners) == 1
+            for owner in owners
+            if owner is not None
+        }
         # This module's exception classes, those defined within a function
         # too, which print what they are built with.
         self.exceptions: set[str] = set()
@@ -1773,13 +1857,15 @@ class _Check:
             return False
         return bool(EXCEPTION.search(_name(target))) or _name(target) in self.exceptions
 
-    def _hands_out(self, node: ast.Call) -> bool:
-        """Whether ``node`` hands what it is passed to code out of view.
+    def _hands_out(self, node: ast.Call, function: ast.AST) -> bool:
+        """Whether ``node``, in ``function``, hands what it is passed to code
+        out of view.
 
         That is a function the module imports, or a method of anything but a
-        class it defines or a container, unless the check follows the call
-        as data. Should that code raise, pytest prints the arguments of the
-        frame it raised in, a mock's ``assert_called_with`` among them.
+        container or what is known to be an instance of a class the module
+        defines, unless the check follows the call as data. Should that code
+        raise, pytest prints the arguments of the frame it raised in, a mock's
+        ``assert_called_with`` among them.
         """
         name = _name(node)
         if name in FOLLOWED or name in INSTALLERS or name in MOCKS:
@@ -1789,7 +1875,34 @@ class _Check:
         return (
             isinstance(node.func, ast.Attribute)
             and name not in CONTAINER_METHODS
-            and name not in self.method_names
+            and not self._own_method(node.func, function)
+        )
+
+    def _own_method(self, method: ast.Attribute, function: ast.AST) -> bool:
+        """Whether ``method``, read in ``function``, is a method of a class
+        this module defines (its bases' in the module included), read from
+        what is known to be an instance of it: ``self`` or ``cls`` in a method
+        of the class or of one defined within ``function``, ``super()`` there
+        for the class's bases, a call to the class, or a name every binding of
+        which is one."""
+        receiver = method.value
+        enclosing = {
+            node.name for node in ast.walk(function) if isinstance(node, ast.ClassDef)
+        }
+        if function in self.owners:
+            enclosing.add(self.owners[function])
+        if isinstance(receiver, ast.Name) and receiver.id in {"self", "cls"}:
+            owners = enclosing
+        elif isinstance(receiver, ast.Call) and _name(receiver) == "super":
+            owners = {base for owner in enclosing for base in self.bases[owner]}
+        elif isinstance(receiver, ast.Call) and isinstance(receiver.func, ast.Name):
+            owners = {receiver.func.id}
+        elif isinstance(receiver, ast.Name):
+            owners = {self.typed.get(receiver.id, "")}
+        else:
+            owners = set()
+        return any(
+            method.attr in self.class_methods.get(owner, set()) for owner in owners
         )
 
     def _launcher(self, dotted: str) -> bool:
@@ -1807,9 +1920,10 @@ class _Check:
         return self._launcher(_dotted(node.func))
 
     def _is_environ(self, node: ast.AST) -> bool:
-        """Whether ``node`` is ``os.environ`` (or ``os.environb``) itself."""
+        """Whether ``node`` is ``os.environ`` (or ``os.environb``) itself, or a
+        name bound to it."""
         if isinstance(node, ast.Name):
-            return node.id in self.aliases
+            return node.id in self.aliases or node.id in self.live
         return (
             isinstance(node, ast.Attribute)
             and node.attr in {"environ", "environb"}
@@ -1900,7 +2014,7 @@ class _Check:
                             for keyword in node.keywords
                             if keyword.arg in {"env", None}
                         ]
-                    elif self._hands_out(node):
+                    elif self._hands_out(node, function):
                         shown = [*node.args, *(k.value for k in node.keywords)]
                     if (
                         _is_fail(node, self.fails)
@@ -2233,6 +2347,35 @@ class Shown:
 
     def __repr__(self):
         return f"Shown({vars(self)!r})"
+
+
+class Slotted:
+    __slots__ = ("command", "env")
+
+    def __init__(self, command):
+        self.command = command
+
+    def __repr__(self):
+        return f"Slotted({self.command!r}, {getattr(self, 'env', None)!r})"
+
+
+class Probe:
+    @hides_environment
+    def probe(self, command, environment):
+        raise ValueError(command)
+
+    def check(self, command):
+        self.probe(command, dict(os.environ))
+
+
+class QuietProbe(Probe):
+    def check(self, command):
+        super().probe(command, dict(os.environ))
+
+
+@pytest.fixture
+def prober():
+    return Probe()
 
 
 def test_leaks_restored_environment():
@@ -2695,6 +2838,17 @@ def test_leaks_handed_to_an_import():
     probe(["git"], os.environ)
 
 
+def test_leaks_handed_through_a_rebound_name():
+    target = Probe()
+    target = under_test
+    target.probe(["git"], dict(os.environ))
+
+
+def test_leaks_missing_through_a_bound_name():
+    live = os.environ
+    assert live["AAA_MISSING"] == "x"
+
+
 def test_leaks_built_then_raised():
     error = under_test.Refusal(dict(os.environ))
     raise error
@@ -3052,6 +3206,23 @@ def test_handed_names_to_an_import():
     probe(["git"], environment=Names(dict(os.environ)))
 
 
+def test_handed_to_a_method_of_a_built_instance():
+    Probe().probe(["git"], dict(os.environ))
+
+
+def test_handed_to_a_method_of_a_bound_instance():
+    checked = Probe()
+    checked.probe(["git"], environment=dict(os.environ))
+
+
+def test_handed_to_a_method_through_self():
+    Probe().check(["git"])
+
+
+def test_handed_to_a_method_through_super():
+    QuietProbe().check(["git"])
+
+
 def test_built_names_then_raised():
     error = under_test.Refusal(sorted(os.environ))
     raise error
@@ -3145,6 +3316,20 @@ def test_flagged_object_printing_its_attributes():
     shown = Shown("git")
     shown.env = dict(os.environ)
     check(shown)
+
+
+def test_flagged_slotted_object_printing_its_attributes():
+    @hides_environment
+    def check(shown):
+        raise RuntimeError(shown.command)
+
+    shown = Slotted("git")
+    shown.env = dict(os.environ)
+    check(shown)
+
+
+def test_flagged_method_of_a_fixture_instance(prober):
+    prober.probe(["git"], dict(os.environ))
 
 
 def test_flagged_diffed_lists():
@@ -3414,6 +3599,39 @@ def test_hides_environment_masks_defaults_and_record_fields(
         kept = getattr(copy, field)
         assert kept == drawn
         assert _hidden(drawn, kept, field)
+
+
+class _Slotted:
+    __slots__ = ("command", "env")
+
+    def __init__(self, command: str) -> None:
+        self.command = command
+
+    def __repr__(self) -> str:
+        return f"_Slotted({self.command!r}, {getattr(self, 'env', None)!r})"
+
+
+class _SlottedChild(_Slotted):
+    __slots__ = ()
+
+
+@pytest.mark.parametrize("kind", [_Slotted, _SlottedChild])
+def test_hides_environment_refuses_slotted_attributes_it_would_print(
+    kind: type[_Slotted],
+) -> None:
+    seen: list[_Slotted] = []
+
+    @hides_environment
+    def fake(record: _Slotted) -> None:
+        seen.append(record)
+
+    # Without an environment, the record is passed as it is.
+    kept = kind("git")
+    fake(kept)
+    assert seen[0] is kept
+    kept.env = {"A": "1"}
+    with pytest.raises(TypeError, match="could not hide"):
+        fake(kept)
 
 
 def _launched(variables: Mapping[str, str], spawned: bool) -> dict[str, str]:

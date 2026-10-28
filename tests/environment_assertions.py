@@ -197,9 +197,19 @@ def _masked(value: object, name: object = None) -> object:
             return type(value)(elements)
         raise TypeError(f"cannot rebuild a {type(value).__qualname__}")
     attributes = getattr(value, "__dict__", None)
+    attributes = dict(attributes) if isinstance(attributes, dict) else {}
+    # And those its class keeps in ``__slots__``, its bases' included.
+    for owner in type(value).__mro__:
+        slots = vars(owner).get("__slots__", ())
+        for slot in [slots] if isinstance(slots, str) else slots:
+            descriptor = vars(owner).get(slot)
+            if slot in _ENVIRONMENTS and hasattr(descriptor, "__get__"):
+                try:
+                    attributes[slot] = descriptor.__get__(value, type(value))
+                except AttributeError:
+                    pass
     if (
-        isinstance(attributes, dict)
-        and type(value).__repr__ is not object.__repr__
+        type(value).__repr__ is not object.__repr__
         and not isinstance(value, NonCallableMock)
         and any(
             key in _ENVIRONMENTS
