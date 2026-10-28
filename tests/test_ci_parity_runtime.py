@@ -82,7 +82,11 @@ from axiom_encode.toolchain import (
     RuleSpecToolchainError,
     local_corpus_release_verification,
 )
-from tests.environment_assertions import changed_names, hides_environment
+from tests.environment_assertions import (
+    Names,
+    changed_names,
+    hides_environment,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
@@ -1516,7 +1520,6 @@ def test_https_only_redirects_replace_the_default_redirect_handler() -> None:
 # ---------------------------------------------------------------------------
 
 
-@hides_environment
 def _install_fake_main(
     monkeypatch: pytest.MonkeyPatch,
     record: dict[str, Any],
@@ -1525,7 +1528,7 @@ def _install_fake_main(
     from axiom_encode import cli
 
     def main() -> None:
-        record["environ"] = dict(os.environ)
+        record["environ"] = Names(os.environ)
         record["cwd"] = os.getcwd()
         record["argv"] = list(sys.argv)
         print("stdout line")
@@ -1805,12 +1808,10 @@ def test_run_cli_batch_runs_in_process_in_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jobs: int, count: int
 ) -> None:
     calls = []
-    environments = []
 
     @hides_environment
     def fake_run_cli(arguments, *, environment, cwd, supervised):
-        calls.append((tuple(arguments), cwd, supervised))
-        environments.append(environment)
+        calls.append((tuple(arguments), environment, cwd, supervised))
         return len(calls) - 1, f"out {arguments[1]}\n"
 
     monkeypatch.setattr(ci_parity, "_run_cli", fake_run_cli)
@@ -1820,14 +1821,14 @@ def test_run_cli_batch_runs_in_process_in_order(
     results = _run_cli_batch(invocations, jobs=jobs, keyring=(CURRENT_KEY,))
 
     assert calls == [
-        (invocation.arguments, invocation.cwd, invocation.supervised)
+        (
+            invocation.arguments,
+            Names(invocation.environment or {}),
+            invocation.cwd,
+            invocation.supervised,
+        )
         for invocation in invocations
     ]
-    environment_changes = [
-        changed_names(dict(invocation.environment or {}), environment)
-        for invocation, environment in zip(invocations, environments, strict=True)
-    ]
-    assert environment_changes == [[] for _ in invocations]
     assert results == [(index, f"out file-{index}.yaml\n") for index in range(count)]
 
 
@@ -1961,9 +1962,7 @@ def test_isolated_cli_main_runs_under_the_local_keyring(
         seen.update(
             keys=toolchain_module._LOCAL_CORPUS_RELEASE_PUBLIC_KEYS.get(),
             arguments=arguments,
-            environment_changes=changed_names(
-                {WAIVER_AUDIT_WORKERS_ENV: "1"}, environment
-            ),
+            environment=environment,
             cwd=cwd,
             supervised=supervised,
         )
@@ -1986,7 +1985,7 @@ def test_isolated_cli_main_runs_under_the_local_keyring(
     assert seen == {
         "keys": (CURRENT_KEY, RETIRED_KEY),
         "arguments": ["validate", "a.yaml"],
-        "environment_changes": [],
+        "environment": {WAIVER_AUDIT_WORKERS_ENV: "1"},
         "cwd": tmp_path,
         "supervised": supervised,
     }

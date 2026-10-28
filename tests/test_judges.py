@@ -1459,12 +1459,11 @@ def test_drift_regenerator_uses_fixed_argv_and_minimal_environment(
     assert kwargs["shell"] is False
     assert kwargs["timeout"] == regeneration.REGENERATION_TIMEOUT_SECONDS
     assert kwargs["env"]["OPENAI_API_KEY"] == "openai-test-key"
-    child_names = set(kwargs["env"])
-    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" not in child_names
-    assert "ANTHROPIC_API_KEY" not in child_names
-    assert "GH_TOKEN" not in child_names
-    assert "GITHUB_TOKEN" not in child_names
-    assert "AXIOM_REPO_TOKEN" not in child_names
+    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" not in kwargs["env"]
+    assert "ANTHROPIC_API_KEY" not in kwargs["env"]
+    assert "GH_TOKEN" not in kwargs["env"]
+    assert "GITHUB_TOKEN" not in kwargs["env"]
+    assert "AXIOM_REPO_TOKEN" not in kwargs["env"]
     assert regenerated == "outputs:\n  result: 1\n"
 
     # Exercise the fixed argv through the real child parser and canonical
@@ -2384,6 +2383,7 @@ def _at_or_under_opt(paths):
     return any(path == "/opt" or path.startswith("/opt/") for path in paths)
 
 
+@hides_environment
 def _opt_permission_suspects(run, step_env=None, working_directory=None):
     """Return the lines of a step that could change the permissions of /opt or /.
 
@@ -3574,9 +3574,7 @@ def test_drift_issue_publisher_uses_fixed_gh_argv(monkeypatch):
         drift.DriftReport([result]),
         "owner/repo",
     ) == ["issue-url"]
-    # The calls carry GitHub CLI's environment; count them by command alone.
-    commands = [command for command, _kwargs in calls]
-    assert len(commands) == 2
+    assert len(calls) == 2
     label_argv, label_kwargs = calls[0]
     issue_argv, issue_kwargs = calls[1]
     assert label_argv == [

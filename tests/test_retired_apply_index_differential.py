@@ -25,7 +25,6 @@ from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import retired_apply as indexed_admission
-from tests.environment_assertions import hides_environment
 
 RETIRED_APPLY_INVENTORY_SCHEMA = "axiom-encode/retired-apply-inventory/v1"
 _REPOSITORY = re.compile(r"TheAxiomFoundation/rulespec-[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -198,11 +197,11 @@ def _git_environment() -> dict[str, str]:
     return environment
 
 
-@hides_environment
 def _git(repo: Path, *arguments: str, ancestry: bool = False) -> bytes | bool:
     # Keep -C first, matching the provisioned supervisor's trusted Git wrapper.
-    environment = _git_environment()
-    executable = shutil.which("git", path=environment.get("PATH") or None)
+    # The environment is not kept in a local: pytest prints this frame's
+    # first locals along with its arguments when it raises.
+    executable = shutil.which("git", path=_git_environment().get("PATH") or None)
     if executable is None:
         raise ValueError(
             "retired apply verification requires the trusted Git executable"
@@ -210,7 +209,7 @@ def _git(repo: Path, *arguments: str, ancestry: bool = False) -> bytes | bool:
     result = subprocess.run(
         [executable, "-C", str(repo), *arguments],
         capture_output=True,
-        env=environment,
+        env=_git_environment(),
         timeout=30,
         check=False,
     )

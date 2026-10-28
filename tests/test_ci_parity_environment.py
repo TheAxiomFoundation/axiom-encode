@@ -426,9 +426,8 @@ def test_engine_build_binds_fresh_debug_despite_stale_release(
     assert snapshot != engine
     assert snapshot.is_relative_to(run.temp)
     assert calls[0][1]["env"]["CARGO_TARGET_DIR"] == str(snapshot / "target")
-    cargo_names = set(calls[0][1]["env"])
-    assert "RUSTFLAGS" not in cargo_names
-    assert "GIT_DIR" not in cargo_names
+    assert "RUSTFLAGS" not in calls[0][1]["env"]
+    assert "GIT_DIR" not in calls[0][1]["env"]
     pipeline = SimpleNamespace(axiom_rules_path=view, _log_event=lambda *_: None)
     bound = ValidatorPipeline._unverified_axiom_rules_binary(pipeline)
     assert bound.resolve() == view / "target" / "debug" / "axiom-rules-engine"
@@ -850,8 +849,7 @@ def test_repository_pytest_provisioning_failure_qualifies_the_verdict(
     run = _run(tmp_path)
     calls = _mock_uv(run, monkeypatch, failure_at=failure_at)
     assert ci_parity._repository_test_python(run) == sys.executable
-    uv_commands = [command for command, _kwargs in calls]
-    assert len(uv_commands) == failure_at
+    assert len(calls) == failure_at
     assert len(run.dependency_mismatches) == 1
     mismatch = run.dependency_mismatches[0]
     assert mismatch.name == "repository-test-environment"
@@ -898,8 +896,7 @@ def test_repository_pytest_gate_uses_venv_and_ci_step_environment(
     monkeypatch.setattr(ci_parity, "_run_process", pytest_process)
     result = ci_parity._gate_repository_tests(run, _spec("repository_tests"))
     assert result.status == "PASS"
-    uv_commands = [command for command, _kwargs in calls]
-    assert len(uv_commands) == 6
+    assert len(calls) == 6
     assert seen["command"] == [
         str(run.temp / "repository-test-venv" / "bin" / "python"),
         "-m",
@@ -918,8 +915,7 @@ def test_repository_pytest_gate_uses_venv_and_ci_step_environment(
         Path(environment["RULESPEC_TEST_FILE_LIST"]).read_text()
         == "zz/statutes/a.test.yaml\n"
     )
-    names = set(environment)
-    assert "DRAIN_BASE" not in names and "RULESPEC_SHADOW" not in names
+    assert "DRAIN_BASE" not in environment and "RULESPEC_SHADOW" not in environment
     assert environment["GIT_CONFIG_GLOBAL"] == os.devnull
     assert environment["GIT_CONFIG_NOSYSTEM"] == "1"
     assert not any(

@@ -35,13 +35,11 @@ def test_current_explicit_root_contract_is_preferred(monkeypatch):
     result, calls = _run(monkeypatch, [success])
 
     assert result is success
-    commands = [command for command, _kwargs in calls]
-    assert len(commands) == 1
+    assert len(calls) == 1
     command, kwargs = calls[0]
     assert command[command.index("--rulespec-root") + 1] == "/rulespec-us"
     assert "--exclusive-rulespec-roots" not in command
-    engine_names = set(kwargs["env"])
-    assert "AXIOM_RULESPEC_REPO_ROOTS" not in engine_names
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in kwargs["env"]
 
 
 def test_composed_program_uses_dedicated_surface_without_legacy_fallback(monkeypatch):
@@ -56,8 +54,7 @@ def test_composed_program_uses_dedicated_surface_without_legacy_fallback(monkeyp
     result, calls = _run(monkeypatch, [failure], composed=True)
 
     assert result is failure
-    commands = [command for command, _kwargs in calls]
-    assert len(commands) == 1
+    assert len(calls) == 1
     assert calls[0][0][1] == "compile-composed"
 
 
@@ -139,8 +136,7 @@ def test_legacy_contract_requires_exact_unknown_flag_evidence(monkeypatch):
     result, calls = _run(monkeypatch, [unsupported, success])
 
     assert result is success
-    commands = [command for command, _kwargs in calls]
-    assert len(commands) == 2
+    assert len(calls) == 2
     command, kwargs = calls[1]
     assert "--rulespec-root" not in command
     assert "--exclusive-rulespec-roots" in command
@@ -154,8 +150,7 @@ def test_other_compile_failures_do_not_fallback(monkeypatch):
     result, calls = _run(monkeypatch, [failure])
 
     assert result is failure
-    commands = [command for command, _kwargs in calls]
-    assert len(commands) == 1
+    assert len(calls) == 1
 
 
 def test_unknown_flag_without_legacy_advertisement_does_not_fallback(monkeypatch):
@@ -164,8 +159,7 @@ def test_unknown_flag_without_legacy_advertisement_does_not_fallback(monkeypatch
     result, calls = _run(monkeypatch, [failure])
 
     assert result is failure
-    commands = [command for command, _kwargs in calls]
-    assert len(commands) == 1
+    assert len(calls) == 1
 
 
 def test_legacy_contract_rejects_roots_containing_path_separator(monkeypatch):

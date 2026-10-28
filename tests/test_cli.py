@@ -8636,8 +8636,7 @@ rules:
 
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
-        env_count = len(captured_envs)
-        assert env_count == 2
+        assert len(captured_envs) == 2
         compile_command = next(cmd for cmd in captured_commands if "compile" in cmd)
         assert compile_command[compile_command.index("--rulespec-root") + 1] == str(
             repo.resolve()

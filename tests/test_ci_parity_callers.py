@@ -19,7 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -95,34 +95,15 @@ def _no_ambient_registry_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def embedded_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
-    """Record every embedded-script execution, then run the real script.
-
-    pytest prints this fixture's value when a test using it fails, so an
-    environment is recorded as its names and its ``GITHUB_OUTPUT`` path.
-    """
+    """Record every embedded-script execution, then run the real script."""
 
     calls: list[dict[str, Any]] = []
     real = ci_parity._run_embedded_python
 
     @hides_environment
-    def spy(
-        script: str,
-        *,
-        cwd: Path,
-        environment: Mapping[str, str] | None = None,
-        **options: Any,
-    ) -> tuple[int, str, str]:
-        calls.append(
-            {
-                "script": script,
-                "cwd": cwd,
-                "environment": None if environment is None else sorted(environment),
-                "github_output": None
-                if environment is None
-                else environment.get("GITHUB_OUTPUT"),
-            }
-        )
-        return real(script, cwd=cwd, environment=environment, **options)
+    def spy(script: str, **kwargs: Any) -> tuple[int, str, str]:
+        calls.append({"script": script, **kwargs})
+        return real(script, **kwargs)
 
     monkeypatch.setattr(ci_parity, "_run_embedded_python", spy)
     return calls
@@ -298,6 +279,7 @@ def test_real_us_resolver_script_is_the_reviewed_one() -> None:
     assert "rulespec-us" in RECOGNIZED_WORKFLOW_TOOLCHAIN_RESOLVERS[digest]
 
 
+@hides_environment
 def test_rulespec_us_caller_resolves_every_input(
     tmp_path: Path, embedded_calls: list[dict[str, Any]]
 ) -> None:
@@ -356,8 +338,7 @@ def test_rulespec_us_caller_resolves_every_input(
     (call,) = embedded_calls
     assert call["script"] == _resolver_body(_resolver_step(_us_caller())["run"])
     assert call["cwd"] == repo
-    assert call["environment"] == ["GITHUB_OUTPUT"]
-    assert call["github_output"] == os.devnull
+    assert call["environment"] == {"GITHUB_OUTPUT": os.devnull}
     # And the resolved caller satisfies "Validate immutable dependency inputs".
     verify_dependency_inputs(caller)
 
@@ -412,6 +393,7 @@ def test_parse_caller_workflow_infers_checkout_from_workflows_directory(
     assert caller.refs == US_REFS
 
 
+@hides_environment
 def test_needs_refs_without_a_checkout_fail_closed(
     embedded_calls: list[dict[str, Any]],
 ) -> None:
@@ -507,12 +489,13 @@ def test_anon_key_falls_back_to_environment(
     assert not any("environment-key-9c1d" in line for line in caller.resolutions)
 
 
-@pytest.mark.parametrize("anon_key", [None, ""], ids=["unset", "empty"])
+@pytest.mark.parametrize("environment", [None, ""], ids=["unset", "empty"])
+@hides_environment
 def test_anon_key_without_override_or_environment_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, anon_key: str | None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, environment: str | None
 ) -> None:
-    if anon_key is not None:
-        monkeypatch.setenv(RELEASE_REGISTRY_ANON_KEY_ENV, anon_key)
+    if environment is not None:
+        monkeypatch.setenv(RELEASE_REGISTRY_ANON_KEY_ENV, environment)
     repo = _rules_repo(tmp_path)
 
     with pytest.raises(ValueError) as excinfo:
@@ -870,6 +853,7 @@ UNRECOGNIZED_BEFORE_EXECUTION: dict[str, tuple[Callable[..., None], str]] = {
 
 
 @pytest.mark.parametrize("case", sorted(UNRECOGNIZED_BEFORE_EXECUTION))
+@hides_environment
 def test_unrecognized_resolver_fails_closed_without_running_it(
     tmp_path: Path, case: str, embedded_calls: list[dict[str, Any]]
 ) -> None:
@@ -889,6 +873,7 @@ def test_unrecognized_resolver_fails_closed_without_running_it(
     assert embedded_calls == []
 
 
+@hides_environment
 def test_modified_resolver_script_is_not_reviewed_and_never_runs(
     tmp_path: Path, embedded_calls: list[dict[str, Any]]
 ) -> None:
@@ -952,6 +937,7 @@ def test_outputs_must_map_to_the_resolver_steps_outputs(
         _parse(repo)
 
 
+@hides_environment
 def test_validate_job_must_list_the_resolver_in_needs(
     tmp_path: Path, embedded_calls: list[dict[str, Any]]
 ) -> None:
@@ -981,6 +967,7 @@ def test_needs_reference_to_an_unlisted_job_fails(tmp_path: Path) -> None:
     assert "axiom-corpus-ref reads needs.toolchain" in str(excinfo.value)
 
 
+@hides_environment
 def test_needs_reference_to_an_undefined_job_fails(
     tmp_path: Path, embedded_calls: list[dict[str, Any]]
 ) -> None:

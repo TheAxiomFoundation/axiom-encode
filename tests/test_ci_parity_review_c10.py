@@ -413,7 +413,6 @@ def test_c10_repository_environment_is_invariant_for_all_home_values():
     from hypothesis import strategies as st
 
     from axiom_encode import ci_parity
-    from tests.environment_assertions import changed_names
 
     run = SimpleNamespace(
         paths={"engine": Path("/pinned/engine")},
@@ -634,7 +633,7 @@ def test_c10_engine_rejects_unsupported_cargo_config(tmp_path, monkeypatch):
 
 import pytest as _c11_pytest  # noqa: E402
 
-from tests.environment_assertions import hides_environment
+from tests.environment_assertions import changed_names, hides_environment
 
 
 @_c11_pytest.mark.parametrize(

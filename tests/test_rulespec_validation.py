@@ -582,9 +582,8 @@ def test_composition_uses_explicit_roots_and_credential_free_environment(
         "--rulespec-root",
         str(policy_repo.parent),
     ]
-    composer_names = set(observed["env"])
-    assert "OPENAI_API_KEY" not in composer_names
-    assert "AXIOM_RULESPEC_REPO_ROOTS" not in composer_names
+    assert "OPENAI_API_KEY" not in observed["env"]
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in observed["env"]
 
 
 def _admitted_runtime_stub(
@@ -1383,9 +1382,8 @@ def test_rulespec_compile_passes_only_explicit_root_arguments(monkeypatch, tmp_p
         "--output",
         str(output_path),
     ]
-    engine_names = set(captured["env"])
-    assert "AXIOM_RULESPEC_REPO_ROOTS" not in engine_names
-    assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in engine_names
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in captured["env"]
+    assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in captured["env"]
 
 
 def test_rulespec_engine_binary_ignores_ambient_path(monkeypatch, tmp_path):
