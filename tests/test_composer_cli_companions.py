@@ -10,6 +10,7 @@ import pytest
 from axiom_encode import cli
 from axiom_encode.harness import validator_pipeline
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+from tests.environment_assertions import hides_environment
 
 
 @pytest.mark.parametrize("kind", ["atomic", "composition"])
@@ -42,6 +43,7 @@ def test_companion_compiler_respects_module_kind(tmp_path, kind, composer_availa
     pipeline._axiom_rules_binary = lambda: tmp_path / "engine"
     calls = []
 
+    @hides_environment
     def compile_stub(**kwargs):
         calls.append(kwargs)
         kwargs["output"].write_text(

@@ -16,7 +16,7 @@ from hypothesis import strategies as st
 
 from axiom_encode import ci_parity
 from axiom_encode.engine_binding import engine_binding_receipt_path
-from tests.environment_assertions import expect
+from tests.environment_assertions import hides_environment
 
 _REAL_RUN = subprocess.run
 _REAL_WHICH = shutil.which
@@ -31,6 +31,7 @@ _FILES = {
 }
 
 
+@hides_environment
 def _git(repo: Path, *arguments: str, **kwargs: Any) -> subprocess.CompletedProcess:
     return _REAL_RUN(
         ["git", "-C", str(repo), *arguments],
@@ -163,11 +164,13 @@ class _Build:
         home.mkdir(exist_ok=True)
         monkeypatch.setenv("HOME", str(home.resolve()))
 
+        @hides_environment
         def which(name: str, *args: Any, **kwargs: Any) -> str | None:
             if name == "rustup":
                 return None if rustup is None else "/mock/rustup"
             return _REAL_WHICH(name, *args, **kwargs)
 
+        @hides_environment
         def child(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
             name = Path(command[0]).name
             if name == "git":
@@ -175,7 +178,7 @@ class _Build:
             self.calls.append((command, kwargs))
             if name == "rustup":
                 self.rustup_calls += 1
-                expect(command[1:] == ["show", "active-toolchain"], command)
+                assert command[1:] == ["show", "active-toolchain"]
                 return subprocess.CompletedProcess(command, rustup_code, rustup, "")
             if name == "rustc":
                 return subprocess.CompletedProcess(
@@ -184,7 +187,7 @@ class _Build:
                     "rustc 1.94.1\nrelease: 1.94.1\nhost: c15-test-host\n",
                     "",
                 )
-            expect(name == "cargo", command)
+            assert name == "cargo", command
             self.cargo_calls += 1
             self.snapshot = Path(kwargs["cwd"])
             self.snapshot_files = _inventory(self.snapshot)

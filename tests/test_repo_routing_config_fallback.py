@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from axiom_encode import repo_routing
-from tests.environment_assertions import throw
+from tests.environment_assertions import hides_environment
 
 
 def _init_checkout(path: Path) -> None:
@@ -43,13 +43,14 @@ def test_configuration_failure_disables_cache_and_keeps_fresh_identity_checks(
     config_attempts = []
     identity_probes = []
 
+    @hides_environment
     def failed_configuration(command, *args, **kwargs):
         probe = command[3]
         if probe == config_probe:
             config_attempts.append(kwargs["timeout"])
             if failure == "timeout":
-                throw(subprocess.TimeoutExpired(command, kwargs["timeout"]))
-            throw(FileNotFoundError(2, "git unavailable"))
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            raise FileNotFoundError(2, "git unavailable")
         if probe in {"rev-parse", "remote"}:
             identity_probes.append(probe)
         return original_run(command, *args, **kwargs)

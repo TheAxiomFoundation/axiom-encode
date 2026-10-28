@@ -48,7 +48,7 @@ from axiom_encode.ci_parity import (
     ci_verdict,
 )
 from axiom_encode.corpus_materialize import NO_FETCH_ENV, fetch_disabled
-from tests.environment_assertions import changed_names
+from tests.environment_assertions import changed_names, hides_environment
 
 VERDICT_RANK = {"PASS": 0, "PASS-WITH-MISMATCHED-DEPS": 1, "FAIL": 2}
 SPEC = GateSpec("gate", "Gate", "subcommand", (), "1-2")
@@ -156,6 +156,7 @@ environment_values = st.one_of(
 environments = st.dictionaries(environment_names, environment_values, max_size=12)
 
 
+@hides_environment
 def _without(environment: dict[str, str], *prefixes: str) -> dict[str, str]:
     return {
         name: value
@@ -188,6 +189,7 @@ def test_embedded_python_sees_the_step_environment_and_no_runner_context(
 ) -> None:
     seen: dict[str, Any] = {}
 
+    @hides_environment
     def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
         seen.update(kwargs)
         return subprocess.CompletedProcess(args, 0, b"", b"")

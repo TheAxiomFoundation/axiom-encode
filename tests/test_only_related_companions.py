@@ -18,6 +18,7 @@ from axiom_encode.harness.validator_pipeline import (
     _rulespec_formula_identifiers,
 )
 from axiom_encode.rules_engine_compat import run_rulespec_compile
+from tests.environment_assertions import hides_environment
 from tests.test_companion_declared_entities import _companions
 
 TARGET = "us:policies/example/projection"
@@ -129,6 +130,7 @@ def test_only_related_actual_companions(
     calls = []
     original = subprocess.run
 
+    @hides_environment
     def capture(command, **kwargs):
         result = original(command, **kwargs)
         if "run-compiled" in command:

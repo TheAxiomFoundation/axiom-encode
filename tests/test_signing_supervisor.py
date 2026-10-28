@@ -38,6 +38,7 @@ from axiom_encode.harness.evals import resolve_corpus_source_unit
 from scripts import prepare_signed_backfill as compatibility_backfill
 from scripts import provision_verification_supervisor as provisioner
 from scripts.prepare_signed_backfill import parse_canonical_refresh_bundle
+from tests.environment_assertions import hides_environment
 from tests.eval_evidence_fixtures import (
     TEST_APPLY_PRIVATE_KEY_B64,
     TEST_APPLY_PUBLIC_KEY_B64,
@@ -834,6 +835,7 @@ def _signers(*keys: Ed25519PrivateKey, behavior: str = "valid"):
             thread.join(timeout=5)
 
 
+@hides_environment
 def _invoke(
     supervisor: Path,
     runtime: tuple[Path, Path, Path],
@@ -4921,6 +4923,7 @@ def _run_prepared_signed_reencode(
     stdout_parts: list[str] = []
     stderr_parts: list[str] = []
 
+    @hides_environment
     def run_step(script: str, step_env: dict[str, str]) -> subprocess.CompletedProcess:
         output.write_text("")
         completed = subprocess.run(

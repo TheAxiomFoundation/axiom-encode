@@ -12,7 +12,7 @@ from axiom_encode import repo_routing
 from axiom_encode.harness.dependency_stubs import UnsafeRulespecContextPath
 from axiom_encode.harness.validator_pipeline import _candidate_rulespec_repo_roots
 from axiom_encode.repo_routing import inspect_canonical_rulespec_checkout
-from tests.environment_assertions import throw
+from tests.environment_assertions import hides_environment
 
 
 def _init_checkout(path: Path, origin: str) -> None:
@@ -37,13 +37,14 @@ def test_uk_compile_roots_recover_transient_git_timeout(monkeypatch, tmp_path, p
     timed_out = False
     attempts = []
 
+    @hides_environment
     def overloaded_git(command, *args, **kwargs):
         nonlocal timed_out
         if command[3] == probe:
             attempts.append(kwargs["timeout"])
             if not timed_out:
                 timed_out = True
-                throw(subprocess.TimeoutExpired(command, kwargs["timeout"]))
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
         return original_run(command, *args, **kwargs)
 
     monkeypatch.setattr(repo_routing.subprocess, "run", overloaded_git)
@@ -78,12 +79,13 @@ def test_git_probes_retry_timeout_with_configured_budget(monkeypatch, tmp_path, 
     }[probe]
     timed_out = False
 
+    @hides_environment
     def overloaded_git(command, *args, **kwargs):
         nonlocal timed_out
         attempts.append(kwargs["timeout"])
         if command[3] == target_command and not timed_out:
             timed_out = True
-            throw(subprocess.TimeoutExpired(command, kwargs["timeout"]))
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
         return original_run(command, *args, **kwargs)
 
     monkeypatch.setattr(repo_routing.subprocess, "run", overloaded_git)
@@ -103,11 +105,12 @@ def test_uk_compile_roots_reject_failed_git_probe_with_bounded_attempts(
     monkeypatch.delenv("AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS", raising=False)
     attempts = []
 
+    @hides_environment
     def failed_git(command, **kwargs):
         attempts.append(kwargs["timeout"])
         if error == "timeout":
-            throw(subprocess.TimeoutExpired(command, kwargs["timeout"]))
-        throw(FileNotFoundError(2, "git unavailable"))
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        raise FileNotFoundError(2, "git unavailable")
 
     monkeypatch.setattr(repo_routing.subprocess, "run", failed_git)
 
@@ -127,12 +130,9 @@ def test_git_probe_timeout_rejects_invalid_configuration(monkeypatch, tmp_path, 
     _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-uk.git")
     monkeypatch.setenv("AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS", value)
 
+    @hides_environment
     def unexpected_git(*args, **kwargs):
-        throw(
-            pytest.fail.Exception(
-                "Invalid timeout must be rejected before launching Git"
-            )
-        )
+        pytest.fail("Invalid timeout must be rejected before launching Git")
 
     monkeypatch.setattr(repo_routing.subprocess, "run", unexpected_git)
 
@@ -178,6 +178,7 @@ def test_accepted_git_probe_budgets_reach_a_real_probe_without_overflow(
     original_run = subprocess.run
     attempts = []
 
+    @hides_environment
     def observed_git(command, **kwargs):
         attempts.append(kwargs["timeout"])
         return original_run(command, **kwargs)

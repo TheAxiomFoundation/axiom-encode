@@ -8,6 +8,7 @@ import pytest
 from axiom_encode.codex_cli import with_codex_model_availability_hint
 from axiom_encode.harness import validator_pipeline
 from axiom_encode.harness.validator_pipeline import _extract_codex_text_output
+from tests.environment_assertions import hides_environment
 
 # Verbatim shape of the 400 ChatGPT-account Codex returned for gpt-6-luna on
 # 2026-09-24 (codex-cli 0.153.3).
@@ -54,6 +55,7 @@ def test_codex_reviewer_defaults_to_the_encoder_model(monkeypatch):
     monkeypatch.setattr(validator_pipeline, "resolve_codex_cli", lambda: "codex")
     seen = {}
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
         seen["cmd"] = cmd
         return SimpleNamespace(output="", returncode=0)

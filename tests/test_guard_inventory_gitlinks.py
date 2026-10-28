@@ -9,6 +9,7 @@ import pytest
 
 from axiom_encode import cli
 from scripts.provision_verification_supervisor import _install_trusted_git_wrapper
+from tests.environment_assertions import hides_environment
 from tests.test_cli import (
     TEST_PINNED_ENCODER_IDENTITY,
     _git,
@@ -290,6 +291,7 @@ class TestGuardInventoryGitlinks:
         real_run = cli.subprocess.run
         commands = []
 
+        @hides_environment
         def record_run(command, *args, **kwargs):
             commands.append(command)
             return real_run(command, *args, **kwargs)

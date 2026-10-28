@@ -82,7 +82,7 @@ from axiom_encode.toolchain import (
     RuleSpecToolchainError,
     local_corpus_release_verification,
 )
-from tests.environment_assertions import changed_names
+from tests.environment_assertions import changed_names, hides_environment
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
@@ -738,6 +738,7 @@ def test_release_verification_never_uses_a_shared_temporary_path(
     seen: list[str] = []
     real = ci_parity._run_embedded_python
 
+    @hides_environment
     def spy(script: str, **kwargs: Any) -> tuple[int, str, str]:
         seen.append(kwargs["argv"][0])
         return real(script, **kwargs)
@@ -1515,6 +1516,7 @@ def test_https_only_redirects_replace_the_default_redirect_handler() -> None:
 # ---------------------------------------------------------------------------
 
 
+@hides_environment
 def _install_fake_main(
     monkeypatch: pytest.MonkeyPatch,
     record: dict[str, Any],
@@ -1793,6 +1795,7 @@ def _invocations(tmp_path: Path, count: int) -> list[CliInvocation]:
     ]
 
 
+@hides_environment
 def _refuse_isolation(*_args: Any, **_kwargs: Any) -> Any:
     raise AssertionError("unexpected isolated worker")
 
@@ -1804,6 +1807,7 @@ def test_run_cli_batch_runs_in_process_in_order(
     calls = []
     environments = []
 
+    @hides_environment
     def fake_run_cli(arguments, *, environment, cwd, supervised):
         calls.append((tuple(arguments), cwd, supervised))
         environments.append(environment)
@@ -1896,6 +1900,7 @@ def test_run_cli_isolated_passes_keyring_on_stdin_only(
     captured: dict[str, Any] = {}
     monkeypatch.setenv("PYTHONPATH", "/existing/path")
 
+    @hides_environment
     def fake_run(argv, *, input, stdout, stderr, cwd, env, check):
         captured.update(argv=argv, input=input, env=env, check=check, cwd=cwd)
         return subprocess.CompletedProcess(argv, 4, b"worker out\n", b"worker err\n")
@@ -1951,6 +1956,7 @@ def test_isolated_cli_main_runs_under_the_local_keyring(
 ) -> None:
     seen: dict[str, Any] = {}
 
+    @hides_environment
     def fake_run_cli(arguments, *, environment, cwd, supervised):
         seen.update(
             keys=toolchain_module._LOCAL_CORPUS_RELEASE_PUBLIC_KEYS.get(),
@@ -2013,6 +2019,7 @@ def test_isolated_cli_main_runs_offline_requests_without_remote_fetches(
 ) -> None:
     seen: dict[str, bool] = {}
 
+    @hides_environment
     def fake_run_cli(arguments, *, environment, cwd, supervised):
         seen["remote_fetch_disabled"] = remote_fetch_is_disabled()
         return 0, ""

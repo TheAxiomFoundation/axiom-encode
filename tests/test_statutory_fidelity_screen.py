@@ -54,6 +54,7 @@ from axiom_encode.judges.system_one import (
     NoulQuestion,
 )
 from axiom_encode.run_log import RunLogWriter, StageStatus, iter_events
+from tests.environment_assertions import hides_environment
 
 SECRET = "ts-live-SECRET-0123456789abcdef"
 LEAKY_TEXT = (
@@ -1006,6 +1007,7 @@ def cli(monkeypatch):
         lambda: FakeSystemOneClient(_call_from(state["row"])),
     )
 
+    @hides_environment
     def fake_referee(provision_text, generated_rule, **kwargs):
         state["referee_calls"] += 1
         return JudgeEvent(stage=JudgeStage.STATUTORY_FIDELITY, verdict=Verdict.PASS)

@@ -20,7 +20,7 @@ from hypothesis import strategies as st
 
 from axiom_encode import cli
 from axiom_encode.harness.evals import resolve_corpus_source_unit
-from tests.environment_assertions import throw
+from tests.environment_assertions import hides_environment
 from tests.eval_evidence_fixtures import (
     TEST_APPLY_PRIVATE_KEY_B64,
     TEST_APPLY_PUBLIC_KEY_B64,
@@ -288,9 +288,10 @@ def test_shallow_history_cannot_prove_descendant_admission(graph):
 
 @pytest.mark.parametrize("failure", ["exit-128", "missing-git"])
 def test_git_errors_are_rejections(graph, monkeypatch, failure):
+    @hides_environment
     def unavailable(command, **kwargs):
         if failure == "missing-git":
-            throw(OSError("Git executable unavailable"))
+            raise OSError("Git executable unavailable")
         return subprocess.CompletedProcess(
             command, 128, "", "fatal: history unavailable"
         )

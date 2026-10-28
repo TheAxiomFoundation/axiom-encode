@@ -5,11 +5,13 @@ from subprocess import CompletedProcess
 import pytest
 
 from axiom_encode.rules_engine_compat import run_rulespec_compile
+from tests.environment_assertions import hides_environment
 
 
 def _run(monkeypatch, responses, *, composed=False):
     calls = []
 
+    @hides_environment
     def fake_run(command, **kwargs):
         calls.append((command, kwargs))
         return responses.pop(0)

@@ -47,6 +47,7 @@ from axiom_encode.ci_parity import (
     run_ci,
     verify_dependency_inputs,
 )
+from tests.environment_assertions import hides_environment
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 US_CALLER_TEXT = (FIXTURES / "us-caller.yml").read_text(encoding="utf-8")
@@ -103,6 +104,7 @@ def embedded_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []
     real = ci_parity._run_embedded_python
 
+    @hides_environment
     def spy(
         script: str,
         *,
@@ -240,6 +242,7 @@ def _step_environment(tmp_path: Path) -> dict[str, str]:
     return environment
 
 
+@hides_environment
 def _bash(run: str, *, cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess:
     # GitHub writes the run block to a file and executes `shell: bash` as
     # `bash --noprofile --norc -eo pipefail {0}`.
