@@ -76,25 +76,31 @@ environment's place; a mock standing in for a launcher raises through
   launcher reads its ``env`` as a mapping, so it is passed a ``Names``;
 - a call handing what may hold one to code out of view: a function the module
   imports, a class whose ``__new__`` or ``__init__`` may be out of view (as
-  may any class with a base out of view but a built-in class or a named
-  tuple, which may run its own or replace the class's as it builds it), or a
-  method of anything but a container that is not in view (a mock's
-  ``assert_called_with``, ``functools.partial`` and ``os.execvpe`` among
-  them). A method is in view only where Python's lookup, along the C3 order
-  of each class the receiver may be an instance of, finds a ``def`` of the
-  module's before any class out of view, under no decorator but
-  ``hides_environment``, ``staticmethod`` and ``classmethod``, and none of
-  those classes defines ``__getattribute__``. The receiver is known as a call
-  to a class with no base out of view that the module binds once, by its
-  ``class`` statement (or a name it assigns that class alone), whose
-  ``__new__`` is ``object``'s; as a name every binding of which is such a
-  call; and as the first parameter of the method it is read in, or
-  ``super()`` there, where it may be an instance of the method's class or of
-  any of the module's classes built on it, none of which may have a base out
-  of view but a built-in class or a named tuple. That
-  parameter is not taken to be what the lookup bound in a static method,
-  under a decorator that may call the method otherwise, in a method the
-  module reads off a class, or where the method rebinds it. A method name the
+  may any class with a base out of view but a built-in class or
+  ``typing.NamedTuple``, which may run its own or replace the class's as it
+  builds it), or a method of anything but a container that is not in view (a
+  mock's ``assert_called_with``, ``functools.partial`` and ``os.execvpe``
+  among them). Those two bases are known by what binds their names: a
+  built-in's name the module does not bind, and ``NamedTuple`` imported from
+  ``typing`` (or read off ``typing``); ``object`` is left out of an order
+  only where the module does not bind its name. A method is in view only
+  where Python's lookup, along the C3 order of each class the receiver may be
+  an instance of, finds a ``def`` of the module's before any class out of
+  view, under no decorator but ``hides_environment``, ``staticmethod`` and
+  ``classmethod``, and none of those classes defines ``__getattribute__``.
+  The receiver is known as a call to a class with no base out of view that
+  the module binds once, by its ``class`` statement (or a name it assigns
+  that class alone), whose ``__new__`` is ``object``'s; as a name every
+  binding of which is such a call; and as the first parameter of the method
+  it is read in, or ``super()`` there, where it may be an instance of the
+  method's class or of any of the module's classes built on it, none of which
+  may have a base out of view but those two. That parameter is not taken to
+  be what the lookup bound in a static method, under a decorator that may
+  call the method otherwise, in a method the module reads off a class (by its
+  name, a name any binding of which may give one, ``type(...)``, a
+  ``__class__``, a class method's first parameter, or a choice of these), or
+  where the method rebinds it by any form (an assignment, an import, a
+  ``def``, an ``except ... as``, a pattern's capture). A method name the
   module may replace other than by ``def`` (as an attribute, through
   ``setattr``, ``delattr`` or ``patch``, as a key of a namespace, or in a
   class's body) is never in view, and no method is where such a name is not
@@ -102,8 +108,14 @@ environment's place; a mock standing in for a launcher raises through
   the frame it raised in, so a test hands it a ``Names`` (or a minimal
   environment of its own);
 - a call passing what may hold one to a parameter of a function in view that
-  it runs (a method, or a class's ``__new__`` or ``__init__``), where
-  ``hides_environment`` does not mask it;
+  it runs (a method, or a class's ``__new__`` or ``__init__``, and where that
+  ``__new__`` is the module's, which may return an instance of any class
+  built on it, the ``__init__`` of each), where ``hides_environment`` does
+  not mask it. Arguments are bound as Python binds them: ``__new__`` is
+  passed the class and a static ``__init__`` no instance; a literal sequence
+  starred in place passes its items in turn, and one starred otherwise may
+  pass any number, even none, so it and every argument after it may reach
+  any parameter from the first that no argument ahead of it fills;
 - a read or ``del`` of a variable of ``os.environ`` (or a name bound to it) by
   subscript, a one-argument ``pop`` or a ``popitem`` of it, and
   ``monkeypatch.delenv`` unless it is passed ``raising=False``. A test reads a
@@ -126,10 +138,12 @@ to an environment inside it. Environments start as:
   fake any function hands to code out of view (``_Check._handed``), in a
   module that launches something itself;
 - the ``env`` or ``environment`` field of a record that prints its fields (a
-  dataclass, one this module defines at its top level or one imported from
+  dataclass, one this module defines at its top level, with the fields of
+  the module's records it is built on, or one imported from
   ``axiom_encode``), wherever one is built, a parameter is annotated with its
   class, or one of its own methods (``__post_init__`` among them) is passed
-  it as ``self``.
+  it as ``self``. A class method is passed the class, which prints as its
+  name.
 
 They are followed through copies and filtered copies (``dataclasses.asdict``,
 ``vars`` and ``getattr`` too), assignments, and containers a test or a
@@ -151,7 +165,7 @@ items, a value, what it keeps) is followed as before.
 ``test_the_check_agrees_with_pytest`` runs pytest at ``-vvv`` on examples of
 each shape to keep the model honest.
 
-The model flags more than pytest prints in seven cases. When ``==`` fails
+The model flags more than pytest prints in eight cases. When ``==`` fails
 between two strings, sequences, sets or dicts, or a set comparison fails,
 pytest prints its own diff of the two results in place of what their operands
 would print. The operands' types are not known here, so such asserts are
@@ -167,19 +181,26 @@ module's: on an instance a fixture returns; on what a call to a class returns
 where the module binds the class's name more than once or the class has a
 base out of view; past a base out of view that does not define it; on a first
 parameter, where the class it is read in, or one built on it, has a base out
-of view but a built-in class or a named tuple (which may leave its methods as
-they are), or in a module with a class whose bases it can't read (one a call
-builds, say); or under a name the module may replace. So does a call to a
-class with such a base, or whose ``__new__`` or ``__init__`` the module may
-replace or is out of view, but a built-in class's (or a named tuple's), which
-run no Python frame that can raise. An object holding an environment
+of view but a built-in class or ``typing.NamedTuple`` (which may leave its
+methods as they are), where the module reads the method off a name only some
+binding of which gives a class, or in a module with a class whose bases it
+can't read (one a call builds, say); or under a name the module may replace.
+So does a call to a class with such a base, or whose ``__new__`` or
+``__init__`` the module may replace or is out of view, but a built-in
+class's (or a named tuple's), which run no Python frame that can raise; and
+where its ``__new__`` is the module's, the ``__init__`` of each class built
+on it counts, though that ``__new__`` may return none of them. An argument
+after one starred other than as a literal counts as passed to each parameter
+from the first that no argument ahead of it fills. An object holding an
+environment
 under another name counts where it is passed to a function
 ``hides_environment`` wraps, though that refuses it when it also answers to
 ``env`` or ``environment`` (through ``__getattr__``, say). And a function is
 flagged whether or not anything in it can raise, unless all it does is return
 constants, and so is a read of ``os.environ`` by subscript, whether or not the
 variable is set, and of a name the module binds to ``os.environ`` anywhere,
-whatever it is bound to where it is read.
+or of ``environ`` read off a name it binds to ``os`` anywhere, whatever the
+name is bound to where it is read.
 
 It misses what it cannot see. A test that does not itself launch anything may
 read a mock the code under test launched through; ``mock.call_args.kwargs``
@@ -215,8 +236,9 @@ function's result. Nor is ``os`` taken to be bound otherwise than by
 ``class`` statement of its own (``type(...)``, a class out of view) is not
 taken to be what a first parameter may hold, and a method's function reached
 off its class other than by attribute, ``getattr`` or a key of its namespace
-(``vars(cls).get``, ``inspect.getmembers``) is not taken to be called
-unbound. A record a function defines, or one built with an environment in a
+(``vars(cls).get``, ``inspect.getmembers``), or off a class reached other
+than through a name (an item of a container, a function's result), is not
+taken to be called unbound. A record a function defines, or one built with an environment in a
 field of another name, is not taken to hold it, so neither is the ``self`` of
 its methods (its ``__post_init__`` among them), which pytest prints with its
 fields. Setting variables to what the platform rejects raises from
@@ -423,10 +445,6 @@ RECEIVING = frozenset(
     }
 )
 PLAIN = frozenset({HIDES, "staticmethod", "classmethod"})
-# Bases out of view whose ``__new__`` and ``__init__`` run no Python frame
-# that can raise with the arguments a call passes: a named tuple's ``__new__``
-# is a lambda passing them to ``tuple.__new__`` (``collections.namedtuple``).
-RECORD_BASES = frozenset({"NamedTuple"})
 # Methods whose first parameter is a class.
 CLASS_METHODS = frozenset({"__new__", "__init_subclass__", "__class_getitem__"})
 
@@ -642,6 +660,47 @@ def _paired(target: ast.AST, value: ast.AST) -> Iterator[tuple[ast.AST, ast.AST]
         yield target, value
 
 
+def _binds(node: ast.AST) -> str | None:
+    """The name ``node`` binds, if any: a name stored or deleted, a
+    parameter, an import, a ``def`` or ``class``, an ``except ... as``, or a
+    pattern's capture."""
+    if isinstance(node, ast.Name):
+        return None if isinstance(node.ctx, ast.Load) else node.id
+    if isinstance(node, ast.arg):
+        return node.arg
+    if isinstance(node, ast.alias):
+        return node.asname or node.name.partition(".")[0]
+    if isinstance(node, (*FUNCTIONS, ast.ClassDef)):
+        return getattr(node, "name", None)
+    if isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)):
+        return node.name
+    if isinstance(node, ast.MatchMapping):
+        return node.rest
+    return None
+
+
+def _placed(arguments: list[ast.expr]) -> Iterator[tuple[ast.expr, int, bool]]:
+    """Each argument a call passes by position, with the first position it
+    may take and whether it may take any after that. A literal sequence
+    starred in place passes its items in turn; one starred otherwise may
+    pass any number, even none, so it and every argument after it may take
+    any position from the first that no argument ahead of it fills."""
+    given: list[ast.expr] = []
+    for argument in arguments:
+        if isinstance(argument, ast.Starred) and isinstance(
+            argument.value, (ast.Tuple, ast.List)
+        ):
+            given.extend(argument.value.elts)
+        else:
+            given.append(argument)
+    fixed = 0
+    unknown = False
+    for argument in given:
+        unknown |= isinstance(argument, ast.Starred)
+        yield argument, fixed, unknown
+        fixed += not isinstance(argument, ast.Starred)
+
+
 def _merged(sequences: list[list[object]]) -> list[object] | None:
     """C3's merge of ``sequences``, or None where they have no consistent
     order."""
@@ -722,14 +781,33 @@ def _renamed(node: ast.Call) -> ast.AST | None:
 
 def _class_fields(tree: ast.Module) -> dict[str, tuple[str, ...]]:
     """The annotated fields, in order, of each class ``tree`` defines whose
-    instances print them."""
+    instances print them: as a dataclass orders them, those of the classes
+    of the module's it is built on first, then its own."""
     classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
+    fields: dict[str, tuple[str, ...]] = {}
+
+    def of(name: str, seen: frozenset[str]) -> tuple[str, ...]:
+        if name not in fields:
+            node = classes[name]
+            found = dict.fromkeys(
+                field
+                for base in reversed(node.bases)
+                if _dotted(base) in classes and _dotted(base) not in seen
+                for field in of(_dotted(base), seen | {name})
+            )
+            found.update(
+                dict.fromkeys(
+                    item.target.id
+                    for item in node.body
+                    if isinstance(item, ast.AnnAssign)
+                    and isinstance(item.target, ast.Name)
+                )
+            )
+            fields[name] = tuple(found)
+        return fields[name]
+
     return {
-        name: tuple(
-            item.target.id
-            for item in node.body
-            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name)
-        )
+        name: of(name, frozenset())
         for name, node in classes.items()
         if _shows_attributes(node, classes)
     }
@@ -881,37 +959,47 @@ class _Check:
             for alias in node.names
         }
         # Modules under another name: imported as it (``import subprocess as
-        # sp``), or a name the module binds one to (``system = os``).
-        imported = {
-            alias.asname or alias.name.partition(".")[0]: (
-                alias.name.rpartition(".")[2]
-                if alias.asname
-                else alias.name.partition(".")[0]
-            )
+        # sp``), or a name the module binds one to (``system = os``). A name
+        # may be bound to different modules in different scopes, or in turn
+        # (``os, sys = sys, os``), so each holds every module it may be, and
+        # the sets only grow.
+        self.modules: dict[str, set[str]] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    self.modules.setdefault(
+                        alias.asname or alias.name.partition(".")[0], set()
+                    ).add(
+                        alias.name.rpartition(".")[2]
+                        if alias.asname
+                        else alias.name.partition(".")[0]
+                    )
+        # Each name an assignment binds, with what it is bound to.
+        paired = [
+            (target.id, value)
             for node in ast.walk(tree)
-            if isinstance(node, ast.Import)
-            for alias in node.names
-        }
-        self.modules = {
-            name: module for name, module in imported.items() if name != module
-        }
-        while True:
-            renamed = {
-                target.id: self.modules.get(value.id, imported.get(value.id, ""))
-                for node in ast.walk(tree)
-                if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr))
-                and node.value is not None
-                for whole in (
-                    node.targets if isinstance(node, ast.Assign) else [node.target]
-                )
-                for target, value in _paired(whole, node.value)
-                if isinstance(target, ast.Name)
-                and isinstance(value, ast.Name)
-                and (value.id in self.modules or value.id in imported)
-            }
-            if renamed.items() <= self.modules.items():
-                break
-            self.modules.update(renamed)
+            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr))
+            and node.value is not None
+            for whole in (
+                node.targets if isinstance(node, ast.Assign) else [node.target]
+            )
+            for target, value in _paired(whole, node.value)
+            if isinstance(target, ast.Name)
+        ]
+        renames = [
+            (target, value.id)
+            for target, value in paired
+            if isinstance(value, ast.Name)
+        ]
+        changed = True
+        while changed:
+            changed = False
+            for target, value in renames:
+                if value in self.modules and not self.modules[value] <= (
+                    held := self.modules.setdefault(target, set())
+                ):
+                    held |= self.modules[value]
+                    changed = True
         # Names bound to ``os.environ`` itself (``values = os.environ``, an
         # unpacked pair, a walrus), anywhere in the module.
         self.live: set[str] = set()
@@ -999,21 +1087,10 @@ class _Check:
         # first parameter of a method is read from the method.
         bindings: dict[str, list[ast.AST]] = {}
         for node in ast.walk(tree):
-            if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
-                bindings.setdefault(node.id, []).append(node)
-            elif isinstance(node, ast.arg):
-                bindings.setdefault(node.arg, []).append(node)
-            elif isinstance(node, ast.alias):
-                name = node.asname or node.name.partition(".")[0]
+            if name := _binds(node):
                 bindings.setdefault(name, []).append(node)
-            elif isinstance(node, (FUNCTIONS, ast.ClassDef)) and hasattr(node, "name"):
-                bindings.setdefault(node.name, []).append(node)
-            elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)):
-                if node.name:
-                    bindings.setdefault(node.name, []).append(node)
-            elif isinstance(node, ast.MatchMapping) and node.rest:
-                bindings.setdefault(node.rest, []).append(node)
         self.bound = set(bindings)
+        self.bindings = bindings
         star = any(
             alias.name == "*"
             for node in ast.walk(tree)
@@ -1119,6 +1196,15 @@ class _Check:
         self.unbound: set[str] = set()
         self.unbound_defs: set[int] = set()
         self.unbound_all = False
+        # A name any binding of which may give a class of the module's
+        # (``Alias = Probe``, ``kind = type(probe)``) is taken for one.
+        self.class_valued: set[str] = set()
+        while found := {
+            name
+            for name, value in paired
+            if name not in self.class_valued and self._of_class(value)
+        }:
+            self.class_valued |= found
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute) and self._of_class(node.value):
                 self._unbind(node.value, node.attr)
@@ -1481,11 +1567,13 @@ class _Check:
         if fields:
             # A carrier holds what its environment field is given.
             found = set()
-            for position, argument in enumerate(node.args):
+            for argument, first, unknown in _placed(node.args):
+                held = self.paths(argument, scope)
                 if isinstance(argument, ast.Starred):
-                    break
-                if position < len(fields) and fields[position] in ENVIRONMENT_KEYS:
-                    found |= _under(f".{fields[position]}", arguments[position])
+                    held = _descend(held, ANY)
+                for field in fields[first:] if unknown else fields[first : first + 1]:
+                    if field in ENVIRONMENT_KEYS:
+                        found |= _under(f".{field}", held)
             for keyword in node.keywords:
                 if keyword.arg in ENVIRONMENT_KEYS:
                     found |= _under(f".{keyword.arg}", self.paths(keyword.value, scope))
@@ -1603,19 +1691,22 @@ class _Check:
             for argument in _all_parameters(function)
         }
         # A method reads what its class's methods store on the instance, and
-        # a record's, what its environment fields may be built with.
+        # a record's, what its environment fields may be built with. A class
+        # method is passed the class, which prints as its name: what it reads
+        # off it is kept, hidden.
         owner = self.owners.get(function)
         parameters = _parameters(function)
-        if (
-            owner is not None
-            and parameters
-            and "staticmethod"
-            not in {_name(decorator) for decorator in function.decorator_list}
-        ):
-            seeds[parameters[0]] |= {
+        decorators = {_name(decorator) for decorator in function.decorator_list}
+        if owner is not None and parameters and "staticmethod" not in decorators:
+            held = {
                 path[1:] if path[:1] == (HIDDEN,) else path
                 for path in self.instances.get(owner, set())
-            } | self._annotated(ast.Name(id=owner))
+            }
+            if "classmethod" in decorators or function.name in CLASS_METHODS:
+                held = _under(HIDDEN, held)
+            else:
+                held |= self._annotated(ast.Name(id=owner))
+            seeds[parameters[0]] |= held
         return {
             name: self._passed(function, name, paths) for name, paths in seeds.items()
         }
@@ -1846,9 +1937,14 @@ class _Check:
             helper = self.helpers[function.id]
             filled = self.filled[function.id]
             positions = _parameters(helper)
-            for position, argument in enumerate(node.args):
-                if position < len(positions) and positions[position] in filled:
-                    changed |= self._store(argument, filled[positions[position]], scope)
+            for argument, first, unknown in _placed(node.args):
+                taken = positions[first:] if unknown else positions[first : first + 1]
+                paths = {
+                    path for name in taken if name in filled for path in filled[name]
+                }
+                if isinstance(argument, ast.Starred):
+                    argument, paths = argument.value, _under(ANY, paths)
+                changed |= self._store(argument, paths, scope)
             for keyword in node.keywords:
                 if keyword.arg in filled:
                     changed |= self._store(keyword.value, filled[keyword.arg], scope)
@@ -1874,23 +1970,19 @@ class _Check:
             if paths:
                 found.setdefault(name, set()).update(paths)
 
-        unknown = False
-        for position, argument in enumerate(node.args):
+        for argument, first, unknown in _placed(node.args):
+            paths = self.paths(argument, scope)
             if isinstance(argument, ast.Starred):
-                # It and what follows it land at positions not known here.
-                unknown = True
-                paths = _descend(self.paths(argument.value, scope), ANY)
-            else:
-                paths = self.paths(argument, scope)
+                paths = _descend(paths, ANY)
             if unknown:
-                for parameter in positional[position:]:
+                for parameter in positional[first:]:
                     add(parameter.arg, paths)
                 if arguments.vararg is not None:
                     add(arguments.vararg.arg, _under(ANY, paths))
-            elif position < len(positional):
-                add(positional[position].arg, paths)
+            elif first < len(positional):
+                add(positional[first].arg, paths)
             elif arguments.vararg is not None:
-                add(arguments.vararg.arg, _under(position - len(positional), paths))
+                add(arguments.vararg.arg, _under(first - len(positional), paths))
         for keyword in node.keywords:
             paths = self.paths(keyword.value, scope)
             if keyword.arg is None:
@@ -2299,7 +2391,8 @@ class _Check:
         decorator that may call the method otherwise (any but
         ``hides_environment``, ``classmethod``, a property or one of
         pytest's), in a method the module reads off a class (``unbound``), or
-        where the method rebinds it.
+        where the method rebinds it by any form (``_binds``: an assignment, an
+        import, a ``def``, an ``except ... as``, a pattern's capture).
         """
         owner = self.method_classes.get(frame)
         if owner is None:
@@ -2318,10 +2411,11 @@ class _Check:
             or id(frame) in self.unbound_defs
         ):
             return None
+        # By any form, in any scope within it.
         if any(
-            isinstance(node, ast.Name)
-            and node.id == first
-            and not isinstance(node.ctx, ast.Load)
+            node is not frame
+            and not isinstance(node, ast.arg)
+            and _binds(node) == first
             for node in ast.walk(frame)
         ):
             return None
@@ -2329,10 +2423,19 @@ class _Check:
 
     def _of_class(self, node: ast.AST) -> bool:
         """Whether ``node`` may be a class of this module's, whose functions
-        are read off it unbound: a name a ``class`` statement binds,
-        ``type(...)``, a ``__class__``, or a class method's first parameter."""
+        are read off it unbound: a name a ``class`` statement binds or one any
+        binding of which may give a class (``class_valued``: an alias of one
+        too), ``type(...)``, a ``__class__``, a class method's first
+        parameter, a walrus binding one, or a choice of one (``a or b``,
+        ``a if c else b``)."""
+        if isinstance(node, ast.NamedExpr):
+            return self._of_class(node.value)
+        if isinstance(node, ast.IfExp):
+            return self._of_class(node.body) or self._of_class(node.orelse)
+        if isinstance(node, ast.BoolOp):
+            return any(self._of_class(value) for value in node.values)
         if isinstance(node, ast.Name):
-            if node.id in self.class_names:
+            if node.id in self.class_names or node.id in self.class_valued:
                 return True
             frame = self.enclosing.get(node)
             return (
@@ -2388,7 +2491,8 @@ class _Check:
 
         This module's classes appear as their ``class`` statements, and each
         class out of view as its source text, standing for it and all it
-        inherits (``*bases`` too); ``object`` is left out. None where it can't
+        inherits (``*bases`` too); ``object`` is left out, unless the module
+        binds its name. None where it can't
         be known: under a class decorator other than ``dataclass``, with a
         metaclass or other keyword, or with bases in no consistent order.
         """
@@ -2402,7 +2506,7 @@ class _Check:
                 return None
             parents: list[list[object]] = []
             for base in owner.bases:
-                if _dotted(base) == "object":
+                if _dotted(base) == "object" and "object" not in self.bound:
                     continue
                 known = self.known_classes.get(_dotted(base))
                 parent = [ast.unparse(base)] if known is None else self._order(known)
@@ -2464,17 +2568,39 @@ class _Check:
 
     def _inert_base(self, base: object) -> bool:
         """Whether ``base``, in a method resolution order, is this module's
-        class, or a built-in class or a named tuple out of view: one that
-        leaves what a class built on it defines as it is, and whose
+        class, or a built-in class or ``typing.NamedTuple`` out of view: one
+        that leaves what a class built on it defines as it is, and whose
         ``__new__`` and ``__init__`` run no Python frame that can raise with
         what a call passes (a named tuple's ``__new__`` is a lambda passing
-        them to ``tuple.__new__``)."""
+        them to ``tuple.__new__``). Each is known by what binds its name, not
+        by its spelling: a built-in's name the module does not bind, and
+        ``NamedTuple`` imported from ``typing`` (``_from``)."""
         if not isinstance(base, str):
             return True
-        root = re.split(r"[.\[(]", base)[0]
-        last = re.split(r"[\[(]", base)[0].rpartition(".")[2]
-        return last in RECORD_BASES or (
+        text = re.split(r"[\[(]", base)[0]
+        root, _, rest = text.partition(".")
+        if rest:
+            return rest == "NamedTuple" and self._from(root, "", "typing")
+        return self._from(root, "typing", "NamedTuple") or (
             root not in self.bound and isinstance(getattr(builtins, root, None), type)
+        )
+
+    def _from(self, name: str, module: str, imported: str) -> bool:
+        """Whether every binding of ``name`` imports ``imported`` from
+        ``module`` (``from typing import NamedTuple``), or, where ``module``
+        is empty, imports the module ``imported`` (``import typing``)."""
+        found = self.bindings.get(name, [])
+        return bool(found) and all(
+            isinstance(binding, ast.alias)
+            and binding.name == imported
+            and (
+                isinstance(statement := self.parents.get(id(binding)), ast.ImportFrom)
+                and statement.module == module
+                and not statement.level
+                if module
+                else isinstance(self.parents.get(id(binding)), ast.Import)
+            )
+            for binding in found
         )
 
     def _builds_itself(self, owner: ast.ClassDef) -> bool:
@@ -2514,13 +2640,16 @@ class _Check:
 
     def _constructed(self, node: ast.Call) -> list[tuple[ast.AST, int]] | None:
         """The ``__new__`` and ``__init__`` of this module's that a call to a
-        class runs.
+        class may run, with how many of their parameters the call binds:
+        ``__new__`` is passed the class, a static ``__init__`` nothing.
 
         ``[]`` for a call to anything but a class of this module's, or where
         they are a built-in class's, which run no Python frame; None where the
         class is not known (``known_classes``, ``_order``) or has a base out
-        of view but those (``_inert_base``), which may run its own or replace the
-        class's.
+        of view but those (``_inert_base``), which may run its own or replace
+        the class's. A ``__new__`` of the module's may return an instance of
+        any class built on the one called, whose ``__init__`` then runs, so
+        each of theirs is taken (``_subclasses``).
         """
         name = node.func.id
         if name not in self.class_names and name not in self.known_classes:
@@ -2534,25 +2663,42 @@ class _Check:
             or {"__new__", "__init__"} & self.overridden
         ):
             return None
+        new = self._looked_up(order, "__new__")
+        orders: list[list[object]] | None = [order]
+        if isinstance(new, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            orders = self._subclasses(owner)
+            if orders is None:
+                return None
         runs = []
-        for method in ("__new__", "__init__"):
-            definition = self._looked_up(order, method)
+        for definition in [
+            new,
+            *(self._looked_up(each, "__init__") for each in orders),
+        ]:
             if isinstance(definition, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if {_name(decorator) for decorator in definition.decorator_list} - {
-                    HIDES,
-                    "staticmethod",
-                }:
+                decorators = {
+                    _name(decorator) for decorator in definition.decorator_list
+                }
+                if decorators - {HIDES, "staticmethod"}:
                     return None
-                runs.append((definition, 1))
+                static = "staticmethod" in decorators and definition.name != "__new__"
+                runs.append((definition, 0 if static else 1))
         return runs
 
     def _launcher(self, dotted: str) -> bool:
         """Whether ``dotted`` names one of the standard library's launchers,
         its module imported under any name, or a name bound to one."""
         parts = dotted.split(".")
-        if len(parts) >= 2:
-            parts[-2] = self.modules.get(parts[-2], parts[-2])
-        return tuple(parts[-2:]) in SPAWNERS or dotted in self.spawners
+        return dotted in self.spawners or (
+            len(parts) >= 2
+            and any(
+                (module, parts[-1]) in SPAWNERS for module in self.origins(parts[-2])
+            )
+        )
+
+    def origins(self, name: str) -> set[str]:
+        """The modules ``name`` may be: each imported as it, and each a name
+        bound to it may be; itself, where the module binds it to none."""
+        return self.modules.get(name, {name})
 
     def _spawns(self, node: ast.Call) -> bool:
         """Whether ``node`` calls one of the standard library's launchers."""
@@ -2576,10 +2722,7 @@ class _Check:
         if not isinstance(node, ast.Attribute):
             return False
         module = _dotted(node.value).rpartition(".")[2]
-        return (
-            node.attr in {"environ", "environb"}
-            and self.modules.get(module, module) == "os"
-        )
+        return node.attr in {"environ", "environb"} and "os" in self.origins(module)
 
     def _environ_raises(self, node: ast.AST) -> bool:
         """Whether ``node`` may raise from a frame whose arguments hold the
@@ -2797,6 +2940,7 @@ import subprocess
 import os as system
 import subprocess as sp
 import sys
+import typing
 import warnings
 from types import SimpleNamespace
 from typing import NamedTuple
@@ -2831,6 +2975,14 @@ def logged(function):
     return wrapper
 
 
+def platform_version():
+    # A local name for another module leaves the global ``system`` and ``sp``
+    # what they are imported as.
+    system = sys
+    sp = sys
+    return system.version, sp.version
+
+
 def fake_global(command, **kwargs):
     CALLS.append(kwargs)
 
@@ -2852,6 +3004,10 @@ def hidden_forwarding(fake):
 
 def record_into(record):
     record["environ"] = dict(os.environ)
+
+
+def record_second(command, into):
+    into.append(dict(os.environ))
 
 
 def recorder():
@@ -2996,6 +3152,23 @@ class Rebuilt:
 
     def __post_init__(self):
         self.env = dict(self.env)
+
+
+@dataclasses.dataclass
+class FirstBased:
+    env: dict
+
+
+@dataclasses.dataclass
+class SecondBased:
+    name: str = "git"
+
+
+# Its fields are ``FirstBased``'s, then ``SecondBased``'s: a dataclass takes
+# its bases' fields in reverse method resolution order.
+@dataclasses.dataclass
+class TwoBased(SecondBased, FirstBased):
+    pass
 
 
 class Shown:
@@ -3727,6 +3900,177 @@ def test_leaks_handed_to_a_constructor():
     Constructed(["git"], dict(os.environ))
 
 
+def test_leaks_handed_to_a_static_constructor():
+    class StaticBuilt:
+        @staticmethod
+        @hides_environment
+        def __init__(environment, command):
+            raise ValueError(command)
+
+    StaticBuilt(["git"], dict(os.environ))
+
+
+def test_leaks_handed_to_the_constructor_of_a_class_new_returns():
+    class QuietNew:
+        @hides_environment
+        def __new__(cls, command, environment):
+            return object.__new__(LoudNew)
+
+        @hides_environment
+        def __init__(self, command, environment):
+            pass
+
+    class LoudNew(QuietNew):
+        def __init__(self, command, values):
+            raise ValueError(command)
+
+    QuietNew(["git"], dict(os.environ))
+
+
+def test_leaks_handed_past_an_empty_star():
+    class EmptyStar:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+    EmptyStar().probe(*(), dict(os.environ), ["git"])
+
+
+def test_leaks_handed_past_a_star_of_no_items():
+    class NoItemsStar:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+    leading = []
+    NoItemsStar().probe(*leading, dict(os.environ), ["git"])
+
+
+def test_leaks_handed_past_a_star_of_items():
+    class ItemsStar:
+        @hides_environment
+        def probe(self, command, environment, values=None):
+            raise ValueError(command)
+
+    leading = [["first"]]
+    ItemsStar().probe(*leading, ["git"], dict(os.environ))
+
+
+def test_leaks_to_a_record_field_past_a_star():
+    leading = [["git"]]
+    record = Launch(*leading, dict(os.environ))
+    assert record is None
+
+
+def test_leaks_to_a_record_field_past_an_empty_star():
+    record = Launch(*(), ["git"], dict(os.environ))
+    assert record is None
+
+
+def test_leaks_through_a_class_alias():
+    class AliasRead:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def alias_read(self, command):
+            self.probe(command, dict(os.environ))
+
+    ReadAlias = AliasRead
+    ReadAlias.alias_read(under_test.Base(), ["git"])
+
+
+def test_leaks_through_a_class_chosen():
+    class ChosenRead:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def chosen_read(self, command):
+            self.probe(command, dict(os.environ))
+
+    chosen = ChosenRead if sys.argv else type(under_test.Base())
+    chosen.chosen_read(under_test.Base(), ["git"])
+
+
+def test_leaks_through_a_class_picked():
+    class PickedRead:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def picked_read(self, command):
+            self.probe(command, dict(os.environ))
+
+    picked = None or PickedRead
+    picked.picked_read(under_test.Base(), ["git"])
+
+
+def test_leaks_through_a_class_bound_in_place():
+    class WalrusRead:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def walrus_read(self, command):
+            self.probe(command, dict(os.environ))
+
+    (walrused := WalrusRead).walrus_read(under_test.Base(), ["git"])
+
+
+def test_leaks_through_a_named_tuple_of_another_module():
+    class OtherNamed(under_test.NamedTuple):
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def check(self):
+            self.probe(["git"], dict(os.environ))
+
+    OtherNamed().check()
+
+
+def test_leaks_filled_past_a_star():
+    holder = []
+    leading = [["git"]]
+    record_second(*leading, holder)
+    assert holder == []
+
+
+def test_leaks_filled_through_a_star():
+    pair = (["git"], [])
+    record_second(*pair)
+    assert pair == ()
+
+
+def test_leaks_through_a_receiver_imported_over():
+    class ImportedOver:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def check(importer):
+            import under_test as importer
+
+            importer.probe(["git"], dict(os.environ))
+
+    ImportedOver().check()
+
+
+def test_leaks_through_a_receiver_captured_over():
+    class CapturedOver:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def check(captured):
+            match under_test.Base():
+                case captured:
+                    captured.probe(["git"], dict(os.environ))
+
+    CapturedOver().check()
+
+
 def test_leaks_handed_to_a_constructor_out_of_view():
     class Inheriting(under_test.Built):
         pass
@@ -4218,6 +4562,18 @@ def test_leaks_local_alias_launch():
     launch([sys.executable, "-c", "raise SystemExit(1)"], env=dict(os.environ))
 
 
+def test_leaks_local_alias_of_a_module_alias_launch():
+    aliased_launch = sp.check_call
+    aliased_launch(
+        [sys.executable, "-c", "raise SystemExit(1)"], env=dict(os.environ)
+    )
+
+
+def test_leaks_a_record_built_on_two():
+    record = TwoBased(dict(os.environ))
+    assert record is None
+
+
 def test_leaks_partial_launch():
     launch = functools.partial(subprocess.run, env=dict(os.environ), check=True)
     launch([sys.executable, "-c", "raise SystemExit(1)"])
@@ -4649,6 +5005,74 @@ def test_handed_to_a_hidden_constructor():
     HiddenConstructed(["git"], dict(os.environ))
 
 
+def test_handed_to_a_hidden_static_constructor():
+    class StaticHiddenBuilt:
+        @staticmethod
+        @hides_environment
+        def __init__(command, environment):
+            raise ValueError(command)
+
+    StaticHiddenBuilt(["git"], dict(os.environ))
+
+
+def test_handed_to_a_hidden_static_new():
+    class StaticHiddenNew:
+        @staticmethod
+        @hides_environment
+        def __new__(cls, command, environment):
+            raise ValueError(command)
+
+    StaticHiddenNew(["git"], dict(os.environ))
+
+
+def test_handed_to_a_hidden_new_and_init():
+    class HiddenNewInit:
+        @hides_environment
+        def __new__(cls, command, environment):
+            return object.__new__(cls)
+
+        @hides_environment
+        def __init__(self, command, environment):
+            raise ValueError(command)
+
+    HiddenNewInit(["git"], dict(os.environ))
+
+
+def test_handed_through_a_receiver_named_as_its_method():
+    class SelfNamed:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def own(own):
+            own.probe(["git"], dict(os.environ))
+
+    SelfNamed().own()
+
+
+def test_handed_past_a_literal_star():
+    class LiteralStar:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+    LiteralStar().probe(*(["git"],), *[dict(os.environ)])
+
+
+def test_handed_to_a_method_through_self_of_a_dotted_named_tuple():
+    class DottedPair(typing.NamedTuple):
+        first: str
+
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def check(self, command):
+            self.probe(command, dict(os.environ))
+
+    DottedPair("a").check(["git"])
+
+
 def test_built_names_then_raised():
     error = under_test.Refusal(sorted(os.environ))
     raise error
@@ -4785,6 +5209,22 @@ def test_flagged_module_base_before_one_out_of_view():
     ModuleFirst().check(["git"])
 
 
+def test_flagged_new_of_a_class_built_on_by_one_out_of_view():
+    class QuietRenewed:
+        @hides_environment
+        def __new__(cls, command, environment):
+            return object.__new__(cls)
+
+        @hides_environment
+        def __init__(self, command, environment):
+            raise ValueError(command)
+
+    class RenewedOutside(QuietRenewed, under_test.Base):
+        pass
+
+    QuietRenewed(["git"], dict(os.environ))
+
+
 def test_flagged_diffed_lists():
     assert sorted(os.environ) == []
 
@@ -4864,6 +5304,9 @@ class Rewriting:
             cls.probe = Base.probe
         if "__init__" in vars(cls):
             cls.__init__ = Built.__init__
+
+
+NamedTuple = Rewriting
 
 
 def launch(run):
@@ -4959,11 +5402,15 @@ def test_the_check_agrees_with_pytest(tmp_path: Path) -> None:
 # a constant, a method writing into a namespace, ``getattr`` reading a class's
 # function by such a name, a base a call builds or one a name holds that the
 # module binds otherwise, ``patch.multiple`` given names by ``**``, a class's
-# ``__new__`` replaced, a built-in class's name bound, an instance's class
-# reassigned, and a dotted import binding its first name; and a record's
-# method, flagged at its ``def``, outside any test. With its trigger in place of ``TRIGGER``, each
-# source prints the sentinel and the check flags the line marked
-# ``# flagged``; with the control there, the check flags nothing.
+# ``__new__`` replaced, a built-in class's name bound, ``NamedTuple`` or
+# ``object`` imported as another class, an instance's class reassigned, a
+# dotted import binding its first name, two modules' names swapped, and
+# another module imported as ``os`` (the control); and a
+# record's method (one built on another record's fields too), flagged at its
+# ``def``, outside any test, beside a class method, which prints only the
+# class. With its trigger in place of ``TRIGGER``, each source prints the
+# sentinel and the check flags the lines marked ``# flagged``; with the
+# control there, the check flags nothing.
 MODULE_WIDE: dict[str, tuple[str, str, str]] = {
     "star_import": (
         """import os
@@ -5188,12 +5635,101 @@ class HeldLaunch:
     def check(self):  # flagged
         raise ValueError("held")
 
+    @classmethod
+    def build(cls):
+        raise ValueError("built")
+
+    def __init_subclass__(cls):
+        raise ValueError("subclassed")
+
 
 def test_record_method():
     HeldLaunch(dict(os.environ)).check()
+
+
+def test_record_class_method():
+    HeldLaunch.build()
+
+
+def test_record_subclassed():
+    class HeldChild(HeldLaunch):
+        pass
 """,
         "env",
         "values",
+    ),
+    "inherited_record_method": (
+        """import dataclasses
+import os
+
+
+@dataclasses.dataclass
+class BaseLaunch:
+    TRIGGER: dict
+
+
+@dataclasses.dataclass
+class NamedLaunch:
+    name: str = "git"
+
+
+@dataclasses.dataclass
+class ChildLaunch(NamedLaunch, BaseLaunch):
+    command: str = "run"
+
+    def check(self):  # flagged
+        raise ValueError(self.command)
+
+
+def test_inherited_record_method():
+    ChildLaunch(dict(os.environ)).check()
+""",
+        "env",
+        "values",
+    ),
+    "named_tuple_imported_otherwise": (
+        """import os
+
+from tests.environment_assertions import hides_environment
+TRIGGER
+
+
+class QuietNamed(NamedTuple):
+    @hides_environment
+    def probe(self, command, environment):
+        raise ValueError(command)
+
+    def check(self):
+        self.probe(["git"], dict(os.environ))  # flagged
+
+
+def test_named_tuple_imported_otherwise():
+    QuietNamed().check()
+""",
+        "from under_test import NamedTuple",
+        "from typing import NamedTuple",
+    ),
+    "object_imported_otherwise": (
+        """import os
+
+from tests.environment_assertions import hides_environment
+TRIGGER
+
+
+class QuietObject(object):
+    @hides_environment
+    def probe(self, command, environment):
+        raise ValueError(command)
+
+    def check(self):
+        self.probe(["git"], dict(os.environ))  # flagged
+
+
+def test_object_imported_otherwise():
+    QuietObject().check()
+""",
+        "from under_test import Rewriting as object",
+        "",
     ),
     "class_reassigned": (
         """import os
@@ -5236,6 +5772,31 @@ def test_dotted_import():
         "import holder.sub",
         "pass",
     ),
+    "modules_swapped": (
+        """import os
+import sys
+
+TRIGGER
+
+
+def test_modules_swapped():
+    assert sys.environ["AAA_MISSING"] == "x"  # flagged
+""",
+        "os, sys = sys, os",
+        "",
+    ),
+    "module_imported_as_another": (
+        """import sys
+
+TRIGGER
+
+
+def test_module_imported_as_another():
+    assert os.environ["AAA_MISSING"] == "x"  # flagged
+""",
+        "import os",
+        "import sys as os",
+    ),
 }
 
 
@@ -5262,6 +5823,43 @@ def test_the_check_reads_the_whole_module(tmp_path: Path) -> None:
     reports = _pytest_reports(tmp_path, *paths)
     printed = sorted(name for name, text in reports.items() if SENTINEL in text)
     assert printed == sorted(f"test_{name}" for name in MODULE_WIDE)
+
+
+@pytest.mark.parametrize(
+    ("bound", "base", "trusted"),
+    [
+        ("from typing import NamedTuple", "NamedTuple", True),
+        ("import typing", "typing.NamedTuple", True),
+        ("from .typing import NamedTuple", "NamedTuple", False),
+        ("from under_test import typing", "typing.NamedTuple", False),
+    ],
+)
+def test_only_typing_s_named_tuple_is_trusted(
+    bound: str, base: str, trusted: bool
+) -> None:
+    """A base named ``NamedTuple`` leaves a class's methods in view only where
+    it is ``typing``'s; a module of another name may replace them. These
+    sources import what this file's examples can't, so only the check runs."""
+    source = f"""import os
+{bound}
+from tests.environment_assertions import hides_environment
+
+
+class Quiet({base}):
+    @hides_environment
+    def probe(self, command, environment):
+        raise ValueError(command)
+
+    def check(self):
+        self.probe(["git"], dict(os.environ))
+
+
+def test_quiet():
+    Quiet().check()
+"""
+    lines = source.splitlines()
+    marked = next(n for n, line in enumerate(lines, 1) if "self.probe(" in line)
+    assert environment_leaks(source) == ([] if trusted else [marked])
 
 
 @settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
@@ -5456,6 +6054,36 @@ def test_hides_environment_refuses_slotted_attributes_it_would_print(
     kept.env = {"A": "1"}
     with pytest.raises(TypeError, match="could not hide"):
         fake(kept)
+
+
+class _Printing:
+    """An object whose repr prints what it holds under the field it is
+    given."""
+
+    def __init__(self, field: str, held: object) -> None:
+        self.field = field
+        setattr(self, field, held)
+
+    def __repr__(self) -> str:
+        return f"_Printing({getattr(self, self.field)!r})"
+
+
+@pytest.mark.parametrize("field", ["env", "environment"])
+def test_hides_environment_refuses_an_object_printing_an_environment(
+    field: str,
+) -> None:
+    seen: list[object] = []
+
+    @hides_environment
+    def fake(record: object) -> None:
+        seen.append(record)
+
+    # Holding ``Names``, it prints names alone, and is passed as it is.
+    kept = _Printing(field, Names({"A": "1"}))
+    fake(kept)
+    assert len(seen) == 1 and seen[0] is kept
+    with pytest.raises(TypeError, match="could not hide"):
+        fake(_Printing(field, {"A": "1"}))
 
 
 def test_hides_environment_passes_classes_and_modules_as_they_are() -> None:
