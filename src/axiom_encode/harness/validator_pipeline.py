@@ -1484,13 +1484,20 @@ _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
 # Belgian legal French and Dutch write the percent sign out ("28 pour cent",
 # "2,5 pourcents", "9 procent") or abbreviate it ("60 pct."), and German
 # statutes abbreviate "vom Hundert" ("15 v. H."). "pour cent" is a percent
-# only before the end of the text, a punctuation mark or one of the closed-class
-# words below, across any space or a line break. A noun or a numeral right
-# after it counts a hundred of something ("2 pour cent kilogrammes" is two per
-# hundred kilograms, "5 pour cent mille habitants" five per hundred thousand),
-# so that reading is no rate; "pour mille" is per mille and never matches.
-# "pct" and "v. H." match in their own case only: "28 PCT applications" and
-# Dutch "v.h." (formerly) are no rates.
+# only before the end of the text, a closing punctuation mark, or a run of the
+# closed-class words below that leads to a word other than a numeral, across
+# any space or a line break ("28 pour cent du montant", "5 pour cent l'an",
+# "5 pour cent, à compter du"). Anything else may count a hundred of
+# something, so that reading is no rate: a noun or a numeral right after it
+# ("2 pour cent kilogrammes" is two per hundred kilograms, "5 pour cent
+# mille habitants" five per hundred thousand), a hyphen or an opening
+# parenthesis ("5 pour cent-mille", "2 pour cent (100) kilogrammes"), and a
+# closed-class word before a figure ("2 pour cent à deux cents kilogrammes",
+# "5 pour cent et un"). This also drops some real rates ("5 pour cent
+# applicable aux revenus", "20 pour cent supplémentaires", "5 pour cent de
+# 1000 euros"); main grounds none of them either. "pour mille" is per mille
+# and never matches. "pct" and "v. H." match in their own case only: "28 PCT
+# applications" and Dutch "v.h." (formerly) are no rates.
 _FRENCH_WORD_AFTER_POUR_CENT_BODY = (
     r"(?:le|la|les|du|de|des|au|aux|à|a|en|dans|par|pour|sur|sous|avec|sans|"
     r"entre|vers|chez|après|avant|depuis|pendant|contre|selon|dès|hors|outre|"
@@ -1501,11 +1508,26 @@ _FRENCH_WORD_AFTER_POUR_CENT_BODY = (
     r"respectivement|également|seulement|annuellement|mensuellement)"
 )
 _FRENCH_ELISION_AFTER_POUR_CENT_BODY = r"(?:l|d|qu|lorsqu|puisqu|jusqu|n|s|c)['’]"
+_FRENCH_FUNCTION_AFTER_POUR_CENT_BODY = (
+    rf"(?:{_FRENCH_WORD_AFTER_POUR_CENT_BODY}(?![\w'’-])|"
+    rf"{_FRENCH_ELISION_AFTER_POUR_CENT_BODY})"
+)
+# "un" and "une" after an elision are articles ("d'un montant").
+_FRENCH_CARDINAL_AFTER_POUR_CENT_BODY = (
+    r"(?:(?<!['’])une?|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|"
+    r"douze|treize|quatorze|quinze|seize|vingts?|trente|quarante|cinquante|"
+    r"soixante|septante|octante|huitante|nonante|cents?|milles?|millions?|"
+    r"milliards?|dizaines?|douzaines?|vingtaines?|trentaines?|quarantaines?|"
+    r"cinquantaines?|soixantaines?|centaines?|milliers?)\b"
+)
+_FRENCH_STOP_AFTER_POUR_CENT_BODY = r"(?:[;:!?)\]|»”\"]|[.,](?!\d))"
 _LOCALE_PERCENT_WORD_BODY = (
     r"\bpour[ \t-]*cents?\b"
-    r"(?=\s*(?:\Z|[^\w\s]|"
-    rf"{_FRENCH_WORD_AFTER_POUR_CENT_BODY}(?![\w'’])|"
-    rf"{_FRENCH_ELISION_AFTER_POUR_CENT_BODY}))|"
+    rf"(?=\s*(?:\Z|{_FRENCH_STOP_AFTER_POUR_CENT_BODY}|"
+    rf"(?:{_FRENCH_FUNCTION_AFTER_POUR_CENT_BODY}\s*)+"
+    rf"(?:\Z|{_FRENCH_STOP_AFTER_POUR_CENT_BODY}|"
+    rf"(?!{_FRENCH_FUNCTION_AFTER_POUR_CENT_BODY})"
+    rf"(?!{_FRENCH_CARDINAL_AFTER_POUR_CENT_BODY})[^\W\d_])))|"
     r"\bprocent(?:en|punt(?:en)?)?\b|"
     r"\b(?-i:pct)\b\.?|"
     r"\b(?-i:v\.[ \t]?H\.)"
@@ -1528,21 +1550,28 @@ _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
     rf"(?<![A-Za-z0-9]){_STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY}"
 )
 # The word right before a figure that Belgian, Dutch and German texts restate
-# in parentheses ahead of its rate marker: a preposition or a copula ("pour
-# (75) p.c.", "tarief van (9) procent", "Satz von (15) Prozent") or the figure
-# spelled out ("vingt-huit (28) pour cent", "vijfenzeventig (75) procent").
-# After any other word, a structural one above all ("Item (17) Percent",
-# "clause (17) percent", "article 5 bis (2) p.c."), the parenthesis stays the
-# label it looks like. English words are left out: main reads "fifteen (15)
-# percent" through its spelled-number reader and keeps "(15)" masked. The
-# Dutch and German tens are matched as word endings, the way they close a
-# compound ("vijfenzeventig", "fünfundzwanzig").
-_RATE_RESTATEMENT_LEAD_IN_PATTERN = re.compile(
-    r"(?:(?<![^\W\d_])(?:"
+# in parentheses ahead of their own rate marker: a preposition or a copula
+# ("pour (75) p.c.", "tarief van (9) procent", "Satz von (15) Prozent") or
+# the figure spelled out ("vingt-huit (28) pour cent", "vijfenzeventig (75)
+# procent"). After any other word, a structural one above all ("article 5 bis
+# (2) p.c."), the parenthesis stays the label it looks like, and so does one
+# after a spelled number that a structural word names ("l'article six (12)
+# p.c.", "Schedule Six (17) Prozent"). English markers never license the
+# reading ("Item (17) Percent", "clause six (17) percent"): main reads
+# "fifteen (15) percent" through its spelled-number reader and keeps "(15)"
+# masked, and English text keeps that reading. The Dutch and German tens are
+# matched as word endings, the way they close a compound ("vijfenzeventig",
+# "fünfundzwanzig").
+_RATE_RESTATEMENT_PREPOSITION_PATTERN = re.compile(
+    r"(?<![^\W\d_])(?:"
     r"pour|de|du|des|à|sur|soit|est|sont|sera|seront|était|étaient|"
     r"environ|moins|que|"
     r"van|tot|met|op|voor|dan|bij|zijn|bedraagt|bedragen|"
-    r"von|zu|um|auf|mit|über|unter|als|beträgt|betragen|je|"
+    r"von|zu|um|auf|mit|über|unter|als|beträgt|betragen|je"
+    r")[ \t\u00a0\u202f]\Z",
+    re.IGNORECASE,
+)
+_SPELLED_NUMERAL_WORD_LIST_BODY = (
     r"un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|"
     r"treize|quatorze|quinze|seize|vingts?|trente|quarante|cinquante|"
     r"soixante|septante|octante|huitante|nonante|cents?|"
@@ -1550,11 +1579,36 @@ _RATE_RESTATEMENT_LEAD_IN_PATTERN = re.compile(
     r"dertien|veertien|vijftien|zestien|zeventien|achttien|negentien|"
     r"honderd|"
     r"eins?|zwei|drei|fünf|sechs|sieben|neun|zwölf"
-    r")|(?:"
+)
+_SPELLED_NUMERAL_TENS_BODY = (
     r"twintig|dertig|veertig|vijftig|zestig|zeventig|tachtig|negentig|"
     r"zehn|zwanzig|dreißig|dreissig|vierzig|fünfzig|sechzig|siebzig|"
     r"achtzig|neunzig|hundert"
-    r"))[ \t\u00a0\u202f]\Z",
+)
+_RATE_RESTATEMENT_NUMERAL_PATTERN = re.compile(
+    rf"(?<![^\W\d_])(?:{_SPELLED_NUMERAL_WORD_LIST_BODY}|"
+    rf"[^\W\d_]*?(?:{_SPELLED_NUMERAL_TENS_BODY}))[ \t\u00a0\u202f]\Z",
+    re.IGNORECASE,
+)
+# A structural word, then any spelled-number words ("article soixante et"),
+# right before a spelled number: the number names that subdivision.
+_STRUCTURAL_REFERENCE_BEFORE_NUMERAL_PATTERN = re.compile(
+    r"(?<![^\W\d_])(?:"
+    r"article|art|section|sec|subsection|schedule|clause|subclause|item|"
+    r"point|paragraph|subparagraph|para|part|chapter|title|rule|regulation|"
+    r"reg|appendix|annex|table|column|row|line|note|footnote|step|division|"
+    r"exhibit|form|box|rate|"
+    r"alinéa|annexe|chapitre|titre|livre|paragraphe|tableau|colonne|ligne|"
+    r"rubrique|numéro|catégorie|case|cadre|taux|tarif|"
+    r"artikel|lid|bijlage|hoofdstuk|titel|boek|afdeling|paragraaf|punt|tabel|"
+    r"kolom|regel|rubriek|nummer|nr|categorie|vak|tarief|"
+    r"absatz|abs|anlage|anhang|kapitel|buch|abschnitt|paragraf|ziffer|"
+    r"buchstabe|satz|tabelle|spalte|zeile|teil|unterabsatz|punkt"
+    r")\.?"
+    r"(?:[ \t\u00a0\u202f-]+(?:[^\W\d_]*?(?:"
+    rf"{_SPELLED_NUMERAL_WORD_LIST_BODY}|{_SPELLED_NUMERAL_TENS_BODY}"
+    r")|et)(?![^\W\d_]))*"
+    r"[ \t\u00a0\u202f-]*\Z",
     re.IGNORECASE,
 )
 _TABLE_HEADING_PATTERN = re.compile(
@@ -7624,6 +7678,17 @@ _LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN = re.compile(
     rf"[ \t\u00a0\u202f]*(?:{_RATE_MARKER_AFTER_FIGURE_BODY})",
     re.IGNORECASE,
 )
+# The Belgian, Dutch and German markers alone, the only ones that let a
+# figure restated in parentheses stand ("pour (75) p.c.").
+_LOCALE_RATE_MARKER_AFTER_FIGURE_PATTERN = re.compile(
+    r"[ \t\u00a0\u202f]*(?:"
+    r"\bp\.[ \t]?c\.|"
+    r"\bProzent\b|"
+    r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
+    r"\bvom[ \t]+Hundert\b|"
+    rf"{_LOCALE_PERCENT_WORD_BODY})",
+    re.IGNORECASE,
+)
 # The closing parenthesis of a figure restated in parentheses ("(14,75)
 # p.c."), read before the marker that follows it.
 _PARENTHESIZED_FIGURE_CLOSE_PATTERN = re.compile(r"[ \t\u00a0\u202f]*\)")
@@ -13311,16 +13376,24 @@ def _blank_subdivision_label(match: re.Match[str]) -> str:
     """Blank a subdivision label, but keep a figure restated before its marker.
 
     ``pour (75) p.c.`` restates the rate 75 percent: a lead-in word and one
-    space come before the parenthesis and a rate marker follows it. Without
-    either, ``(17)`` is the label it looks like (``Item (17) Percent``,
-    ``apply. (17) Percent``), and after a figure it is a note, since the
+    space come before the parenthesis and a Belgian, Dutch or German rate
+    marker follows it. Without either, ``(17)`` is the label it looks like
+    (``Item (17) Percent``, ``apply. (17) p.c.``); after a spelled number
+    that a structural word names it is that subdivision's label
+    (``l'article six (12) p.c.``); and after a figure it is a note, since the
     figure owns the marker (``5 (7) percent`` is five percent).
     """
     start, end = match.span()
     text = match.string
-    if _LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN.match(
-        text, end
-    ) and _RATE_RESTATEMENT_LEAD_IN_PATTERN.search(text[max(0, start - 32) : start]):
+    if not _LOCALE_RATE_MARKER_AFTER_FIGURE_PATTERN.match(text, end):
+        return _blank_match(match)
+    before = text[max(0, start - 64) : start]
+    if _RATE_RESTATEMENT_PREPOSITION_PATTERN.search(before):
+        return match.group(0)
+    numeral = _RATE_RESTATEMENT_NUMERAL_PATTERN.search(before)
+    if numeral and not _STRUCTURAL_REFERENCE_BEFORE_NUMERAL_PATTERN.search(
+        before[: numeral.start()]
+    ):
         return match.group(0)
     return _blank_match(match)
 
@@ -14197,7 +14270,14 @@ def _pipe_table_is_delimiter_row(line: str) -> bool:
 
 
 def _pipe_table_row_kinds(lines: Sequence[str]) -> list[str]:
-    """Place each line of one pipe block above, at or below its delimiter row."""
+    """Place each line of one pipe block around its delimiter row.
+
+    As in GitHub Flavored Markdown, the header is the one row right above the
+    first delimiter row, and only when both have as many cells. Pipe text
+    above it is paragraph text, and a header that mismatches heads no table:
+    those rows read as rows of an undelimited block. Rows below the delimiter
+    are body rows either way.
+    """
     delimiter = next(
         (
             index
@@ -14208,8 +14288,19 @@ def _pipe_table_row_kinds(lines: Sequence[str]) -> list[str]:
     )
     if delimiter is None:
         return ["undelimited"] * len(lines)
+    header = delimiter - 1
+    if header >= 0 and len(_pipe_table_line_cells(lines[header], None)) != len(
+        _pipe_table_line_cells(lines[delimiter], None)
+    ):
+        header = -1
     return [
-        "header" if index < delimiter else "delimiter" if index == delimiter else "body"
+        "header"
+        if index == header
+        else "delimiter"
+        if index == delimiter
+        else "body"
+        if index > delimiter
+        else "undelimited"
         for index in range(len(lines))
     ]
 

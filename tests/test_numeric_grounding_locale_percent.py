@@ -110,6 +110,10 @@ def test_probe_table_rows(source_text, formula, grounded):
         ("réduit de 5 pour cent, à compter du", 0.05),
         ("réduit de 5 pour cent jusqu'à la fin", 0.05),
         ("augmentées de 20 pour cent\npour chaque enfant", 0.2),
+        ("un taux de 5 pour cent d'un montant", 0.05),
+        ("1° 28 pour cent;\n2° 30 pour cent.", 0.28),
+        ("1° 28 pour cent;\n2° 30 pour cent.", 0.3),
+        ("5 pour cent, 10 pour cent", 0.05),
         ("taux de 28 POUR CENT DU MONTANT", 0.28),
         ("The rate is 5 pct of income", 0.05),
     ),
@@ -143,6 +147,18 @@ def test_locale_percent_markers_ground_the_rate(source_text, value):
         ("une redevance de 4 pour cent habitants", 0.04),
         ("un droit de 2 pour cent\u00a0hectares", 0.02),
         ("un droit de 2 pourcent hectares", 0.02),
+        # A hyphen joins "cent" to the numeral it starts, and an opening
+        # parenthesis may restate the cardinal: neither ends the marker.
+        ("5 pour cent-mille habitants", 0.05),
+        ("une redevance de 5 pour cent-mille habitants", 0.05),
+        ("un droit de 2 pour cent (100) kilogrammes", 0.02),
+        ("un droit de 2 pour cent.000 kilogrammes", 0.02),
+        # A closed-class word before a figure may start a count range.
+        ("un droit de 2 pour cent à deux cents kilogrammes", 0.02),
+        ("un droit de 2 pour cent jusqu'à deux cents kilogrammes", 0.02),
+        ("un droit de 2 pour cent à vingt-deux kilogrammes", 0.02),
+        ("un droit de 2 pour cent à 200 kilogrammes", 0.02),
+        ("un droit de 2 pour cent et un kilogrammes", 0.02),
         # Per mille is no percent.
         ("à concurrence de 0,15 pour mille des prestations", 0.0015),
         # Words that only begin like a marker.
@@ -376,6 +392,34 @@ def test_noun_after_pour_cent_is_no_marker_in_any_reader(source_text, values):
         (BE_CITATION, "tarief van (19) euro", ("19", "0.19")),
         # "bis" numbers an inserted article in Belgian law.
         (BE_CITATION, "article 5 bis (12) p.c. du montant", ("12", "0.12")),
+        # A spelled number a structural word names is that subdivision.
+        (
+            "us/statute/example/1",
+            "A provision under Schedule Six (17) Percent of income disregarded",
+            ("17", "0.17"),
+        ),
+        (
+            "us/statute/example/1",
+            "Subject to clause six (17) percent of income",
+            ("17", "0.17"),
+        ),
+        (
+            BE_CITATION,
+            "conformément à l'article six (12) pour cent du montant",
+            ("12", "0.12"),
+        ),
+        (BE_CITATION, "visé à l'article vingt-huit (28) p.c. du montant", ("28",)),
+        (
+            BE_CITATION,
+            "conformément à l'article soixante et onze (71) pour cent",
+            ("71", "0.71"),
+        ),
+        ("be-dg/statute/example/1", "nach Schedule Six (17) Prozent", ("17", "0.17")),
+        # Only the Belgian, Dutch and German markers license a restatement.
+        (BE_CITATION, "le taux de (12) % du montant", ("12", "0.12")),
+        (BE_CITATION, "le taux de (12) percent du montant", ("12", "0.12")),
+        # "pc" without its dots is too short to tell from a label's tail.
+        (BE_CITATION, "le taux de (12) pc du montant", ("12", "0.12")),
     ),
 )
 def test_label_after_a_word_that_states_no_amount_stays_masked(
@@ -393,6 +437,11 @@ def test_label_after_a_word_that_states_no_amount_stays_masked(
         (BE_CITATION, "tarief van (9) procent", "0.09"),
         ("be-dg/statute/example/1", "fünfundzwanzig (25) Prozent des Betrags", "0.25"),
         ("be-dg/statute/example/1", "Der Satz beträgt (15) Prozent", "0.15"),
+        (
+            BE_CITATION,
+            "le taux visé à l'article 5 est de vingt-huit (28) pour cent",
+            "0.28",
+        ),
     ),
 )
 def test_figure_restated_after_a_lead_in_word_grounds(
@@ -407,11 +456,13 @@ def test_figure_restated_after_a_lead_in_word_grounds(
         ("fifteen (15) percent of the amount", "0.15", "15"),
         ("seventy-five (75) percent of the amount", "0.75", "75"),
         ("The rate is (17) percent of the amount", None, "17"),
+        # "six" is French too, but an English marker licenses no restatement.
+        ("The rate is six (6) percent of income", "0.06", "6"),
     ),
 )
 def test_english_restatement_reads_as_on_main(source_text, rate, label):
     # main reads the spelled-out English figure and keeps "(15)" a masked
-    # label; no English word is a lead-in, so that is unchanged.
+    # label; an English marker licenses no restatement, so that is unchanged.
     citation_path = "us/statute/example/1"
     if rate is not None:
         assert _gate_grounds(source_text, rate, citation_path=citation_path)
@@ -658,6 +709,45 @@ def test_locale_header_needs_a_delimiter_row():
     assert not _grounds(table, 0.09)
 
 
+@pytest.mark.parametrize(
+    "table",
+    (
+        # Pipe text above the header row is a paragraph, not a header.
+        "| Notes | taux en pour cent |\n| Item | Amount euro |\n| --- | --- |\n"
+        "| Income | 5000 euro |\n",
+        "| Notes | tarief in procent |\n| Item | Amount euro |\n| --- | --- |\n"
+        "| Income | 5000 euro |\n",
+        # A header with fewer cells than its delimiter row heads no table.
+        "| Item | taux en pour cent |\n| --- | --- | --- |\n| Income | 5000 euro |\n",
+        "| Item | taux en pour cent | x |\n| --- | --- |\n| Income | 5000 euro |\n",
+    ),
+)
+def test_locale_header_types_a_column_only_right_above_a_matching_delimiter(table):
+    assert not _gate_grounds(table, "50")
+    assert not _grounds(table, 50.0)
+
+
+def test_locale_header_types_its_column_under_pipe_text():
+    table = (
+        "| Notes | see below |\n"
+        "| Item | taux en pour cent |\n"
+        "| --- | --- |\n"
+        "| Income | 28 |\n"
+    )
+
+    assert _grounds(table, 0.28)
+
+
+@pytest.mark.parametrize(
+    "header",
+    ("droit en pour cent-mille", "droit pour cent (100) kg", "pour cent à deux cents"),
+)
+def test_header_pour_cent_before_a_count_types_no_column(header):
+    table = f"| Item | {header} |\n| --- | --- |\n| A | 28 |\n"
+
+    assert not _grounds(table, 0.28)
+
+
 @pytest.mark.parametrize("header", ("taux en pour cent", "Rate (percent)"))
 def test_escaped_pipe_stays_inside_its_cell(header):
     # "\|" is a literal pipe in its cell, so the table has three columns and
@@ -780,6 +870,8 @@ _PREFIXES = (
 _LEAD_IN_PREFIXES = frozenset(
     ("le taux de ", "Der Satz beträgt ", "cotisation de ", "une part de ")
 )
+# The markers that let a lead-in word restate a label-shaped figure.
+_LICENSING_MARKERS = frozenset(_MARKERS) - {"%", "percent", "per cent"}
 # The figures a subdivision label could be: "(9)", "(14.5)".
 _LABEL_SHAPED = re.compile(r"\([1-9]\d?(?:\.\d+)?\)")
 # Words that state no amount, so a parenthesis after them is a label.
@@ -815,7 +907,24 @@ _CLOSING_WORDS = (
     " maximum",
     " pour chaque enfant",
     " sur le montant",
+    ";\n2° 30 euros",
+    ", 200 euros",
+    ")",
+)
+# What may continue "pour cent" into a count: a hyphen, an opening
+# parenthesis, or closed-class words before a figure. The rate reading may be
+# real ("5 pour cent et 5 euros"), but it is no longer sure.
+_COUNT_CONTINUATIONS = (
+    "-mille habitants",
+    " (100) kilogrammes",
+    "\n(100) kilogrammes",
+    " à deux cents kilogrammes",
+    " jusqu'à deux cents kilogrammes",
+    " à vingt-deux kilogrammes",
+    " et un kilogrammes",
     " et 5 euros",
+    " de 1000 euros",
+    ".000 kilogrammes",
     " (cinq pour cent)",
 )
 _FRENCH_NOUNS = (
@@ -898,9 +1007,13 @@ def test_marked_figure_grounds_its_rate(figure, marker, gap, prefix):
     assume(not (marker == "per cent" and _ENGLISH_GROUPED_DECIMAL.fullmatch(printed)))
     source_text = f"{prefix}{printed}{gap}{marker} du montant"
 
-    if prefix not in _LEAD_IN_PREFIXES and _LABEL_SHAPED.fullmatch(printed):
-        # "tarief (9) procent": a label-shaped parenthesis after a word that
-        # states no amount stays the masked label it is on main.
+    if _LABEL_SHAPED.fullmatch(printed) and (
+        prefix not in _LEAD_IN_PREFIXES or marker not in _LICENSING_MARKERS
+    ):
+        # "tarief (9) procent", "le taux de (9) %": a label-shaped
+        # parenthesis after a word that states no amount, or before a marker
+        # that is not Belgian, Dutch or German, stays the masked label it is
+        # on main.
         assert not _grounds(source_text, value / 100), source_text
     else:
         assert _grounds(source_text, value / 100), source_text
@@ -1061,6 +1174,25 @@ def test_pour_cent_before_a_noun_never_grounds_its_rate(
 
 @settings(max_examples=150, deadline=None)
 @given(
+    figure=_printed_figures(),
+    spelling=st.sampled_from(("pour cent", "pour-cent", "pourcent", "pourcents")),
+    continuation=st.sampled_from(_COUNT_CONTINUATIONS),
+    lead=st.sampled_from(("un droit de ", "entre 1 et ", "de 1 à ")),
+)
+def test_pour_cent_before_a_count_never_grounds_its_rate(
+    figure, spelling, continuation, lead
+):
+    printed, value = figure
+    # The range's other endpoint grounds 1 and the continuation's figures
+    # ground themselves, so the rate may equal none of them.
+    assume(value not in (1, 5, 100))
+    source_text = f"{lead}{printed} {spelling}{continuation}"
+
+    assert not _grounds(source_text, value / 100), source_text
+
+
+@settings(max_examples=150, deadline=None)
+@given(
     word=st.sampled_from(_STRUCTURAL_WORDS),
     label=st.integers(min_value=1, max_value=99),
     marker=st.sampled_from(_MARKERS),
@@ -1068,6 +1200,41 @@ def test_pour_cent_before_a_noun_never_grounds_its_rate(
 )
 def test_label_after_a_structural_word_never_grounds(word, label, marker, opening):
     source_text = f"{opening}{word} ({label}) {marker} du montant"
+
+    assert not _grounds(source_text, label / 100), source_text
+    assert not _grounds(source_text, float(label)), source_text
+
+
+_SPELLED_SUBDIVISIONS = (
+    "six",
+    "Six",
+    "vingt-huit",
+    "deux bis",
+    "drei",
+    "vijf",
+    "elf",
+    "fünfundzwanzig",
+    "vijfenzeventig",
+)
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    word=st.sampled_from(_STRUCTURAL_WORDS),
+    spelled=st.sampled_from(_SPELLED_SUBDIVISIONS),
+    label=st.integers(min_value=1, max_value=99),
+    marker=st.sampled_from(_MARKERS),
+    opening=st.sampled_from(("", "conformément à l'", "Subject to ", "nach ")),
+)
+def test_label_after_a_spelled_subdivision_never_grounds(
+    word, spelled, label, marker, opening
+):
+    # A spelled number grounds itself and its parts ("vingt-huit" is 28 and
+    # 8); only the label is under test.
+    unlabelled = f"{opening}{word} {spelled} {marker} du montant"
+    assume(not _grounds(unlabelled, float(label)))
+    assume(not _grounds(unlabelled, label / 100))
+    source_text = f"{opening}{word} {spelled} ({label}) {marker} du montant"
 
     assert not _grounds(source_text, label / 100), source_text
     assert not _grounds(source_text, float(label)), source_text
@@ -1113,4 +1280,9 @@ def test_german_profile_marked_figure_grounds_its_rate(figure, marker):
     printed, value = figure
     source_text = f"Der Satz beträgt {printed} {marker} des Betrags."
 
-    assert _grounds(source_text, value / 100, profile="de-DE"), source_text
+    if marker == "%" and _LABEL_SHAPED.fullmatch(printed):
+        # "%" licenses no restatement: "(1) %" stays the masked label it is
+        # on main.
+        assert not _grounds(source_text, value / 100, profile="de-DE"), source_text
+    else:
+        assert _grounds(source_text, value / 100, profile="de-DE"), source_text
