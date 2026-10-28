@@ -1,5 +1,22 @@
+## 0.2.2258
+
+- Forward the reviewed dependent finding through all Arizona corpus-transport preflights, admit canonical shallow historical-owner deletions, and refresh the encoder version after current main.
+
+## 0.2.2257
+
+- Refresh the encoder version after merging the reviewed Canadian repair-head admission into the Arizona ECE transport branch.
+
+## 0.2.2254
+
+- Recognize completed signed in-place source-bound dependents in the legacy replacement census, retaining source-citation, primary-proof, and fresh-manifest checks.
+
+## 0.2.2253
+
+- Regenerate Arizona ECE's proof-pinned dependent from its own signed FAA5 source in the same protected legacy replacement transaction, and verify both source bindings and the updated proof hash before publication.
+
 ## 0.2.2252
 
+- Admit authenticated in-place legacy Arizona ECE replacement from a signed corpus artifact while preserving the existing RuleSpec identity and dependent references; keep distinct-path moves and unsupported transport modes rejected.
 - Admit the exact reviewed Canadian repair head for all protected artifact-only modes, including manifest refresh and reviewed-candidate promotion. Preserve publication restrictions and every signing and validation gate; link the admission evidence.
 
 ## 0.2.2248

@@ -1,0 +1,1 @@
+Allow authenticated corpus artifact transport for a source-bound legacy RuleSpec replacement in place, preserving existing dependent and program references. Historical generated-v1 manifests may retain their module-path citation only for a protected in-place replacement whose old module identifies the requested signed source.
