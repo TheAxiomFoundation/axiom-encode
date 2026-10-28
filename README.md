@@ -210,6 +210,19 @@ the check. When neither is present `encode` stops with a clear error before
 starting a run. Other backends stay available explicitly with
 `--backend claude` or `--backend openai`.
 
+The generalist reviewer runs the `claude` CLI (or the `codex` CLI fallback) on
+the signed-in subscription. In a local run (no signing broker attached, not in
+CI) the encoder resolves the reviewer binary from your `PATH` and starts it
+with a small allowlisted environment: your account home and user name, the
+per-user `TMPDIR`, `CODEX_HOME`/`CLAUDE_CONFIG_DIR` when set, and a `PATH` of
+only the reviewer binary's directory plus the system directories. API keys and
+other ambient variables are not forwarded. Protected and CI runs keep the
+sandboxed reviewer environment unchanged. If no reviewer CLI can start, the
+run prints `generalist_review=error reviewer_unavailable: ...` and records a
+failed review; it does not skip the review silently. Run `claude` or
+`codex login` once before a local encode. Broader local setup is tracked in
+#1622.
+
 Use `encode --codex-reasoning-effort high` to select Codex's reasoning effort
 for every generation and retry. The default is `low`; the value is passed as
 Codex's `model_reasoning_effort` config setting and recorded in the generation

@@ -193,6 +193,9 @@ def test_claude_reviewer_disables_tools_and_scrubs_signing_capabilities(
     )
     for index, name in enumerate(signing_names):
         monkeypatch.setenv(name, str(index + 1))
+    # Pin the protected (CI) reviewer path; local runs are covered in
+    # tests/test_local_reviewer_environment.py.
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
 
     with patch.object(
         validator_pipeline,
