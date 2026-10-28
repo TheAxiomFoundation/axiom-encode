@@ -6764,3 +6764,36 @@ def test_round_16_exclusion_objects_are_intentionally_stricter(
         _accepted("a", "חסר סעיף 2", hebrew_source),
         _english_accepted("a", "Missing section 2.", english_source),
     ) == _DIFFERENTIAL_VERDICTS[verdict], name
+
+
+# Prefix-only imperfect recognition is intentionally conservative in unpointed
+# text. Each of the four person prefixes can also begin a recipient noun, as
+# the pre-existing תושב case shows. Pin that limitation for the whole four-way
+# class at both positions rather than implying only ת has a noun ambiguity.
+def test_all_imperfect_person_prefix_noun_ambiguities_are_intentionally_stricter():
+    nouns = (
+        ("ת", "תושב", "a resident"),
+        ("י", "ילד", "a child"),
+        ("א", "אזרח", "a citizen"),
+        ("נ", "נכה", "a disabled person"),
+    )
+    assert {prefix for prefix, _word, _english in nouns} == set("תיאנ")
+    for prefix, noun, english in nouns:
+        assert noun.startswith(prefix)
+        # This named verdict deliberately documents a Hebrew-stricter noun
+        # reading; it is not claimed to be a prohibitive English translation.
+        expected = _DIFFERENTIAL_VERDICTS["hebrew-stricter"]
+        assert (
+            _accepted("a", f"אל {noun}: חסר סעיף 2", REVIEW_SOURCE),
+            _english_accepted(
+                "a", f"To {english}: Missing section 2.", REVIEW_ENGLISH_SOURCE
+            ),
+        ) == expected, ("reason", prefix)
+        assert (
+            _accepted("a", "חסר סעיף 2", f"(א) ישולם אל {noun} בהתאם לסעיף 2."),
+            _english_accepted(
+                "a",
+                "Missing section 2.",
+                f"(a) It shall be paid to {english} in accordance with section 2.",
+            ),
+        ) == expected, ("source", prefix)
