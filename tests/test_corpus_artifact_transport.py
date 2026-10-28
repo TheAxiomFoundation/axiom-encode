@@ -20,6 +20,7 @@ from axiom_encode.corpus_materialize import LockEntry, _canonical_lock_bytes
 from axiom_encode.corpus_release import canonical_release_object_bytes
 from axiom_encode.prepare_signed_backfill import (
     immutable_atomic_source_contract,
+    resolve_atomic_repair_mode,
     split_atomic_source_input,
 )
 from tests.test_corpus_release import _signed_release_object
@@ -82,7 +83,6 @@ def test_recursive_request_is_rejected(monkeypatch):
         "SECOND_DEPENDENT_CITATION",
         "DEPENDENT_REVIEW_FINDING",
         "SECOND_DEPENDENT_REVIEW_FINDING",
-        "REPLACE_LEGACY_RULESPEC_PATH",
         "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
         "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
         "EXISTING_SIGNED_IMPORTS_JSON",
@@ -92,6 +92,157 @@ def test_recursive_request_is_rejected(monkeypatch):
 def test_excluded_dispatch_before_transport(field):
     with pytest.raises(ValueError):
         transport.request_run_id(json.dumps(WRAPPER), {**DISPATCH, field: '["x"]'})
+
+
+def test_in_place_legacy_replacement_transport_preserves_ece_dependents():
+    legacy_path = (
+        "us-az/policies/des/faa5/na-categorical-eligibility/"
+        "expanded-categorical-eligibility.yaml"
+    )
+    legacy_identity = (
+        "us-az:policies/des/faa5/na-categorical-eligibility/"
+        "expanded-categorical-eligibility"
+    )
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": legacy_path,
+        "REPLACE_LEGACY_RULESPEC_PATH": legacy_path,
+    }
+    assert transport.request_run_id(json.dumps(WRAPPER), dispatch) == "123"
+
+    with_cases = copy.deepcopy(WRAPPER)
+    with_cases["transaction"]["primary_required_test_cases"] = [
+        {
+            "name": "2026 February ECE rate",
+            "period": {
+                "period_kind": "month",
+                "start": "2026-02-01",
+                "end": "2026-02-28",
+            },
+            "input": {},
+            "required_output": {
+                f"{legacy_identity}#expanded_categorical_eligibility_fpl_limit_rate": 1.85
+            },
+        },
+        {
+            "name": "2026 March ECE rate and deemed tests",
+            "period": {
+                "period_kind": "month",
+                "start": "2026-03-01",
+                "end": "2026-03-31",
+            },
+            "input": {
+                f"{legacy_identity}#input.gross_income": 1900,
+                f"{legacy_identity}#input.current_federal_poverty_level_amount": 1000,
+                f"{legacy_identity}#input.budgetary_unit_meets_basic_categorical_eligibility_requirements": False,
+                f"{legacy_identity}#input.resources_of_participants_with_certain_disqualifications_are_not_over_na_resource_limit": True,
+                f"{legacy_identity}#input.budgetary_unit_has_participant_with_disqualification": False,
+            },
+            "required_output": {
+                f"{legacy_identity}#expanded_categorical_eligibility_fpl_limit_rate": 2.0,
+                f"{legacy_identity}#expanded_categorical_eligibility_deems_resources_met": "holds",
+            },
+        },
+    ]
+    assert transport.request_run_id(json.dumps(with_cases), dispatch) == "123"
+    assert resolve_atomic_repair_mode(json.dumps(with_cases), dispatch) == {
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
+
+
+def test_transport_admits_one_reviewed_source_bound_dependent():
+    legacy_path = (
+        "us-az/policies/des/faa5/na-categorical-eligibility/"
+        "expanded-categorical-eligibility.yaml"
+    )
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": legacy_path,
+        "REPLACE_LEGACY_RULESPEC_PATH": legacy_path,
+        "DEPENDENT_CITATION": (
+            "us-az/manual/des/faa5/na-categorical-eligibility/block-5"
+        ),
+        "DEPENDENT_REVIEW_FINDING": (
+            "Regenerate the benefit calculation against the signed 200% "
+            "block-5 source and update its proof import."
+        ),
+    }
+    assert transport.request_run_id(json.dumps(WRAPPER), dispatch) == "123"
+    assert resolve_atomic_repair_mode(json.dumps(WRAPPER), dispatch) == {
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
+
+    with pytest.raises(ValueError, match="reviewed in-place"):
+        transport.request_run_id(
+            json.dumps(WRAPPER), {**dispatch, "DEPENDENT_REVIEW_FINDING": ""}
+        )
+    with pytest.raises(ValueError, match="only one fresh primary"):
+        transport.request_run_id(
+            json.dumps(WRAPPER),
+            {**dispatch, "SECOND_DEPENDENT_CITATION": "us-az/manual/another"},
+        )
+
+
+def test_corpus_transport_rejects_arbitrary_legacy_path_move():
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": (
+            "us-az/policies/des/faa5/na-categorical-eligibility/block-4.yaml"
+        ),
+        "REPLACE_LEGACY_RULESPEC_PATH": (
+            "us-az/policies/des/faa5/na-categorical-eligibility/"
+            "expanded-categorical-eligibility.yaml"
+        ),
+    }
+    with pytest.raises(ValueError, match="in-place protected RuleSpec target"):
+        transport.request_run_id(json.dumps(WRAPPER), dispatch)
+
+
+def test_corpus_transport_rejects_even_normalizable_legacy_path_move():
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": (
+            "us-az/policies/des/faa5/na-categorical-eligibility/block-4.yaml"
+        ),
+        "REPLACE_LEGACY_RULESPEC_PATH": (
+            "us-az/policies/des/faa5/na-categorical-eligibility/Block 4.yaml"
+        ),
+    }
+    with pytest.raises(ValueError, match="in-place protected RuleSpec target"):
+        transport.request_run_id(json.dumps(WRAPPER), dispatch)
+
+
+@pytest.mark.parametrize(
+    "legacy_source",
+    [
+        "us-az/../../other.yaml",
+        "us-az/policies/des/faa5//expanded.yaml",
+        "us-az/policies/des/faa5\\expanded.yaml",
+        "us-az/.axiom/expanded.yaml",
+        "us-az/policies/des/faa5/expanded.test.yaml",
+    ],
+)
+def test_legacy_replacement_transport_rejects_unsafe_in_place_path(legacy_source):
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": legacy_source,
+        "REPLACE_LEGACY_RULESPEC_PATH": legacy_source,
+    }
+    with pytest.raises(ValueError):
+        transport.request_run_id(json.dumps(WRAPPER), dispatch)
+
+
+def test_legacy_replacement_transport_rejects_other_jurisdiction():
+    legacy_source = "us/policies/des/faa5/na-categorical-eligibility/expanded.yaml"
+    dispatch = {
+        "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+        "REPLACE_RULESPEC_PATH": legacy_source,
+        "REPLACE_LEGACY_RULESPEC_PATH": legacy_source,
+    }
+    with pytest.raises(ValueError, match="legacy source must be"):
+        transport.request_run_id(json.dumps(WRAPPER), dispatch)
 
 
 @pytest.mark.parametrize(
@@ -661,7 +812,7 @@ def test_cli_excluded_modes_never_touch_artifact_service(monkeypatch):
         "read_regular",
         lambda *a, **k: pytest.fail("unexpected metadata read"),
     )
-    with pytest.raises(ValueError, match="fresh ordinary"):
+    with pytest.raises(ValueError, match="one fresh primary"):
         transport.main()
 
 
