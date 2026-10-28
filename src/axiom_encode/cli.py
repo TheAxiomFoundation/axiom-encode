@@ -284,6 +284,7 @@ from .harness.source_completeness import (
     recognize_source_structure,
 )
 from .harness.validator_pipeline import (
+    _LEGACY_NUMERIC_PROFILES,
     _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS,
     _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN,
     _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN,
@@ -45647,7 +45648,9 @@ def _closest_exact_source_excerpt(
         query,
         profile=numeric_profile,
     ) or (
-        numeric_profile != "legacy" and re.search(r"\d", query) and not query_numbers
+        numeric_profile not in _LEGACY_NUMERIC_PROFILES
+        and re.search(r"\d", query)
+        and not query_numbers
     ):
         return None
     scored: list[tuple[float, _SourceExcerptCandidate]] = []
