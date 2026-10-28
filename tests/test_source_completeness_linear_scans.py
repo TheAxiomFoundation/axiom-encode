@@ -1484,6 +1484,23 @@ def _odd_branch_pools(draw):
         )
         for _ in range(draw(st.integers(0, 3)))
     ]
+    # Paths the index must not answer for, whatever the pool holds.
+    strangers += [
+        SourceStructureBranch(
+            path=path,
+            kind="paragraph",
+            label="(a)",
+            text="x" * 41,
+            start=draw(st.integers(0, 40)),
+            end=draw(st.integers(0, 41)),
+        )
+        for path in draw(
+            st.lists(
+                st.sampled_from([("a", ("a",)), ("a", ["x"]), ("a", 1), "ab", ""]),
+                max_size=2,
+            )
+        )
+    ]
     return tuple(branches), strangers
 
 
@@ -1495,6 +1512,18 @@ def _odd_branch_pools(draw):
     (
         (
             SourceStructureBranch(("a",), "paragraph", "(a)", "x" * 41, 10, 30),
+            SourceStructureBranch(("a", "b"), "letter", "(b)", "x" * 41, 2, 5),
+            SourceStructureBranch(("a", "1"), "letter", "(1)", "x" * 41, 20, 25),
+        ),
+        [],
+    )
+)
+@example(
+    # The same, but no descendant starts inside the parent's span, though one
+    # starts after it: the parent keeps its whole text.
+    (
+        (
+            SourceStructureBranch(("a",), "paragraph", "(a)", "x" * 41, 10, 15),
             SourceStructureBranch(("a", "b"), "letter", "(b)", "x" * 41, 2, 5),
             SourceStructureBranch(("a", "1"), "letter", "(1)", "x" * 41, 20, 25),
         ),
@@ -1536,10 +1565,14 @@ def test_direct_text_matches_main_on_odd_pools(case):
         if not index._knows_lowest_starts:
             return
         for branch in (*branches, *strangers):
-            if type(branch.start) is int and type(branch.end) is int:
+            if type(branch.start) is not int or type(branch.end) is not int:
+                continue
+            if sc._plain_path(branch.path):
                 assert index.first_descendant_start(branch) == _first_start(
                     branches, branch
                 )
+            else:
+                assert index.first_descendant_start(branch) is sc._NO_INDEX_ANSWER
 
 
 @settings(max_examples=300, deadline=None)
