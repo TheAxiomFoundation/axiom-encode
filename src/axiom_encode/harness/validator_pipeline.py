@@ -1510,11 +1510,17 @@ _RATE_MARKER_AFTER_FIGURE_BODY = (
     r"\bvom[ \t]+Hundert\b|"
     rf"{_LOCALE_PERCENT_WORD_BODY}"
 )
+_STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY = (
+    r"\((?:[A-Za-z]|[ivxlcdmIVXLCDM]+|0|[1-9]\d?(?:\.\d+)?)\)"
+)
 # A parenthesized figure a rate marker follows restates a rate and is no
-# subdivision label: "pour (75) p.c. remboursés".
+# subdivision label: "pour (75) p.c. remboursés". A figure right before the
+# parenthesis owns that marker, so the parenthesis stays a note there: "5 (7)
+# percent" is five percent.
 _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9])\((?:[A-Za-z]|[ivxlcdmIVXLCDM]+|0|[1-9]\d?(?:\.\d+)?)\)"
-    rf"(?![ \t\u00a0\u202f]*(?i:{_RATE_MARKER_AFTER_FIGURE_BODY}))"
+    rf"(?<![A-Za-z0-9]){_STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY}"
+    rf"(?![ \t\u00a0\u202f]*(?i:{_RATE_MARKER_AFTER_FIGURE_BODY}))|"
+    rf"(?<=\d)[ \t\u00a0\u202f]+{_STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY}"
 )
 _TABLE_HEADING_PATTERN = re.compile(
     r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE
@@ -7611,6 +7617,14 @@ _TABLE_RATE_HEADER_PATTERN = re.compile(
     r"(?<![\u0590-\u05ff])(?:[\u05d1\u05d4\u05d5\u05dc\u05de][\u05be-]?)?"
     r"\u05d0\u05d7\u05d5\u05d6(?:\u05d9\u05dd|\u05d9)?(?![\u0590-\u05ff])"
     r")",
+    re.IGNORECASE,
+)
+# A cell whose marker follows a figure ("28 pour cent", "(14,75) p.c.") holds
+# a value, not a header: it types itself and declares nothing about the rest
+# of its column.
+_TABLE_VALUE_CELL_RATE_PATTERN = re.compile(
+    r"\d(?:[ \t\u00a0\u202f]*\))?[ \t\u00a0\u202f]*"
+    rf"(?:{_RATE_MARKER_AFTER_FIGURE_BODY})",
     re.IGNORECASE,
 )
 _DANISH_RATE_MARKER_BODY = (
@@ -14071,7 +14085,9 @@ def _table_rate_header_matches(text: str, *, profile: str) -> bool:
     """Return whether a table header contains a profile-specific rate marker."""
     if profile == "da-DK":
         return False
-    return bool(_TABLE_RATE_HEADER_PATTERN.search(text))
+    return bool(
+        _TABLE_RATE_HEADER_PATTERN.search(_TABLE_VALUE_CELL_RATE_PATTERN.sub(" ", text))
+    )
 
 
 def _currency_marker_before_number(

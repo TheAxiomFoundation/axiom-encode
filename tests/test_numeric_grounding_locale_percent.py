@@ -8,6 +8,7 @@ no marker must never ground N/100: the July 2026 encoder accepted "tarief 9
 euro" as 0.09, and the gate exists to refuse that.
 """
 
+import re
 import textwrap
 
 import pytest
@@ -173,10 +174,39 @@ def test_parenthesized_integer_followed_by_a_marker_is_no_subdivision_label():
         ("(1) Le taux est fixé par le Roi.", 0.01),
         ("(3) Der Satz beträgt 9 Prozent", 0.03),
         ("(2) % du montant", 0.02),
+        ("The rate is 5 (7) percent", 0.07),
     ),
 )
 def test_parenthesized_figure_needs_its_own_marker(source_text, value):
     assert not _grounds(source_text, value)
+
+
+@pytest.mark.parametrize(
+    "citation_path",
+    (
+        BE_CITATION,
+        "us/statute/example/1",
+        "de/statute/example/1",
+        "dk/statute/example/1",
+    ),
+)
+@pytest.mark.parametrize(
+    "source_text",
+    ("The rate is 5 (7) percent", "taux de 5 (7) pour cent", "tarief 5 (7) pct."),
+)
+def test_note_after_a_figure_stays_masked(citation_path, source_text):
+    # The figure before the parenthesis owns the marker, so "(7)" stays the
+    # note it was before locale markers: neither 7 nor 0.07 grounds.
+    assert not _gate_grounds(source_text, "7", citation_path=citation_path)
+    assert not _gate_grounds(source_text, "0.07", citation_path=citation_path)
+
+
+def test_note_after_a_figure_keeps_the_english_owner_rate():
+    assert _gate_grounds(
+        "The rate is 5 (7) percent",
+        "0.05",
+        citation_path="us/statute/example/1",
+    )
 
 
 @pytest.mark.parametrize(
@@ -369,6 +399,25 @@ def test_pipe_table_percent_column_binds_only_its_own_cells(header):
     assert not _grounds(table, 1500.0)
 
 
+@pytest.mark.parametrize(
+    "value_cell",
+    ("28 pour cent", "28 procent", "28 pct.", "28 percent", "28 Prozent", "28 v. H."),
+)
+def test_marked_value_cell_declares_no_rate_column(value_cell):
+    # A body cell whose marker follows its figure types that figure only; it
+    # is no header, so the "5000 euro" below it never grounds 50.
+    table = (
+        "| Item | Value |\n"
+        "| --- | --- |\n"
+        f"| rebate | {value_cell} |\n"
+        "| income | 5000 euro |\n"
+    )
+
+    assert _gate_grounds(table, "0.28")
+    assert not _gate_grounds(table, "50")
+    assert not _grounds(table, 50.0)
+
+
 def test_pipe_table_symbol_header_is_not_a_column_marker():
     # Only word headers type a pipe-table column; a bare "%" header cell is
     # left as it was, so the column stays untyped.
@@ -478,9 +527,27 @@ def _printed_figures(draw, styles=_ALL_STYLES):
 @example(figure=("(14,75)", 14.75), marker="p.c.", gap=" ", prefix="f ")
 def test_marked_figure_grounds_its_rate(figure, marker, gap, prefix):
     printed, value = figure
+    # main misreads an English-grouped figure before "per cent"; that defect
+    # predates the locale markers and is pinned below.
+    assume(not (marker == "per cent" and _ENGLISH_GROUPED_DECIMAL.fullmatch(printed)))
     source_text = f"{prefix}{printed}{gap}{marker} du montant"
 
     assert _grounds(source_text, value / 100), source_text
+
+
+_ENGLISH_GROUPED_DECIMAL = re.compile(r"\d{1,3}(?:,\d{3})+\.\d+")
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Pre-existing on main: an English-grouped figure before 'per cent' is "
+        "read from its last group ('000.0 per cent'), so 1,000.0 per cent "
+        "never grounds 10. 'percent' and '%' read it whole."
+    ),
+)
+def test_english_grouped_figure_before_per_cent_grounds_its_rate():
+    assert _grounds("le taux de 1,000.0 per cent du montant", 10.0)
 
 
 @settings(max_examples=150, deadline=None)
@@ -518,6 +585,30 @@ def test_figure_before_the_parenthesis_owns_the_marker(owner, note, marker):
     source_text = f"le taux de {owner} ({note}) {marker} du montant"
 
     assert not _grounds(source_text, note / 100), source_text
+    # The note stays masked: it grounds no literal either.
+    assert not _grounds(source_text, float(note)), source_text
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    rate=_printed_figures(),
+    marker=st.sampled_from(_MARKERS),
+    hundreds=st.integers(min_value=1, max_value=9_999),
+    first=st.booleans(),
+)
+@example(rate=("(1)", 1.0), marker="pour cent", hundreds=2, first=True)
+def test_marked_value_cell_never_types_its_column(rate, marker, hundreds, first):
+    # Whether the marked cell comes before or after it, an amount in the same
+    # column never grounds amount/100.
+    printed, value = rate
+    # The rate's own figure grounds itself and its N/100.
+    assume(hundreds not in (value, value / 100))
+    marked = f"| taux | {printed} {marker} |\n"
+    plain = f"| montant | {hundreds * 100} euro |\n"
+    rows = marked + plain if first else plain + marked
+    table = "| Item | Value |\n| --- | --- |\n" + rows
+
+    assert not _grounds(table, float(hundreds)), table
 
 
 @settings(max_examples=100, deadline=None)
