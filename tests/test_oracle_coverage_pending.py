@@ -1078,6 +1078,9 @@ def _us_checkout_with_outputs_in_three_repos(tmp_path: Path) -> Path:
         ("us/statutes/26/9998.yaml", "brand_new_federal_other_xyz"),
         ("us-al/statutes/40/18/9999.yaml", "brand_new_state_helper_xyz"),
         ("us-ks/statutes/79/9999.yaml", "brand_new_ks_helper_xyz"),
+        # Mapped comparable in the pinned registry with no test evidence, so
+        # the differential tests cover a nonzero ``untested_comparable``.
+        ("us/statutes/26/1/h.yaml", "adjusted_net_capital_gain"),
     ]:
         _write(
             checkout / relative,
@@ -1110,6 +1113,7 @@ def test_builder_shaped_report_matches_real_builder(tmp_path):
         _us_checkout_with_outputs_in_three_repos(tmp_path)
     )
     assert len(report["repos"]) == 3
+    assert report["untested_comparable"] == 1
     rebuilt = _builder_shaped_report(report["items"])
     for key in _REPO_AGGREGATE_KEYS:
         assert rebuilt[key] == report[key], key
@@ -1124,6 +1128,7 @@ def test_apply_without_declarations_is_identity_on_builder_report(tmp_path):
     report = build_policyengine_coverage_report(
         _us_checkout_with_outputs_in_three_repos(tmp_path)
     )
+    assert report["untested_comparable"] == 1
     before = copy.deepcopy(report)
 
     apply_pending_to_report(report, {})
@@ -1137,7 +1142,7 @@ def test_integration_declared_output_recounts_repo_rows(tmp_path):
     _declare(checkout, _FEDERAL_UNMAPPED)
     report = build_policyengine_coverage_report(checkout)
     federal_before = next(r for r in report["repos"] if r["repo"] == "rulespec-us")
-    assert federal_before["status_counts"] == {"unmapped": 2}
+    assert federal_before["status_counts"] == {"comparable": 1, "unmapped": 2}
     state_rows_before = [r for r in report["repos"] if r["repo"] != "rulespec-us"]
 
     apply_pending_to_report(
@@ -1147,8 +1152,8 @@ def test_integration_declared_output_recounts_repo_rows(tmp_path):
     rows = {row["repo"]: row for row in report["repos"]}
     assert rows["rulespec-us"] == {
         "repo": "rulespec-us",
-        "total_outputs": 2,
-        "status_counts": {PENDING_STATUS: 1, "unmapped": 1},
+        "total_outputs": 3,
+        "status_counts": {"comparable": 1, PENDING_STATUS: 1, "unmapped": 1},
     }
     assert [r for r in report["repos"] if r["repo"] != "rulespec-us"] == (
         state_rows_before
@@ -1169,7 +1174,7 @@ def test_cli_text_repo_line_matches_top_level_status(tmp_path, monkeypatch, caps
     federal_line = next(line for line in lines if line.startswith("rulespec-us: "))
     assert f"{PENDING_STATUS}=1" in status_line
     assert federal_line == (
-        f"rulespec-us: outputs=2 status={PENDING_STATUS}=1, unmapped=1"
+        f"rulespec-us: outputs=3 status=comparable=1, {PENDING_STATUS}=1, unmapped=1"
     )
 
 
