@@ -54,10 +54,15 @@ _NEGATION_PREFIX = (
     r")?"
 )
 # Generic chains remain bounded at three; the independently grammatical
-# conjunction/subordinator ולכש has four letters and remains admissible.
+# conjunction/subordinator ולכש has four letters and remains admissible
+# before both בלתי and the legacy lexical forms, without an unbounded chain.
 _BILTI_PREFIX = rf"(?:{_NEGATION_PREFIX}|{prefix_chain(_PREFIX_LETTERS, 3)})"
+# Keep the legacy greedy <=3 capture policy: relative-clause scope reads the
+# captured prefix, so an ordinary-first union would change e.g. כשלסרב.
+# The single explicit four-letter alternative restores the grammatical ולכש.
+_LEXICAL_PREFIX = rf"(?:{prefix_chain(_PREFIX_LETTERS, 3)}|{prefix_word('ולכש')})"
 _PREFIXED_BILTI = rf"{_BILTI_PREFIX}בלתי"
-BILTI_PREFIX_CHAINS = tuple(
+LEXICAL_PREFIX_CHAINS = tuple(
     dict.fromkeys((*GENERAL_PREFIX_CHAINS, *ORDINARY_PREFIX_CHAINS))
 )
 _NEGATION_GAP = rf"(?:\s|{PREFIX_JOINT})"
@@ -111,7 +116,7 @@ class NegatorFamily:
 
 
 # Legacy prohibition and exclusion forms are finite too. Their allowed prefix
-# chains are bounded at three letters; אסר is deliberately separate because
+# chains use the bounded lexical union above; אסר is separate because
 # מ+אסר spells מאסר (imprisonment), not a prefixed negative verb.
 LEGACY_LEXICAL_FORMS = (
     "אסור",
@@ -230,7 +235,7 @@ NEGATOR_FAMILIES = (
     NegatorFamily(CLAUSAL_NEGATORS, ORDINARY_PREFIX_CHAINS),
     NegatorFamily(("בל", "לבל"), ORDINARY_PREFIX_CHAINS),
     NegatorFamily(("אל",), ORDINARY_PREFIX_CHAINS, "before ת/י/א/נ imperfect"),
-    NegatorFamily(("בלתי",), BILTI_PREFIX_CHAINS),
+    NegatorFamily(("בלתי",), LEXICAL_PREFIX_CHAINS),
     NegatorFamily(("בלי", "מבלי", "ללא", "בלא", "באין"), ORDINARY_PREFIX_CHAINS),
     NegatorFamily(("מעולם",), ORDINARY_PREFIX_CHAINS, "only before לא"),
     NegatorFamily(("אסר", "אסרה", "אסרו"), ORDINARY_PREFIX_CHAINS),
@@ -238,12 +243,12 @@ NEGATOR_FAMILIES = (
     NegatorFamily(("הלא",), ("",), "attributive לא before מנוצל"),
     NegatorFamily(
         ("זולת",),
-        tuple(p for p in GENERAL_PREFIX_CHAINS if not p.endswith("ה")),
+        tuple(p for p in LEXICAL_PREFIX_CHAINS if not p.endswith("ה")),
         "no article: הזולת is another person",
     ),
     NegatorFamily(
         LEGACY_LEXICAL_FORMS,
-        GENERAL_PREFIX_CHAINS,
+        LEXICAL_PREFIX_CHAINS,
         "מנוע before מ; דוחות before את; אף with לא; להוציא ungoverned; זולת without article",
     ),
 )
@@ -270,7 +275,7 @@ def build_negation_language(
         rf"|הלא(?={_NEGATION_GAP}+מנוצל{_NOT_HEBREW_AFTER})"
         rf"|(?P<bilti_prefix>{_BILTI_PREFIX})בלתי"
         rf"|{_NEGATION_PREFIX}(?:{_WITHOUT_SIGNAL}|{prefix_word('ב')}אין)"
-        rf"|(?P<lexical_prefix>{prefix_chain(_PREFIX_LETTERS, 3)})"
+        rf"|(?P<lexical_prefix>{_LEXICAL_PREFIX})"
         rf"(?:אסור(?:ה|ים|ות)?|נאסר(?:ה|ו|ים|ות)?|איסור|מסרב(?:ת|ים|ות)?"
         # Prevented (``מנוע מלפעול``), not the noun "engine" (``מס על מנוע``).
         rf"|מנוע(?:ה|ים|ות)?(?={_NEGATION_GAP}+{prefix_word('מ')}[{_H}])"

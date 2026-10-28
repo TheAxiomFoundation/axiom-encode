@@ -768,15 +768,19 @@ PRECISION_SOURCE = """\
 (ו) על אף האמור בסעיף 360 לחוק הביטוח הלאומי, ישולם סכום המינימום."""
 
 
-def _deferral_content(branch: str | None, reason: str) -> str:
-    # Escape raw Cc into valid YAML while preserving real astral characters.
+def _quoted_reason(reason: str) -> str:
+    """Preserve visible Unicode and escape every raw YAML control character."""
+
     # JSON ensure_ascii=True emits surrogate pairs that YAML keeps as two
     # code units; their interpretation has a separate folding/offset property.
     quoted = json.dumps(reason, ensure_ascii=False)
-    quoted = "".join(
+    return "".join(
         f"\\u{ord(char):04x}" if unicodedata.category(char) == "Cc" else char
         for char in quoted
     )
+
+
+def _deferral_content(branch: str | None, reason: str) -> str:
     output = (
         f"{ANCHOR}/{branch}#deferred_output" if branch else f"{ANCHOR}#deferred_output"
     )
@@ -787,7 +791,7 @@ def _deferral_content(branch: str | None, reason: str) -> str:
         f"    corpus_citation_path: {CITATION}\n"
         "  deferred_outputs:\n"
         f"    - output: {output}\n"
-        f"      reason: {quoted}\n"
+        f"      reason: {_quoted_reason(reason)}\n"
         "rules: []\n"
     )
 
@@ -1182,7 +1186,7 @@ def _english_accepted(
         f"    corpus_citation_path: {ENGLISH_CITATION}\n"
         "  deferred_outputs:\n"
         f"    - output: {ENGLISH_ANCHOR}/{branch}#deferred_output\n"
-        f"      reason: {json.dumps(reason, ensure_ascii=False)}\n"
+        f"      reason: {_quoted_reason(reason)}\n"
         "rules: []\n"
     )
     issues = analyze_complete_source_unit(
@@ -4444,6 +4448,7 @@ def _hebrew_link_negations(draw) -> str:
 @example("אין זה נכון ש", [], False)
 @example("לא", [], True)
 @example("ודלא", ["it", "is"], False)
+@example("לא\u009b", [], False)
 def test_a_hebrew_negation_before_an_english_signal_refuses_it(
     negation, words, between
 ):
@@ -4480,6 +4485,7 @@ def test_a_hebrew_negation_before_an_english_signal_refuses_it(
 @example("דלא", [])
 @example("אינו", ["the", "amount", "is"])
 @example("למעט", [])
+@example("ולכשלמעט", [])
 def test_a_hebrew_negation_before_an_english_link_unlinks_it(negation, words):
     """Polarity: a Hebrew link negation negates an ``in accordance with`` link.
 
