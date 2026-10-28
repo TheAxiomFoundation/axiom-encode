@@ -1,0 +1,1 @@
+`engine-pin-diff` authorizes each dependency checkout once. Sibling subtrees passed as `--rulespec-dependency-root` resolve to one checkout, and every module resolution re-audited each repeated root, so a rulespec-uk subtree with its 69 siblings had not finished its one module after 40 minutes. Which modules resolve does not change.

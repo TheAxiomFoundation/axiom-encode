@@ -1136,6 +1136,13 @@ def test_shorthand_inventory_and_boundaries_real_engine(
             effective_to="2026-12-31",
         )
     ]
+    # The sibling lives in the active checkout, and is inventoried only because
+    # that checkout stays among the dependency roots (see run()).
+    assert {entry["module"] for entry in report["classification_inventory"]} == (
+        {"de/statutes/estg/66.yaml", "de-sn/statutes/estg/66.yaml"}
+        if sibling
+        else {"de/statutes/estg/66.yaml"}
+    )
     boundaries = {
         item["period_start"]: item
         for item in report["cases"]
@@ -1176,6 +1183,83 @@ def _confinement_checkout(base):
     subprocess.run(["git", "init", "-q", str(checkout)], check=True)
     subprocess.run(["git", "-C", str(checkout), "add", "."], check=True)
     return checkout, root, module
+
+
+@pytest.fixture(scope="module")
+def sibling_checkouts(tmp_path_factory):
+    """Two checkouts with sibling subtrees, and the dependency spellings to draw."""
+    base = tmp_path_factory.mktemp("siblings")
+    main, root, _ = _calendar_regression_module(base / "main")
+    other = base / "other" / "rulespec-at"
+    for subtree in (main / "de-sn", main / "de-by", other / "at", other / "at-w"):
+        (subtree / "README.md").parent.mkdir(parents=True, exist_ok=True)
+        (subtree / "README.md").write_text("fixture\n")
+    for checkout in (main, other):
+        subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+        subprocess.run(["git", "-C", str(checkout), "add", "."], check=True)
+    top = {
+        checkout: Path(diff._git(checkout, "rev-parse", "--show-toplevel"))
+        for checkout in (main, other)
+    }
+    spellings = [
+        (root, top[main]),
+        (main / "de-sn", top[main]),
+        (main / "de-by", top[main]),
+        (main / "de-sn" / ".." / "de-by", top[main]),
+        (other / "at", top[other]),
+        (other / "at-w", top[other]),
+    ]
+    return root, top[main], spellings
+
+
+@settings(deadline=None, max_examples=60)
+@given(st.data())
+def test_each_dependency_checkout_is_authorized_once(sibling_checkouts, data):
+    root, checkout, spellings = sibling_checkouts
+    drawn = data.draw(st.lists(st.sampled_from(spellings), max_size=12))
+    captured = {}
+
+    def capture(args, root, checkout, roots, *rest):
+        captured["roots"] = roots
+        return 0
+
+    args = SimpleNamespace(
+        root=root,
+        out_dir=root.parents[2] / "evidence",
+        rulespec_dependency_root=[path for path, _ in drawn],
+    )
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(diff, "_run", capture)
+        assert diff.run(args) == 0
+    roots = captured["roots"]
+    # The active checkout leads; each dependency checkout follows once, in the
+    # order first named, however many of its subtrees or spellings were passed.
+    assert roots[0] == checkout
+    expected = []
+    for _, top in drawn:
+        if top not in expected:
+            expected.append(top)
+    assert list(roots[1:]) == expected
+
+
+def test_sixty_nine_siblings_authorize_one_checkout(tmp_path, monkeypatch):
+    checkout, root, _ = _calendar_regression_module(tmp_path / "main")
+    siblings = [checkout / f"de-{index}" for index in range(69)]
+    for sibling in siblings:
+        sibling.mkdir()
+        (sibling / "README.md").write_text("fixture\n")
+    subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+    subprocess.run(["git", "-C", str(checkout), "add", "."], check=True)
+    captured = {}
+    monkeypatch.setattr(
+        diff, "_run", lambda args, root, top, roots, *rest: captured.update(roots=roots)
+    )
+    args = SimpleNamespace(
+        root=root, out_dir=tmp_path / "evidence", rulespec_dependency_root=siblings
+    )
+    diff.run(args)
+    top = Path(diff._git(checkout, "rev-parse", "--show-toplevel"))
+    assert captured["roots"] == (top, top)
 
 
 @pytest.mark.parametrize("target_checkout", ["root", "dependency"])
