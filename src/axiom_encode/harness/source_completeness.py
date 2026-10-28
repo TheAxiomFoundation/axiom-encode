@@ -6602,11 +6602,11 @@ def _deferred_coverage(
     authenticated_same_act_aliases: Sequence[str] = (),
     resolved_dependency_outputs: Sequence[str] = (),
     deferred_clauses: list[SourceStructureBranch] | None = None,
-) -> tuple[set[tuple[str, ...]], list[str]]:
+) -> tuple[frozenset[tuple[str, ...]], list[str]]:
     module = payload.get("module")
     records = module.get("deferred_outputs") if isinstance(module, dict) else None
     if not isinstance(records, list):
-        return set(), []
+        return frozenset(), []
     deferral_anchors = _deferral_anchor_bases(corpus_citation_path)
     base_target = deferral_anchors[0]
     preferred_anchor = deferral_anchors[-1]
@@ -6899,7 +6899,8 @@ def _deferred_coverage(
                 "name an exact missing dependency, input, or runtime capability.\n"
                 f"{retry_shape}"
             )
-    return covered, issues
+    # Frozen, so `_path_is_deferred` can index the set once per analysis.
+    return frozenset(covered), issues
 
 
 # The resolver authenticates these exact known interfaces. Shared words in an
@@ -13646,16 +13647,48 @@ def _path_covered(
 
 def _path_is_deferred(
     path: tuple[str, ...],
-    deferred_paths: set[tuple[str, ...]],
+    deferred_paths: set[tuple[str, ...]] | frozenset[tuple[str, ...]],
 ) -> bool:
     """Let a precise non-root deferral cover its structural descendants."""
 
     if not path:
         return () in deferred_paths
-    # A non-empty deferred path covers ``path`` exactly when it equals one of
-    # ``path``'s non-empty prefixes, so look the prefixes up instead of
-    # scanning every deferral for every branch.
-    return any(path[:length] in deferred_paths for length in range(1, len(path) + 1))
+    if type(deferred_paths) is frozenset and isinstance(path, tuple):
+        # An analysis checks every branch against one frozen deferral set, so
+        # walk the path down a trie of that set, built once, instead of
+        # scanning every deferral for every branch. A walk reads each path
+        # component once; looking up every prefix would copy deep paths.
+        node = _deferred_path_trie(_IdentityKey(deferred_paths))
+        for part in path:
+            node = node.get(part)
+            if node is None:
+                return False
+            if _DEFERRED_PATH_END in node:
+                return True
+        return False
+    return any(
+        deferred_path and path[: len(deferred_path)] == deferred_path
+        for deferred_path in deferred_paths
+    )
+
+
+_DEFERRED_PATH_END = object()
+
+
+@functools.lru_cache(maxsize=16)
+def _deferred_path_trie(key: _IdentityKey) -> dict[object, Any]:
+    """One frozen set's non-empty paths as nested dicts, each end marked."""
+
+    # The key holds the set, so its identity cannot be reused while cached.
+    root: dict[object, Any] = {}
+    for deferred_path in key.value:
+        if not deferred_path:
+            continue
+        node = root
+        for part in deferred_path:
+            node = node.setdefault(part, {})
+        node[_DEFERRED_PATH_END] = True
+    return root
 
 
 def _branch_citation(
@@ -21725,13 +21758,19 @@ def _number_ends_before(source_text: str, end: int) -> bool:
 
 
 class _BranchPathNode:
-    """One path prefix: the branches whose path ends here, and longer prefixes."""
+    """One path prefix: the branches whose path ends here, and longer prefixes.
 
-    __slots__ = ("children", "indexes")
+    ``first`` and ``last`` bound the slice of the index's preorder that holds
+    the branches under longer prefixes.
+    """
+
+    __slots__ = ("children", "first", "indexes", "last")
 
     def __init__(self) -> None:
         self.children: dict[str, _BranchPathNode] = {}
         self.indexes: list[int] = []
+        self.first = 0
+        self.last = 0
 
 
 class _SourceBranchIndex:
@@ -21741,33 +21780,79 @@ class _SourceBranchIndex:
     or the branches containing a span) made an outline of n branches cost n².
     Each lookup here returns, in their original order and once each, a pool of
     branches that holds every branch the helper's own filter can accept; the
-    helpers still apply that filter, so their results are unchanged.
+    helpers still apply that filter, so their results are unchanged. The path
+    and span structures are built on first use, since some branch tuples are
+    only ever asked one kind of question.
     """
 
     def __init__(self, branches: tuple[SourceStructureBranch, ...]) -> None:
         self.branches = branches
-        self.root = _BranchPathNode()
-        for index, branch in enumerate(branches):
-            node = self.root
-            for component in branch.path:
-                node = node.children.setdefault(component, _BranchPathNode())
+
+    @functools.cached_property
+    def _paths(
+        self,
+    ) -> tuple[_BranchPathNode, dict[tuple[str, ...], _BranchPathNode], list[int]]:
+        root = _BranchPathNode()
+        nodes: dict[tuple[str, ...], _BranchPathNode] = {(): root}
+        for index, branch in enumerate(self.branches):
+            path = branch.path
+            node = nodes.get(path)
+            if node is None:
+                # A path usually extends an earlier branch's path by one
+                # component, so start there; walk from the root otherwise.
+                parent = nodes.get(path[:-1])
+                if parent is None:
+                    parent = root
+                    for component in path[:-1]:
+                        child = parent.children.get(component)
+                        if child is None:
+                            child = parent.children[component] = _BranchPathNode()
+                        parent = child
+                node = parent.children.get(path[-1])
+                if node is None:
+                    node = parent.children[path[-1]] = _BranchPathNode()
+                nodes[path] = node
             node.indexes.append(index)
+        # Number the branches in preorder, so each node's descendants are one
+        # slice and a lookup copies that slice instead of walking the subtree.
+        preorder: list[int] = []
+        pending: list[tuple[_BranchPathNode, bool]] = [(root, False)]
+        while pending:
+            node, leaving = pending.pop()
+            if leaving:
+                node.last = len(preorder)
+                continue
+            preorder.extend(node.indexes)
+            node.first = len(preorder)
+            pending.append((node, True))
+            pending.extend((child, False) for child in reversed(node.children.values()))
+        return root, nodes, preorder
+
+    @functools.cached_property
+    def _spans(self) -> tuple[list[int], list[int], int, list[float]]:
         # Branches ordered by start, under a max-segment tree of their ends: the
         # branches containing a span are those starting at or before it whose
         # end reaches its end.
-        self.by_start = sorted(range(len(branches)), key=lambda i: branches[i].start)
-        self.starts = [branches[index].start for index in self.by_start]
-        self.leaves = 1
-        while self.leaves < len(branches):
-            self.leaves *= 2
-        self.reach: list[float] = [-math.inf] * (2 * self.leaves)
-        for position, index in enumerate(self.by_start):
-            self.reach[self.leaves + position] = branches[index].end
-        for node in range(self.leaves - 1, 0, -1):
-            self.reach[node] = max(self.reach[2 * node], self.reach[2 * node + 1])
+        branches = self.branches
+        by_start = sorted(range(len(branches)), key=lambda i: branches[i].start)
+        starts = [branches[index].start for index in by_start]
+        leaves = 1
+        while leaves < len(branches):
+            leaves *= 2
+        reach: list[float] = [-math.inf] * (2 * leaves)
+        for position, index in enumerate(by_start):
+            reach[leaves + position] = branches[index].end
+        for node in range(leaves - 1, 0, -1):
+            reach[node] = max(reach[2 * node], reach[2 * node + 1])
+        return by_start, starts, leaves, reach
 
     def _node(self, path: tuple[str, ...]) -> _BranchPathNode | None:
-        node: _BranchPathNode | None = self.root
+        root, nodes, _preorder = self._paths
+        # A branch's own path finds its node in one lookup; a bare prefix walks.
+        node: _BranchPathNode | None = nodes.get(path)
+        if node is not None:
+            return node
+        node = root
         for component in path:
             node = node.children.get(component)
             if node is None:
@@ -21793,26 +21878,22 @@ class _SourceBranchIndex:
         node = self._node(path)
         if node is None:
             return []
-        found: list[int] = []
-        pending = list(node.children.values())
-        while pending:
-            child = pending.pop()
-            found.extend(child.indexes)
-            pending.extend(child.children.values())
-        return [self.branches[index] for index in sorted(found)]
+        found = sorted(self._paths[2][node.first : node.last])
+        return [self.branches[index] for index in found]
 
     def containing(self, start: int, end: int) -> list[SourceStructureBranch]:
         """Branches with ``branch.start <= start`` and ``end <= branch.end``."""
 
-        limit = bisect.bisect_right(self.starts, start)
+        by_start, starts, leaves, reach = self._spans
+        limit = bisect.bisect_right(starts, start)
         found: list[int] = []
-        pending = [(1, 0, self.leaves)]
+        pending = [(1, 0, leaves)]
         while pending:
             node, low, high = pending.pop()
-            if low >= limit or self.reach[node] < end:
+            if low >= limit or reach[node] < end:
                 continue
             if high - low == 1:
-                found.append(self.by_start[low])
+                found.append(by_start[low])
                 continue
             middle = (low + high) // 2
             pending.extend(((2 * node, low, middle), (2 * node + 1, middle, high)))

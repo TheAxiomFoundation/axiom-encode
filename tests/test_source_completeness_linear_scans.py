@@ -739,6 +739,32 @@ def _fixture_cases():
             "en-US",
             id=f"half-deferred-{label}",
         )
+    # Attached markers nest one level each, so branch paths run 25 deep.
+    attached = (
+        "A.\n" + "(a)" * 24 + " Eligibility under section 3001.\n"
+        "B. Eligibility under section 3002."
+    )
+    for label, deferrals in (
+        ("no-rules", ()),
+        (
+            "deep-deferral",
+            (
+                (
+                    "us:statutes/7/2014/a/a/a#eligibility_a",
+                    "Paragraph (a) cannot be encoded until eligibility under "
+                    "section 3001 is available.",
+                ),
+            ),
+        ),
+    ):
+        yield pytest.param(
+            _no_rules(SNAP_CITATION, deferrals),
+            attached,
+            SNAP_CITATION,
+            None,
+            "en-US",
+            id=f"attached-markers-{label}",
+        )
     yield pytest.param(
         _no_rules("de/statute/estg/32"),
         GERMAN_SOURCE,
@@ -823,11 +849,16 @@ def _fixture_sources():
 
 def _deferral_sets(branches: Sequence[SourceStructureBranch]):
     paths = sorted({branch.path for branch in branches})
-    yield set()
-    yield {()}
-    yield set(paths[::2])
-    yield {path[:1] for path in paths if path}
-    yield {path for path in paths if len(path) > 1}
+    for deferred in (
+        set(),
+        {()},
+        set(paths[::2]),
+        {path[:1] for path in paths if path},
+        {path for path in paths if len(path) > 1},
+    ):
+        # An analysis passes a frozen set, which is indexed; others are scanned.
+        yield deferred
+        yield frozenset(deferred)
 
 
 @pytest.mark.parametrize(("source", "citation"), tuple(_fixture_sources()))
@@ -1169,10 +1200,10 @@ def _branch_pools(draw):
 @settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(_branch_pools())
 def test_branch_helpers_match_main_on_random_pools(case):
-    text, branches, deferred, spans = case
+    text, branches, deferred_paths, spans = case
     spans = spans + [(branch.start, branch.end) for branch in branches]
 
-    def helpers(pool):
+    def helpers(pool, deferred):
         return (
             [
                 (
@@ -1199,9 +1230,10 @@ def test_branch_helpers_match_main_on_random_pools(case):
         )
 
     for pool in (branches, list(branches)):
-        old, cold, warm = _old_and_new(lambda: helpers(pool))
-        assert cold == old
-        assert warm == cold
+        for deferred in (deferred_paths, frozenset(deferred_paths)):
+            old, cold, warm = _old_and_new(lambda: helpers(pool, deferred))
+            assert cold == old
+            assert warm == cold
 
 
 @settings(max_examples=300, deadline=None)
@@ -1309,6 +1341,44 @@ def test_branch_index_is_cached_per_tuple_and_skips_other_sequences():
     assert sc._source_branch_index(()) is None
 
 
+@pytest.mark.parametrize("path", [["a", "b"], "ab", ("a", "b"), ("b",), ()])
+@pytest.mark.parametrize(
+    "deferred", [frozenset({("a",)}), {("a",)}, frozenset({()}), frozenset()]
+)
+def test_path_is_deferred_matches_main_on_any_path(path, deferred):
+    # Main compared slices, so a list or string path never matched a tuple.
+    assert sc._path_is_deferred(path, deferred) is _old_path_is_deferred(path, deferred)
+
+
+def test_deferral_trie_is_cached_per_frozen_set():
+    source = _cited_outline(8)
+    branches = sc.recognize_source_structure(source, corpus_citation_path=SNAP_CITATION)
+    payload = yaml.safe_load(_half_deferred(8, reason=_PRECISE_REASON))
+    covered, issues = sc._deferred_coverage(
+        payload,
+        corpus_citation_path=SNAP_CITATION,
+        source_text=source,
+        branches=branches,
+    )
+
+    assert type(covered) is frozenset
+    assert covered == {("1",), ("3",), ("5",), ("7",)}
+    assert not issues
+    trie = sc._deferred_path_trie(sc._IdentityKey(covered))
+    assert sc._deferred_path_trie(sc._IdentityKey(covered)) is trie
+    # ``frozenset(covered)`` would return ``covered`` itself; copy through a list.
+    equal_copy = frozenset(list(covered))
+    assert sc._deferred_path_trie(sc._IdentityKey(equal_copy)) is not trie
+    assert type(sc._deferred_coverage({}, **_COVERAGE_ARGS)[0]) is frozenset
+
+
+_COVERAGE_ARGS = {
+    "corpus_citation_path": SNAP_CITATION,
+    "source_text": "",
+    "branches": (),
+}
+
+
 # CPU-time growth per doubling. A linear scan grows about 2x, a quadratic one
 # about 4x; main grew 3.2-4x on these inputs, and 6-8x on qualified U.S.C.
 # citations. The bound leaves room for timer noise and per-call overhead.
@@ -1395,8 +1465,24 @@ def _branch_helper_family(
     def family(n: int):
         source = _wide_outline(n)
         branches = sc.recognize_source_structure(source)
-        deferred = {branch.path for branch in branches[::2]}
+        # Frozen, as `_deferred_coverage` returns it to an analysis.
+        deferred = frozenset(branch.path for branch in branches[::2])
         return functools.partial(helper, source, branches, deferred)
+
+    return family
+
+
+def _deep_path_family(deferred: frozenset | set):
+    """``_path_is_deferred`` over an outline of n attached markers, n deep."""
+
+    def family(n: int):
+        branches = sc.recognize_source_structure("A.\n" + "(a)" * n + " x\nB. x")
+        # Sixteen sweeps keep each timed call well above the timer's noise.
+        return lambda: [
+            sc._path_is_deferred(branch.path, deferred)
+            for _sweep in range(16)
+            for branch in branches
+        ]
 
     return family
 
@@ -1471,6 +1557,25 @@ def test_deferral_reason_cpu_growth_is_near_linear(family, sizes, budget):
             (400, 800, 1600),
             1.0,
             id="path-is-deferred",
+        ),
+        # Branch paths grow with n here, so a lookup must not copy each prefix.
+        pytest.param(
+            _deep_path_family(frozenset()),
+            (200, 400, 800),
+            1.0,
+            id="path-is-deferred-deep-none",
+        ),
+        pytest.param(
+            _deep_path_family(frozenset({("z",)})),
+            (200, 400, 800),
+            1.0,
+            id="path-is-deferred-deep-unrelated",
+        ),
+        pytest.param(
+            _deep_path_family({("z",)}),
+            (200, 400, 800),
+            1.0,
+            id="path-is-deferred-deep-unrelated-unfrozen",
         ),
         pytest.param(
             _branch_helper_family(
