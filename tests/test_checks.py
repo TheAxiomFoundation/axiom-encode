@@ -53,9 +53,9 @@ WORKFLOW = REPO / ".github" / "workflows" / "targeted-signed-reencode.yml"
 #: Untyped ``*issues.append(...)`` sites in ``src/axiom_encode``. Lower this
 #: number when you convert sites to declared checks; never raise it. A new
 #: validator issue is a ``ValidationIssue`` from a ``declare_check`` check.
-#: (677 = 648 at this check's start plus 29 sites #1835 and #1989 added to
-#: main before it merged.)
-UNTYPED_ISSUE_APPEND_BASELINE = 677
+#: (680 = 648 at this check's start plus 32 sites #1835, #1989 and #1969 added
+#: to main before it merged.)
+UNTYPED_ISSUE_APPEND_BASELINE = 680
 
 #: ``echo ... >&2`` + ``exit 1`` refusals in the targeted re-encode workflow
 #: that record no infra issue (the hardened steps after the signing supervisor
