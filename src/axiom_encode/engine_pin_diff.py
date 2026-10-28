@@ -628,9 +628,15 @@ def run(args, *, executor=execute) -> int:
     checkout = Path(_git(root, "rev-parse", "--show-toplevel"))
     confined_output = ConfinedOutput(args.out_dir)
     out_dir = confined_output.path
+    # Sibling subtrees of one checkout name the same checkout. Authorize each
+    # checkout once: every module resolution re-validates each authorized root
+    # (its symlink audit and jurisdiction listing), so a repeated root
+    # multiplies that work without changing what resolves. Keep the active
+    # checkout here when a sibling names it: collect_modules inventories the
+    # sibling subtrees from these dependency roots, not from the active root.
     roots = (
         checkout,
-        *(
+        *dict.fromkeys(
             Path(_git(path.resolve(strict=True), "rev-parse", "--show-toplevel"))
             for path in args.rulespec_dependency_root
         ),
