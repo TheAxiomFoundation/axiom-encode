@@ -92,7 +92,11 @@ def derive(source: Path) -> dict:
         for line in (source / name).read_bytes().decode("iso8859-8").splitlines():
             if not line or line.startswith("#"):
                 continue
-            word = line.split()[0]
+            # Match pmerge's ``s/\+ / /o`` before reading the surface form.
+            # Woo marks optional verb forms with '+': לדה+ is an ordinary
+            # imperative, not an unanalysed dictionary entry/proper name.
+            # Preserve the original line below as the primary-source receipt.
+            word = line.replace("+ ", " ", 1).split()[0]
             if word[0] in "LB":
                 word = word[1:]
             word = word.removesuffix("-")

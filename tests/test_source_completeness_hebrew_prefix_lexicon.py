@@ -35,8 +35,8 @@ def test_primary_lexicon_receipt_and_complete_finite_partition():
     assert sorted(FIXTURE["candidate_stem_masks"]) == expected
     assert Counter(row["category"] for row in FIXTURE["candidates"]) == {
         "single_letter_prefix": 8,
-        "lexical_word": 286,
-        "proper_name": 11,
+        "lexical_word": 287,
+        "proper_name": 10,
         "acronym": 8,
         "nonlexical_prefix_chain": 271,
     }
@@ -104,6 +104,24 @@ def test_primary_proper_names_and_quoted_acronyms_remain_distinct():
     assert by_token["לוד"]["category"] == "proper_name"  # Lod
     assert by_token["ממ"]["category"] == "acronym"  # e.g. quoted מ"מ
     assert by_token["וכו"]["category"] == "acronym"
+    # Upstream Woo's '+' is an optional-form marker removed by pmerge, not
+    # part of the Hebrew token. Retain its real imperative analysis so an
+    # empty analysis list cannot silently misclassify this as a proper name.
+    assert by_token["לדה"]["category"] == "lexical_word"
+    assert by_token["לדה"]["readings"] == [
+        {
+            "prefix": "",
+            "stem": "לדה",
+            "compatible_mask": 16,
+            "analyses": [
+                {
+                    "hif": "verbs.hif",
+                    "description": "לדה+ פ,ציווי,אתה,כינוי/היא",
+                    "proper_name": False,
+                }
+            ],
+        }
+    ]
     for token in ("דוד", "משה"):
         assert by_token[token]["category"] == "lexical_word"
         readings = by_token[token]["readings"]
