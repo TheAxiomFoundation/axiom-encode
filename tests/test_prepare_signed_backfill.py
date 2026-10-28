@@ -5192,7 +5192,10 @@ def test_checkout_presence_rejects_unsupported_descriptor_traversal(
         )
 
 
-def test_checkout_presence_resolves_dotdot_root_like_the_kernel(tmp_path: Path):
+@pytest.mark.parametrize("root_suffix", ["link/../rulespec-us", "rootlink/us/.."])
+def test_checkout_presence_refuses_dotdot_in_repo_root(
+    tmp_path: Path, root_suffix: str
+):
     lexical, relative = _checkout_probe_repo(tmp_path / "lexical")
     kernel, _relative = _checkout_probe_repo(tmp_path / "kernel")
     (kernel / relative).write_text("module: {}\n", encoding="utf-8")
@@ -5200,14 +5203,17 @@ def test_checkout_presence_resolves_dotdot_root_like_the_kernel(tmp_path: Path):
     (lexical.parent / "link").symlink_to(
         kernel.parent / "inner", target_is_directory=True
     )
+    (lexical.parent / "rootlink").symlink_to(kernel, target_is_directory=True)
 
-    # lexical/link/../rulespec-us is kernel/rulespec-us once the kernel
-    # follows the link, but lexical/rulespec-us if ".." is collapsed first.
-    assert _checkout_path_exists_without_indirection(
-        lexical.parent / "link/../rulespec-us",
-        relative,
-        label="RuleSpec primary",
-    )
+    # link/../rulespec-us collapses lexically to a different root than the
+    # kernel resolves; rootlink/us/.. reaches a symlinked repository through a
+    # final ".." component that O_NOFOLLOW does not refuse.
+    with pytest.raises(ValueError, match="repository root is invalid"):
+        _checkout_path_exists_without_indirection(
+            lexical.parent / root_suffix,
+            relative,
+            label="RuleSpec primary",
+        )
 
 
 def _open_descriptor_count() -> int:
