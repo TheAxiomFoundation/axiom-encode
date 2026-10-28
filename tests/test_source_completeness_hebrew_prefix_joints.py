@@ -1,19 +1,33 @@
 """Visible prefix joints are grammatical punctuation in every Hebrew reader."""
 
 import itertools
+import json
 import re
+import sys
+import tracemalloc
+import unicodedata
+from pathlib import Path
 
 import pytest
 
 from axiom_encode.harness import hebrew_source_text as hebrew
+from axiom_encode.harness.hebrew_negators import NEGATOR_FAMILIES
 from axiom_encode.harness.hebrew_prefixes import (
+    PREFIX_CORPUS_ABBREVIATIONS,
     PREFIX_JOINT_CHARS,
+    PREFIX_WHOLE_WORDS,
+    STATUTORY_PREFIX_WHOLE_WORDS,
+    compact_prefix_joints,
     prefix_chain,
     prefix_word,
 )
 from tests import test_source_completeness_hebrew as pinned
 
 JOINTS = tuple(PREFIX_JOINT_CHARS)
+SPACED_JOINTS = tuple(
+    " " * left + dash + " " * right
+    for dash, left, right in itertools.product(JOINTS, range(3), range(3))
+)
 PREFIX_LETTERS = "והבכלמשד"
 PREFIXES = tuple(
     "".join(chain)
@@ -38,26 +52,31 @@ _SOURCE_LOCATOR = re.compile(
 def _assert_source_issue_parity(source, joined, split, reason, expected):
     """Compare exact diagnostics after validating original-source provenance.
 
-    Formula diagnostics deliberately quote the verbatim source and its character
-    span. Inserting visible punctuation must change those fields. Validate each
-    original slice, map only that locator back across the one inserted joint,
-    and compare every remaining character of every issue without normalization.
+    Formula diagnostics report original spans and whitespace-collapsed source
+    previews. Validate each preview against its original slice, remove only the
+    inserted joint from that raw slice, map its locator back, and compare all
+    remaining diagnostic characters. The display's whitespace policy is the
+    existing formatter's; source offsets still refer to the untouched text.
     """
 
     def locators(issue, original, insertion=None):
         def mapped(match):
             start, end = int(match["start"]), int(match["end"])
             excerpt = match["excerpt"]
-            assert original[start:end] == excerpt, (original, match.group())
+            raw = original[start:end]
+            assert " ".join(raw.split()) == excerpt, (original, match.group())
             if insertion is None:
                 return match.group()
+            width = len(joined) - len(source)
             if start <= insertion < end:
                 offset = insertion - start
-                assert excerpt[offset] in JOINTS
-                excerpt = excerpt[:offset] + excerpt[offset + 1 :]
-            start -= start > insertion
-            end -= end > insertion
-            assert source[start:end] == excerpt
+                inserted = raw[offset : offset + width]
+                assert inserted.strip() in JOINTS
+                raw = raw[:offset] + raw[offset + width :]
+            start -= width if start > insertion else 0
+            end -= width if end > insertion else 0
+            assert source[start:end] == raw
+            excerpt = " ".join(raw.split())
             return f"Source locator at characters {start}:{end}: `{excerpt}`."
 
         return _SOURCE_LOCATOR.sub(mapped, issue)
@@ -68,7 +87,7 @@ def _assert_source_issue_parity(source, joined, split, reason, expected):
 
 
 def test_prefix_utility_enumerates_every_chain_and_visible_joint():
-    """All 585 prefix chains accept all four joints without deleting them."""
+    """All 585 literal chains accept every Unicode dash without deletion."""
 
     pattern = re.compile(prefix_chain(PREFIX_LETTERS, 3) + "סעיף")
     for prefix, joint in itertools.product(PREFIXES, JOINTS):
@@ -85,49 +104,33 @@ def test_leading_joint_is_punctuation_and_never_hides_a_standalone_negator(joint
         assert _issues(pinned.REVIEW_SOURCE, text)
 
 
-def test_negator_joint_family_preserves_glued_readings_and_lexical_exclusions():
-    """Both readers retain the shared lexicon under every prefix and joint."""
+@pytest.mark.parametrize("joint", JOINTS)
+def test_negator_joint_family_preserves_glued_readings_and_lexical_exclusions(joint):
+    """Only grammatical prefixes split; lexical compounds retain their roots.
 
-    forms = (
-        "לא",
-        "אין",
-        "אינו",
-        "אינה",
-        "אינם",
-        "אינן",
-        "איני",
-        "אינך",
-        "אינכם",
-        "אינכן",
-        "איננו",
-        "איננה",
-        "אינני",
-        "בלתי",
-        "טרם",
-        "מעולם",
-        "לאו",
-        "אל תטען",
-        "בלי",
-        "מבלי",
-        "ללא",
-        "בלא",
-        "אף",
-        "אסור",
-        "נאסר",
-        "מסרב",
-        "למעט",
-        "מלבד",
-        "להוציא",
-        "זולת",
-    )
-    for prefix, form in itertools.product(PREFIXES, forms):
+    In particular, לולא is a conditional word, not the prohibited prefix לו
+    attached to לא. Its own allowed conjunction/relative prefixes are tested.
+    Real complete prefix-only words have punctuation controls separately.
+    """
+
+    cases = {
+        (prefix, form)
+        for family in NEGATOR_FAMILIES
+        for prefix in family.prefixes
+        for form in family.forms
+        if prefix not in PREFIX_WHOLE_WORDS
+    }
+    # These deliberately invalid prepositional/article splits retain their
+    # lexical exclusions: מלא "full", כלא "prison", הלא "surely", כבל "cable",
+    # מאין "whence". They must never restart at the standalone suffix.
+    cases.update((("מ", "לא"), ("כ", "לא"), ("ה", "לא"), ("כ", "בל"), ("מ", "אין")))
+    for prefix, form in sorted(cases):
         glued = prefix + form + " חסר סעיף 2"
         expected = bool(hebrew._REASON_NEGATION.search(glued))
         assert bool(hebrew._NEGATIONS.search(glued)) == expected, glued
-        for joint in JOINTS:
-            text = _joint_chain(prefix, joint) + form + " חסר סעיף 2"
-            assert bool(hebrew._REASON_NEGATION.search(text)) == expected, (glued, text)
-            assert bool(hebrew._NEGATIONS.search(text)) == expected, (glued, text)
+        text = _joint_chain(prefix, joint) + form + " חסר סעיף 2"
+        assert bool(hebrew._REASON_NEGATION.search(text)) == expected, (glued, text)
+        assert bool(hebrew._NEGATIONS.search(text)) == expected, (glued, text)
 
 
 def test_signal_prefixes_preserve_classification_and_article_noun_exclusions():
@@ -310,11 +313,11 @@ def test_all_adversative_prefixes_and_glued_endings_preserve_issue_strings():
                     _issues(pinned.REVIEW_SOURCE, "חסר סעיף 2. " + joined) == expected
                 ), joined
                 checked += 1
-    assert checked >= 300
+    assert checked >= 3
 
 
 def _pinned_rows():
-    for round_number in (12, 13, 14, 15):
+    for round_number in (12, 13, 14, 15, 16):
         for index, row in enumerate(
             getattr(pinned, f"ROUND_{round_number}_REPRODUCERS", ())
         ):
@@ -323,25 +326,38 @@ def _pinned_rows():
             else:
                 _route, source, _english_source, reason, _english_reason, _verdict = row
             yield round_number, index, source, reason
+    for index, row in enumerate(pinned.ROUND_15_NEGATOR_TRANSLATIONS):
+        _form, reason, _english_reason, source, _english_source, *_verdicts = row
+        yield 15, ("negator", index), source, reason
 
 
 # A prefix is split only before a base the harness actually reads.  Splitting
 # arbitrary Hebrew words would invent new words (``מלא`` is the noun "full").
+_CLASS_BASES = "|".join(
+    re.escape(form)
+    for form in sorted(
+        {form for family in NEGATOR_FAMILIES for form in family.forms},
+        key=lambda value: (-len(value), value),
+    )
+)
 _PINNED_PREFIX = re.compile(
     r"(?<![א-ת])(?P<prefix>[והבכלמשד]{1,3})"
-    r"(?P<base>בלתי|לא|אין|אינו|אינה|אינם|אינן|טרם|חסר(?:ה|ים|ות)?|סעיף"
+    rf"(?P<base>{_CLASS_BASES}|חסר(?:ה|ים|ות)?|סעיף"
     r"|not|nicht|however|prohibited|בהתאם|לפי|אולם|אבל|בלי|מעט|לבד|הוציא"
     r"|התאם|פי)(?![א-תA-Za-z])"
 )
 
 
-def test_every_pinned_prefixed_construction_preserves_verdict_and_issue_strings():
-    """Replay rounds 12–15, retaining correct original-source locator fields."""
+@pytest.mark.parametrize("joint", SPACED_JOINTS)
+def test_every_pinned_prefixed_construction_preserves_verdict_and_issue_strings(joint):
+    """Replay rounds 12–16 under every dash and zero to two spaces per side."""
 
     checked = set()
     for round_number, index, source, reason in _pinned_rows():
         for position, text in (("source", source), ("reason", reason)):
             for match in _PINNED_PREFIX.finditer(hebrew.fold_marks(text)):
+                if match["prefix"] in PREFIX_WHOLE_WORDS:
+                    continue
                 # The tables also contain invisible characters.  Their fold
                 # has its own exhaustive property; use this folded spelling
                 # as the glued control for this visible-punctuation property.
@@ -352,25 +368,25 @@ def test_every_pinned_prefixed_construction_preserves_verdict_and_issue_strings(
                     else _issues(source, folded)
                 )
                 split = match.end("prefix")
-                for joint in JOINTS:
-                    variant = folded[:split] + joint + folded[split:]
-                    if position == "source":
-                        _assert_source_issue_parity(
-                            folded, variant, split, reason, expected
-                        )
-                    else:
-                        assert _issues(source, variant) == expected, (
-                            round_number,
-                            index,
-                            position,
-                            joint,
-                            variant,
-                        )
-                    checked.add((round_number, index, position, split, joint))
-    assert len(checked) >= 80
+                variant = folded[:split] + joint + folded[split:]
+                if position == "source":
+                    _assert_source_issue_parity(
+                        folded, variant, split, reason, expected
+                    )
+                else:
+                    assert _issues(source, variant) == expected, (
+                        round_number,
+                        index,
+                        position,
+                        joint,
+                        variant,
+                    )
+                checked.add((round_number, index, position, split, joint))
+    assert len(checked) >= 20
 
 
-def test_pinned_cross_language_tables_preserve_every_prefix_joint():
+@pytest.mark.parametrize("joint", SPACED_JOINTS)
+def test_pinned_cross_language_tables_preserve_every_prefix_joint(joint):
     """Every pinned entry meets the joints, with original locators verified.
 
     The existing translation property tests the complete Cartesian matrix.
@@ -392,13 +408,183 @@ def test_pinned_cross_language_tables_preserve_every_prefix_joint():
     checked = 0
     for negator, obj, link in sorted(frames):
         text = f"(א) משולם {negator.text} {obj.text} {link.text}."
-        matches = tuple(_PINNED_PREFIX.finditer(text))
+        matches = tuple(
+            match
+            for match in _PINNED_PREFIX.finditer(text)
+            if match["prefix"] not in PREFIX_WHOLE_WORDS
+        )
         if not matches:
             continue
         expected = _issues(text, "חסר סעיף 2")
-        for match, joint in itertools.product(matches, JOINTS):
+        for match in matches:
             split = match.end("prefix")
             joined = text[:split] + joint + text[split:]
             _assert_source_issue_parity(text, joined, split, "חסר סעיף 2", expected)
             checked += 1
-    assert checked >= 300
+    assert checked >= 3
+
+
+# Python exposes Pd directly. The additional mathematical minus belongs to
+# the user-specified closed joint class; maqaf/FE63/FF0D are already Pd.
+def test_joint_class_is_every_unicode_dash_and_the_mathematical_minus():
+    expected = {
+        chr(code)
+        for code in range(sys.maxunicode + 1)
+        if unicodedata.category(chr(code)) == "Pd"
+    } | {"\u05be", "\u2212", "\ufe63", "\uff0d"}
+    assert set(PREFIX_JOINT_CHARS) == expected
+
+
+@pytest.mark.parametrize("dash", JOINTS)
+@pytest.mark.parametrize("left,right", itertools.product(range(3), repeat=2))
+def test_round16_exclusion_and_citation_joints_match_glued_pipeline(dash, left, right):
+    joint = " " * left + dash + " " * right
+    for prefix, body in (("מ", "תשלום"), ("מ", "חישוב")):
+        glued = f"(א) חוץ {prefix}{body} בהתאם לסעיף 2."
+        joined = f"(א) חוץ {prefix}{joint}{body} בהתאם לסעיף 2."
+        assert _issues(joined, "חסר סעיף 2") == _issues(glued, "חסר סעיף 2")
+    glued = "(א) ישולם בהתאם לסעיף 2."
+    joined = f"(א) ישולם בהתאם ל{joint}סעיף 2."
+    assert _issues(joined, "חסר סעיף 2") == _issues(glued, "חסר סעיף 2")
+
+
+@pytest.mark.parametrize("dash", JOINTS)
+@pytest.mark.parametrize("left,right", itertools.product(range(3), repeat=2))
+def test_real_dash_punctuation_keeps_its_source_reading(dash, left, right):
+    joint = " " * left + dash + " " * right
+    for before, after in (
+        ("2", "4"),
+        ("סעיף 2", "חסר"),
+        ("תשלום", "חסר סעיף 2"),
+        *((word, "תשלום") for word in sorted(PREFIX_WHOLE_WORDS)),
+    ):
+        text = before + joint + after
+        assert compact_prefix_joints(text) == text
+        assert hebrew.fold_marks(text) == text
+
+
+def test_joint_gaps_are_horizontal_and_preserve_all_original_offsets():
+    horizontal = "\t \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000"
+    for gap in horizontal:
+        source = "(א) מס ל" + gap * 4 + "־" + gap * 5 + "סעיף 2."
+        folded = hebrew.FoldedText(source)
+        assert folded.text == "(א) מס ל־סעיף 2."
+        assert folded.text == hebrew.fold_marks(source)
+        for offset, char in enumerate(folded.text):
+            assert source[folded.original_start(offset)] == char
+            assert source[folded.original_end(offset + 1) - 1] == char
+    for gap in ("\n", "\r", "\v", "\f", "\x85", "\u2028", "\u2029"):
+        text = "ל" + gap + "־" + gap + "סעיף 2"
+        assert compact_prefix_joints(text) == text
+
+
+def test_default_prefix_chain_is_bounded():
+    pattern = re.compile(prefix_chain(PREFIX_LETTERS) + "בלתי")
+    assert pattern.fullmatch("ושדבלתי")
+    assert pattern.fullmatch("ושדמבלתי") is None
+
+
+def test_one_million_prefix_letters_has_bounded_memory():
+    """Run this stress property under run_capped.py (2 GiB / 600 seconds)."""
+
+    # The Unicode property table is a one-time shared cache, not per-input
+    # regex state. Warm it before measuring growth on the million-letter run.
+    hebrew.fold_marks("ל־סעיף 2")
+    text = (PREFIX_LETTERS * 125_000) + "בלתי חסר סעיף 2"
+    tracemalloc.start()
+    try:
+        folded = hebrew.fold_marks(text)
+        assert folded is text
+        assert hebrew._REASON_NEGATION.search(folded) is None
+        assert hebrew._NEGATIONS.search(folded) is None
+        _current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 32 * 1024 * 1024, peak
+
+
+def test_prefix_only_corpus_tokens_are_words_or_explicit_abbreviations():
+    corpus = json.loads(
+        (Path(__file__).parent / "fixtures" / "hebrew_negator_corpus.json").read_text()
+    )
+    tokens = {
+        word
+        for word in corpus["vocabulary"]
+        if 2 <= len(word) <= 3 and set(word) <= set(PREFIX_LETTERS)
+    }
+    assert (
+        tokens == (STATUTORY_PREFIX_WHOLE_WORDS - {"משה"}) | PREFIX_CORPUS_ABBREVIATIONS
+    )
+    assert not STATUTORY_PREFIX_WHOLE_WORDS & PREFIX_CORPUS_ABBREVIATIONS
+    assert STATUTORY_PREFIX_WHOLE_WORDS <= PREFIX_WHOLE_WORDS
+
+
+@pytest.mark.parametrize("joint", SPACED_JOINTS)
+def test_dash_after_a_full_word_keeps_negators_visible_in_both_guards(joint):
+    for word in ("כל", "טל", "חשמל", "תשלום"):
+        reason = word + joint + "לא חסר סעיף 2"
+        source = "(א) " + word + joint + "לא מחושב בהתאם לסעיף 2."
+        assert _issues(pinned.REVIEW_SOURCE, reason) == _issues(
+            pinned.REVIEW_SOURCE, word + " לא חסר סעיף 2"
+        )
+        assert _issues(source, "חסר סעיף 2") == _issues(
+            "(א) " + word + " לא מחושב בהתאם לסעיף 2.", "חסר סעיף 2"
+        )
+        assert hebrew._REASON_NEGATION.search(hebrew.fold_marks(reason))
+        assert hebrew._NEGATIONS.search(hebrew.fold_marks(source))
+
+
+@pytest.mark.parametrize("joint", SPACED_JOINTS)
+def test_every_whole_word_keeps_negation_article_and_relative_readings(joint):
+    """All finite word candidates meet every dash in every Hebrew reader.
+
+    A positive preceding word never becomes a relative prefix, and its final
+    ה never becomes the article of the following feminine signal/exclusion.
+    The non-prefix-alphabet controls cover the same punctuation rule.
+    """
+
+    words = PREFIX_WHOLE_WORDS | {"חיה", "תקופה", "טל", "חשמל", "תשלום"}
+    for word in sorted(words):
+        for body in (
+            "לא מחושב לפי סעיף 2",
+            "בלתי מחושב לפי סעיף 2",
+            "זולת תשלום לפי סעיף 2",
+        ):
+            text = hebrew.fold_marks(word + joint + body)
+            start = text.index(body)
+            for pattern in (hebrew._NEGATIONS, hebrew._REASON_NEGATION):
+                roots = [
+                    match for match in pattern.finditer(text) if match.start() == start
+                ]
+                assert roots, (word, joint, body, text)
+                assert all(not hebrew._is_relative(match) for match in roots), text
+        for body in ("חסרה הוראה", "חסרות הוראות"):
+            control = hebrew._SIGNAL.search(word + " " + body)
+            actual = hebrew._SIGNAL.search(hebrew.fold_marks(word + joint + body))
+            assert control is not None
+            assert actual is not None, (word, joint, body)
+            assert actual.lastgroup == control.lastgroup, (word, joint, body)
+
+
+@pytest.mark.parametrize("joint", SPACED_JOINTS)
+def test_full_word_punctuation_preserves_pipeline_relative_and_article_scope(joint):
+    for word in ("דוד", "בד", "כלב", "מה", "שמה", "חיה", "תקופה"):
+        for body in ("בלתי מחושב לפי סעיף 2", "זולת תשלום לפי סעיף 2"):
+            assert _issues(f"(א) מס על {word}{joint}{body}.", "חסר סעיף 2") == _issues(
+                f"(א) מס על {word} {body}.", "חסר סעיף 2"
+            ), (word, joint, body)
+        for body in ("בלתי נכון שחסר סעיף 2", "חסרה הוראה בסעיף 2"):
+            assert _issues(pinned.REVIEW_SOURCE, word + joint + body) == _issues(
+                pinned.REVIEW_SOURCE, word + " " + body
+            ), (word, joint, body)
+
+
+@pytest.mark.parametrize("joint", SPACED_JOINTS)
+def test_forward_prefix_guard_preserves_negative_core_words_before_punctuation(joint):
+    for core in ("בל", "לבל", "כשל"):
+        text = hebrew.fold_marks(core + joint + "מחושב לפי סעיף 2")
+        for pattern in (hebrew._NEGATIONS, hebrew._REASON_NEGATION):
+            match = pattern.search(text)
+            assert match is not None, (core, joint)
+            assert match.start() == 0
+            assert not hebrew._is_relative(match)

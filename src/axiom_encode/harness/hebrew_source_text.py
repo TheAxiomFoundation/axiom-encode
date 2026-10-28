@@ -30,20 +30,31 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 
 from axiom_encode.harness._unicode_default_ignorables import DEFAULT_IGNORABLE_RANGES
+from axiom_encode.harness.hebrew_negators import (
+    _WITHOUT_SIGNAL,
+    NegationPattern,
+    build_negation_language,
+)
 from axiom_encode.harness.hebrew_prefixes import (
-    HEBREW_PREFIX_LETTERS,
+    NOT_ARTICLE_PREFIX,
     PREFIX_BOUNDARY,
     PREFIX_JOINT,
     PREFIX_JOINT_CHARS,
+    compact_prefix_joints,
     prefix_chain,
+    prefix_joint_gaps,
     prefix_word,
 )
+
+_PREFIX_LETTERS = "והבכלמשד"
 
 HEBREW_LETTER_CLASS = "א-ת"
 _H = HEBREW_LETTER_CLASS
 
 # Marks that change no word, chosen by Unicode property rather than listed:
 #
+# - every control character (General_Category ``Cc``) except Unicode
+#   ``White_Space``: those remain word and line separators;
 # - every format character (General_Category ``Cf``): the bidirectional
 #   marks, embeddings and isolates, the zero-width spaces and joiners, the
 #   soft hyphen, the invisible operators U+2061-U+2064, U+180E and the tags;
@@ -53,17 +64,23 @@ _H = HEBREW_LETTER_CLASS
 #   unassigned code points it reserves for invisible characters. The checked-in
 #   range table comes from DerivedCoreProperties.txt for Python's Unicode
 #   version; scripts/generate_default_ignorable_table.py regenerates it;
-# - the surrogates (category ``Cs``), which are no characters: YAML decodes an
-#   escaped astral mark (``"\ud804\udcbd"``, U+110BD) into two of them, so a
-#   reason written with one would otherwise hide the word around it.
+# - lone surrogates (category ``Cs``), which are no characters. YAML decodes
+#   an escaped astral character into a UTF-16 pair, so a valid pair is first
+#   read as its actual code point: invisible U+110BD folds, while visible
+#   punctuation and letters retain their word boundaries.
 #
 # Combining marks of other scripts are parts of letters (a German ``u`` with
 # U+0308 is ``ü``) and stay. ``לא`` with a holam (U+05B9), a right-to-left mark
 # (U+200F) or an invisible separator (U+2063) inside it is ``לא`` to a reader,
 # so the guards read through all of them.
 _HEBREW_MARK_BLOCK = (0x0591, 0x05C7)
+# The ``Cc`` members of Unicode's ``White_Space`` property, from PropList.txt:
+# https://www.unicode.org/Public/16.0.0/ucd/PropList.txt
+# ``str.isspace`` also includes U+001C-U+001F, which are not ``White_Space``.
+_CONTROL_WHITE_SPACE = frozenset((*range(0x0009, 0x000E), 0x0085))
 # Precomposed pointed letters (U+FB4B, vav with holam) read as their letters.
 _PRESENTATION_FORMS = (0xFB1D, 0xFB4F)
+_SURROGATE_PAIR = re.compile("[\ud800-\udbff][\udc00-\udfff]")
 
 
 @functools.cache
@@ -80,6 +97,11 @@ def folded_marks() -> frozenset[int]:
     format_and_surrogates = itertools.compress(
         codes, map(frozenset(("Cf", "Cs")).__contains__, categories)
     )
+    non_whitespace_controls = (
+        code
+        for code, category in enumerate(categories)
+        if category == "Cc" and code not in _CONTROL_WHITE_SPACE
+    )
     hebrew_marks = (
         code
         for code in range(_HEBREW_MARK_BLOCK[0], _HEBREW_MARK_BLOCK[1] + 1)
@@ -89,7 +111,12 @@ def folded_marks() -> frozenset[int]:
         range(low, high + 1) for low, high in DEFAULT_IGNORABLE_RANGES
     )
     return frozenset(
-        itertools.chain(format_and_surrogates, hebrew_marks, default_ignorables)
+        itertools.chain(
+            format_and_surrogates,
+            non_whitespace_controls,
+            hebrew_marks,
+            default_ignorables,
+        )
     )
 
 
@@ -117,8 +144,11 @@ def _fold_rules() -> tuple[dict[int, str | None], re.Pattern[str]]:
             for part in unicodedata.normalize("NFKD", char)
             if not unicodedata.combining(part)
         )
+    # Consume pairs before the individual Cs members. Dropping both halves of
+    # visible punctuation would join the words it separates.
     foldable = re.compile(
-        "["
+        _SURROGATE_PAIR.pattern
+        + "|["
         + "".join(
             re.escape(chr(low)) + (f"-{re.escape(chr(high))}" if high > low else "")
             for low, high in _code_ranges(table)
@@ -128,12 +158,32 @@ def _fold_rules() -> tuple[dict[int, str | None], re.Pattern[str]]:
     return table, foldable
 
 
+def _replacement(mark: re.Match[str], table: dict[int, str | None]) -> str:
+    spelling = mark.group()
+    if len(spelling) == 2:
+        spelling = chr(
+            0x10000 + ((ord(spelling[0]) - 0xD800) << 10) + ord(spelling[1]) - 0xDC00
+        )
+    return table.get(ord(spelling), spelling) or ""
+
+
+def _fold_characters(
+    text: str, table: dict[int, str | None], foldable: re.Pattern[str]
+) -> str:
+    first = foldable.search(text)
+    if first is None:
+        return text
+    if _SURROGATE_PAIR.search(text, first.start()) is not None:
+        return foldable.sub(lambda mark: _replacement(mark, table), text)
+    return text.translate(table)
+
+
 # The Hebrew block from its first mark, and the presentation forms.
 _HEBREW_SCRIPT = re.compile("[\u0591-\u05f4\ufb1d-\ufb4f]")
 
 
 def fold_marks(text: str) -> str:
-    """Drop the marks that change no word from text in Hebrew script.
+    """Fold invisible marks and horizontal gaps inside Hebrew prefix joints.
 
     Every negation, adversative, signal, citation and outline guard reads the
     folded copy, so a pointed or direction-marked word is the word itself.
@@ -145,9 +195,8 @@ def fold_marks(text: str) -> str:
     if _HEBREW_SCRIPT.search(text) is None:
         return text
     table, foldable = _fold_rules()
-    if foldable.search(text) is None:
-        return text
-    return text.translate(table)
+    text = _fold_characters(text, table, foldable)
+    return compact_prefix_joints(text)
 
 
 class FoldedText:
@@ -158,10 +207,21 @@ class FoldedText:
     of a kept character maps to that character; a dropped mark belongs to
     no folded offset, so a slice between two mapped starts holds the marks
     between them; a presentation form that folds to two letters (U+FB4F)
-    maps both to itself.
+    maps both to itself. A second compact map removes horizontal gaps in
+    validated prefix joints while preserving their original source spans.
     """
 
-    __slots__ = ("original", "text", "_ends", "_shifts", "_sources", "_starts")
+    __slots__ = (
+        "original",
+        "text",
+        "_ends",
+        "_shifts",
+        "_sources",
+        "_source_ends",
+        "_starts",
+        "_joint_starts",
+        "_joint_shifts",
+    )
 
     def __init__(self, original: str, *, force: bool = False) -> None:
         """Fold ``original``; ``force`` folds it even with no Hebrew script.
@@ -174,34 +234,55 @@ class FoldedText:
         self.original = original
         if force:
             table, foldable = _fold_rules()
-            self.text = (
-                original.translate(table) if foldable.search(original) else original
-            )
+            self.text = _fold_characters(original, table, foldable)
+        elif _HEBREW_SCRIPT.search(original) is None:
+            self.text = original
         else:
-            self.text = fold_marks(original)
+            table, foldable = _fold_rules()
+            self.text = _fold_characters(original, table, foldable)
+        # Compose the joint-gap map with the existing Unicode-mark map. The
+        # gaps stay in original slices, so formula diagnostics retain exact
+        # source characters and offsets even when the reader compacts joints.
+        marked_text = self.text
+        self._joint_starts: list[int] = []
+        self._joint_shifts: list[int] = [0]
+        joint_shift = 0
+        if force or _HEBREW_SCRIPT.search(original) is not None:
+            for start, end in prefix_joint_gaps(marked_text):
+                self._joint_starts.append(start - joint_shift)
+                joint_shift += end - start
+                self._joint_shifts.append(joint_shift)
+            self.text = compact_prefix_joints(marked_text)
         # For each folded character: where its replacement starts and ends in
         # the folded text, the original offset it came from, and the shift of
         # the kept text after it.
         self._starts: list[int] = []
         self._ends: list[int] = []
         self._sources: list[int] = []
+        # Only a preserved UTF-16 pair needs an end wider than start + 1.
+        # Keeping this sparse avoids one extra offset per ordinary mark.
+        self._source_ends: dict[int, int] = {}
         self._shifts: list[int] = [0]
-        if self.text is original:
+        if marked_text is original:
             return
         table, foldable = _fold_rules()
         shift = 0
         for mark in foldable.finditer(original):
-            replacement = table[ord(mark.group(0))] or ""
+            replacement = _replacement(mark, table)
             start = mark.start() - shift
             self._starts.append(start)
             self._ends.append(start + len(replacement))
             self._sources.append(mark.start())
-            shift += 1 - len(replacement)
+            width = mark.end() - mark.start()
+            if width == 2 and replacement:
+                self._source_ends[mark.start()] = mark.end()
+            shift += width - len(replacement)
             self._shifts.append(shift)
 
     def original_start(self, offset: int) -> int:
         """The original offset of the folded character at ``offset``."""
 
+        offset += self._joint_shifts[bisect.bisect_right(self._joint_starts, offset)]
         index = bisect.bisect_right(self._ends, offset)
         if index < len(self._starts) and self._starts[index] <= offset:
             return self._sources[index]
@@ -210,7 +291,10 @@ class FoldedText:
     def original_end(self, offset: int) -> int:
         """The original offset just past the folded character before ``offset``."""
 
-        return self.original_start(offset - 1) + 1 if offset > 0 else 0
+        if offset <= 0:
+            return 0
+        start = self.original_start(offset - 1)
+        return self._source_ends.get(start, start + 1)
 
 
 # Where a Hebrew letter meets a letter of another script. A Hebrew prefix
@@ -932,7 +1016,7 @@ _SIGNAL_PROCLITICS = (
 # זמין`` are not either. With the article, the feminine forms are the noun
 # "subtraction" (``החסרה של הסכום``, plural ``החסרות``), so they are not read.
 _MISSING_SIGNAL = (
-    rf"(?:חסר(?:ים)?|(?<!ה)(?<!ה{PREFIX_JOINT})חסר(?:ה|ות)"
+    rf"(?:חסר(?:ים)?|{NOT_ARTICLE_PREFIX}חסר(?:ה|ות)"
     r"|(?:טרם|עדיין\s+(?:לא|אינו|אינה|אינם|אינן))\s+"
     r"(?:קודד(?:ה|ו)?|מקודד(?:ת|ים|ות)?)"
     r"|בלתי\s+(?:זמין|זמינ(?:ה|ים|ות)))"
@@ -940,9 +1024,6 @@ _MISSING_SIGNAL = (
 _UNTIL_STATE = (
     r"(?:יקודד(?:ו)?|תקודד(?:נה)?|ייקבע(?:ו)?|תיקבע"
     r"|יהיה\s+זמין|תהיה\s+זמינה|יהיו\s+זמינ(?:ים|ות))"
-)
-_WITHOUT_SIGNAL = (
-    rf"(?:בלי|{prefix_word('ל')}לא|{prefix_word('מ')}בלי|{prefix_word('ב')}לא)"
 )
 
 # The Hebrew counterparts of ``_MISSING_DEPENDENCY_LANGUAGE``: missing,
@@ -989,27 +1070,7 @@ _NEGATION_BRIDGE_WORDS = (
 _NEGATION_REACH_WORDS = 6
 # A space, maqaf or hyphen separates the negation from what it governs.
 _NEGATION_GAP = rf"(?:\s|{PREFIX_JOINT})"
-# The prefixes a negation takes, in their order: the conjunction ``ו``, then a
-# subordinator ``ש``, ``כש``, ``מש``, ``לכש`` or ``בש`` (``שלא``, ``משלא``
-# "since ... not", ``וכשלא`` "and when ... not"), or the Aramaic relative
-# ``ד`` that stands where ``ש`` does (``דלא``, ``ודלא`` "and that ... not").
-# A preposition alone does not prefix a negation here, so ``מלא`` ("full"),
-# ``כלא`` ("prison"), ``בטרם`` ("before") and ``ללא`` ("without", a signal of
-# its own) are no negations, and neither is the rhetorical ``הלא``
-# ("surely"); ``test_each_prefix_of_a_negation_is_read_or_excluded`` lists
-# every prefix letter before ``לא`` and ``אין`` and why it is read or not.
-_NEGATION_PREFIX = (
-    rf"(?:{prefix_word('ו')})?"
-    rf"(?:(?:{prefix_word('מ')}|{prefix_word('כ')}|{prefix_word('לכ')}|{prefix_word('ב')})?"
-    rf"{prefix_word('ש')}|{prefix_word('ד')})?"
-)
-# ``בלתי`` ("not", "un-") is no other word after any chain of the prefix
-# letters: the conjunction ``ו``, the article ``ה``, the prepositions ``ב``,
-# ``כ``, ``ל`` and ``מ``, the relative ``ש`` and the Aramaic ``ד`` (``הבלתי``
-# "the un-", ``לבלתי`` "so as not to", ``ומבלתי``). So it is a negation
-# under every chain, as ``לא`` is under ``_NEGATION_PREFIX``.
-_PREFIX_LETTERS = HEBREW_PREFIX_LETTERS
-_PREFIXED_BILTI = rf"{prefix_chain(_PREFIX_LETTERS)}בלתי"
+# Prefix policies and all negative forms live in hebrew_negators.
 # The reason and source readers share the lexicon compiled below, after the
 # lexical exclusions for infinitives have been defined.
 # The English and German negators: ``_NEGATION_LANGUAGE`` in
@@ -1445,57 +1506,17 @@ _OWNERSHIP_STOP = re.compile(rf";|\.(?!\d)|\n(?=[ \t]*\({OUTLINE_LABEL}\))")
 # stricter than English, which does not check ``under``. An English or German
 # negator (``_OTHER_NEGATION`` or ``_OTHER_LINK_NEGATION``) is a main-clause
 # negation.
-# One vocabulary and prefix policy for every Hebrew negation reader. The
-# ambiguous לא/אין family takes grammatical subordinators; a bare preposition
-# or article makes another word (מלא, כלא, הלא, מאין, בטרם). Unequivocal
-# negators, prohibitions and exclusions take Hebrew prefix chains. The words
-# בלי/מבלי/ללא/בלא are lexical "without", rather than a prefixed לא; when
-# one belongs to a missing-dependency signal, the reason reader exempts that
-# whole signal in _read_signals. Both contexts deliberately read אל before
-# any ת-word as prohibitive, including a ת-noun (the intended stricter case).
-_HEBREW_NEGATION_LANGUAGE = (
-    rf"{_NOT_HEBREW_BEFORE}(?:"
-    rf"(?P<ordinary_prefix>{_NEGATION_PREFIX})"
-    r"(?:לא|אין|אינ(?:ו|ה|ם|ן|י|ך|כם|כן|נו|נה|ני)|טרם|מעולם|לאו)"
-    rf"|(?P<bilti_prefix>{prefix_chain(_PREFIX_LETTERS)})בלתי"
-    rf"|(?P<lexical_prefix>{prefix_chain(_PREFIX_LETTERS)})"
-    rf"(?:אסור(?:ה|ים|ות)?|בל|{prefix_word('ל')}בל|נאסר(?:ה|ו|ים|ות)?|איסור|מסרב(?:ת|ים|ות)?"
-    # Prevented (``מנוע מלפעול``), not the noun "engine" (``מס על מנוע``).
-    rf"|מנוע(?:ה|ים|ות)?(?={_NEGATION_GAP}+{prefix_word('מ')}[{_H}])"
-    # Refuses, will refuse, refused; unable (``נבצר מן המוסד``); fails,
-    # will fail, failed, as English reads "refuses to", "unable to" and
-    # "fails to".
-    rf"|יסרב(?:ו)?|תסרב(?:נה|ו)?|סי?רב(?:ה|ו)?|{prefix_word('ל')}סרב|נבצר(?:ה)?"
-    r"|כושל(?:ת|ים|ות)?|נכשל(?:ה|ו|ים|ות)?|כשל(?:ה|ו)?|י?יכשל(?:ו)?|תי?כשל(?:נה|ו)?"
-    # A prohibitive imperative (``אל תחשב``); ``אל`` before another word
-    # starting with ``ת`` (``אל תושב``, "to a resident") is refused with it.
-    rf"|אל(?={_NEGATION_GAP}+ת[{_H}])"
-    # Excluded, prevented, rejects, denies (not ``דוחות``, "reports").
-    r"|הוחרג(?:ה|ו)?|מוחרג(?:ת|ים|ות)?|יוחרג(?:ו)?|תוחרג(?:נה)?"
-    r"|נמנע(?:ה|ו|ים|ות)?|יימנע(?:ו)?|תימנע(?:נה)?|דוח(?:ה|ים)"
-    r"|שולל(?:ת|ים|ות)?|נשלל(?:ה|ו|ים|ות)?"
-    r"|אוסר(?:ת|ים|ות)?|אסר(?:ה|ו)?|יאסור|תאסור|יאסרו|תאסו?רנה|ייאסר(?:ו)?|תיאסר(?:נה)?"
-    r"|מכחיש(?:ה|ים|ות)?|הכחיש(?:ה|ו)?"
-    # ``דוחות את הטענה`` ("reject the claim"), not ``דוחות`` ("reports").
-    rf"|דוחות(?=\s+את{_NOT_HEBREW_AFTER})"
-    # Except, other than: ``להוציא`` but not the infinitive after a modal
-    # (``יש להוציא רישיון``, "a license must be issued"), and ``זולת`` but not
-    # the noun ``הזולת`` ("another person").
-    rf"|{_WITHOUT_SIGNAL}|{prefix_word('ל')}מעט|{prefix_word('מ')}לבד"
-    rf"|{_GOVERNED_INFINITIVE}{_EXCEPT_INFINITIVE}|(?<!ה)(?<!ה{PREFIX_JOINT})זולת"
-    # אף is negative polarity with a following לא ("not even"), rather than
-    # the affirmative connective על אף / אף כי ("despite" / "although").
-    rf"|אף(?=(?:{_NEGATION_GAP}+\w+){{0,6}}"
-    rf"{_NEGATION_GAP}+{_NEGATION_PREFIX}לא{_NOT_HEBREW_AFTER}))"
-    rf"{_NOT_HEBREW_AFTER}"
-    rf"){_NOT_HEBREW_AFTER}"
-    rf"|{_NOT_HEBREW_BEFORE}{_NEGATION_PREFIX}אי{_SEP}(?:אפשר|ניתן){_NOT_HEBREW_AFTER}"
-    rf"|{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?"
-    rf"(?:פרט{_SEP}?{prefix_word('ל')}|חוץ{_SEP}?{prefix_word('מ')})\s*(?=[^\W\d_])"
+# Both guards compile the same closed vocabulary and per-form prefix policy.
+_HEBREW_NEGATION_LANGUAGE = build_negation_language(
+    before=_NOT_HEBREW_BEFORE,
+    after=_NOT_HEBREW_AFTER,
+    separator=_SEP,
+    governed_infinitive=_GOVERNED_INFINITIVE,
+    except_infinitive=_EXCEPT_INFINITIVE,
 )
-_REASON_NEGATION = re.compile(_HEBREW_NEGATION_LANGUAGE)
+_REASON_NEGATION = NegationPattern(_HEBREW_NEGATION_LANGUAGE)
 _NEGATIONS = _REASON_NEGATION
-_NEGATED_SIGNAL_PREFIX = re.compile(
+_NEGATED_SIGNAL_PREFIX = NegationPattern(
     rf"(?:{_HEBREW_NEGATION_LANGUAGE})"
     rf"(?:{_NEGATION_GAP}+(?:"
     + "|".join(_NEGATION_BRIDGE_WORDS.split())

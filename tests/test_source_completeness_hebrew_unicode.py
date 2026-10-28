@@ -1,4 +1,4 @@
-"""Round 15: Unicode properties, rather than a list of invisible examples."""
+"""Rounds 15–16: Unicode properties, not lists of invisible examples."""
 
 from __future__ import annotations
 
@@ -13,8 +13,10 @@ import unicodedata
 from pathlib import Path
 
 import pytest
+import yaml
 
 from axiom_encode.harness import _unicode_default_ignorables as unicode_data
+from axiom_encode.harness import hebrew_negators
 from axiom_encode.harness import hebrew_source_text as hebrew
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -38,6 +40,18 @@ DEFAULT_IGNORABLES = tuple(
     code
     for low, high in unicode_data.DEFAULT_IGNORABLE_RANGES
     for code in range(low, high + 1)
+)
+# Independently enumerate the complete ``Cc`` category. Only these six are
+# Unicode ``White_Space`` (PropList.txt); Python additionally calls U+001C–001F
+# whitespace, but those invisible controls must fold along with the other 55.
+CONTROLS = tuple(
+    code
+    for code in range(sys.maxunicode + 1)
+    if unicodedata.category(chr(code)) == "Cc"
+)
+CONTROL_WHITE_SPACE = frozenset((0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x85))
+NON_WHITESPACE_CONTROLS = tuple(
+    code for code in CONTROLS if code not in CONTROL_WHITE_SPACE
 )
 
 
@@ -87,6 +101,20 @@ def test_default_ignorables_exclude_visible_text_and_all_whitespace():
     # The Hebrew gate also preserves pure English and German text exactly.
     for text in ("not\u17b4 missing section 2", "nicht\u115f verfügbar"):
         assert hebrew.fold_marks(text) is text
+
+
+def test_all_controls_follow_unicode_white_space_rather_than_python_isspace():
+    assert len(CONTROLS) == 65
+    assert len(NON_WHITESPACE_CONTROLS) == 59
+    assert set(NON_WHITESPACE_CONTROLS) <= hebrew.folded_marks()
+    assert not CONTROL_WHITE_SPACE & hebrew.folded_marks()
+    # A pure English or German string bypasses Hebrew folding, even for Cc.
+    for code in CONTROLS:
+        for text in (
+            f"not{chr(code)} missing section 2",
+            f"nicht{chr(code)} verfügbar",
+        ):
+            assert hebrew.fold_marks(text) is text
 
 
 NEGATORS = tuple(
@@ -162,6 +190,9 @@ def _literal_test_tokens():
         if isinstance(node, ast.Constant) and isinstance(node.value, str)
     )
     negators, signals, labels = set(NEGATORS), set(SIGNALS), set(LABELS)
+    negators.update(
+        form for family in hebrew_negators.NEGATOR_FAMILIES for form in family.forms
+    )
     negators.update(row[0] for row in cases.ROUND_15_NEGATOR_TRANSLATIONS)
     for text in literals:
         for pattern in (
@@ -185,7 +216,12 @@ NEGATORS, SIGNALS, LABELS = _literal_test_tokens()
 @pytest.mark.parametrize(
     "words", (NEGATORS, SIGNALS, LABELS), ids=("negators", "signals", "labels")
 )
-def test_every_default_ignorable_at_every_position_preserves_the_reader_input(words):
+@pytest.mark.parametrize(
+    "codes",
+    (DEFAULT_IGNORABLES, CONTROLS),
+    ids=("default-ignorables", "all-controls"),
+)
+def test_every_invisible_at_every_position_preserves_the_reader_input(words, codes):
     """Exhaust the Cartesian product, including every unassigned ignorable.
 
     Every guard consumes this same folded input. Equality of that input pins
@@ -194,20 +230,33 @@ def test_every_default_ignorable_at_every_position_preserves_the_reader_input(wo
     fold's use in each guard and original-offset mapping.
     """
 
-    marks = tuple(map(chr, DEFAULT_IGNORABLES))
+    marks = tuple(map(chr, codes))
+    preserves_whitespace = bool(set(codes) & CONTROL_WHITE_SPACE)
     for word in words:
         expected = word + " חסר"
-        expected_lines = "\n".join([expected] * len(marks))
+        # The inventory includes open constructions such as ``חוץ מ־``;
+        # appending the context closes that joint before comparing the fold.
+        expected_lines = "\n".join([hebrew.fold_marks(expected)] * len(marks))
         for position in range(len(word) + 1):
             before, after = expected[:position], expected[position:]
+            if preserves_whitespace:
+                expected_lines = "\n".join(
+                    before + (mark if ord(mark) in CONTROL_WHITE_SPACE else "") + after
+                    for mark in marks
+                )
+                expected_lines = hebrew.fold_marks(expected_lines)
             # Each line has exactly one insertion. Batching the lines keeps
             # the complete Cartesian product practical in the normal suite.
             marked = "\n".join(before + mark + after for mark in marks)
             assert hebrew.fold_marks(marked) == expected_lines, (word, position)
 
 
-@pytest.mark.parametrize("code", DEFAULT_IGNORABLES, ids=lambda code: f"U+{code:04X}")
-def test_every_default_ignorable_reaches_the_integrated_reason_source_and_outline_guards(
+@pytest.mark.parametrize(
+    "code",
+    DEFAULT_IGNORABLES + NON_WHITESPACE_CONTROLS,
+    ids=lambda code: f"U+{code:04X}",
+)
+def test_every_invisible_reaches_the_integrated_reason_source_and_outline_guards(
     code,
 ):
     """Every property member preserves the full verdict and issue strings."""
@@ -277,3 +326,113 @@ def test_the_reviewers_35_marked_offset_pairs_preserve_paths_slices_and_issues(
     assert cases._analyze(
         _content(branch, marked_reason), marked_source
     ) == cases._analyze(_content(branch, reason), source)
+
+
+_VISIBLE_ASTRAL_CHARACTERS = tuple(
+    chr(code)
+    for code in range(0x10000, sys.maxunicode + 1)
+    if unicodedata.category(chr(code)) == "Pd"
+) + ("😀", "𐐀")
+
+
+def _utf16_pair(char):
+    encoded = char.encode("utf-16-le")
+    return "".join(
+        chr(int.from_bytes(encoded[index : index + 2], "little")) for index in (0, 2)
+    )
+
+
+def _literal_unicode_content(reason):
+    return cases._deferral_content("a", "placeholder").replace(
+        '"placeholder"', json.dumps(reason, ensure_ascii=False)
+    )
+
+
+@pytest.mark.parametrize("char", _VISIBLE_ASTRAL_CHARACTERS)
+def test_escaped_visible_astral_characters_keep_negation_boundaries(char):
+    """Valid escaped YAML must read like the actual visible punctuation/letter."""
+
+    reason = f"מידע{char}לא חסר סעיף 2"
+    escaped = _content("a", reason)
+    decoded = yaml.safe_load(escaped)["module"]["deferred_outputs"][0]["reason"]
+    assert _utf16_pair(char) in decoded
+    assert hebrew.fold_marks(decoded) == hebrew.fold_marks(reason)
+    raw_issues = cases._analyze(_literal_unicode_content(reason), cases.REVIEW_SOURCE)
+    assert cases._deferral_issue(raw_issues, 0) is not None
+    assert cases._analyze(escaped, cases.REVIEW_SOURCE) == raw_issues
+    source = f"(א) מידע{char}לא מחושב בהתאם לסעיף 2."
+    assert cases._analyze(
+        _content("a", "חסר סעיף 2"), source.replace(char, _utf16_pair(char))
+    ) == cases._analyze(_content("a", "חסר סעיף 2"), source)
+
+
+@pytest.mark.parametrize("char", _VISIBLE_ASTRAL_CHARACTERS)
+def test_visible_pairs_compose_with_joint_offsets_and_original_slices(char):
+    # For Pd this is a grammatical prefix joint. Emoji and an astral letter
+    # instead remain ordinary visible source content with the same mapping.
+    raw = f"(א) ישולם בהתאם ל {char} סעיף 2."
+    pair = _utf16_pair(char)
+    original = raw.replace(char, pair)
+    view = hebrew.FoldedText(original)
+    assert view.text == hebrew.FoldedText(raw).text
+    glyph = view.text.index(char)
+    source_start = original.index(pair)
+    assert view.original_start(glyph) == source_start
+    assert view.original_end(glyph + 1) == source_start + 2
+    assert original[view.original_start(glyph) : view.original_end(glyph + 1)] == pair
+    citation = view.text.index("סעיף")
+    assert (
+        original[
+            view.original_start(citation) : view.original_end(citation + len("סעיף"))
+        ]
+        == "סעיף"
+    )
+    for offset, folded_char in enumerate(view.text):
+        piece = original[view.original_start(offset) : view.original_end(offset + 1)]
+        assert hebrew.FoldedText(piece, force=True).text == folded_char
+    raw_branches = cases.recognize_source_structure(
+        raw, corpus_citation_path=cases.CITATION
+    )
+    branches = cases.recognize_source_structure(
+        original, corpus_citation_path=cases.CITATION
+    )
+    assert [(branch.path, branch.label) for branch in branches] == [
+        (branch.path, branch.label) for branch in raw_branches
+    ]
+    assert all(
+        original[branch.start : branch.end].strip() == branch.text
+        for branch in branches
+    )
+
+
+@pytest.mark.parametrize("code", (0x110BD, 0x13430, 0xE007F, 0xE0100))
+def test_escaped_invisible_astral_characters_still_fold(code):
+    assert code in hebrew.folded_marks()
+    char = chr(code)
+    assert hebrew.fold_marks(f"ל{_utf16_pair(char)}א") == "לא"
+    reason = f"ל{char}א חסר סעיף 2"
+    plain = cases._analyze(_content("a", "לא חסר סעיף 2"), cases.REVIEW_SOURCE)
+    assert cases._deferral_issue(plain, 0) is not None
+    assert cases._analyze(_content("a", reason), cases.REVIEW_SOURCE) == plain
+
+
+@pytest.mark.parametrize("char", _VISIBLE_ASTRAL_CHARACTERS)
+def test_visible_pairs_preserve_the_non_hebrew_gate_and_lone_surrogate_policy(char):
+    pair = _utf16_pair(char)
+    for text in (f"English {pair}", f"Deutsch {pair}"):
+        assert hebrew.fold_marks(text) is text
+        assert hebrew.FoldedText(text).text is text
+    assert hebrew.fold_marks(f"א\ud800{pair}\udfffב") == f"א{char}ב"
+
+
+def test_every_valid_utf16_pair_folds_like_its_actual_unicode_character():
+    """Close decoding over all astral code points, using Python's UTF-16 codec.
+
+    Batches bound the temporary strings. The codec supplies the independent
+    pair oracle; native Unicode folding supplies the property-based verdict.
+    """
+
+    for start in range(0x10000, sys.maxunicode + 1, 8192):
+        chars = "".join(map(chr, range(start, min(start + 8192, sys.maxunicode + 1))))
+        paired = "א" + "".join(_utf16_pair(char) for char in chars)
+        assert hebrew.fold_marks(paired) == hebrew.fold_marks("א" + chars), hex(start)

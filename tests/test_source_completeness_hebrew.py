@@ -769,6 +769,14 @@ PRECISION_SOURCE = """\
 
 
 def _deferral_content(branch: str | None, reason: str) -> str:
+    # Escape raw Cc into valid YAML while preserving real astral characters.
+    # JSON ensure_ascii=True emits surrogate pairs that YAML keeps as two
+    # code units; their interpretation has a separate folding/offset property.
+    quoted = json.dumps(reason, ensure_ascii=False)
+    quoted = "".join(
+        f"\\u{ord(char):04x}" if unicodedata.category(char) == "Cc" else char
+        for char in quoted
+    )
     output = (
         f"{ANCHOR}/{branch}#deferred_output" if branch else f"{ANCHOR}#deferred_output"
     )
@@ -779,7 +787,7 @@ def _deferral_content(branch: str | None, reason: str) -> str:
         f"    corpus_citation_path: {CITATION}\n"
         "  deferred_outputs:\n"
         f"    - output: {output}\n"
-        f"      reason: {json.dumps(reason, ensure_ascii=False)}\n"
+        f"      reason: {quoted}\n"
         "rules: []\n"
     )
 
@@ -1174,7 +1182,7 @@ def _english_accepted(
         f"    corpus_citation_path: {ENGLISH_CITATION}\n"
         "  deferred_outputs:\n"
         f"    - output: {ENGLISH_ANCHOR}/{branch}#deferred_output\n"
-        f"      reason: {json.dumps(reason)}\n"
+        f"      reason: {json.dumps(reason, ensure_ascii=False)}\n"
         "rules: []\n"
     )
     issues = analyze_complete_source_unit(
@@ -2204,7 +2212,6 @@ def test_folding_is_idempotent_and_leaves_no_mark(text):
         "ומשאין",
         "כשאינו",
         "משטרם",
-        "שמעולם",
         "בלתי",
         "ובלתי",
         "שבלתי",
@@ -2221,6 +2228,13 @@ def test_folding_is_idempotent_and_leaves_no_mark(text):
 )
 def test_a_negation_takes_its_prefixes(negation):
     assert hebrew._REASON_NEGATION.fullmatch(negation)
+
+
+def test_prefixed_meolam_needs_negative_polarity_context():
+    text = "שמעולם לא נטען שחסר סעיף 2"
+    match = hebrew._REASON_NEGATION.search(text)
+    assert match and match.group() == "שמעולם"
+    assert not hebrew._REASON_NEGATION.search("מידע שמעולם העבודה")
 
 
 @pytest.mark.parametrize(
@@ -3780,8 +3794,21 @@ def test_the_fold_drops_every_format_character_and_hebrew_mark():
         for code in range(low, high + 1)
     }
     assert default_ignorables <= folded
+    white_space_controls = {0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x85}
+    controls = {
+        code
+        for code in range(sys.maxunicode + 1)
+        if unicodedata.category(chr(code)) == "Cc" and code not in white_space_controls
+    }
+    assert len(controls) == 59
+    assert controls <= folded
     for code in (
-        folded - format_characters - _HEBREW_POINTS - _SURROGATES - default_ignorables
+        folded
+        - format_characters
+        - _HEBREW_POINTS
+        - _SURROGATES
+        - default_ignorables
+        - controls
     ):
         name = unicodedata.name(chr(code))
         assert unicodedata.category(chr(code)) == "Mn", name
@@ -6311,7 +6338,6 @@ _ROUND_15_LEXICAL_EXCLUSIONS = (
     "כאין",
     "לאין",
     "האין",
-    "באין",
 )
 
 
@@ -6390,3 +6416,336 @@ def test_leading_exclusion_fragments_are_intentionally_stricter(
         else _english_accepted("a", mixed, REVIEW_ENGLISH_SOURCE)
     )
     assert (actual, translated) == _DIFFERENTIAL_VERDICTS[verdict]
+
+
+# --- Review round 16 ------------------------------------------------------------
+# Every reported form is pinned in reason and source positions, using faithful
+# translations. Source פן (lest) is translated with its negative-purpose sense,
+# "so that ... not", so the English link guard reads the same scope.
+ROUND_16_REPRODUCERS = (
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "ל\u0000א חסר סעיף 2",
+        "Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        "(א) ל\u0000א מחושב בהתאם לסעיף 2.",
+        "(a) It is not computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "(א\u0000) ישולם בהתאם לסעיף 2.",
+        REVIEW_ENGLISH_SOURCE,
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "both",
+    ),
+    (
+        "(א) אל יחושב בהתאם לסעיף 2.",
+        "(a) Let it not be calculated in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "אל יטען שחסר סעיף 2",
+        "Let it not be claimed that section 2 is missing.",
+        "neither",
+    ),
+    (
+        "(א) התשלום ייקבע באין חישוב בהתאם לסעיף 2.",
+        "(a) The payment shall be determined without calculation in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "באין בסיס לטענה שחסר סעיף 2",
+        "With no basis for claiming that section 2 is missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "פן תטען שחסר סעיף 2",
+        "Lest you claim that section 2 is missing.",
+        "neither",
+    ),
+    (
+        "(א) פן יחושב בהתאם לסעיף 2.",
+        "(a) So that it is not computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        "(א) מס על כבל מחושב בהתאם לסעיף 2.",
+        "(a) Tax on a cable is computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "both",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "מס על כבל חסר סעיף 2",
+        "Tax on a cable is missing section 2.",
+        "both",
+    ),
+    (
+        "(א) הכנסה מעולם העבודה מחושבת בהתאם לסעיף 2.",
+        "(a) Income from the world of work is computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "both",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "מידע מעולם העבודה חסר סעיף 2",
+        "Information from the world of work is missing section 2.",
+        "both",
+    ),
+    (
+        "(א) חוץ מ ־ תשלום בהתאם לסעיף 2.",
+        "(a) Except a payment in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "חוץ מ ־ הטענה שחסר סעיף 2",
+        "Except the claim that section 2 is missing.",
+        "neither",
+    ),
+    (
+        "(א) ישולם בהתאם ל־ סעיף 2.",
+        REVIEW_ENGLISH_SOURCE,
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "both",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "חסר בהתאם ל־ סעיף 2",
+        "Missing in accordance with section 2.",
+        "both",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("hebrew_source", "english_source", "hebrew_reason", "english_reason", "verdict"),
+    ROUND_16_REPRODUCERS,
+)
+def test_round_16_reproducers_get_the_english_verdict(
+    hebrew_source, english_source, hebrew_reason, english_reason, verdict
+):
+    assert (
+        _accepted("a", hebrew_reason, hebrew_source),
+        _english_accepted("a", english_reason, english_source),
+    ) == _DIFFERENTIAL_VERDICTS[verdict]
+
+
+def test_closed_negator_class_covers_every_form_and_allowed_prefix():
+    """The finite inventory drives both guards, including every person of אל."""
+
+    from axiom_encode.harness import hebrew_negators as grammar
+
+    # Contexts disambiguate the closed inventory's genuine conditional forms.
+    tails = {
+        "אל": " יחושב",
+        "מעולם": " לא חושב",
+        "מנוע": " מלפעול",
+        "מנועה": " מלפעול",
+        "מנועים": " מלפעול",
+        "מנועות": " מלפעול",
+        "דוחות": " את הטענה",
+        "אף": " טענה לא הוכחה",
+        "הלא": " מנוצל",
+    }
+    inventory = {form for family in grammar.NEGATOR_FAMILIES for form in family.forms}
+    assert {row[0] for row in ROUND_15_NEGATOR_TRANSLATIONS} <= inventory
+    for family in grammar.NEGATOR_FAMILIES:
+        for prefix, form in itertools.product(family.prefixes, family.forms):
+            phrase = prefix + form + tails.get(form, "")
+            reason = list(hebrew._REASON_NEGATION.finditer(phrase))
+            source = list(hebrew.link_negations(phrase))
+            assert reason, phrase
+            assert [m.span() for m in reason] == [m.span() for m in source], phrase
+    for person, verb in (("ת", "תחשב"), ("י", "יחשב"), ("א", "אחשב"), ("נ", "נחשב")):
+        phrase = f"אל {verb}"
+        assert hebrew._REASON_NEGATION.search(phrase), person
+        assert list(hebrew.link_negations(phrase)), person
+
+
+# These conservative readings are intended, rather than unlabelled exceptions
+# to translation parity. Unpointed בל also spells the proper name Bel; the
+# finite grammar retains its negative reading even in a putative name context.
+# Likewise, פן and באין remain negative in fragments and conditional clauses
+# that the English guard accepts. English behavior is kept unchanged.
+ROUND_16_INTENDED_STRICTER_CONTEXTS = (
+    (
+        "bel-leading-reason",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "בל: חסר סעיף 2",
+        "Bel: Missing section 2.",
+        "hebrew-stricter",
+    ),
+    (
+        "bel-contextual-reason",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "לגבי בל: חסר סעיף 2",
+        "Concerning Bel: Missing section 2.",
+        "hebrew-stricter",
+    ),
+    (
+        "bel-source",
+        "(א) מס על בל מחושב בהתאם לסעיף 2.",
+        "(a) Tax on Bel is computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "hebrew-stricter",
+    ),
+    (
+        "lest-colon-reason",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "פן תטען: חסר סעיף 2",
+        "Lest you claim: Missing section 2.",
+        "hebrew-stricter",
+    ),
+    (
+        "lest-source",
+        "(א) פן תחשב בהתאם לסעיף 2.",
+        "(a) Lest you calculate in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "hebrew-stricter",
+    ),
+    (
+        "without-calculation-fragment",
+        "(א) באין חישוב בהתאם לסעיף 2.",
+        "(a) Without a calculation in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "hebrew-stricter",
+    ),
+    (
+        "in-the-absence-of-another-provision",
+        "(א) באין הוראה אחרת יחושב בהתאם לסעיף 2.",
+        "(a) In the absence of another provision it shall be calculated in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "hebrew-stricter",
+    ),
+    # Both literal translations are incomplete fragments. Their absence
+    # particle still receives the conservative negative reading, rather than
+    # supplying a complete affirmative missing-dependency claim.
+    (
+        "incomplete-absence-reason",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "באין: חסר סעיף 2",
+        "in the absence of: Missing section 2.",
+        "hebrew-stricter",
+    ),
+    (
+        "incomplete-absence-source",
+        "(א) באין בהתאם לסעיף 2.",
+        "(a) in the absence of in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "hebrew-stricter",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    (
+        "name",
+        "hebrew_source",
+        "english_source",
+        "hebrew_reason",
+        "english_reason",
+        "verdict",
+    ),
+    ROUND_16_INTENDED_STRICTER_CONTEXTS,
+    ids=[row[0] for row in ROUND_16_INTENDED_STRICTER_CONTEXTS],
+)
+def test_round_16_contexts_are_intentionally_stricter(
+    name, hebrew_source, english_source, hebrew_reason, english_reason, verdict
+):
+    assert (
+        _accepted("a", hebrew_reason, hebrew_source),
+        _english_accepted("a", english_reason, english_source),
+    ) == _DIFFERENTIAL_VERDICTS[verdict], name
+
+
+# Round 13 already labels negated לפי links stricter than English ``under``.
+# Pin the review matrix's complete 31-row non-computation extension too:
+# the exclusion remains negative even when its object is delay, rather than
+# calculation. This does not widen the special ``without delay`` class.
+_ROUND_16_EXCLUSION_WORDS = (
+    ("except", "en", "except"),
+    ("other than", "en", "other than"),
+    ("rather than", "en", "rather than"),
+    ("not including", "en", "not including"),
+    ("außer", "de", "except"),
+    ("ausgenommen", "de", "except"),
+    ("abgesehen von", "de", "except for"),
+    ("למעט", "he", "except"),
+    ("להוציא", "he", "except"),
+    ("זולת", "he", "except"),
+    ("חוץ מ", "he", "except"),
+    ("פרט ל", "he", "except"),
+)
+_ROUND_16_DELAY_WORDS = (("דיחוי", "he"), ("delay", "en"), ("Verzögerung", "de"))
+
+
+def _round_16_exclusion_object(exclusion, obj):
+    if exclusion.endswith((" מ", " ל")):
+        return f"{exclusion}-{obj}"
+    return f"{exclusion} {obj}"
+
+
+ROUND_16_INTENDED_STRICTER_EXCLUSION_OBJECTS = tuple(
+    (
+        f"{exclusion}-{obj}",
+        f"(א) משולם {_round_16_exclusion_object(exclusion, obj)} לפי סעיף 2.",
+        f"(a) It is paid {english} delay under section 2.",
+        "hebrew-stricter",
+    )
+    for (exclusion, language, english), (obj, obj_language) in itertools.product(
+        _ROUND_16_EXCLUSION_WORDS, _ROUND_16_DELAY_WORDS
+    )
+    if (language, obj_language) != ("he", "he")
+)
+
+
+@pytest.mark.parametrize(
+    ("name", "hebrew_source", "english_source", "verdict"),
+    ROUND_16_INTENDED_STRICTER_EXCLUSION_OBJECTS,
+    ids=[row[0] for row in ROUND_16_INTENDED_STRICTER_EXCLUSION_OBJECTS],
+)
+def test_round_16_exclusion_objects_are_intentionally_stricter(
+    name, hebrew_source, english_source, verdict
+):
+    assert len(ROUND_16_INTENDED_STRICTER_EXCLUSION_OBJECTS) == 31
+    assert (
+        _accepted("a", "חסר סעיף 2", hebrew_source),
+        _english_accepted("a", "Missing section 2.", english_source),
+    ) == _DIFFERENTIAL_VERDICTS[verdict], name
