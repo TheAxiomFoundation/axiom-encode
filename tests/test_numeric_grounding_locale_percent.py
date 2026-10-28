@@ -1016,6 +1016,9 @@ def test_locale_words_below_the_delimiter_never_type_their_column(
     words, marker, hundreds, first
 ):
     marked = f"| taux | {words} {marker} |\n"
+    # A spelled-out number grounds itself ("vingt" is 20); only the column's
+    # typing is under test.
+    assume(not _grounds(marked, float(hundreds)))
     plain = f"| montant | {hundreds * 100} euro |\n"
     rows = marked + plain if first else plain + marked
     table = "| Item | Value |\n| --- | --- |\n" + rows
@@ -1048,8 +1051,9 @@ def test_pour_cent_before_a_noun_never_grounds_its_rate(
     figure, spelling, noun, gap, lead
 ):
     printed, value = figure
-    # The range reader's other endpoint (1) never equals the figure under test.
-    assume(value != 1)
+    # The range's other endpoint, 1, grounds 1 itself, so neither the figure
+    # nor its N/100 may equal it.
+    assume(value not in (1, 100))
     source_text = f"{lead}{printed} {spelling}{gap}{noun} de poids net"
 
     assert not _grounds(source_text, value / 100), source_text
