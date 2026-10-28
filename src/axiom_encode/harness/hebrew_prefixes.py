@@ -38,8 +38,8 @@ _HORIZONTAL_RUN = re.compile(_HORIZONTAL_SPACE + "+")
 # Complete two/three-letter words in the pinned Israeli-statute vocabulary
 # (tests/fixtures/hebrew_negator_corpus.json). They happen to use only prefix
 # letters, but a following dash is word punctuation. Include משה (Moses), the
-# review's ordinary-name control. Compact legacy prefix spellings still read
-# exactly as before; these exclusions govern the new horizontal-gap fold.
+# review's ordinary-name control. Both compact and spaced dashes after these
+# complete words remain punctuation in every prefix reader.
 STATUTORY_PREFIX_WHOLE_WORDS = frozenset(
     "בדו בה בו בכל בל בלב בשל דו דוד הכל הלב השב השד ובו ובה וכל ולד ושב ושד ושל ושש "
     "כבד כד כה ככל כל כלל כמה כמו כשל לב לבד לה לו לכל למד לשד מד מדד מה מהו "
