@@ -20,6 +20,7 @@ import hashlib
 import heapq
 import itertools
 import math
+import operator
 import re
 import textwrap
 import threading
@@ -11988,6 +11989,10 @@ def _reason_dependency_occurrence_is_contextual(
 ) -> bool:
     """Reject context attached to this citation without crossing into another one."""
 
+    if type(reason) is not str:
+        return _reason_dependency_occurrence_is_contextual_by_scan(
+            reason, match, current_usc_title=current_usc_title
+        )
     groups = match.groupdict()
     title = groups.get("title")
     section = groups.get("section")
@@ -12164,16 +12169,154 @@ def _reason_dependencies(reason: str) -> list[re.Match[str]]:
     )
 
 
+def _reason_dependency_occurrence_is_contextual_by_scan(
+    reason: str,
+    match: re.Match[str],
+    *,
+    current_usc_title: str | None,
+) -> bool:
+    """``_reason_dependency_occurrence_is_contextual`` for a reason of another type.
+
+    A ``str`` subclass may hash, compare or slice unlike its text, so it is
+    neither indexed nor cached: every citation rescans it, as before.
+    """
+
+    groups = match.groupdict()
+    title = groups.get("title")
+    section = groups.get("section")
+    if title and section:
+        dependencies = _reason_dependencies(reason)
+        candidates = (
+            *_qualified_usc_dependencies(reason),
+            *_RELATIVE_USC_DEFERRAL_DEPENDENCY.finditer(reason),
+            *_qualified_louisiana_rs_dependencies(reason),
+        )
+        for candidate in candidates:
+            if _usc_dependency_occurrences_match(
+                reason,
+                candidate,
+                match,
+                current_usc_title=current_usc_title,
+            ) and (
+                _CONTEXTUAL_AUTHORITY_LANGUAGE.search(
+                    _reason_dependency_local_context(
+                        reason,
+                        candidate,
+                        dependencies=dependencies,
+                    )
+                )
+            ):
+                return True
+
+    remainder = reason[match.end() :]
+    stop = min(
+        (
+            position
+            for separator in (".", ";", "\n")
+            if (position := remainder.find(separator)) >= 0
+        ),
+        default=-1,
+    )
+    if stop < 0:
+        return False
+    trailing_clause = re.split(r"[.;\n]", remainder[stop + 1 :], maxsplit=1)[0]
+    return bool(
+        not _reason_dependencies(trailing_clause)
+        and _has_adversative_language(trailing_clause)
+    )
+
+
+def _reason_dependency_local_context(
+    reason: str,
+    match: re.Match[str],
+    *,
+    dependencies: list[re.Match[str]],
+) -> str:
+    clause_start, clause_end = _reason_clause_bounds(reason, match)
+    previous_end = max(
+        (
+            dependency.end()
+            for dependency in dependencies
+            if clause_start <= dependency.start() and dependency.end() <= match.start()
+        ),
+        default=clause_start,
+    )
+    next_start = min(
+        (
+            dependency.start()
+            for dependency in dependencies
+            if match.end() <= dependency.start() < clause_end
+        ),
+        default=clause_end,
+    )
+    before = reason[previous_end : match.start()]
+    after = reason[match.end() : next_start]
+    preceding_coordinations = list(_DEPENDENCY_CONTEXT_COORDINATION.finditer(before))
+    if preceding_coordinations:
+        before = before[preceding_coordinations[-1].end() :]
+    following_coordination = _DEPENDENCY_CONTEXT_COORDINATION.search(after)
+    if following_coordination:
+        after = after[: following_coordination.start()]
+    return before + after
+
+
 def _dependency_citation_family(match: re.Match[str]) -> str:
     if match.re is _LOUISIANA_RS_DEFERRAL_DEPENDENCY:
         return "louisiana-rs"
     return "usc"
 
 
+def _usc_dependencies_match(left: re.Match[str], right: re.Match[str]) -> bool:
+    left_groups = left.groupdict()
+    right_groups = right.groupdict()
+    return bool(
+        _dependency_citation_family(left) == _dependency_citation_family(right)
+        and left_groups.get("title")
+        and right_groups.get("title")
+        and left_groups["title"].lower() == right_groups["title"].lower()
+        and normalize_rulespec_path_segment(left_groups["section"])
+        == normalize_rulespec_path_segment(right_groups["section"])
+        and _usc_dependency_fragments(left) == _usc_dependency_fragments(right)
+    )
+
+
+def _usc_dependency_occurrences_match(
+    reason: str,
+    left: re.Match[str],
+    right: re.Match[str],
+    *,
+    current_usc_title: str | None,
+) -> bool:
+    if _usc_dependencies_match(left, right):
+        return True
+    left_groups = left.groupdict()
+    right_groups = right.groupdict()
+    if (
+        left_groups.get("title")
+        or not right_groups.get("title")
+        or not current_usc_title
+        or right_groups["title"].lower() != current_usc_title.lower()
+    ):
+        return False
+    if not re.match(
+        r"\s+of\s+this\s+title\b",
+        reason[left.end() :],
+        flags=re.IGNORECASE,
+    ):
+        return False
+    return bool(
+        normalize_rulespec_path_segment(left_groups["section"])
+        == normalize_rulespec_path_segment(right_groups["section"])
+        and _usc_dependency_fragments(left) == _usc_dependency_fragments(right)
+    )
+
+
 def _reason_clause_bounds(
     reason: str,
     match: re.Match[str],
 ) -> tuple[int, int]:
+    if type(reason) is not str:
+        return _reason_clause_bounds_by_scan(reason, match)
     stops = _reason_clause_stops(reason)
     preceding = bisect.bisect_left(stops, match.start())
     following = bisect.bisect_left(stops, match.end())
@@ -12200,6 +12343,37 @@ def _reason_clause_stops(reason: str) -> tuple[int, ...]:
             if masked[position] in {".", ";"}:
                 masked[position] = " "
     return tuple(stop.start() for stop in re.finditer(r"[.;\n]", "".join(masked)))
+
+
+def _reason_clause_bounds_by_scan(
+    reason: str,
+    match: re.Match[str],
+) -> tuple[int, int]:
+    """``_reason_clause_bounds`` for a reason of another type, rescanned."""
+
+    masked = list(reason)
+    for dependency in (
+        *_qualified_usc_dependencies(reason),
+        *_qualified_louisiana_rs_dependencies(reason),
+    ):
+        for position in range(dependency.start(), dependency.end()):
+            if masked[position] in {".", ";"}:
+                masked[position] = " "
+    masked_reason = "".join(masked)
+    preceding_stops = [
+        position
+        for separator in (".", ";", "\n")
+        if (position := masked_reason.rfind(separator, 0, match.start())) >= 0
+    ]
+    following_stops = [
+        position
+        for separator in (".", ";", "\n")
+        if (position := masked_reason.find(separator, match.end())) >= 0
+    ]
+    return (
+        max(preceding_stops, default=-1) + 1,
+        min(following_stops, default=len(reason)),
+    )
 
 
 def _reason_suffix_has_dependency_state(
@@ -13670,7 +13844,16 @@ def _path_is_deferred(
 
 
 _DEFERRED_PATH_END = object()
-_PLAIN_COMPONENT_TYPES = frozenset({str})
+
+
+def _plain_strings(values: Iterable[object]) -> bool:
+    """Whether every value is exactly a ``str``, its type tested by identity.
+
+    Looking each type up in a set would hash and compare the types, which a
+    metaclass can redefine to pass a subclass off as ``str``.
+    """
+
+    return all(map(operator.is_, map(type, values), itertools.repeat(str)))
 
 
 def _plain_path(path: object) -> bool:
@@ -13681,7 +13864,7 @@ def _plain_path(path: object) -> bool:
     path of any other shape keeps the comparisons themselves.
     """
 
-    return type(path) is tuple and _PLAIN_COMPONENT_TYPES.issuperset(map(type, path))
+    return type(path) is tuple and _plain_strings(path)
 
 
 class _DeferredPathIndex:
@@ -13721,7 +13904,7 @@ class _DeferredPathIndex:
         if entry is not None and entry[0] is path:
             return entry[1]
         # The comparisons reach no component past the longest deferral.
-        if not _PLAIN_COMPONENT_TYPES.issuperset(map(type, path[: self._depth])):
+        if not _plain_strings(path[: self._depth]):
             return None
         verdict = self._walk(path)
         self._verdicts[id(path)] = (path, verdict)
@@ -21865,6 +22048,17 @@ class _SourceBranchIndex:
 
     def __init__(self, branches: tuple[SourceStructureBranch, ...]) -> None:
         self.branches = branches
+
+    @functools.cached_property
+    def plain_kinds(self) -> bool:
+        """Whether every branch's kind is exactly a ``str``.
+
+        Only then may a filter that tests each candidate's kind be given a
+        pool that leaves candidates out: testing a plain string's membership
+        neither raises nor runs other code.
+        """
+
+        return _plain_strings(branch.kind for branch in self.branches)
 
     @functools.cached_property
     def _paths(
@@ -38192,7 +38386,9 @@ def _source_branch_direct_text(
         and branch.path[-1].startswith("satz-")
     ):
         # A sentence's numbered items may sit beside it under its paragraph.
-        pool = index.descendants(branch.path[:-1])
+        # The filter tests the kind of every branch outside the sentence, so
+        # the pool may leave one out only when every kind is a plain string.
+        pool = index.descendants(branch.path[:-1]) if index.plain_kinds else branches
     else:
         pool = index.descendants(branch.path)
     descendant_starts = [

@@ -15,10 +15,14 @@ import contextvars
 import dataclasses
 import functools
 import gc
+import inspect
 import json
 import math
+import os
 import re
+import subprocess
 import sys
+import textwrap
 import threading
 import time
 import types
@@ -1067,6 +1071,124 @@ def test_reason_helpers_match_main(reason):
     assert warm == cold
 
 
+class _SubclassReason(str):
+    """A reason string of a subclass that changes nothing."""
+
+
+class _UnhashableReason(str):
+    """A reason string that cannot be hashed."""
+
+    __hash__ = None  # type: ignore[assignment]
+
+
+class _CaseFoldReason(str):
+    """A reason string equal to, and hashed as, any of its type and folded text."""
+
+    def __hash__(self) -> int:
+        return hash(self.casefold())
+
+    def __eq__(self, other: object) -> bool:
+        return type(other) is type(self) and self.casefold() == other.casefold()
+
+    def __ne__(self, other: object) -> bool:
+        return not self == other
+
+
+class _LooseReason(str):
+    """A reason string equal to everything, all hashed alike."""
+
+    def __hash__(self) -> int:
+        return 0
+
+    def __eq__(self, other: object) -> bool:
+        return True
+
+
+class _BackwardReason(str):
+    """A reason string whose items and slices read it backwards."""
+
+    def __getitem__(self, key):
+        return str.__str__(self)[::-1][key]
+
+
+def _reason_outcomes(reasons: Sequence[str]) -> list[object]:
+    """Each match's clause bounds and contextual verdicts, raised or returned."""
+
+    return [
+        (
+            _outcome(lambda: sc._reason_clause_bounds(reason, match)),
+            *(
+                _outcome(
+                    lambda: sc._reason_dependency_occurrence_is_contextual(
+                        reason, match, current_usc_title=title
+                    )
+                )
+                for title in (None, "7", "42", "47")
+            ),
+        )
+        for reason in reasons
+        for match in _reason_matches(reason)
+    ]
+
+
+_SUBCLASS_REASONS = (
+    "missing section 346.",
+    "ß; missing section 346.",
+    "ss; missing section 346.",
+    "Paragraph (a) under 7 U.S.C. 2015 is missing; section 346 is missing.",
+    *_THIS_TITLE_REASONS,
+)
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        _SubclassReason,
+        _UnhashableReason,
+        _CaseFoldReason,
+        _LooseReason,
+        _BackwardReason,
+    ],
+)
+def test_reason_helpers_match_main_on_string_subclasses(make):
+    # Recognition's reasons are plain strings. One of a subclass may hash,
+    # compare or slice unlike its text, so it is neither indexed nor cached:
+    # each reason, here in one analysis, is scanned as main scanned it.
+    reasons = [make(reason) for reason in _SUBCLASS_REASONS]
+
+    old, cold, warm = _old_and_new(lambda: _reason_outcomes(reasons))
+
+    assert cold == old
+    assert warm == cold
+
+
+@settings(max_examples=60, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(
+    st.lists(
+        st.tuples(
+            st.sampled_from(
+                [
+                    _SubclassReason,
+                    _UnhashableReason,
+                    _CaseFoldReason,
+                    _LooseReason,
+                    _BackwardReason,
+                ]
+            ),
+            st.lists(st.sampled_from(_REASON_FRAGMENTS), max_size=12).map(" ".join),
+        ),
+        max_size=4,
+    )
+)
+def test_reason_helpers_match_main_on_mixed_string_subclasses(cases):
+    reasons = [make(reason) for make, reason in cases]
+
+    old, cold, warm = _old_and_new(lambda: _reason_outcomes(reasons))
+
+    assert cold == old
+    assert warm == cold
+
+
 @pytest.mark.parametrize(
     ("reason", "contextual"),
     [
@@ -1417,7 +1539,45 @@ class _Reversed(tuple):
         return tuple(reversed(tuple(self)))[key]
 
 
+class _PassesForStr(type):
+    """A metaclass whose classes hash and compare as ``str`` itself does."""
+
+    def __hash__(cls) -> int:
+        return hash(str)
+
+    def __eq__(cls, other: object) -> bool:
+        return other is str
+
+
+class _DisguisedLoose(str, metaclass=_PassesForStr):
+    """A loose string subclass whose type a set of types takes for ``str``."""
+
+    __hash__ = str.__hash__
+
+    def __eq__(self, other: object) -> bool:
+        return True
+
+
+class _UnhashableType(type):
+    """A metaclass whose classes cannot be hashed."""
+
+    __hash__ = None  # type: ignore[assignment]
+
+
+class _UnhashablyTyped(metaclass=_UnhashableType):
+    """An ordinary object, whose class cannot be hashed."""
+
+
+class _HashRaises:
+    """A branch kind whose hashing raises; recognition never builds one."""
+
+    def __hash__(self) -> int:
+        raise RuntimeError("hashed")
+
+
 _RAISING = _RaisingComponent()
+_DISGUISED = _DisguisedLoose("z")
+_UNHASHABLY_TYPED = _UnhashablyTyped()
 _ANY_PATHS = [
     ["a", "b"],
     "ab",
@@ -1433,6 +1593,9 @@ _ANY_PATHS = [
     (_Loose("z"),),
     _Reversed(("b", "a")),
     _LooseTuple(("z",)),
+    (_DISGUISED,),
+    (_UNHASHABLY_TYPED,),
+    ("a", _UNHASHABLY_TYPED),
 ]
 
 
@@ -1452,6 +1615,8 @@ _ANY_PATHS = [
         frozenset({(_Loose("z"),)}),
         frozenset({_Reversed(("b", "a"))}),
         frozenset({_LooseTuple(("z",))}),
+        frozenset({(_DISGUISED,)}),
+        frozenset({("a", _UNHASHABLY_TYPED)}),
     ],
 )
 def test_path_is_deferred_matches_main_on_any_path(path, deferred):
@@ -1737,6 +1902,8 @@ _OTHER_FIELDS = [
     pytest.param({"path": (_Loose("z"),)}, id="loose-string-component"),
     pytest.param({"path": _Reversed(("1", "a"))}, id="tuple-subclass-path"),
     pytest.param({"path": _LooseTuple(("z",))}, id="loose-tuple-path"),
+    pytest.param({"path": (_DISGUISED, "child")}, id="disguised-string-component"),
+    pytest.param({"path": ("a", _UNHASHABLY_TYPED)}, id="unhashable-type-component"),
     pytest.param({"path": (1,)}, id="int-component"),
     pytest.param({"start": None}, id="none-start"),
     pytest.param({"end": None}, id="none-end"),
@@ -1810,6 +1977,8 @@ _OTHER_QUESTION_PATHS = [
     pytest.param((_Loose("z"),), id="loose-string-component"),
     pytest.param(_Reversed(("1", "a")), id="tuple-subclass-path"),
     pytest.param(_LooseTuple(("z",)), id="loose-tuple-path"),
+    pytest.param((_DISGUISED,), id="disguised-string-component"),
+    pytest.param((_UNHASHABLY_TYPED,), id="unhashable-type-component"),
     pytest.param((1,), id="int-component"),
 ]
 
@@ -1886,6 +2055,41 @@ def test_direct_text_tests_kind_and_path_only_where_main_did(change):
     assert warm == cold
 
 
+_SENTENCE = SourceStructureBranch(
+    ("a", "satz-1"), "sentence", "", "Some sentence.", 0, 14
+)
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        pytest.param("paragraph", id="plain"),
+        pytest.param([], id="list"),
+        pytest.param(_HashRaises(), id="raising-hash"),
+        pytest.param(_Loose("number"), id="loose-string"),
+        pytest.param(_DISGUISED, id="disguised-string"),
+    ],
+)
+def test_sentence_text_tests_every_kind_main_tested(kind):
+    # For a sentence, main tests the kind of every branch that is not its
+    # descendant, even one outside its paragraph, so the pool may leave such a
+    # branch out only when every kind is a plain string.
+    item = SourceStructureBranch(("a", "1"), "number", "", "sentence.", 5, 14)
+    outside = SourceStructureBranch(("z",), kind, "", "", 0, 14)
+    pool = (_SENTENCE, item, outside)
+
+    old, cold, warm = _old_and_new(
+        lambda: _outcome(
+            lambda: sc._source_branch_direct_text(_SENTENCE, branches=pool)
+        )
+    )
+
+    assert cold == old
+    assert warm == cold
+    if kind == "paragraph":
+        assert old == "Some "
+
+
 def test_branch_helpers_match_main_on_other_branch_objects():
     # A tuple holding anything but source branches is scanned.
     source = _wide_outline(16)
@@ -1959,7 +2163,20 @@ def test_span_helpers_match_main_on_other_offset_types(start, end):
 
 
 _MIXED_COMPONENTS = st.sampled_from(
-    ["a", "b", "ab", _Text("a"), _Loose("z"), 1, 1.0, True, None, b"a"]
+    [
+        "a",
+        "b",
+        "ab",
+        _Text("a"),
+        _Loose("z"),
+        _DISGUISED,
+        _UNHASHABLY_TYPED,
+        1,
+        1.0,
+        True,
+        None,
+        b"a",
+    ]
 )
 _MIXED_PATHS = st.lists(_MIXED_COMPONENTS, max_size=4).flatmap(
     lambda parts: st.sampled_from([tuple(parts), _LooseTuple(parts), _Reversed(parts)])
@@ -2020,47 +2237,155 @@ def _cold_cpu_seconds(call: Callable[[], object], *, budget: float) -> float:
 
 
 @contextlib.contextmanager
-def _without_coverage() -> Iterator[None]:
-    """Pause a running coverage measurement, so the timings are of the code.
+def _without_tracing() -> Iterator[None]:
+    """Suspend this thread's trace function, so the timings are of the code.
 
-    CI measures coverage of the package, not of this file, so under its
+    CI measures coverage of the package, not of this file, so under its line
     tracer the new code pays a cost per line that main's copies here do not.
-    On CPython 3.13's line tracer the deep-deferral sweep read 4x main's that
-    way (3.2x on CI), against 1.7x untraced.
+    On CPython 3.13 the deep-deferral sweep read 4x main's that way (3.2x on
+    CI), against 1.7x untraced. Only this thread's function is suspended, so
+    coverage keeps measuring other threads; stopping and restarting coverage
+    would leave theirs stopped. Coverage through ``sys.monitoring`` (3.14's
+    default) sets no trace function, and disables each event once it fires.
     """
 
-    try:
-        import coverage
-    except ImportError:
+    tracer = sys.gettrace()
+    if tracer is None:
         yield
         return
-    current = coverage.Coverage.current()
-    if current is None:
-        yield
-        return
-    current.stop()
+    sys.settrace(None)
     try:
         yield
     finally:
-        current.start()
+        sys.settrace(tracer)
 
 
-def test_timings_pause_a_running_coverage_measurement():
-    coverage = pytest.importorskip("coverage")
-    current = coverage.Coverage.current()
-    if current is None:
-        pytest.skip("no coverage measurement is running")
+def _trace_nothing(frame, event, arg):
+    return None
 
-    with _without_coverage():
-        assert coverage.Coverage.current() is None
 
-    assert coverage.Coverage.current() is current
+def test_timings_suspend_only_this_threads_tracer():
+    """Inside, this thread has no tracer and another keeps its own; after, both do."""
+
+    own = sys.gettrace()
+    if own is None:
+        sys.settrace(_trace_nothing)
+    mine = sys.gettrace()
+    ready, paused = threading.Event(), threading.Event()
+    seen: dict[str, object] = {}
+
+    def worker():
+        if sys.gettrace() is None:
+            sys.settrace(_trace_nothing)
+        seen["before"] = sys.gettrace()
+        ready.set()
+        assert paused.wait(30)
+        seen["during"] = sys.gettrace()
+
+    thread = threading.Thread(target=worker)
+    try:
+        thread.start()
+        assert ready.wait(30)
+        with _without_tracing():
+            assert sys.gettrace() is None
+            with _without_tracing():
+                assert sys.gettrace() is None
+            assert sys.gettrace() is None
+            paused.set()
+            thread.join(30)
+        assert sys.gettrace() is mine
+        with contextlib.suppress(RuntimeError), _without_tracing():
+            raise RuntimeError
+        assert sys.gettrace() is mine
+    finally:
+        paused.set()
+        thread.join(30)
+        if own is None:
+            sys.settrace(None)
+    assert not thread.is_alive()
+    assert seen["before"] is not None
+    assert seen["during"] is seen["before"]
+
+
+_COVERAGE_PROBE = """
+import contextlib, json, sys, threading
+from collections.abc import Iterator
+import coverage
+import target
+
+{helper}
+
+started, release = threading.Event(), threading.Event()
+
+
+def worker():
+    target.before()
+    started.set()
+    assert release.wait(30)
+    target.after()
+
+
+cov = coverage.Coverage(data_file=None, config_file=False, include=[target.__file__])
+cov.start()
+thread = threading.Thread(target=worker)
+thread.start()
+assert started.wait(30)
+with _without_tracing():
+    target.paused()
+target.resumed()
+release.set()
+thread.join(30)
+cov.stop()
+print(json.dumps(sorted(cov.get_data().lines(target.__file__))))
+"""
+
+
+@pytest.mark.parametrize("core", ["ctrace", "pytrace"])
+def test_coverage_still_measures_other_threads_after_a_timing(core, tmp_path):
+    """Real coverage keeps every thread but the paused call, under each tracer."""
+
+    pytest.importorskip("coverage")
+    functions = ("before", "after", "paused", "resumed")
+    (tmp_path / "target.py").write_text(
+        "".join(f"def {name}():\n    return {name!r}\n" for name in functions)
+    )
+    (tmp_path / "probe.py").write_text(
+        _COVERAGE_PROBE.format(
+            helper=textwrap.dedent(inspect.getsource(_without_tracing))
+        )
+    )
+    # A child of a measured run would start its own measurement; this one
+    # starts only the probe's, with the tracer under test.
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("COVERAGE_", "COV_CORE_"))
+    }
+    env["COVERAGE_CORE"] = core
+    result = subprocess.run(
+        [sys.executable, "probe.py"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    # Each function's body is the line after its def: lines 2, 4, 6 and 8.
+    body = {name: 2 * position + 2 for position, name in enumerate(functions)}
+    assert json.loads(result.stdout) == [
+        body["before"],
+        body["after"],
+        body["resumed"],
+    ]
 
 
 def _cpu_times(calls: Sequence[Callable[[], object]], *, budget: float) -> list[float]:
     """The least CPU time of each call's round, over interleaved rounds."""
 
-    with _without_coverage():
+    with _without_tracing():
         smallest = min(_cold_cpu_seconds(calls[0], budget=budget) for _ in range(3))
         repeats = max(1, math.ceil(_MIN_ROUND_CPU / max(smallest, 1e-6)))
         best = [math.inf] * len(calls)
