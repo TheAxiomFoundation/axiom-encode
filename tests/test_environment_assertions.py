@@ -75,19 +75,35 @@ environment's place; a mock standing in for a launcher raises through
   binds it to (``_REAL_RUN = subprocess.run``), whose ``env`` may hold one. A
   launcher reads its ``env`` as a mapping, so it is passed a ``Names``;
 - a call handing what may hold one to code out of view: a function the module
-  imports, or a method of anything but a container (a mock's
+  imports, a class whose ``__new__`` or ``__init__`` may be out of view (as
+  may any class with a base out of view but a built-in class or a named
+  tuple, which may run its own or replace the class's as it builds it), or a
+  method of anything but a container that is not in view (a mock's
   ``assert_called_with``, ``functools.partial`` and ``os.execvpe`` among
-  them). A method is in view only where it is looked up on what is known to
-  be an instance of a class the module defines, and found in one of the
-  module's classes before any class out of view (each base searched, depth
-  first, before the next). An instance is known as the first parameter of
-  the method it is read in (not a static method's, nor one rebound there), as
-  ``super()`` there, as a call to a class the module binds once, by its
-  ``class`` statement, or as a name every binding of which is such a call. A
-  method name the module assigns other than by ``def`` (an attribute,
-  ``setattr``, ``patch``, a class body) is never in view. Should code out of
-  view raise, pytest prints the arguments of the frame it raised in, so a
-  test hands it a ``Names`` (or a minimal environment of its own);
+  them). A method is in view only where Python's lookup, along the C3 order
+  of each class the receiver may be an instance of, finds a ``def`` of the
+  module's before any class out of view, under no decorator but
+  ``hides_environment``, ``staticmethod`` and ``classmethod``, and none of
+  those classes defines ``__getattribute__``. The receiver is known as a call
+  to a class with no base out of view that the module binds once, by its
+  ``class`` statement (or a name it assigns that class alone), whose
+  ``__new__`` is ``object``'s; as a name every binding of which is such a
+  call; and as the first parameter of the method it is read in, or
+  ``super()`` there, where it may be an instance of the method's class or of
+  any of the module's classes built on it, none of which may have a base out
+  of view but a built-in class or a named tuple. That
+  parameter is not taken to be what the lookup bound in a static method,
+  under a decorator that may call the method otherwise, in a method the
+  module reads off a class, or where the method rebinds it. A method name the
+  module may replace other than by ``def`` (as an attribute, through
+  ``setattr``, ``delattr`` or ``patch``, as a key of a namespace, or in a
+  class's body) is never in view, and no method is where such a name is not
+  a constant. Should code out of view raise, pytest prints the arguments of
+  the frame it raised in, so a test hands it a ``Names`` (or a minimal
+  environment of its own);
+- a call passing what may hold one to a parameter of a function in view that
+  it runs (a method, or a class's ``__new__`` or ``__init__``), where
+  ``hides_environment`` does not mask it;
 - a read or ``del`` of a variable of ``os.environ`` (or a name bound to it) by
   subscript, a one-argument ``pop`` or a ``popitem`` of it, and
   ``monkeypatch.delenv`` unless it is passed ``raising=False``. A test reads a
@@ -110,8 +126,10 @@ to an environment inside it. Environments start as:
   fake any function hands to code out of view (``_Check._handed``), in a
   module that launches something itself;
 - the ``env`` or ``environment`` field of a record that prints its fields (a
-  dataclass, this module's or one imported from ``axiom_encode``), wherever
-  one is built or a parameter is annotated with its class.
+  dataclass, one this module defines at its top level or one imported from
+  ``axiom_encode``), wherever one is built, a parameter is annotated with its
+  class, or one of its own methods (``__post_init__`` among them) is passed
+  it as ``self``.
 
 They are followed through copies and filtered copies (``dataclasses.asdict``,
 ``vars`` and ``getattr`` too), assignments, and containers a test or a
@@ -144,10 +162,17 @@ function's locals holds what that local does, unmasked by
 ``hides_environment``. A launcher, or code out of view, that a test or a
 fixture has replaced with a fake counts as what it replaced. A method of
 something the check cannot tell from code out of view counts as it, though it
-run no Python frame of its own (``dict.fromkeys``) or be one of this module's:
-on an instance a fixture returns, on a class whose name the module binds more
-than once, past a base out of view that does not define it, or under a name
-the module also assigns as an attribute. An object holding an environment
+may run no Python frame of its own (``dict.fromkeys``) or be one of this
+module's: on an instance a fixture returns; on what a call to a class returns
+where the module binds the class's name more than once or the class has a
+base out of view; past a base out of view that does not define it; on a first
+parameter, where the class it is read in, or one built on it, has a base out
+of view but a built-in class or a named tuple (which may leave its methods as
+they are), or in a module with a class whose bases it can't read (one a call
+builds, say); or under a name the module may replace. So does a call to a
+class with such a base, or whose ``__new__`` or ``__init__`` the module may
+replace or is out of view, but a built-in class's (or a named tuple's), which
+run no Python frame that can raise. An object holding an environment
 under another name counts where it is passed to a function
 ``hides_environment`` wraps, though that refuses it when it also answers to
 ``env`` or ``environment`` (through ``__getattr__``, say). And a function is
@@ -171,8 +196,9 @@ record whose ``__post_init__`` replaces what it is given, and an object with
 a repr of its own (not a class or a module) that holds an environment under
 ``env`` or ``environment``, however it keeps it. The check takes every
 container to be one it reads through; an environment inside a generator or a
-view reaches the function as it is. ``--tb=long``, ``--showlocals`` and ``--fulltrace`` print every
-frame's arguments or locals, the code under test's included. An environment
+view reaches the function as it is. ``--tb=long``, ``--showlocals`` and
+``--fulltrace`` print every frame's arguments or locals, the code under
+test's included. An environment
 the code under test builds for itself is printed when an exception passes a
 frame of its own that holds it: the frame that raised, or, for an exception it
 wraps that was raised with no frame in the test's file to start from (as
@@ -183,8 +209,17 @@ other than by plain assignment, is not taken to be one, and ``os.environ``
 is not taken to be what holds it other than a name it is assigned to (with
 ``=``, an annotation, a walrus, or unpacked from a literal pair): an
 attribute, a parameter's default, a ``for`` target, a container's item or a
-function's result. A class decorator or metaclass that replaces a method is
-not seen. Setting variables to what the platform rejects raises from
+function's result. Nor is ``os`` taken to be bound otherwise than by
+``import`` or the assignment of a name it is bound to (``sys.modules``,
+``importlib``). A class built on one of this module's other than by a
+``class`` statement of its own (``type(...)``, a class out of view) is not
+taken to be what a first parameter may hold, and a method's function reached
+off its class other than by attribute, ``getattr`` or a key of its namespace
+(``vars(cls).get``, ``inspect.getmembers``) is not taken to be called
+unbound. A record a function defines, or one built with an environment in a
+field of another name, is not taken to hold it, so neither is the ``self`` of
+its methods (its ``__post_init__`` among them), which pytest prints with its
+fields. Setting variables to what the platform rejects raises from
 ``os.environ``'s frames too: an empty name or one with ``=`` in it, a name or
 value holding a null byte, or a pair given to ``update`` that is not two
 items, through ``os.environ`` itself, its ``update`` or ``setdefault``, or
@@ -198,6 +233,7 @@ and read the report through ``Names``.
 from __future__ import annotations
 
 import ast
+import builtins
 import dataclasses
 import functools
 import inspect
@@ -358,6 +394,41 @@ CONTAINER_METHODS = frozenset(
     }
 )
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+# Calls that replace or delete an attribute one of their arguments names
+# (``setattr``, ``monkeypatch.setattr``, ``object.__setattr__``, ``patch``,
+# ``patch.object``, ``patch.multiple``), and the methods that write into a
+# mapping (an object's ``__dict__``).
+RENAMERS = frozenset(
+    {"setattr", "__setattr__", "delattr", "__delattr__", "patch", "object", "multiple"}
+)
+NAMESPACE_WRITES = frozenset(
+    {"update", "setdefault", "__setitem__", "__delitem__", "pop", "popitem", "clear"}
+)
+# The decorators under which a method's first parameter is still what its
+# lookup bound (pytest's included), and those under which a method found in
+# view runs as it is defined.
+RECEIVING = frozenset(
+    {
+        HIDES,
+        "classmethod",
+        "property",
+        "cached_property",
+        "fixture",
+        "parametrize",
+        "usefixtures",
+        "skip",
+        "skipif",
+        "xfail",
+        "filterwarnings",
+    }
+)
+PLAIN = frozenset({HIDES, "staticmethod", "classmethod"})
+# Bases out of view whose ``__new__`` and ``__init__`` run no Python frame
+# that can raise with the arguments a call passes: a named tuple's ``__new__``
+# is a lambda passing them to ``tuple.__new__`` (``collections.namedtuple``).
+RECORD_BASES = frozenset({"NamedTuple"})
+# Methods whose first parameter is a class.
+CLASS_METHODS = frozenset({"__new__", "__init_subclass__", "__class_getitem__"})
 
 
 def _unwrapped(paths: Iterable[Path_]) -> set[Path_]:
@@ -571,6 +642,84 @@ def _paired(target: ast.AST, value: ast.AST) -> Iterator[tuple[ast.AST, ast.AST]
         yield target, value
 
 
+def _merged(sequences: list[list[object]]) -> list[object] | None:
+    """C3's merge of ``sequences``, or None where they have no consistent
+    order."""
+    sequences = [list(sequence) for sequence in sequences if sequence]
+    merged: list[object] = []
+    while sequences:
+        for sequence in sequences:
+            head = sequence[0]
+            if not any(head in other[1:] for other in sequences):
+                break
+        else:
+            return None
+        merged.append(head)
+        sequences = [
+            sequence[1:] if sequence[0] == head else sequence for sequence in sequences
+        ]
+        sequences = [sequence for sequence in sequences if sequence]
+    return merged
+
+
+def _bound_in(body: list[ast.stmt]) -> set[str]:
+    """The names statements ``body`` bind in their own scope other than by
+    ``def``: what a class's body may replace its methods with."""
+    names: set[str] = set()
+    stack: list[ast.AST] = list(body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            # Its decorators and defaults are evaluated here.
+            stack.extend(node.decorator_list)
+            stack.extend(node.args.defaults)
+            stack.extend(default for default in node.args.kw_defaults if default)
+            continue
+        if isinstance(node, (ast.Lambda, ast.ClassDef)):
+            names.add(getattr(node, "name", ""))
+            continue
+        if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            names.add(node.id)
+        elif isinstance(node, ast.alias):
+            names.add(node.asname or node.name.partition(".")[0])
+        elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)):
+            names.add(node.name or "")
+        elif isinstance(node, ast.MatchMapping):
+            names.add(node.rest or "")
+        stack.extend(ast.iter_child_nodes(node))
+    return names - {""}
+
+
+def _namespace(node: ast.AST) -> bool:
+    """Whether ``node`` is an object's namespace: ``vars(...)`` or a
+    ``__dict__``."""
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "vars"
+    ) or (isinstance(node, ast.Attribute) and node.attr == "__dict__")
+
+
+def _renamed(node: ast.Call) -> ast.AST | None:
+    """The argument of a ``RENAMERS`` call that names the attribute it
+    replaces or deletes, or None where it names none."""
+    name = _name(node)
+    keywords = {keyword.arg: keyword.value for keyword in node.keywords}
+    arguments = node.args
+    if name == "patch":
+        return arguments[0] if arguments else keywords.get("target")
+    if name == "object":
+        return arguments[1] if len(arguments) > 1 else keywords.get("attribute")
+    # ``monkeypatch.setattr("module.Class.name", value)`` names it by a path.
+    if (
+        arguments
+        and isinstance(arguments[0], ast.Constant)
+        and isinstance(arguments[0].value, str)
+    ):
+        return arguments[0]
+    return arguments[1] if len(arguments) > 1 else keywords.get("name")
+
+
 def _class_fields(tree: ast.Module) -> dict[str, tuple[str, ...]]:
     """The annotated fields, in order, of each class ``tree`` defines whose
     instances print them."""
@@ -731,14 +880,38 @@ class _Check:
             if isinstance(node, (ast.Import, ast.ImportFrom))
             for alias in node.names
         }
-        # Modules imported under another name (``import subprocess as sp``).
-        self.modules = {
-            alias.asname: alias.name.rpartition(".")[2]
+        # Modules under another name: imported as it (``import subprocess as
+        # sp``), or a name the module binds one to (``system = os``).
+        imported = {
+            alias.asname or alias.name.partition(".")[0]: (
+                alias.name.rpartition(".")[2]
+                if alias.asname
+                else alias.name.partition(".")[0]
+            )
             for node in ast.walk(tree)
             if isinstance(node, ast.Import)
             for alias in node.names
-            if alias.asname
         }
+        self.modules = {
+            name: module for name, module in imported.items() if name != module
+        }
+        while True:
+            renamed = {
+                target.id: self.modules.get(value.id, imported.get(value.id, ""))
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr))
+                and node.value is not None
+                for whole in (
+                    node.targets if isinstance(node, ast.Assign) else [node.target]
+                )
+                for target, value in _paired(whole, node.value)
+                if isinstance(target, ast.Name)
+                and isinstance(value, ast.Name)
+                and (value.id in self.modules or value.id in imported)
+            }
+            if renamed.items() <= self.modules.items():
+                break
+            self.modules.update(renamed)
         # Names bound to ``os.environ`` itself (``values = os.environ``, an
         # unpacked pair, a walrus), anywhere in the module.
         self.live: set[str] = set()
@@ -809,11 +982,21 @@ class _Check:
             for method in owner.body
             if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
+        # The function or lambda each node is in. A function's decorators,
+        # defaults and annotations are evaluated where it is defined.
+        self.enclosing: dict[ast.AST, ast.AST | None] = {}
+        for node in ast.walk(tree):
+            body = getattr(node, "body", []) if isinstance(node, FUNCTIONS) else []
+            inner = {id(part) for part in (body if isinstance(body, list) else [body])}
+            for child in ast.iter_child_nodes(node):
+                self.enclosing[child] = (
+                    node if id(child) in inner else self.enclosing.get(node)
+                )
         # What a method call is looked up on. A class is known by its name
         # only where the module binds that name once, by its ``class``
-        # statement; a name holds an instance of one only where every binding
-        # of it is a call to that class. ``self`` and ``cls`` are read from
-        # the method they are the first parameter of.
+        # statement, and none where it imports ``*``; a name holds an instance
+        # of one only where every binding of it is a call to that class. The
+        # first parameter of a method is read from the method.
         bindings: dict[str, list[ast.AST]] = {}
         for node in ast.walk(tree):
             if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
@@ -830,11 +1013,44 @@ class _Check:
                     bindings.setdefault(node.name, []).append(node)
             elif isinstance(node, ast.MatchMapping) and node.rest:
                 bindings.setdefault(node.rest, []).append(node)
+        self.bound = set(bindings)
+        star = any(
+            alias.name == "*"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+        )
         self.known_classes = {
             name: found[0]
             for name, found in bindings.items()
-            if len(found) == 1 and isinstance(found[0], ast.ClassDef)
+            if len(found) == 1 and isinstance(found[0], ast.ClassDef) and not star
         }
+        # A name every binding of which assigns it one known class (``Alias =
+        # Probe``) is known as that class.
+        assigned = {
+            id(target): node.value.id
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+            and isinstance(node.value, ast.Name)
+            for target in (
+                node.targets if isinstance(node, ast.Assign) else [node.target]
+            )
+        }
+        while True:
+            aliases = {}
+            for name, found in bindings.items():
+                values = {assigned.get(id(binding)) for binding in found}
+                if name not in self.known_classes and len(values) == 1:
+                    (value,) = values
+                    if value in self.known_classes:
+                        aliases[name] = self.known_classes[value]
+            if not aliases:
+                break
+            self.known_classes.update(aliases)
+        # Names a class statement binds, known or not.
+        self.class_names = {node.name for node in every_class}
+        self.every_class = every_class
+        self.orders: dict[int, list[object] | None] = {}
         built = {
             id(target): node.value.func.id
             for node in ast.walk(tree)
@@ -852,48 +1068,76 @@ class _Check:
             classes = {built.get(id(binding)) for binding in found}
             if len(classes) == 1 and None not in classes:
                 self.typed[name] = classes.pop()
-        # Method names the module assigns other than by ``def``: as an
-        # attribute (``fake.run = ...``, ``setattr``, ``patch.object``,
-        # ``patch("...run")``) or in a class's body. A lookup of one may find
-        # what was assigned.
+        # Method names the module may replace other than by ``def``: an
+        # attribute it stores or deletes (``fake.run = ...``), a name it gives
+        # ``setattr`` or ``delattr`` (``monkeypatch``'s and ``object``'s too)
+        # or ``patch`` (``.object``, ``.multiple``), a key it stores into
+        # ``vars(...)`` or a ``__dict__``, and a name a class's body binds
+        # other than by ``def``. A lookup of one may find what replaced it.
+        # Where such a name is not a constant, it may be any.
         self.overridden = {
             node.attr
             for node in ast.walk(tree)
             if isinstance(node, ast.Attribute) and not isinstance(node.ctx, ast.Load)
         }
+        self.overrides_all = False
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and _name(node) in {"setattr", "object"}:
-                named = node.args[1:2]
-            elif isinstance(node, ast.Call) and _name(node) == "patch":
-                named = node.args[:1]
-            elif isinstance(node, ast.ClassDef):
-                self.overridden |= {
-                    target.id
-                    for statement in node.body
-                    if isinstance(statement, (ast.Assign, ast.AnnAssign))
-                    for target in (
-                        statement.targets
-                        if isinstance(statement, ast.Assign)
-                        else [statement.target]
-                    )
-                    if isinstance(target, ast.Name)
-                }
-                continue
-            else:
-                continue
-            self.overridden |= {
-                argument.value.rpartition(".")[2]
-                for argument in named
-                if isinstance(argument, ast.Constant)
-                and isinstance(argument.value, str)
-            }
-        # The function or lambda each node is in.
-        self.enclosing: dict[ast.AST, ast.AST] = {}
+            if isinstance(node, ast.ClassDef):
+                self.overridden |= _bound_in(node.body)
+            elif isinstance(node, ast.Subscript) and _namespace(node.value):
+                if not isinstance(node.ctx, ast.Load):
+                    self._override(node.slice)
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and _namespace(node.func.value)
+                and node.func.attr in NAMESPACE_WRITES
+            ):
+                self.overrides_all = True
+            elif (
+                isinstance(node, ast.Call)
+                and _name(node) == "setitem"
+                and node.args
+                and _namespace(node.args[0])
+            ):
+                self._override(node.args[1] if len(node.args) > 1 else None)
+            elif (
+                isinstance(node, ast.Call)
+                and _name(node) in RENAMERS
+                # ``object()`` builds a sentinel.
+                and not (isinstance(node.func, ast.Name) and node.func.id == "object")
+            ):
+                if any(keyword.arg is None for keyword in node.keywords):
+                    self.overrides_all = True
+                if _name(node) == "multiple":
+                    self.overridden |= {k.arg for k in node.keywords if k.arg}
+                else:
+                    self._override(_renamed(node))
+        # The methods the module reads off a class, whose functions may then
+        # be called with anything as their first argument: each ``def`` such a
+        # read finds, by its ``id``, and by name where the class isn't known.
+        self.unbound: set[str] = set()
+        self.unbound_defs: set[int] = set()
+        self.unbound_all = False
         for node in ast.walk(tree):
-            for child in ast.iter_child_nodes(node):
-                self.enclosing[child] = (
-                    node if isinstance(node, FUNCTIONS) else self.enclosing.get(node)
+            if isinstance(node, ast.Attribute) and self._of_class(node.value):
+                self._unbind(node.value, node.attr)
+            elif isinstance(node, ast.Subscript) and _namespace(node.value):
+                namespace = node.value
+                owner = (
+                    namespace.args[0]
+                    if isinstance(namespace, ast.Call) and namespace.args
+                    else getattr(namespace, "value", None)
                 )
+                if owner is not None and self._of_class(owner):
+                    self._unbind(owner, node.slice)
+            elif (
+                isinstance(node, ast.Call)
+                and _name(node) == "getattr"
+                and len(node.args) > 1
+                and self._of_class(node.args[0])
+            ):
+                self._unbind(node.args[0], node.args[1])
         # This module's exception classes, those defined within a function
         # too, which print what they are built with.
         self.exceptions: set[str] = set()
@@ -1358,7 +1602,8 @@ class _Check:
             )
             for argument in _all_parameters(function)
         }
-        # A method reads what its class's methods store on the instance.
+        # A method reads what its class's methods store on the instance, and
+        # a record's, what its environment fields may be built with.
         owner = self.owners.get(function)
         parameters = _parameters(function)
         if (
@@ -1370,7 +1615,7 @@ class _Check:
             seeds[parameters[0]] |= {
                 path[1:] if path[:1] == (HIDDEN,) else path
                 for path in self.instances.get(owner, set())
-            }
+            } | self._annotated(ast.Name(id=owner))
         return {
             name: self._passed(function, name, paths) for name, paths in seeds.items()
         }
@@ -1610,12 +1855,19 @@ class _Check:
         return changed
 
     def _arguments(
-        self, function: ast.AST, node: ast.Call, scope: _Scope
+        self, function: ast.AST, node: ast.Call, scope: _Scope, bound: int = 0
     ) -> dict[str, set[Path_]]:
-        """What the call ``node`` passes each of ``function``'s parameters."""
+        """What the call ``node`` passes each of ``function``'s parameters,
+        less the first ``bound``, which a method's lookup binds."""
         arguments = function.args
         positional = [*arguments.posonlyargs, *arguments.args]
-        named = [*arguments.args, *arguments.kwonlyargs]
+        skipped = positional[:bound]
+        positional = positional[bound:]
+        named = [
+            parameter
+            for parameter in [*arguments.args, *arguments.kwonlyargs]
+            if not any(parameter is each for each in skipped)
+        ]
         found: dict[str, set[Path_]] = {}
 
         def add(name: str, paths: set[Path_]) -> None:
@@ -1916,97 +2168,383 @@ class _Check:
     def _hands_out(self, node: ast.Call) -> bool:
         """Whether ``node`` hands what it is passed to code out of view.
 
-        That is a function the module imports, or a method of anything but a
-        container or what is known to be an instance of a class the module
-        defines, unless the check follows the call as data. Should that code
-        raise, pytest prints the arguments of the frame it raised in, a mock's
+        That is a function the module imports, a class whose ``__new__`` or
+        ``__init__`` may be out of view (``_constructed``), or a method of
+        anything but a container that is not found in view (``_in_view``),
+        unless the check follows the call as data. Should that code raise,
+        pytest prints the arguments of the frame it raised in, a mock's
         ``assert_called_with`` among them.
         """
         name = _name(node)
         if name in FOLLOWED or name in INSTALLERS or name in MOCKS:
             return False
         if isinstance(node.func, ast.Name):
-            return name in self.imports
+            return name in self.imports or self._constructed(node) is None
         return (
             isinstance(node.func, ast.Attribute)
             and name not in CONTAINER_METHODS
-            and not self._own_method(node.func)
+            and self._in_view(node.func) is None
         )
 
-    def _own_method(self, method: ast.Attribute) -> bool:
-        """Whether ``method`` is looked up on what is known to be an instance
-        (or a subclass) of a class this module defines, and found in one of
-        its classes before any class out of view.
+    def _passes_in_view(self, node: ast.Call, scope: _Scope) -> bool:
+        """Whether ``node`` passes what may hold an environment to a parameter
+        of a function of this module's that it runs and that prints it: a
+        method found in view, or a class's ``__new__`` or ``__init__``."""
+        if isinstance(node.func, ast.Name):
+            runs = self._constructed(node)
+        elif isinstance(node.func, ast.Attribute) and _name(node) not in (
+            CONTAINER_METHODS
+        ):
+            runs = self._in_view(node.func)
+        else:
+            runs = None
+        return any(
+            _holds(self._passed(definition, name, paths))
+            for definition, bound in runs or []
+            for name, paths in self._arguments(definition, node, scope, bound).items()
+        )
 
-        The receiver is known as the first parameter of the method it is read
-        in (not a static method's, nor one rebound there), as ``super()``
-        there (the method's class's bases), as a call to a class the module
-        binds once, or as a name every binding of which is such a call. A
-        method name the module assigns other than by ``def`` is not taken to
-        be in view.
+    def _in_view(self, method: ast.Attribute) -> list[tuple[ast.AST, int]] | None:
+        """The ``def`` of this module's each class the receiver may be an
+        instance of runs for ``method``, with how many of its parameters the
+        lookup binds; None unless every one is found in view.
+
+        Python looks a method up along the method resolution order of the
+        receiver's class (C3), and this module's classes are read in it. The
+        receiver is known as a call to a class with no base out of view that
+        the module binds once, by its ``class`` statement, whose ``__new__``
+        is ``object``'s (none of its classes defines another); as a name
+        every binding of which is such a call; and as the first parameter of
+        the method it is read in (``_receiver``), or ``super()`` there, where
+        it may be an instance of the method's class or of any class of the
+        module's built on it (``_subclasses``). Each must find a ``def`` of
+        the module's, under
+        no decorator but ``hides_environment``, ``staticmethod`` and
+        ``classmethod``, before any class out of view, and none of the
+        classes may define ``__getattribute__``. A method name the module may
+        replace (``overridden``) is never found.
         """
-        if method.attr in self.overridden:
-            return False
+        if (
+            self.overrides_all
+            or method.attr in self.overridden
+            or {"__getattribute__", "__class__"} & self.overridden
+        ):
+            return None
         receiver = method.value
         frame = self.enclosing.get(method)
-        if isinstance(receiver, ast.Call) and _name(receiver) == "super":
-            owner = self.method_classes.get(frame)
-            return (
-                owner is not None
-                and not receiver.args
-                and self._found_in_bases(owner, method.attr) is True
-            )
-        if isinstance(receiver, ast.Call) and isinstance(receiver.func, ast.Name):
+        lookups: list[tuple[list[object], bool]] = []
+        if (
+            isinstance(receiver, ast.Call)
+            and isinstance(receiver.func, ast.Name)
+            and receiver.func.id == "super"
+            and "super" not in self.bound
+        ):
+            found = self._receiver(frame)
+            if receiver.args or receiver.keywords or found is None:
+                return None
+            owner, of_class = found
+            orders = self._subclasses(owner)
+            if orders is None:
+                return None
+            lookups = [(order[order.index(owner) + 1 :], of_class) for order in orders]
+        elif isinstance(receiver, ast.Call) and isinstance(receiver.func, ast.Name):
             owner = self.known_classes.get(receiver.func.id)
+            if owner is None or not self._builds_itself(owner):
+                return None
+            lookups = [(self._order(owner), False)]
         elif isinstance(receiver, ast.Name) and receiver.id in self.typed:
             owner = self.known_classes[self.typed[receiver.id]]
+            if not self._builds_itself(owner):
+                return None
+            lookups = [(self._order(owner), False)]
         elif isinstance(receiver, ast.Name):
-            owner = self.method_classes.get(frame)
-            positional = [*frame.args.posonlyargs, *frame.args.args] if owner else []
-            if (
-                owner is None
-                or positional[:1] == []
-                or positional[0].arg != receiver.id
-                or any(_name(d) == "staticmethod" for d in frame.decorator_list)
-                or any(
-                    isinstance(node, ast.Name)
-                    and node.id == receiver.id
-                    and not isinstance(node.ctx, ast.Load)
-                    for node in ast.walk(frame)
-                )
-            ):
-                return False
+            found = self._receiver(frame, receiver.id)
+            if found is None:
+                return None
+            owner, of_class = found
+            orders = self._subclasses(owner)
+            if orders is None:
+                return None
+            lookups = [(order, of_class) for order in orders]
         else:
-            return False
-        return owner is not None and self._found(owner, method.attr) is True
+            return None
+        runs = []
+        for order, of_class in lookups:
+            if any(
+                isinstance(owner, ast.ClassDef)
+                and any(
+                    getattr(node, "name", "") == "__getattribute__"
+                    for node in owner.body
+                )
+                for owner in order
+            ):
+                return None
+            definition = self._looked_up(order, method.attr)
+            if (
+                not isinstance(definition, (ast.FunctionDef, ast.AsyncFunctionDef))
+                or {_name(decorator) for decorator in definition.decorator_list} - PLAIN
+            ):
+                return None
+            runs.append((definition, self._bound(definition, of_class)))
+        return runs
 
-    def _found(
-        self, owner: ast.ClassDef, method: str, seen: frozenset[int] = frozenset()
-    ) -> bool | None:
-        """Whether looking ``method`` up from ``owner`` finds it in a class of
-        this module (``True``), may find it in one out of view (``False``), or
-        finds nothing (``None``): the class, then each base in turn, depth
-        first."""
-        if any(
-            isinstance(node, FUNCTIONS) and node.name == method for node in owner.body
+    def _receiver(
+        self, frame: ast.AST | None, name: str | None = None
+    ) -> tuple[ast.ClassDef, bool] | None:
+        """The class ``frame`` is a method of, and whether its first parameter
+        holds a class rather than an instance, where that parameter (named
+        ``name``, if given) holds what Python's lookup bound it to.
+
+        The parameter is not taken to be bound so in a static method, under a
+        decorator that may call the method otherwise (any but
+        ``hides_environment``, ``classmethod``, a property or one of
+        pytest's), in a method the module reads off a class (``unbound``), or
+        where the method rebinds it.
+        """
+        owner = self.method_classes.get(frame)
+        if owner is None:
+            return None
+        positional = [*frame.args.posonlyargs, *frame.args.args]
+        if not positional or (name is not None and positional[0].arg != name):
+            return None
+        first = positional[0].arg
+        decorators = {_name(decorator) for decorator in frame.decorator_list}
+        if decorators - RECEIVING:
+            return None
+        # Read off a class, a class method is still bound to it.
+        if "classmethod" not in decorators and (
+            self.unbound_all
+            or frame.name in self.unbound
+            or id(frame) in self.unbound_defs
         ):
-            return True
-        return self._found_in_bases(owner, method, seen | {id(owner)})
+            return None
+        if any(
+            isinstance(node, ast.Name)
+            and node.id == first
+            and not isinstance(node.ctx, ast.Load)
+            for node in ast.walk(frame)
+        ):
+            return None
+        return owner, "classmethod" in decorators or frame.name in CLASS_METHODS
 
-    def _found_in_bases(
-        self, owner: ast.ClassDef, method: str, seen: frozenset[int] = frozenset()
+    def _of_class(self, node: ast.AST) -> bool:
+        """Whether ``node`` may be a class of this module's, whose functions
+        are read off it unbound: a name a ``class`` statement binds,
+        ``type(...)``, a ``__class__``, or a class method's first parameter."""
+        if isinstance(node, ast.Name):
+            if node.id in self.class_names:
+                return True
+            frame = self.enclosing.get(node)
+            return (
+                frame in self.method_classes
+                and _parameters(frame)[:1] == [node.id]
+                and (
+                    frame.name in CLASS_METHODS
+                    or "classmethod"
+                    in {_name(decorator) for decorator in frame.decorator_list}
+                )
+            )
+        if isinstance(node, ast.Call):
+            return isinstance(node.func, ast.Name) and node.func.id == "type"
+        return isinstance(node, ast.Attribute) and node.attr == "__class__"
+
+    def _override(self, name: ast.AST | None) -> None:
+        if isinstance(name, ast.Constant) and isinstance(name.value, str):
+            self.overridden.add(name.value.rpartition(".")[2])
+        else:
+            self.overrides_all = True
+
+    def _unbind(self, owner: ast.AST, name: ast.AST | str) -> None:
+        """Note that the module reads the method ``name`` off ``owner``, a
+        class: what that finds may be called with anything first."""
+        if isinstance(name, ast.Constant) and isinstance(name.value, str):
+            name = name.value
+        if not isinstance(name, str):
+            self.unbound_all = True
+            return
+        known = (
+            self.known_classes.get(owner.id) if isinstance(owner, ast.Name) else None
+        )
+        order = None if known is None else self._order(known)
+        if order is None:
+            self.unbound.add(name)
+            return
+        found = self._looked_up(order, name)
+        if isinstance(found, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            self.unbound_defs.add(id(found))
+
+    def _bound(self, definition: ast.AST, of_class: bool) -> int:
+        """How many of ``definition``'s parameters a lookup on an instance
+        (or, with ``of_class``, on a class) binds."""
+        decorators = {_name(decorator) for decorator in definition.decorator_list}
+        if "staticmethod" in decorators or definition.name == "__new__":
+            return 0
+        if "classmethod" in decorators:
+            return 1
+        return 0 if of_class else 1
+
+    def _order(self, owner: ast.ClassDef) -> list[object] | None:
+        """``owner``'s method resolution order, by C3.
+
+        This module's classes appear as their ``class`` statements, and each
+        class out of view as its source text, standing for it and all it
+        inherits (``*bases`` too); ``object`` is left out. None where it can't
+        be known: under a class decorator other than ``dataclass``, with a
+        metaclass or other keyword, or with bases in no consistent order.
+        """
+        key = id(owner)
+        if key not in self.orders:
+            # A class built on itself has none.
+            self.orders[key] = None
+            if owner.keywords or any(
+                _name(d) != "dataclass" for d in owner.decorator_list
+            ):
+                return None
+            parents: list[list[object]] = []
+            for base in owner.bases:
+                if _dotted(base) == "object":
+                    continue
+                known = self.known_classes.get(_dotted(base))
+                parent = [ast.unparse(base)] if known is None else self._order(known)
+                if parent is None:
+                    return None
+                parents.append(parent)
+            self.orders[key] = _merged(
+                [[owner], *parents, [parent[0] for parent in parents]]
+            )
+        return self.orders[key]
+
+    def _built_on(
+        self, other: ast.ClassDef, owner: ast.ClassDef, seen: frozenset[int]
     ) -> bool | None:
-        for base in owner.bases:
-            name = _dotted(base)
-            if name == "object":
+        """Whether ``other`` is ``owner`` or built on it, by its bases' names;
+        None where a base may be anything: a name the module binds other than
+        by importing it or by one ``class`` statement, or a call."""
+        if other is owner:
+            return True
+        if id(other) in seen:
+            return False
+        result: bool | None = False
+        for base in other.bases:
+            while isinstance(base, ast.Subscript):
+                base = base.value
+            known = self.known_classes.get(_dotted(base))
+            if known is not None:
+                found = self._built_on(known, owner, seen | {id(other)})
+            elif isinstance(base, ast.Name):
+                found = (
+                    None
+                    if base.id in self.bound and base.id not in self.imports
+                    else False
+                )
+            else:
+                found = False if _dotted(base) else None
+            if found:
+                return True
+            if found is None:
+                result = None
+        return result
+
+    def _subclasses(self, owner: ast.ClassDef) -> list[list[object]] | None:
+        """The method resolution orders of ``owner`` and of each class of
+        this module's built on it, or None where one may be built on it whose
+        order is not known, or with a base out of view that may replace its
+        methods as it builds it (``__init_subclass__``, a metaclass): any but
+        a built-in class or a named tuple (``_inert_base``)."""
+        orders = []
+        for other in self.every_class:
+            built = self._built_on(other, owner, frozenset())
+            if built is False:
                 continue
-            known = self.known_classes.get(name)
-            if known is None or id(known) in seen:
-                return False
-            found = self._found(known, method, seen)
-            if found is not None:
-                return found
+            order = self._order(other) if built else None
+            if order is None or not all(map(self._inert_base, order)):
+                return None
+            orders.append(order)
+        return orders
+
+    def _inert_base(self, base: object) -> bool:
+        """Whether ``base``, in a method resolution order, is this module's
+        class, or a built-in class or a named tuple out of view: one that
+        leaves what a class built on it defines as it is, and whose
+        ``__new__`` and ``__init__`` run no Python frame that can raise with
+        what a call passes (a named tuple's ``__new__`` is a lambda passing
+        them to ``tuple.__new__``)."""
+        if not isinstance(base, str):
+            return True
+        root = re.split(r"[.\[(]", base)[0]
+        last = re.split(r"[\[(]", base)[0].rpartition(".")[2]
+        return last in RECORD_BASES or (
+            root not in self.bound and isinstance(getattr(builtins, root, None), type)
+        )
+
+    def _builds_itself(self, owner: ast.ClassDef) -> bool:
+        """Whether a call to ``owner`` returns an instance of it: its
+        ``__new__`` is ``object``'s, from a known order with no class out of
+        view."""
+        order = self._order(owner)
+        return (
+            order is not None
+            and "__new__" not in self.overridden
+            and all(
+                isinstance(each, ast.ClassDef)
+                and not any(
+                    getattr(node, "name", "") == "__new__" for node in each.body
+                )
+                for each in order
+            )
+        )
+
+    @staticmethod
+    def _looked_up(order: list[object], method: str) -> ast.AST | str | None:
+        """What looking ``method`` up along ``order`` finds: the last ``def``
+        of it in a class of this module's, a class out of view (its source
+        text), or nothing (``None``)."""
+        for owner in order:
+            if isinstance(owner, str):
+                return owner
+            found = [
+                node
+                for node in owner.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == method
+            ]
+            if found:
+                return found[-1]
         return None
+
+    def _constructed(self, node: ast.Call) -> list[tuple[ast.AST, int]] | None:
+        """The ``__new__`` and ``__init__`` of this module's that a call to a
+        class runs.
+
+        ``[]`` for a call to anything but a class of this module's, or where
+        they are a built-in class's, which run no Python frame; None where the
+        class is not known (``known_classes``, ``_order``) or has a base out
+        of view but those (``_inert_base``), which may run its own or replace the
+        class's.
+        """
+        name = node.func.id
+        if name not in self.class_names and name not in self.known_classes:
+            return []
+        owner = self.known_classes.get(name)
+        order = None if owner is None else self._order(owner)
+        if (
+            order is None
+            or not all(map(self._inert_base, order))
+            or self.overrides_all
+            or {"__new__", "__init__"} & self.overridden
+        ):
+            return None
+        runs = []
+        for method in ("__new__", "__init__"):
+            definition = self._looked_up(order, method)
+            if isinstance(definition, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if {_name(decorator) for decorator in definition.decorator_list} - {
+                    HIDES,
+                    "staticmethod",
+                }:
+                    return None
+                runs.append((definition, 1))
+        return runs
 
     def _launcher(self, dotted: str) -> bool:
         """Whether ``dotted`` names one of the standard library's launchers,
@@ -2024,13 +2562,15 @@ class _Check:
 
     def _is_environ(self, node: ast.AST) -> bool:
         """Whether ``node`` is, or may be, ``os.environ`` (or ``os.environb``)
-        itself: under any module path or name ``os`` is imported as, a name
-        bound to it, a walrus binding it, or a conditional expression either
-        side of which is."""
+        itself: under any module path or name ``os`` is bound to, a name bound
+        to it, a walrus binding it, or a conditional expression, ``or`` or
+        ``and`` one side of which is."""
         if isinstance(node, ast.NamedExpr):
             return self._is_environ(node.value)
         if isinstance(node, ast.IfExp):
             return self._is_environ(node.body) or self._is_environ(node.orelse)
+        if isinstance(node, ast.BoolOp):
+            return any(self._is_environ(value) for value in node.values)
         if isinstance(node, ast.Name):
             return node.id in self.aliases or node.id in self.live
         if not isinstance(node, ast.Attribute):
@@ -2127,6 +2667,10 @@ class _Check:
                         ]
                     elif self._hands_out(node):
                         shown = [*node.args, *(k.value for k in node.keywords)]
+                    elif self._passes_in_view(node, scope):
+                        # The frame of a function in view it runs prints its
+                        # arguments, unless ``hides_environment`` masks them.
+                        lines.append(node.lineno)
                     if (
                         _is_fail(node, self.fails)
                         or _name(node) in OUTPUT
@@ -2256,7 +2800,7 @@ import sys
 import warnings
 from types import SimpleNamespace
 from typing import NamedTuple
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from pytest import fail
@@ -2274,6 +2818,7 @@ from under_test import probe
 
 GLOBAL_ENVIRONMENT = dict(os.environ)
 CALLS = []
+rebound_os = os
 REAL_RUN = subprocess.run
 helpers = SimpleNamespace(child_environment=lambda: dict(os.environ))
 runner = SimpleNamespace(run_embedded=lambda script, **kwargs: 0)
@@ -2500,6 +3045,18 @@ class Shadowed:
 class Swapping:
     @hides_environment
     def swap(self, command, environment):
+        raise ValueError(command)
+
+
+class DottedSwap:
+    @hides_environment
+    def dotted_swap(self, command, environment):
+        raise ValueError(command)
+
+
+class PatchedSwap:
+    @hides_environment
+    def patched_swap(self, command, environment):
         raise ValueError(command)
 
 
@@ -3111,6 +3668,520 @@ def test_leaks_through_an_overridden_method(monkeypatch):
     swapped.swap(["git"], dict(os.environ))
 
 
+def test_leaks_missing_through_a_conditional_else():
+    else_environ = {} if not sys.argv else os.environ
+    assert else_environ["AAA_MISSING"] == "x"
+
+
+def test_leaks_missing_through_or():
+    or_environ = os.environ or {}
+    assert or_environ["AAA_MISSING"] == "x"
+
+
+def test_leaks_missing_through_a_module_bound_to_a_name():
+    assert rebound_os.environ["AAA_MISSING"] == "x"
+
+
+def test_leaks_handed_to_a_method_in_view():
+    class Unhidden:
+        def probe(self, command, variables):
+            raise ValueError(command)
+
+    Unhidden().probe(["git"], dict(os.environ))
+
+
+def test_leaks_handed_to_a_hidden_method_under_another_name():
+    class HiddenOtherName:
+        @hides_environment
+        def probe(self, command, variables):
+            raise ValueError(command)
+
+    HiddenOtherName().probe(["git"], dict(os.environ))
+
+
+def test_leaks_handed_to_a_static_method_in_view():
+    class StaticInView:
+        @staticmethod
+        def probe(command, variables):
+            raise ValueError(command)
+
+    StaticInView().probe(["git"], dict(os.environ))
+
+
+def test_leaks_handed_to_a_method_through_self():
+    class SelfUnhidden:
+        def probe(self, command, variables):
+            raise ValueError(command)
+
+        def check(self):
+            self.probe(["git"], dict(os.environ))
+
+    SelfUnhidden().check()
+
+
+def test_leaks_handed_to_a_constructor():
+    class Constructed:
+        def __init__(self, command, variables):
+            raise ValueError(command)
+
+    Constructed(["git"], dict(os.environ))
+
+
+def test_leaks_handed_to_a_constructor_out_of_view():
+    class Inheriting(under_test.Built):
+        pass
+
+    Inheriting(["git"], dict(os.environ))
+
+
+def test_leaks_through_self_in_a_subclass():
+    class QuietMixin:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def check(self):
+            self.probe(["git"], dict(os.environ))
+
+    class LoudMixed(under_test.Base, QuietMixin):
+        pass
+
+    LoudMixed().check()
+
+
+def test_leaks_through_a_first_parameter_otherwise_named():
+    class QuietThis:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def check(this):
+            this.probe(["git"], dict(os.environ))
+
+    class LoudThis(under_test.Base, QuietThis):
+        pass
+
+    LoudThis().check()
+
+
+def test_leaks_through_super_in_a_diamond():
+    class QuietTop:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+    class Middle(QuietTop):
+        def check(self):
+            super().probe(["git"], dict(os.environ))
+
+    class Other(under_test.Base, QuietTop):
+        pass
+
+    class Mixed(Middle, Other):
+        pass
+
+    Mixed().check()
+
+
+def test_leaks_through_a_diamond_out_of_view():
+    class QuietRoot:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+    class Left(QuietRoot):
+        pass
+
+    class Right(under_test.Base, QuietRoot):
+        pass
+
+    class Both(Left, Right):
+        def check(self):
+            self.probe(["git"], dict(os.environ))
+
+    Both().check()
+
+
+def test_leaks_through_a_subclass_of_an_alias():
+    class AliasedQuiet:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def check(self):
+            self.probe(["git"], dict(os.environ))
+
+    QuietAlias = AliasedQuiet
+
+    class ViaAlias(under_test.Base, QuietAlias):
+        pass
+
+    ViaAlias().check()
+
+
+def test_leaks_through_a_method_read_off_its_class():
+    class Unbound:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def check(self, command):
+            self.probe(command, dict(os.environ))
+
+    Unbound.check(under_test.Base(), ["git"])
+
+
+def test_leaks_through_self_under_another_decorator():
+    def called_with_base(function):
+        def wrapper(self):
+            return function(under_test.Base())
+
+        return wrapper
+
+    class Redirected:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        @called_with_base
+        def check(self):
+            self.probe(["git"], dict(os.environ))
+
+    Redirected().check()
+
+
+def test_leaks_through_a_default_evaluated_outside():
+    self = under_test.Base()
+
+    class Defaulted:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def check(self, value=self.probe(["git"], dict(os.environ))):
+            pass
+
+
+def test_leaks_through_a_class_building_another():
+    class Building:
+        def __new__(cls):
+            return under_test.Base()
+
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+    Building().probe(["git"], dict(os.environ))
+
+
+def test_leaks_through_an_attribute_lookup_of_its_own():
+    class LookingUp:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def __getattribute__(self, name):
+            return under_test.probe
+
+    LookingUp().probe(["git"], dict(os.environ))
+
+
+def test_leaks_through_a_method_under_another_decorator():
+    def replaced(function):
+        return under_test.Base.probe
+
+    class Decorated:
+        @replaced
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+    Decorated().probe(["git"], dict(os.environ))
+
+
+def test_leaks_through_a_name_also_a_parameter():
+    class ParameterTyped:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+    def relay(typed_holder):
+        typed_holder.probe(["git"], dict(os.environ))
+
+    typed_holder = ParameterTyped()
+    relay(under_test.Base())
+
+
+def test_leaks_through_a_stored_attribute():
+    class Stored:
+        @hides_environment
+        def stored_probe(self, command, environment):
+            raise ValueError(command)
+
+    stored = Stored()
+    stored.stored_probe = under_test.probe
+    stored.stored_probe(["git"], dict(os.environ))
+
+
+def test_leaks_through_a_method_set_by_its_path(monkeypatch):
+    monkeypatch.setattr("test_examples.DottedSwap.dotted_swap", under_test.Base.probe)
+    DottedSwap().dotted_swap(["git"], dict(os.environ))
+
+
+def test_leaks_through_a_method_patched_by_its_path():
+    with patch("test_examples.PatchedSwap.patched_swap", under_test.Base.probe):
+        PatchedSwap().patched_swap(["git"], dict(os.environ))
+
+
+def test_leaks_through_a_method_set_through_object():
+    class ObjectSwap:
+        @hides_environment
+        def object_swap(self, command, environment):
+            raise ValueError(command)
+
+    object_swapped = ObjectSwap()
+    object.__setattr__(object_swapped, "object_swap", under_test.probe)
+    object_swapped.object_swap(["git"], dict(os.environ))
+
+
+def test_leaks_through_methods_patched_together():
+    class MultipleSwap:
+        @hides_environment
+        def multiple_swap(self, command, environment):
+            raise ValueError(command)
+
+    with patch.multiple(MultipleSwap, multiple_swap=under_test.Base.probe):
+        MultipleSwap().multiple_swap(["git"], dict(os.environ))
+
+
+def test_leaks_through_a_method_patched_by_keyword():
+    class KeywordSwap:
+        @hides_environment
+        def keyword_swap(self, command, environment):
+            raise ValueError(command)
+
+    with patch.object(KeywordSwap, attribute="keyword_swap", new=under_test.Base.probe):
+        KeywordSwap().keyword_swap(["git"], dict(os.environ))
+
+
+def test_leaks_through_a_method_stored_in_a_namespace():
+    class NamespaceSwap:
+        @hides_environment
+        def namespace_swap(self, command, environment):
+            raise ValueError(command)
+
+    namespace_swapped = NamespaceSwap()
+    vars(namespace_swapped)["namespace_swap"] = under_test.probe
+    namespace_swapped.namespace_swap(["git"], dict(os.environ))
+
+
+def test_leaks_through_a_name_a_class_body_binds():
+    class BodySwap:
+        @hides_environment
+        def body_swap(self, command, environment):
+            raise ValueError(command)
+
+        for body_swap in (staticmethod(under_test.probe),):
+            pass
+
+    BodySwap().body_swap(["git"], dict(os.environ))
+
+
+def test_leaks_through_a_method_set_by_keyword(monkeypatch):
+    class NamedSwap:
+        @hides_environment
+        def named_swap(self, command, environment):
+            raise ValueError(command)
+
+    named_swapped = NamedSwap()
+    monkeypatch.setattr(named_swapped, name="named_swap", value=under_test.probe)
+    named_swapped.named_swap(["git"], dict(os.environ))
+
+
+def test_leaks_through_a_method_set_into_a_namespace(monkeypatch):
+    class SetItemSwap:
+        @hides_environment
+        def setitem_swap(self, command, environment):
+            raise ValueError(command)
+
+    setitem_swapped = SetItemSwap()
+    monkeypatch.setitem(vars(setitem_swapped), "setitem_swap", under_test.probe)
+    setitem_swapped.setitem_swap(["git"], dict(os.environ))
+
+
+def test_leaks_through_a_name_bound_to_two_classes():
+    class FirstBound:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+    TwoBound = FirstBound
+    TwoBound = under_test.Base
+    TwoBound().probe(["git"], dict(os.environ))
+
+
+def test_leaks_through_a_base_building_another():
+    class FromFactory(under_test.Factory):
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+    FromFactory().probe(["git"], dict(os.environ))
+
+
+def test_leaks_through_self_under_a_base_rewriting_it():
+    class SelfRewritten(under_test.Rewriting):
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def check(self):
+            self.probe(["git"], dict(os.environ))
+
+    SelfRewritten().check()
+
+
+def test_leaks_through_a_method_read_off_a_type():
+    class TypeRead:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def type_read(self, command):
+            self.probe(command, dict(os.environ))
+
+    type(TypeRead()).type_read(under_test.Base(), ["git"])
+
+
+def test_leaks_through_a_method_read_off_cls():
+    class ClsRead:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def cls_read(self, command):
+            self.probe(command, dict(os.environ))
+
+        @classmethod
+        def run_cls_read(cls):
+            cls.cls_read(under_test.Base(), ["git"])
+
+    ClsRead.run_cls_read()
+
+
+def test_leaks_through_a_method_read_off_dunder_class():
+    class DunderRead:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def dunder_read(self, command):
+            self.probe(command, dict(os.environ))
+
+    DunderRead().__class__.dunder_read(under_test.Base(), ["git"])
+
+
+def test_leaks_through_a_method_read_from_a_class_namespace():
+    class NamespaceRead:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def namespace_read(self, command):
+            self.probe(command, dict(os.environ))
+
+    vars(NamespaceRead)["namespace_read"](under_test.Base(), ["git"])
+
+
+def test_leaks_handed_to_a_method_through_super():
+    class LoudParent:
+        def probe(self, command, variables):
+            raise ValueError(command)
+
+    class QuietChild(LoudParent):
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def check(self):
+            super().probe(["git"], dict(os.environ))
+
+    QuietChild().check()
+
+
+def test_leaks_handed_to_a_plain_method_through_cls():
+    class ClassHanded:
+        @hides_environment
+        def class_handed(self, environment, command=None):
+            raise ValueError(command)
+
+        @classmethod
+        def run_class_handed(cls):
+            cls.class_handed(dict(os.environ), ["git"])
+
+    ClassHanded.run_class_handed()
+
+
+def test_leaks_handed_to_a_plain_method_through_cls_in_new():
+    class NewHanded:
+        def __new__(cls):
+            cls.new_handed(dict(os.environ), ["git"])
+
+        @hides_environment
+        def new_handed(self, environment, command=None):
+            raise ValueError(command)
+
+    NewHanded()
+
+
+def test_leaks_handed_to_a_constructor_under_another_decorator():
+    def built_elsewhere(function):
+        return under_test.Built.__init__
+
+    class DecoratedInit:
+        @built_elsewhere
+        @hides_environment
+        def __init__(self, command, environment):
+            raise ValueError(command)
+
+    DecoratedInit(["git"], dict(os.environ))
+
+
+def test_leaks_handed_to_a_constructor_a_base_rewrites():
+    class InitRewritten(under_test.Rewriting):
+        @hides_environment
+        def __init__(self, command, environment):
+            raise ValueError(command)
+
+    InitRewritten(["git"], dict(os.environ))
+
+
+def test_leaks_handed_to_a_class_under_a_decorator():
+    def replaced_class(owner):
+        return under_test.Built
+
+    @replaced_class
+    class ReplacedClass:
+        @hides_environment
+        def __init__(self, command, environment):
+            raise ValueError(command)
+
+    ReplacedClass(["git"], dict(os.environ))
+
+
+def test_leaks_handed_to_a_class_with_a_metaclass():
+    class Calling(type):
+        def __call__(cls, command, variables):
+            raise ValueError(command)
+
+    class Metaclassed(metaclass=Calling):
+        @hides_environment
+        def __init__(self, command, environment):
+            raise ValueError(command)
+
+    Metaclassed(["git"], dict(os.environ))
+
+
 def test_leaks_built_then_raised():
     error = under_test.Refusal(dict(os.environ))
     raise error
@@ -3516,11 +4587,66 @@ def test_handed_to_a_method_through_super():
     QuietProbe().check(["git"])
 
 
-def test_handed_to_a_module_base_before_one_out_of_view():
-    class ModuleFirst(Probe, under_test.Base):
+def test_handed_to_a_method_through_self_beside_a_built_in_base():
+    class BuiltInBased(dict):
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def check(self, command):
+            self.probe(command, dict(os.environ))
+
+    BuiltInBased().check(["git"])
+
+
+def test_handed_to_a_method_through_self_of_a_named_tuple():
+    class Pair(NamedTuple):
+        first: str
+
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def check(self, command):
+            self.probe(command, dict(os.environ))
+
+    Pair("a").check(["git"])
+
+
+def test_handed_to_a_method_beside_a_sentinel():
+    class Sentinelled:
+        @hides_environment
+        def probe(self, command, environment, marker=None):
+            raise ValueError(command)
+
+    Sentinelled().probe(["git"], dict(os.environ), object())
+
+
+def test_handed_to_a_static_method_in_view():
+    class StaticHidden:
+        @staticmethod
+        @hides_environment
+        def probe(environment, command):
+            raise ValueError(command)
+
+    StaticHidden().probe(dict(os.environ), ["git"])
+
+
+def test_handed_to_a_built_in_constructor():
+    class Kept(dict):
         pass
 
-    ModuleFirst().probe(["git"], dict(os.environ))
+    Kept(dict(os.environ))
+    raise RuntimeError("kept")
+
+
+def test_handed_to_a_hidden_constructor():
+    class HiddenConstructed:
+        @hides_environment
+        def __init__(self, command, environment):
+            raise ValueError(command)
+
+    HiddenConstructed(["git"], dict(os.environ))
 
 
 def test_built_names_then_raised():
@@ -3651,6 +4777,14 @@ def test_flagged_class_named_twice():
     Twice().probe(["git"], dict(os.environ))
 
 
+def test_flagged_module_base_before_one_out_of_view():
+    class ModuleFirst(Probe, under_test.Base):
+        def check(self, command):
+            self.probe(command, dict(os.environ))
+
+    ModuleFirst().check(["git"])
+
+
 def test_flagged_diffed_lists():
     assert sorted(os.environ) == []
 
@@ -3713,6 +4847,25 @@ class Base:
         raise ValueError(command)
 
 
+class Built:
+    def __init__(self, command, environment):
+        raise ValueError(command)
+
+
+class Factory:
+    def __new__(cls, *arguments):
+        return Base()
+
+
+class Rewriting:
+    def __init_subclass__(cls, **keywords):
+        super().__init_subclass__(**keywords)
+        if "probe" in vars(cls):
+            cls.probe = Base.probe
+        if "__init__" in vars(cls):
+            cls.__init__ = Built.__init__
+
+
 def launch(run):
     try:
         run(["git"], env=dict(os.environ))
@@ -3739,6 +4892,28 @@ def _failure_output(output: str) -> dict[str, str]:
         elif name is not None:
             reports[name] = reports.get(name, "") + line + "\n"
     return reports
+
+
+def _pytest_reports(directory: Path, *paths: Path) -> dict[str, str]:
+    """Each failed test's report from pytest at its most verbose over
+    ``paths``, run in ``directory`` in an environment holding nothing else."""
+    completed = subprocess.run(
+        [sys.executable, "-m", "pytest", "-vvv", "-p", "no:cacheprovider"]
+        + ["-c", os.devnull, "--rootdir", str(directory), *map(str, paths)],
+        cwd=directory,
+        env={
+            "AAA_SENTINEL": SENTINEL,
+            "AAA_OTHER": "x",
+            "PATH": os.defpath,
+            "HOME": str(directory),
+            "PYTHONPATH": str(REPO),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        },
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    return _failure_output(completed.stdout)
 
 
 def test_the_check_agrees_with_pytest(tmp_path: Path) -> None:
@@ -3770,30 +4945,355 @@ def test_the_check_agrees_with_pytest(tmp_path: Path) -> None:
         if line in lines[name]
     }
 
-    # The most verbose assertion output, in an environment holding nothing else.
-    completed = subprocess.run(
-        [sys.executable, "-m", "pytest", "-vvv", "-p", "no:cacheprovider"]
-        + ["-c", os.devnull, "--rootdir", str(tmp_path), str(examples)],
-        cwd=tmp_path,
-        env={
-            "AAA_SENTINEL": SENTINEL,
-            "AAA_OTHER": "x",
-            "PATH": os.defpath,
-            "HOME": str(tmp_path),
-            "PYTHONPATH": str(REPO),
-            "PYTHONDONTWRITEBYTECODE": "1",
-        },
-        capture_output=True,
-        text=True,
-        timeout=600,
-    )
-    reports = _failure_output(completed.stdout)
+    reports = _pytest_reports(tmp_path, examples)
     printed = {name for name, text in reports.items() if SENTINEL in text}
     overflagged = {name for name in tests if "_flagged_" in name}
 
     assert sorted(reports) == sorted(tests)
     assert sorted(printed) == sorted(name for name in tests if "_leaks_" in name)
     assert sorted(flagged) == sorted(printed | overflagged)
+
+
+# Shapes that change what the check knows of a whole module, which
+# ``EXAMPLES`` can't hold: a star import, ``setattr`` given a name that is not
+# a constant, a method writing into a namespace, ``getattr`` reading a class's
+# function by such a name, a base a call builds or one a name holds that the
+# module binds otherwise, ``patch.multiple`` given names by ``**``, a class's
+# ``__new__`` replaced, a built-in class's name bound, an instance's class
+# reassigned, and a dotted import binding its first name; and a record's
+# method, flagged at its ``def``, outside any test. With its trigger in place of ``TRIGGER``, each
+# source prints the sentinel and the check flags the line marked
+# ``# flagged``; with the control there, the check flags nothing.
+MODULE_WIDE: dict[str, tuple[str, str, str]] = {
+    "star_import": (
+        """import os
+
+from tests.environment_assertions import hides_environment
+TRIGGER
+
+
+def test_unrelated():
+    class Base:
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+
+def test_star_import():
+    Base().probe(["git"], dict(os.environ))  # flagged
+""",
+        "from under_test import *",
+        "",
+    ),
+    "name_set_by_a_variable": (
+        """import os
+
+import under_test
+from tests.environment_assertions import hides_environment
+
+
+class Looped:
+    @hides_environment
+    def looped(self, command, environment):
+        raise ValueError(command)
+
+
+def test_name_set_by_a_variable(monkeypatch):
+    looped_probe = Looped()
+    for name in ("looped",):
+        TRIGGER
+    looped_probe.looped(["git"], dict(os.environ))  # flagged
+""",
+        "monkeypatch.setattr(looped_probe, name, under_test.probe)",
+        "pass",
+    ),
+    "namespace_updated": (
+        """import os
+
+import under_test
+from tests.environment_assertions import hides_environment
+
+
+class Updated:
+    @hides_environment
+    def updated(self, command, environment):
+        raise ValueError(command)
+
+
+def test_namespace_updated():
+    updated_probe = Updated()
+    TRIGGER
+    updated_probe.updated(["git"], dict(os.environ))  # flagged
+""",
+        "vars(updated_probe).update(updated=under_test.probe)",
+        "pass",
+    ),
+    "method_read_by_a_variable": (
+        """import os
+
+import under_test
+from tests.environment_assertions import hides_environment
+
+
+class Unbound:
+    @hides_environment
+    def probe(self, command, environment):
+        raise ValueError(command)
+
+    def check(self, command):
+        self.probe(command, dict(os.environ))  # flagged
+
+
+def test_method_read_by_a_variable():
+    name = "check"
+    TRIGGER
+""",
+        'getattr(Unbound, name)(under_test.Base(), ["git"])',
+        'Unbound().check(["git"])',
+    ),
+    "base_built_by_a_call": (
+        """import os
+
+import under_test
+from tests.environment_assertions import hides_environment
+
+
+class Quiet:
+    @hides_environment
+    def probe(self, command, environment):
+        raise ValueError(command)
+
+    def check(self):
+        self.probe(["git"], dict(os.environ))  # flagged
+
+
+def quiet():
+    return Quiet
+
+
+class Loud(TRIGGER):
+    pass
+
+
+def test_base_built_by_a_call():
+    Loud().check()
+""",
+        "under_test.Base, quiet()",
+        "Quiet",
+    ),
+    "base_bound_by_a_call": (
+        """import os
+
+import under_test
+from tests.environment_assertions import hides_environment
+
+
+class Picked:
+    @hides_environment
+    def probe(self, command, environment):
+        raise ValueError(command)
+
+    def check(self):
+        self.probe(["git"], dict(os.environ))  # flagged
+
+
+def picked():
+    return Picked
+
+
+TRIGGER
+
+
+class Chooser(under_test.Base, Chosen):
+    pass
+
+
+def test_base_bound_by_a_call():
+    Chooser().check()
+""",
+        "Chosen = picked()",
+        "",
+    ),
+    "methods_patched_by_a_mapping": (
+        """import os
+from contextlib import nullcontext
+from unittest.mock import patch
+
+import under_test
+from tests.environment_assertions import hides_environment
+
+
+class Mapped:
+    @hides_environment
+    def mapped(self, command, environment):
+        raise ValueError(command)
+
+
+def test_methods_patched_by_a_mapping():
+    mapped_probe = Mapped()
+    with TRIGGER:
+        mapped_probe.mapped(["git"], dict(os.environ))  # flagged
+""",
+        'patch.multiple(Mapped, **{"mapped": under_test.Base.probe})',
+        "nullcontext()",
+    ),
+    "new_replaced": (
+        """import os
+
+import under_test
+from tests.environment_assertions import hides_environment
+
+
+class Renewed:
+    @hides_environment
+    def probe(self, command, environment):
+        raise ValueError(command)
+
+
+def test_new_replaced(monkeypatch):
+    TRIGGER
+    Renewed().probe(["git"], dict(os.environ))  # flagged
+""",
+        'monkeypatch.setattr(Renewed, "__new__", lambda cls: under_test.Base())',
+        "pass",
+    ),
+    "built_in_shadowed": (
+        """import os
+
+import under_test
+
+
+TRIGGER
+
+
+class OnShadowed(bytearray):
+    pass
+
+
+def test_built_in_shadowed():
+    OnShadowed(["git"], dict(os.environ))  # flagged
+""",
+        "bytearray = under_test.Built",
+        "",
+    ),
+    "record_method": (
+        """import dataclasses
+import os
+
+
+@dataclasses.dataclass
+class HeldLaunch:
+    TRIGGER: dict
+
+    def check(self):  # flagged
+        raise ValueError("held")
+
+
+def test_record_method():
+    HeldLaunch(dict(os.environ)).check()
+""",
+        "env",
+        "values",
+    ),
+    "class_reassigned": (
+        """import os
+
+import under_test
+from tests.environment_assertions import hides_environment
+
+
+class Reclassed:
+    @hides_environment
+    def probe(self, command, environment):
+        raise ValueError(command)
+
+
+def test_class_reassigned():
+    reclassed = Reclassed()
+    TRIGGER
+    reclassed.probe(["git"], dict(os.environ))  # flagged
+""",
+        "reclassed.__class__ = under_test.Base",
+        "pass",
+    ),
+    "dotted_import": (
+        """import os
+
+from tests.environment_assertions import hides_environment
+
+
+class Holder:
+    @hides_environment
+    def probe(self, command, environment):
+        raise ValueError(command)
+
+
+def test_dotted_import():
+    holder = Holder()
+    TRIGGER
+    holder.probe(["git"], dict(os.environ))  # flagged
+""",
+        "import holder.sub",
+        "pass",
+    ),
+}
+
+
+def test_the_check_reads_the_whole_module(tmp_path: Path) -> None:
+    (tmp_path / "under_test.py").write_text(UNDER_TEST)
+    package = tmp_path / "holder"
+    package.mkdir()
+    (package / "__init__.py").write_text(
+        "def probe(command, environment):\n    raise ValueError(command)\n"
+    )
+    (package / "sub.py").write_text("")
+    paths = []
+    for name, (source, trigger, control) in MODULE_WIDE.items():
+        triggered = source.replace("TRIGGER", trigger)
+        marked = [
+            number
+            for number, line in enumerate(triggered.splitlines(), 1)
+            if line.endswith("# flagged")
+        ]
+        assert environment_leaks(triggered) == marked, name
+        assert environment_leaks(source.replace("TRIGGER", control)) == [], name
+        paths.append(tmp_path / f"test_{name}.py")
+        paths[-1].write_text(triggered)
+    reports = _pytest_reports(tmp_path, *paths)
+    printed = sorted(name for name, text in reports.items() if SENTINEL in text)
+    assert printed == sorted(f"test_{name}" for name in MODULE_WIDE)
+
+
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(st.lists(st.lists(st.integers(0, 5), max_size=3), min_size=1, max_size=6))
+def test_the_lookup_order_is_pythons(bases: list[list[int]]) -> None:
+    """``_Check._order`` is each class's ``__mro__`` (less ``object``), and
+    None exactly where Python refuses to build the class."""
+    chosen = [
+        [f"C{base}" for base in each if base < index]
+        for index, each in enumerate(bases)
+    ]
+    source = "\n".join(
+        f"class C{index}({', '.join(names)}):\n    pass\n"
+        for index, names in enumerate(chosen)
+    )
+    check = _Check(ast.parse(source))
+    built: dict[str, type] = {}
+    for index, names in enumerate(chosen):
+        name = f"C{index}"
+        if all(base in built for base in names):
+            try:
+                built[name] = type(name, tuple(built[base] for base in names), {})
+            except TypeError:
+                pass
+        order = check._order(check.known_classes[name])
+        if name in built:
+            assert order is not None
+            assert [owner.name for owner in order] == [
+                owner.__name__ for owner in built[name].__mro__[:-1]
+            ]
+        else:
+            assert order is None
 
 
 def test_changed_names_example() -> None:
