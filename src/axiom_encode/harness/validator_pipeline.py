@@ -1483,21 +1483,25 @@ _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
 )
 # Belgian legal French and Dutch write the percent sign out ("28 pour cent",
 # "2,5 pourcents", "9 procent") or abbreviate it ("60 pct."), and German
-# statutes abbreviate "vom Hundert" ("15 v. H."). A numeral after "pour cent"
-# counts a larger hundred ("5 pour cent mille habitants" is five per hundred
-# thousand, "3 pour cent vingt jours" three per hundred and twenty), so that
-# reading is no rate; "pour mille" is per mille and never matches.
-_FRENCH_NUMERAL_AFTER_POUR_CENT_BODY = (
+# statutes abbreviate "vom Hundert" ("15 v. H."). A numeral or a unit after
+# "pour cent", across any space or a line break, counts a hundred of something
+# ("5 pour cent mille habitants" is five per hundred thousand, "2 pour cent
+# kilogrammes" two per hundred kilograms), so that reading is no rate; "pour
+# mille" is per mille and never matches. "pct" and "v. H." match in their own
+# case only: "28 PCT applications" and Dutch "v.h." (formerly) are no rates.
+_FRENCH_COUNT_AFTER_POUR_CENT_BODY = (
     r"(?:un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|"
     r"treize|quatorze|quinze|seize|vingts?|trente|quarante|cinquante|"
-    r"soixante|septante|octante|huitante|nonante|mille|millions?|milliards?)"
+    r"soixante|septante|octante|huitante|nonante|mille|milliers?|millions?|"
+    r"milliards?|kilos?|kilogrammes?|kg|grammes?|tonnes?|"
+    r"(?:hecto|déci|centi)?litres?|hl|(?:kilo)?mètres?|km|unités?|pièces?)"
 )
 _LOCALE_PERCENT_WORD_BODY = (
     r"\bpour[ \t-]*cents?\b"
-    rf"(?![ \t-]*{_FRENCH_NUMERAL_AFTER_POUR_CENT_BODY}\b)|"
+    rf"(?![\s-]*{_FRENCH_COUNT_AFTER_POUR_CENT_BODY}\b)|"
     r"\bprocent(?:en|punt(?:en)?)?\b|"
-    r"\bpct\b\.?|"
-    r"\bv\.[ \t]?H\."
+    r"\b(?-i:pct)\b\.?|"
+    r"\b(?-i:v\.[ \t]?H\.)"
 )
 # Every marker that makes the figure right before it a rate.
 _RATE_MARKER_AFTER_FIGURE_BODY = (
@@ -1513,14 +1517,16 @@ _RATE_MARKER_AFTER_FIGURE_BODY = (
 _STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY = (
     r"\((?:[A-Za-z]|[ivxlcdmIVXLCDM]+|0|[1-9]\d?(?:\.\d+)?)\)"
 )
-# A parenthesized figure a rate marker follows restates a rate and is no
-# subdivision label: "pour (75) p.c. remboursés". A figure right before the
-# parenthesis owns that marker, so the parenthesis stays a note there: "5 (7)
-# percent" is five percent.
+# A parenthesized figure that follows a word and that a rate marker follows
+# restates a rate and is no subdivision label: "pour (75) p.c. remboursés".
+# Anywhere else it stays a label or a note: at the start of a line or clause
+# ("apply. (17) Percent of income", "a) (7) pct."), and after a figure, which
+# owns the marker ("5 (7) percent" is five percent).
 _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
+    rf"(?<![A-Za-z0-9])(?<![^\W\d_][ \t\u00a0\u202f])"
+    rf"{_STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY}|"
     rf"(?<![A-Za-z0-9]){_STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY}"
-    rf"(?![ \t\u00a0\u202f]*(?i:{_RATE_MARKER_AFTER_FIGURE_BODY}))|"
-    rf"(?<=\d)[ \t\u00a0\u202f]+{_STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY}"
+    rf"(?![ \t\u00a0\u202f]*(?i:{_RATE_MARKER_AFTER_FIGURE_BODY}))"
 )
 _TABLE_HEADING_PATTERN = re.compile(
     r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE
@@ -7611,7 +7617,6 @@ _TABLE_RATE_HEADER_PATTERN = re.compile(
     r"\bProzent\b|"
     r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
     r"\bvom[ \t]+Hundert\b|"
-    rf"{_LOCALE_PERCENT_WORD_BODY}|"
     # The Hebrew percent noun, bare or behind a one-letter prefix: a column
     # headed "אחוזים מההכנסה" or "הניכוי ... באחוזים" holds percentages.
     r"(?<![\u0590-\u05ff])(?:[\u05d1\u05d4\u05d5\u05dc\u05de][\u05be-]?)?"
@@ -7619,13 +7624,21 @@ _TABLE_RATE_HEADER_PATTERN = re.compile(
     r")",
     re.IGNORECASE,
 )
-# A cell whose marker follows a figure ("28 pour cent", "(14,75) p.c.") holds
-# a value, not a header: it types itself and declares nothing about the rest
-# of its column.
-_TABLE_VALUE_CELL_RATE_PATTERN = re.compile(
-    r"\d(?:[ \t\u00a0\u202f]*\))?[ \t\u00a0\u202f]*"
-    rf"(?:{_RATE_MARKER_AFTER_FIGURE_BODY})",
+# The Belgian and German words name a rate column only above a Markdown
+# table's delimiter row, where the table declares its columns.
+_TABLE_LOCALE_RATE_HEADER_PATTERN = re.compile(
+    _LOCALE_PERCENT_WORD_BODY,
     re.IGNORECASE,
+)
+# A body cell whose marker follows a figure ("28 pour cent", "(14,75) p.c.")
+# holds a value, not a header: it types itself and declares nothing about the
+# rest of its column.
+_TABLE_VALUE_CELL_RATE_PATTERN = re.compile(
+    rf"\d(?:\s*\))?\s*(?:{_RATE_MARKER_AFTER_FIGURE_BODY})",
+    re.IGNORECASE,
+)
+_PIPE_TABLE_DELIMITER_ROW_PATTERN = re.compile(
+    r"[ \t]*\|?(?:[ \t]*:?-+:?[ \t]*\|)+(?:[ \t]*:?-+:?[ \t]*)?"
 )
 _DANISH_RATE_MARKER_BODY = (
     r"(?:\bpct(?:\.(?!\w)|(?![\w.]))|\bprocent(?:point|enhed(?:er)?)?\b)"
@@ -13688,7 +13701,6 @@ def _numeric_occurrence_has_local_rate_context(
     _, end = span
     return bool(
         _local_rate_context_after_number(text, end, profile=profile)
-        or _parenthesized_figure_rate_context(text, span, profile=profile)
         or _numeric_occurrence_has_rate_table_header(text, span, profile=profile)
     )
 
@@ -14053,9 +14065,10 @@ def _parenthesized_figure_rate_context(
 
     Belgian statutes restate a figure in parentheses and put the marker after
     them: "(14,75) p.c. du montant" and "pour (75) p.c." are rates. A figure
-    right before the opening parenthesis owns the marker instead ("5 (2) p.c."
-    is five percent and a note), so it blocks the reading, and an unopened
-    parenthesis ("2) p.c.", a list label) is no restatement.
+    right before the opening parenthesis, across any space or a comma, owns
+    the marker instead ("5 (2,5) p.c." is five percent and a note), so it
+    blocks the reading, and an unopened parenthesis ("2) p.c.", a list label)
+    is no restatement.
     """
     if profile == "da-DK":
         return False
@@ -14066,7 +14079,7 @@ def _parenthesized_figure_rate_context(
     if opening < 0 or text[opening] != "(":
         return False
     before = opening - 1
-    while before >= 0 and text[before] in _LOCALE_NUMERIC_GROUPING_SPACES + "\t":
+    while before >= 0 and (text[before].isspace() or text[before] == ","):
         before -= 1
     if before >= 0 and text[before].isdigit():
         return False
@@ -14081,13 +14094,44 @@ def _parenthesized_figure_rate_context(
     )
 
 
-def _table_rate_header_matches(text: str, *, profile: str) -> bool:
-    """Return whether a table header contains a profile-specific rate marker."""
+def _table_rate_header_matches(
+    text: str,
+    *,
+    profile: str,
+    row: str = "undelimited",
+) -> bool:
+    """Return whether a table header contains a profile-specific rate marker.
+
+    ``row`` places the cell in its Markdown table: "header" above the
+    delimiter row, "body" below it, "undelimited" in a block without one. A
+    header cell may name the rate in Belgian or German words too; a body cell
+    whose marker follows its own figure is a value and types no column.
+    """
     if profile == "da-DK":
         return False
-    return bool(
-        _TABLE_RATE_HEADER_PATTERN.search(_TABLE_VALUE_CELL_RATE_PATTERN.sub(" ", text))
+    if row == "header" and _TABLE_LOCALE_RATE_HEADER_PATTERN.search(text):
+        return True
+    if row == "body":
+        text = _TABLE_VALUE_CELL_RATE_PATTERN.sub(" ", text)
+    return bool(_TABLE_RATE_HEADER_PATTERN.search(text))
+
+
+def _pipe_table_row_kinds(lines: Sequence[str]) -> list[str]:
+    """Place each line of one pipe block above, at or below its delimiter row."""
+    delimiter = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if _PIPE_TABLE_DELIMITER_ROW_PATTERN.fullmatch(line)
+        ),
+        None,
     )
+    if delimiter is None:
+        return ["undelimited"] * len(lines)
+    return [
+        "header" if index < delimiter else "delimiter" if index == delimiter else "body"
+        for index in range(len(lines))
+    ]
 
 
 def _currency_marker_before_number(
@@ -14172,30 +14216,39 @@ def _pipe_table_rate_cell_spans(
     profile: str = "legacy",
 ) -> tuple[tuple[int, int], ...]:
     """Index cells whose pipe-table column has an explicit percentage header."""
-    rate_cells: list[tuple[int, int]] = []
-    rate_columns: set[int] = set()
-    width: int | None = None
+    blocks: list[list[tuple[int, str]]] = []
+    block: list[tuple[int, str]] = []
     line_offset = 0
     for line_with_ending in text.splitlines(keepends=True):
         line = line_with_ending.rstrip("\r\n")
-        if "|" not in line:
-            rate_columns.clear()
-            width = None
-            line_offset += len(line_with_ending)
-            continue
-
-        width = _pipe_table_next_width(line, width)
-        cells = _pipe_table_line_cells(line, width)
-
-        for column, (start, end) in enumerate(cells):
-            if _table_rate_header_matches(line[start:end], profile=profile):
-                rate_columns.add(column)
-        for column in rate_columns:
-            if column >= len(cells):
-                continue
-            start, end = cells[column]
-            rate_cells.append((line_offset + start, line_offset + end))
+        if "|" in line:
+            block.append((line_offset, line))
+        elif block:
+            blocks.append(block)
+            block = []
         line_offset += len(line_with_ending)
+    if block:
+        blocks.append(block)
+
+    rate_cells: list[tuple[int, int]] = []
+    for block in blocks:
+        rows = _pipe_table_row_kinds([line for _, line in block])
+        rate_columns: set[int] = set()
+        width: int | None = None
+        for (offset, line), row in zip(block, rows, strict=True):
+            width = _pipe_table_next_width(line, width)
+            cells = _pipe_table_line_cells(line, width)
+
+            for column, (start, end) in enumerate(cells):
+                if _table_rate_header_matches(
+                    line[start:end], profile=profile, row=row
+                ):
+                    rate_columns.add(column)
+            for column in rate_columns:
+                if column >= len(cells):
+                    continue
+                start, end = cells[column]
+                rate_cells.append((offset + start, offset + end))
     return tuple(rate_cells)
 
 

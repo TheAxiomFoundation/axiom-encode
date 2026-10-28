@@ -99,10 +99,12 @@ def test_probe_table_rows(source_text, formula, grounded):
         ("Der Satz beträgt 15 v. H.", 0.15),
         ("Der Satz beträgt 15 v.H. des Betrags", 0.15),
         ("Der Satz beträgt 9 Prozent", 0.09),
-        ("taux de 28 pour cent", 0.28),
-        ("Der Satz beträgt 28 Prozent", 0.28),
+        ("taux de 28\u00a0pour cent", 0.28),
+        ("Der Satz beträgt 28\u202fProzent", 0.28),
         ("taux de 0,5 POUR CENT", 0.005),
         ("augmentées de 20 pour cent pour chaque enfant", 0.2),
+        ("un intérêt de 5 pour cent l'an", 0.05),
+        ("The rate is 5 pct of income", 0.05),
     ),
 )
 def test_locale_percent_markers_ground_the_rate(source_text, value):
@@ -116,6 +118,15 @@ def test_locale_percent_markers_ground_the_rate(source_text, value):
         ("5 pour cent mille habitants", 0.05),
         ("3 pour cent vingt jours", 0.03),
         ("2 pour cent millions d'euros", 0.02),
+        # ... across a no-break space or a line break too.
+        ("5 pour cent\u00a0mille habitants", 0.05),
+        ("5 pour cent\nmille habitants", 0.05),
+        ("5 pour cent\r\nmille habitants", 0.05),
+        ("5 pour cent milliers", 0.05),
+        # A unit after "pour cent" counts a hundred of that unit.
+        ("un droit de 2 pour cent kilogrammes", 0.02),
+        ("une taxe de 2,50 pour cent litres", 0.025),
+        ("un droit de 3 pour cent kg", 0.03),
         # Per mille is no percent.
         ("à concurrence de 0,15 pour mille des prestations", 0.0015),
         # Words that only begin like a marker.
@@ -127,6 +138,29 @@ def test_locale_percent_markers_ground_the_rate(source_text, value):
 )
 def test_near_markers_do_not_ground_the_rate(source_text, value):
     assert not _grounds(source_text, value)
+
+
+@pytest.mark.parametrize(
+    ("citation_path", "source_text", "formula"),
+    (
+        # "pct" and "v. H." are markers in their own case only.
+        ("us/statute/example/1", "The office received 28 PCT applications.", "0.28"),
+        ("uk/statute/example/1", "The office received 28 PCT applications.", "0.28"),
+        ("ca/statute/example/1", "The office received 28 PCT applications.", "0.28"),
+        ("us/statute/example/1", "officers of the 28 Pct. shall", "0.28"),
+        # Dutch "v.h." is "voorheen", formerly.
+        (BE_CITATION, "artikel 15 v.h. Wetboek", "0.15"),
+        (
+            "us/statute/example/1",
+            "| Pct. | Votes |\n| --- | --- |\n| 28 | 4 |\n",
+            "0.28",
+        ),
+    ),
+)
+def test_abbreviations_in_another_case_are_no_rate_marker(
+    citation_path, source_text, formula
+):
+    assert not _gate_grounds(source_text, formula, citation_path=citation_path)
 
 
 def test_pour_mille_still_grounds_the_printed_figure():
@@ -192,7 +226,15 @@ def test_parenthesized_figure_needs_its_own_marker(source_text, value):
 )
 @pytest.mark.parametrize(
     "source_text",
-    ("The rate is 5 (7) percent", "taux de 5 (7) pour cent", "tarief 5 (7) pct."),
+    (
+        "The rate is 5 (7) percent",
+        "taux de 5 (7) pour cent",
+        "tarief 5 (7) pct.",
+        # Any space or a comma between the figure and the note.
+        "The rate is 5\u2009(7) percent",
+        "The rate is 5, (7) percent",
+        "taux de 5,(7) pour cent",
+    ),
 )
 def test_note_after_a_figure_stays_masked(citation_path, source_text):
     # The figure before the parenthesis owns the marker, so "(7)" stays the
@@ -201,12 +243,52 @@ def test_note_after_a_figure_stays_masked(citation_path, source_text):
     assert not _gate_grounds(source_text, "0.07", citation_path=citation_path)
 
 
-def test_note_after_a_figure_keeps_the_english_owner_rate():
-    assert _gate_grounds(
-        "The rate is 5 (7) percent",
-        "0.05",
-        citation_path="us/statute/example/1",
-    )
+@pytest.mark.parametrize(
+    "source_text", ("The rate is 5 (7) percent", "The rate is 5\u2009(7) percent")
+)
+def test_note_after_a_figure_keeps_the_english_owner_rate(source_text):
+    assert _gate_grounds(source_text, "0.05", citation_path="us/statute/example/1")
+
+
+@pytest.mark.parametrize(
+    ("citation_path", "source_text", "formulas"),
+    (
+        # A label opening a line or a clause is a label, whatever follows it.
+        (
+            "us/statute/example/1",
+            "Section 3 shall apply. (17) Percent of income is excluded.",
+            ("17", "0.17"),
+        ),
+        (
+            "uk/statute/example/1",
+            "Section 3 shall apply: (17) per cent of the amount",
+            ("17", "0.17"),
+        ),
+        ("us/statute/example/1", "(17) Percent of income", ("17", "0.17")),
+        (BE_CITATION, "a) (7) pct. du montant", ("7", "0.07")),
+        ("dk/statute/example/1", "a) (7) pct. af indkomsten", ("7", "0.07")),
+    ),
+)
+def test_label_opening_a_clause_stays_masked(citation_path, source_text, formulas):
+    for formula in formulas:
+        assert not _gate_grounds(source_text, formula, citation_path=citation_path)
+
+
+@pytest.mark.parametrize(
+    ("source_text", "value"),
+    (
+        # A note that is no label shape ("(7,5)", "(100)") is not masked, but
+        # the figure before it still owns the marker.
+        ("le taux de 5 (7,5) pour cent", 0.075),
+        ("Der Satz beträgt 5 (7,5) Prozent", 0.075),
+        ("le taux de 5\u2009(7,5) pour cent", 0.075),
+        ("le taux de 5, (7,5) pour cent", 0.075),
+        ("le taux de 5\n(7,5) pour cent", 0.075),
+        ("le taux de 5 (100) p.c.", 1.0),
+    ),
+)
+def test_figure_before_a_restated_note_owns_the_marker(source_text, value):
+    assert not _grounds(source_text, value)
 
 
 @pytest.mark.parametrize(
@@ -418,6 +500,51 @@ def test_marked_value_cell_declares_no_rate_column(value_cell):
     assert not _grounds(table, 50.0)
 
 
+@pytest.mark.parametrize(
+    "body_cell",
+    (
+        "vingt-huit pour cent",
+        "vingt-huit pour cent (28 %)",
+        "28 pour cent (vingt-huit pour cent)",
+        "28\u2009pour cent",
+        "achtentwintig procent",
+        "achtundzwanzig v. H.",
+    ),
+)
+def test_locale_words_below_the_delimiter_declare_no_column(body_cell):
+    # Belgian and German words name a column only above the delimiter row.
+    table = (
+        "| Item | Value |\n"
+        "| --- | --- |\n"
+        f"| rebate | {body_cell} |\n"
+        "| income | 5000 euro |\n"
+    )
+
+    assert not _gate_grounds(table, "50")
+
+
+@pytest.mark.parametrize(
+    "table",
+    (
+        "| Bracket | (1) Percent |\n| 5000 | 3 |\n",
+        "| Income | Column 2 percent |\n| 5000 | 3 |\n",
+        "| Income | Column 2 percent |\n| --- | --- |\n| 5000 | 3 |\n",
+        "| Income | (1) Percent |\n| --- | --- |\n| 5000 | 3 |\n",
+    ),
+)
+def test_header_with_a_figure_before_its_marker_still_types_its_column(table):
+    # A header cell is no value cell: "(1) Percent" heads a percent column.
+    assert _gate_grounds(table, "0.03", citation_path="us/statute/example/1")
+
+
+def test_locale_header_needs_a_delimiter_row():
+    # Without a delimiter row no line is known to be a header, so only the
+    # wording main always read types a column there.
+    table = "| schijf | tarief in procent |\n| 250.000 | 9 |\n"
+
+    assert not _grounds(table, 0.09)
+
+
 def test_pipe_table_symbol_header_is_not_a_column_marker():
     # Only word headers type a pipe-table column; a bare "%" header cell is
     # left as it was, so the column stays untyped.
@@ -460,9 +587,27 @@ _NON_MARKERS = (
     "pour mille",
     "pour cent mille",
     "pour cent vingt",
+    "pour cent\u00a0mille",
+    "pour cent\nmille",
+    "pour cent kilogrammes",
+    "pour cent litres",
+    "PCT",
     "kolom",
 )
-_GAPS = (" ", " ", " ")
+_GAPS = (" ", "\u00a0", "\u202f")
+_CELL_GAPS = (" ", "\u00a0", "\u202f", "\u2009", "")
+# A figure, then a gap, then the note: any space, a tab, a line break or a
+# comma keeps the figure the owner of the marker.
+_OWNER_GAPS = (" ", "\u00a0", "\u202f", "\u2009", "\t", "\n", ", ", ",")
+_LOCALE_MARKERS = (
+    "pour cent",
+    "pour-cent",
+    "pourcent",
+    "pourcents",
+    "procent",
+    "pct.",
+    "v. H.",
+)
 _PREFIXES = (
     "le taux de ",
     "tarief ",
@@ -506,7 +651,7 @@ def _printed_figures(draw, styles=_ALL_STYLES):
     elif style == "dot-group":
         whole, decimal = _group(integer, "."), ","
     elif style == "nbsp-group":
-        whole, decimal = _group(integer, " "), ","
+        whole, decimal = _group(integer, "\u00a0"), ","
     else:
         whole, decimal = _group(integer, ","), "."
     printed = whole + (decimal + fraction_text if places else "")
@@ -573,20 +718,40 @@ def test_bare_figure_never_grounds_its_rate(figure, prefix):
     assert not _grounds(source_text, value / 100), source_text
 
 
-@settings(max_examples=100, deadline=None)
+@st.composite
+def _notes(draw):
+    """Return (printed note, its value, whether it has a label's shape)."""
+    shape = draw(st.sampled_from(("label", "decimal-comma", "hundreds")))
+    if shape == "label":
+        value = draw(st.integers(min_value=1, max_value=99))
+        return str(value), float(value), True
+    if shape == "hundreds":
+        value = draw(st.integers(min_value=100, max_value=999))
+        return str(value), float(value), False
+    whole = draw(st.integers(min_value=1, max_value=99))
+    tenths = draw(st.integers(min_value=1, max_value=9))
+    return f"{whole},{tenths}", whole + tenths / 10, False
+
+
+@settings(max_examples=150, deadline=None)
 @given(
     owner=st.integers(min_value=1, max_value=99),
-    note=st.integers(min_value=1, max_value=99),
+    note=_notes(),
     marker=st.sampled_from(_MARKERS),
+    gap=st.sampled_from(_OWNER_GAPS),
 )
-def test_figure_before_the_parenthesis_owns_the_marker(owner, note, marker):
-    # Equal figures would ground the owner's own rate.
-    assume(note != owner)
-    source_text = f"le taux de {owner} ({note}) {marker} du montant"
+@example(owner=5, note=("7,5", 7.5, False), marker="pour cent", gap=" ")
+@example(owner=5, note=("7", 7.0, True), marker="percent", gap="\u2009")
+def test_figure_before_the_parenthesis_owns_the_marker(owner, note, marker, gap):
+    printed, value, label = note
+    # Equal figures would ground the owner's own rate or figure.
+    assume(value not in (owner, owner * 100))
+    source_text = f"le taux de {owner}{gap}({printed}) {marker} du montant"
 
-    assert not _grounds(source_text, note / 100), source_text
-    # The note stays masked: it grounds no literal either.
-    assert not _grounds(source_text, float(note)), source_text
+    assert not _grounds(source_text, value / 100), source_text
+    if label:
+        # A label-shaped note stays masked: it grounds no literal either.
+        assert not _grounds(source_text, value), source_text
 
 
 @settings(max_examples=100, deadline=None)
@@ -595,15 +760,36 @@ def test_figure_before_the_parenthesis_owns_the_marker(owner, note, marker):
     marker=st.sampled_from(_MARKERS),
     hundreds=st.integers(min_value=1, max_value=9_999),
     first=st.booleans(),
+    gap=st.sampled_from(_CELL_GAPS),
 )
-@example(rate=("(1)", 1.0), marker="pour cent", hundreds=2, first=True)
-def test_marked_value_cell_never_types_its_column(rate, marker, hundreds, first):
+@example(rate=("(1)", 1.0), marker="pour cent", hundreds=2, first=True, gap=" ")
+@example(rate=("28", 28.0), marker="percent", hundreds=50, first=True, gap="\u2009")
+def test_marked_value_cell_never_types_its_column(rate, marker, hundreds, first, gap):
     # Whether the marked cell comes before or after it, an amount in the same
     # column never grounds amount/100.
-    printed, value = rate
-    # The rate's own figure grounds itself and its N/100.
-    assume(hundreds not in (value, value / 100))
-    marked = f"| taux | {printed} {marker} |\n"
+    printed, _ = rate
+    marked = f"| taux | {printed}{gap}{marker} |\n"
+    # The rate's own figure grounds itself and its N/100 (and main reads
+    # "1,000.1p.c." as 1,000); only the column's typing is under test.
+    assume(not _grounds(marked, float(hundreds)))
+    plain = f"| montant | {hundreds * 100} euro |\n"
+    rows = marked + plain if first else plain + marked
+    table = "| Item | Value |\n| --- | --- |\n" + rows
+
+    assert not _grounds(table, float(hundreds)), table
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    words=st.sampled_from(("vingt-huit", "zie bijlage", "Satz in", "")),
+    marker=st.sampled_from(_LOCALE_MARKERS),
+    hundreds=st.integers(min_value=1, max_value=9_999),
+    first=st.booleans(),
+)
+def test_locale_words_below_the_delimiter_never_type_their_column(
+    words, marker, hundreds, first
+):
+    marked = f"| taux | {words} {marker} |\n"
     plain = f"| montant | {hundreds * 100} euro |\n"
     rows = marked + plain if first else plain + marked
     table = "| Item | Value |\n| --- | --- |\n" + rows
