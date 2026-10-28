@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import errno
 import hashlib
 import json
@@ -5189,3 +5190,63 @@ def test_checkout_presence_rejects_unsupported_descriptor_traversal(
         _checkout_path_exists_without_indirection(
             repo, relative, label="RuleSpec primary"
         )
+
+
+def test_checkout_presence_resolves_dotdot_root_like_the_kernel(tmp_path: Path):
+    lexical, relative = _checkout_probe_repo(tmp_path / "lexical")
+    kernel, _relative = _checkout_probe_repo(tmp_path / "kernel")
+    (kernel / relative).write_text("module: {}\n", encoding="utf-8")
+    (kernel.parent / "inner").mkdir()
+    (lexical.parent / "link").symlink_to(
+        kernel.parent / "inner", target_is_directory=True
+    )
+
+    # lexical/link/../rulespec-us is kernel/rulespec-us once the kernel
+    # follows the link, but lexical/rulespec-us if ".." is collapsed first.
+    assert _checkout_path_exists_without_indirection(
+        lexical.parent / "link/../rulespec-us",
+        relative,
+        label="RuleSpec primary",
+    )
+
+
+def _open_descriptor_count() -> int:
+    for listing in ("/proc/self/fd", "/dev/fd"):
+        if os.path.isdir(listing):
+            return len(os.listdir(listing))
+    pytest.skip("open descriptors cannot be listed on this platform")
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["present", "missing-leaf", "missing-ancestor", "symlinked-leaf", "leaf-error"],
+)
+def test_checkout_presence_closes_every_descriptor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+):
+    repo, relative = _checkout_probe_repo(tmp_path)
+    if case == "present":
+        (repo / relative).write_text("module: {}\n", encoding="utf-8")
+    elif case == "missing-ancestor":
+        relative = PurePosixPath("us/missing/deeper/example.yaml")
+    elif case == "symlinked-leaf":
+        (repo / relative).symlink_to("missing.yaml")
+    elif case == "leaf-error":
+        original_stat = signed_backfill._DESCRIPTOR_STAT
+
+        def failing_stat(path, *, dir_fd=None, follow_symlinks=True):
+            if path == relative.name:
+                raise OSError(errno.EIO, "simulated inspection failure")
+            return original_stat(path, dir_fd=dir_fd, follow_symlinks=follow_symlinks)
+
+        monkeypatch.setattr(signed_backfill, "_DESCRIPTOR_STAT", failing_stat)
+    before = _open_descriptor_count()
+
+    with contextlib.suppress(ValueError):
+        _checkout_path_exists_without_indirection(
+            repo, relative, label="RuleSpec primary"
+        )
+
+    assert _open_descriptor_count() == before

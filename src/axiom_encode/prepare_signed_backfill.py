@@ -855,7 +855,9 @@ def _checkout_path_exists_without_indirection(
         | _DESCRIPTOR_O_NOFOLLOW
         | _DESCRIPTOR_O_CLOEXEC
     )
-    raw_repo = Path(os.path.abspath(repo))
+    # Path.absolute() keeps ".." for the kernel to resolve; os.path.abspath
+    # would collapse it lexically and probe a different root than callers use.
+    raw_repo = Path(repo).absolute()
     if not raw_repo.name:
         raise ValueError(f"cannot inspect {label}: repository root is invalid")
 
