@@ -1,3 +1,7 @@
+## 0.2.2258
+
+- Bind manifest refresh validation to the declared engine revision and verified binary through apply checks. Preserve byte-identical obsolete manual aliases only when independently verified canonical base and head receipts cover unchanged live files; retain changed-receipt and full-census verification.
+
 ## 0.2.2252
 
 - Admit the exact reviewed Canadian repair head for all protected artifact-only modes, including manifest refresh and reviewed-candidate promotion. Preserve publication restrictions and every signing and validation gate; link the admission evidence.

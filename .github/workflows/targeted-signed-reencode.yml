@@ -2474,6 +2474,7 @@ jobs:
               --repo "$RULESPEC_CHECKOUT"
               --rulespec-path "$REPLACE_RULESPEC_PATH"
               --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
+              --axiom-rules-engine-ref "$RULES_ENGINE_REF"
               --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
               --run-id "$GITHUB_RUN_ID"
             )
