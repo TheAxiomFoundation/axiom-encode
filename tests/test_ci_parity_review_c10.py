@@ -48,7 +48,7 @@ def _c10_committed_engine(engine):
     def git(*args):
         return subprocess.run(
             ["git", "-C", str(engine), *args],
-            env=environment,
+            env=Names(environment),
             capture_output=True,
             text=True,
             check=True,
@@ -85,7 +85,7 @@ def _c10_committed_engine(engine):
     subprocess.run(
         ["git", "-C", str(engine), "fast-import", "--quiet"],
         input=bytes(stream),
-        env=environment,
+        env=Names(environment),
         capture_output=True,
         check=True,
     )
@@ -342,7 +342,9 @@ def _c10_environment_run(tmp_path, *, mode="changed"):
         path.mkdir()
     subprocess.run(
         ["git", "init", "--quiet", "--template=", str(repo)],
-        env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"},
+        env=Names(
+            {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        ),
         check=True,
     )
     (paths["encode"] / "pyproject.toml").write_text('[project]\nname="axiom-encode"\n')
@@ -391,7 +393,7 @@ def test_c10_repository_git_config_matches_empty_runner(tmp_path, monkeypatch):
     isolated = subprocess.run(
         [git, "config", "--get", "commit.gpgsign"],
         cwd=run.repo,
-        env=environment,
+        env=Names(environment),
         capture_output=True,
         text=True,
         check=False,
@@ -455,7 +457,9 @@ def test_c10_committed_axiom_symlink_cannot_create_outside_links(tmp_path):
         "GIT_CONFIG_GLOBAL": os.devnull,
         "GIT_CONFIG_NOSYSTEM": "1",
     }
-    subprocess.run(["git", "add", "_axiom"], cwd=run.repo, env=environment, check=True)
+    subprocess.run(
+        ["git", "add", "_axiom"], cwd=run.repo, env=Names(environment), check=True
+    )
     subprocess.run(
         [
             "git",
@@ -471,7 +475,7 @@ def test_c10_committed_axiom_symlink_cannot_create_outside_links(tmp_path):
             "committed symlink",
         ],
         cwd=run.repo,
-        env=environment,
+        env=Names(environment),
         check=True,
     )
     with ci_parity.committed_checkout(run.repo) as checkout:
@@ -633,7 +637,7 @@ def test_c10_engine_rejects_unsupported_cargo_config(tmp_path, monkeypatch):
 
 import pytest as _c11_pytest  # noqa: E402
 
-from tests.environment_assertions import changed_names, hides_environment
+from tests.environment_assertions import Names, changed_names, hides_environment
 
 
 @_c11_pytest.mark.parametrize(
@@ -993,7 +997,7 @@ def test_c10_engine_profile_and_rustflags_match_real_cargo(tmp_path, monkeypatch
     subprocess.run(
         [cargo, "build", "--verbose", "--offline"],
         cwd=engine,
-        env=environment,
+        env=Names(environment),
         text=True,
         capture_output=True,
         check=True,

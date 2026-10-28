@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.environment_assertions import hides_environment
+from tests.environment_assertions import Names, hides_environment
 
 _SPEC = importlib.util.spec_from_file_location(
     "provision_verification_supervisor",
@@ -1572,7 +1572,7 @@ class TestTrustedGit:
             [git, "-C", str(partial), "cat-file", "-e", object_id],
             check=False,
             capture_output=True,
-            env=no_lazy_environment,
+            env=Names(no_lazy_environment),
         )
         if missing.returncode == 0:
             pytest.skip("Git did not create a blobless partial clone")
@@ -1590,7 +1590,7 @@ class TestTrustedGit:
             [git, "-C", str(partial), "cat-file", "-e", object_id],
             check=False,
             capture_output=True,
-            env=no_lazy_environment,
+            env=Names(no_lazy_environment),
         )
         assert still_missing.returncode != 0
 

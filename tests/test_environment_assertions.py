@@ -31,8 +31,12 @@ order at any verbosity, and an object printed through its own repr (a
 dataclass record, ``os.environ``) in full at ``-vvv``; below ``-vvv`` each
 argument is cut to 240 characters. Either holds an environment's first
 variables. A mock raises the exception it is given as its side effect from
-``unittest.mock``'s own frame, whose arguments are its call's. Captured output
-and logs are printed with a failure, and warnings in the session's summary.
+``unittest.mock``'s own frame, whose arguments are its call's. The standard
+library's launchers raise from frames of their own whose arguments hold the
+environment they are passed: ``subprocess.run`` and ``check_call`` when they
+check and the program fails, and ``Popen``'s ``_execute_child`` (or
+``_posix_spawn``) when the program can't be started. Captured output and logs
+are printed with a failure, and warnings in the session's summary.
 
 So any function an exception may pass through may have its arguments printed:
 a test, a fake, a helper, a fixture. One that is passed an environment takes
@@ -57,7 +61,12 @@ environment's place; a mock standing in for a launcher raises through
   exception holds what it is built with and what its class's methods store on
   it;
 - in a function that launches, a mock side effect that is an exception rather
-  than ``raising(...)``.
+  than ``raising(...)``;
+- a call to one of the standard library's launchers (``subprocess.run``,
+  ``Popen``, ``call``, ``check_call``, ``check_output``, asyncio's
+  ``create_subprocess_exec`` and ``create_subprocess_shell``) whose ``env``
+  may hold one. A launcher reads its ``env`` as a mapping, so it is passed a
+  ``Names``.
 
 The check tracks, for every value, the keys and positions that lead from it
 to an environment inside it. Environments start as:
@@ -96,7 +105,7 @@ items, a value, what it keeps) is followed as before.
 ``test_the_check_agrees_with_pytest`` runs pytest at ``-vvv`` on examples of
 each shape to keep the model honest.
 
-The model flags more than pytest prints in four cases. When ``==`` fails
+The model flags more than pytest prints in five cases. When ``==`` fails
 between two strings, sequences, sets or dicts, or a set comparison fails,
 pytest prints its own diff of the two results in place of what their operands
 would print. The operands' types are not known here, so such asserts are
@@ -104,8 +113,9 @@ flagged as well. A keyword-only parameter of a function taking neither
 ``*args`` nor ``**kwargs`` is not printed, but counts here. A function defined
 within another shares its names: a parameter named like one of the outer
 function's locals holds what that local does, unmasked by
-``hides_environment``. And a function is flagged whether or not anything in it
-can raise, unless all it does is return constants.
+``hides_environment``. A launcher a test has replaced with a fake counts as
+the launcher. And a function is flagged whether or not anything in it can
+raise, unless all it does is return constants.
 
 It misses what it cannot see. A test that does not itself launch anything may
 read a mock the code under test launched through; ``mock.call_args.kwargs``
@@ -118,11 +128,13 @@ mappings, lists, tuples and dataclass records, and the check takes every
 container to be one of those; an environment inside a generator or a view
 reaches the function as it is. ``--tb=long``, ``--showlocals`` and
 ``--fulltrace`` print every frame's arguments or locals, the code under test's
-included. An exception raised inside the code under test or the standard
-library (``subprocess.run(..., check=True)``) prints the arguments of the frame
-that raised it, and one the code under test wraps with no frame in the test's
-file to start from prints the arguments of the frame that wrapped it. Those
-are outside what a test can control.
+included. An exception raised inside the code under test, or inside the
+standard library when the code under test calls it (its own
+``subprocess.run(..., check=True)``), prints the arguments of the frame that
+raised it, and one the code under test wraps with no frame in the test's file
+to start from prints the arguments of the frame that wrapped it. Those are
+outside what a test can control. A launcher reached other than by its module's
+name (``getattr(subprocess, name)``, an alias) is not taken to be one.
 """
 
 from __future__ import annotations
@@ -131,6 +143,7 @@ import ast
 import dataclasses
 import functools
 import inspect
+import json
 import os
 import re
 import subprocess
@@ -228,6 +241,14 @@ LAUNCHERS = frozenset({"run", "Popen", "call", "check_call", "check_output"})
 LAUNCHES = re.compile(
     r"subprocess\.|run_process|Popen|check_output|check_call|run_cli|run_embedded"
     r"|run_subprocess|run_rulespec_compile|execute_rulespec_test|python_build_of"
+)
+# The standard library's launchers raise in frames of their own, whose
+# arguments pytest prints, the environment among them: ``run`` and
+# ``check_call`` when the program fails and they check, and every one when
+# the program can't be started.
+SPAWNERS = frozenset(
+    {("subprocess", name) for name in LAUNCHERS}
+    | {("asyncio", "create_subprocess_exec"), ("asyncio", "create_subprocess_shell")}
 )
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 
@@ -587,6 +608,14 @@ class _Check:
             for node in ast.walk(tree)
             if isinstance(node, (ast.Import, ast.ImportFrom))
             for alias in node.names
+        }
+        # The standard library's launchers, imported by name.
+        self.spawners = {
+            alias.asname or alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+            if (node.module, alias.name) in SPAWNERS
         }
         self.functions = [
             node
@@ -1629,6 +1658,12 @@ class _Check:
             return False
         return bool(EXCEPTION.search(_name(target))) or _name(target) in self.exceptions
 
+    def _spawns(self, node: ast.Call) -> bool:
+        """Whether ``node`` calls one of the standard library's launchers."""
+        if isinstance(node.func, ast.Name):
+            return node.func.id in self.spawners
+        return tuple(_dotted(node.func).split(".")[-2:]) in SPAWNERS
+
     def leaks(self) -> list[int]:
         """Lines of asserts, functions and calls that may print a whole
         environment."""
@@ -1681,6 +1716,13 @@ class _Check:
                     ]
                     if getattr(node.func, "attr", "") == "match":
                         raised += node.args
+                    if self._spawns(node):
+                        # Its own frames print the environment it is passed.
+                        shown = [
+                            keyword.value
+                            for keyword in node.keywords
+                            if keyword.arg in {"env", None}
+                        ]
                     if _is_fail(node, self.fails) or _name(node) in OUTPUT:
                         # ``pytest.fail`` prints its message; captured output,
                         # logs and warnings are printed too.
@@ -1795,6 +1837,8 @@ import dataclasses
 import logging
 import os
 import re
+import subprocess
+import sys
 import warnings
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -2393,6 +2437,24 @@ def test_leaks_fail_message():
     pytest.fail(f"environment: {dict(os.environ)}")
 
 
+def test_leaks_checked_launch():
+    subprocess.run(
+        [sys.executable, "-c", "raise SystemExit(1)"], env=dict(os.environ), check=True
+    )
+
+
+def test_leaks_check_call():
+    subprocess.check_call([sys.executable, "-c", "raise SystemExit(1)"], env=os.environ)
+
+
+def test_leaks_missing_program():
+    subprocess.run(["/nonexistent/program"], env=dict(os.environ))
+
+
+def test_leaks_spawned_missing_program():
+    subprocess.Popen(["/nonexistent/program"], env=dict(os.environ), close_fds=False)
+
+
 def test_restored_names():
     before = dict(os.environ)
     os.environ["AAA_CHANGED_TOO"] = "1"
@@ -2549,6 +2611,24 @@ def test_hidden_unset_field():
     check(unset)
 
 
+def test_hidden_checked_launch():
+    subprocess.run(
+        [sys.executable, "-c", "raise SystemExit(1)"],
+        env=Names(dict(os.environ)),
+        check=True,
+    )
+
+
+def test_hidden_missing_program():
+    subprocess.run(["/nonexistent/program"], env=Names(os.environ))
+
+
+def test_hidden_spawned_missing_program():
+    subprocess.Popen(
+        ["/nonexistent/program"], env=Names(dict(os.environ)), close_fds=False
+    )
+
+
 def test_hidden_chained():
     @hides_environment
     def fake_run(command, **kwargs):
@@ -2660,6 +2740,15 @@ def test_flagged_shared_name():
 
     env = dict(os.environ)
     check(env)
+
+
+def test_flagged_replaced_launcher(monkeypatch):
+    @hides_environment
+    def fake_run(command, **kwargs):
+        raise RuntimeError("cargo")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    subprocess.run(["cargo"], env=dict(os.environ))
 """
 
 # The code under test the examples hand fakes to. It wraps what they raise, as
@@ -2882,3 +2971,33 @@ def test_hides_environment_masks_defaults_and_record_fields(
         kept = getattr(copy, field)
         assert kept == drawn
         assert _hidden(drawn, kept, field)
+
+
+def _launched(variables: Mapping[str, str], spawned: bool) -> dict[str, str]:
+    """The environment a child starts with when launched with ``variables``,
+    through ``posix_spawn`` where the platform has it, or ``fork``."""
+    completed = subprocess.run(
+        [sys.executable, "-c", "import json, os; print(json.dumps(dict(os.environ)))"],
+        env=variables,
+        close_fds=not spawned,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return json.loads(completed.stdout)
+
+
+@settings(deadline=None, max_examples=12, suppress_health_check=[HealthCheck.too_slow])
+@given(
+    drawn=st.dictionaries(
+        st.sampled_from(["A", "B", "C"]), st.text(alphabet="az09 =", max_size=3)
+    ),
+    spawned=st.booleans(),
+)
+def test_a_launcher_starts_a_child_with_what_names_holds(
+    drawn: dict[str, str], spawned: bool
+) -> None:
+    held = {"PATH": os.defpath, **drawn}
+    seen = _launched(Names(held), spawned)
+    assert seen == _launched(held, spawned)
+    assert held.items() <= seen.items()

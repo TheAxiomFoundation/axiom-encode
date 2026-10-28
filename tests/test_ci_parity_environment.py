@@ -24,7 +24,7 @@ from axiom_encode import ci_parity
 from axiom_encode.ci_parity import GateSpec
 from axiom_encode.engine_binding import EnginePin, resolve_pinned_engine_binary
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
-from tests.environment_assertions import changed_names, hides_environment
+from tests.environment_assertions import Names, changed_names, hides_environment
 
 PIN = "6f11be2655f79dd0a3b582db46525f58332ca120"
 ENGINE_PIN = "a" * 40
@@ -41,11 +41,13 @@ def _run(tmp_path: Path, *, mode: str = "changed", offline: bool = True):
         path.mkdir(exist_ok=True)
     subprocess.run(
         ["git", "init", "--quiet", "--template=", str(repo)],
-        env={
-            **os.environ,
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_NOSYSTEM": "1",
-        },
+        env=Names(
+            {
+                **os.environ,
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            }
+        ),
         check=True,
     )
     (paths["encode"] / "pyproject.toml").write_text(
@@ -565,7 +567,7 @@ def test_engine_view_and_sibling_agree_with_shell_discovery(
     result = subprocess.run(
         [shell, "-c", "command -v axiom-rules-engine; axiom-rules-engine"],
         cwd=run.repo,
-        env=environment,
+        env=Names(environment),
         text=True,
         capture_output=True,
         check=True,

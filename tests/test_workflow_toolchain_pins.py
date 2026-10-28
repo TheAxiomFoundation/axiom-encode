@@ -52,6 +52,7 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
 from tests import workflow_shell
+from tests.environment_assertions import Names
 from tests.workflow_shell import Command, UnanalyzableScript
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1297,7 +1298,7 @@ def test_the_test_environment_is_exactly_the_locked_set():
         ["uv", "export", "--project", str(ROOT), "--locked", "--extra", "dev"]
         + ["--no-hashes", "--no-header", "--no-annotate", "--no-emit-project"],
         cwd=ROOT,
-        env={k: v for k, v in os.environ.items() if not k.startswith("UV_")},
+        env=Names({k: v for k, v in os.environ.items() if not k.startswith("UV_")}),
         capture_output=True,
         text=True,
         check=True,

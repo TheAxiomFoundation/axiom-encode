@@ -21,7 +21,7 @@ from axiom_encode import ci_parity
 from axiom_encode.ci_parity import GateResult, ShardSelection, execute_workflow_gates
 from axiom_encode.validation_waivers import load_validation_waivers
 from tests import test_ci_parity_workflow_gates as workflow_gates
-from tests.environment_assertions import hides_environment
+from tests.environment_assertions import Names, hides_environment
 from tests.test_ci_parity_runtime import _CiHarness
 from tests.test_ci_parity_workflow_gates import (
     CHANGED,
@@ -584,7 +584,7 @@ done
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        env={**os.environ, "LC_ALL": "C", "TZ": "UTC"},
+        env=Names({**os.environ, "LC_ALL": "C", "TZ": "UTC"}),
         check=False,
     )
     result = ci_parity._gate_companion_tests(run, _spec("companion_tests", pin))
@@ -765,7 +765,7 @@ def test_waiver_path_spelling_matches_git_tree_lookup(
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env=ci_parity._git_environment(),
+        env=Names(ci_parity._git_environment()),
     )
 
     result, recorder = workflow_gates._waiver_gate(run, monkeypatch)

@@ -16,7 +16,7 @@ from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import cli
-from tests.environment_assertions import changed_names, hides_environment
+from tests.environment_assertions import Names, changed_names, hides_environment
 from tests.test_encoder_manifest_ancestry import (
     _expected,
     _git,
@@ -491,7 +491,7 @@ def test_guard_git_queries_leave_no_graft_deprecation_hint_on_stderr(
         capture_output=True,
         text=True,
         timeout=30,
-        env=control_environment,
+        env=Names(control_environment),
     )
     assert control.returncode == 0, control.stderr
     if "advice.graftFileDeprecated" not in control.stderr:

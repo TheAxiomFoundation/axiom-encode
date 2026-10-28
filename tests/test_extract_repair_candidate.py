@@ -16,6 +16,7 @@ from scripts.extract_repair_candidate import (
     _expected_module_path,
     extract_candidate,
 )
+from tests.environment_assertions import Names
 
 
 def _archive(
@@ -1349,31 +1350,33 @@ def test_workflow_authenticates_retained_lane_before_new_dependent(
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "RUNNER_TEMP": str(tmp_path),
-            "GITHUB_OUTPUT": str(output_file),
-            "repair_archive": str(archive),
-            "repair_encoder_commit": "a" * 40,
-            "repair_citation": dependent_citation,
-            "repair_rulespec_path": dependent_path,
-            "REPAIR_RUN_LANE": "dependent",
-            "CITATION": primary_citation,
-            "REPLACE_RULESPEC_PATH": primary_path,
-            "SECOND_DEPENDENT_CITATION": "us/statute/42/402/w"
-            if second_dependent
-            else "",
-            "COUNTRY": "us",
-            "CORPUS_REF": "b" * 40,
-            "RULES_ENGINE_REF": "c" * 40,
-            "RULESPEC_REF": git("rev-parse", "HEAD"),
-            "RULESPEC_CHECKOUT": str(repo),
-            "REPAIR_RUN_ID": "1234",
-            "ATOMIC_SOURCE_JSON": "[]",
-            "source_bundle_json": "[]",
-            "primary_required_test_cases_json": "[]",
-            "EXISTING_SIGNED_IMPORTS_JSON": "[]",
-        },
+        env=Names(
+            {
+                **os.environ,
+                "RUNNER_TEMP": str(tmp_path),
+                "GITHUB_OUTPUT": str(output_file),
+                "repair_archive": str(archive),
+                "repair_encoder_commit": "a" * 40,
+                "repair_citation": dependent_citation,
+                "repair_rulespec_path": dependent_path,
+                "REPAIR_RUN_LANE": "dependent",
+                "CITATION": primary_citation,
+                "REPLACE_RULESPEC_PATH": primary_path,
+                "SECOND_DEPENDENT_CITATION": "us/statute/42/402/w"
+                if second_dependent
+                else "",
+                "COUNTRY": "us",
+                "CORPUS_REF": "b" * 40,
+                "RULES_ENGINE_REF": "c" * 40,
+                "RULESPEC_REF": git("rev-parse", "HEAD"),
+                "RULESPEC_CHECKOUT": str(repo),
+                "REPAIR_RUN_ID": "1234",
+                "ATOMIC_SOURCE_JSON": "[]",
+                "source_bundle_json": "[]",
+                "primary_required_test_cases_json": "[]",
+                "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+            }
+        ),
     )
     if second_dependent and prior_lane == "dependent":
         assert completed.returncode != 0

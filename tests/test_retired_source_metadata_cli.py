@@ -30,7 +30,7 @@ from axiom_encode.retired_source_metadata import (
     receipt_identity_sha256,
 )
 from scripts.provision_verification_supervisor import _install_trusted_git_wrapper
-from tests.environment_assertions import hides_environment
+from tests.environment_assertions import Names, hides_environment
 from tests.signing_broker_fixtures import SigningBrokerFixture
 from tests.test_cli import (
     TEST_VALIDATION_WAIVER_SHA256,
@@ -72,7 +72,7 @@ def git(repo: Path, *args: str) -> str:
         capture_output=True,
         text=True,
         check=True,
-        env=cli._rulespec_migration_git_environment(),
+        env=Names(cli._rulespec_migration_git_environment()),
     ).stdout.strip()
 
 

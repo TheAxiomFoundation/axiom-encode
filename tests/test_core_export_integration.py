@@ -17,6 +17,7 @@ import pytest
 
 from axiom_encode.core_export import build_spec_from_eval_result
 from tests.core_eval_fixture import candidate_result
+from tests.environment_assertions import Names
 
 _REPO = Path(__file__).resolve().parents[1]
 _ROOT = "zz:policies/demo"
@@ -61,7 +62,7 @@ def _command(args, *, stdin=None):
     return subprocess.run(
         [str(arg) for arg in args],
         cwd=_REPO,
-        env=env,
+        env=Names(env),
         input=stdin,
         text=True,
         capture_output=True,

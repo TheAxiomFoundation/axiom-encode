@@ -20,7 +20,7 @@ from hypothesis import strategies as st
 
 from axiom_encode import cli
 from axiom_encode.harness.evals import resolve_corpus_source_unit
-from tests.environment_assertions import hides_environment
+from tests.environment_assertions import Names, hides_environment
 from tests.eval_evidence_fixtures import (
     TEST_APPLY_PRIVATE_KEY_B64,
     TEST_APPLY_PUBLIC_KEY_B64,
@@ -45,15 +45,17 @@ def _git(repo: Path, *args: str, input: str | None = None) -> str:
         text=True,
         check=True,
         timeout=60,
-        env={
-            **os.environ,
-            "GIT_AUTHOR_NAME": "Fixture",
-            "GIT_AUTHOR_EMAIL": "fixture@example.com",
-            "GIT_COMMITTER_NAME": "Fixture",
-            "GIT_COMMITTER_EMAIL": "fixture@example.com",
-            "GIT_AUTHOR_DATE": "2026-01-01T00:00:00Z",
-            "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z",
-        },
+        env=Names(
+            {
+                **os.environ,
+                "GIT_AUTHOR_NAME": "Fixture",
+                "GIT_AUTHOR_EMAIL": "fixture@example.com",
+                "GIT_COMMITTER_NAME": "Fixture",
+                "GIT_COMMITTER_EMAIL": "fixture@example.com",
+                "GIT_AUTHOR_DATE": "2026-01-01T00:00:00Z",
+                "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z",
+            }
+        ),
     ).stdout.strip()
 
 

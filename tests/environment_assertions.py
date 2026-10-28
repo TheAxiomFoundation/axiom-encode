@@ -20,8 +20,11 @@ module that is passed an environment (a fake's ``env``, a helper's argument, a
 record holding one) takes it through ``hides_environment``, which hands it a
 ``Names`` in each environment's place; a mock standing in for a launcher
 raises through ``raising``. A fake that keeps what it is passed, to be compared
-whole, then keeps ``Names`` too. ``tests/test_environment_assertions.py`` keeps
-the suite to this.
+whole, then keeps ``Names`` too. The standard library's launchers raise from
+frames of their own, whose arguments hold the ``env`` they are passed, when a
+checked program fails or a program can't be started; they read it as a
+mapping, so a test's own launch passes ``env=Names(...)``.
+``tests/test_environment_assertions.py`` keeps the suite to this.
 """
 
 from __future__ import annotations

@@ -28,7 +28,7 @@ from axiom_encode import ci_parity, cli
 from axiom_encode import corpus_materialize as cm
 from axiom_encode.harness import eval_evidence
 from axiom_encode.toolchain import local_corpus_release_verification
-from tests.environment_assertions import changed_names
+from tests.environment_assertions import Names, changed_names
 from tests.release_object_fixtures import TEST_RELEASE_PUBLIC_KEY
 from tests.test_corpus_materialize import (
     PROVISIONS,
@@ -202,7 +202,7 @@ def test_repository_test_child_honors_the_no_fetch_opt_out(
 
     result = subprocess.run(
         [sys.executable, "-c", bind, str(root), RELEASE, sha, TEST_RELEASE_PUBLIC_KEY],
-        env=environment,
+        env=Names(environment),
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -245,7 +245,7 @@ def test_utf8_ctype_decodes_rulespec_text_as_ci_does(
 
     result = subprocess.run(
         [sys.executable, "-X", "utf8=0", "-c", probe, str(source)],
-        env=environment,
+        env=Names(environment),
         capture_output=True,
         text=True,
         check=False,

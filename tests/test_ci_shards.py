@@ -17,6 +17,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from tests import ci_shards
+from tests.environment_assertions import Names
 
 ROOT = Path(__file__).resolve().parents[1]
 CI = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text("utf-8"))
@@ -393,7 +394,7 @@ def _run(tmp_path: Path, shard: str | None, *options: str, ask: str | None = Non
             str(tests),
         ],
         cwd=ROOT,
-        env=environment,
+        env=Names(environment),
         capture_output=True,
         text=True,
         check=False,

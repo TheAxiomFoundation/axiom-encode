@@ -25,6 +25,7 @@ from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import retired_apply as indexed_admission
+from tests.environment_assertions import Names
 
 RETIRED_APPLY_INVENTORY_SCHEMA = "axiom-encode/retired-apply-inventory/v1"
 _REPOSITORY = re.compile(r"TheAxiomFoundation/rulespec-[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -209,7 +210,7 @@ def _git(repo: Path, *arguments: str, ancestry: bool = False) -> bytes | bool:
     result = subprocess.run(
         [executable, "-C", str(repo), *arguments],
         capture_output=True,
-        env=_git_environment(),
+        env=Names(_git_environment()),
         timeout=30,
         check=False,
     )

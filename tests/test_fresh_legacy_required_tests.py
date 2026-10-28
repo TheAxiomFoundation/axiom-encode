@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from axiom_encode.prepare_signed_backfill import split_atomic_source_input
+from tests.environment_assertions import Names
 
 ROOT = Path(__file__).resolve().parents[1]
 STAGES = [
@@ -111,7 +112,7 @@ def test_fresh_legacy_required_tests_route_all_stages(stage, conflict, version):
         env[conflict] = '["unexpected"]' if conflict.endswith("JSON") else "true"
     env["atomic_source_payload"] = json.dumps(payload)
     result = subprocess.run(
-        ["bash", "-eu", "-c", command], env=env, capture_output=True, text=True
+        ["bash", "-eu", "-c", command], env=Names(env), capture_output=True, text=True
     )
     if conflict:
         assert result.returncode != 0
@@ -171,7 +172,7 @@ def test_fresh_replacement_encode_receives_exact_required_contract(tmp_path, leg
         "second_dependent_rulespec_path": "",
     }
     result = subprocess.run(
-        ["bash", "-eu", "-c", script], env=env, capture_output=True, text=True
+        ["bash", "-eu", "-c", script], env=Names(env), capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr
     args = result.stdout.rstrip("\0").split("\0")

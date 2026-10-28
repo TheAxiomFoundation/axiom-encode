@@ -35,7 +35,7 @@ from axiom_encode.signing_broker import (
     reject_direct_private_signing_environment,
     scrub_private_signing_environment,
 )
-from tests.environment_assertions import changed_names
+from tests.environment_assertions import Names, changed_names
 from tests.signing_broker_fixtures import SigningBrokerFixture
 
 APPLY_MANIFEST_SIGNING_PUBLIC_KEY_ENV = "AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY"
@@ -175,7 +175,7 @@ def test_console_entrypoint_rejects_private_environment_before_cli_dispatch(
     completed = subprocess.run(
         [sys.executable, "-I", "-c", dispatch_current_checkout, "--help"],
         cwd=tmp_path,
-        env=environment,
+        env=Names(environment),
         capture_output=True,
         text=True,
         timeout=30,

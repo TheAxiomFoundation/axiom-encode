@@ -37,7 +37,7 @@ from axiom_encode.corpus_resolver import (
     UnmaterializedCorpusReleaseError,
     resolve_local_corpus_source,
 )
-from tests.environment_assertions import changed_names, hides_environment
+from tests.environment_assertions import Names, changed_names, hides_environment
 from tests.release_object_fixtures import (
     TEST_RELEASE_PUBLIC_KEY,
     write_test_release_object,
@@ -2742,7 +2742,7 @@ def test_a_partial_clone_is_read_locally_without_fetching(tmp_path):
         return (
             subprocess.run(
                 [GIT, "-C", str(clone), "cat-file", "-e", blob],
-                env={**os.environ, "GIT_NO_LAZY_FETCH": "1"},
+                env=Names({**os.environ, "GIT_NO_LAZY_FETCH": "1"}),
                 capture_output=True,
             ).returncode
             == 0

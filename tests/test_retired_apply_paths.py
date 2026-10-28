@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from axiom_encode import cli
 from axiom_encode.harness.evals import resolve_corpus_source_unit
 from axiom_encode.judges import regeneration
+from tests.environment_assertions import Names
 from tests.signing_broker_fixtures import SigningBrokerFixture
 from tests.test_cli import (
     TEST_APPLY_SIGNING_BROKER,
@@ -56,13 +57,15 @@ def _git(repo: Path, *args: str) -> str:
         capture_output=True,
         text=True,
         timeout=60,
-        env={
-            **os.environ,
-            "GIT_AUTHOR_NAME": "Synthetic fixture",
-            "GIT_AUTHOR_EMAIL": "fixture@example.com",
-            "GIT_COMMITTER_NAME": "Synthetic fixture",
-            "GIT_COMMITTER_EMAIL": "fixture@example.com",
-        },
+        env=Names(
+            {
+                **os.environ,
+                "GIT_AUTHOR_NAME": "Synthetic fixture",
+                "GIT_AUTHOR_EMAIL": "fixture@example.com",
+                "GIT_COMMITTER_NAME": "Synthetic fixture",
+                "GIT_COMMITTER_EMAIL": "fixture@example.com",
+            }
+        ),
     ).stdout.strip()
 
 

@@ -48,7 +48,7 @@ from axiom_encode.ci_parity import (
     ci_verdict,
 )
 from axiom_encode.corpus_materialize import NO_FETCH_ENV, fetch_disabled
-from tests.environment_assertions import changed_names, hides_environment
+from tests.environment_assertions import Names, changed_names, hides_environment
 
 VERDICT_RANK = {"PASS": 0, "PASS-WITH-MISMATCHED-DEPS": 1, "FAIL": 2}
 SPEC = GateSpec("gate", "Gate", "subcommand", (), "1-2")
@@ -456,7 +456,7 @@ def test_glob_directories_visit_in_bash_order(
         bash = subprocess.run(
             ["bash", "-c", 'for dir in */; do printf "%s\\n" "${dir%/}"; done'],
             cwd=repo,
-            env={**os.environ, "LC_ALL": "C"},
+            env=Names({**os.environ, "LC_ALL": "C"}),
             capture_output=True,
             text=True,
             check=True,

@@ -38,7 +38,7 @@ from axiom_encode.harness.evals import resolve_corpus_source_unit
 from scripts import prepare_signed_backfill as compatibility_backfill
 from scripts import provision_verification_supervisor as provisioner
 from scripts.prepare_signed_backfill import parse_canonical_refresh_bundle
-from tests.environment_assertions import hides_environment
+from tests.environment_assertions import Names, hides_environment
 from tests.eval_evidence_fixtures import (
     TEST_APPLY_PRIVATE_KEY_B64,
     TEST_APPLY_PUBLIC_KEY_B64,
@@ -96,7 +96,7 @@ def signing_supervisor(tmp_path_factory: pytest.TempPathFactory) -> Path:
             SUPERVISOR_PACKAGE,
         ],
         cwd=ROOT,
-        env={**os.environ, "CGO_ENABLED": "0"},
+        env=Names({**os.environ, "CGO_ENABLED": "0"}),
         check=True,
         capture_output=True,
         text=True,
@@ -1867,7 +1867,7 @@ def apply_signer_binary(tmp_path_factory: pytest.TempPathFactory) -> Path:
             _APPLY_SIGNER_PACKAGE,
         ],
         cwd=ROOT,
-        env={**os.environ, "CGO_ENABLED": "0"},
+        env=Names({**os.environ, "CGO_ENABLED": "0"}),
         check=True,
         capture_output=True,
         text=True,
@@ -3199,7 +3199,7 @@ def test_targeted_reencode_checksums_include_nested_admission_files(
 
     completed = subprocess.run(
         ["bash", "-e", "-o", "pipefail", "-c", command],
-        env={**os.environ, "RUNNER_TEMP": str(tmp_path)},
+        env=Names({**os.environ, "RUNNER_TEMP": str(tmp_path)}),
         capture_output=True,
         text=True,
     )
@@ -3212,7 +3212,7 @@ def test_targeted_reencode_checksums_include_nested_admission_files(
     (artifact / "unexpected-link").symlink_to(admission / "source.json")
     rejected = subprocess.run(
         ["bash", "-e", "-o", "pipefail", "-c", command],
-        env={**os.environ, "RUNNER_TEMP": str(tmp_path)},
+        env=Names({**os.environ, "RUNNER_TEMP": str(tmp_path)}),
         capture_output=True,
         text=True,
     )
@@ -3382,24 +3382,26 @@ def test_repair_preflight_splits_atomic_source(
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "ATOMIC_SOURCE_JSON": atomic_source_json,
-            "CITATION": "us-ri/statute/44-30-2.6",
-            "DEPENDENT_CITATION": "",
-            "EXISTING_SIGNED_IMPORTS_JSON": "[]",
-            "GITHUB_OUTPUT": str(tmp_path / "github-output"),
-            "GITHUB_RUN_ID": "200",
-            "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
-            "QUEUE_ID": "",
-            "REPAIR_RUN_ID": "100",
-            "REPAIR_RULESPEC_PATH": "",
-            "REPLACE_LEGACY_RULESPEC_PATH": "",
-            "REPLACE_RULESPEC_PATH": "us-ri/statutes/44-30-2.6.yaml",
-            "SECOND_DEPENDENT_CITATION": "",
-            "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-        },
+        env=Names(
+            {
+                **os.environ,
+                "ATOMIC_SOURCE_JSON": atomic_source_json,
+                "CITATION": "us-ri/statute/44-30-2.6",
+                "DEPENDENT_CITATION": "",
+                "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+                "GITHUB_OUTPUT": str(tmp_path / "github-output"),
+                "GITHUB_RUN_ID": "200",
+                "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+                "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
+                "QUEUE_ID": "",
+                "REPAIR_RUN_ID": "100",
+                "REPAIR_RULESPEC_PATH": "",
+                "REPLACE_LEGACY_RULESPEC_PATH": "",
+                "REPLACE_RULESPEC_PATH": "us-ri/statutes/44-30-2.6.yaml",
+                "SECOND_DEPENDENT_CITATION": "",
+                "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+            }
+        ),
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3525,7 +3527,7 @@ def test_signed_head_tests_only_preflight_binds_exact_reviewed_files(
             check=False,
             capture_output=True,
             text=True,
-            env=env,
+            env=Names(env),
         )
 
     valid = run_preflight()
@@ -3571,25 +3573,27 @@ def test_repair_preflight_accepts_one_bound_dependent_lane(tmp_path: Path) -> No
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "ATOMIC_SOURCE_JSON": "[]",
-            "CITATION": "us/guidance/primary/source",
-            "DEPENDENT_CITATION": "us/statute/42/1437c-1",
-            "EXISTING_SIGNED_IMPORTS_JSON": "[]",
-            "GITHUB_OUTPUT": str(tmp_path / "github-output"),
-            "GITHUB_RUN_ID": "200",
-            "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
-            "QUEUE_ID": "",
-            "REPAIR_RUN_ID": "100",
-            "REPAIR_RUN_LANE": "target",  # Ambient values must not select the lane.
-            "REPAIR_RULESPEC_PATH": "us/statutes/42/unrelated.yaml",
-            "REPLACE_LEGACY_RULESPEC_PATH": "",
-            "REPLACE_RULESPEC_PATH": "us/guidance/primary/source.yaml",
-            "SECOND_DEPENDENT_CITATION": "",
-            "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-        },
+        env=Names(
+            {
+                **os.environ,
+                "ATOMIC_SOURCE_JSON": "[]",
+                "CITATION": "us/guidance/primary/source",
+                "DEPENDENT_CITATION": "us/statute/42/1437c-1",
+                "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+                "GITHUB_OUTPUT": str(tmp_path / "github-output"),
+                "GITHUB_RUN_ID": "200",
+                "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+                "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
+                "QUEUE_ID": "",
+                "REPAIR_RUN_ID": "100",
+                "REPAIR_RUN_LANE": "target",  # Ambient values must not select the lane.
+                "REPAIR_RULESPEC_PATH": "us/statutes/42/unrelated.yaml",
+                "REPLACE_LEGACY_RULESPEC_PATH": "",
+                "REPLACE_RULESPEC_PATH": "us/guidance/primary/source.yaml",
+                "SECOND_DEPENDENT_CITATION": "",
+                "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+            }
+        ),
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3633,26 +3637,28 @@ def test_repair_preflight_accepts_new_source_target(
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "ATOMIC_SOURCE_JSON": "[]",
-            "CITATION": "us/guidance/example/new-source",
-            "DEPENDENT_CITATION": "",
-            "EXISTING_SIGNED_IMPORTS_JSON": "[]",
-            "GITHUB_OUTPUT": str(tmp_path / "github-output"),
-            "GITHUB_RUN_ID": "200",
-            "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
-            "QUEUE_ID": "",
-            "REPAIR_RUN_ID": "100",
-            "REPAIR_RULESPEC_PATH": "",
-            "REPLACE_LEGACY_RULESPEC_PATH": "",
-            "REPLACE_RULESPEC_PATH": "",
-            "SECOND_DEPENDENT_CITATION": "us/statute/42/402/w"
-            if second_without_first
-            else "",
-            "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-        },
+        env=Names(
+            {
+                **os.environ,
+                "ATOMIC_SOURCE_JSON": "[]",
+                "CITATION": "us/guidance/example/new-source",
+                "DEPENDENT_CITATION": "",
+                "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+                "GITHUB_OUTPUT": str(tmp_path / "github-output"),
+                "GITHUB_RUN_ID": "200",
+                "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+                "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
+                "QUEUE_ID": "",
+                "REPAIR_RUN_ID": "100",
+                "REPAIR_RULESPEC_PATH": "",
+                "REPLACE_LEGACY_RULESPEC_PATH": "",
+                "REPLACE_RULESPEC_PATH": "",
+                "SECOND_DEPENDENT_CITATION": "us/statute/42/402/w"
+                if second_without_first
+                else "",
+                "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+            }
+        ),
     )
 
     if second_without_first:
@@ -3706,30 +3712,32 @@ def test_repair_preflight_rejects_tests_only_new_source(tmp_path: Path) -> None:
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "ATOMIC_SOURCE_JSON": json.dumps(
-                {
-                    "schema": "axiom-encode/atomic-source-transaction/v2",
-                    "source_bundle": [],
-                    "canonical_refresh_bundle": [],
-                    "primary_required_test_cases": [required_case],
-                }
-            ),
-            "CITATION": "us/guidance/example/new-source",
-            "DEPENDENT_CITATION": "",
-            "EXISTING_SIGNED_IMPORTS_JSON": "[]",
-            "GITHUB_OUTPUT": str(tmp_path / "github-output"),
-            "GITHUB_RUN_ID": "200",
-            "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
-            "QUEUE_ID": "",
-            "REPAIR_RUN_ID": "100",
-            "REPLACE_LEGACY_RULESPEC_PATH": "",
-            "REPLACE_RULESPEC_PATH": "",
-            "SECOND_DEPENDENT_CITATION": "",
-            "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-        },
+        env=Names(
+            {
+                **os.environ,
+                "ATOMIC_SOURCE_JSON": json.dumps(
+                    {
+                        "schema": "axiom-encode/atomic-source-transaction/v2",
+                        "source_bundle": [],
+                        "canonical_refresh_bundle": [],
+                        "primary_required_test_cases": [required_case],
+                    }
+                ),
+                "CITATION": "us/guidance/example/new-source",
+                "DEPENDENT_CITATION": "",
+                "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+                "GITHUB_OUTPUT": str(tmp_path / "github-output"),
+                "GITHUB_RUN_ID": "200",
+                "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+                "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
+                "QUEUE_ID": "",
+                "REPAIR_RUN_ID": "100",
+                "REPLACE_LEGACY_RULESPEC_PATH": "",
+                "REPLACE_RULESPEC_PATH": "",
+                "SECOND_DEPENDENT_CITATION": "",
+                "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+            }
+        ),
     )
 
     assert completed.returncode != 0
@@ -3785,25 +3793,27 @@ def test_fresh_v2_required_test_cases_do_not_require_a_repair_run(
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "ATOMIC_SOURCE_JSON": required_cases_payload,
-            "CITATION": primary_citation,
-            "DEPENDENT_CITATION": "",
-            "EXISTING_SIGNED_IMPORTS_JSON": "[]",
-            "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
-            "QUEUE_ID": "",
-            "REPAIR_RUN_ID": "",
-            "REPLACE_LEGACY_RULESPEC_PATH": "",
-            "REPLACE_RULESPEC_PATH": primary_path,
-            "RULESPEC_CHECKOUT": str(checkout),
-            "RULESPEC_REF": subprocess.check_output(
-                ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
-            ).strip(),
-            "SECOND_DEPENDENT_CITATION": "",
-            "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-        },
+        env=Names(
+            {
+                **os.environ,
+                "ATOMIC_SOURCE_JSON": required_cases_payload,
+                "CITATION": primary_citation,
+                "DEPENDENT_CITATION": "",
+                "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+                "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+                "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
+                "QUEUE_ID": "",
+                "REPAIR_RUN_ID": "",
+                "REPLACE_LEGACY_RULESPEC_PATH": "",
+                "REPLACE_RULESPEC_PATH": primary_path,
+                "RULESPEC_CHECKOUT": str(checkout),
+                "RULESPEC_REF": subprocess.check_output(
+                    ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+                ).strip(),
+                "SECOND_DEPENDENT_CITATION": "",
+                "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+            }
+        ),
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3859,24 +3869,26 @@ def test_repair_required_test_cases_do_not_enable_canonical_refresh(
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "ATOMIC_SOURCE_JSON": required_cases_payload,
-            "CITATION": primary_citation,
-            "DEPENDENT_CITATION": "",
-            "EXISTING_SIGNED_IMPORTS_JSON": "[]",
-            "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
-            "QUEUE_ID": "",
-            "REPAIR_RUN_ID": "100",
-            "REPAIR_MODE": "tests_only",
-            "REPAIR_TESTS_ONLY": "true",
-            "REPLACE_LEGACY_RULESPEC_PATH": "",
-            "REPLACE_RULESPEC_PATH": primary_path,
-            "RULESPEC_CHECKOUT": str(checkout),
-            "SECOND_DEPENDENT_CITATION": "",
-            "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-        },
+        env=Names(
+            {
+                **os.environ,
+                "ATOMIC_SOURCE_JSON": required_cases_payload,
+                "CITATION": primary_citation,
+                "DEPENDENT_CITATION": "",
+                "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+                "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+                "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
+                "QUEUE_ID": "",
+                "REPAIR_RUN_ID": "100",
+                "REPAIR_MODE": "tests_only",
+                "REPAIR_TESTS_ONLY": "true",
+                "REPLACE_LEGACY_RULESPEC_PATH": "",
+                "REPLACE_RULESPEC_PATH": primary_path,
+                "RULESPEC_CHECKOUT": str(checkout),
+                "SECOND_DEPENDENT_CITATION": "",
+                "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+            }
+        ),
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -4007,7 +4019,7 @@ def test_targeted_signed_reencode_packages_bounded_failure_diagnostics(
         "PROTECTED_RUNTIME_MARKER": str(protected_runtime_marker),
     }
 
-    subprocess.run(["bash", "-c", command], env=env, check=True)
+    subprocess.run(["bash", "-c", command], env=Names(env), check=True)
     assert protected_runtime_marker.exists() is (protected_runtime_state == "trusted")
 
     archive = tmp_path / "targeted-reencode-failure.tar"
@@ -4130,35 +4142,37 @@ def test_failed_reencode_metadata_uses_consumed_identity_after_evidence_mutation
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "CITATION": "us/statute/42/1437c-1",
-            "CORPUS_REF": "corpus-ref",
-            "COUNTRY": "us",
-            "GITHUB_RUN_ATTEMPT": "1",
-            "GITHUB_RUN_ID": "5678",
-            "GITHUB_SHA": "encoder-ref",
-            "REPAIR_CANDIDATE_CONCLUSION": "success",
-            "REPAIR_CANDIDATE_OUTCOME": "success",
-            "REPAIR_CANDIDATE_PATH": (
-                "" if repair_lane == "source-only" else "statutes/42/1437c-1.yaml"
-            ),
-            "REPAIR_CANDIDATE_LANE": repair_lane,
-            "REPAIR_CANDIDATE_RUNNER": (
-                "" if repair_lane == "source-only" else "openai-gpt-5.6-sol"
-            ),
-            "REPAIR_CANDIDATE_SOURCE_RULESPEC_REF": "f" * 40,
-            "REPAIR_CANDIDATE_RULESPEC_SHA256": (
-                "" if repair_lane == "source-only" else "d" * 64
-            ),
-            "REPAIR_CANDIDATE_TESTS_SHA256": (
-                "" if repair_lane == "source-only" else "e" * 64
-            ),
-            "REPAIR_RUN_ID": "1234",
-            "RULES_ENGINE_REF": "rules-engine-ref",
-            "RULESPEC_REF": "rulespec-ref",
-            "RUNNER_TEMP": str(tmp_path),
-        },
+        env=Names(
+            {
+                **os.environ,
+                "CITATION": "us/statute/42/1437c-1",
+                "CORPUS_REF": "corpus-ref",
+                "COUNTRY": "us",
+                "GITHUB_RUN_ATTEMPT": "1",
+                "GITHUB_RUN_ID": "5678",
+                "GITHUB_SHA": "encoder-ref",
+                "REPAIR_CANDIDATE_CONCLUSION": "success",
+                "REPAIR_CANDIDATE_OUTCOME": "success",
+                "REPAIR_CANDIDATE_PATH": (
+                    "" if repair_lane == "source-only" else "statutes/42/1437c-1.yaml"
+                ),
+                "REPAIR_CANDIDATE_LANE": repair_lane,
+                "REPAIR_CANDIDATE_RUNNER": (
+                    "" if repair_lane == "source-only" else "openai-gpt-5.6-sol"
+                ),
+                "REPAIR_CANDIDATE_SOURCE_RULESPEC_REF": "f" * 40,
+                "REPAIR_CANDIDATE_RULESPEC_SHA256": (
+                    "" if repair_lane == "source-only" else "d" * 64
+                ),
+                "REPAIR_CANDIDATE_TESTS_SHA256": (
+                    "" if repair_lane == "source-only" else "e" * 64
+                ),
+                "REPAIR_RUN_ID": "1234",
+                "RULES_ENGINE_REF": "rules-engine-ref",
+                "RULESPEC_REF": "rulespec-ref",
+                "RUNNER_TEMP": str(tmp_path),
+            }
+        ),
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -4240,18 +4254,20 @@ def test_targeted_signed_reencode_rejects_unsafe_guard_diagnostics(
 
     completed = subprocess.run(
         ["bash", "-c", command],
-        env={
-            **os.environ,
-            "CITATION": "us/statute/42/1437c-1",
-            "CORPUS_REF": "corpus-ref",
-            "COUNTRY": "us",
-            "GITHUB_RUN_ATTEMPT": "1",
-            "GITHUB_RUN_ID": "1234",
-            "GITHUB_SHA": "encoder-ref",
-            "RULES_ENGINE_REF": "rules-engine-ref",
-            "RULESPEC_REF": "rulespec-ref",
-            "RUNNER_TEMP": str(tmp_path),
-        },
+        env=Names(
+            {
+                **os.environ,
+                "CITATION": "us/statute/42/1437c-1",
+                "CORPUS_REF": "corpus-ref",
+                "COUNTRY": "us",
+                "GITHUB_RUN_ATTEMPT": "1",
+                "GITHUB_RUN_ID": "1234",
+                "GITHUB_SHA": "encoder-ref",
+                "RULES_ENGINE_REF": "rules-engine-ref",
+                "RULESPEC_REF": "rulespec-ref",
+                "RUNNER_TEMP": str(tmp_path),
+            }
+        ),
         capture_output=True,
         text=True,
     )
@@ -4296,18 +4312,20 @@ def test_targeted_signed_reencode_rejects_unsafe_raw_guard_diagnostics(
 
     completed = subprocess.run(
         ["bash", "-c", command],
-        env={
-            **os.environ,
-            "CITATION": "us/statute/42/1437c-1",
-            "CORPUS_REF": "corpus-ref",
-            "COUNTRY": "us",
-            "GITHUB_RUN_ATTEMPT": "1",
-            "GITHUB_RUN_ID": "1234",
-            "GITHUB_SHA": "encoder-ref",
-            "RULES_ENGINE_REF": "rules-engine-ref",
-            "RULESPEC_REF": "rulespec-ref",
-            "RUNNER_TEMP": str(tmp_path),
-        },
+        env=Names(
+            {
+                **os.environ,
+                "CITATION": "us/statute/42/1437c-1",
+                "CORPUS_REF": "corpus-ref",
+                "COUNTRY": "us",
+                "GITHUB_RUN_ATTEMPT": "1",
+                "GITHUB_RUN_ID": "1234",
+                "GITHUB_SHA": "encoder-ref",
+                "RULES_ENGINE_REF": "rules-engine-ref",
+                "RULESPEC_REF": "rulespec-ref",
+                "RUNNER_TEMP": str(tmp_path),
+            }
+        ),
         capture_output=True,
         text=True,
     )
@@ -4355,14 +4373,16 @@ def test_targeted_signed_reencode_preserves_checkpoint_guard_failure(
 
     completed = subprocess.run(
         ["bash", "-c", script],
-        env={
-            **os.environ,
-            "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key",
-            "GITHUB_WORKSPACE": str(tmp_path),
-            "GUARD_STUB": str(guard_stub),
-            "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
-            "RUNNER_TEMP": str(tmp_path),
-        },
+        env=Names(
+            {
+                **os.environ,
+                "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key",
+                "GITHUB_WORKSPACE": str(tmp_path),
+                "GUARD_STUB": str(guard_stub),
+                "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
+                "RUNNER_TEMP": str(tmp_path),
+            }
+        ),
         capture_output=True,
         text=True,
     )
@@ -4427,15 +4447,17 @@ def test_targeted_signed_reencode_packages_noncontract_checkpoint_failure(
     )
     checkpoint_result = subprocess.run(
         ["bash", "-c", checkpoint_script],
-        env={
-            **os.environ,
-            "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key",
-            "GITHUB_WORKSPACE": str(tmp_path),
-            "GUARD_STDOUT": guard_stdout,
-            "GUARD_STUB": str(guard_stub),
-            "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
-            "RUNNER_TEMP": str(tmp_path),
-        },
+        env=Names(
+            {
+                **os.environ,
+                "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key",
+                "GITHUB_WORKSPACE": str(tmp_path),
+                "GUARD_STDOUT": guard_stdout,
+                "GUARD_STUB": str(guard_stub),
+                "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
+                "RUNNER_TEMP": str(tmp_path),
+            }
+        ),
         capture_output=True,
         text=True,
     )
@@ -4461,22 +4483,24 @@ def test_targeted_signed_reencode_packages_noncontract_checkpoint_failure(
     )
     package_result = subprocess.run(
         ["bash", "-c", package_command],
-        env={
-            **os.environ,
-            "COPYFILE_DISABLE": "1",
-            "CITATION": "us-la/statute/47:294",
-            "CORPUS_REF": "corpus-ref",
-            "COUNTRY": "us",
-            "ENCODE_APPLY_CONCLUSION": "failure",
-            "ENCODE_APPLY_OUTCOME": "failure",
-            "GITHUB_RUN_ATTEMPT": "1",
-            "GITHUB_RUN_ID": "31017990537",
-            "GITHUB_SHA": "encoder-ref",
-            "PROVISION_SIGNING_SUPERVISOR_CONCLUSION": "success",
-            "RULES_ENGINE_REF": "rules-engine-ref",
-            "RULESPEC_REF": "rulespec-ref",
-            "RUNNER_TEMP": str(tmp_path),
-        },
+        env=Names(
+            {
+                **os.environ,
+                "COPYFILE_DISABLE": "1",
+                "CITATION": "us-la/statute/47:294",
+                "CORPUS_REF": "corpus-ref",
+                "COUNTRY": "us",
+                "ENCODE_APPLY_CONCLUSION": "failure",
+                "ENCODE_APPLY_OUTCOME": "failure",
+                "GITHUB_RUN_ATTEMPT": "1",
+                "GITHUB_RUN_ID": "31017990537",
+                "GITHUB_SHA": "encoder-ref",
+                "PROVISION_SIGNING_SUPERVISOR_CONCLUSION": "success",
+                "RULES_ENGINE_REF": "rules-engine-ref",
+                "RULESPEC_REF": "rulespec-ref",
+                "RUNNER_TEMP": str(tmp_path),
+            }
+        ),
         capture_output=True,
         text=True,
     )
@@ -4539,7 +4563,7 @@ def test_targeted_signed_reencode_rejects_symlinked_failure_diagnostics(
 
     completed = subprocess.run(
         ["bash", "-c", command],
-        env=env,
+        env=Names(env),
         capture_output=True,
         text=True,
     )
@@ -5994,21 +6018,23 @@ def test_targeted_signed_reencode_rejects_nonatomic_source_bundle_replacements_e
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "CITATION": "us-ri/statute/44-30-2.6",
-            "DEPENDENT_CITATION": dependent_citation,
-            "EXISTING_SIGNED_IMPORTS_JSON": "[]",
-            "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
-            "QUEUE_ID": "",
-            "REPLACE_LEGACY_RULESPEC_PATH": legacy_source,
-            "REPLACE_RULESPEC_PATH": "us-ri/statutes/44-30-2.6.yaml",
-            "RULESPEC_CHECKOUT": str(checkout),
-            "SECOND_DEPENDENT_CITATION": "",
-            "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-            "ATOMIC_SOURCE_JSON": '["us-ri/statute/44-30-1"]',
-        },
+        env=Names(
+            {
+                **os.environ,
+                "CITATION": "us-ri/statute/44-30-2.6",
+                "DEPENDENT_CITATION": dependent_citation,
+                "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+                "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+                "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
+                "QUEUE_ID": "",
+                "REPLACE_LEGACY_RULESPEC_PATH": legacy_source,
+                "REPLACE_RULESPEC_PATH": "us-ri/statutes/44-30-2.6.yaml",
+                "RULESPEC_CHECKOUT": str(checkout),
+                "SECOND_DEPENDENT_CITATION": "",
+                "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+                "ATOMIC_SOURCE_JSON": '["us-ri/statute/44-30-1"]',
+            }
+        ),
     )
 
     assert completed.returncode != 0
@@ -6050,22 +6076,24 @@ def test_targeted_signed_reencode_rejects_existing_source_add_targets_early(
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "ATOMIC_SOURCE_JSON": '["us-la/statute/47:295"]',
-            "CITATION": "us-la/statute/47:294",
-            "DEPENDENT_CITATION": "",
-            "EXISTING_SIGNED_IMPORTS_JSON": "[]",
-            "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
-            "QUEUE_ID": "",
-            "REPAIR_RUN_ID": "",
-            "REPLACE_LEGACY_RULESPEC_PATH": "",
-            "REPLACE_RULESPEC_PATH": "",
-            "RULESPEC_CHECKOUT": str(checkout),
-            "SECOND_DEPENDENT_CITATION": "",
-            "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
-        },
+        env=Names(
+            {
+                **os.environ,
+                "ATOMIC_SOURCE_JSON": '["us-la/statute/47:295"]',
+                "CITATION": "us-la/statute/47:294",
+                "DEPENDENT_CITATION": "",
+                "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+                "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+                "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
+                "QUEUE_ID": "",
+                "REPAIR_RUN_ID": "",
+                "REPLACE_LEGACY_RULESPEC_PATH": "",
+                "REPLACE_RULESPEC_PATH": "",
+                "RULESPEC_CHECKOUT": str(checkout),
+                "SECOND_DEPENDENT_CITATION": "",
+                "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+            }
+        ),
     )
 
     assert completed.returncode != 0
@@ -6447,7 +6475,7 @@ def test_targeted_signed_reencode_rejects_invalid_second_dependent_inputs(
         check=False,
         capture_output=True,
         text=True,
-        env=environment,
+        env=Names(environment),
     )
 
     assert completed.returncode != 0
@@ -6472,7 +6500,7 @@ def test_targeted_review_finding_temp_file_is_valid_context(tmp_path: Path) -> N
         check=True,
         capture_output=True,
         text=True,
-        env={**os.environ, "RUNNER_TEMP": str(runner_temp)},
+        env=Names({**os.environ, "RUNNER_TEMP": str(runner_temp)}),
     )
 
     finding_path = Path(completed.stdout)
@@ -6594,31 +6622,33 @@ def test_targeted_artifact_packages_signed_review_context(
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "CITATION": citation,
-            "PYTHONPATH": str(ROOT / "src"),
-            "REVIEW_FINDING": review_content.rstrip("\n"),
-            "REVIEW_FINDING_PRESENT": "true",
-            "RUNNER_TEMP": str(tmp_path),
-            "RULESPEC_CHECKOUT": "rulespec-nz",
-            "RULESPEC_REF": rulespec_ref,
-            "REPLACE_RULESPEC_PATH": (
-                replacement_path if contract_case != "none" else ""
-            ),
-            "ATOMIC_SOURCE_JSON": (
-                json.dumps(
-                    {
-                        "schema": "axiom-encode/atomic-source-transaction/v2",
-                        "source_bundle": [],
-                        "canonical_refresh_bundle": [],
-                        "primary_required_test_cases": required_cases,
-                    }
-                )
-                if contract_case != "none"
-                else "[]"
-            ),
-        },
+        env=Names(
+            {
+                **os.environ,
+                "CITATION": citation,
+                "PYTHONPATH": str(ROOT / "src"),
+                "REVIEW_FINDING": review_content.rstrip("\n"),
+                "REVIEW_FINDING_PRESENT": "true",
+                "RUNNER_TEMP": str(tmp_path),
+                "RULESPEC_CHECKOUT": "rulespec-nz",
+                "RULESPEC_REF": rulespec_ref,
+                "REPLACE_RULESPEC_PATH": (
+                    replacement_path if contract_case != "none" else ""
+                ),
+                "ATOMIC_SOURCE_JSON": (
+                    json.dumps(
+                        {
+                            "schema": "axiom-encode/atomic-source-transaction/v2",
+                            "source_bundle": [],
+                            "canonical_refresh_bundle": [],
+                            "primary_required_test_cases": required_cases,
+                        }
+                    )
+                    if contract_case != "none"
+                    else "[]"
+                ),
+            }
+        ),
     )
 
     if contract_case == "tampered":
@@ -6944,17 +6974,19 @@ def test_targeted_artifact_enforces_exact_canonical_refresh_inventory(
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "CITATION": target_rows[0][0],
-            "PYTHONPATH": str(ROOT / "src"),
-            "REVIEW_FINDING": "Preserve the primary semantics.",
-            "REVIEW_FINDING_PRESENT": "true",
-            "RUNNER_TEMP": str(tmp_path),
-            "RULESPEC_CHECKOUT": "rulespec-us",
-            "RULESPEC_REF": rulespec_ref,
-            "REPLACE_RULESPEC_PATH": target_rows[0][1],
-        },
+        env=Names(
+            {
+                **os.environ,
+                "CITATION": target_rows[0][0],
+                "PYTHONPATH": str(ROOT / "src"),
+                "REVIEW_FINDING": "Preserve the primary semantics.",
+                "REVIEW_FINDING_PRESENT": "true",
+                "RUNNER_TEMP": str(tmp_path),
+                "RULESPEC_CHECKOUT": "rulespec-us",
+                "RULESPEC_REF": rulespec_ref,
+                "REPLACE_RULESPEC_PATH": target_rows[0][1],
+            }
+        ),
     )
 
     if expected_error is not None:
@@ -7029,36 +7061,40 @@ def test_targeted_metadata_uses_consumed_repair_identity_after_evidence_mutation
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "CITATION": "us/statute/42/1437c\u20131",
-            "GITHUB_RUN_ATTEMPT": "1",
-            "GITHUB_RUN_ID": "5678",
-            "PR_BASE_BRANCH": "hard-cut/canonical-layout-us",
-            "REPAIR_CANDIDATE_PATH": (
-                "" if repair_lane == "source-only" else "statutes/42/1437c-1.yaml"
-            ),
-            "REPAIR_CANDIDATE_LANE": repair_lane,
-            "REPAIR_CANDIDATE_RUNNER": (
-                "" if repair_lane == "source-only" else "openai-gpt-5.6-sol"
-            ),
-            "REPAIR_CANDIDATE_SOURCE_RULESPEC_REF": "f" * 40,
-            "REPAIR_CANDIDATE_RULESPEC_SHA256": (
-                "" if repair_lane == "source-only" else "d" * 64
-            ),
-            "REPAIR_CANDIDATE_TESTS_SHA256": (
-                "" if repair_lane == "source-only" else "e" * 64
-            ),
-            "REPAIR_RUN_ID": "1234" if selected_mode else "",
-            "REPAIR_MODE": selected_mode,
-            "REPAIR_TESTS_ONLY": ("true" if selected_mode == "tests_only" else "false")
-            if selected_mode
-            else "",
-            "PYTHONPATH": str(ROOT / "src"),
-            "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
-            "RULESPEC_REF": heads["rulespec-us"],
-            "RUNNER_TEMP": str(runner_temp),
-        },
+        env=Names(
+            {
+                **os.environ,
+                "CITATION": "us/statute/42/1437c\u20131",
+                "GITHUB_RUN_ATTEMPT": "1",
+                "GITHUB_RUN_ID": "5678",
+                "PR_BASE_BRANCH": "hard-cut/canonical-layout-us",
+                "REPAIR_CANDIDATE_PATH": (
+                    "" if repair_lane == "source-only" else "statutes/42/1437c-1.yaml"
+                ),
+                "REPAIR_CANDIDATE_LANE": repair_lane,
+                "REPAIR_CANDIDATE_RUNNER": (
+                    "" if repair_lane == "source-only" else "openai-gpt-5.6-sol"
+                ),
+                "REPAIR_CANDIDATE_SOURCE_RULESPEC_REF": "f" * 40,
+                "REPAIR_CANDIDATE_RULESPEC_SHA256": (
+                    "" if repair_lane == "source-only" else "d" * 64
+                ),
+                "REPAIR_CANDIDATE_TESTS_SHA256": (
+                    "" if repair_lane == "source-only" else "e" * 64
+                ),
+                "REPAIR_RUN_ID": "1234" if selected_mode else "",
+                "REPAIR_MODE": selected_mode,
+                "REPAIR_TESTS_ONLY": (
+                    "true" if selected_mode == "tests_only" else "false"
+                )
+                if selected_mode
+                else "",
+                "PYTHONPATH": str(ROOT / "src"),
+                "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
+                "RULESPEC_REF": heads["rulespec-us"],
+                "RUNNER_TEMP": str(runner_temp),
+            }
+        ),
     )
 
     if selected_mode == "tests_only":
@@ -7372,24 +7408,26 @@ def test_targeted_artifact_packages_replacement_closure(
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "CITATION": citation,
-            "PYTHONPATH": str(ROOT / "src"),
-            "REVIEW_FINDING": review_content.rstrip("\n"),
-            "REVIEW_FINDING_PRESENT": "true",
-            "RUNNER_TEMP": str(tmp_path),
-            "RULESPEC_CHECKOUT": "rulespec-us",
-            "RULESPEC_REF": rulespec_ref,
-            "REPLACE_LEGACY_RULESPEC_PATH": "us/statutes/47:32.yaml",
-            "REPLACE_RULESPEC_PATH": "us/statutes/47/32.yaml",
-            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": json.dumps(
-                selected_inputs
-            ),
-            "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": (
-                exact_primary_path if receipt_version == 7 else ""
-            ),
-        },
+        env=Names(
+            {
+                **os.environ,
+                "CITATION": citation,
+                "PYTHONPATH": str(ROOT / "src"),
+                "REVIEW_FINDING": review_content.rstrip("\n"),
+                "REVIEW_FINDING_PRESENT": "true",
+                "RUNNER_TEMP": str(tmp_path),
+                "RULESPEC_CHECKOUT": "rulespec-us",
+                "RULESPEC_REF": rulespec_ref,
+                "REPLACE_LEGACY_RULESPEC_PATH": "us/statutes/47:32.yaml",
+                "REPLACE_RULESPEC_PATH": "us/statutes/47/32.yaml",
+                "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": json.dumps(
+                    selected_inputs
+                ),
+                "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": (
+                    exact_primary_path if receipt_version == 7 else ""
+                ),
+            }
+        ),
     )
 
     if error is not None:
@@ -7503,18 +7541,20 @@ def test_targeted_artifact_preserves_pre_v4_replacement_receipts(
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "CITATION": citation,
-            "PYTHONPATH": str(ROOT / "src"),
-            "REVIEW_FINDING": "",
-            "REVIEW_FINDING_PRESENT": "false",
-            "RUNNER_TEMP": str(tmp_path),
-            "RULESPEC_CHECKOUT": "rulespec-us",
-            "RULESPEC_REF": rulespec_ref,
-            "REPLACE_LEGACY_RULESPEC_PATH": "us/statutes/47:32.yaml",
-            "REPLACE_RULESPEC_PATH": "us/statutes/47/32.yaml",
-        },
+        env=Names(
+            {
+                **os.environ,
+                "CITATION": citation,
+                "PYTHONPATH": str(ROOT / "src"),
+                "REVIEW_FINDING": "",
+                "REVIEW_FINDING_PRESENT": "false",
+                "RUNNER_TEMP": str(tmp_path),
+                "RULESPEC_CHECKOUT": "rulespec-us",
+                "RULESPEC_REF": rulespec_ref,
+                "REPLACE_LEGACY_RULESPEC_PATH": "us/statutes/47:32.yaml",
+                "REPLACE_RULESPEC_PATH": "us/statutes/47/32.yaml",
+            }
+        ),
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -7665,24 +7705,26 @@ def test_targeted_artifact_enforces_target_and_dependent_context_lanes(
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "CITATION": target_citation,
-            "DEPENDENT_CITATION": dependent_citation,
-            "DEPENDENT_REVIEW_FINDING": "Preserve the dependent source.",
-            "DEPENDENT_REVIEW_FINDING_PRESENT": "true",
-            "PYTHONPATH": str(ROOT / "src"),
-            "SECOND_DEPENDENT_CITATION": second_dependent_citation,
-            "SECOND_DEPENDENT_REVIEW_FINDING": (
-                "Preserve the second dependent source."
-            ),
-            "SECOND_DEPENDENT_REVIEW_FINDING_PRESENT": "true",
-            "REVIEW_FINDING": "Preserve the target source.",
-            "REVIEW_FINDING_PRESENT": "true",
-            "RUNNER_TEMP": str(tmp_path),
-            "RULESPEC_CHECKOUT": "rulespec-us",
-            "RULESPEC_REF": rulespec_ref,
-        },
+        env=Names(
+            {
+                **os.environ,
+                "CITATION": target_citation,
+                "DEPENDENT_CITATION": dependent_citation,
+                "DEPENDENT_REVIEW_FINDING": "Preserve the dependent source.",
+                "DEPENDENT_REVIEW_FINDING_PRESENT": "true",
+                "PYTHONPATH": str(ROOT / "src"),
+                "SECOND_DEPENDENT_CITATION": second_dependent_citation,
+                "SECOND_DEPENDENT_REVIEW_FINDING": (
+                    "Preserve the second dependent source."
+                ),
+                "SECOND_DEPENDENT_REVIEW_FINDING_PRESENT": "true",
+                "REVIEW_FINDING": "Preserve the target source.",
+                "REVIEW_FINDING_PRESENT": "true",
+                "RUNNER_TEMP": str(tmp_path),
+                "RULESPEC_CHECKOUT": "rulespec-us",
+                "RULESPEC_REF": rulespec_ref,
+            }
+        ),
     )
 
     if error is not None:
