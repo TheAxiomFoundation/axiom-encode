@@ -1,3 +1,7 @@
+## 0.2.2261
+
+- Refresh the dependent exporter branch after the Arizona transport preflight and historical-owner review fixes.
+
 ## 0.2.2260
 
 - Refresh the dependent exporter branch after the protected Arizona transport parent absorbed current main; retain both signed-transport and Canadian repair-head admission.
