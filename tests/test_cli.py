@@ -17808,6 +17808,328 @@ rules:
             else set()
         )
 
+    def test_in_place_source_bound_dependent_completes_signed_transaction(
+        self, tmp_path: Path
+    ) -> None:
+        from axiom_encode.cli import _resolve_legacy_replacement_contract
+        from axiom_encode.prepare_signed_backfill import (
+            authorized_changed_paths,
+            stage_authorized_changes,
+        )
+        from axiom_encode.toolchain import load_rulespec_local_corpus_release
+
+        checkout = tmp_path / "rulespec-us"
+        content_root = checkout / "us-az"
+        primary_rel = Path("us-az/policies/des/faa5/expanded.yaml")
+        dependent_rel = Path("us-az/policies/des/faa5/benefit.yaml")
+        primary = checkout / primary_rel
+        dependent = checkout / dependent_rel
+        primary.parent.mkdir(parents=True)
+        primary.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            "    corpus_citation_path: us-az/manual/des/faa5/block-4\n"
+            "rules:\n"
+            "  - name: limit\n"
+            "    kind: parameter\n"
+            "    dtype: Rate\n"
+            "    versions:\n"
+            "      - effective_from: '0001-01-01'\n"
+            "        formula: '1.85'\n"
+        )
+        primary.with_name("expanded.test.yaml").write_text("[]\n")
+        old_hash = hashlib.sha256(primary.read_bytes()).hexdigest()
+        import_target = "us-az:policies/des/faa5/expanded#limit"
+
+        def dependent_body(digest: str, rate: str) -> str:
+            return (
+                "format: rulespec/v1\n"
+                "module:\n"
+                "  source_verification:\n"
+                "    corpus_citation_path: us-az/manual/des/faa5/block-5\n"
+                "imports:\n"
+                f"  - {import_target}\n"
+                "rules:\n"
+                "  - name: benefit_limit\n"
+                "    kind: derived\n"
+                "    dtype: Rate\n"
+                "    metadata:\n"
+                "      proof:\n"
+                "        atoms:\n"
+                "          - kind: import\n"
+                "            import:\n"
+                f"              target: {import_target}\n"
+                f"              hash: sha256:{digest}\n"
+                "    versions:\n"
+                "      - effective_from: '0001-01-01'\n"
+                f"        formula: '{rate}'\n"
+            )
+
+        dependent.write_text(dependent_body(old_hash, "1.85"))
+        dependent.with_name("benefit.test.yaml").write_text("[]\n")
+        old_manifest = (
+            checkout / "us-az/.axiom/encoding-manifests/policies/des/faa5/expanded.json"
+        )
+        new_manifest = (
+            checkout / ".axiom/encoding-manifests/us-az/policies/des/faa5/expanded.json"
+        )
+        old_manifest.parent.mkdir(parents=True)
+        old_manifest.write_text(
+            json.dumps(
+                {
+                    "schema_version": "axiom-encode/applied-rulespec/v1",
+                    "tool": "axiom-encode sign-applied-files",
+                    "backend": "manual",
+                    "runner": "manual-attestation",
+                    "applied_files": [
+                        {
+                            "path": path.relative_to(checkout).as_posix(),
+                            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                        }
+                        for path in (primary, primary.with_name("expanded.test.yaml"))
+                    ],
+                    "signature": {
+                        "algorithm": "hmac-sha256",
+                        "key_id": "axiom-encode-apply-v1",
+                        "value": "untrusted-historical-evidence",
+                    },
+                }
+            )
+            + "\n"
+        )
+        primary_citation = "us-az/manual/des/faa5/block-4"
+        dependent_citation = "us-az/manual/des/faa5/block-5"
+        corpus_path = _bind_test_repair_corpus_sources(
+            checkout,
+            tmp_path,
+            citation_paths=(primary_citation, dependent_citation),
+        )
+        _git(checkout, "init", "-b", "main")
+        _git(checkout, "config", "user.email", "test@example.com")
+        _git(checkout, "config", "user.name", "Test User")
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-m", "legacy source-bound pair")
+        with patch.dict(
+            os.environ, {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY}
+        ):
+            release = load_rulespec_local_corpus_release(content_root, corpus_path)
+        contract = _resolve_legacy_replacement_contract(
+            source_raw=primary_rel,
+            destination_raw=primary_rel,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=resolve_corpus_source_unit(primary_citation, release),
+            corpus_release=release,
+            scheduled_dependent_paths=(dependent_rel,),
+        )
+        assert contract.scheduled_dependents[0].source_citation == dependent_citation
+        assert contract.legacy_manifest.path == old_manifest.relative_to(checkout)
+
+        output_root = tmp_path / "out"
+
+        def apply(citation: str, relative: Path, body: str, *, legacy=False) -> None:
+            generated = output_root / "codex-test-model" / relative
+            generated.parent.mkdir(parents=True, exist_ok=True)
+            generated.write_text(body)
+            generated.with_suffix(".test.yaml").write_text("[]\n")
+            result = self._make_eval_result(True)
+            result.citation = citation
+            result.output_file = str(generated)
+            result.trace_file = str(tmp_path / (relative.stem + "-trace.json"))
+            Path(result.trace_file).write_text("{}\n")
+            source_text = "authoritative test source"
+            source_file = tmp_path / (relative.stem + "-source.txt")
+            source_file.write_text(source_text)
+            source_unit = resolve_corpus_source_unit(citation, release)
+            result.source_attestation = {
+                **source_unit.source_attestation,
+                "generation_input_sha256": hashlib.sha256(
+                    source_text.encode()
+                ).hexdigest(),
+            }
+            context = tmp_path / (relative.stem + "-context.json")
+            context.write_text(
+                json.dumps(
+                    {
+                        "source_text_file": source_file.name,
+                        "source_metadata": {
+                            "source_attestation": result.source_attestation
+                        },
+                    }
+                )
+                + "\n"
+            )
+            result.context_manifest_file = str(context)
+            result.context_manifest_sha256 = hashlib.sha256(
+                context.read_bytes()
+            ).hexdigest()
+            result.generation_prompt_sha256 = "prompt-sha"
+            if legacy:
+                result._axiom_legacy_replacement_contract = contract
+            self._record_apply_validation(
+                result,
+                output_root=output_root,
+                policy_repo_path=content_root,
+                corpus_path=corpus_path,
+            )
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64
+                    },
+                ),
+                patch(
+                    "axiom_encode.cli._git_repo_provenance",
+                    return_value={
+                        "root": "/repo/axiom-encode",
+                        "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                        "dirty_tracked": False,
+                    },
+                ),
+                patch(
+                    "axiom_encode.cli._require_axiom_encode_version_provenance",
+                    return_value={
+                        "version": AXIOM_ENCODE_TEST_VERSION,
+                        "version_commit": "f" * 40,
+                        "identity_source": "git",
+                    },
+                ),
+            ):
+                _apply_generated_encoding_result(
+                    result,
+                    output_root=output_root,
+                    policy_repo_path=content_root,
+                    corpus_path=corpus_path,
+                    run_id="source-bound-pair",
+                    signing_broker=TEST_APPLY_SIGNING_BROKER,
+                )
+
+        apply(
+            primary_citation,
+            Path(*primary_rel.parts[1:]),
+            primary.read_text().replace("'1.85'", "'2.0'"),
+            legacy=True,
+        )
+        new_hash = hashlib.sha256(primary.read_bytes()).hexdigest()
+        assert new_hash != old_hash
+        apply(
+            dependent_citation,
+            Path(*dependent_rel.parts[1:]),
+            dependent_body(new_hash, "2.0"),
+        )
+        authorized = authorized_changed_paths(checkout, corpus_root=corpus_path)
+        assert primary_rel in authorized
+        assert dependent_rel in authorized
+        assert not old_manifest.exists()
+        assert new_manifest.exists()
+        waiver_sha256 = hashlib.sha256(
+            (checkout / "known-validation-gaps.yaml").read_bytes()
+        ).hexdigest()
+        verified, _root, _digest, issues = (
+            _load_verified_applied_encoding_manifest_payload(
+                checkout,
+                new_manifest.relative_to(checkout).as_posix(),
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                expected_waiver_set_sha256=waiver_sha256,
+                expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
+                local_corpus_release=release,
+            )
+        )
+        assert issues == [], "\n".join(issues)
+        assert verified is not None
+
+        dependent_manifest = (
+            checkout / ".axiom/encoding-manifests/us-az/policies/des/faa5/benefit.json"
+        )
+
+        def pending_state() -> list[str]:
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: (
+                            TEST_APPLY_PUBLIC_KEY_B64
+                        ),
+                        "AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY,
+                    },
+                ),
+                patch(
+                    "axiom_encode.cli._applied_encoding_manifest_verifier",
+                    return_value=TEST_APPLY_SIGNING_BROKER,
+                ),
+            ):
+                return _legacy_replacement_pending_paths(
+                    checkout, local_corpus_release=release
+                )
+
+        clean_dependent_manifest = dependent_manifest.read_bytes()
+        tampered = json.loads(clean_dependent_manifest)
+        tampered["source_attestation"]["generation_input_sha256"] = "0" * 64
+        _sign_applied_encoding_manifest(tampered, TEST_APPLY_SIGNING_BROKER)
+        dependent_manifest.write_text(json.dumps(tampered) + "\n")
+        with pytest.raises(ValueError, match="source attestation differs"):
+            authorized_changed_paths(checkout, corpus_root=corpus_path)
+        assert pending_state()
+        dependent_manifest.write_bytes(clean_dependent_manifest)
+
+        clean_dependent = dependent.read_bytes()
+        dependent.write_bytes(
+            clean_dependent.replace(new_hash.encode(), old_hash.encode())
+        )
+        stale_proof = json.loads(clean_dependent_manifest)
+        for item in stale_proof["applied_files"]:
+            if item.get("path") == dependent_rel.as_posix():
+                item["sha256"] = hashlib.sha256(dependent.read_bytes()).hexdigest()
+        _sign_applied_encoding_manifest(stale_proof, TEST_APPLY_SIGNING_BROKER)
+        dependent_manifest.write_text(json.dumps(stale_proof) + "\n")
+        with pytest.raises(ValueError, match="primary proof hash differs"):
+            authorized_changed_paths(checkout, corpus_root=corpus_path)
+        assert pending_state()
+        dependent.write_bytes(clean_dependent)
+        dependent_manifest.write_bytes(clean_dependent_manifest)
+
+        stage_authorized_changes(checkout, corpus_root=corpus_path)
+        staged = set(
+            _git(checkout, "diff", "--cached", "--name-only").stdout.splitlines()
+        )
+        assert primary_rel.as_posix() in staged
+        assert dependent_rel.as_posix() in staged
+        assert old_manifest.relative_to(checkout).as_posix() in staged
+        assert new_manifest.relative_to(checkout).as_posix() in staged
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: (
+                        TEST_APPLY_PUBLIC_KEY_B64
+                    ),
+                    "AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._read_only_guard_encoder_execution_identity",
+                return_value=TEST_PINNED_ENCODER_IDENTITY,
+            ),
+            patch(
+                "axiom_encode.cli._applied_encoding_manifest_verifier",
+                return_value=TEST_APPLY_SIGNING_BROKER,
+            ),
+        ):
+            assert (
+                _legacy_replacement_pending_paths(
+                    checkout, local_corpus_release=release
+                )
+                == []
+            )
+            census = _manifest_census(
+                checkout,
+                roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+                local_corpus_release=release,
+            )
+        assert dependent_rel.as_posix() not in census["unmanifested_paths"]
+
     @pytest.mark.parametrize("dependent_owner", ["manual", "generated"])
     def test_apply_atomically_migrates_exact_legacy_dependent(
         self,
@@ -19390,6 +19712,27 @@ rules:
             _recover_apply_transaction(checkout)
 
         assert journal_path.exists()
+
+    @pytest.mark.parametrize(
+        "manifest_tail",
+        ["policies/foo.json", "policies/des/faa5/expanded.json"],
+    )
+    def test_apply_transaction_historical_manifest_is_deletion_only(
+        self, tmp_path, manifest_tail
+    ):
+        from axiom_encode.cli import _apply_transaction_target_relative_path
+
+        checkout = tmp_path / "rulespec-us"
+        (checkout / "us-az/policies").mkdir(parents=True)
+        historical = checkout / "us-az/.axiom/encoding-manifests" / manifest_tail
+        with pytest.raises(RuntimeError, match="outside the canonical"):
+            _apply_transaction_target_relative_path(checkout, historical)
+        assert (
+            _apply_transaction_target_relative_path(
+                checkout, historical, historical_manifest_deletion=True
+            )
+            == historical.relative_to(checkout).as_posix()
+        )
 
     def test_apply_transaction_rejects_duplicate_journal_keys(self, tmp_path):
         checkout = tmp_path / "rulespec-us"
