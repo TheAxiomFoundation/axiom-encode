@@ -835,6 +835,18 @@ def _signers(*keys: Ed25519PrivateKey, behavior: str = "valid"):
             thread.join(timeout=5)
 
 
+class _Run(subprocess.CompletedProcess[str]):
+    """A supervisor run, printed without its output.
+
+    The trusted runtime's entrypoint prints its own environment and its
+    child's, so a failing assert on a run shows its exit status and error
+    output alone.
+    """
+
+    def __repr__(self) -> str:
+        return f"_Run(returncode={self.returncode!r}, stderr={self.stderr!r})"
+
+
 @hides_environment
 def _invoke(
     supervisor: Path,
@@ -853,7 +865,7 @@ def _invoke(
         signer_arguments.extend(("--apply-signer-fd", str(descriptors[0])))
     if len(descriptors) > 1:
         signer_arguments.extend(("--eval-signer-fd", str(descriptors[1])))
-    return subprocess.run(
+    completed = subprocess.run(
         [
             str(supervisor),
             *signer_arguments,
@@ -871,6 +883,17 @@ def _invoke(
         text=True,
         timeout=timeout,
     )
+    return _Run(
+        completed.args, completed.returncode, completed.stdout, completed.stderr
+    )
+
+
+def _report(completed: subprocess.CompletedProcess[str]) -> dict[str, object]:
+    """The trusted runtime's report of a run, its environments as ``Names``."""
+    report = json.loads(completed.stdout)
+    report["environment"] = Names(report["environment"])
+    report["child"]["environment"] = Names(report["child"]["environment"])
+    return report
 
 
 def test_subscription_auth_is_isolated_refreshed_and_wiped(
@@ -929,7 +952,7 @@ def test_subscription_auth_is_isolated_refreshed_and_wiped(
     )
     legacy_scratch.chmod(0o700)
     assert completed.returncode == 0, completed.stderr
-    result = json.loads(completed.stdout)
+    result = _report(completed)
     codex_home = Path(result["environment"]["CODEX_HOME"])
     assert codex_home.name.startswith("axiom-codex-")
     assert not codex_home.exists()
@@ -1200,7 +1223,7 @@ def test_compiled_supervisor_uses_isolated_direct_runtime_and_domain_signatures(
             environment=sentinels,
         )
     assert completed.returncode == 0, completed.stderr
-    result = json.loads(completed.stdout)
+    result = _report(completed)
     assert result["isolated"] == 1
     assert result["no_site"] == 1
     assert Path(result["package_origin"]) == trusted_python_runtime[2] / "__init__.py"
@@ -1231,7 +1254,8 @@ def test_compiled_supervisor_uses_isolated_direct_runtime_and_domain_signatures(
         else:
             assert name not in result["environment"]
         if name not in parent_only:
-            assert value not in completed.stdout
+            reported = value in completed.stdout
+            assert not reported, name
     assert {"LANG", "PYTHONDONTWRITEBYTECODE"} <= set(result["child"]["environment"])
     for name, value in sentinels.items():
         assert result["child"]["environment"].get(name) != value

@@ -134,7 +134,10 @@ standard library when the code under test calls it (its own
 raised it, and one the code under test wraps with no frame in the test's file
 to start from prints the arguments of the frame that wrapped it. Those are
 outside what a test can control. A launcher reached other than by its module's
-name (``getattr(subprocess, name)``, an alias) is not taken to be one.
+name (``getattr(subprocess, name)``, an alias) is not taken to be one. What a
+launched program prints is not taken to hold an environment: the signing
+supervisor's trusted runtime prints its own and its child's, so its tests
+print a run without its output and read the report through ``Names``.
 """
 
 from __future__ import annotations
