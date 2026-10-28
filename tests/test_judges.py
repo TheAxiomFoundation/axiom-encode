@@ -2383,7 +2383,6 @@ def _at_or_under_opt(paths):
     return any(path == "/opt" or path.startswith("/opt/") for path in paths)
 
 
-@hides_environment
 def _opt_permission_suspects(run, step_env=None, working_directory=None):
     """Return the lines of a step that could change the permissions of /opt or /.
 

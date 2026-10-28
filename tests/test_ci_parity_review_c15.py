@@ -164,7 +164,6 @@ class _Build:
         home.mkdir(exist_ok=True)
         monkeypatch.setenv("HOME", str(home.resolve()))
 
-        @hides_environment
         def which(name: str, *args: Any, **kwargs: Any) -> str | None:
             if name == "rustup":
                 return None if rustup is None else "/mock/rustup"
