@@ -172,7 +172,7 @@ def test_legacy_contract_rejects_roots_containing_path_separator(monkeypatch):
     )
     monkeypatch.setattr(
         "axiom_encode.rules_engine_compat.subprocess.run",
-        lambda command, **kwargs: unsupported,
+        hides_environment(lambda command, **kwargs: unsupported),
     )
     root = Path(f"/rulespec{os.pathsep}other/rulespec-us")
 

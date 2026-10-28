@@ -102,7 +102,8 @@ pytest prints its own diff of the two results in place of what their operands
 would print. The operands' types are not known here, so such asserts are
 flagged as well. A keyword-only parameter of a function taking neither
 ``*args`` nor ``**kwargs`` is not printed, but counts here. And a function is
-flagged whether or not anything in it can raise.
+flagged whether or not anything in it can raise, unless all it does is return
+constants.
 
 It misses what it cannot see. A test that does not itself launch anything may
 read a mock the code under test launched through; ``mock.call_args.kwargs``
@@ -138,7 +139,7 @@ from pathlib import Path
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from tests.environment_assertions import Names, changed_names
+from tests.environment_assertions import Names, changed_names, hides_environment
 
 TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parent
@@ -332,17 +333,14 @@ def _launcher(text: object) -> bool:
 
 def _inert(function: ast.AST) -> bool:
     """Whether no exception can pass through ``function``'s frame: it calls
-    nothing, and only returns names, constants and containers of them."""
+    nothing and reads nothing, and only returns constants, or tuples or lists
+    of them."""
 
     def literal(node: ast.AST | None) -> bool:
-        if node is None or isinstance(node, (ast.Constant, ast.Name)):
+        if node is None or isinstance(node, ast.Constant):
             return True
-        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        if isinstance(node, (ast.Tuple, ast.List)):
             return all(literal(element) for element in node.elts)
-        if isinstance(node, ast.Dict):
-            return all(key is not None and literal(key) for key in node.keys) and all(
-                literal(value) for value in node.values
-            )
         return False
 
     if isinstance(function, ast.Lambda):
@@ -2760,3 +2758,55 @@ def test_names_compares_by_value_and_prints_names(
     assert (names == Names(other)) == (kept == other)
     assert dict(names) == kept
     assert repr(names) == f"Names({sorted(kept)!r})"
+
+
+passed = st.recursive(
+    st.one_of(st.none(), st.integers(), st.text(max_size=3), values),
+    lambda children: st.one_of(
+        st.lists(children, max_size=3),
+        st.lists(children, max_size=3).map(tuple),
+        st.dictionaries(
+            st.sampled_from(["env", "environment", "other"]), children, max_size=3
+        ),
+    ),
+    max_leaves=8,
+)
+
+
+def _hidden(original: object, received: object, name: object = None) -> bool:
+    """Whether ``received`` is ``original`` with each environment in Names."""
+    if isinstance(original, Mapping) and name in ("env", "environment"):
+        return isinstance(received, Names) and dict(received) == dict(original)
+    if isinstance(original, Mapping):
+        return isinstance(received, Mapping) and all(
+            _hidden(value, received[key], key) for key, value in original.items()
+        )
+    if type(original) in (list, tuple):
+        return type(received) is type(original) and all(
+            _hidden(old, new) for old, new in zip(original, received, strict=True)
+        )
+    return received is original
+
+
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(
+    args=st.lists(passed, max_size=3),
+    kwargs=st.dictionaries(
+        st.sampled_from(["env", "environment", "other"]), passed, max_size=3
+    ),
+)
+def test_hides_environment_passes_equal_values_with_names(
+    args: list[object], kwargs: dict[str, object]
+) -> None:
+    received: dict[str, object] = {}
+
+    @hides_environment
+    def fake(*args: object, **kwargs: object) -> str:
+        received.update(args=list(args), kwargs=kwargs)
+        return "result"
+
+    assert fake(*args, **kwargs) == "result"
+    assert received["args"] == args
+    assert received["kwargs"] == kwargs
+    assert _hidden(args, received["args"])
+    assert _hidden(kwargs, received["kwargs"])
