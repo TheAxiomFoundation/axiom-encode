@@ -2893,6 +2893,10 @@ def main():
     )
     _add_rulespec_dependency_root_argument(test_parser)
 
+    from axiom_encode.engine_pin_diff import add_parser as add_engine_pin_diff_parser
+
+    add_engine_pin_diff_parser(subparsers)
+
     # compile command
     compile_parser = subparsers.add_parser(
         "compile", help="Compile a RuleSpec YAML file with the Axiom rules engine"
@@ -3794,6 +3798,10 @@ def main():
         cmd_compile(args)
     elif args.command == "engine-bind":
         cmd_engine_bind(args)
+    elif args.command == "engine-pin-diff":
+        from axiom_encode.engine_pin_diff import run
+
+        sys.exit(run(args))
     elif args.command == "test":
         cmd_test(args)
     elif args.command == "log":
@@ -5794,7 +5802,8 @@ def _execute_rulespec_test_case(
     compiled_relations: list[dict] | None = None,
     policy_repo_path: Path,
     rulespec_roots: Sequence[Path] = (),
-) -> list[dict[str, str | None]]:
+    request_only: bool = False,
+) -> list[dict[str, str | None]] | dict:
     failures: list[dict[str, str | None]] = []
     period = _rulespec_period_spec(case.get("period", "2026-01"))
     interval = {"start": period["start"], "end": period["end"]}
@@ -6062,7 +6071,7 @@ def _execute_rulespec_test_case(
         if str(key) not in parameter_by_id
     }
 
-    for output, expected_value in parameter_expected.items():
+    for output, expected_value in ({} if request_only else parameter_expected).items():
         try:
             actual_value = _rulespec_parameter_value(
                 parameter_by_id[output], flat_inputs, period["start"]
@@ -6101,7 +6110,7 @@ def _execute_rulespec_test_case(
         for output, value in derived_expected.items()
         if output in derived_ids
     }
-    if not derived_expected:
+    if not derived_expected and not request_only:
         return failures
 
     output_entities = {
@@ -6116,7 +6125,7 @@ def _execute_rulespec_test_case(
     query_entity = (
         output_entities[next(iter(list_outputs))]
         if list_outputs
-        else output_entities[next(iter(derived_expected))]
+        else output_entities.get(next(iter(derived_expected), ""), query_entity)
     )
     if any(output_entities[output] != query_entity for output in list_outputs):
         failures.append(
@@ -6174,6 +6183,21 @@ def _execute_rulespec_test_case(
             for entity_id in query_entity_ids
         ],
     }
+    if request_only:
+        if failures:
+            raise ValueError(json.dumps(failures))
+        parameter_outcomes = {}
+        for output in parameter_expected:
+            try:
+                parameter_outcomes[output] = {
+                    "value": _rulespec_parameter_value(
+                        parameter_by_id[output], flat_inputs, period["start"]
+                    )
+                }
+            except Exception as error:
+                parameter_outcomes[output] = {"error": str(error)}
+        request["_companion_parameters"] = parameter_outcomes
+        return request
     result = subprocess.run(
         [str(binary), "run-compiled", "--artifact", str(compiled_path)],
         input=json.dumps(request),
