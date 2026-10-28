@@ -364,7 +364,10 @@ from axiom_encode.repo_routing import (
 )
 from axiom_encode.signing_broker import get_signing_broker
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
-from tests.environment_assertions import hides_environment
+from tests.environment_assertions import (
+    hides_environment,
+    unset_variable,
+)
 from tests.eval_evidence_fixtures import (
     TEST_APPLY_PRIVATE_KEY_B64,
     TEST_APPLY_PUBLIC_KEY_B64,
@@ -43385,9 +43388,9 @@ class TestGuardGenerated:
                 plan=plan,
             )
         )
-        monkeypatch.delenv("GIT_DIR")
-        monkeypatch.delenv("GIT_WORK_TREE")
-        monkeypatch.delenv("GIT_INDEX_FILE")
+        unset_variable(monkeypatch, "GIT_DIR")
+        unset_variable(monkeypatch, "GIT_WORK_TREE")
+        unset_variable(monkeypatch, "GIT_INDEX_FILE")
 
         assert not (repo / "us/statutes/26:1.yaml").exists()
         assert not (repo / "us/statutes/26:1.test.yaml").exists()

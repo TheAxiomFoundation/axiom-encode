@@ -34,7 +34,11 @@ from axiom_encode.ci_parity import (
     verify_dependency_checkout,
     verify_python_version,
 )
-from tests.environment_assertions import Names, hides_environment
+from tests.environment_assertions import (
+    Names,
+    environment_variable,
+    hides_environment,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 CURRENT_KEY = base64.b64encode(bytes(range(32))).decode("ascii")
@@ -511,7 +515,7 @@ def test_rulespec_us_caller_without_workflow_context_still_resolves(
     )
 
     assert caller.refs["encode"] == "f856cfcb886d9bd050b228aa60aeb4b96939f739"
-    assert os.environ["NEXT_PUBLIC_SUPABASE_ANON_KEY"] == "anon"
+    assert environment_variable("NEXT_PUBLIC_SUPABASE_ANON_KEY") == "anon"
 
 
 def test_optimized_interpreter_is_a_python_mismatch(

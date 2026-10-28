@@ -35,8 +35,12 @@ variables. A mock raises the exception it is given as its side effect from
 library's launchers raise from frames of their own whose arguments hold the
 environment they are passed: ``subprocess.run`` and ``check_call`` when they
 check and the program fails, and ``Popen``'s ``_execute_child`` (or
-``_posix_spawn``) when the program can't be started. Captured output and logs
-are printed with a failure, and warnings in the session's summary.
+``_posix_spawn``) when the program can't be started. ``os.environ``'s own
+methods are Python code too: a read or ``del`` of a variable that is not set
+raises ``KeyError`` from a frame whose ``self`` is the whole environment, and
+``monkeypatch.delenv`` raises it from a frame it passes ``os.environ``.
+Captured output and logs are printed with a failure, and warnings in the
+session's summary.
 
 So any function an exception may pass through may have its arguments printed:
 a test, a fake, a helper, a fixture. One that is passed an environment takes
@@ -67,14 +71,20 @@ environment's place; a mock standing in for a launcher raises through
 - a call to one of the standard library's launchers (``subprocess.run``,
   ``Popen``, ``call``, ``check_call``, ``check_output``, asyncio's
   ``create_subprocess_exec`` and ``create_subprocess_shell``), by its
-  module's name or a name the module binds it to (``_REAL_RUN =
-  subprocess.run``), whose ``env`` may hold one. A launcher reads its ``env``
-  as a mapping, so it is passed a ``Names``;
+  module's name, whatever the module is imported as, or a name the module
+  binds it to (``_REAL_RUN = subprocess.run``), whose ``env`` may hold one. A
+  launcher reads its ``env`` as a mapping, so it is passed a ``Names``;
 - a call handing what may hold one to code out of view: a function the module
   imports, or a method of anything but a class the module defines or a
-  container (a mock's ``assert_called_with`` among them). Should that code
-  raise, pytest prints the arguments of the frame it raised in, so a test
-  hands it a ``Names`` (or a minimal environment of its own).
+  container (a mock's ``assert_called_with``, ``functools.partial``,
+  ``os.execvpe`` among them). Should that code raise, pytest prints the
+  arguments of the frame it raised in, so a test hands it a ``Names`` (or a
+  minimal environment of its own);
+- a read or ``del`` of a variable of ``os.environ`` by subscript, a
+  one-argument ``pop`` or a ``popitem`` of it, and ``monkeypatch.delenv``
+  unless it is passed ``raising=False``. A test reads a variable through
+  ``environment_variable`` and unsets one through ``unset_variable``, which
+  raise the same ``KeyError`` holding the name alone.
 
 The check tracks, for every value, the keys and positions that lead from it
 to an environment inside it. Environments start as:
@@ -129,7 +139,8 @@ run no Python frame of its own (``dict.fromkeys``). An object that prints its
 attributes, one of them an environment, counts where it is passed to a
 function ``hides_environment`` wraps, which refuses it. And a function is
 flagged whether or not anything in it can raise, unless all it does is return
-constants.
+constants, and so is a read of ``os.environ`` by subscript, whether or not the
+variable is set.
 
 It misses what it cannot see. A test that does not itself launch anything may
 read a mock the code under test launched through; ``mock.call_args.kwargs``
@@ -153,7 +164,10 @@ wraps that was raised with no frame in the test's file to start from (as
 ``raising``'s is), the frame that wrapped it. A fake defined in the test's
 file and hidden would give pytest that frame to start from instead. A
 launcher reached through ``getattr(subprocess, name)``, or bound to a name
-other than by plain assignment, is not taken to be one. What a launched
+other than by plain assignment, is not taken to be one. Setting a variable
+whose name the platform rejects (``=`` in it), through ``os.environ`` or
+``monkeypatch.setenv``, raises from ``os.environ``'s frame too; stores are not
+flagged. What a launched
 program prints is not taken to hold an environment: the signing supervisor's
 trusted runtime prints its own and its child's, so its tests print a run
 without its output and read the report through ``Names``.
@@ -272,7 +286,11 @@ LAUNCHES = re.compile(
 # the program can't be started.
 SPAWNERS = frozenset(
     {("subprocess", name) for name in LAUNCHERS}
-    | {("asyncio", "create_subprocess_exec"), ("asyncio", "create_subprocess_shell")}
+    | {
+        (module, name)
+        for module in ("asyncio", "subprocess")
+        for name in ("create_subprocess_exec", "create_subprocess_shell")
+    }
 )
 # Calls the check follows as it does data: what they return holds what they
 # are passed, and their own frames are hidden or print nothing.
@@ -675,6 +693,14 @@ class _Check:
             if isinstance(node, (ast.Import, ast.ImportFrom))
             for alias in node.names
         }
+        # Modules imported under another name (``import subprocess as sp``).
+        self.modules = {
+            alias.asname: alias.name.rpartition(".")[2]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+            if alias.asname
+        }
         # The standard library's launchers, imported by name, and the names
         # the module binds them to (``_REAL_RUN = subprocess.run``).
         self.spawners = {
@@ -690,10 +716,7 @@ class _Check:
                 for node in ast.walk(tree)
                 if isinstance(node, ast.Assign)
                 and isinstance(node.value, (ast.Name, ast.Attribute))
-                and (
-                    tuple(_dotted(node.value).split(".")[-2:]) in SPAWNERS
-                    or _dotted(node.value) in self.spawners
-                )
+                and self._launcher(_dotted(node.value))
                 for target in node.targets
                 if isinstance(target, ast.Name)
             }
@@ -1769,11 +1792,51 @@ class _Check:
             and name not in self.method_names
         )
 
+    def _launcher(self, dotted: str) -> bool:
+        """Whether ``dotted`` names one of the standard library's launchers,
+        its module imported under any name, or a name bound to one."""
+        parts = dotted.split(".")
+        if len(parts) >= 2:
+            parts[-2] = self.modules.get(parts[-2], parts[-2])
+        return tuple(parts[-2:]) in SPAWNERS or dotted in self.spawners
+
     def _spawns(self, node: ast.Call) -> bool:
         """Whether ``node`` calls one of the standard library's launchers."""
         if isinstance(node.func, ast.Name):
             return node.func.id in self.spawners
-        return tuple(_dotted(node.func).split(".")[-2:]) in SPAWNERS
+        return self._launcher(_dotted(node.func))
+
+    def _is_environ(self, node: ast.AST) -> bool:
+        """Whether ``node`` is ``os.environ`` (or ``os.environb``) itself."""
+        if isinstance(node, ast.Name):
+            return node.id in self.aliases
+        return (
+            isinstance(node, ast.Attribute)
+            and node.attr in {"environ", "environb"}
+            and _dotted(node.value).rpartition(".")[2] == "os"
+        )
+
+    def _environ_raises(self, node: ast.AST) -> bool:
+        """Whether ``node`` may raise from a frame whose arguments hold the
+        whole of ``os.environ``: its own, for a read or ``del`` of a variable
+        that is not set, a one-argument ``pop`` or a ``popitem``, or
+        ``monkeypatch``'s, for a ``delenv`` that raises."""
+        if isinstance(node, ast.Subscript):
+            return not isinstance(node.ctx, ast.Store) and self._is_environ(node.value)
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            return False
+        if node.func.attr == "delenv":
+            raising = [
+                *node.args[1:2],
+                *(k.value for k in node.keywords if k.arg == "raising"),
+            ]
+            return not any(
+                isinstance(value, ast.Constant) and not value.value for value in raising
+            )
+        return self._is_environ(node.func.value) and (
+            (node.func.attr == "pop" and len(node.args) == 1 and not node.keywords)
+            or node.func.attr == "popitem"
+        )
 
     def leaks(self) -> list[int]:
         """Lines of asserts, functions and calls that may print a whole
@@ -1810,6 +1873,8 @@ class _Check:
                 if isinstance(target, ast.Name)
             }
             for node in ast.walk(function):
+                if self._environ_raises(node):
+                    lines.append(node.lineno)
                 raised: list[ast.AST | None] = []
                 shown: list[ast.AST | None] = []
                 if isinstance(node, ast.Raise):
@@ -1952,12 +2017,15 @@ SENTINEL = "aaa_sentinel_value_not_secret"
 # Each test fails. Those named ``test_leaks_*`` print the sentinel's value.
 # Those named ``test_flagged_*`` don't, but are flagged (see the docstring).
 EXAMPLES = """
+import asyncio
 import dataclasses
+import functools
 import logging
 import os
 import pprint
 import re
 import subprocess
+import subprocess as sp
 import sys
 import warnings
 from types import SimpleNamespace
@@ -1971,8 +2039,10 @@ import under_test
 from tests.environment_assertions import (
     Names,
     changed_names,
+    environment_variable,
     hides_environment,
     raising,
+    unset_variable,
 )
 from under_test import probe
 
@@ -2650,6 +2720,50 @@ def test_leaks_mock_assert():
     run.assert_called_once_with(["git"], env=dict(os.environ))
 
 
+def test_leaks_module_alias_launch():
+    sp.run(
+        [sys.executable, "-c", "raise SystemExit(1)"], env=dict(os.environ), check=True
+    )
+
+
+def test_leaks_local_alias_launch():
+    launch = subprocess.check_call
+    launch([sys.executable, "-c", "raise SystemExit(1)"], env=dict(os.environ))
+
+
+def test_leaks_partial_launch():
+    launch = functools.partial(subprocess.run, env=dict(os.environ), check=True)
+    launch([sys.executable, "-c", "raise SystemExit(1)"])
+
+
+def test_leaks_exec_missing_program():
+    os.execvpe("/nonexistent/program", ["program"], dict(os.environ))
+
+
+def test_leaks_asyncio_launch():
+    asyncio.run(
+        asyncio.subprocess.create_subprocess_exec(
+            "/nonexistent/program", env=dict(os.environ)
+        )
+    )
+
+
+def test_leaks_missing_variable():
+    assert len(os.environ["AAA_MISSING"]) == 1
+
+
+def test_leaks_deleted_missing_variable():
+    del os.environ["AAA_MISSING"]
+
+
+def test_leaks_popped_missing_variable():
+    os.environ.pop("AAA_MISSING")
+
+
+def test_leaks_delenv(monkeypatch):
+    monkeypatch.delenv("AAA_MISSING")
+
+
 def test_leaks_hidden_above_another():
     @hides_environment
     @logged
@@ -2962,6 +3076,32 @@ def test_hidden_below_another():
     check(["git"], dict(os.environ))
 
 
+def test_hidden_module_alias_launch():
+    sp.run(
+        [sys.executable, "-c", "raise SystemExit(1)"],
+        env=Names(os.environ),
+        check=True,
+    )
+
+
+def test_missing_variable_by_name():
+    assert len(environment_variable("AAA_MISSING")) == 1
+
+
+def test_unset_missing_variable(monkeypatch):
+    unset_variable(monkeypatch, "AAA_MISSING")
+
+
+def test_popped_with_a_default():
+    os.environ.pop("AAA_MISSING", None)
+    assert "AAA_MISSING" == "x"
+
+
+def test_delenv_not_raising(monkeypatch):
+    monkeypatch.delenv("AAA_MISSING", raising=False)
+    assert "AAA_MISSING" == "x"
+
+
 def test_installed_fake_compared(monkeypatch):
     @hides_environment
     def fake_run(command, **kwargs):
@@ -3029,6 +3169,11 @@ def test_flagged_shared_name():
 
     env = dict(os.environ)
     check(env)
+
+
+def test_flagged_present_variable():
+    path = os.environ["PATH"]
+    assert path == ""
 
 
 def test_flagged_builtin_method():
@@ -3273,11 +3418,13 @@ def test_hides_environment_masks_defaults_and_record_fields(
 
 def _launched(variables: Mapping[str, str], spawned: bool) -> dict[str, str]:
     """The environment a child starts with when launched with ``variables``,
-    through ``posix_spawn`` where the platform has it, or ``fork``."""
+    through ``posix_spawn`` where the platform has it, or fork-exec, which a
+    ``cwd`` forces (``posix_spawn`` takes none)."""
     completed = subprocess.run(
         [sys.executable, "-c", "import json, os; print(json.dumps(dict(os.environ)))"],
         env=variables,
         close_fds=not spawned,
+        cwd=None if spawned else os.getcwd(),
         capture_output=True,
         text=True,
         check=True,

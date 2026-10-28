@@ -23,7 +23,11 @@ raises through ``raising``. A fake that keeps what it is passed, to be compared
 whole, then keeps ``Names`` too. The standard library's launchers raise from
 frames of their own, whose arguments hold the ``env`` they are passed, when a
 checked program fails or a program can't be started; they read it as a
-mapping, so a test's own launch passes ``env=Names(...)``.
+mapping, so a test's own launch passes ``env=Names(...)``. ``os.environ``'s
+own methods raise from frames whose ``self`` is the whole environment: a read
+or ``del`` of a variable that is not set, and so ``monkeypatch.delenv``'s, whose
+frame is passed ``os.environ``. A test reads a variable that may be missing
+through ``environment_variable`` and unsets one through ``unset_variable``.
 ``tests/test_environment_assertions.py`` keeps the suite to this.
 """
 
@@ -32,9 +36,13 @@ from __future__ import annotations
 import dataclasses
 import functools
 import inspect
+import os
 from collections.abc import Callable, Iterator, Mapping
-from typing import NoReturn, TypeVar
+from typing import TYPE_CHECKING, NoReturn, TypeVar
 from unittest.mock import NonCallableMock
+
+if TYPE_CHECKING:
+    import pytest
 
 _MISSING = object()
 # Arguments, keyword arguments, mapping keys and record fields that hold a
@@ -59,6 +67,32 @@ def changed_names(
         for name in before.keys() | after.keys()
         if before.get(name, _MISSING) != after.get(name, _MISSING)
     )
+
+
+def environment_variable(name: str) -> str:
+    """``os.environ[name]``, raising a ``KeyError`` that holds the name alone.
+
+    ``os.environ`` raises it for a variable that is not set from a frame of
+    its own, whose ``self`` is the whole environment.
+    """
+    __tracebackhide__ = True
+    value = os.environ.get(name)
+    if value is None:
+        raise KeyError(name)
+    return value
+
+
+def unset_variable(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    """``monkeypatch.delenv(name)``, raising a ``KeyError`` that holds the name
+    alone.
+
+    ``monkeypatch`` raises it for a variable that is not set from a frame of
+    its own, which is passed ``os.environ``.
+    """
+    __tracebackhide__ = True
+    if name not in os.environ:
+        raise KeyError(name)
+    monkeypatch.delenv(name)
 
 
 class Names(Mapping[str, str]):

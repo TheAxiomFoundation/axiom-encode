@@ -14,6 +14,7 @@ from hypothesis import strategies as st
 
 from axiom_encode import cli
 from scripts.provision_verification_supervisor import _install_trusted_git_wrapper
+from tests.environment_assertions import environment_variable
 from tests.test_cli import (
     TEST_PINNED_ENCODER_IDENTITY,
     _test_eval_evidence_keys,  # noqa: F401 -- installs authenticated fixture keys
@@ -85,7 +86,9 @@ class TestGuardInventoryCaseAliases:
                 tools, Path(sys.executable).resolve(), Path("/usr/bin/git")
             )
         with monkeypatch.context() as wrapped:
-            wrapped.setenv("PATH", str(tools) + os.pathsep + os.environ["PATH"])
+            wrapped.setenv(
+                "PATH", str(tools) + os.pathsep + environment_variable("PATH")
+            )
             issues = cli.guard_generated_change_issues(
                 repo, corpus_path=self.corpus_path, **options
             )

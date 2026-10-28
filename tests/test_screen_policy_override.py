@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import os
 
 import pytest
 
@@ -15,7 +14,10 @@ from axiom_encode.judges import (
     statutory_fidelity_screen,
 )
 from axiom_encode.judges.statutory_fidelity import FIDELITY_KINDS
-from tests.environment_assertions import hides_environment
+from tests.environment_assertions import (
+    environment_variable,
+    hides_environment,
+)
 
 
 @pytest.fixture
@@ -91,7 +93,7 @@ def test_explicit_mode_overrides_invalid_inherited_mode(
     assert state["referee_calls"] == int(
         command == "judge-fidelity" and mode == "advisory"
     )
-    assert os.environ["AXIOM_JUDGE_SCREEN_MODE"] == "bad"
+    assert environment_variable("AXIOM_JUDGE_SCREEN_MODE") == "bad"
     captured = capsys.readouterr()
     assert captured.err == ""
     json.loads(captured.out)

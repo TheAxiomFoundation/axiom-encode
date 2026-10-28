@@ -28,7 +28,11 @@ from axiom_encode import ci_parity, cli
 from axiom_encode import corpus_materialize as cm
 from axiom_encode.harness import eval_evidence
 from axiom_encode.toolchain import local_corpus_release_verification
-from tests.environment_assertions import Names, changed_names
+from tests.environment_assertions import (
+    Names,
+    changed_names,
+    environment_variable,
+)
 from tests.release_object_fixtures import TEST_RELEASE_PUBLIC_KEY
 from tests.test_corpus_materialize import (
     PROVISIONS,
@@ -298,7 +302,9 @@ def test_children_get_the_adopted_utf8_locale_without_c_utf8(
     seen: dict[str, str] = {}
 
     def resolve(*_: object) -> str:
-        seen.update(LANG=os.environ["LANG"], LC_ALL=os.environ["LC_ALL"])
+        seen.update(
+            LANG=environment_variable("LANG"), LC_ALL=environment_variable("LC_ALL")
+        )
         raise ValueError("stop after inspecting the runner environment")
 
     monkeypatch.setattr(ci_parity, "resolve_commit", resolve)
@@ -365,8 +371,8 @@ def test_c_utf8_is_adopted_first_wherever_it_exists(
 
     def resolve(*_: object) -> str:
         seen.update(
-            LANG=os.environ["LANG"],
-            LC_ALL=os.environ["LC_ALL"],
+            LANG=environment_variable("LANG"),
+            LC_ALL=environment_variable("LC_ALL"),
             LC_CTYPE=real(locale.LC_CTYPE),
         )
         raise ValueError("stop after inspecting the runner environment")

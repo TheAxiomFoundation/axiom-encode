@@ -47,7 +47,10 @@ from axiom_encode.ci_parity import (
     run_ci,
     verify_dependency_inputs,
 )
-from tests.environment_assertions import hides_environment
+from tests.environment_assertions import (
+    environment_variable,
+    hides_environment,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 US_CALLER_TEXT = (FIXTURES / "us-caller.yml").read_text(encoding="utf-8")
@@ -219,7 +222,9 @@ def _step_environment(tmp_path: Path) -> dict[str, str]:
         for name, value in os.environ.items()
         if not name.startswith(("GITHUB_", "RUNNER_"))
     }
-    environment["PATH"] = f"{_python_shim(tmp_path)}{os.pathsep}{os.environ['PATH']}"
+    environment["PATH"] = (
+        f"{_python_shim(tmp_path)}{os.pathsep}{environment_variable('PATH')}"
+    )
     return environment
 
 

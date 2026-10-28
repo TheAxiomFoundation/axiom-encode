@@ -56,7 +56,10 @@ from axiom_encode.run_log import (
     fold_run,
     iter_events,
 )
-from tests.environment_assertions import hides_environment
+from tests.environment_assertions import (
+    hides_environment,
+    unset_variable,
+)
 from tests.eval_evidence_fixtures import (
     TEST_APPLY_PRIVATE_KEY_B64,
     TEST_APPLY_PUBLIC_KEY_B64,
@@ -1564,7 +1567,7 @@ def test_drift_error_report_and_published_issue_redact_model_key(tmp_path, monke
     assert "[REDACTED]" in result.error
     assert secret not in report_path.read_text(encoding="utf-8")
 
-    monkeypatch.delenv("OPENAI_API_KEY")
+    unset_variable(monkeypatch, "OPENAI_API_KEY")
     monkeypatch.setenv("GH_TOKEN", "github-publisher-test-token")
     published_bodies: list[str] = []
 

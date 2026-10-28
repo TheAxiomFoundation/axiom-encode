@@ -637,7 +637,12 @@ def test_c10_engine_rejects_unsupported_cargo_config(tmp_path, monkeypatch):
 
 import pytest as _c11_pytest  # noqa: E402
 
-from tests.environment_assertions import Names, changed_names, hides_environment
+from tests.environment_assertions import (
+    Names,
+    changed_names,
+    environment_variable,
+    hides_environment,
+)
 
 
 @_c11_pytest.mark.parametrize(
@@ -972,7 +977,7 @@ def test_c10_engine_profile_and_rustflags_match_real_cargo(tmp_path, monkeypatch
             pytest.skip("installed Rust toolchain unavailable")
         cargo = tool.stdout.strip()
         monkeypatch.setenv(
-            "PATH", str(Path(cargo).parent) + os.pathsep + os.environ["PATH"]
+            "PATH", str(Path(cargo).parent) + os.pathsep + environment_variable("PATH")
         )
     engine = tmp_path / "engine"
     (engine / "src").mkdir(parents=True)

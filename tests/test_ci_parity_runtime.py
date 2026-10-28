@@ -85,6 +85,7 @@ from axiom_encode.toolchain import (
 from tests.environment_assertions import (
     Names,
     changed_names,
+    environment_variable,
     hides_environment,
 )
 
@@ -3508,7 +3509,7 @@ def test_run_ci_gates_run_on_the_runners_utc_clock_with_the_engine_on_path(
     def gates(run):
         seen["TZ"] = os.environ.get("TZ")
         seen["offset"] = time.localtime().tm_gmtoff
-        seen["PATH"] = os.environ["PATH"]
+        seen["PATH"] = environment_variable("PATH")
         return harness.results
 
     monkeypatch.setattr(ci_parity, "execute_workflow_gates", gates)
@@ -3519,8 +3520,8 @@ def test_run_ci_gates_run_on_the_runners_utc_clock_with_the_engine_on_path(
             "offset": 0,
             "PATH": f"{harness.paths['engine'] / 'target' / 'debug'}{os.pathsep}/usr/bin",
         }
-        assert os.environ["TZ"] == "America/New_York"
-        assert os.environ["PATH"] == "/usr/bin"
+        assert environment_variable("TZ") == "America/New_York"
+        assert environment_variable("PATH") == "/usr/bin"
         assert harness.calls["resolve_github_repository"] == [
             (harness.repo, "origin/main", None)
         ]

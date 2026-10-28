@@ -152,7 +152,10 @@ from axiom_encode.harness.validator_pipeline import (
     ValidatorPipeline as _ValidatorPipeline,
 )
 from axiom_encode.repo_routing import find_policy_repo_root
-from tests.environment_assertions import hides_environment
+from tests.environment_assertions import (
+    environment_variable,
+    hides_environment,
+)
 from tests.real_engine import ABSENT_ROOT
 from tests.release_object_fixtures import bind_test_corpus_release
 
@@ -1395,7 +1398,9 @@ def test_rulespec_engine_binary_ignores_ambient_path(monkeypatch, tmp_path):
     ambient_engine = ambient_bin / "axiom-rules-engine"
     ambient_engine.write_text("#!/bin/sh\nexit 0\n")
     ambient_engine.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{ambient_bin}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv(
+        "PATH", f"{ambient_bin}{os.pathsep}{environment_variable('PATH')}"
+    )
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
         axiom_rules_path=engine_root,

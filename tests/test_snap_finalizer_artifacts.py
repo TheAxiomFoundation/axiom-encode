@@ -9,7 +9,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.environment_assertions import Names
+from tests.environment_assertions import (
+    Names,
+    environment_variable,
+)
 
 ROOT = Path(__file__).parents[1]
 RUN_ID = 123
@@ -88,7 +91,7 @@ def _lookup(
                 **os.environ,
                 "FIXTURE_ROOT": str(fixtures),
                 "GITHUB_REPOSITORY": "TheAxiomFoundation/axiom-encode",
-                "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
+                "PATH": str(binaries) + os.pathsep + environment_variable("PATH"),
                 "RUNNER_TEMP": str(root),
                 "api_version": "2026-03-10",
                 "target": json.dumps(target),

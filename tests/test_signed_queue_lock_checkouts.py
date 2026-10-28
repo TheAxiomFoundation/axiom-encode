@@ -38,7 +38,10 @@ from scripts.prepare_signed_queue import (
     build_all_state_snap_queue,
     build_snap_queue,
 )
-from tests.environment_assertions import hides_environment
+from tests.environment_assertions import (
+    hides_environment,
+    unset_variable,
+)
 from tests.release_object_fixtures import (
     TEST_RELEASE_PUBLIC_KEY,
     write_test_release_object,
@@ -643,7 +646,7 @@ def test_shallow_lock_checkout_needs_history_or_another_source(tmp_path, monkeyp
     assert from_cache[0] == "ok", from_cache[1]
     assert "from cache 4" in from_cache[2]
     _same_queue_but_refs(pre, from_cache[1])
-    monkeypatch.delenv(cm.CACHE_ENV)
+    unset_variable(monkeypatch, cm.CACHE_ENV)
 
     full = tmp_path / "full"
     subprocess.run([GIT, "clone", "--quiet", url, str(full)], check=True)

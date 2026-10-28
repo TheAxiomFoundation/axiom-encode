@@ -22,7 +22,11 @@ from pathlib import Path
 
 import pytest
 
-from tests.environment_assertions import Names, hides_environment
+from tests.environment_assertions import (
+    Names,
+    environment_variable,
+    hides_environment,
+)
 
 _SPEC = importlib.util.spec_from_file_location(
     "provision_verification_supervisor",
@@ -1386,7 +1390,7 @@ class TestTrustedGit:
 
         pin = commit("pin")
         producer = commit("producer")
-        real_path = os.environ["PATH"]
+        real_path = environment_variable("PATH")
         monkeypatch.setenv("PATH", str(destination))
         assert shutil.which("git") == str(destination / "git")
 

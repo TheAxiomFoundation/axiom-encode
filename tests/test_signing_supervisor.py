@@ -38,7 +38,11 @@ from axiom_encode.harness.evals import resolve_corpus_source_unit
 from scripts import prepare_signed_backfill as compatibility_backfill
 from scripts import provision_verification_supervisor as provisioner
 from scripts.prepare_signed_backfill import parse_canonical_refresh_bundle
-from tests.environment_assertions import Names, hides_environment
+from tests.environment_assertions import (
+    Names,
+    environment_variable,
+    hides_environment,
+)
 from tests.eval_evidence_fixtures import (
     TEST_APPLY_PRIVATE_KEY_B64,
     TEST_APPLY_PUBLIC_KEY_B64,
@@ -1160,7 +1164,7 @@ def test_every_invocation_requires_protected_three_root_config(
     reason="root-owned production fixture is prepared only in signing CI",
 )
 def test_untagged_production_binary_root_owned_end_to_end() -> None:
-    fixture = Path(os.environ["AXIOM_ENCODE_PRODUCTION_SIGNING_FIXTURE"])
+    fixture = Path(environment_variable("AXIOM_ENCODE_PRODUCTION_SIGNING_FIXTURE"))
     supervisor = fixture / "axiom-encode-signing-supervisor"
     runtime_root = fixture / "python"
     interpreter = runtime_root / Path(sys.executable).resolve().relative_to(

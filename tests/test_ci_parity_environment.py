@@ -24,7 +24,12 @@ from axiom_encode import ci_parity
 from axiom_encode.ci_parity import GateSpec
 from axiom_encode.engine_binding import EnginePin, resolve_pinned_engine_binary
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
-from tests.environment_assertions import Names, changed_names, hides_environment
+from tests.environment_assertions import (
+    Names,
+    changed_names,
+    environment_variable,
+    hides_environment,
+)
 
 PIN = "6f11be2655f79dd0a3b582db46525f58332ca120"
 ENGINE_PIN = "a" * 40
@@ -608,7 +613,7 @@ def test_run_ci_builds_debug_engine_once_before_gates(
         assert (
             run.paths["engine"] / "target" / "debug" / "axiom-rules-engine"
         ).is_file()
-        assert os.environ["PATH"].split(os.pathsep)[0] == str(
+        assert environment_variable("PATH").split(os.pathsep)[0] == str(
             run.paths["engine"] / "target" / "debug"
         )
         return harness.results
@@ -1020,7 +1025,7 @@ def test_waiver_gate_uses_ci_workers_in_process(
     result = ci_parity._gate_validation_waivers(run, _spec("validation_waivers"))
     assert result.status == "PASS", result.output
     assert seen == [4] * len(run.plan.matrix)
-    assert os.environ[ci_parity.WAIVER_AUDIT_WORKERS_ENV] == "1"
+    assert environment_variable(ci_parity.WAIVER_AUDIT_WORKERS_ENV) == "1"
 
 
 @pytest.mark.parametrize("zone,hour", [("Etc/GMT+12", 1), ("Etc/GMT-14", 23)])
@@ -1080,7 +1085,7 @@ def test_waiver_expiry_and_horizon_follow_utc_under_extreme_zones(
     monkeypatch.setattr(ci_parity, "execute_workflow_gates", gates)
     try:
         assert ci_parity.run_ci(harness.args()) == expected
-        assert os.environ["TZ"] == zone
+        assert environment_variable("TZ") == zone
         assert date.today() != instant.date()
         capsys.readouterr()
     finally:
@@ -1123,7 +1128,9 @@ def test_runner_locale_and_timezone_reach_every_execution_path(
     seen = []
 
     def probe():
-        seen.append({name: os.environ[name] for name in ("TZ", "LANG", "LC_ALL")})
+        seen.append(
+            {name: environment_variable(name) for name in ("TZ", "LANG", "LC_ALL")}
+        )
 
     @hides_environment
     def child(command, **kwargs):
@@ -1176,8 +1183,8 @@ def test_runner_locale_and_timezone_reach_every_execution_path(
     try:
         assert ci_parity.run_ci(harness.args()) == 0
         assert seen == [{"TZ": "UTC", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}] * 6
-        assert os.environ["TZ"] == "Etc/GMT-14"
-        assert os.environ["LANG"] == os.environ["LC_ALL"] == "C"
+        assert environment_variable("TZ") == "Etc/GMT-14"
+        assert environment_variable("LANG") == environment_variable("LC_ALL") == "C"
         capsys.readouterr()
     finally:
         monkeypatch.undo()
@@ -1208,7 +1215,9 @@ def test_runner_clock_and_locale_are_invariant_and_restored(
     locale_module.setlocale(locale_module.LC_CTYPE, "C")
 
     def resolve(*_):
-        seen.update({name: os.environ[name] for name in ("TZ", "LANG", "LC_ALL")})
+        seen.update(
+            {name: environment_variable(name) for name in ("TZ", "LANG", "LC_ALL")}
+        )
         # In-process gates decode files as CI's C.UTF-8 runner does.
         seen["encoding"] = locale_module.getencoding().replace("-", "").upper()
         assert time.localtime(1797814800).tm_gmtoff == 0
