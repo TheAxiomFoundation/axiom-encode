@@ -274,6 +274,16 @@ def test_label_opening_a_clause_stays_masked(citation_path, source_text, formula
         assert not _gate_grounds(source_text, formula, citation_path=citation_path)
 
 
+def test_danish_profile_masks_a_parenthesized_figure_as_main_did():
+    # da-DK reads no rate from a parenthesized figure, so "(75)" stays the
+    # masked label it was; the legacy profile reads it as a restated rate.
+    danish = "svarende til (75) pct. af grundlaget"
+
+    assert not _gate_grounds(danish, "75", citation_path="dk/statute/example/1")
+    assert not _gate_grounds(danish, "0.75", citation_path="dk/statute/example/1")
+    assert _gate_grounds("sont pour (75) p.c. remboursés", "0.75")
+
+
 @pytest.mark.parametrize(
     ("source_text", "value"),
     (

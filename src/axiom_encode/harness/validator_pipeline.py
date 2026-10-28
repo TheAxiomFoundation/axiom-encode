@@ -1528,6 +1528,11 @@ _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
     rf"(?<![A-Za-z0-9]){_STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY}"
     rf"(?![ \t\u00a0\u202f]*(?i:{_RATE_MARKER_AFTER_FIGURE_BODY}))"
 )
+# da-DK reads no rate from a parenthesized figure, so its mask keeps every
+# label-shaped parenthesis masked.
+_DANISH_STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
+    rf"(?<![A-Za-z0-9]){_STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY}"
+)
 _TABLE_HEADING_PATTERN = re.compile(
     r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE
 )
@@ -12669,7 +12674,7 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             _SLASH_DATE_PATTERN,
             _MONTH_NAME_DAY_PATTERN,
             _MONTH_DAY_OF_MONTH_PATTERN,
-            _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN,
+            _DANISH_STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN,
             _TABLE_KEY_ASSIGNMENT_PATTERN,
         )
     )
