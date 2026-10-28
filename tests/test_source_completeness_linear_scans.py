@@ -23,7 +23,7 @@ import threading
 import time
 import types
 import weakref
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
 from unittest import mock
 
@@ -2019,18 +2019,57 @@ def _cold_cpu_seconds(call: Callable[[], object], *, budget: float) -> float:
     return elapsed
 
 
+@contextlib.contextmanager
+def _without_coverage() -> Iterator[None]:
+    """Pause a running coverage measurement, so the timings are of the code.
+
+    CI measures coverage of the package, not of this file, so under its
+    tracer the new code pays a cost per line that main's copies here do not.
+    On CPython 3.13's line tracer the deep-deferral sweep read 4x main's that
+    way (3.2x on CI), against 1.7x untraced.
+    """
+
+    try:
+        import coverage
+    except ImportError:
+        yield
+        return
+    current = coverage.Coverage.current()
+    if current is None:
+        yield
+        return
+    current.stop()
+    try:
+        yield
+    finally:
+        current.start()
+
+
+def test_timings_pause_a_running_coverage_measurement():
+    coverage = pytest.importorskip("coverage")
+    current = coverage.Coverage.current()
+    if current is None:
+        pytest.skip("no coverage measurement is running")
+
+    with _without_coverage():
+        assert coverage.Coverage.current() is None
+
+    assert coverage.Coverage.current() is current
+
+
 def _cpu_times(calls: Sequence[Callable[[], object]], *, budget: float) -> list[float]:
     """The least CPU time of each call's round, over interleaved rounds."""
 
-    smallest = min(_cold_cpu_seconds(calls[0], budget=budget) for _ in range(3))
-    repeats = max(1, math.ceil(_MIN_ROUND_CPU / max(smallest, 1e-6)))
-    best = [math.inf] * len(calls)
-    for _round in range(_ROUNDS):
-        for position, call in enumerate(calls):
-            spent = sum(
-                _cold_cpu_seconds(call, budget=budget) for _repeat in range(repeats)
-            )
-            best[position] = min(best[position], spent)
+    with _without_coverage():
+        smallest = min(_cold_cpu_seconds(calls[0], budget=budget) for _ in range(3))
+        repeats = max(1, math.ceil(_MIN_ROUND_CPU / max(smallest, 1e-6)))
+        best = [math.inf] * len(calls)
+        for _round in range(_ROUNDS):
+            for position, call in enumerate(calls):
+                spent = sum(
+                    _cold_cpu_seconds(call, budget=budget) for _repeat in range(repeats)
+                )
+                best[position] = min(best[position], spent)
     return best
 
 
