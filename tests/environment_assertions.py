@@ -100,17 +100,34 @@ def _masked(value: object, name: object = None) -> object:
         changed = any(items[key] is not item for key, item in value.items())
         return items if changed else value
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        fields = dataclasses.fields(value)
         changes = {
             field.name: _masked(getattr(value, field.name), field.name)
-            for field in dataclasses.fields(value)
-            if field.init and field.name in _ENVIRONMENTS
+            for field in fields
+            if field.name in _ENVIRONMENTS and hasattr(value, field.name)
         }
         changes = {
             field: masked
             for field, masked in changes.items()
             if masked is not getattr(value, field)
         }
-        return dataclasses.replace(value, **changes) if changes else value
+        if not changes:
+            return value
+        record = dataclasses.replace(
+            value,
+            **{
+                field.name: changes[field.name]
+                for field in fields
+                if field.init and field.name in changes
+            },
+        )
+        # Fields __init__ does not set can't be passed to replace: the copy
+        # takes them from the record, an environment among them masked.
+        for field in fields:
+            if not field.init and hasattr(value, field.name):
+                masked = changes.get(field.name, getattr(value, field.name))
+                object.__setattr__(record, field.name, masked)
+        return record
     if type(value) in (list, tuple):
         elements = [_masked(element) for element in value]
         changed = any(new is not old for new, old in zip(elements, value))
@@ -132,15 +149,17 @@ def hides_environment(function: _Function) -> _Function:
     pytest prints its arguments, and they now hold names alone. What it calls
     with them (a recorder, the real launcher) is passed the same. The wrapper's
     own frames, which hold the environments themselves, are hidden from
-    pytest's traceback, as ``pytest.fail``'s is. A method's ``self`` (or
-    ``cls``) is passed as it is. It wraps functions, coroutine functions and
-    generator functions (a fixture that yields, say).
+    pytest's traceback, as ``pytest.fail``'s is. A default the caller leaves
+    out is passed explicitly, masked like any other argument. A method's
+    ``self`` (or ``cls``) is passed as it is. It wraps functions, coroutine
+    functions and generator functions (a fixture that yields, say).
     """
     if inspect.isasyncgenfunction(function):
         raise TypeError(f"hides_environment does not wrap {function.__qualname__}")
+    signature = inspect.signature(function)
     parameters = [
         parameter.name
-        for parameter in inspect.signature(function).parameters.values()
+        for parameter in signature.parameters.values()
         if parameter.kind
         in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
     ]
@@ -151,16 +170,36 @@ def hides_environment(function: _Function) -> _Function:
     ) -> tuple[list[object], dict[str, object]]:
         __tracebackhide__ = True
         try:
-            positional = [
-                argument
-                if position < kept
-                else _masked(argument, (parameters[position:] or [None])[0])
-                for position, argument in enumerate(args)
-            ]
-            named = {name: _masked(value, name) for name, value in kwargs.items()}
+            bound = signature.bind(*args, **kwargs)
+        except TypeError:
+            # The call doesn't fit; the function raises that itself.
+            bound = None
+        try:
+            if bound is None:
+                positional = [
+                    argument
+                    if position < kept
+                    else _masked(argument, (parameters[position:] or [None])[0])
+                    for position, argument in enumerate(args)
+                ]
+                named = {name: _masked(value, name) for name, value in kwargs.items()}
+                return positional, named
+            bound.apply_defaults()
+            for position, (name, value) in enumerate(list(bound.arguments.items())):
+                kind = signature.parameters[name].kind
+                if position < kept:
+                    continue
+                if kind is inspect.Parameter.VAR_POSITIONAL:
+                    bound.arguments[name] = tuple(_masked(item) for item in value)
+                elif kind is inspect.Parameter.VAR_KEYWORD:
+                    bound.arguments[name] = {
+                        key: _masked(item, key) for key, item in value.items()
+                    }
+                else:
+                    bound.arguments[name] = _masked(value, name)
+            return list(bound.args), bound.kwargs
         except Exception:
             _refuse(function.__qualname__)
-        return positional, named
 
     if inspect.iscoroutinefunction(function):
 

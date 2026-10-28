@@ -96,14 +96,16 @@ items, a value, what it keeps) is followed as before.
 ``test_the_check_agrees_with_pytest`` runs pytest at ``-vvv`` on examples of
 each shape to keep the model honest.
 
-The model flags more than pytest prints in three cases. When ``==`` fails
+The model flags more than pytest prints in four cases. When ``==`` fails
 between two strings, sequences, sets or dicts, or a set comparison fails,
 pytest prints its own diff of the two results in place of what their operands
 would print. The operands' types are not known here, so such asserts are
 flagged as well. A keyword-only parameter of a function taking neither
-``*args`` nor ``**kwargs`` is not printed, but counts here. And a function is
-flagged whether or not anything in it can raise, unless all it does is return
-constants.
+``*args`` nor ``**kwargs`` is not printed, but counts here. A function defined
+within another shares its names: a parameter named like one of the outer
+function's locals holds what that local does, unmasked by
+``hides_environment``. And a function is flagged whether or not anything in it
+can raise, unless all it does is return constants.
 
 It misses what it cannot see. A test that does not itself launch anything may
 read a mock the code under test launched through; ``mock.call_args.kwargs``
@@ -126,6 +128,7 @@ are outside what a test can control.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import functools
 import inspect
 import os
@@ -1919,6 +1922,12 @@ class Invocation:
     environment: dict | None = None
 
 
+@dataclasses.dataclass
+class Unset:
+    command: str
+    environment: dict = dataclasses.field(init=False)
+
+
 class BatchRecorder:
     def __init__(self):
         self.batches = []
@@ -2522,6 +2531,24 @@ def test_hidden_lambda():
     fake_run(["git"], env=dict(os.environ))
 
 
+def test_hidden_default():
+    @hides_environment
+    def check(command="git", env=dict(os.environ)):
+        raise RuntimeError(command)
+
+    check()
+
+
+def test_hidden_unset_field():
+    @hides_environment
+    def check(record):
+        raise RuntimeError(record.command)
+
+    unset = Unset("git")
+    unset.environment = dict(os.environ)
+    check(unset)
+
+
 def test_hidden_chained():
     @hides_environment
     def fake_run(command, **kwargs):
@@ -2624,6 +2651,15 @@ def test_flagged_keyword_only():
         assert command == "cargo"
 
     fake_run("git", env=dict(os.environ))
+
+
+def test_flagged_shared_name():
+    @hides_environment
+    def check(env):
+        raise RuntimeError("git")
+
+    env = dict(os.environ)
+    check(env)
 """
 
 # The code under test the examples hand fakes to. It wraps what they raise, as
@@ -2810,3 +2846,39 @@ def test_hides_environment_passes_equal_values_with_names(
     assert received["kwargs"] == kwargs
     assert _hidden(args, received["args"])
     assert _hidden(kwargs, received["kwargs"])
+
+
+@dataclasses.dataclass
+class _Record:
+    command: str
+    environment: object = None
+    env: object = dataclasses.field(default=None, init=False)
+
+
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(held=passed, unset=passed, default=passed, defaulted=st.booleans())
+def test_hides_environment_masks_defaults_and_record_fields(
+    held: object, unset: object, default: object, defaulted: bool
+) -> None:
+    received: dict[str, object] = {}
+    built = _Record("git", held)
+    built.env = unset
+
+    @hides_environment
+    def fake(record: _Record, env: object = default) -> None:
+        received.update(record=record, env=env)
+
+    if defaulted:
+        fake(built)
+    else:
+        fake(built, env=default)
+    assert received["env"] == default
+    assert _hidden(default, received["env"], "env")
+    copy = received["record"]
+    assert isinstance(copy, _Record) and copy.command == "git"
+    # Read by name: the check takes a read of ``.environment`` or ``.env`` to
+    # be an environment, and these hold what Hypothesis draws.
+    for field, drawn in (("environment", held), ("env", unset)):
+        kept = getattr(copy, field)
+        assert kept == drawn
+        assert _hidden(drawn, kept, field)
