@@ -39,7 +39,7 @@ on:
         required: false
         type: string
       source_bundle_json:
-        description: 'Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3; legacy citation array/refresh object, v2-v5 contract, or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} for an authenticated failed ordinary single-target repair'
+        description: 'Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3 for an ordinary or in-place legacy replacement; legacy citation array/refresh object, v2-v5 contract, or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} for an authenticated failed ordinary single-target repair'
         required: false
         default: "[]"
         type: string
@@ -53,7 +53,7 @@ on:
         required: false
         type: string
       replace_legacy_rulespec_path:
-        description: Exact noncanonical legacy primary replaced by a fresh model encode
+        description: Exact legacy primary replaced in place or by an ordinary unique normalized path with a fresh model encode
         required: false
         type: string
       legacy_exact_dependent_rulespec_path:
@@ -592,6 +592,7 @@ jobs:
           OPEN_PR: ${{ inputs.open_pr }}
           PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
           EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
           GH_TOKEN: ${{ github.token }}
           LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
@@ -877,11 +878,13 @@ jobs:
       - name: Validate atomic source inputs
         if: steps.retired_source_metadata_request.outputs.enabled != 'true'
         env:
+          CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           REPAIR_TESTS_ONLY: ${{ steps.repair_candidate.outputs.tests_only }}
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
           EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
           LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
           LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
@@ -915,11 +918,13 @@ jobs:
           if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
              [ "$primary_required_test_cases_json" != "[]" ]; then
             if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
-               [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+               { [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
                [ -n "${REPAIR_RUN_ID:-}" ] || \
                [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
                [ -n "${QUEUE_ID:-}" ] || \
-               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               { [ -n "${DEPENDENT_CITATION:-}" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
                [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
                [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
                [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
@@ -1357,6 +1362,7 @@ jobs:
           REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
           SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
+          CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
           set -euo pipefail
@@ -1385,6 +1391,13 @@ jobs:
              [ -z "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
             cascade_args+=(--allow-proof-import-subset)
           fi
+          if [ -n "$CORPUS_EXPORT_RUN_ID" ] && \
+             [ -n "$DEPENDENT_CITATION" ] && \
+             [ -z "$SECOND_DEPENDENT_CITATION" ] && \
+             [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
+             [ "$REPLACE_RULESPEC_PATH" = "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
+            cascade_args+=(--allow-source-bound-dependent-alias)
+          fi
           cascade_args+=(--json)
           cascade_args+=("${dependent_citations[@]}")
           cascade_result="$("${cascade_args[@]}")"
@@ -1394,7 +1407,7 @@ jobs:
             'type == "array" and length == $count and all(.[]; type == "string" and length > 0)' \
             <<< "$dependent_paths_json" > /dev/null
           case "$cascade_mode" in
-            all-direct|all-direct-proof-chain|proof-import-subset|proof-import-subset-chain|proof-import-chain) ;;
+            all-direct|all-direct-proof-chain|proof-import-subset|proof-import-subset-chain|proof-import-chain|source-bound-proof-alias) ;;
             *)
               echo "dependent cascade returned an invalid scheduling mode" >&2
               exit 1
@@ -1406,10 +1419,12 @@ jobs:
       - name: Verify existing signed imports
         if: steps.retired_source_metadata_request.outputs.enabled != 'true'
         env:
+          CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
           EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
           LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
           LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
@@ -1445,11 +1460,13 @@ jobs:
           if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
              [ "$primary_required_test_cases_json" != "[]" ]; then
             if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
-               [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+               { [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
                [ -n "${REPAIR_RUN_ID:-}" ] || \
                [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
                [ -n "${QUEUE_ID:-}" ] || \
-               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               { [ -n "${DEPENDENT_CITATION:-}" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
                [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
                [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
                [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
@@ -1649,6 +1666,7 @@ jobs:
         id: prepare_encode_apply
         if: steps.retired_source_metadata_request.outputs.enabled != 'true'
         env:
+          CORPUS_EXPORT_RUN_ID: ${{ steps.corpus_artifact_transport.outputs.run_id }}
           REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
           PYTHONUNBUFFERED: "1"
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
@@ -2023,7 +2041,8 @@ jobs:
           scheduled_dependent_paths_json="[]"
           if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ] || \
              [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain" ] || \
-             [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ]; then
+             [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ] || \
+             [ "${DEPENDENT_CASCADE_MODE:-}" = "source-bound-proof-alias" ]; then
             scheduled_dependent_paths_json="$(
               jq -cn \
                 --arg first "$dependent_rulespec_path" \
@@ -2072,11 +2091,13 @@ jobs:
           if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
              [ "$primary_required_test_cases_json" != "[]" ]; then
             if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
-               [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+               { [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
                [ -n "${REPAIR_RUN_ID:-}" ] || \
                [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
                [ -n "${QUEUE_ID:-}" ] || \
-               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               { [ -n "${DEPENDENT_CITATION:-}" ] && \
+                 [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
                [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
                [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
                [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
@@ -2515,7 +2536,8 @@ jobs:
               primary_target_only=true
               if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ] || \
                  [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain" ] || \
-                 [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ]; then
+                 [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ] || \
+                 [ "${DEPENDENT_CASCADE_MODE:-}" = "source-bound-proof-alias" ]; then
                 primary_target_only=false
               fi
               queue_operation encode \
@@ -2540,6 +2562,8 @@ jobs:
               dependent_replacement_path=""
               if [ -n "${REPAIR_CANDIDATE_ROOT:-}" ] && \
                  [ "$REPAIR_RUN_LANE" = "dependent" ]; then
+                dependent_replacement_path="$dependent_rulespec_path"
+              elif [ "${DEPENDENT_CASCADE_MODE:-}" = "source-bound-proof-alias" ]; then
                 dependent_replacement_path="$dependent_rulespec_path"
               fi
               queue_operation encode \
