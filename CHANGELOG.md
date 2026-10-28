@@ -1,7 +1,3 @@
-## 0.2.2256
-
-- Make source-completeness deferral-reason clause lookups and per-branch scans near-linear: clause and separator stops are computed once per reason, citation occurrences are grouped by key, branches are indexed by path and position, and deferral coverage walks a trie of the frozen deferral set built once per analysis. Every helper keeps its original filter, so verdicts are unchanged; differential tests pin the results to the previous scans and growth tests bound CPU time per doubling.
-
 ## 0.2.2252
 
 - Admit the exact reviewed Canadian repair head for all protected artifact-only modes, including manifest refresh and reviewed-candidate promotion. Preserve publication restrictions and every signing and validation gate; link the admission evidence.

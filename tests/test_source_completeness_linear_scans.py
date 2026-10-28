@@ -11,12 +11,15 @@ and a regression to a quadratic one quadruples.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import functools
+import gc
 import json
 import math
 import re
 import sys
 import time
+import weakref
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from unittest import mock
@@ -511,14 +514,20 @@ def _outcome(call: Callable[[], object]) -> object:
 
 
 def _old_and_new(call: Callable[[], object]) -> tuple[object, object, object]:
-    """Main's outcome, then the new one cold, then the new one warm."""
+    """Main's outcome, then the new one cold, then the new one warm.
+
+    The new ones share one analysis scope, as one analysis's helpers do, so
+    the warm call reads the indexes the cold one built. An analyzer call runs
+    inside it.
+    """
 
     _clear_caches()
     with _old_mode():
         old = _outcome(call)
     _clear_caches()
-    cold = _outcome(call)
-    warm = _outcome(call)
+    with sc._source_index_scope():
+        cold = _outcome(call)
+        warm = _outcome(call)
     return old, cold, warm
 
 
@@ -1331,26 +1340,129 @@ def test_windowed_matches_equal_sliced_matches(text):
         )
 
 
-def test_branch_index_is_cached_per_tuple_and_skips_other_sequences():
+def test_branch_index_is_kept_per_tuple_for_one_scope():
     branches = sc.recognize_source_structure(_wide_outline(32))
     equal_copy = tuple(list(branches))
 
-    assert sc._source_branch_index(branches) is sc._source_branch_index(branches)
-    assert sc._source_branch_index(equal_copy) is not sc._source_branch_index(branches)
-    assert sc._source_branch_index(list(branches)) is None
-    assert sc._source_branch_index(()) is None
+    # Outside an analysis the helpers scan.
+    assert sc._source_branch_index(branches) is None
+    with sc._source_index_scope():
+        index = sc._source_branch_index(branches)
+        assert index is not None
+        assert sc._source_branch_index(branches) is index
+        with sc._source_index_scope():
+            assert sc._source_branch_index(branches) is index
+        assert sc._source_branch_index(equal_copy) is not index
+        assert sc._source_branch_index(list(branches)) is None
+        assert sc._source_branch_index(()) is None
+    assert sc._SOURCE_INDEXES.get() is None
+    with sc._source_index_scope():
+        assert sc._source_branch_index(branches) is not index
 
 
-@pytest.mark.parametrize("path", [["a", "b"], "ab", ("a", "b"), ("b",), ()])
+_ANY_PATHS = [["a", "b"], "ab", ("a", "b"), ("b",), (), (["x"],), ("a", ["x"]), ("ab",)]
+
+
+@pytest.mark.parametrize("path", _ANY_PATHS)
 @pytest.mark.parametrize(
-    "deferred", [frozenset({("a",)}), {("a",)}, frozenset({()}), frozenset()]
+    "deferred",
+    [
+        frozenset({("a",)}),
+        {("a",)},
+        frozenset({()}),
+        frozenset(),
+        frozenset({"ab"}),
+        frozenset({"a", ("a",)}),
+    ],
 )
 def test_path_is_deferred_matches_main_on_any_path(path, deferred):
-    # Main compared slices, so a list or string path never matched a tuple.
-    assert sc._path_is_deferred(path, deferred) is _old_path_is_deferred(path, deferred)
+    # Main compared slices, so a list or string path never matched a tuple, and
+    # a string deferral never matched a tuple path; neither raised.
+    old = _outcome(lambda: _old_path_is_deferred(path, deferred))
+
+    assert _outcome(lambda: sc._path_is_deferred(path, deferred)) == old
+    with sc._source_index_scope():
+        assert _outcome(lambda: sc._path_is_deferred(path, deferred)) == old
+        assert _outcome(lambda: sc._path_is_deferred(path, deferred)) == old
 
 
-def test_deferral_trie_is_cached_per_frozen_set():
+def test_branch_helpers_match_main_on_unhashable_paths():
+    source = _wide_outline(16)
+    branches = sc.recognize_source_structure(source)
+    # One branch path with a list component, which no dict can key.
+    odd = tuple(
+        dataclasses.replace(branch, path=(*branch.path[:-1], [branch.path[-1]]))
+        if position == 3
+        else branch
+        for position, branch in enumerate(branches)
+    )
+    deferred = frozenset({branches[0].path, branches[5].path})
+
+    def helpers():
+        return [
+            (
+                _outcome(
+                    lambda: sc._is_marker_only_container(
+                        branch, branches=odd, source_text=source
+                    )
+                ),
+                _outcome(lambda: sc._source_branch_direct_text(branch, branches=odd)),
+                _outcome(
+                    lambda: sc._span_is_deferred(
+                        branch.start, branch.end, branches=odd, deferred_paths=deferred
+                    )
+                ),
+                _outcome(
+                    lambda: _identity(
+                        odd,
+                        sc._most_specific_containing_branch(
+                            branch.start, branch.end, branches=odd
+                        ),
+                    )
+                ),
+                _outcome(lambda: sc._path_is_deferred(branch.path, deferred)),
+            )
+            for branch in odd
+        ]
+
+    old, cold, warm = _old_and_new(helpers)
+
+    assert len(branches) > 5
+    assert cold == old
+    assert warm == cold
+
+
+def test_span_is_deferred_tries_containers_in_branch_order():
+    # Main tried containers in branch order and stopped at the first deferred
+    # one, so a container whose path cannot be compared raised only when it
+    # came first. The lazy search must try them in the same order.
+    outer = SourceStructureBranch(("a",), "paragraph", "(a)", "x" * 10, 0, 10)
+    odd = SourceStructureBranch(5, "paragraph", "(b)", "x" * 8, 1, 9)
+    deferred = frozenset({("a",)})
+    in_order = (outer, odd)
+    out_of_order = (odd, outer)
+
+    for pool, expected in ((in_order, True), (out_of_order, "TypeError")):
+        old, cold, warm = _old_and_new(
+            lambda: sc._span_is_deferred(2, 8, branches=pool, deferred_paths=deferred)
+        )
+        assert old == cold == warm
+        assert (old if old is True else old[0]) == expected
+    with sc._source_index_scope():
+        assert sc._source_branch_index(in_order)._spans[4]
+        assert not sc._source_branch_index(out_of_order)._spans[4]
+
+
+def test_recognized_branches_take_the_lazy_containment_search():
+    for case in FIXTURE_CASES:
+        _content, source, citation, _tests, _profile = case.values
+        branches = sc.recognize_source_structure(source, corpus_citation_path=citation)
+        if branches:
+            with sc._source_index_scope():
+                assert sc._source_branch_index(branches)._spans[4], case.id
+
+
+def test_deferral_index_is_kept_per_frozen_set_for_one_scope():
     source = _cited_outline(8)
     branches = sc.recognize_source_structure(source, corpus_citation_path=SNAP_CITATION)
     payload = yaml.safe_load(_half_deferred(8, reason=_PRECISE_REASON))
@@ -1364,12 +1476,62 @@ def test_deferral_trie_is_cached_per_frozen_set():
     assert type(covered) is frozenset
     assert covered == {("1",), ("3",), ("5",), ("7",)}
     assert not issues
-    trie = sc._deferred_path_trie(sc._IdentityKey(covered))
-    assert sc._deferred_path_trie(sc._IdentityKey(covered)) is trie
-    # ``frozenset(covered)`` would return ``covered`` itself; copy through a list.
-    equal_copy = frozenset(list(covered))
-    assert sc._deferred_path_trie(sc._IdentityKey(equal_copy)) is not trie
+    assert sc._deferred_path_index(covered) is None
+    with sc._source_index_scope():
+        index = sc._deferred_path_index(covered)
+        assert index is not None
+        assert sc._deferred_path_index(covered) is index
+        # ``frozenset(covered)`` would return ``covered`` itself; copy via a list.
+        assert sc._deferred_path_index(frozenset(list(covered))) is not index
+        # A set holding a string is scanned, never split into characters.
+        assert sc._deferred_path_index(frozenset({"ab"})) is None
     assert type(sc._deferred_coverage({}, **_COVERAGE_ARGS)[0]) is frozenset
+
+
+def test_entry_points_build_indexes_in_a_scope_and_drop_them():
+    built: list[weakref.ref] = []
+    scoped: list[bool] = []
+    real_index = sc._source_branch_index
+
+    class RecordedBranchIndex(sc._SourceBranchIndex):
+        def __init__(self, branches):
+            super().__init__(branches)
+            built.append(weakref.ref(self))
+
+    class RecordedDeferredIndex(sc._DeferredPathIndex):
+        __slots__ = ("__weakref__",)
+
+        def __init__(self, deferred_paths):
+            super().__init__(deferred_paths)
+            built.append(weakref.ref(self))
+
+    def recorded_index(branches):
+        scoped.append(sc._SOURCE_INDEXES.get() is not None)
+        return real_index(branches)
+
+    source = _cited_outline(8)
+    with mock.patch.multiple(
+        sc,
+        _SourceBranchIndex=RecordedBranchIndex,
+        _DeferredPathIndex=RecordedDeferredIndex,
+        _source_branch_index=recorded_index,
+    ):
+        _analyze(
+            _half_deferred(8, reason=_PRECISE_REASON), source, citation=SNAP_CITATION
+        )
+        analyzer_built = len(built)
+        sc.manual_outcome_exception_advice(
+            "(a) Households are eligible if residence is verified.\n"
+            "(b) Households are not eligible unless income is verified.",
+            corpus_citation_path="us-or/manual/odhs/open/page-644",
+        )
+    gc.collect()
+
+    assert analyzer_built > 1
+    assert scoped and all(scoped)
+    # Nothing outlives the call that built it.
+    assert all(ref() is None for ref in built)
+    assert sc._SOURCE_INDEXES.get() is None
 
 
 _COVERAGE_ARGS = {
@@ -1383,28 +1545,44 @@ _COVERAGE_ARGS = {
 # about 4x; main grew 3.2-4x on these inputs, and 6-8x on qualified U.S.C.
 # citations. The bound leaves room for timer noise and per-call overhead.
 MAX_GROWTH_PER_DOUBLING = 2.6
-_CPU_FLOOR = 0.05
+# Each size is timed as the least of `_ROUNDS` rounds, interleaved so a busy
+# host slows every size alike. A round repeats the cold call the same number
+# of times at every size, enough for the smallest to spend `_MIN_ROUND_CPU`,
+# so timer and scheduler noise stays a small share of every round.
+_ROUNDS = 5
+_MIN_ROUND_CPU = 0.05
 
 
-def _cpu_seconds(call: Callable[[], object], *, budget: float) -> float:
-    """The least CPU time of one cold ``call`` over enough runs to be stable."""
+def _cold_cpu_seconds(call: Callable[[], object], *, budget: float) -> float:
+    """The CPU time of one ``call`` with every cache cold, in a fresh scope."""
 
-    best = math.inf
-    spent = 0.0
-    runs = 0
-    while runs < 3 or (spent < _CPU_FLOOR and runs < 200):
-        _clear_caches()
+    # Patterns built per reason are purged too: `re` keeps 512, which holds a
+    # small size's patterns between calls but not a large one's.
+    _clear_caches()
+    with sc._source_index_scope():
         start = time.process_time()
         call()
         elapsed = time.process_time() - start
-        if elapsed > budget:
-            pytest.fail(
-                f"one call took {elapsed:.2f}s of CPU, over its {budget:.2f}s "
-                "budget: the scan is no longer near-linear"
+    if elapsed > budget:
+        pytest.fail(
+            f"one call took {elapsed:.2f}s of CPU, over its {budget:.2f}s "
+            "budget: the scan is no longer near-linear"
+        )
+    return elapsed
+
+
+def _cpu_times(calls: Sequence[Callable[[], object]], *, budget: float) -> list[float]:
+    """The least CPU time of each call's round, over interleaved rounds."""
+
+    smallest = min(_cold_cpu_seconds(calls[0], budget=budget) for _ in range(3))
+    repeats = max(1, math.ceil(_MIN_ROUND_CPU / max(smallest, 1e-6)))
+    best = [math.inf] * len(calls)
+    for _round in range(_ROUNDS):
+        for position, call in enumerate(calls):
+            spent = sum(
+                _cold_cpu_seconds(call, budget=budget) for _repeat in range(repeats)
             )
-        best = min(best, elapsed)
-        spent += elapsed
-        runs += 1
+            best[position] = min(best[position], spent)
     return best
 
 
@@ -1414,7 +1592,7 @@ def _assert_near_linear(
     *,
     budget: float,
 ) -> None:
-    times = [_cpu_seconds(family(size), budget=budget) for size in sizes]
+    times = _cpu_times([family(size) for size in sizes], budget=budget)
     growth = (times[-1] / times[0]) ** (1 / math.log2(sizes[-1] / sizes[0]))
     measured = ", ".join(f"n={size}: {cpu:.4f}s" for size, cpu in zip(sizes, times))
 
@@ -1476,15 +1654,57 @@ def _deep_path_family(deferred: frozenset | set):
     """``_path_is_deferred`` over an outline of n attached markers, n deep."""
 
     def family(n: int):
-        branches = sc.recognize_source_structure("A.\n" + "(a)" * n + " x\nB. x")
-        # Sixteen sweeps keep each timed call well above the timer's noise.
+        branches = _attached_markers(n)
         return lambda: [
-            sc._path_is_deferred(branch.path, deferred)
-            for _sweep in range(16)
-            for branch in branches
+            sc._path_is_deferred(branch.path, deferred) for branch in branches
         ]
 
     return family
+
+
+def _deep_span_family(n: int):
+    """``_span_is_deferred`` over n attached markers, the outermost deferred."""
+
+    branches = _attached_markers(n)
+    # Branches come sorted by start, so the first holds every other one.
+    deferred = frozenset({branches[0].path})
+    return lambda: [
+        sc._span_is_deferred(
+            branch.start, branch.end, branches=branches, deferred_paths=deferred
+        )
+        for branch in branches
+    ]
+
+
+def _attached_markers(n: int) -> tuple[SourceStructureBranch, ...]:
+    """The branches of n attached markers, each inside the last: n deep."""
+
+    return sc.recognize_source_structure("A.\n" + "(a)" * n + " x\nB. x")
+
+
+def test_deep_deferral_costs_at_most_a_constant_times_main():
+    # Main compares each path to the deferral in C, cubic in the depth here, so
+    # a growth bound cannot separate the two; time both, interleaved, instead.
+    branches = _attached_markers(400)
+    deferred = frozenset({max(branches, key=lambda branch: len(branch.path)).path})
+
+    def sweep():
+        return [
+            sc._span_is_deferred(
+                branch.start, branch.end, branches=branches, deferred_paths=deferred
+            )
+            for branch in branches
+        ]
+
+    def main_sweep():
+        with _old_mode():
+            return sweep()
+
+    with sc._source_index_scope():
+        assert sweep() == main_sweep()
+    new, main = _cpu_times([sweep, main_sweep], budget=10.0)
+
+    assert new <= 3 * main, f"new {new:.4f}s, main {main:.4f}s of CPU"
 
 
 _PRECISE_REASON = (
@@ -1547,6 +1767,12 @@ def test_deferral_reason_cpu_growth_is_near_linear(family, sizes, budget):
             (400, 800, 1600),
             1.0,
             id="span-is-deferred",
+        ),
+        # Main stops at the deferred outermost branch, the first it tries for
+        # every span here; the search must stop there too, not collect every
+        # container first.
+        pytest.param(
+            _deep_span_family, (400, 800, 1600), 1.0, id="span-is-deferred-deep-outer"
         ),
         pytest.param(
             _branch_helper_family(
