@@ -2274,7 +2274,7 @@ def test_transport_dependent_review_finding_reaches_workflow_preflight(
         check=False,
         capture_output=True,
         text=True,
-        env={**os.environ, "DEPENDENT_REVIEW_FINDING": "", **projected_env},
+        env=Names({**os.environ, "DEPENDENT_REVIEW_FINDING": "", **projected_env}),
     )
 
     assert completed.returncode == 0, completed.stderr

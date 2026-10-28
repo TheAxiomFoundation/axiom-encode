@@ -38,6 +38,7 @@ import functools
 import inspect
 import os
 from collections.abc import Callable, Iterator, Mapping
+from types import ModuleType
 from typing import TYPE_CHECKING, NoReturn, TypeVar
 from unittest.mock import NonCallableMock
 
@@ -196,29 +197,19 @@ def _masked(value: object, name: object = None) -> object:
         if type(value) in (list, tuple):
             return type(value)(elements)
         raise TypeError(f"cannot rebuild a {type(value).__qualname__}")
-    attributes = getattr(value, "__dict__", None)
-    attributes = dict(attributes) if isinstance(attributes, dict) else {}
-    # And those its class keeps in ``__slots__``, its bases' included.
-    for owner in type(value).__mro__:
-        slots = vars(owner).get("__slots__", ())
-        for slot in [slots] if isinstance(slots, str) else slots:
-            descriptor = vars(owner).get(slot)
-            if slot in _ENVIRONMENTS and hasattr(descriptor, "__get__"):
-                try:
-                    attributes[slot] = descriptor.__get__(value, type(value))
-                except AttributeError:
-                    pass
-    if (
-        type(value).__repr__ is not object.__repr__
-        and not isinstance(value, NonCallableMock)
-        and any(
-            key in _ENVIRONMENTS
-            and isinstance(item, Mapping)
-            and not isinstance(item, Names)
-            for key, item in attributes.items()
-        )
+    if type(value).__repr__ is not object.__repr__ and not isinstance(
+        value, (NonCallableMock, type, ModuleType)
     ):
-        raise TypeError(f"{type(value).__qualname__} prints an environment")
+        # Whatever it keeps an environment in (its ``__dict__``, a slot, a
+        # property, ``__getattr__``), its repr may print it. A class or a
+        # module prints as its name.
+        for field in _ENVIRONMENTS:
+            try:
+                held = getattr(value, field)
+            except Exception:
+                continue
+            if isinstance(held, Mapping) and not isinstance(held, Names):
+                raise TypeError(f"{type(value).__qualname__} prints an environment")
     return value
 
 
