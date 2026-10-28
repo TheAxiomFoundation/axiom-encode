@@ -1,4 +1,4 @@
-## 0.2.2269
+## 0.2.2270
 
 - Type validator issues from declared checks. Each converted issue is a `ValidationIssue` (a `str` whose value is the unchanged message) that names its check id, subject (citation, branch or clause with the branch's source span, module and line, rule, test case or field), expected and found values, a short evidence excerpt and a stable fingerprint. Checks declare `title`, `requires`, `why`, `fix`, `cause` and their code site next to the code that runs them. Converted: complete-source-unit `structure`, `formula-output`, `numeric-recall`, `deferral`, `source-explicit-conditions` and `tests` (split into ten checks), proof source evidence (not found, out of scope) and the rules-engine compile failure.
 - Add each failed check's declared fix, with expected versus found per subject, to the model's retry feedback after the unchanged validator messages. Feedback with no typed issue is byte-identical.
