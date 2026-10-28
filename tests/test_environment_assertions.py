@@ -53,7 +53,9 @@ environment's place; a mock standing in for a launcher raises through
 - a function (a method or a lambda too), at its ``def``, when its printed
   arguments may. They are read from the compiled function, and every
   parameter counts too, should pytest come to print keyword-only ones. A
-  method's ``self`` counts unless its class prints as its name and address.
+  method's ``self`` counts unless its class, and each of the module's classes
+  built on it, prints as its name and address, and the method does not bind
+  it again.
   ``hides_environment``, decorating a function or wrapping a lambda, is
   modelled as it behaves (``_mask``): it hides what is held under the name
   ``env`` or ``environment``, so an environment passed under another name is
@@ -78,18 +80,20 @@ environment's place; a mock standing in for a launcher raises through
   imports, a class whose ``__new__`` or ``__init__`` may be out of view (as
   may any class with a metaclass, a decorator but ``dataclass``, or a base
   out of view but a built-in class or ``typing.NamedTuple``, which may run
-  its own or replace the class's as it builds it), or a method of anything but a container that is not in view (a
-  mock's ``assert_called_with``, ``functools.partial`` and ``os.execvpe``
-  among them). Those two bases are known by what binds their names: a
-  built-in's name the module does not bind, and ``NamedTuple`` imported from
-  ``typing`` (or read off ``typing``), and neither where the module may
-  replace that name as an attribute (``monkeypatch.setattr(typing,
-  "NamedTuple", ...)``); ``object`` is left out of an order only where the
-  module does not bind its name. A method is in view only
-  where Python's lookup, along the C3 order of each class the receiver may be
-  an instance of, finds a ``def`` of the module's before any class out of
-  view, under no decorator but ``hides_environment``, ``staticmethod`` and
-  ``classmethod``, and none of those classes defines ``__getattribute__``.
+  its own or replace the class's as it builds it), or a method of anything
+  but a container that is not in view (a mock's ``assert_called_with``,
+  ``functools.partial`` and ``os.execvpe`` among them). Those two bases are
+  known by what binds their names: a built-in's name the module does not bind,
+  and ``NamedTuple`` imported from ``typing`` (or read off ``typing``), and
+  neither where the module may replace that name as an attribute, by the name
+  it is read by or the one it is imported as
+  (``monkeypatch.setattr(typing, "NamedTuple", ...)``); ``object`` is left
+  out of an order only where the module neither binds its name nor may
+  replace it so. A method is in view only where Python's lookup, along the
+  C3 order of each class the receiver may be an instance of, finds a ``def``
+  of the module's before any class out of view, under no decorator but
+  ``hides_environment``, ``staticmethod`` and ``classmethod``, and none of
+  those classes defines ``__getattribute__``.
   The receiver is known as a call to a class with no base out of view that
   the module binds once, by its ``class`` statement (or a name it assigns
   that class alone), whose ``__new__`` is ``object``'s; as a name every
@@ -144,14 +148,22 @@ to an environment inside it. Environments start as:
 - the ``env`` or ``environment`` field of a record that prints its fields (a
   dataclass, one this module defines at its top level, with those of the
   module's classes it is built on, or one imported from ``axiom_encode``),
-  wherever one is built, a parameter is annotated with its class, or one of
-  its own methods (``__post_init__`` among them) is passed it as ``self``.
-  An argument given to one by position counts as given to that field,
-  wherever the record puts it. A class method
-  is passed the class, which prints as its name where its metaclass is
-  ``type``: where the class has no metaclass, no decorator but
-  ``dataclass`` and no base out of view but those two; where it may have
-  another, what the record's fields and its methods store count.
+  where a parameter is annotated with its class, or one of its own methods
+  (``__post_init__`` among them) is passed it as ``self``. A class method is
+  passed the class, or one of the module's built on it, which prints as its
+  name where its metaclass is ``type``: where the class has no metaclass, no
+  decorator but ``dataclass`` and no base out of view but those two; where
+  any may have another, what the records' fields and the classes' methods
+  and bodies store count.
+
+Wherever the module builds a record, each field holds what the call gives
+it: a keyword, the field it names (a ``**`` mapping's keys too); an argument
+by position, any of them, since the check does not read which one it fills
+from the order of the record's fields (its bases', a plain base's
+annotations a dataclass leaves out, fields it takes by keyword alone or not
+at all, and an ``__init__`` of its own all change it). The ``self`` of its
+methods, and of its module bases', holds what the module's calls build it
+with.
 
 They are followed through copies and filtered copies (``dataclasses.asdict``,
 ``vars`` and ``getattr`` too), assignments, and containers a test or a
@@ -160,7 +172,9 @@ module global. They are followed into helpers' parameters, nested helpers'
 included, into what fixtures return or yield (this module's and its
 conftests'), into a function a fixture provides as the tests call it, and into
 what a class's methods store on its instances and its properties return, its
-module bases' included, a class defined within a function too. A plain
+module bases' included, a class defined within a function too, and what the
+body of a class at the module's top level binds and the module stores on the
+class itself (``Holder.saved = ...``), which its instances read. A plain
 class's instance, or one built on this module's plain classes alone, prints
 as its name and address, so only reading its attributes counts. Reads back out
 by key or position follow them too. One value of an environment
@@ -173,7 +187,7 @@ items, a value, what it keeps) is followed as before.
 ``test_the_check_agrees_with_pytest`` runs pytest at ``-vvv`` on examples of
 each shape to keep the model honest.
 
-The model flags more than pytest prints in ten cases. When ``==`` fails
+The model flags more than pytest prints in these cases. When ``==`` fails
 between two strings, sequences, sets or dicts, or a set comparison fails,
 pytest prints its own diff of the two results in place of what their operands
 would print. The operands' types are not known here, so such asserts are
@@ -199,9 +213,14 @@ class's (or a named tuple's), which run no Python frame that can raise; and
 where its ``__new__`` is the module's, the ``__init__`` of each class built
 on it counts, though that ``__new__`` may return none of them. An argument
 after one starred other than as a literal counts as passed to each parameter
-from the first that no argument ahead of it fills. An argument a record is
-given by position counts as given to its ``env`` or ``environment`` field,
-though it may fill one that does not print (``repr=False``). A class method
+from the first that no argument ahead of it fills. An argument a call gives
+a record by position counts for each of its fields, though it fills one
+alone: reading another back out counts, and so does a field that does not
+print (``repr=False``), or an ``__init__`` of the record's own that stores
+something else. What a record's methods, its body or the module store on it
+beyond its fields counts as what it prints, though its repr may print its
+fields alone. ``environ`` read off an ``os`` attribute of anything but a
+module (``fake.os.environ``) counts as ``os.environ``. A class method
 of a class whose metaclass may be other than ``type`` counts as passed a
 class printing what the record's fields and its methods store, though that
 metaclass may print the name alone (``abc.ABCMeta``). An object holding an
@@ -250,22 +269,20 @@ taken to be what a first parameter may hold, and a method's function reached
 off its class other than by attribute, ``getattr`` or a key of its namespace
 (``vars(cls).get``, ``inspect.getmembers``), or off a class reached other
 than through a name (an item of a container, a function's result), is not
-taken to be called unbound. A record a function defines, one given an
-environment by keyword under another field's name, or one with no ``env`` or
-``environment`` field, is not taken to hold it, so neither is the ``self`` of
-its methods (its ``__post_init__`` among them), which pytest prints with its
-fields. Nor is an attribute of a class itself, one its body binds or one
-stored on the class rather than an instance, taken to hold what it is bound
-to: not where an instance reads it, nor where a class method is passed a
-class whose metaclass prints it. Setting variables to what the platform rejects raises from
-``os.environ``'s frames too: an empty name or one with ``=`` in it, a name or
-value holding a null byte, or a pair given to ``update`` that is not two
-items, through ``os.environ`` itself, its ``update`` or ``setdefault``, or
-``monkeypatch.setenv``. Setting is not flagged, so a test sets variables to
-names and strings it has written itself. What a launched program prints is
-not taken to hold an environment: the signing supervisor's trusted runtime
-prints its own and its child's, so its tests print a run without its output
-and read the report through ``Names``.
+taken to be called unbound. The check does not take a record a function
+defines to hold what its calls give it, nor the ``self`` of its methods (its
+``__post_init__`` among them), which pytest prints with its fields; nor an
+attribute of a class a function defines, or one the module stores on a class
+other than through its name or a method's first parameter (``setattr``, an
+alias), to hold what the module binds it to. Setting variables to what the
+platform rejects raises from ``os.environ``'s frames too: an empty name or
+one with ``=`` in it, a name or value holding a null byte, or a pair given
+to ``update`` that is not two items, through ``os.environ`` itself, its
+``update`` or ``setdefault``, or ``monkeypatch.setenv``. Setting is not
+flagged, so a test sets variables to names and strings it has written itself.
+What a launched program prints is not taken to hold an environment: the
+signing supervisor's trusted runtime prints its own and its child's, so its
+tests print a run without its output and read the report through ``Names``.
 """
 
 from __future__ import annotations
@@ -693,6 +710,15 @@ def _binds(node: ast.AST) -> str | None:
     if isinstance(node, ast.MatchMapping):
         return node.rest
     return None
+
+
+def _rebinds(function: ast.AST, name: str) -> bool:
+    """Whether ``function`` binds its parameter ``name`` again, by any form
+    (``_binds``), in any scope within it."""
+    return any(
+        node is not function and not isinstance(node, ast.arg) and _binds(node) == name
+        for node in ast.walk(function)
+    )
 
 
 def _placed(arguments: list[ast.expr]) -> Iterator[tuple[ast.expr, int, bool]]:
@@ -1297,9 +1323,9 @@ class _Check:
             and id(node) not in callees
         }
         self.handing: dict[int, bool] = {}
-        # Classes whose instances print a field named ``env`` or
-        # ``environment`` (such as ``CliInvocation``), by the dotted name this
-        # module uses: their fields.
+        # Records, whose instances print their fields (such as
+        # ``CliInvocation``), by the dotted name this module uses: their
+        # fields.
         self.carriers = self._carriers(tree)
         # What each module-level helper returns, and what it stores into
         # each of its parameters (such as a fake ``main`` installer filling
@@ -1311,6 +1337,8 @@ class _Check:
         # store into its instances (such as a fake recording its calls).
         self.fixtures: dict[str, set[Path_]] = dict(fixtures or {})
         self.instances: dict[str, set[Path_]] = {}
+        # What the module's calls build each of its records with.
+        self.built: dict[str, set[Path_]] = {}
         # What the module's calls pass each helper's parameters.
         self.passed: dict[str, dict[str, set[Path_]]] = {}
         # The functions each of this module's fixtures provides (``return
@@ -1349,6 +1377,7 @@ class _Check:
         while changed:
             self.passing = False
             changed = self._fill(self.globals, _own_nodes(tree))
+            self._build(self.globals, _own_nodes(tree))
             for function in self.functions:
                 scope = self._bind(function)
                 self.scopes[function] = scope
@@ -1384,6 +1413,28 @@ class _Check:
                         f".{method.name}", self.paths(node.value, self.scopes[method])
                     )
                 }
+                # What its body binds, and what the module stores on the class
+                # itself (``Holder.saved = ...``): its instances read it, and
+                # its metaclass may print it.
+                stored |= {
+                    path
+                    for item in owner.body
+                    if isinstance(item, (ast.Assign, ast.AnnAssign))
+                    and item.value is not None
+                    for target in (
+                        item.targets if isinstance(item, ast.Assign) else [item.target]
+                    )
+                    if isinstance(target, ast.Name)
+                    for path in _under(
+                        f".{target.id}", self.paths(item.value, self.globals)
+                    )
+                }
+                stored |= {
+                    path
+                    for scope in [self.globals, *self.scopes.values()]
+                    for path in scope.get(name)
+                    if path[:1] and str(path[0]).startswith(".")
+                }
                 # And it holds what its module bases' methods store.
                 stored |= {
                     path[1:] if path[:1] == (HIDDEN,) else path
@@ -1404,7 +1455,7 @@ class _Check:
 
         def add(prefix: str, classes: Mapping[str, frozenset[str]]) -> None:
             for name, fields in classes.items():
-                if ENVIRONMENT_KEYS & fields:
+                if fields:
                     carriers[prefix + name] = fields
 
         add("", _class_fields(tree))
@@ -1579,23 +1630,34 @@ class _Check:
                 return {()} if values else set()
         fields = self.carriers.get(_dotted(function), frozenset())
         if fields:
-            # A carrier holds what its environment field is given. Which field
-            # an argument given by position fills is not read from the order
-            # of its fields: its bases' fields, a plain base's annotations
-            # (which a dataclass leaves out), fields it takes by keyword alone
-            # or not at all, and an ``__init__`` of its own all change it.
-            # Where it fills another field, pytest prints it there as well.
+            # A carrier holds what its fields are given. Which field an
+            # argument given by position fills is not read from the order of
+            # its fields: its bases' fields, a plain base's annotations (which
+            # a dataclass leaves out), fields it takes by keyword alone or not
+            # at all, and an ``__init__`` of its own all change it. So it may
+            # be any of them, and replacing or masking one leaves the others.
+            given = fields | ENVIRONMENT_KEYS
             found = set()
             for argument, _, _ in _placed(node.args):
                 held = self.paths(argument, scope)
                 if isinstance(argument, ast.Starred):
                     held = _descend(held, ANY)
-                for field in fields & ENVIRONMENT_KEYS:
+                for field in fields:
                     found |= _under(f".{field}", held)
             for keyword in node.keywords:
-                if keyword.arg in ENVIRONMENT_KEYS:
-                    found |= _under(f".{keyword.arg}", self.paths(keyword.value, scope))
-            return found | self.instances.get(_dotted(function), set())
+                held = self.paths(keyword.value, scope)
+                if keyword.arg is None:
+                    # ``**{"env": ...}``: each key fills the field it names.
+                    for field in given:
+                        found |= _under(f".{field}", _descend(held, field))
+                elif keyword.arg in given:
+                    found |= _under(f".{keyword.arg}", held)
+            # Its methods' ``self`` holds what any call builds it with.
+            record = _dotted(function)
+            if record in self.classes and found - self.built.get(record, set()):
+                self.built.setdefault(record, set()).update(found)
+                self.passing = True
+            return found | self.instances.get(record, set())
         if (
             name == "replace"
             and node.args
@@ -1708,25 +1770,35 @@ class _Check:
             )
             for argument in _all_parameters(function)
         }
-        # A method reads what its class's methods store on the instance, and
-        # a record's, what its environment fields may be built with. A class
-        # method is passed the class, which prints as its name where its
-        # metaclass is ``type`` (``_named``): what it reads off it is kept,
-        # hidden. A metaclass of another kind may print what the class holds.
+        # A method reads what the methods of its class, or of a class built
+        # on it, store on the instance, and a record's, what the module's
+        # calls build it with and what its environment fields may be built
+        # with. A class method is passed the class, or one built on it, which
+        # prints as its name where its metaclass is ``type`` (``_named``):
+        # what it reads off it is kept, hidden. A metaclass of another kind
+        # may print what the class holds.
         owner = self.owners.get(function)
         parameters = _parameters(function)
         decorators = {_name(decorator) for decorator in function.decorator_list}
         if owner is not None and parameters and "staticmethod" not in decorators:
+            receivers = [
+                each.name
+                for each in self._receivers(self.classes[owner]) or []
+                if self.classes.get(each.name) is each
+            ] or [owner]
             held = {
                 path[1:] if path[:1] == (HIDDEN,) else path
-                for path in self.instances.get(owner, set())
+                for each in receivers
+                for path in self.instances.get(each, set())
+                | self.built.get(each, set())
             }
             if (
                 "classmethod" in decorators or function.name in CLASS_METHODS
             ) and self._named(self.classes[owner]):
                 held = _under(HIDDEN, held)
             else:
-                held |= self._annotated(ast.Name(id=owner))
+                for each in receivers:
+                    held |= self._annotated(ast.Name(id=each))
             seeds[parameters[0]] |= held
         return {
             name: self._passed(function, name, paths) for name, paths in seeds.items()
@@ -1834,7 +1906,15 @@ class _Check:
                 for name, paths in self.into.get(node, {}).items():
                     scope.bind(name, self._passed(node, name, paths))
         self._fill(scope, list(ast.walk(function)))
+        self._build(scope, ast.walk(function))
         return scope
+
+    def _build(self, scope: _Scope, nodes: Iterable[ast.AST]) -> None:
+        """Note what each call among ``nodes`` to a record of the module's
+        builds it with (``built``), which its methods' ``self`` holds."""
+        for node in nodes:
+            if isinstance(node, ast.Call) and _dotted(node.func) in self.classes:
+                self.paths(node, scope)
 
     def _fill(self, scope: _Scope, nodes: Iterable[ast.AST]) -> bool:
         nodes = list(nodes)
@@ -2113,15 +2193,23 @@ class _Check:
             )
             names.update(code.co_varnames[:count])
         # A plain class's instance, and a class whose metaclass is ``type``,
-        # print as their name.
+        # print as their name: where the method may be passed no other (a
+        # class built on its own, ``_receivers``), and does not rebind it.
         owner = self.method_classes.get(function)
         parameters = _parameters(function)
         kinds = {_name(decorator) for decorator in decorators}
-        if owner is not None and parameters and "staticmethod" not in kinds:
+        if (
+            owner is not None
+            and parameters
+            and "staticmethod" not in kinds
+            and not _rebinds(function, parameters[0])
+        ):
+            receivers = self._receivers(owner)
             if (
                 self._named(owner)
                 if "classmethod" in kinds or function.name in CLASS_METHODS
-                else not _shows_attributes(owner, self.classes)
+                else receivers is not None
+                and not any(_shows_attributes(each, self.classes) for each in receivers)
             ):
                 names.discard(parameters[0])
         return any(_holds(scope.get(name)) for name in names)
@@ -2434,13 +2522,7 @@ class _Check:
             or id(frame) in self.unbound_defs
         ):
             return None
-        # By any form, in any scope within it.
-        if any(
-            node is not frame
-            and not isinstance(node, ast.arg)
-            and _binds(node) == first
-            for node in ast.walk(frame)
-        ):
+        if _rebinds(frame, first):
             return None
         return owner, "classmethod" in decorators or frame.name in CLASS_METHODS
 
@@ -2515,9 +2597,10 @@ class _Check:
         This module's classes appear as their ``class`` statements, and each
         class out of view as its source text, standing for it and all it
         inherits (``*bases`` too); ``object`` is left out, unless the module
-        binds its name. None where it can't
-        be known: under a class decorator other than ``dataclass``, with a
-        metaclass or other keyword, or with bases in no consistent order.
+        binds its name or may replace it as an attribute (``builtins.object =
+        ...``, ``overridden``). None where it can't be known: under a class
+        decorator other than ``dataclass``, with a metaclass or other keyword,
+        or with bases in no consistent order.
         """
         key = id(owner)
         if key not in self.orders:
@@ -2529,7 +2612,12 @@ class _Check:
                 return None
             parents: list[list[object]] = []
             for base in owner.bases:
-                if _dotted(base) == "object" and "object" not in self.bound:
+                if (
+                    _dotted(base) == "object"
+                    and "object" not in self.bound
+                    and not self.overrides_all
+                    and "object" not in self.overridden
+                ):
                     continue
                 known = self.known_classes.get(_dotted(base))
                 parent = [ast.unparse(base)] if known is None else self._order(known)
@@ -2572,18 +2660,33 @@ class _Check:
                 result = None
         return result
 
-    def _subclasses(self, owner: ast.ClassDef) -> list[list[object]] | None:
-        """The method resolution orders of ``owner`` and of each class of
-        this module's built on it, or None where one may be built on it whose
-        order is not known, or with a base out of view that may replace its
-        methods as it builds it (``__init_subclass__``, a metaclass): any but
-        a built-in class or a named tuple (``_inert_base``)."""
-        orders = []
+    def _receivers(self, owner: ast.ClassDef) -> list[ast.ClassDef] | None:
+        """``owner`` and each class of this module's built on it: what a
+        method of ``owner`` may be passed first (or an instance of). None
+        where a class may be built on it by a base that may be anything
+        (``_built_on``)."""
+        found = []
         for other in self.every_class:
             built = self._built_on(other, owner, frozenset())
-            if built is False:
-                continue
-            order = self._order(other) if built else None
+            if built is None:
+                return None
+            if built:
+                found.append(other)
+        return found
+
+    def _subclasses(self, owner: ast.ClassDef) -> list[list[object]] | None:
+        """The method resolution orders of ``owner`` and of each class of
+        this module's built on it (``_receivers``), or None where one may be
+        built on it whose order is not known, or with a base out of view that
+        may replace its methods as it builds it (``__init_subclass__``, a
+        metaclass): any but a built-in class or a named tuple
+        (``_inert_base``)."""
+        receivers = self._receivers(owner)
+        if receivers is None:
+            return None
+        orders = []
+        for other in receivers:
+            order = self._order(other)
             if order is None or not all(map(self._inert_base, order)):
                 return None
             orders.append(order)
@@ -2599,26 +2702,39 @@ class _Check:
         by its spelling: a built-in's name the module does not bind, and
         ``NamedTuple`` imported from ``typing`` (``_from``). Either may be
         anything where the module may replace that name as an attribute
-        (``monkeypatch.setattr(typing, "NamedTuple", ...)``, ``overridden``)."""
+        (``monkeypatch.setattr(typing, "NamedTuple", ...)``, ``overridden``),
+        by the name it is read by or the one it is imported as."""
         if not isinstance(base, str):
             return True
         text = re.split(r"[\[(]", base)[0]
-        if self.overrides_all or text.rpartition(".")[2] in self.overridden:
-            return False
         root, _, rest = text.partition(".")
         if rest:
-            return rest == "NamedTuple" and self._from(root, "", "typing")
-        return self._from(root, "typing", "NamedTuple") or (
-            root not in self.bound and isinstance(getattr(builtins, root, None), type)
+            trusted = rest == "NamedTuple" and self._from(root, "", "typing")
+        elif self._from(root, "typing", "NamedTuple"):
+            trusted, rest = True, "NamedTuple"
+        else:
+            trusted = root not in self.bound and isinstance(
+                getattr(builtins, root, None), type
+            )
+        return (
+            trusted
+            and not self.overrides_all
+            and not {text.rpartition(".")[2], rest} & self.overridden
         )
 
     def _named(self, owner: ast.ClassDef) -> bool:
-        """Whether ``owner`` itself prints as its name: its metaclass is
-        ``type``, as it is where its order is known (no metaclass, no class
-        decorator but ``dataclass``) and holds no class out of view but a
-        built-in class or ``typing.NamedTuple`` (``_inert_base``)."""
-        order = self._order(owner)
-        return order is not None and all(map(self._inert_base, order))
+        """Whether a class method of ``owner`` is passed a class printing as
+        its name: ``owner`` and each class built on it (``_receivers``) has
+        ``type`` for its metaclass, as it does where its order is known (no
+        metaclass, no class decorator but ``dataclass``) and holds no class
+        out of view but a built-in class or ``typing.NamedTuple``
+        (``_inert_base``)."""
+        receivers = self._receivers(owner)
+        return receivers is not None and all(
+            (order := self._order(each)) is not None
+            and all(map(self._inert_base, order))
+            for each in receivers
+        )
 
     def _from(self, name: str, module: str, imported: str) -> bool:
         """Whether every binding of ``name`` imports ``imported`` from
@@ -3212,6 +3328,12 @@ class SecondBased:
 @dataclasses.dataclass
 class TwoBased(SecondBased, FirstBased):
     pass
+
+
+@dataclasses.dataclass
+class Paired:
+    data: object
+    env: object
 
 
 # So are its, though it names ``SecondBased`` last.
@@ -4665,6 +4787,76 @@ def test_leaks_to_a_record_past_a_field_it_does_not_take():
     assert record is None
 
 
+def test_leaks_a_record_s_other_field_past_its_replaced_environment_field():
+    record = Paired(dict(os.environ), {})
+    replaced = dataclasses.replace(record, env={})
+    assert replaced is None
+
+
+def test_leaks_a_record_s_other_field_past_its_masked_environment_field():
+    @hides_environment
+    def check(record):
+        raise RuntimeError("masked")
+
+    check(Paired(dict(os.environ), {}))
+
+
+def test_leaks_a_record_s_other_field_by_keyword():
+    record = Paired(data=dict(os.environ), env={})
+    assert record is None
+
+
+def test_leaks_a_record_with_no_environment_field():
+    record = SecondBased(dict(os.environ))
+    assert record is None
+
+
+def test_leaks_a_record_given_unpacked_keywords():
+    record = Paired(**{"data": [], "env": dict(os.environ)})
+    assert record is None
+
+
+def test_leaks_a_record_given_keywords_by_any_name():
+    given = {name: dict(os.environ) for name in ["data", "env"]}
+    record = Paired(**given)
+    assert record.data is None
+
+
+def test_leaks_a_record_s_other_field_by_unpacked_keywords():
+    record = Paired(**{"data": dict(os.environ), "env": {}})
+    assert record is None
+
+
+def test_hidden_record_given_unpacked_keywords():
+    @hides_environment
+    def check(record):
+        raise RuntimeError(record.data)
+
+    check(Paired(**{"data": "git", "env": dict(os.environ)}))
+
+
+def test_leaks_a_rebound_first_parameter():
+    class Plain:
+        def check(self):
+            self = dict(os.environ)
+            raise ValueError("rebound")
+
+    Plain().check()
+
+
+def test_leaks_a_first_parameter_rebound_in_a_nested_function():
+    class Plain:
+        def check(self):
+            def rebind():
+                nonlocal self
+                self = dict(os.environ)
+
+            rebind()
+            raise ValueError("rebound")
+
+    Plain().check()
+
+
 def test_leaks_partial_launch():
     launch = functools.partial(subprocess.run, env=dict(os.environ), check=True)
     launch([sys.executable, "-c", "raise SystemExit(1)"])
@@ -5228,7 +5420,7 @@ def test_hidden_named_tuple():
     def check(launch):
         raise RuntimeError(launch.command)
 
-    check(Launch("git", dict(os.environ)))
+    check(Launch("git", env=dict(os.environ)))
 
 
 def test_hidden_refuses_a_mock_call():
@@ -5246,7 +5438,7 @@ def test_hidden_refuses_a_rebuilding_record():
     def check(record):
         raise RuntimeError(record.command)
 
-    check(Rebuilt("git", dict(os.environ)))
+    check(Rebuilt("git", env=dict(os.environ)))
 
 
 def test_hidden_refuses_an_object_printing_its_attributes():
@@ -5357,6 +5549,24 @@ def test_flagged_replaced_launcher(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     subprocess.run(["cargo"], env=dict(os.environ))
+
+
+def test_flagged_a_record_s_field_by_position():
+    record = Paired(dict(os.environ), {})
+    assert dataclasses.asdict(record)["env"] is None
+
+
+def test_flagged_hidden_named_tuple_by_position():
+    @hides_environment
+    def check(launch):
+        raise RuntimeError(launch.command)
+
+    check(Launch("git", dict(os.environ)))
+
+
+def test_flagged_os_of_an_object():
+    fake = SimpleNamespace(os=SimpleNamespace(environ={"X": "ok"}))
+    assert fake.os.environ["AAA_MISSING"] == "x"
 """
 
 # The code under test the examples hand fakes to. It wraps what they raise, as
@@ -5371,6 +5581,10 @@ class Refusal(Exception):
 
 def probe(command, environment):
     raise ValueError(command)
+
+
+def make(record):
+    return record(dict(os.environ))
 
 
 class Base:
@@ -5506,15 +5720,21 @@ def test_the_check_agrees_with_pytest(tmp_path: Path) -> None:
 # ``object`` imported as another class, an instance's class reassigned, a
 # dotted import binding its first name, two modules' names swapped,
 # another module imported as ``os`` (the control), another module's ``os``
-# read where this one binds that name otherwise, and ``NamedTuple`` or a
-# built-in base replaced as an attribute; and a record's method (one built
-# on another record's fields too), flagged at its ``def``, outside any test,
-# beside a class method, which prints only the class, and a class method
-# where a metaclass prints what the class holds: the class's own, one it
-# inherits from a class of the module's or from one out of view, and one of
-# a plain class. With its trigger in place of ``TRIGGER``, each source prints the
-# sentinel and the check flags the lines marked ``# flagged``; with the
-# control there, the check flags nothing.
+# read where this one binds that name otherwise, and ``NamedTuple`` (read
+# by its own name or imported as another) or a built-in base (``object``
+# too) replaced as an attribute; and a record's method (one built on another
+# record's fields too), flagged at its ``def``, outside any test, where the
+# code under test builds the record, beside a class method, which prints
+# only the class; a record's method where a call builds it with another
+# field, and a plain base's where a record built on it is; a class method where a
+# metaclass prints what the class holds: the class's own, one it inherits
+# from a class of the module's or from one out of view, one of a plain
+# class, one of a class built on its own, and one its body binds; a class
+# method that binds its class's parameter again; and a class attribute an
+# instance reads, bound in the class's body or stored on the class. With its
+# trigger in place of ``TRIGGER``, each source prints the sentinel and the
+# check flags the lines marked ``# flagged``; with the control there, the
+# check flags nothing.
 MODULE_WIDE: dict[str, tuple[str, str, str]] = {
     "star_import": (
         """import os
@@ -5729,7 +5949,8 @@ def test_built_in_shadowed():
     ),
     "record_method": (
         """import dataclasses
-import os
+
+import under_test
 
 
 @dataclasses.dataclass
@@ -5748,7 +5969,7 @@ class HeldLaunch:
 
 
 def test_record_method():
-    HeldLaunch(dict(os.environ)).check()
+    under_test.make(HeldLaunch).check()
 
 
 def test_record_class_method():
@@ -5764,7 +5985,8 @@ def test_record_subclassed():
     ),
     "inherited_record_method": (
         """import dataclasses
-import os
+
+import under_test
 
 
 @dataclasses.dataclass
@@ -5786,10 +6008,152 @@ class ChildLaunch(NamedLaunch, BaseLaunch):
 
 
 def test_inherited_record_method():
-    ChildLaunch(dict(os.environ)).check()
+    under_test.make(ChildLaunch).check()
 """,
         "env",
         "values",
+    ),
+    "record_method_given_another_field": (
+        """import dataclasses
+import os
+
+
+@dataclasses.dataclass
+class Given:
+    values: dict
+
+    def check(self):  # flagged
+        raise ValueError("given")
+
+
+def test_record_method_given_another_field():
+    Given(TRIGGER).check()
+""",
+        "dict(os.environ)",
+        "{}",
+    ),
+    "record_method_beside_a_base_a_call_builds": (
+        """import dataclasses
+import os
+
+
+@dataclasses.dataclass
+class Record:
+    values: dict
+
+    def check(self):  # flagged
+        raise ValueError("record")
+
+
+def base():
+    return Record
+
+
+class Other(base()):
+    pass
+
+
+def test_record_method_beside_a_base_a_call_builds():
+    Record(TRIGGER).check()
+""",
+        "dict(os.environ)",
+        "{}",
+    ),
+    "record_built_by_another_class_s_method": (
+        """import dataclasses
+import os
+
+
+@dataclasses.dataclass
+class Given:
+    values: dict
+
+    def check(self):  # flagged
+        raise ValueError("given")
+
+
+class Maker:
+    def make(self):
+        return Given(TRIGGER)
+
+
+def test_record_built_by_another_class_s_method():
+    Maker().make().check()
+""",
+        "dict(os.environ)",
+        "{}",
+    ),
+    "record_built_at_import_and_kept": (
+        """import dataclasses
+import os
+
+KEPT = []
+
+
+@dataclasses.dataclass
+class Kept:
+    values: dict
+
+    def __post_init__(self):  # flagged
+        KEPT.append(self)
+
+    def check(self):  # flagged
+        raise ValueError("kept")
+
+
+Kept(TRIGGER)
+
+
+def test_record_built_at_import_and_kept():
+    KEPT[0].check()
+""",
+        "dict(os.environ)",
+        "{}",
+    ),
+    "record_name_shadowed_by_a_mapping": (
+        """import dataclasses
+import os
+
+
+@dataclasses.dataclass
+class Shadowed:
+    values: dict
+
+    def check(self):  # flagged
+        raise ValueError("shadowed")
+
+
+def shadow():
+    Shadowed = {"held": dict(os.environ)}
+    return len(Shadowed)
+
+
+def test_record_name_shadowed_by_a_mapping():
+    Shadowed(TRIGGER).check()  # flagged
+""",
+        "dict(os.environ)",
+        "{}",
+    ),
+    "plain_base_s_method_on_a_record": (
+        """import dataclasses
+import os
+
+
+class Plain:
+    def check(self):  # flagged
+        raise ValueError("plain")
+
+
+TRIGGER
+class Shown(Plain):
+    values: dict = dataclasses.field(default_factory=dict)
+
+
+def test_plain_base_s_method_on_a_record():
+    Shown(dict(os.environ)).check()
+""",
+        "@dataclasses.dataclass",
+        "",
     ),
     "named_tuple_imported_otherwise": (
         """import os
@@ -5959,6 +6323,56 @@ def test_built_in_base_replaced(monkeypatch):
         'monkeypatch.setattr("builtins.complex", under_test.Rewriting)',
         "pass",
     ),
+    "named_tuple_replaced_and_imported_as_another": (
+        """import os
+import typing
+
+import under_test
+from tests.environment_assertions import hides_environment
+
+
+def test_named_tuple_replaced_and_imported_as_another(monkeypatch):
+    TRIGGER
+    from typing import NamedTuple as Tuple
+
+    class Replaced(Tuple):
+        @hides_environment
+        def probe(self, command, environment):
+            raise ValueError(command)
+
+        def check(self):
+            self.probe(["git"], dict(os.environ))  # flagged
+
+    Replaced().check()
+""",
+        'monkeypatch.setattr(typing, "NamedTuple", under_test.Rewriting)',
+        "pass",
+    ),
+    "object_replaced": (
+        """import builtins
+import os
+
+import under_test
+from tests.environment_assertions import hides_environment
+
+
+def test_object_replaced(monkeypatch):
+    with monkeypatch.context() as patch:
+        TRIGGER
+
+        class Replaced(object):
+            @hides_environment
+            def probe(self, command, environment):
+                raise ValueError(command)
+
+            def check(self):
+                self.probe(["git"], dict(os.environ))  # flagged
+
+    Replaced().check()
+""",
+        'patch.setattr(builtins, "object", under_test.Rewriting)',
+        "pass",
+    ),
     "class_method_of_a_printing_class": (
         """import dataclasses
 import os
@@ -6071,6 +6485,169 @@ def test_class_method_of_a_plain_printing_class():
         "metaclass=Printing",
         "",
     ),
+    "class_method_rebinding_its_class": (
+        """import dataclasses
+import os
+
+
+@dataclasses.dataclass
+class Rebinding:
+    env: dict = dataclasses.field(default_factory=dict)
+
+    @classmethod
+    def check(cls):  # flagged
+        TRIGGER
+        raise ValueError("rebound")
+
+
+def test_class_method_rebinding_its_class():
+    Rebinding.check()
+""",
+        "cls = dict(os.environ)",
+        "held = dict(os.environ)",
+    ),
+    "class_method_inherited_by_a_printing_class": (
+        """import os
+
+
+class Printing(type):
+    def __repr__(cls):
+        return repr(cls.env)
+
+
+class Base:
+    @classmethod
+    def keep(cls):  # flagged
+        cls.env = dict(os.environ)
+
+    @classmethod
+    def check(cls):  # flagged
+        raise ValueError("inherited")
+
+
+class Child(Base, TRIGGER):
+    pass
+
+
+def test_class_method_inherited_by_a_printing_class():
+    Child.keep()
+    Child.check()
+""",
+        "metaclass=Printing",
+        "",
+    ),
+    "class_method_inherited_through_a_base_chosen_at_run_time": (
+        """import os
+
+
+class Printing(type):
+    def __repr__(cls):
+        return repr(cls.env)
+
+
+class Base:
+    @classmethod
+    def keep(cls):  # flagged
+        cls.env = dict(os.environ)
+
+    @classmethod
+    def check(cls):  # flagged
+        raise ValueError("chosen")
+
+
+Chosen = Base if os.name else object
+
+
+class Child(TRIGGER):
+    pass
+
+
+def test_class_method_inherited_through_a_base_chosen_at_run_time():
+    Child.keep()
+    Child.check()
+""",
+        "Chosen, metaclass=Printing",
+        "Base",
+    ),
+    "class_attribute_read_off_an_instance": (
+        """import os
+
+import under_test
+
+
+class Holder:
+    saved = TRIGGER
+
+    def check(self):
+        under_test.probe(["git"], self.saved)  # flagged
+
+
+def test_class_attribute_read_off_an_instance():
+    Holder().check()
+""",
+        "dict(os.environ)",
+        "{}",
+    ),
+    "annotated_class_attribute_read_off_an_instance": (
+        """import os
+
+import under_test
+
+
+class Holder:
+    saved: dict = TRIGGER
+
+    def check(self):
+        under_test.probe(["git"], self.saved)  # flagged
+
+
+def test_annotated_class_attribute_read_off_an_instance():
+    Holder().check()
+""",
+        "dict(os.environ)",
+        "{}",
+    ),
+    "class_attribute_stored_on_the_class": (
+        """import os
+
+import under_test
+
+
+class Holder:
+    def check(self):
+        under_test.probe(["git"], self.saved)  # flagged
+
+
+def test_class_attribute_stored_on_the_class():
+    Holder.saved = TRIGGER
+    Holder().check()
+""",
+        "dict(os.environ)",
+        "{}",
+    ),
+    "class_attribute_printed_by_a_metaclass": (
+        """import os
+
+
+class Printing(type):
+    def __repr__(cls):
+        return repr(cls.saved)
+
+
+class Holder(TRIGGER):
+    saved = dict(os.environ)
+
+    @classmethod
+    def check(cls):  # flagged
+        raise ValueError("held")
+
+
+def test_class_attribute_printed_by_a_metaclass():
+    Holder.check()
+""",
+        "metaclass=Printing",
+        "",
+    ),
 }
 
 
@@ -6150,27 +6727,34 @@ def test_a_name_is_read_as_this_module_binds_it() -> None:
 
 
 @pytest.mark.parametrize(
-    ("replacing", "named_tuple", "built_in"),
+    ("replacing", "named_tuple", "built_in", "plain"),
     [
-        ("pass", True, True),
-        ("typing.NamedTuple = None", False, True),
-        ('monkeypatch.setattr("builtins.complex", None)', True, False),
-        ("setattr(builtins, name, None)", False, False),
+        ("pass", True, True, True),
+        ("typing.NamedTuple = None", False, True, True),
+        ('monkeypatch.setattr("builtins.complex", None)', True, False, True),
+        ('monkeypatch.setattr(builtins, "object", None)', True, True, False),
+        ("setattr(builtins, name, None)", False, False, False),
     ],
 )
 def test_a_base_the_module_may_replace_is_not_trusted(
-    replacing: str, named_tuple: bool, built_in: bool
+    replacing: str, named_tuple: bool, built_in: bool, plain: bool
 ) -> None:
     """``typing.NamedTuple`` and a built-in class are trusted as bases only
-    where the module replaces neither as an attribute, by its name or by one
-    that is not a constant."""
+    where the module replaces neither as an attribute, by its name, the name
+    it is imported as or one that is not a constant; and ``object`` is left
+    out of an order only so."""
     check = _Check(
         ast.parse(
-            f"import builtins\nimport typing\n\n\ndef test_it():\n    {replacing}\n"
+            "import builtins\nimport typing\n"
+            "from typing import NamedTuple as Tuple\n\n\n"
+            "class Plain(object):\n    pass\n\n\n"
+            f"def test_it():\n    {replacing}\n"
         )
     )
     assert check._inert_base("typing.NamedTuple") == named_tuple
+    assert check._inert_base("Tuple") == named_tuple
     assert check._inert_base("complex") == built_in
+    assert check._named(check.known_classes["Plain"]) == plain
 
 
 @settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
