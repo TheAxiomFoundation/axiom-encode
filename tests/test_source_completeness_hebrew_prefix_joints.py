@@ -6,6 +6,7 @@ import re
 import sys
 import tracemalloc
 import unicodedata
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,14 @@ def _joint_chain(prefix: str, joint: str) -> str:
 
 def _issues(source: str, reason: str) -> tuple[str, ...]:
     return pinned._analyze(pinned._deferral_content("a", reason), source)
+
+
+@lru_cache(maxsize=1024)
+def _glued_issues(source: str, reason: str) -> tuple[str, ...]:
+    # Every joint compares against these identical glued controls. Reuse their
+    # pure diagnostic tuples; each distinct joined input still runs the full
+    # analyzer. The bounded cache avoids repeating YAML analysis 252 times.
+    return _issues(source, reason)
 
 
 _SOURCE_LOCATOR = re.compile(
@@ -363,9 +372,9 @@ def test_every_pinned_prefixed_construction_preserves_verdict_and_issue_strings(
                 # as the glued control for this visible-punctuation property.
                 folded = hebrew.fold_marks(text)
                 expected = (
-                    _issues(folded, reason)
+                    _glued_issues(folded, reason)
                     if position == "source"
-                    else _issues(source, folded)
+                    else _glued_issues(source, folded)
                 )
                 split = match.end("prefix")
                 variant = folded[:split] + joint + folded[split:]
@@ -415,7 +424,7 @@ def test_pinned_cross_language_tables_preserve_every_prefix_joint(joint):
         )
         if not matches:
             continue
-        expected = _issues(text, "חסר סעיף 2")
+        expected = _glued_issues(text, "חסר סעיף 2")
         for match in matches:
             split = match.end("prefix")
             joined = text[:split] + joint + text[split:]
