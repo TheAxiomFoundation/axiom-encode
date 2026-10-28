@@ -1,0 +1,1 @@
+`oracle-coverage` now recounts each `repos[]` row (`total_outputs` and `status_counts`) after reclassifying declared outputs from `unmapped` to `pending_classification`, so the per-repo lines agree with the top-level status instead of still reporting every declared output as `unmapped`.
