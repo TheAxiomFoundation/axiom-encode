@@ -1483,22 +1483,29 @@ _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
 )
 # Belgian legal French and Dutch write the percent sign out ("28 pour cent",
 # "2,5 pourcents", "9 procent") or abbreviate it ("60 pct."), and German
-# statutes abbreviate "vom Hundert" ("15 v. H."). A numeral or a unit after
-# "pour cent", across any space or a line break, counts a hundred of something
-# ("5 pour cent mille habitants" is five per hundred thousand, "2 pour cent
-# kilogrammes" two per hundred kilograms), so that reading is no rate; "pour
-# mille" is per mille and never matches. "pct" and "v. H." match in their own
-# case only: "28 PCT applications" and Dutch "v.h." (formerly) are no rates.
-_FRENCH_COUNT_AFTER_POUR_CENT_BODY = (
-    r"(?:un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|"
-    r"treize|quatorze|quinze|seize|vingts?|trente|quarante|cinquante|"
-    r"soixante|septante|octante|huitante|nonante|mille|milliers?|millions?|"
-    r"milliards?|kilos?|kilogrammes?|kg|grammes?|tonnes?|"
-    r"(?:hecto|déci|centi)?litres?|hl|(?:kilo)?mètres?|km|unités?|pièces?)"
+# statutes abbreviate "vom Hundert" ("15 v. H."). "pour cent" is a percent
+# only before the end of the text, a punctuation mark or one of the closed-class
+# words below, across any space or a line break. A noun or a numeral right
+# after it counts a hundred of something ("2 pour cent kilogrammes" is two per
+# hundred kilograms, "5 pour cent mille habitants" five per hundred thousand),
+# so that reading is no rate; "pour mille" is per mille and never matches.
+# "pct" and "v. H." match in their own case only: "28 PCT applications" and
+# Dutch "v.h." (formerly) are no rates.
+_FRENCH_WORD_AFTER_POUR_CENT_BODY = (
+    r"(?:le|la|les|du|de|des|au|aux|à|a|en|dans|par|pour|sur|sous|avec|sans|"
+    r"entre|vers|chez|après|avant|depuis|pendant|contre|selon|dès|hors|outre|"
+    r"moyennant|et|ou|mais|ni|que|si|lorsque|quand|puis|soit|soient|donc|car|"
+    r"comme|qui|dont|ce|cet|cette|ces|son|sa|ses|leur|leurs|il|elle|ils|elles|"
+    r"on|y|se|ne|est|sont|sera|seront|serait|seraient|était|étaient|ont|aura|"
+    r"auront|maximum|minimum|environ|nets?|nettes?|bruts?|brutes?|"
+    r"respectivement|également|seulement|annuellement|mensuellement)"
 )
+_FRENCH_ELISION_AFTER_POUR_CENT_BODY = r"(?:l|d|qu|lorsqu|puisqu|jusqu|n|s|c)['’]"
 _LOCALE_PERCENT_WORD_BODY = (
     r"\bpour[ \t-]*cents?\b"
-    rf"(?![\s-]*{_FRENCH_COUNT_AFTER_POUR_CENT_BODY}\b)|"
+    r"(?=\s*(?:\Z|[^\w\s]|"
+    rf"{_FRENCH_WORD_AFTER_POUR_CENT_BODY}(?![\w'’])|"
+    rf"{_FRENCH_ELISION_AFTER_POUR_CENT_BODY}))|"
     r"\bprocent(?:en|punt(?:en)?)?\b|"
     r"\b(?-i:pct)\b\.?|"
     r"\b(?-i:v\.[ \t]?H\.)"
@@ -1517,21 +1524,38 @@ _RATE_MARKER_AFTER_FIGURE_BODY = (
 _STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY = (
     r"\((?:[A-Za-z]|[ivxlcdmIVXLCDM]+|0|[1-9]\d?(?:\.\d+)?)\)"
 )
-# A parenthesized figure that follows a word and that a rate marker follows
-# restates a rate and is no subdivision label: "pour (75) p.c. remboursés".
-# Anywhere else it stays a label or a note: at the start of a line or clause
-# ("apply. (17) Percent of income", "a) (7) pct."), and after a figure, which
-# owns the marker ("5 (7) percent" is five percent).
 _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
-    rf"(?<![A-Za-z0-9])(?<![^\W\d_][ \t\u00a0\u202f])"
-    rf"{_STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY}|"
     rf"(?<![A-Za-z0-9]){_STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY}"
-    rf"(?![ \t\u00a0\u202f]*(?i:{_RATE_MARKER_AFTER_FIGURE_BODY}))"
 )
-# da-DK reads no rate from a parenthesized figure, so its mask keeps every
-# label-shaped parenthesis masked.
-_DANISH_STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
-    rf"(?<![A-Za-z0-9]){_STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY}"
+# The word right before a figure that Belgian, Dutch and German texts restate
+# in parentheses ahead of its rate marker: a preposition or a copula ("pour
+# (75) p.c.", "tarief van (9) procent", "Satz von (15) Prozent") or the figure
+# spelled out ("vingt-huit (28) pour cent", "vijfenzeventig (75) procent").
+# After any other word, a structural one above all ("Item (17) Percent",
+# "clause (17) percent", "article 5 bis (2) p.c."), the parenthesis stays the
+# label it looks like. English words are left out: main reads "fifteen (15)
+# percent" through its spelled-number reader and keeps "(15)" masked. The
+# Dutch and German tens are matched as word endings, the way they close a
+# compound ("vijfenzeventig", "fünfundzwanzig").
+_RATE_RESTATEMENT_LEAD_IN_PATTERN = re.compile(
+    r"(?:(?<![^\W\d_])(?:"
+    r"pour|de|du|des|à|sur|soit|est|sont|sera|seront|était|étaient|"
+    r"environ|moins|que|"
+    r"van|tot|met|op|voor|dan|bij|zijn|bedraagt|bedragen|"
+    r"von|zu|um|auf|mit|über|unter|als|beträgt|betragen|je|"
+    r"un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|"
+    r"treize|quatorze|quinze|seize|vingts?|trente|quarante|cinquante|"
+    r"soixante|septante|octante|huitante|nonante|cents?|"
+    r"één|een|twee|drie|vier|vijf|zes|zeven|acht|negen|tien|elf|twaalf|"
+    r"dertien|veertien|vijftien|zestien|zeventien|achttien|negentien|"
+    r"honderd|"
+    r"eins?|zwei|drei|fünf|sechs|sieben|neun|zwölf"
+    r")|(?:"
+    r"twintig|dertig|veertig|vijftig|zestig|zeventig|tachtig|negentig|"
+    r"zehn|zwanzig|dreißig|dreissig|vierzig|fünfzig|sechzig|siebzig|"
+    r"achtzig|neunzig|hundert"
+    r"))[ \t\u00a0\u202f]\Z",
+    re.IGNORECASE,
 )
 _TABLE_HEADING_PATTERN = re.compile(
     r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE
@@ -7642,9 +7666,7 @@ _TABLE_VALUE_CELL_RATE_PATTERN = re.compile(
     rf"\d(?:\s*\))?\s*(?:{_RATE_MARKER_AFTER_FIGURE_BODY})",
     re.IGNORECASE,
 )
-_PIPE_TABLE_DELIMITER_ROW_PATTERN = re.compile(
-    r"[ \t]*\|?(?:[ \t]*:?-+:?[ \t]*\|)+(?:[ \t]*:?-+:?[ \t]*)?"
-)
+_PIPE_TABLE_DELIMITER_CELL_PATTERN = re.compile(r":?-+:?")
 _DANISH_RATE_MARKER_BODY = (
     r"(?:\bpct(?:\.(?!\w)|(?![\w.]))|\bprocent(?:point|enhed(?:er)?)?\b)"
 )
@@ -12674,7 +12696,7 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             _SLASH_DATE_PATTERN,
             _MONTH_NAME_DAY_PATTERN,
             _MONTH_DAY_OF_MONTH_PATTERN,
-            _DANISH_STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN,
+            _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN,
             _TABLE_KEY_ASSIGNMENT_PATTERN,
         )
     )
@@ -13254,7 +13276,9 @@ def _clean_source_text_for_numeric_extraction_tracked(
     tracked = tracked.sub(_SLASH_DATE_PATTERN, _blank_match)
     tracked = tracked.sub(_MONTH_NAME_DAY_PATTERN, _blank_match)
     tracked = tracked.sub(_MONTH_DAY_OF_MONTH_PATTERN, _blank_match)
-    tracked = tracked.sub(_STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN, _blank_match)
+    tracked = tracked.sub(
+        _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN, _blank_subdivision_label
+    )
     tracked = tracked.sub(
         _SCHEDULE_SIZE_CAP_RESTATEMENT_PATTERN,
         _restate_schedule_size_cap_in_place,
@@ -13281,6 +13305,24 @@ def _restate_schedule_size_cap_in_place(match: re.Match[str]) -> str:
 def _blank_match(match: re.Match[str]) -> str:
     """Replace a match with spaces of its own width, so offsets stay put."""
     return " " * len(match.group(0))
+
+
+def _blank_subdivision_label(match: re.Match[str]) -> str:
+    """Blank a subdivision label, but keep a figure restated before its marker.
+
+    ``pour (75) p.c.`` restates the rate 75 percent: a lead-in word and one
+    space come before the parenthesis and a rate marker follows it. Without
+    either, ``(17)`` is the label it looks like (``Item (17) Percent``,
+    ``apply. (17) Percent``), and after a figure it is a note, since the
+    figure owns the marker (``5 (7) percent`` is five percent).
+    """
+    start, end = match.span()
+    text = match.string
+    if _LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN.match(
+        text, end
+    ) and _RATE_RESTATEMENT_LEAD_IN_PATTERN.search(text[max(0, start - 32) : start]):
+        return match.group(0)
+    return _blank_match(match)
 
 
 def _strip_superseded_bracketed_numeric_text(match: re.Match[str]) -> str:
@@ -13779,13 +13821,33 @@ def _pipe_table_next_width(line: str, width: int | None) -> int:
     count is the width, and a later row's leading pipe that keeps the row at
     that width marks an empty first cell.
     """
-    starts = line.lstrip().startswith("|")
-    ends = line.rstrip().endswith("|")
+    separators = _pipe_table_separators(line)
+    starts, ends = _pipe_table_line_borders(line, separators)
     if width is None:
         return 0 if starts or ends else len(_pipe_table_line_cells(line, None))
-    if starts and (ends or line.count("|") + 1 > width):
+    if starts and (ends or len(separators) + 1 > width):
         return 0
     return width
+
+
+# A backslash before a pipe makes the pipe part of its cell ("Type \| Category"),
+# the way GitHub-flavored Markdown reads a table row.
+_PIPE_TABLE_SEPARATOR_PATTERN = re.compile(r"(?<!\\)\|")
+
+
+def _pipe_table_separators(line: str) -> list[int]:
+    """Return the offsets of the pipes that separate ``line``'s cells."""
+    return [match.start() for match in _PIPE_TABLE_SEPARATOR_PATTERN.finditer(line)]
+
+
+def _pipe_table_line_borders(line: str, separators: Sequence[int]) -> tuple[bool, bool]:
+    """Return whether a separator opens and whether one closes ``line``."""
+    if not separators:
+        return False, False
+    return (
+        not line[: separators[0]].strip(),
+        not line[separators[-1] + 1 :].strip(),
+    )
 
 
 def _pipe_table_line_cells(
@@ -13803,20 +13865,18 @@ def _pipe_table_line_cells(
     the block looks bordered anywhere, so a bordered or mixed Markdown table
     keeps the border rule on every row; with ``None``, borders are dropped.
     """
-    boundaries = [
-        -1,
-        *(match.start() for match in re.finditer(r"\|", line)),
-        len(line),
-    ]
+    separators = _pipe_table_separators(line)
+    boundaries = [-1, *separators, len(line)]
     cells = [
         (boundaries[index] + 1, boundaries[index + 1])
         for index in range(len(boundaries) - 1)
     ]
     if width is not None and len(cells) == width:
         return cells
-    if line.lstrip().startswith("|") and cells:
+    starts, ends = _pipe_table_line_borders(line, separators)
+    if starts and cells:
         cells = cells[1:]
-    if line.rstrip().endswith("|") and cells:
+    if ends and cells:
         cells = cells[:-1]
     return cells
 
@@ -14121,13 +14181,28 @@ def _table_rate_header_matches(
     return bool(_TABLE_RATE_HEADER_PATTERN.search(text))
 
 
+def _pipe_table_is_delimiter_row(line: str) -> bool:
+    """Return whether ``line`` is a Markdown delimiter row (``| --- | :-: |``).
+
+    Whitespace around the row and its cells is no part of it.
+    """
+    separators = _pipe_table_separators(line)
+    if not separators:
+        return False
+    cells = _pipe_table_line_cells(line, None)
+    return bool(cells) and all(
+        _PIPE_TABLE_DELIMITER_CELL_PATTERN.fullmatch(line[start:end].strip())
+        for start, end in cells
+    )
+
+
 def _pipe_table_row_kinds(lines: Sequence[str]) -> list[str]:
     """Place each line of one pipe block above, at or below its delimiter row."""
     delimiter = next(
         (
             index
             for index, line in enumerate(lines)
-            if _PIPE_TABLE_DELIMITER_ROW_PATTERN.fullmatch(line)
+            if _pipe_table_is_delimiter_row(line)
         ),
         None,
     )
