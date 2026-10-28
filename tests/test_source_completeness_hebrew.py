@@ -4098,8 +4098,9 @@ _PREFIXED_NEGATION_READINGS = (
     # "Without", a preposition: the link guard reads it, and a reason's
     # without-signals are ``בלי``, ``ללא`` and ``מבלי``.
     ("בלא", False, "Without missing section 2."),
-    # "In the absence of": an absence, as English "absent" negates nothing.
-    ("באין", False, "In the absence of missing section 2."),
+    # Round 16: באין is lexical negative absence. The incomplete missing
+    # fragment is explicitly Hebrew-stricter in ROUND_16_INTENDED_STRICTER_CONTEXTS.
+    ("באין", True, "In the absence of missing section 2."),
     ("כלא", False, "Prison: missing section 2."),
     # "As nothing" (``כאין וכאפס``).
     ("כאין", False, "As nothing missing section 2."),
@@ -6655,6 +6656,14 @@ ROUND_16_INTENDED_STRICTER_CONTEXTS = (
     # Both literal translations are incomplete fragments. Their absence
     # particle still receives the conservative negative reading, rather than
     # supplying a complete affirmative missing-dependency claim.
+    (
+        "incomplete-absence-of-missing-reason",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "באין חסר סעיף 2",
+        "In the absence of missing section 2.",
+        "hebrew-stricter",
+    ),
     (
         "incomplete-absence-reason",
         REVIEW_SOURCE,
