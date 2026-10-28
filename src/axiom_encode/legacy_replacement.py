@@ -171,6 +171,71 @@ class LegacyReplacementPendingFile(NamedTuple):
 class LegacyReplacementScheduledDependent(NamedTuple):
     primary: Path
     files: tuple[LegacyReplacementPendingFile, ...]
+    source_citation: str | None = None
+
+
+def source_bound_dependent_proof_imports(
+    raw: bytes,
+    *,
+    primary: Path,
+    primary_sha256: str,
+    source_citation: str,
+) -> tuple[str, ...]:
+    """Require a dependent's own source and exact primary proof-import hashes.
+
+    This is evidence admission, not permission to rewrite a proof hash. A fresh
+    model manifest and its independent source attestation remain required.
+    """
+
+    if _SHA256.fullmatch(primary_sha256) is None:
+        raise ValueError("source-bound primary digest is invalid")
+    try:
+        payload = yaml.load(raw.decode("utf-8"), Loader=_UniqueKeySafeLoader)
+    except (UnicodeError, yaml.YAMLError, RecursionError) as exc:
+        raise ValueError("source-bound dependent is invalid YAML") from exc
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        raise ValueError("source-bound dependent is not a RuleSpec module")
+    module = payload.get("module")
+    verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    if (
+        not isinstance(verification, dict)
+        or verification.get("corpus_citation_path") != source_citation
+        or legacy_source_verification_citation_paths(verification) != (source_citation,)
+    ):
+        raise ValueError("source-bound dependent source citation differs")
+    concept_prefix = (
+        f"{primary.parts[0]}:{Path(*primary.parts[1:]).with_suffix('').as_posix()}#"
+    )
+    imports = payload.get("imports")
+    if not isinstance(imports, list) or not any(
+        isinstance(item, str) and item.startswith(concept_prefix) for item in imports
+    ):
+        raise ValueError("source-bound dependent lacks the primary import")
+    targets: list[str] = []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        raise ValueError("source-bound dependent has no rules")
+    for rule in rules:
+        metadata = rule.get("metadata") if isinstance(rule, dict) else None
+        proof = metadata.get("proof") if isinstance(metadata, dict) else None
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list):
+            continue
+        for atom in atoms:
+            imported = atom.get("import") if isinstance(atom, dict) else None
+            target = imported.get("target") if isinstance(imported, dict) else None
+            if not isinstance(target, str) or not target.startswith(concept_prefix):
+                continue
+            if atom.get("kind") != "import":
+                raise ValueError("source-bound dependent primary proof kind differs")
+            if imported.get("hash") != f"sha256:{primary_sha256}":
+                raise ValueError("source-bound dependent primary proof hash differs")
+            targets.append(target)
+    if not targets:
+        raise ValueError("source-bound dependent lacks a primary proof import")
+    return tuple(targets)
 
 
 class LegacyReplacementExactDependent(NamedTuple):
@@ -430,6 +495,7 @@ def legacy_generated_manifest_issues(
     expected_primary_path: str,
     expected_citation: str,
     jurisdiction_prefix: str,
+    allow_in_place_module_citation: bool = False,
 ) -> list[str]:
     """Require one strict historical generated-v1 shape as untrusted evidence.
 
@@ -526,7 +592,22 @@ def legacy_generated_manifest_issues(
         canonical_citation = normalize_corpus_identifier(expected_citation)
     except (TypeError, ValueError):
         canonical_citation = ""
-    if not canonical_citation or payload.get("citation") != canonical_citation:
+    relative_primary = expected_primary_path.removeprefix(f"{jurisdiction_prefix}/")
+    historical_module_citation = (
+        relative_primary.removesuffix(".yaml")
+        if relative_primary != expected_primary_path
+        and relative_primary.endswith(".yaml")
+        else ""
+    )
+    admitted_citations = {canonical_citation}
+    if allow_in_place_module_citation and historical_module_citation:
+        admitted_citations.add(historical_module_citation)
+    manifest_citation = payload.get("citation")
+    if (
+        not canonical_citation
+        or not isinstance(manifest_citation, str)
+        or manifest_citation not in admitted_citations
+    ):
         issues.append("legacy generated ownership manifest citation is stale")
 
     primary_digest = canonical_files.get(expected_primary_path)
@@ -610,6 +691,7 @@ def legacy_v1_manifest_issues(
     expected_citation: str,
     jurisdiction_prefix: str,
     allow_unmarked_manual_exception: bool = False,
+    allow_in_place_module_citation: bool = False,
 ) -> list[str]:
     """Dispatch only the two explicitly supported historical v1 owner classes."""
 
@@ -637,6 +719,7 @@ def legacy_v1_manifest_issues(
             expected_primary_path=expected_primary_path,
             expected_citation=expected_citation,
             jurisdiction_prefix=jurisdiction_prefix,
+            allow_in_place_module_citation=allow_in_place_module_citation,
         )
     return ["legacy ownership manifest class is unsupported"]
 
@@ -650,6 +733,7 @@ def legacy_receipt_v1_manifest_issues(
     expected_citation: str,
     jurisdiction_prefix: str,
     allow_unmarked_manual_exception: bool = False,
+    allow_in_place_module_citation: bool = False,
 ) -> list[str]:
     """Preserve old manual receipts without permitting owner-class relabeling."""
 
@@ -667,6 +751,7 @@ def legacy_receipt_v1_manifest_issues(
             expected_citation=expected_citation,
             jurisdiction_prefix=jurisdiction_prefix,
             allow_unmarked_manual_exception=allow_unmarked_manual_exception,
+            allow_in_place_module_citation=allow_in_place_module_citation,
         )
     return ["legacy receipt ownership class is unsupported"]
 
