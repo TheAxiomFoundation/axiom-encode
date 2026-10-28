@@ -23,7 +23,7 @@ from unittest import mock
 
 import pytest
 import yaml
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode.harness import source_completeness as sc
@@ -955,6 +955,9 @@ _REASON_FRAGMENTS = (
     "section 5",
     "sections 3 and 4",
     "section 2015(d) of this title",
+    "section 2015",
+    "section 2015(d)(1)",
+    "section 1382a(a)(2)",
     "of this title",
     "7 U.S.C. 2015",
     "7 U.S.C. 2015(d)(1)",
@@ -984,13 +987,101 @@ _REASON_FRAGMENTS = (
 )
 
 
+# A relative section is the same citation only when "of this title" follows it.
+_THIS_TITLE_REASONS = (
+    "7 U.S.C. 2015 is missing. section 2015 is quoted only for context.",
+    "7 U.S.C. 2015(d) is missing; section 2015(d) of this title is quoted only "
+    "for context.",
+    "section 2015(d)(1) of this title, for orientation, and 7 U.S.C. 2015(d)(1) "
+    "is missing.",
+)
+
+
 @settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(st.lists(st.sampled_from(_REASON_FRAGMENTS), max_size=24).map(" ".join))
+@example(_THIS_TITLE_REASONS[0])
+@example(_THIS_TITLE_REASONS[1])
+@example(_THIS_TITLE_REASONS[2])
 def test_reason_helpers_match_main(reason):
     old, cold, warm = _old_and_new(lambda: _reason_helpers(reason))
 
     assert cold == old
     assert warm == cold
+
+
+def _local_contexts(reason: str) -> tuple[list[str], list[str]]:
+    """Each occurrence's local context, from the index and from main's scan."""
+
+    index = sc._ReasonOccurrenceIndex(reason)
+    dependencies = sc._reason_dependencies(reason)
+    matches = [*index.candidates, *dependencies]
+    return (
+        [index.local_context(match) for match in matches],
+        [
+            _old_reason_dependency_local_context(
+                reason, match, dependencies=dependencies
+            )
+            for match in matches
+        ],
+    )
+
+
+@settings(max_examples=200, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(st.lists(st.sampled_from(_REASON_FRAGMENTS), max_size=24).map(" ".join))
+@example("section 2015(d)(1) is quoted only for context.")
+@example("7 U.S.C. 2015(d)(1) and section 2015 of this title, for orientation.")
+def test_local_context_matches_main(reason):
+    # Nested citations (a relative section inside a qualified one, or a
+    # section inside its own subsection) make the latest-ending dependency
+    # before a match differ from the latest-starting one.
+    new, old = _local_contexts(reason)
+
+    assert new == old
+
+
+def test_fixture_local_contexts_match_main():
+    for reason in (*_fixture_reasons(), *_THIS_TITLE_REASONS):
+        new, old = _local_contexts(reason)
+        assert new == old, reason
+
+
+def test_sentence_direct_text_stops_at_its_numbered_items():
+    """A German sentence label shares its paragraph path with the items in it."""
+
+    text = "(1) Satz 1 gilt für: 1. erstens, 2. zweitens. Satz 2 gilt nicht."
+
+    def span(path, kind, label, start_text, end_text=None):
+        start = text.index(start_text)
+        end = text.index(end_text) if end_text else len(text)
+        return SourceStructureBranch(
+            path=path,
+            kind=kind,
+            label=label,
+            text=text[start:end],
+            start=start,
+            end=end,
+        )
+
+    sentence = span(("1", "satz-1"), "sentence", "Satz 1", "Satz 1", " Satz 2")
+    branches = (
+        span(("1",), "paragraph", "(1)", "(1)"),
+        sentence,
+        span(("1", "1"), "number", "1.", "1. erstens", "2. zweitens"),
+        span(("1", "2"), "number", "2.", "2. zweitens", " Satz 2"),
+        span(("1", "satz-2"), "sentence", "Satz 2", "Satz 2"),
+    )
+
+    assert sc._source_branch_direct_text(sentence, branches=branches) == (
+        "Satz 1 gilt für: "
+    )
+    for pool in (branches, list(branches)):
+        old, cold, warm = _old_and_new(
+            lambda: [
+                sc._source_branch_direct_text(branch, branches=pool) for branch in pool
+            ]
+        )
+        assert cold == old
+        assert warm == cold
 
 
 _PATH_PARTS = ("a", "b", "1", "2", "satz-1", "satz-2")
@@ -1157,6 +1248,9 @@ def test_clause_spans_match_main(text):
 
 @settings(max_examples=300, deadline=None)
 @given(st.lists(st.sampled_from(_SOURCE_FRAGMENTS), max_size=12).map("".join))
+# ``$`` also matches before a final newline, so the period can sit one before.
+@example("12.\n")
+@example("R.S.\n47:297")
 def test_windowed_matches_equal_sliced_matches(text):
     for end in range(len(text) + 1):
         assert sc._number_ends_before(text, end) == bool(
