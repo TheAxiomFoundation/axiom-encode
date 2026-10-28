@@ -1009,6 +1009,32 @@ def test_reason_helpers_match_main(reason):
     assert warm == cold
 
 
+@pytest.mark.parametrize(
+    ("reason", "contextual"),
+    [
+        # The adversative clause is the second after the citation, not the next.
+        (
+            "section 346 is missing. It is not yet available. But the rate is known.",
+            False,
+        ),
+        # The next clause is adversative, and a later one cites a dependency.
+        ("section 346 is missing. But the rate is known; section 5 is pending.", True),
+    ],
+)
+def test_trailing_clause_ends_at_the_next_separator(reason, contextual):
+    match = sc._reason_dependencies(reason)[0]
+
+    old, cold, warm = _old_and_new(
+        lambda: sc._reason_dependency_occurrence_is_contextual(
+            reason, match, current_usc_title=None
+        )
+    )
+
+    assert old is contextual
+    assert cold is old
+    assert warm is cold
+
+
 def _local_contexts(reason: str) -> tuple[list[str], list[str]]:
     """Each occurrence's local context, from the index and from main's scan."""
 
