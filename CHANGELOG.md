@@ -1,3 +1,7 @@
+## 0.2.2258
+
+- Forward the reviewed dependent finding through all Arizona corpus-transport preflights, admit canonical shallow historical-owner deletions, and refresh the encoder version after current main.
+
 ## 0.2.2257
 
 - Refresh the encoder version after merging the reviewed Canadian repair-head admission into the Arizona ECE transport branch.
