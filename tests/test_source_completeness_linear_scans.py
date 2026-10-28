@@ -1392,6 +1392,31 @@ class _Text(str):
     """A string subclass, which recognition never builds."""
 
 
+class _Loose(str):
+    """A string subclass equal to everything but hashed as its own text."""
+
+    __hash__ = str.__hash__
+
+    def __eq__(self, other: object) -> bool:
+        return True
+
+
+class _LooseTuple(tuple):
+    """A tuple subclass equal to everything but hashed as its own items."""
+
+    __hash__ = tuple.__hash__
+
+    def __eq__(self, other: object) -> bool:
+        return True
+
+
+class _Reversed(tuple):
+    """A tuple subclass whose items and slices read it backwards."""
+
+    def __getitem__(self, key):
+        return tuple(reversed(tuple(self)))[key]
+
+
 _RAISING = _RaisingComponent()
 _ANY_PATHS = [
     ["a", "b"],
@@ -1405,6 +1430,9 @@ _ANY_PATHS = [
     (_RAISING,),
     ("a", _RAISING),
     (_Text("a"),),
+    (_Loose("z"),),
+    _Reversed(("b", "a")),
+    _LooseTuple(("z",)),
 ]
 
 
@@ -1421,6 +1449,9 @@ _ANY_PATHS = [
         frozenset({("a", "b")}),
         frozenset({(_RAISING,)}),
         frozenset({(_Text("a"),)}),
+        frozenset({(_Loose("z"),)}),
+        frozenset({_Reversed(("b", "a"))}),
+        frozenset({_LooseTuple(("z",))}),
     ],
 )
 def test_path_is_deferred_matches_main_on_any_path(path, deferred):
@@ -1703,6 +1734,9 @@ _OTHER_FIELDS = [
     pytest.param({"path": ["a"]}, id="list-path"),
     pytest.param({"path": ("a", _RAISING)}, id="raising-component"),
     pytest.param({"path": (_Text("a"),)}, id="string-subclass-component"),
+    pytest.param({"path": (_Loose("z"),)}, id="loose-string-component"),
+    pytest.param({"path": _Reversed(("1", "a"))}, id="tuple-subclass-path"),
+    pytest.param({"path": _LooseTuple(("z",))}, id="loose-tuple-path"),
     pytest.param({"path": (1,)}, id="int-component"),
     pytest.param({"start": None}, id="none-start"),
     pytest.param({"end": None}, id="none-end"),
@@ -1763,6 +1797,91 @@ def test_branch_helpers_match_main_on_other_field_types(change, position):
 
     old, cold, warm = _old_and_new(helpers)
 
+    assert cold == old
+    assert warm == cold
+
+
+_OTHER_QUESTION_PATHS = [
+    pytest.param("a", id="string"),
+    pytest.param(["a"], id="list"),
+    pytest.param((["a"],), id="list-component"),
+    pytest.param((_RAISING,), id="raising-component"),
+    pytest.param((_Text("a"),), id="string-subclass-component"),
+    pytest.param((_Loose("z"),), id="loose-string-component"),
+    pytest.param(_Reversed(("1", "a")), id="tuple-subclass-path"),
+    pytest.param(_LooseTuple(("z",)), id="loose-tuple-path"),
+    pytest.param((1,), id="int-component"),
+]
+
+
+@pytest.mark.parametrize("path", _OTHER_QUESTION_PATHS)
+def test_branch_questions_match_main_from_outside_the_pool(path):
+    # The pool's paths are plain, so its trie is built; the branch asked about
+    # is not in it, and its path is of another type.
+    source = _wide_outline(16)
+    branches = sc.recognize_source_structure(source)
+    asked = dataclasses.replace(branches[0], path=path)
+
+    def children(candidate):
+        return (
+            len(candidate.path) == len(path) + 1 and candidate.path[: len(path)] == path
+        )
+
+    def descendants(candidate):
+        return len(candidate.path) > len(path) and candidate.path[: len(path)] == path
+
+    old, cold, warm = _old_and_new(
+        lambda: _outcome(
+            lambda: sc._is_marker_only_container(
+                asked, branches=branches, source_text=source
+            )
+        )
+    )
+    assert cold == old
+    assert warm == cold
+
+    # Each index question still returns a pool its filter turns into main's.
+    with sc._source_index_scope():
+        index = sc._source_branch_index(branches)
+        assert index is not None
+        for question, keep in (
+            (index.children, children),
+            (index.descendants, descendants),
+        ):
+            expected = _outcome(lambda: [b for b in branches if keep(b)])
+            assert _outcome(lambda: [b for b in question(path) if keep(b)]) == expected
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        pytest.param({"kind": _RAISING}, id="raising-kind"),
+        pytest.param({"kind": "sentence", "path": (1,)}, id="sentence-int-component"),
+        pytest.param(
+            {"kind": "sentence", "path": (["a"],)}, id="sentence-list-component"
+        ),
+    ],
+)
+def test_direct_text_tests_kind_and_path_only_where_main_did(change):
+    # Main tests the branch's kind and last path component only for a
+    # candidate that is not its descendant. With only descendants in the pool
+    # it never does, so a kind or component it cannot test is never reached.
+    source = _wide_outline(16)
+    branches = sc.recognize_source_structure(source)
+    parent = branches[0]
+    asked = dataclasses.replace(parent, **change)
+    pool = tuple(
+        dataclasses.replace(branch, path=(*asked.path, *branch.path[1:]))
+        for branch in branches[1:]
+        if branch.path[: len(parent.path)] == parent.path
+    )
+    assert pool
+
+    old, cold, warm = _old_and_new(
+        lambda: _outcome(lambda: sc._source_branch_direct_text(asked, branches=pool))
+    )
+
+    assert not isinstance(old, tuple)
     assert cold == old
     assert warm == cold
 
@@ -1840,9 +1959,11 @@ def test_span_helpers_match_main_on_other_offset_types(start, end):
 
 
 _MIXED_COMPONENTS = st.sampled_from(
-    ["a", "b", "ab", _Text("a"), 1, 1.0, True, None, b"a"]
+    ["a", "b", "ab", _Text("a"), _Loose("z"), 1, 1.0, True, None, b"a"]
 )
-_MIXED_PATHS = st.lists(_MIXED_COMPONENTS, max_size=4).map(tuple)
+_MIXED_PATHS = st.lists(_MIXED_COMPONENTS, max_size=4).flatmap(
+    lambda parts: st.sampled_from([tuple(parts), _LooseTuple(parts), _Reversed(parts)])
+)
 
 
 @settings(max_examples=400, deadline=None)
@@ -1851,8 +1972,9 @@ _MIXED_PATHS = st.lists(_MIXED_COMPONENTS, max_size=4).map(tuple)
     deferred=st.frozensets(_MIXED_PATHS, max_size=4),
 )
 def test_path_is_deferred_matches_main_on_mixed_components(paths, deferred):
-    # Equal components of other types (1, 1.0, True) match as main compared
-    # them; plain-string paths take the index.
+    # Equal components of other types (1, 1.0, True), string and tuple
+    # subclasses that compare their own way, match as main compared them;
+    # plain-string paths take the index.
     expected = [_old_path_is_deferred(path, deferred) for path in paths]
 
     with sc._source_index_scope():
