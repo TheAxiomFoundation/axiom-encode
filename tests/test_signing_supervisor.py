@@ -2258,8 +2258,7 @@ def test_transport_dependent_review_finding_reaches_workflow_preflight(
         "${{ inputs.replace_legacy_rulespec_path }}": legacy_path,
     }
     projected_env = {
-        name: values.get(expression, "")
-        for name, expression in step["env"].items()
+        name: values.get(expression, "") for name, expression in step["env"].items()
     }
     completed = subprocess.run(
         [
