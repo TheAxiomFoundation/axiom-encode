@@ -16,7 +16,7 @@ from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import cli
-from tests.environment_assertions import changed_names, expect, throw
+from tests.environment_assertions import changed_names, hides_environment
 from tests.test_encoder_manifest_ancestry import (
     _expected,
     _git,
@@ -413,6 +413,7 @@ def test_every_guard_git_command_scrubs_overrides_and_disables_graph_rewriting(
     calls = []
     real_run = subprocess.run
 
+    @hides_environment
     def capture(command, **kwargs):
         calls.append((command, kwargs.get("env")))
         return real_run(command, **kwargs)
@@ -507,6 +508,7 @@ def test_guard_git_queries_leave_no_graft_deprecation_hint_on_stderr(
     calls = []
     real_run = subprocess.run
 
+    @hides_environment
     def capture(command, **kwargs):
         result = real_run(command, **kwargs)
         calls.append((command, os.fsdecode(result.stderr or "")))
@@ -635,6 +637,7 @@ def test_every_git_proof_stage_fails_closed(graph, monkeypatch, failure, fetched
     real_run = subprocess.run
     commands = []
 
+    @hides_environment
     def record(command, **kwargs):
         commands.append(tuple(command))
         return real_run(command, **kwargs)
@@ -646,16 +649,17 @@ def test_every_git_proof_stage_fails_closed(graph, monkeypatch, failure, fetched
     for index, target in enumerate(commands):
         count = 0
 
+        @hides_environment
         def fail(command, **kwargs):
             nonlocal count
             current = count
             count += 1
             if current == index:
-                expect(tuple(command) == target, command)
+                assert tuple(command) == target
                 if failure == "oserror":
-                    throw(OSError("injected Git launch failure"))
+                    raise OSError("injected Git launch failure")
                 if failure == "timeout":
-                    throw(subprocess.TimeoutExpired(command, 30))
+                    raise subprocess.TimeoutExpired(command, 30)
                 return subprocess.CompletedProcess(command, 128, "", "injected error")
             return real_run(command, **kwargs)
 

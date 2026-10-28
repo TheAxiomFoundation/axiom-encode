@@ -45,7 +45,7 @@ from axiom_encode.toolchain import (
     load_rulespec_toolchain,
     verify_rulespec_validation_waiver_set,
 )
-from tests.environment_assertions import changed_names
+from tests.environment_assertions import hides_environment
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
@@ -972,6 +972,7 @@ def test_execute_gates_preserves_order_and_uses_pin_gate_parameters(
         ),
     )
 
+    @hides_environment
     def fake_cli(arguments, *, environment=None):
         calls.append((list(arguments), environment))
         return 0, "ok\n"
@@ -985,19 +986,17 @@ def test_execute_gates_preserves_order_and_uses_pin_gate_parameters(
     ]
     companion = next(call for call in calls if call[0][0] == "test")
     assert companion[0][-1] == "statutes/benefit.test.yaml"
-    changed = changed_names(
-        {"AXIOM_RULESPEC_REPO_ROOTS": f"{repo}{os.pathsep}{paths['rulespec_us']}"},
-        companion[1] or {},
-    )
-    assert changed == []
-    money_atom_commands = [
-        command
-        for command, _environment in calls
-        if command[0] == "proof-validate" and "--money-atoms-only" in command
+    assert companion[1] == {
+        "AXIOM_RULESPEC_REPO_ROOTS": f"{repo}{os.pathsep}{paths['rulespec_us']}"
+    }
+    money_atom_calls = [
+        call
+        for call in calls
+        if call[0][0] == "proof-validate" and "--money-atoms-only" in call[0]
     ]
-    assert bool(money_atom_commands) is programs_in_money_atom_check
-    if money_atom_commands:
-        assert str(program_file) in money_atom_commands[0]
+    assert bool(money_atom_calls) is programs_in_money_atom_check
+    if money_atom_calls:
+        assert str(program_file) in money_atom_calls[0][0]
 
 
 def test_pinned_classifier_rejects_ambient_oracles_dependency(

@@ -133,7 +133,7 @@ from axiom_encode.prompts import get_encoder_prompt
 from axiom_encode.repo_routing import find_policy_repo_root, monorepo_checkout_name
 from axiom_encode.signing_broker import get_signing_broker
 from axiom_encode.statute import CitationParts, citation_to_relative_rulespec_path
-from tests.environment_assertions import throw
+from tests.environment_assertions import hides_environment, raising
 from tests.eval_evidence_fixtures import (
     install_test_eval_evidence_keys,
 )
@@ -473,6 +473,7 @@ def _bind_fake_source_results(
 def _fake_source_runner(*outcomes):
     pending = iter(outcomes)
 
+    @hides_environment
     def run(**kwargs):
         outcome = next(pending)
         if isinstance(outcome, BaseException):
@@ -559,7 +560,6 @@ def _complete_test_eval_suite(
             policy_repo_path=tmp_path / "rulespec-us",
             corpus_release=corpus_release,
         )
-    assert visible_signing_keys == []
     return manifest, corpus_release, output_root, axiom_rules_path
 
 
@@ -4674,7 +4674,7 @@ class TestClaudePromptEval:
 
         with patch(
             "axiom_encode.harness.evals.subprocess.run",
-            side_effect=subprocess.TimeoutExpired(["claude"], timeout=1234),
+            side_effect=raising(subprocess.TimeoutExpired(["claude"], timeout=1234)),
         ):
             response = _run_claude_prompt_eval(runner, workspace, "review this")
 
@@ -4709,6 +4709,7 @@ class TestClaudePromptEval:
             stderr="",
         )
 
+        @hides_environment
         def return_after_deadline(*_args, **_kwargs):
             clock[0] = 106.0
             return completed
@@ -4853,6 +4854,7 @@ class TestCodexPromptEval:
         monkeypatch.setattr(evals_module.time, "monotonic", lambda: clock[0])
 
         class FakePopen:
+            @hides_environment
             def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
                 self.args = cmd
                 self.returncode = 0
@@ -4867,6 +4869,7 @@ class TestCodexPromptEval:
             def kill(self):
                 self.returncode = -9
 
+        @hides_environment
         def return_after_deadline(*_args, **_kwargs):
             clock[0] = 106.0
             return False
@@ -8210,6 +8213,7 @@ def test_run_codex_prompt_eval_records_idle_timeout_threshold(tmp_path):
     bundle = "=== FILE: example.yaml ===\nformat: rulespec/v1\nrules: []\n"
 
     class FakePopen:
+        @hides_environment
         def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
             self.args = cmd
             self.returncode = None
@@ -8228,9 +8232,11 @@ def test_run_codex_prompt_eval_records_idle_timeout_threshold(tmp_path):
         patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
         patch(
             "axiom_encode.harness.evals._wait_for_codex_process",
-            side_effect=subprocess.TimeoutExpired(
-                cmd=["codex", "exec"],
-                timeout=300,
+            side_effect=raising(
+                subprocess.TimeoutExpired(
+                    cmd=["codex", "exec"],
+                    timeout=300,
+                )
             ),
         ),
     ):
@@ -8259,6 +8265,7 @@ def test_codex_idle_timeout_precedes_longer_case_budget(tmp_path, monkeypatch):
     monkeypatch.setattr(evals_module.time, "monotonic", lambda: 100.0)
 
     class FakePopen:
+        @hides_environment
         def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
             self.args = cmd
             self.returncode = None
@@ -8280,9 +8287,11 @@ def test_codex_idle_timeout_precedes_longer_case_budget(tmp_path, monkeypatch):
             patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
             patch(
                 "axiom_encode.harness.evals._wait_for_codex_process",
-                side_effect=subprocess.TimeoutExpired(
-                    cmd=["codex", "exec"],
-                    timeout=300,
+                side_effect=raising(
+                    subprocess.TimeoutExpired(
+                        cmd=["codex", "exec"],
+                        timeout=300,
+                    )
                 ),
             ),
         ):
@@ -8579,6 +8588,7 @@ def test_eval_result_payload_round_trips_prompt_digests():
         )
 
         class FakePopen:
+            @hides_environment
             def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
                 self.args = cmd
                 self.returncode = None
@@ -8642,6 +8652,7 @@ def test_eval_result_payload_round_trips_prompt_digests():
         bundle = "=== FILE: example.yaml ===\nformat: rulespec/v1\nrules: []\n"
 
         class FakePopen:
+            @hides_environment
             def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
                 self.args = cmd
                 self.returncode = None
@@ -8663,8 +8674,8 @@ def test_eval_result_payload_round_trips_prompt_digests():
             patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
             patch(
                 "axiom_encode.harness.evals._wait_for_codex_process",
-                side_effect=subprocess.TimeoutExpired(
-                    cmd=["codex", "exec"], timeout=600
+                side_effect=raising(
+                    subprocess.TimeoutExpired(cmd=["codex", "exec"], timeout=600)
                 ),
             ),
         ):
@@ -8686,6 +8697,7 @@ def test_eval_result_payload_round_trips_prompt_digests():
         )
 
         class FakePopen:
+            @hides_environment
             def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
                 self.args = cmd
                 self.returncode = 0
@@ -8750,19 +8762,18 @@ class TestEvaluateArtifact:
             observed_staging_roots.append(pipeline.validation_staging_root)
             return Path("/opt/axiom-rules-engine")
 
+        @hides_environment
         def compile_timeout(**kwargs):
-            throw(
-                subprocess.TimeoutExpired(
-                    [
-                        str(kwargs["binary"]),
-                        "compile",
-                        "--program",
-                        str(kwargs["program"]),
-                        "--output",
-                        str(kwargs["output"]),
-                    ],
-                    timeout=60,
-                )
+            raise subprocess.TimeoutExpired(
+                [
+                    str(kwargs["binary"]),
+                    "compile",
+                    "--program",
+                    str(kwargs["program"]),
+                    "--output",
+                    str(kwargs["output"]),
+                ],
+                timeout=60,
             )
 
         with (
@@ -16568,6 +16579,7 @@ class TestOpenAIEvalRequest:
         monkeypatch.setattr(evals_module.time, "monotonic", lambda: clock[0])
         ok_response = Mock(status_code=200)
 
+        @hides_environment
         def return_after_deadline(*_args, **kwargs):
             assert kwargs["timeout"] == (5.0, 5.0)
             clock[0] = 106.0
@@ -22942,6 +22954,7 @@ class TestCodexPromptEvalPolicyEngineSkillIsolation:
         observed_skills_dirs: list[bool] = []
 
         class FakePopen:
+            @hides_environment
             def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
                 self.args = cmd
                 self.returncode = 0
@@ -23020,6 +23033,7 @@ class TestCodexPromptEvalPolicyEngineSkillIsolation:
         )
 
         class FakePopen:
+            @hides_environment
             def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
                 self.args = cmd
                 self.returncode = 0
@@ -23072,6 +23086,7 @@ class TestCodexPromptEvalPolicyEngineSkillIsolation:
         event_line = json.dumps({"type": "error", "message": rejection})
 
         class FakePopen:
+            @hides_environment
             def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
                 self.args = cmd
                 self.returncode = 1

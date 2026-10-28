@@ -10,6 +10,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_relation_aggregate_syntax_issues,
 )
 from axiom_encode.prompts.encoder import ENCODER_PROMPT
+from tests.environment_assertions import hides_environment
 from tests.test_companion_declared_entities import _companions
 
 TARGET = "us:policies/example/relation_sum"
@@ -97,6 +98,7 @@ def test_direct_sum_actual_companions(
     calls = []
     original = subprocess.run
 
+    @hides_environment
     def capture(command, **kwargs):
         result = original(command, **kwargs)
         if "run-compiled" in command:

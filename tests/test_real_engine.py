@@ -37,6 +37,7 @@ from axiom_encode.engine_binding import (
 )
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 from tests import real_engine
+from tests.environment_assertions import hides_environment
 
 REPO = Path(__file__).resolve().parents[1]
 ENGINE_ENV = (
@@ -522,6 +523,7 @@ def test_plain():
 """
 
 
+@hides_environment
 def _run_sample(
     tmp_path: Path,
     env: dict[str, str],

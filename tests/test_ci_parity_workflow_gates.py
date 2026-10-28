@@ -45,7 +45,7 @@ from axiom_encode.ci_parity import (
     resolve_roots,
     simulate_pull_request,
 )
-from tests.environment_assertions import Names, changed_names, expect, throw
+from tests.environment_assertions import changed_names, hides_environment
 
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
 PIN_6F11BE26 = "6f11be2655f79dd0a3b582db46525f58332ca120"
@@ -230,12 +230,7 @@ def _plan(*shards: str, roots: str | None = None) -> ShardPlan:
 
 
 class _BatchRecorder:
-    """Stands in for _run_cli_batch; records every invocation it is handed.
-
-    An invocation's environment is recorded wrapped in ``Names``: it compares
-    by value, but pytest prints only its names when a recorded invocation
-    differs from the one expected.
-    """
+    """Stands in for _run_cli_batch; records every invocation it is handed."""
 
     def __init__(
         self,
@@ -246,6 +241,7 @@ class _BatchRecorder:
         self.outcome = outcome or (lambda _invocation: (0, "ok\n"))
         self.events = events
 
+    @hides_environment
     def __call__(
         self,
         invocations: list[CliInvocation],
@@ -254,18 +250,10 @@ class _BatchRecorder:
         keyring: tuple[str, ...],
         signing_roots: dict[str, str] | None = None,
     ) -> list[tuple[int, str]]:
-        expect(jobs == 1, f"jobs={jobs}")
-        expect(tuple(keyring) == KEYRING, f"keyring={tuple(keyring)!r}")
-        expect(not signing_roots, f"signing_roots={signing_roots!r}")
-        batch = [
-            dataclasses.replace(
-                invocation,
-                environment=None
-                if invocation.environment is None
-                else Names(invocation.environment),
-            )
-            for invocation in invocations
-        ]
+        assert jobs == 1
+        assert tuple(keyring) == KEYRING
+        assert not signing_roots
+        batch = list(invocations)
         self.batches.append(batch)
         if self.events is not None:
             self.events.extend(("batch", item.arguments) for item in batch)
@@ -277,11 +265,7 @@ class _BatchRecorder:
 
 
 class _CliRecorder:
-    """Stands in for _run_cli; records argv, environment, cwd and supervision.
-
-    An environment is recorded as its names: pytest prints what a failing
-    assert reads from ``calls``.
-    """
+    """Stands in for _run_cli; records argv, environment, cwd and supervision."""
 
     def __init__(
         self,
@@ -292,6 +276,7 @@ class _CliRecorder:
         self.result = result
         self.events = events
 
+    @hides_environment
     def __call__(
         self,
         arguments: list[str],
@@ -303,7 +288,7 @@ class _CliRecorder:
         self.calls.append(
             {
                 "arguments": list(arguments),
-                "environment": None if environment is None else sorted(environment),
+                "environment": environment,
                 "cwd": cwd,
                 "supervised": supervised,
             }
@@ -335,10 +320,9 @@ def _no_real_encoder(monkeypatch: pytest.MonkeyPatch) -> None:
     """Fail loudly if a gate reaches a real encoder, classifier or pytest run."""
 
     def refuse(name: str) -> Callable[..., Any]:
+        @hides_environment
         def refused(*args: Any, **kwargs: Any) -> Any:
-            # Its arguments may hold an environment (_run_cli_batch's
-            # invocations do); the traceback shows which gate called it.
-            throw(AssertionError(f"unexpected real {name} call"))
+            raise AssertionError(f"unexpected real {name} call: {args!r}")
 
         return refused
 
@@ -485,13 +469,14 @@ def test_execute_workflow_gates_end_to_end_runs_repository_tests_last(
         events.append(("pinned", tuple(arguments)))
         return 0, json.dumps({"items": []}), ""
 
+    @hides_environment
     def process(
         arguments: list[str], cwd: Path, *, environment: dict[str, str] | None = None
     ) -> tuple[int, str]:
-        expect(cwd == repo, cwd)
-        expect(environment is not None)
-        pytest_names = [name for name in environment if name.startswith("PYTEST_")]
-        expect(not pytest_names, pytest_names)
+        assert cwd == repo
+        assert environment is not None and not any(
+            name.startswith("PYTEST_") for name in environment
+        )
         events.append(("process", tuple(arguments)))
         return 0, "1 passed\n"
 
@@ -1621,6 +1606,7 @@ class _AuditRecorder(_BatchRecorder):
         self.protected: list[bytes] = []
         self.changed: list[bytes] = []
 
+    @hides_environment
     def __call__(
         self,
         invocations: list[CliInvocation],
@@ -3194,6 +3180,7 @@ def test_repository_tests_follow_the_workflow_find(
     run = _run(repo, tmp_path, inputs={"run-pytest": run_pytest}, plan=_plan("us"))
     seen: list[tuple[list[str], Path]] = []
 
+    @hides_environment
     def process(
         arguments: list[str], cwd: Path, *, environment: dict[str, str] | None = None
     ) -> tuple[int, str]:
@@ -3503,6 +3490,7 @@ def test_repository_tests_see_the_selection_steps_rulespec_variables(
     ci_parity._gate_select_targets(run, _spec("select_targets"))
     seen: dict[str, str] = {}
 
+    @hides_environment
     def fake_process(command, cwd, *, environment=None):
         seen.update(environment or {})
         return 0, "1 passed\n"

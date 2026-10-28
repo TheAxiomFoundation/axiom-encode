@@ -19,7 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +47,7 @@ from axiom_encode.ci_parity import (
     run_ci,
     verify_dependency_inputs,
 )
+from tests.environment_assertions import hides_environment
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 US_CALLER_TEXT = (FIXTURES / "us-caller.yml").read_text(encoding="utf-8")
@@ -94,33 +95,15 @@ def _no_ambient_registry_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def embedded_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
-    """Record every embedded-script execution, then run the real script.
-
-    pytest prints this fixture's value when a test using it fails, so an
-    environment is recorded as its names and its ``GITHUB_OUTPUT`` path.
-    """
+    """Record every embedded-script execution, then run the real script."""
 
     calls: list[dict[str, Any]] = []
     real = ci_parity._run_embedded_python
 
-    def spy(
-        script: str,
-        *,
-        cwd: Path,
-        environment: Mapping[str, str] | None = None,
-        **options: Any,
-    ) -> tuple[int, str, str]:
-        calls.append(
-            {
-                "script": script,
-                "cwd": cwd,
-                "environment": None if environment is None else sorted(environment),
-                "github_output": None
-                if environment is None
-                else environment.get("GITHUB_OUTPUT"),
-            }
-        )
-        return real(script, cwd=cwd, environment=environment, **options)
+    @hides_environment
+    def spy(script: str, **kwargs: Any) -> tuple[int, str, str]:
+        calls.append({"script": script, **kwargs})
+        return real(script, **kwargs)
 
     monkeypatch.setattr(ci_parity, "_run_embedded_python", spy)
     return calls
@@ -240,6 +223,7 @@ def _step_environment(tmp_path: Path) -> dict[str, str]:
     return environment
 
 
+@hides_environment
 def _bash(run: str, *, cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess:
     # GitHub writes the run block to a file and executes `shell: bash` as
     # `bash --noprofile --norc -eo pipefail {0}`.
@@ -353,8 +337,7 @@ def test_rulespec_us_caller_resolves_every_input(
     (call,) = embedded_calls
     assert call["script"] == _resolver_body(_resolver_step(_us_caller())["run"])
     assert call["cwd"] == repo
-    assert call["environment"] == ["GITHUB_OUTPUT"]
-    assert call["github_output"] == os.devnull
+    assert call["environment"] == {"GITHUB_OUTPUT": os.devnull}
     # And the resolved caller satisfies "Validate immutable dependency inputs".
     verify_dependency_inputs(caller)
 

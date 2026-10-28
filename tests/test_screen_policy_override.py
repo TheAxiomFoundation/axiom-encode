@@ -15,6 +15,7 @@ from axiom_encode.judges import (
     statutory_fidelity_screen,
 )
 from axiom_encode.judges.statutory_fidelity import FIDELITY_KINDS
+from tests.environment_assertions import hides_environment
 
 
 @pytest.fixture
@@ -36,6 +37,7 @@ def screen_cli(monkeypatch, tmp_path):
     monkeypatch.setattr(cli_commands, "_load_bound_source", lambda *_: Source())
     state = {"policies": [], "referee_calls": 0}
 
+    @hides_environment
     def screen_run(*_, policy, **kwargs):
         state["policies"].append(policy)
         return JudgeEvent(
@@ -46,6 +48,7 @@ def screen_cli(monkeypatch, tmp_path):
             },
         )
 
+    @hides_environment
     def referee_run(*_, **kwargs):
         state["referee_calls"] += 1
         return JudgeEvent(stage=JudgeStage.STATUTORY_FIDELITY, verdict=Verdict.PASS)

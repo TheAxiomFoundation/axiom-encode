@@ -30,6 +30,7 @@ from axiom_encode.prompts.encoder import (
     _TESTS_PROTOCOL,
     _assemble,
 )
+from tests.environment_assertions import hides_environment, raising
 
 
 def test_assembled_prompt_has_no_duplicated_or_glued_blocks():
@@ -363,6 +364,7 @@ class TestAgentSDKBackend:
                 self.messages.stream = self._stream
                 clients.append(self)
 
+            @hides_environment
             def _stream(self, **kwargs):
                 calls.append(kwargs)
                 if stream_error is not None:
@@ -1033,7 +1035,7 @@ class TestClaudeCodeBackendAdditional:
         backend = ClaudeCodeBackend()
 
         with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = Exception("unexpected error")
+            mock_run.side_effect = raising(Exception("unexpected error"))
 
             scores = backend.predict("26 USC 1", "Statute text")
             assert scores.confidence == 0.3
@@ -1061,7 +1063,9 @@ class TestClaudeCodeBackendAdditional:
         backend = ClaudeCodeBackend()
 
         with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = subprocess.TimeoutExpired(cmd="claude", timeout=300)
+            mock_run.side_effect = raising(
+                subprocess.TimeoutExpired(cmd="claude", timeout=300)
+            )
 
             output, code = backend._run_claude_code("test", timeout=300)
             assert "Timeout" in output
@@ -1072,7 +1076,7 @@ class TestClaudeCodeBackendAdditional:
         backend = ClaudeCodeBackend()
 
         with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = FileNotFoundError()
+            mock_run.side_effect = raising(FileNotFoundError())
 
             output, code = backend._run_claude_code("test")
             assert "not found" in output
@@ -1083,7 +1087,7 @@ class TestClaudeCodeBackendAdditional:
         backend = ClaudeCodeBackend()
 
         with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = OSError("Permission denied")
+            mock_run.side_effect = raising(OSError("Permission denied"))
 
             output, code = backend._run_claude_code("test")
             assert "Error" in output

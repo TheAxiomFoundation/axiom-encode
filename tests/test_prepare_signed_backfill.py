@@ -44,6 +44,7 @@ from scripts.prepare_signed_backfill import (
 from scripts.prepare_signed_backfill import (
     main as prepare_signed_backfill_main,
 )
+from tests.environment_assertions import hides_environment
 
 
 def _legacy_index_shrink_repo(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -4420,7 +4421,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
     )
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill.subprocess.run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+        hides_environment(lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1)),
     )
 
     assert (
@@ -4447,7 +4448,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_protected_branch_tip(
     monkeypatch.setattr("scripts.prepare_signed_backfill._git", fake_git)
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill.subprocess.run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+        hides_environment(lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1)),
     )
 
     assert (
@@ -4513,7 +4514,7 @@ def test_validate_rulespec_base_accepts_each_reviewed_protected_branch_tip(
     )
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill.subprocess.run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+        hides_environment(lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1)),
     )
 
     assert (
@@ -4590,7 +4591,7 @@ def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
     )
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill.subprocess.run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+        hides_environment(lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1)),
     )
 
     with pytest.raises(ValueError, match="artifact-only"):
@@ -4652,7 +4653,7 @@ def test_validate_rulespec_base_rejects_stale_reviewed_protected_branch_tip(
     monkeypatch.setattr("scripts.prepare_signed_backfill._git", fake_git)
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill.subprocess.run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+        hides_environment(lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1)),
     )
 
     with pytest.raises(ValueError, match="exact pull request base branch tip"):
@@ -4678,7 +4679,7 @@ def test_validate_rulespec_base_refuses_retired_nz_reviewed_candidate(
     )
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill.subprocess.run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+        hides_environment(lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1)),
     )
 
     for open_pr, branch in ((True, "nzhub/wep-s75e"), (False, None)):
@@ -4717,7 +4718,7 @@ def test_validate_rulespec_base_rejects_nz_reviewed_candidate_other_pairs(
     )
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill.subprocess.run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+        hides_environment(lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1)),
     )
 
     with pytest.raises(ValueError, match=message):
@@ -4746,7 +4747,7 @@ def test_validate_rulespec_base_rejects_stale_reviewed_candidate_branch_tip(
     monkeypatch.setattr("scripts.prepare_signed_backfill._git", fake_git)
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill.subprocess.run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+        hides_environment(lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1)),
     )
 
     with pytest.raises(ValueError, match="exact pull request base branch tip"):
@@ -4771,7 +4772,7 @@ def test_validate_rulespec_base_rejects_unapproved_reviewed_pr_branch(
     )
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill.subprocess.run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+        hides_environment(lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1)),
     )
 
     with pytest.raises(ValueError, match="artifact-only"):
@@ -4806,7 +4807,7 @@ def test_validate_rulespec_base_rejects_retired_reviewed_head(
     )
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill.subprocess.run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+        hides_environment(lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1)),
     )
 
     with pytest.raises(ValueError, match="neither on main nor an approved"):
@@ -4977,7 +4978,7 @@ def test_reviewed_head_rejects_country_or_full_sha_mismatch(
     )
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill.subprocess.run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+        hides_environment(lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1)),
     )
     with pytest.raises(
         ValueError, match="neither on main nor an approved reviewed head"

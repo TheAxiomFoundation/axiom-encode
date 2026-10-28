@@ -10,6 +10,7 @@ import pytest
 from axiom_encode import cli
 from axiom_encode.harness import validator_pipeline
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+from tests.environment_assertions import hides_environment
 
 
 @pytest.mark.parametrize("kind", ["atomic", "composition"])
@@ -42,6 +43,7 @@ def test_companion_compiler_respects_module_kind(tmp_path, kind, composer_availa
     pipeline._axiom_rules_binary = lambda: tmp_path / "engine"
     calls = []
 
+    @hides_environment
     def compile_stub(**kwargs):
         calls.append(kwargs)
         kwargs["output"].write_text(
@@ -64,18 +66,15 @@ def test_companion_compiler_respects_module_kind(tmp_path, kind, composer_availa
             compiled_cache={},
             policy_repo_path=policy,
         )
-    # The calls carry the engine's environment; inspect them by program.
-    programs = [call["program"] for call in calls]
     if kind == "composition" and not composer_available:
-        assert programs == []
+        assert calls == []
         assert (
             "requires an explicit axiom-compose executable"
             in result["failures"][0]["message"]
         )
     else:
-        assert len(programs) == 1
-        composed = calls[0].get("composed")
-        assert bool(composed) == (kind == "composition")
+        assert len(calls) == 1
+        assert bool(calls[0].get("composed")) == (kind == "composition")
         assert calls[0]["program"].name == (
             "composed-program.yaml" if kind == "composition" else module.name
         )

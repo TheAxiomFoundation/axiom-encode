@@ -34,6 +34,7 @@ from axiom_encode.ci_parity import (
     verify_dependency_checkout,
     verify_python_version,
 )
+from tests.environment_assertions import hides_environment
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 CURRENT_KEY = base64.b64encode(bytes(range(32))).decode("ascii")
@@ -393,6 +394,7 @@ def test_isolated_worker_receives_signing_roots_on_stdin(
 ) -> None:
     seen: dict[str, Any] = {}
 
+    @hides_environment
     def fake_run(command: list[str], **kwargs: Any):
         seen["command"] = command
         seen["request"] = json.loads(kwargs["input"])

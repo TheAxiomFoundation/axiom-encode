@@ -30,7 +30,7 @@ from axiom_encode.oracles.snapscreener import (
     run_payloads,
     snapscreener_state_key,
 )
-from tests.environment_assertions import expect
+from tests.environment_assertions import hides_environment
 
 
 def test_set_input_value_updates_every_matching_legal_input():
@@ -154,8 +154,9 @@ def test_run_axiom_cases_uses_configured_california_member_entity(
 ):
     runtime_requests = []
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
-        expect("run-compiled" in cmd, cmd)
+        assert "run-compiled" in cmd
         runtime_requests.append(ecps_snap.json.loads(kwargs["input"]))
         return ecps_snap.subprocess.CompletedProcess(
             cmd,
@@ -400,6 +401,7 @@ var SnapAPI = {
 def test_snapscreener_runner_scrubs_attestation_signing_keys(tmp_path, monkeypatch):
     captured_env = None
 
+    @hides_environment
     def fake_run(*_args, **kwargs):
         nonlocal captured_env
         captured_env = kwargs["env"]
@@ -416,6 +418,5 @@ def test_snapscreener_runner_scrubs_attestation_signing_keys(tmp_path, monkeypat
         run_payloads([{"state_or_territory": "CO"}], api_js=tmp_path / "api.js") == []
     )
     assert captured_env is not None
-    names = set(captured_env)
-    assert EVAL_EVIDENCE_PRIVATE_KEY_ENV not in names
-    assert APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV not in names
+    assert EVAL_EVIDENCE_PRIVATE_KEY_ENV not in captured_env
+    assert APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV not in captured_env

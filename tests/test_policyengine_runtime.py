@@ -27,7 +27,7 @@ from axiom_encode.harness.policyengine_runtime import (
     policyengine_subprocess_environment,
     rulespec_country_from_root,
 )
-from tests.environment_assertions import changed_names
+from tests.environment_assertions import changed_names, hides_environment
 
 
 def _git(root: Path, *args: str) -> str:
@@ -451,6 +451,7 @@ def test_probe_itself_launches_with_i_and_s_and_scrubs_environment(
     observed: dict[str, object] = {}
     real_run = subprocess.run
 
+    @hides_environment
     def capture_run(command, **kwargs):
         observed["command"] = command
         observed["env"] = kwargs.get("env")

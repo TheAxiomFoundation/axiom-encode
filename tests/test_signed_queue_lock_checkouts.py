@@ -38,6 +38,7 @@ from scripts.prepare_signed_queue import (
     build_all_state_snap_queue,
     build_snap_queue,
 )
+from tests.environment_assertions import hides_environment
 from tests.release_object_fixtures import (
     TEST_RELEASE_PUBLIC_KEY,
     write_test_release_object,
@@ -467,6 +468,7 @@ def test_pre_switch_checkout_never_reaches_the_lock_code(tmp_path, monkeypatch):
     corpus = _pre_switch_corpus(tmp_path / "axiom-corpus", contents)
     before = _tree_snapshot(corpus.root)
 
+    @hides_environment
     def refuse(*args, **kwargs):
         raise AssertionError("a pre-switch checkout reached the lock-file code")
 

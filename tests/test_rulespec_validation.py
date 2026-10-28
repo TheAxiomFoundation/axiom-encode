@@ -152,7 +152,7 @@ from axiom_encode.harness.validator_pipeline import (
     ValidatorPipeline as _ValidatorPipeline,
 )
 from axiom_encode.repo_routing import find_policy_repo_root
-from tests.environment_assertions import expect, throw
+from tests.environment_assertions import hides_environment
 from tests.real_engine import ABSENT_ROOT
 from tests.release_object_fixtures import bind_test_corpus_release
 
@@ -235,7 +235,7 @@ def test_validator_subprocess_capture_read_errors_are_reproducible():
 
     def fail_capture_read(path: Path, *_args, **_kwargs):
         captured_paths.append(path)
-        throw(OSError(5, "synthetic capture read failure", str(path)))
+        raise OSError(5, "synthetic capture read failure", str(path))
 
     errors: list[str] = []
     with patch.object(Path, "read_text", autospec=True, side_effect=fail_capture_read):
@@ -310,7 +310,7 @@ def test_validator_subprocess_cleanup_error_cannot_mask_timeout():
     cleanup_failures: list[str] = []
 
     def rmtree_with_cleanup_failure(path, *args, onexc=None, **kwargs):
-        expect(onexc is not None)
+        assert onexc is not None
         failing_path = str(Path(path) / "stdout.log")
         cleanup_failures.append(failing_path)
         onexc(
@@ -351,8 +351,9 @@ def test_rulespec_run_compiled_timeout_is_reproducible_across_temp_roots(
         enable_oracles=False,
     )
 
+    @hides_environment
     def timeout_with_command_path(command, **kwargs):
-        throw(subprocess.TimeoutExpired(command, kwargs["timeout"]))
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
 
     issue_sets: list[list[str]] = []
     with patch.object(
@@ -478,6 +479,7 @@ output.write_text('format: rulespec/v1\\nrules: []\\n')
     pipeline._axiom_rules_binary = lambda: tmp_path / "engine"
     observed: dict[str, object] = {}
 
+    @hides_environment
     def fake_compile(*, program, output, rulespec_roots, **_kwargs):
         observed["program"] = program
         observed["roots"] = rulespec_roots
@@ -556,6 +558,7 @@ def test_composition_uses_explicit_roots_and_credential_free_environment(
     )
     observed: dict[str, object] = {}
 
+    @hides_environment
     def fake_run(command, **kwargs):
         observed["command"] = command
         observed["env"] = kwargs["env"]
@@ -579,9 +582,8 @@ def test_composition_uses_explicit_roots_and_credential_free_environment(
         "--rulespec-root",
         str(policy_repo.parent),
     ]
-    composer_names = set(observed["env"])
-    assert "OPENAI_API_KEY" not in composer_names
-    assert "AXIOM_RULESPEC_REPO_ROOTS" not in composer_names
+    assert "OPENAI_API_KEY" not in observed["env"]
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in observed["env"]
 
 
 def _admitted_runtime_stub(
@@ -1352,6 +1354,7 @@ def test_rulespec_compile_passes_only_explicit_root_arguments(monkeypatch, tmp_p
     )
     original_run = validator_pipeline.subprocess.run
 
+    @hides_environment
     def fake_run(command, **kwargs):
         if command[0] == "git":
             return original_run(command, **kwargs)
@@ -1379,9 +1382,8 @@ def test_rulespec_compile_passes_only_explicit_root_arguments(monkeypatch, tmp_p
         "--output",
         str(output_path),
     ]
-    engine_names = set(captured["env"])
-    assert "AXIOM_RULESPEC_REPO_ROOTS" not in engine_names
-    assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in engine_names
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in captured["env"]
+    assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in captured["env"]
 
 
 def test_rulespec_engine_binary_ignores_ambient_path(monkeypatch, tmp_path):
@@ -1425,6 +1427,7 @@ def test_rulespec_validation_run_compiled_scrubs_ambient_root_env(
     captured_env: dict[str, str] | None = None
     original_run = validator_pipeline.subprocess.run
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
         nonlocal captured_env
         if cmd[0] == "git":
@@ -1649,6 +1652,7 @@ def test_rulespec_compile_uses_pinned_receipted_binary(monkeypatch, tmp_path):
     captured: dict[str, object] = {}
     original_run = validator_pipeline.subprocess.run
 
+    @hides_environment
     def fake_run(command, **kwargs):
         if command[0] == "git":
             return original_run(command, **kwargs)
@@ -2507,6 +2511,7 @@ def test_rulespec_companion_runner_uses_rows_for_absolute_list_outputs(
     )
     captured_request: dict[str, object] | None = None
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
         nonlocal captured_request
         if "input" not in kwargs:
@@ -7114,7 +7119,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2252"')
+        .startswith('__version__ = "0.2.2256"')
     )
 
 
@@ -7346,13 +7351,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2252"
+    assert encoder_package["version"] == "0.2.2256"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2252"
+    assert project["project"]["version"] == "0.2.2256"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2252"')
+        .startswith('__version__ = "0.2.2256"')
     )
 
 
@@ -7614,13 +7619,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2252"
+    assert encoder_package["version"] == "0.2.2256"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2252"
+    assert project["project"]["version"] == "0.2.2256"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2252"')
+        .startswith('__version__ = "0.2.2256"')
     )
 
 
@@ -8292,6 +8297,7 @@ def test_policyengine_oracle_uses_policyengine_only_inputs_for_legal_facts(tmp_p
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:114.514\n")
@@ -8388,6 +8394,7 @@ def test_policyengine_oracle_compares_parameter_value_mapping(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:250000\n")
@@ -8441,6 +8448,7 @@ def test_policyengine_parameter_mapping_ignores_unrelated_legal_inputs(tmp_path)
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:3\n")
@@ -8492,6 +8500,7 @@ def test_policyengine_oracle_compares_multi_key_parameter_value_mapping(tmp_path
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:1650\n")
@@ -8544,6 +8553,7 @@ def test_policyengine_oracle_passes_through_parameter_key_input(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:298\n")
@@ -8603,6 +8613,7 @@ def test_policyengine_oracle_compares_nested_parameter_key_path(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:12400\n")
@@ -8662,6 +8673,7 @@ def test_policyengine_oracle_clamps_nested_parameter_key_path(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:2876\n")
@@ -8712,6 +8724,7 @@ def test_policyengine_oracle_compares_integer_parameter_key_path(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:0.26\n")
@@ -8762,6 +8775,7 @@ def test_policyengine_oracle_compares_parameter_attribute_key_path(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:0.2\n")
@@ -8814,6 +8828,7 @@ def test_policyengine_oracle_compares_parameter_scale_calc_input(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:2200\n")
@@ -8866,6 +8881,7 @@ def test_policyengine_oracle_applies_result_multiplier(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:100\n")
@@ -53123,6 +53139,7 @@ def test_rulespec_companion_rejects_ambiguous_runtime_response(
             + "}}]}"
         )
 
+    @hides_environment
     def fake_run(command, **kwargs):
         if mutation != "duplicate_json_key":
             query = json.loads(kwargs["input"])["queries"][0]
@@ -53201,6 +53218,7 @@ def test_rulespec_companion_binds_response_to_query(
         enable_oracles=False,
     )
 
+    @hides_environment
     def fake_run(command, **kwargs):
         request = json.loads(kwargs["input"])
         rows = [

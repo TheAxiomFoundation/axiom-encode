@@ -364,7 +364,7 @@ from axiom_encode.repo_routing import (
 )
 from axiom_encode.signing_broker import get_signing_broker
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
-from tests.environment_assertions import throw
+from tests.environment_assertions import hides_environment
 from tests.eval_evidence_fixtures import (
     TEST_APPLY_PRIVATE_KEY_B64,
     TEST_APPLY_PUBLIC_KEY_B64,
@@ -2269,6 +2269,7 @@ def test_legacy_reference_inventory_rejects_grep_failures_and_malformed_candidat
     )
     real_run = subprocess.run
 
+    @hides_environment
     def run_with_grep_result(command, **kwargs):
         if isinstance(command, list) and "grep" in command:
             return subprocess.CompletedProcess(command, returncode, stdout, stderr)
@@ -7886,6 +7887,7 @@ rules:
         compiled_dir.mkdir()
         commands: list[list[str]] = []
 
+        @hides_environment
         def fake_run(command, **_kwargs):
             if command[0] == "git":
                 return subprocess.CompletedProcess(
@@ -7953,6 +7955,7 @@ rules:
         )
         captured_request = None
 
+        @hides_environment
         def fake_run(command, **kwargs):
             nonlocal captured_request
             captured_request = json.loads(kwargs["input"])
@@ -8559,6 +8562,7 @@ rules:
         def fake_binary(self):
             return binary
 
+        @hides_environment
         def fake_run(cmd, **kwargs):
             if (
                 len(cmd) >= 6
@@ -8611,7 +8615,7 @@ rules:
                     ),
                     stderr="",
                 )
-            throw(AssertionError(f"unexpected command: {cmd}"))
+            raise AssertionError(f"unexpected command: {cmd}")
 
         args = MagicMock()
         _write_test_rulespec_toolchain(repo)
@@ -8632,8 +8636,7 @@ rules:
 
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
-        env_count = len(captured_envs)
-        assert env_count == 2
+        assert len(captured_envs) == 2
         compile_command = next(cmd for cmd in captured_commands if "compile" in cmd)
         assert compile_command[compile_command.index("--rulespec-root") + 1] == str(
             repo.resolve()
@@ -34401,6 +34404,7 @@ rules:
         )
         test_file.write_text("[]\n")
 
+        @hides_environment
         def reject_first_half(candidate_file, **_kwargs):
             cases = yaml.safe_load(candidate_file.read_text())
             return (
