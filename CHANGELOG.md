@@ -9,6 +9,7 @@
 ## 0.2.2258
 
 - Bind historical Arizona SNAP manifest-owner replacement to the signed receipt and original Git bytes throughout protected packaging and publication.
+- Forward the reviewed dependent finding through all Arizona corpus-transport preflights, admit canonical shallow historical-owner deletions, and refresh the encoder version after current main.
 
 ## 0.2.2257
 
@@ -22,6 +23,7 @@
 ## 0.2.2255
 
 - Prefetch authenticated signed corpus provision exports for protected runs whose release provisions are R2-only, with exact exporter, archive, release, and provision-byte checks.
+
 ## 0.2.2254
 
 - Recognize completed signed in-place source-bound dependents in the legacy replacement census, retaining source-citation, primary-proof, and fresh-manifest checks.

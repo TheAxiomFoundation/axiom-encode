@@ -2996,6 +2996,24 @@ def test_stage_accepts_receipt_linked_legacy_deletion_with_dependent_manifest(
     ) == {path.as_posix() for path in expected}
 
 
+def test_shallow_historical_manifest_deletion_requires_legacy_receipt(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    historical = repo / "us-az/.axiom/encoding-manifests/policies/foo.json"
+    historical.parent.mkdir(parents=True)
+    historical.write_text("historical owner\n", encoding="utf-8")
+    _git(repo, "add", historical.relative_to(repo).as_posix())
+    _git(repo, "commit", "-m", "historical owner")
+    historical.unlink()
+    _write_signed_change(repo)
+
+    with pytest.raises(
+        ValueError, match="deleted manifests require exactly one receipt-linked"
+    ):
+        authorized_changed_paths(repo)
+
+
 def _refresh_legacy_receipt_bindings(
     repo: Path,
     manifest: Path,

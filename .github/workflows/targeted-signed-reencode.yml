@@ -592,6 +592,7 @@ jobs:
           OPEN_PR: ${{ inputs.open_pr }}
           PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
           EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
           GH_TOKEN: ${{ github.token }}
           LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
@@ -883,6 +884,7 @@ jobs:
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
           EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
           LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
           LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
@@ -1556,6 +1558,7 @@ jobs:
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
           EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
           LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
           LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}

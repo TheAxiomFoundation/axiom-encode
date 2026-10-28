@@ -3555,7 +3555,7 @@ def authorized_changed_paths(
     for path in changed:
         parts = path.parts
         if (
-            len(parts) < 6
+            len(parts) < 5
             or parts[1:3] != (".axiom", "encoding-manifests")
             or path.suffix != ".json"
             or (repo / path).exists()
