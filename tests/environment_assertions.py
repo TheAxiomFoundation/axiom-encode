@@ -4,7 +4,7 @@ When an assert fails, pytest prints the value of each name, attribute, call
 and operand in it, and a failed dict comparison lists the differing entries.
 An assert that mentions a whole environment (``os.environ``, a copy of it,
 or one a fake recorded from the code under test) therefore prints its
-variables, credentials included: at ``-vv`` every one, and below it as many as
+variables, credentials included: at ``-vvv`` every one, and below it as many as
 pytest's length limits let through. Reduce the environment to names, or to one
 value, in a statement before the assert; an argument to a call inside the
 assert is printed too.
@@ -47,6 +47,9 @@ def changed_names(
 
     A name set in only one of them counts as changed, whatever its value.
     """
+    # Should a caller pass something else, the error is its caller's to show:
+    # this frame's arguments are the environments.
+    __tracebackhide__ = True
     return sorted(
         name
         for name in before.keys() | after.keys()
@@ -63,6 +66,7 @@ class Names(Mapping[str, str]):
     """
 
     def __init__(self, environment: Mapping[str, str]) -> None:
+        __tracebackhide__ = True
         self._environment = dict(environment)
 
     def __getitem__(self, name: str) -> str:
@@ -83,13 +87,18 @@ def _masked(value: object, name: object = None) -> object:
 
     An environment is a mapping passed, or held, under one of
     ``_ENVIRONMENTS``: as an argument, a mapping's key or a record's field.
-    Lists, tuples and plain dicts are read through; a container or record is
-    copied only when something in it changes.
+    Mappings, lists, tuples and dataclass records are read through, and
+    copied only when something in them changes (a mapping into a ``dict``);
+    any other value is passed as it is.
     """
     if isinstance(value, Names):
         return value
-    if name in _ENVIRONMENTS and isinstance(value, Mapping):
-        return Names(value)
+    if isinstance(value, Mapping):
+        if name in _ENVIRONMENTS:
+            return Names(value)
+        items = {key: _masked(item, key) for key, item in value.items()}
+        changed = any(items[key] is not item for key, item in value.items())
+        return items if changed else value
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         changes = {
             field.name: _masked(getattr(value, field.name), field.name)
@@ -102,15 +111,17 @@ def _masked(value: object, name: object = None) -> object:
             if masked is not getattr(value, field)
         }
         return dataclasses.replace(value, **changes) if changes else value
-    if type(value) is dict:
-        items = {key: _masked(item, key) for key, item in value.items()}
-        changed = any(items[key] is not item for key, item in value.items())
-        return items if changed else value
     if type(value) in (list, tuple):
         elements = [_masked(element) for element in value]
         changed = any(new is not old for new, old in zip(elements, value))
         return type(value)(elements) if changed else value
     return value
+
+
+def _refuse(name: str) -> NoReturn:
+    # Raised in a frame whose one argument is ``name``: the wrapper's frames,
+    # which hold the environments, are hidden, and the error is not chained.
+    raise TypeError(f"could not hide the environments {name} is passed") from None
 
 
 def hides_environment(function: _Function) -> _Function:
@@ -120,9 +131,13 @@ def hides_environment(function: _Function) -> _Function:
     module passes an environment: should an exception pass through its frame,
     pytest prints its arguments, and they now hold names alone. What it calls
     with them (a recorder, the real launcher) is passed the same. The wrapper's
-    own frame, which holds the environment itself, is hidden from pytest's
-    traceback, as ``pytest.fail``'s is. A method's ``self`` is passed as it is.
+    own frames, which hold the environments themselves, are hidden from
+    pytest's traceback, as ``pytest.fail``'s is. A method's ``self`` (or
+    ``cls``) is passed as it is. It wraps functions, coroutine functions and
+    generator functions (a fixture that yields, say).
     """
+    if inspect.isasyncgenfunction(function):
+        raise TypeError(f"hides_environment does not wrap {function.__qualname__}")
     parameters = [
         parameter.name
         for parameter in inspect.signature(function).parameters.values()
@@ -144,9 +159,7 @@ def hides_environment(function: _Function) -> _Function:
             ]
             named = {name: _masked(value, name) for name, value in kwargs.items()}
         except Exception:
-            # Raised from here, an error would print what it was passed.
-            message = f"could not hide the environments {function.__qualname__} is passed"
-            raise TypeError(message) from None
+            _refuse(function.__qualname__)
         return positional, named
 
     if inspect.iscoroutinefunction(function):
@@ -159,6 +172,16 @@ def hides_environment(function: _Function) -> _Function:
 
         return hidden_coroutine  # type: ignore[return-value]
 
+    if inspect.isgeneratorfunction(function):
+
+        @functools.wraps(function)
+        def hidden_generator(*args: object, **kwargs: object) -> object:
+            __tracebackhide__ = True
+            positional, named = masked(args, kwargs)
+            return (yield from function(*positional, **named))
+
+        return hidden_generator  # type: ignore[return-value]
+
     @functools.wraps(function)
     def hidden(*args: object, **kwargs: object) -> object:
         __tracebackhide__ = True
@@ -168,17 +191,21 @@ def hides_environment(function: _Function) -> _Function:
     return hidden  # type: ignore[return-value]
 
 
-def raising(error: BaseException) -> Callable[..., NoReturn]:
+def _raise(error: BaseException | type[BaseException]) -> NoReturn:
+    raise error
+
+
+def raising(error: BaseException | type[BaseException]) -> Callable[..., NoReturn]:
     """A side effect that raises ``error``, for a mock standing in for a launcher.
 
     A mock raises the exception it is given as its side effect in a frame of
     ``unittest.mock``'s whose printed arguments are its call's, environment
-    included. This side effect raises in a frame of its own instead, which
-    ``hides_environment`` passes names alone.
+    included. This side effect raises it from a frame whose one argument is
+    the exception; its own frame, which holds the call's arguments, is hidden.
     """
 
-    @hides_environment
     def side_effect(*args: object, **kwargs: object) -> NoReturn:
-        raise error
+        __tracebackhide__ = True
+        _raise(error)
 
     return side_effect
