@@ -2175,6 +2175,79 @@ def test_transport_legacy_required_cases_keep_all_three_protected_guards() -> No
         assert '[ "$primary_required_test_cases_json" != "[]" ]' in step["run"]
 
 
+@pytest.mark.parametrize(
+    "step_name",
+    ["Validate atomic source inputs", "Verify existing signed imports"],
+)
+def test_transport_dependent_review_finding_reaches_workflow_preflight(
+    step_name: str,
+) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    step = next(
+        item
+        for item in workflow["jobs"]["encode"]["steps"]
+        if item.get("name") == step_name
+    )
+    legacy_path = (
+        "us-az/policies/des/faa5/na-categorical-eligibility/"
+        "expanded-categorical-eligibility.yaml"
+    )
+    transaction = {
+        "schema": "axiom-encode/atomic-source-transaction/v3",
+        "source_bundle": [],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+    }
+    request = json.dumps(
+        {
+            "schema": "axiom-encode/corpus-artifact-transport/v1",
+            "transaction": transaction,
+            "corpus_artifact_run_id": "123",
+        }
+    )
+    values = {
+        "${{ inputs.source_bundle_json }}": request,
+        "${{ inputs.citation }}": (
+            "us-az/manual/des/faa5/na-categorical-eligibility/block-4"
+        ),
+        "${{ inputs.dependent_citation }}": (
+            "us-az/manual/des/faa5/na-categorical-eligibility/block-5"
+        ),
+        "${{ inputs.dependent_review_finding }}": (
+            "Regenerate the dependent against its signed source."
+        ),
+        "${{ inputs.replace_rulespec_path }}": legacy_path,
+        "${{ inputs.replace_legacy_rulespec_path }}": legacy_path,
+    }
+    projected_env = {
+        name: values.get(expression, "")
+        for name, expression in step["env"].items()
+    }
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/prepare_signed_backfill.py"),
+            "resolve-atomic-repair-mode",
+            request,
+            "--check-selected",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "DEPENDENT_REVIEW_FINDING": "", **projected_env},
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
+
+
 def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()

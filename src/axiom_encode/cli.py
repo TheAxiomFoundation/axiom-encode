@@ -59151,7 +59151,7 @@ def _is_canonical_apply_transaction_target(
     if historical_manifest_deletion:
         parts = relative.parts
         if (
-            len(parts) >= 6
+            len(parts) >= 5
             and parts[1 : 1 + len(APPLIED_ENCODING_MANIFEST_DIR.parts)]
             == APPLIED_ENCODING_MANIFEST_DIR.parts
         ):

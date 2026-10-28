@@ -19671,14 +19671,18 @@ rules:
 
         assert journal_path.exists()
 
-    def test_apply_transaction_historical_manifest_is_deletion_only(self, tmp_path):
+    @pytest.mark.parametrize(
+        "manifest_tail",
+        ["policies/foo.json", "policies/des/faa5/expanded.json"],
+    )
+    def test_apply_transaction_historical_manifest_is_deletion_only(
+        self, tmp_path, manifest_tail
+    ):
         from axiom_encode.cli import _apply_transaction_target_relative_path
 
         checkout = tmp_path / "rulespec-us"
         (checkout / "us-az/policies").mkdir(parents=True)
-        historical = (
-            checkout / "us-az/.axiom/encoding-manifests/policies/des/faa5/expanded.json"
-        )
+        historical = checkout / "us-az/.axiom/encoding-manifests" / manifest_tail
         with pytest.raises(RuntimeError, match="outside the canonical"):
             _apply_transaction_target_relative_path(checkout, historical)
         assert (
