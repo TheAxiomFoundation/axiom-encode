@@ -1385,6 +1385,225 @@ def test_branch_helpers_match_main_on_random_pools(case):
             assert warm == cold
 
 
+def _path_filter(
+    branches: Sequence[SourceStructureBranch], path: tuple[str, ...]
+) -> list[SourceStructureBranch]:
+    """Main's descendant test: a longer path that starts with ``path``."""
+
+    return [
+        candidate
+        for candidate in branches
+        if len(candidate.path) > len(path) and candidate.path[: len(path)] == path
+    ]
+
+
+def _first_start(
+    branches: Sequence[SourceStructureBranch], branch: SourceStructureBranch
+) -> int | None:
+    return min(
+        (
+            candidate.start
+            for candidate in _path_filter(branches, branch.path)
+            if branch.start <= candidate.start < branch.end
+        ),
+        default=None,
+    )
+
+
+@pytest.mark.parametrize(("source", "citation"), tuple(_fixture_sources()))
+def test_fixture_branch_index_descendants_are_the_path_filter(source, citation):
+    """Where the index answers, its descendants are exactly main's filter's."""
+
+    branches = sc.recognize_source_structure(source, corpus_citation_path=citation)
+    if not branches:
+        return
+    with sc._source_index_scope():
+        index = sc._source_branch_index(branches)
+        assert index._knows_lowest_starts
+        for branch in branches:
+            for cut in range(len(branch.path) + 1):
+                path = branch.path[:cut]
+                assert list(map(id, index.descendants(path))) == list(
+                    map(id, _path_filter(branches, path))
+                )
+            assert index.first_descendant_start(branch) == _first_start(
+                branches, branch
+            )
+
+
+_ODD_STARTS = st.one_of(
+    st.integers(-1, 41), st.booleans(), st.floats(-1, 41), st.none()
+)
+
+
+@st.composite
+def _odd_branch_pools(draw):
+    """Pools the index must refuse or answer exactly as main's scan does."""
+
+    branches = []
+    for _ in range(draw(st.integers(0, 10))):
+        parts = draw(st.lists(st.sampled_from(_PATH_PARTS[:3]), max_size=5))
+        shape = draw(
+            st.sampled_from(
+                ("tuple",) * 6 + ("string", "list-part", "nested", "int-part")
+            )
+        )
+        path = {
+            "tuple": tuple(parts),
+            # A trie would split a string into characters.
+            "string": "".join(parts),
+            "list-part": (*parts, ["x"]),
+            "nested": (*parts, ("a",)),
+            "int-part": (1, *parts),
+        }[shape]
+        integral = draw(st.booleans()) or draw(st.booleans())
+        start = draw(st.integers(0, 40)) if integral else draw(_ODD_STARTS)
+        end = draw(st.integers(0, 41)) if integral else draw(_ODD_STARTS)
+        branches.append(
+            SourceStructureBranch(
+                path=path,
+                kind=draw(st.sampled_from(_KINDS)),
+                label="(a)",
+                text="x" * 41,
+                start=start,
+                end=end,
+            )
+        )
+    # Branches from another tuple: an equal path in a new object, which the
+    # index must look up by value, and paths no branch in the pool has.
+    strangers = [
+        dataclasses.replace(branch, path=tuple(list(branch.path)))
+        for branch in branches
+        if type(branch.path) is tuple
+    ]
+    strangers += [
+        SourceStructureBranch(
+            path=tuple(draw(st.lists(st.sampled_from(_PATH_PARTS[:3]), max_size=3))),
+            kind="paragraph",
+            label="(a)",
+            text="x" * 41,
+            start=draw(st.integers(0, 40)),
+            end=draw(st.integers(0, 41)),
+        )
+        for _ in range(draw(st.integers(0, 3)))
+    ]
+    # Prefixes of the pool's paths, of any kind: the pool holds descendants of
+    # each, which main accepts by path before it reads the kind or label.
+    held = [branch for branch in branches if type(branch.path) is tuple and branch.path]
+    if held:
+        strangers += [
+            SourceStructureBranch(
+                path=branch.path[: draw(st.integers(0, len(branch.path) - 1))],
+                kind=draw(st.sampled_from(_KINDS)),
+                label="(a)",
+                text="x" * 41,
+                start=draw(st.integers(0, 40)),
+                end=draw(st.integers(0, 41)),
+            )
+            for branch in draw(st.lists(st.sampled_from(held), max_size=3))
+        ]
+    # Paths the index must not answer for, whatever the pool holds.
+    strangers += [
+        SourceStructureBranch(
+            path=path,
+            kind="paragraph",
+            label="(a)",
+            text="x" * 41,
+            start=draw(st.integers(0, 40)),
+            end=draw(st.integers(0, 41)),
+        )
+        for path in draw(
+            st.lists(
+                st.sampled_from([("a", ("a",)), ("a", ["x"]), ("a", 1), "ab", ""]),
+                max_size=2,
+            )
+        )
+    ]
+    return tuple(branches), strangers
+
+
+@settings(max_examples=500, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(_odd_branch_pools())
+@example(
+    # A child that starts before its parent: the least start is outside the
+    # parent's span, so the index must find the first one inside it.
+    (
+        (
+            SourceStructureBranch(("a",), "paragraph", "(a)", "x" * 41, 10, 30),
+            SourceStructureBranch(("a", "b"), "letter", "(b)", "x" * 41, 2, 5),
+            SourceStructureBranch(("a", "1"), "letter", "(1)", "x" * 41, 20, 25),
+        ),
+        [],
+    )
+)
+@example(
+    # The same, but no descendant starts inside the parent's span, though one
+    # starts after it: the parent keeps its whole text.
+    (
+        (
+            SourceStructureBranch(("a",), "paragraph", "(a)", "x" * 41, 10, 15),
+            SourceStructureBranch(("a", "b"), "letter", "(b)", "x" * 41, 2, 5),
+            SourceStructureBranch(("a", "1"), "letter", "(1)", "x" * 41, 20, 25),
+        ),
+        [],
+    )
+)
+@example(
+    # An empty string path has no last component for the trie to walk to.
+    (
+        (SourceStructureBranch("", "paragraph", "(a)", "x" * 41, 0, 0),),
+        [],
+    )
+)
+@example(
+    # A sentence whose path is not plain strings, over its only descendant:
+    # main accepts the descendant by path and never reads the sentence's last
+    # component as a label, so the index must not treat the path as plain.
+    (
+        (SourceStructureBranch((1, "a"), "number", "", "x" * 41, 5, 41),),
+        [SourceStructureBranch((1,), "sentence", "", "x" * 41, 0, 41)],
+    )
+)
+def test_direct_text_matches_main_on_odd_pools(case):
+    branches, strangers = case
+    text = "x" * 41
+
+    def direct_texts(pool):
+        return [
+            (
+                _outcome(lambda: sc._source_branch_direct_text(branch, branches=pool)),
+                _outcome(
+                    lambda: sc._is_marker_only_container(
+                        branch, branches=pool, source_text=text
+                    )
+                ),
+            )
+            for branch in (*branches, *strangers)
+        ]
+
+    for pool in (branches, list(branches)):
+        old, cold, warm = _old_and_new(lambda: direct_texts(pool))
+        assert cold == old
+        assert warm == cold
+    if not branches:
+        return
+    with sc._source_index_scope():
+        index = sc._source_branch_index(branches)
+        for branch in (*branches, *strangers):
+            assert index.plain(branch.path) == sc._plain_path(branch.path)
+        if not index._knows_lowest_starts:
+            return
+        for branch in (*branches, *strangers):
+            if type(branch.start) is not int or type(branch.end) is not int:
+                continue
+            if sc._plain_path(branch.path):
+                assert index.first_descendant_start(branch) == _first_start(
+                    branches, branch
+                )
+            else:
+                assert index.first_descendant_start(branch) is sc._NO_INDEX_ANSWER
+
+
 @settings(max_examples=300, deadline=None)
 @given(
     st.lists(st.tuples(st.integers(-3, 30), st.integers(-3, 30)), max_size=12),
@@ -1629,6 +1848,26 @@ def test_path_is_deferred_matches_main_on_any_path(path, deferred):
     with sc._source_index_scope():
         assert _outcome(lambda: sc._path_is_deferred(path, deferred)) == old
         assert _outcome(lambda: sc._path_is_deferred(path, deferred)) == old
+
+
+@pytest.mark.parametrize("path", [*_ANY_PATHS, (1,), ("a", 1), ("a", ("a",)), ""])
+def test_branch_index_plain_is_plain_path(path):
+    """``plain`` is ``_plain_path`` for any path: one a branch holds, an equal
+    copy of it, a path in a pool the trie refuses, or one no branch has."""
+
+    def branch(path):
+        return SourceStructureBranch(path, "sentence", "(a)", "x" * 41, 0, 41)
+
+    for pool in (
+        (branch(("a",)), branch(("a", "b"))),
+        (branch(("a",)), branch(path)),
+    ):
+        index = sc._SourceBranchIndex(pool)
+        paths = [path, *(member.path for member in pool)]
+        if type(path) in (tuple, list):
+            paths.append(type(path)(list(path)))
+        for candidate in paths:
+            assert index.plain(candidate) == sc._plain_path(candidate)
 
 
 def test_branch_helpers_match_main_on_unhashable_paths():
@@ -2218,16 +2457,10 @@ _ROUNDS = 5
 _MIN_ROUND_CPU = 0.05
 
 
-def _cold_cpu_seconds(call: Callable[[], object], *, budget: float) -> float:
-    """The CPU time of one ``call`` with every cache cold, in a fresh scope."""
-
-    # Patterns built per reason are purged too: `re` keeps 512, which holds a
-    # small size's patterns between calls but not a large one's.
-    _clear_caches()
-    with sc._source_index_scope():
-        start = time.process_time()
-        call()
-        elapsed = time.process_time() - start
+def _call_cpu_seconds(call: Callable[[], object], *, budget: float) -> float:
+    start = time.process_time()
+    call()
+    elapsed = time.process_time() - start
     if elapsed > budget:
         pytest.fail(
             f"one call took {elapsed:.2f}s of CPU, over its {budget:.2f}s "
@@ -2382,18 +2615,47 @@ def test_coverage_still_measures_other_threads_after_a_timing(core, tmp_path):
     ]
 
 
+def _round_cpu_seconds(
+    call: Callable[[], object], *, repeats: int, budget: float
+) -> float:
+    """The CPU time of ``repeats`` calls, each with every cache cold, in a
+    fresh scope.
+
+    A ``call`` with a ``warm`` attribute shares one fresh scope across the
+    round instead: ``warm`` runs there once, off the clock, to build what the
+    family does not time, so that build is not repeated for every cheap call.
+    """
+
+    warm = getattr(call, "warm", None)
+    if warm is not None:
+        _clear_caches()
+        with sc._source_index_scope():
+            warm()
+            return sum(
+                _call_cpu_seconds(call, budget=budget) for _repeat in range(repeats)
+            )
+    spent = 0.0
+    for _repeat in range(repeats):
+        # Patterns built per reason are purged too: `re` keeps 512, which holds
+        # a small size's patterns between calls but not a large one's.
+        _clear_caches()
+        with sc._source_index_scope():
+            spent += _call_cpu_seconds(call, budget=budget)
+    return spent
+
+
 def _cpu_times(calls: Sequence[Callable[[], object]], *, budget: float) -> list[float]:
     """The least CPU time of each call's round, over interleaved rounds."""
 
     with _without_tracing():
-        smallest = min(_cold_cpu_seconds(calls[0], budget=budget) for _ in range(3))
+        smallest = min(
+            _round_cpu_seconds(calls[0], repeats=1, budget=budget) for _ in range(3)
+        )
         repeats = max(1, math.ceil(_MIN_ROUND_CPU / max(smallest, 1e-6)))
         best = [math.inf] * len(calls)
         for _round in range(_ROUNDS):
             for position, call in enumerate(calls):
-                spent = sum(
-                    _cold_cpu_seconds(call, budget=budget) for _repeat in range(repeats)
-                )
+                spent = _round_cpu_seconds(call, repeats=repeats, budget=budget)
                 best[position] = min(best[position], spent)
     return best
 
@@ -2501,6 +2763,46 @@ def _deep_span_family(n: int):
     ]
 
 
+def _deep_direct_text_family(n: int):
+    """``_source_branch_direct_text`` over n attached markers, n deep.
+
+    These paths hold n(n+1)/2 components in all, and building the branch index
+    reads each one, so the index is built off the clock, once per round: each
+    branch's lookup is timed, and it must not read its descendants' paths.
+    ``_deep_lowest_starts_family`` times the least starts the lookups read.
+    """
+
+    branches = _attached_markers(n)
+
+    def sweep():
+        return [
+            sc._source_branch_direct_text(branch, branches=branches)
+            for branch in branches
+        ]
+
+    sweep.warm = lambda: sc._source_branch_index(branches)._knows_lowest_starts
+    return sweep
+
+
+def _deep_lowest_starts_family(n: int):
+    """Filling the least starts of n attached markers' branch index, n deep.
+
+    The trie is built off the clock, as in ``_deep_direct_text_family``. Each
+    node's least start comes from its children's; a fill that scanned every
+    node's descendants instead would read about n²/2 starts here.
+    """
+
+    branches = _attached_markers(n)
+    fill = sc._SourceBranchIndex._knows_lowest_starts.func
+
+    def refill():
+        # The fill sets every node's least start afresh, so it can run again.
+        return fill(sc._source_branch_index(branches))
+
+    refill.warm = lambda: sc._source_branch_index(branches)._paths
+    return refill
+
+
 def _attached_markers(n: int) -> tuple[SourceStructureBranch, ...]:
     """The branches of n attached markers, each inside the last: n deep."""
 
@@ -2530,6 +2832,54 @@ def test_deep_deferral_costs_at_most_a_constant_times_main():
     new, main = _cpu_times([sweep, main_sweep], budget=10.0)
 
     assert new <= 3 * main, f"new {new:.4f}s, main {main:.4f}s of CPU"
+
+
+def test_deep_direct_text_costs_a_fraction_of_main():
+    # Main slices every descendant's path for every branch, about n³/6
+    # components here; the new sweep, index build included, reads each path
+    # once. Time both, interleaved, main first so its rounds set the repeats.
+    branches = _attached_markers(400)
+
+    def sweep():
+        return [
+            sc._source_branch_direct_text(branch, branches=branches)
+            for branch in branches
+        ]
+
+    def main_sweep():
+        with _old_mode():
+            return sweep()
+
+    with sc._source_index_scope():
+        assert sweep() == main_sweep()
+    main, new = _cpu_times([main_sweep, sweep], budget=10.0)
+
+    assert new * 4 <= main, f"new {new:.4f}s, main {main:.4f}s of CPU"
+
+
+def test_filling_least_starts_reads_each_start_a_few_times():
+    # A count to go with the growth family's timing: each node's least start
+    # comes from its children's, so the fill reads a few starts per branch,
+    # where one that scanned every node's descendants would read about n²/2.
+    reads = [0]
+
+    class Counted(SourceStructureBranch):
+        def __getattribute__(self, name: str) -> object:
+            if name == "start":
+                reads[0] += 1
+            return super().__getattribute__(name)
+
+    fields = [field.name for field in dataclasses.fields(SourceStructureBranch)]
+    for n in (25, 400):
+        branches = tuple(
+            Counted(**{name: getattr(branch, name) for name in fields})
+            for branch in _attached_markers(n)
+        )
+        index = sc._SourceBranchIndex(branches)
+        assert index._paths is not None
+        reads[0] = 0
+        assert index._knows_lowest_starts
+        assert reads[0] <= 3 * len(branches), f"n={n}: {reads[0]} start reads"
 
 
 _PRECISE_REASON = (
@@ -2668,6 +3018,21 @@ def test_deferral_reason_cpu_growth_is_near_linear(family, sizes, budget):
             (400, 800, 1600),
             1.0,
             id="source-branch-direct-text",
+        ),
+        # Each branch here holds every deeper one, so its first descendant must
+        # come from the index, not from a slice of every descendant's path:
+        # main's slices cost about n³/6 and grew 4-6x per doubling.
+        pytest.param(
+            _deep_direct_text_family,
+            (400, 800, 1600),
+            1.0,
+            id="source-branch-direct-text-deep",
+        ),
+        pytest.param(
+            _deep_lowest_starts_family,
+            (400, 800, 1600),
+            1.0,
+            id="branch-index-lowest-starts-deep",
         ),
         pytest.param(
             _branch_helper_family(

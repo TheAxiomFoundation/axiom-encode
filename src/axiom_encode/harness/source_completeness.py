@@ -22017,16 +22017,23 @@ class _BranchPathNode:
     """One path prefix: the branches whose path ends here, and longer prefixes.
 
     ``first`` and ``last`` bound the slice of the index's preorder that holds
-    the branches under longer prefixes.
+    the branches under longer prefixes, and ``lowest`` is the least start
+    among those branches once the index has found it.
     """
 
-    __slots__ = ("children", "first", "indexes", "last")
+    __slots__ = ("children", "first", "indexes", "last", "lowest")
 
     def __init__(self) -> None:
         self.children: dict[str, _BranchPathNode] = {}
         self.indexes: list[int] = []
         self.first = 0
         self.last = 0
+        self.lowest: int | None = None
+
+
+# What `_SourceBranchIndex.first_descendant_start` returns when only a scan of
+# the branches can answer.
+_NO_INDEX_ANSWER = object()
 
 
 class _SourceBranchIndex:
@@ -22036,9 +22043,12 @@ class _SourceBranchIndex:
     or the branches containing a span) made an outline of n branches cost n².
     Each lookup here returns, in their original order and once each, a pool of
     branches that holds every branch the helper's own filter can accept; the
-    helpers still apply that filter, so their results are unchanged. The path
-    and span structures are built on first use, since some branch tuples are
-    only ever asked one kind of question.
+    helpers still apply that filter, so their results are unchanged. The one
+    exception is ``first_descendant_start``, which answers the descendant
+    filter itself, since on an n-deep outline slicing every descendant's path
+    for every branch costs about n³/6. The path and span structures are built
+    on first use, since some branch tuples are only ever asked one kind of
+    question.
 
     A structure is built only when the fields it reads have the types
     recognition gives them (paths of plain strings, integer offsets), and a
@@ -22172,6 +22182,113 @@ class _SourceBranchIndex:
             return []
         found = sorted(paths[2][node.first : node.last])
         return [self.branches[index] for index in found]
+
+    @functools.cached_property
+    def _branch_nodes(
+        self,
+    ) -> dict[int, tuple[tuple[str, ...], _BranchPathNode]] | None:
+        """Each branch path's node, by the path's id, or ``None`` with no trie.
+
+        A branch's own path finds its node, and is known to be plain, by
+        identity, since hashing or checking a path reads its whole depth
+        (tuples do not cache their hash before 3.14). Each entry holds its
+        path, so the path's id cannot be reused.
+        """
+
+        paths = self._paths
+        if paths is None:
+            return None
+        return {
+            id(self.branches[index].path): (self.branches[index].path, node)
+            for node in paths[1].values()
+            for index in node.indexes
+        }
+
+    @functools.cached_property
+    def _knows_lowest_starts(self) -> bool:
+        """Whether every path node holds the least start of the branches under it.
+
+        Only int starts are trusted, so the least start is found by comparing
+        ints alone.
+        """
+
+        paths = self._paths
+        if paths is None or not all(
+            type(branch.start) is int for branch in self.branches
+        ):
+            return False
+        nodes = [paths[0]]
+        for node in nodes:
+            nodes.extend(node.children.values())
+        # Each child is listed after its parent, so walking the list backwards
+        # fills a node's children before the node.
+        for node in reversed(nodes):
+            starts = [
+                self.branches[index].start
+                for child in node.children.values()
+                for index in child.indexes
+            ]
+            starts.extend(
+                child.lowest
+                for child in node.children.values()
+                if child.lowest is not None
+            )
+            node.lowest = min(starts, default=None)
+        return True
+
+    def _own_path_node(self, path: object) -> _BranchPathNode | None:
+        """The node of a path object one of these branches holds, else ``None``."""
+
+        branch_nodes = self._branch_nodes
+        entry = None if branch_nodes is None else branch_nodes.get(id(path))
+        return entry[1] if entry is not None and entry[0] is path else None
+
+    def plain(self, path: object) -> bool:
+        """``_plain_path(path)``, answered at once for one of these branches'
+        own path objects, which the trie's build already checked."""
+
+        return self._own_path_node(path) is not None or _plain_path(path)
+
+    def first_descendant_start(self, branch: SourceStructureBranch) -> object:
+        """The least start in ``[branch.start, branch.end)`` among the branches
+        ``descendants(branch.path)`` returns, or ``None`` if none starts there.
+
+        Over paths of plain strings those are exactly the branches whose path
+        is longer than ``branch.path`` and starts with it, so the answer comes
+        from one node's least start rather than a slice of every descendant's
+        path. ``_NO_INDEX_ANSWER`` means only a scan can answer.
+        """
+
+        if (
+            type(branch.start) is not int
+            or type(branch.end) is not int
+            or not self._knows_lowest_starts
+        ):
+            return _NO_INDEX_ANSWER
+        node = self._own_path_node(branch.path)
+        if node is None:
+            if not _plain_path(branch.path):
+                return _NO_INDEX_ANSWER
+            # A branch from another tuple looks its path up by value.
+            node = self._node(branch.path)
+        if node is None or node.lowest is None:
+            return None
+        if branch.start <= node.lowest:
+            # Every descendant starts at or after the branch, so the first of
+            # them is the least start in the span, if it starts before the end.
+            return node.lowest if node.lowest < branch.end else None
+        # A descendant starts before the branch itself: find the least start
+        # inside the span among them all.
+        paths = self._paths
+        assert paths is not None
+        return min(
+            (
+                start
+                for index in paths[2][node.first : node.last]
+                if branch.start <= (start := self.branches[index].start) < branch.end
+            ),
+            default=None,
+        )
 
     def containing(self, start: int, end: int) -> list[SourceStructureBranch]:
         """Branches with ``branch.start <= start`` and ``end <= branch.end``."""
@@ -38378,7 +38495,7 @@ def _source_branch_direct_text(
     index = _source_branch_index(branches)
     # The pool is chosen by testing the branch's kind and path up front, which
     # the filter below does only per candidate; other field types keep it.
-    if index is None or not _plain_path(branch.path) or type(branch.kind) is not str:
+    if index is None or not index.plain(branch.path) or type(branch.kind) is not str:
         pool: Sequence[SourceStructureBranch] = branches
     elif (
         branch.kind == "sentence"
@@ -38390,6 +38507,13 @@ def _source_branch_direct_text(
         # the pool may leave one out only when every kind is a plain string.
         pool = index.descendants(branch.path[:-1]) if index.plain_kinds else branches
     else:
+        # Only the path test below applies, and the index answers it for
+        # every descendant at once.
+        first = index.first_descendant_start(branch)
+        if first is None:
+            return branch.text
+        if first is not _NO_INDEX_ANSWER:
+            return branch.text[: max(0, first - branch.start)]
         pool = index.descendants(branch.path)
     descendant_starts = [
         candidate.start
