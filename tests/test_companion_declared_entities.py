@@ -16,7 +16,7 @@ from hypothesis import strategies as st
 from axiom_encode.cli import _execute_rulespec_test_file
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 from axiom_encode.rules_engine_compat import run_rulespec_compile
-from tests.environment_assertions import hides_environment
+from tests.environment_assertions import Names, hides_environment
 
 FIXTURES = Path(__file__).parent / "fixtures" / "companion_declared_entities"
 PERIOD = {"period_kind": "month", "start": "2026-01-01", "end": "2026-01-31"}
@@ -53,7 +53,7 @@ def _compile(
         rulespec_roots=[root],
         output=artifact,
         cwd=engine_root,
-        env=os.environ.copy(),
+        env=Names(os.environ),
     )
     assert result.returncode == 0, result.stderr or result.stdout
     return json.loads(artifact.read_text())
@@ -75,7 +75,7 @@ def _companions(
             test_file,
             binary=binary,
             axiom_rules_path=engine_root,
-            env=os.environ.copy(),
+            env=Names(os.environ),
             rulespec_roots=[root],
             tmp_path=artifact.parent,
             compiled_cache={module: (artifact, payload)},

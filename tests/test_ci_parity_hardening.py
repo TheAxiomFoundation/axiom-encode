@@ -34,7 +34,7 @@ from axiom_encode.ci_parity import (
     verify_dependency_checkout,
     verify_python_version,
 )
-from tests.environment_assertions import hides_environment
+from tests.environment_assertions import Names, hides_environment
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 CURRENT_KEY = base64.b64encode(bytes(range(32))).decode("ascii")
@@ -584,7 +584,7 @@ def test_python_build_probe_matches_the_in_process_label() -> None:
         sysconfig.get_config_var("Py_GIL_DISABLED"),
         sysconfig.get_config_var("Py_DEBUG"),
     )
-    probed = ci_parity._python_build_of(Path(sys.executable), os.environ)
+    probed = ci_parity._python_build_of(Path(sys.executable), Names(os.environ))
     assert probed == in_process
 
 

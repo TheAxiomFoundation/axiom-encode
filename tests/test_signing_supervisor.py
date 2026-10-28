@@ -890,7 +890,14 @@ def _invoke(
 
 def _report(completed: subprocess.CompletedProcess[str]) -> dict[str, object]:
     """The trusted runtime's report of a run, its environments as ``Names``."""
-    report = json.loads(completed.stdout)
+    try:
+        report = json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        # The decoder's frames print the output they are passed, the
+        # environments in it included.
+        raise AssertionError(
+            f"the runtime's report is not JSON: {error.msg} at {error.pos}"
+        ) from None
     report["environment"] = Names(report["environment"])
     report["child"]["environment"] = Names(report["child"]["environment"])
     return report

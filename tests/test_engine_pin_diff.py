@@ -15,7 +15,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import engine_pin_diff as diff
-from tests.environment_assertions import hides_environment
+from tests.environment_assertions import Names, hides_environment
 
 RULE = dict(
     module="dk/statutes/test.yaml",
@@ -911,7 +911,7 @@ def test_current_leap_month_executes_with_real_engine(real_engine, tmp_path):
         rulespec_roots=[checkout],
         output=artifact_path,
         cwd=real_engine.root,
-        env=os.environ.copy(),
+        env=Names(os.environ),
     )
     assert compiled.returncode == 0, compiled.stderr or compiled.stdout
     artifact = json.loads(artifact_path.read_text())
@@ -924,7 +924,7 @@ def test_current_leap_month_executes_with_real_engine(real_engine, tmp_path):
     current = diff.current_request(payload, date(2028, 2, 15))
     assert current["queries"][0]["period"]["end"] == "2028-02-29"
     outcome = diff.execute(
-        real_engine.binary, artifact_path, current, os.environ.copy()
+        real_engine.binary, artifact_path, current, Names(os.environ)
     )
     assert "value" in outcome, outcome
     output = "de:statutes/estg/66#kindergeld_payable_for_month"

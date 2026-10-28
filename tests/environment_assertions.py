@@ -34,6 +34,7 @@ import functools
 import inspect
 from collections.abc import Callable, Iterator, Mapping
 from typing import NoReturn, TypeVar
+from unittest.mock import NonCallableMock
 
 _MISSING = object()
 # Arguments, keyword arguments, mapping keys and record fields that hold a
@@ -90,9 +91,13 @@ def _masked(value: object, name: object = None) -> object:
 
     An environment is a mapping passed, or held, under one of
     ``_ENVIRONMENTS``: as an argument, a mapping's key or a record's field.
-    Mappings, lists, tuples and dataclass records are read through, and
-    copied only when something in them changes (a mapping into a ``dict``);
-    any other value is passed as it is.
+    Mappings, lists, tuples, named tuples and dataclass records are read
+    through, and copied only when something in them changes (a mapping into
+    a ``dict``); any other value is passed as it is. What can't be copied
+    with the environment hidden raises ``TypeError``: a list or tuple
+    subclass (a mock's ``call``), a record whose ``__post_init__`` replaces
+    what it is given, and an object that prints its attributes, one of them
+    an environment.
     """
     if isinstance(value, Names):
         return value
@@ -130,11 +135,46 @@ def _masked(value: object, name: object = None) -> object:
             if not field.init and hasattr(value, field.name):
                 masked = changes.get(field.name, getattr(value, field.name))
                 object.__setattr__(record, field.name, masked)
+        for field, masked in changes.items():
+            if getattr(record, field) is not masked:
+                raise TypeError(f"{type(value).__qualname__} replaced its {field}")
         return record
-    if type(value) in (list, tuple):
+    if (
+        isinstance(value, tuple)
+        and hasattr(value, "_fields")
+        and hasattr(value, "_replace")
+    ):
+        changes = {
+            field: _masked(getattr(value, field), field)
+            for field in value._fields
+            if field in _ENVIRONMENTS
+        }
+        changes = {
+            field: masked
+            for field, masked in changes.items()
+            if masked is not getattr(value, field)
+        }
+        return value._replace(**changes) if changes else value
+    if isinstance(value, (list, tuple)):
         elements = [_masked(element) for element in value]
-        changed = any(new is not old for new, old in zip(elements, value))
-        return type(value)(elements) if changed else value
+        if all(new is old for new, old in zip(elements, value)):
+            return value
+        if type(value) in (list, tuple):
+            return type(value)(elements)
+        raise TypeError(f"cannot rebuild a {type(value).__qualname__}")
+    attributes = getattr(value, "__dict__", None)
+    if (
+        isinstance(attributes, dict)
+        and type(value).__repr__ is not object.__repr__
+        and not isinstance(value, NonCallableMock)
+        and any(
+            key in _ENVIRONMENTS
+            and isinstance(item, Mapping)
+            and not isinstance(item, Names)
+            for key, item in attributes.items()
+        )
+    ):
+        raise TypeError(f"{type(value).__qualname__} prints an environment")
     return value
 
 
