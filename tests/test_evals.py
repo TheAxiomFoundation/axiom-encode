@@ -560,6 +560,7 @@ def _complete_test_eval_suite(
             policy_repo_path=tmp_path / "rulespec-us",
             corpus_release=corpus_release,
         )
+    assert visible_signing_keys == []
     return manifest, corpus_release, output_root, axiom_rules_path
 
 
