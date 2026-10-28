@@ -1483,56 +1483,79 @@ _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
 )
 # Belgian legal French and Dutch write the percent sign out ("28 pour cent",
 # "2,5 pourcents", "9 procent") or abbreviate it ("60 pct."), and German
-# statutes abbreviate "vom Hundert" ("15 v. H."). "pour cent" is a percent
-# only before the end of the text, a closing punctuation mark, or a run of the
-# closed-class words below that leads to a word other than a numeral, across
-# any space or a line break ("28 pour cent du montant", "5 pour cent l'an",
-# "5 pour cent, à compter du"). Anything else may count a hundred of
-# something, so that reading is no rate: a noun or a numeral right after it
-# ("2 pour cent kilogrammes" is two per hundred kilograms, "5 pour cent
-# mille habitants" five per hundred thousand), a hyphen or an opening
-# parenthesis ("5 pour cent-mille", "2 pour cent (100) kilogrammes"), and a
-# closed-class word before a figure ("2 pour cent à deux cents kilogrammes",
-# "5 pour cent et un"). This also drops some real rates ("5 pour cent
-# applicable aux revenus", "20 pour cent supplémentaires", "5 pour cent de
-# 1000 euros"); main grounds none of them either. "pour mille" is per mille
-# and never matches. "pct" and "v. H." match in their own case only: "28 PCT
+# statutes abbreviate "vom Hundert" ("15 v. H."). Only Belgian sources (the
+# be-BE profile) read the Belgian words, and only Belgian and German sources
+# read "v. H.": every other source keeps main's markers, since "28 pct." may
+# name a police precinct there and "pour cent" is no English.
+#
+# "pour cent" (also "pourcent", "pour-cent", "pourcents") may also count a
+# hundred of something ("2 pour cent kilogrammes" is two per hundred
+# kilograms), so it is a percent only where no count can follow:
+# - before the end of the text, ";", ")", "]", "|" or a full stop;
+# - before another rate after ",", "et", "ou" or "à" ("5 pour cent, 10 pour
+#   cent et 15 pour cent");
+# - before a soft closer (",", ":", "»", "”", or a quotation mark set against
+#   "cent") or one of the phrases below, unless a figure, a number word,
+#   "quelques", "plusieurs" or "demi" (behind "et" or "ou" too) or an opening
+#   mark comes next ("2 pour cent, deux cents kilogrammes", "2 pour cent de
+#   quelques kilogrammes", "2 pour cent, et demi").
+# The phrases: "de", "du", "des", "d'"; "l'an", "l'année"; "par"; "pour" or
+# "sur" before a determiner or the end of the text; "au moins", "au plus",
+# "au maximum", "au minimum", "au total"; "maximum", "minimum", "environ";
+# "jusqu'à", "jusqu'au", "jusqu'aux"; "à compter", "à partir", "à
+# concurrence"; "est", "sont", "sera", "seront", "serait", "seraient",
+# "était", "étaient"; and "respectivement", "annuellement", "mensuellement".
+# So "28 pour cent du montant", "5 pour cent l'an", "5 pour cent, à compter
+# du" and "20 pour cent pour chaque enfant" are rates, while "2 pour cent et
+# quelques kilogrammes", "5 pour cent mille habitants", "2 pour cent (100)
+# kilogrammes" and '2 pour cent "kilogrammes"' are not. Real rates are
+# dropped with them ("5 pour cent applicable aux revenus", "5 pour cent de
+# 1000 euros", "5 pour cent, 200 euros", "5 pour cent en tout", "5 pour cent
+# — "); main grounds none of them either. "pour mille" is per mille and never
+# matches. "pct" and "v. H." match in their own case only: "28 PCT
 # applications" and Dutch "v.h." (formerly) are no rates.
-_FRENCH_WORD_AFTER_POUR_CENT_BODY = (
-    r"(?:le|la|les|du|de|des|au|aux|à|a|en|dans|par|pour|sur|sous|avec|sans|"
-    r"entre|vers|chez|après|avant|depuis|pendant|contre|selon|dès|hors|outre|"
-    r"moyennant|et|ou|mais|ni|que|si|lorsque|quand|puis|soit|soient|donc|car|"
-    r"comme|qui|dont|ce|cet|cette|ces|son|sa|ses|leur|leurs|il|elle|ils|elles|"
-    r"on|y|se|ne|est|sont|sera|seront|serait|seraient|était|étaient|ont|aura|"
-    r"auront|maximum|minimum|environ|nets?|nettes?|bruts?|brutes?|"
-    r"respectivement|également|seulement|annuellement|mensuellement)"
+_FRENCH_COUNT_AFTER_POUR_CENT_BODY = (
+    r"(?:(?:et|ou)\s+)?"
+    r"(?:\d|(?:(?<!['’])une?|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|"
+    r"onze|douze|treize|quatorze|quinze|seize|vingts?|trente|quarante|"
+    r"cinquante|soixante|septante|octante|huitante|nonante|cents?|milles?|"
+    r"millions?|milliards?|dizaines?|douzaines?|vingtaines?|trentaines?|"
+    r"quarantaines?|cinquantaines?|soixantaines?|centaines?|milliers?|"
+    r"quelques|plusieurs|demie?s?)\b|[(\[«“\"'‘-])"
 )
-_FRENCH_ELISION_AFTER_POUR_CENT_BODY = r"(?:l|d|qu|lorsqu|puisqu|jusqu|n|s|c)['’]"
-_FRENCH_FUNCTION_AFTER_POUR_CENT_BODY = (
-    rf"(?:{_FRENCH_WORD_AFTER_POUR_CENT_BODY}(?![\w'’-])|"
-    rf"{_FRENCH_ELISION_AFTER_POUR_CENT_BODY})"
+_FRENCH_DETERMINER_AFTER_POUR_CENT_BODY = (
+    r"(?:(?:le|la|les|leurs?|ce|cet|cette|ces|son|sa|ses|chaque|toute?s?)"
+    r"(?![\w'’-])|l['’])"
 )
-# "un" and "une" after an elision are articles ("d'un montant").
-_FRENCH_CARDINAL_AFTER_POUR_CENT_BODY = (
-    r"(?:(?<!['’])une?|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|"
-    r"douze|treize|quatorze|quinze|seize|vingts?|trente|quarante|cinquante|"
-    r"soixante|septante|octante|huitante|nonante|cents?|milles?|millions?|"
-    r"milliards?|dizaines?|douzaines?|vingtaines?|trentaines?|quarantaines?|"
-    r"cinquantaines?|soixantaines?|centaines?|milliers?)\b"
+_FRENCH_PHRASE_AFTER_POUR_CENT_BODY = (
+    r"(?:(?:"
+    r"de|du|des|par|maximum|minimum|environ|"
+    r"est|sont|sera|seront|serait|seraient|était|étaient|"
+    r"respectivement|annuellement|mensuellement|"
+    r"l['’](?:an|année)|"
+    r"au\s+(?:moins|plus|maximum|minimum|total)|"
+    r"jusqu['’](?:à|au|aux)|"
+    r"à\s+(?:compter|partir|concurrence)"
+    r")(?![\w'’-])|d['’]|(?:pour|sur)(?=\s*\Z)|"
+    rf"(?:pour|sur)\s+{_FRENCH_DETERMINER_AFTER_POUR_CENT_BODY})"
 )
-_FRENCH_STOP_AFTER_POUR_CENT_BODY = r"(?:[;:!?)\]|»”\"]|[.,](?!\d))"
-_LOCALE_PERCENT_WORD_BODY = (
+_FRENCH_RATE_LIST_AFTER_POUR_CENT_BODY = (
+    r"\s*(?:,|(?:et|ou|à)(?!\w))\s*\d+(?:[.,]\d+)*[ \t\u00a0\u202f]*"
+    r"(?:%|pour[ \t-]*cents?\b|p\.[ \t]?c\.|procent\b)"
+)
+_BELGIAN_PERCENT_WORD_BODY = (
     r"\bpour[ \t-]*cents?\b"
-    rf"(?=\s*(?:\Z|{_FRENCH_STOP_AFTER_POUR_CENT_BODY}|"
-    rf"(?:{_FRENCH_FUNCTION_AFTER_POUR_CENT_BODY}\s*)+"
-    rf"(?:\Z|{_FRENCH_STOP_AFTER_POUR_CENT_BODY}|"
-    rf"(?!{_FRENCH_FUNCTION_AFTER_POUR_CENT_BODY})"
-    rf"(?!{_FRENCH_CARDINAL_AFTER_POUR_CENT_BODY})[^\W\d_])))|"
+    r"(?=\s*(?:\Z|;|\.(?!\S)|[|)\]])|"
+    r"(?:\s*[,:»”]|[\"'’](?!\w)|"
+    rf"\s*{_FRENCH_PHRASE_AFTER_POUR_CENT_BODY})"
+    rf"(?!\s*{_FRENCH_COUNT_AFTER_POUR_CENT_BODY})|"
+    rf"{_FRENCH_RATE_LIST_AFTER_POUR_CENT_BODY})|"
     r"\bprocent(?:en|punt(?:en)?)?\b|"
-    r"\b(?-i:pct)\b\.?|"
-    r"\b(?-i:v\.[ \t]?H\.)"
+    r"\b(?-i:pct)\b\.?"
 )
-# Every marker that makes the figure right before it a rate.
+_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY = r"\b(?-i:v\.[ \t]?H\.)"
+# Main's markers that make the figure right before them a rate, which every
+# source reads.
 _RATE_MARKER_AFTER_FIGURE_BODY = (
     r"%|"
     r"\bp\.?[ \t]*c\.?\b|"
@@ -1540,28 +1563,15 @@ _RATE_MARKER_AFTER_FIGURE_BODY = (
     r"\bper[ \t-]+cent(?:um)?\b|"
     r"\bProzent\b|"
     r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
-    r"\bvom[ \t]+Hundert\b|"
-    rf"{_LOCALE_PERCENT_WORD_BODY}"
+    r"\bvom[ \t]+Hundert\b"
 )
-_STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY = (
-    r"\((?:[A-Za-z]|[ivxlcdmIVXLCDM]+|0|[1-9]\d?(?:\.\d+)?)\)"
-)
-_STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
-    rf"(?<![A-Za-z0-9]){_STRUCTURAL_SOURCE_SUBDIVISION_LABEL_BODY}"
-)
-# The word right before a figure that Belgian, Dutch and German texts restate
-# in parentheses ahead of their own rate marker: a preposition or a copula
-# ("pour (75) p.c.", "tarief van (9) procent", "Satz von (15) Prozent") or
-# the figure spelled out ("vingt-huit (28) pour cent", "vijfenzeventig (75)
-# procent"). After any other word, a structural one above all ("article 5 bis
-# (2) p.c."), the parenthesis stays the label it looks like, and so does one
-# after a spelled number that a structural word names ("l'article six (12)
-# p.c.", "Schedule Six (17) Prozent"). English markers never license the
-# reading ("Item (17) Percent", "clause six (17) percent"): main reads
-# "fifteen (15) percent" through its spelled-number reader and keeps "(15)"
-# masked, and English text keeps that reading. The Dutch and German tens are
-# matched as word endings, the way they close a compound ("vijfenzeventig",
-# "fünfundzwanzig").
+# The word right before a figure that Belgian texts restate in parentheses
+# ahead of their own rate marker: a French, Dutch or German preposition or
+# copula ("pour (75) p.c.", "tarief van (9) procent", "Satz von (15)
+# Prozent"). After any other word the parenthesis stays the label it looks
+# like, as on main: after a structural word ("article 5 bis (2) p.c."), a
+# spelled number ("vingt-huit (28) pour cent", "l'article six (12) p.c.") or
+# a figure ("5 (2) p.c.").
 _RATE_RESTATEMENT_PREPOSITION_PATTERN = re.compile(
     r"(?<![^\W\d_])(?:"
     r"pour|de|du|des|à|sur|soit|est|sont|sera|seront|était|étaient|"
@@ -1571,45 +1581,8 @@ _RATE_RESTATEMENT_PREPOSITION_PATTERN = re.compile(
     r")[ \t\u00a0\u202f]\Z",
     re.IGNORECASE,
 )
-_SPELLED_NUMERAL_WORD_LIST_BODY = (
-    r"un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|"
-    r"treize|quatorze|quinze|seize|vingts?|trente|quarante|cinquante|"
-    r"soixante|septante|octante|huitante|nonante|cents?|"
-    r"één|een|twee|drie|vier|vijf|zes|zeven|acht|negen|tien|elf|twaalf|"
-    r"dertien|veertien|vijftien|zestien|zeventien|achttien|negentien|"
-    r"honderd|"
-    r"eins?|zwei|drei|fünf|sechs|sieben|neun|zwölf"
-)
-_SPELLED_NUMERAL_TENS_BODY = (
-    r"twintig|dertig|veertig|vijftig|zestig|zeventig|tachtig|negentig|"
-    r"zehn|zwanzig|dreißig|dreissig|vierzig|fünfzig|sechzig|siebzig|"
-    r"achtzig|neunzig|hundert"
-)
-_RATE_RESTATEMENT_NUMERAL_PATTERN = re.compile(
-    rf"(?<![^\W\d_])(?:{_SPELLED_NUMERAL_WORD_LIST_BODY}|"
-    rf"[^\W\d_]*?(?:{_SPELLED_NUMERAL_TENS_BODY}))[ \t\u00a0\u202f]\Z",
-    re.IGNORECASE,
-)
-# A structural word, then any spelled-number words ("article soixante et"),
-# right before a spelled number: the number names that subdivision.
-_STRUCTURAL_REFERENCE_BEFORE_NUMERAL_PATTERN = re.compile(
-    r"(?<![^\W\d_])(?:"
-    r"article|art|section|sec|subsection|schedule|clause|subclause|item|"
-    r"point|paragraph|subparagraph|para|part|chapter|title|rule|regulation|"
-    r"reg|appendix|annex|table|column|row|line|note|footnote|step|division|"
-    r"exhibit|form|box|rate|"
-    r"alinéa|annexe|chapitre|titre|livre|paragraphe|tableau|colonne|ligne|"
-    r"rubrique|numéro|catégorie|case|cadre|taux|tarif|"
-    r"artikel|lid|bijlage|hoofdstuk|titel|boek|afdeling|paragraaf|punt|tabel|"
-    r"kolom|regel|rubriek|nummer|nr|categorie|vak|tarief|"
-    r"absatz|abs|anlage|anhang|kapitel|buch|abschnitt|paragraf|ziffer|"
-    r"buchstabe|satz|tabelle|spalte|zeile|teil|unterabsatz|punkt"
-    r")\.?"
-    r"(?:[ \t\u00a0\u202f-]+(?:[^\W\d_]*?(?:"
-    rf"{_SPELLED_NUMERAL_WORD_LIST_BODY}|{_SPELLED_NUMERAL_TENS_BODY}"
-    r")|et)(?![^\W\d_]))*"
-    r"[ \t\u00a0\u202f-]*\Z",
-    re.IGNORECASE,
+_STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])\((?:[A-Za-z]|[ivxlcdmIVXLCDM]+|0|[1-9]\d?(?:\.\d+)?)\)"
 )
 _TABLE_HEADING_PATTERN = re.compile(
     r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE
@@ -7664,29 +7637,45 @@ _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN = re.compile(
     _WRAP_SPACE_FRAGMENT + r"*(?:%|\bp\.?\s*c\.?\b)",
     re.IGNORECASE,
 )
-# The marker after a figure in the range and decimal-comma readers: "entre
-# 10 et 20 pour cent" and "van 10 tot 20 procent" are two rates each, as
-# "10 to 20 percent" is.
-_FIGURE_RATE_MARKER_BODY = (
+# The marker after a figure in the range and decimal-comma readers.
+_FIGURE_RATE_MARKER_BODY = r"(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b)"
+# A Belgian source's range and decimal-comma readers take its own words too:
+# "entre 10 et 20 pour cent" and "van 10 tot 20 procent" are two rates each,
+# as "10 to 20 percent" is.
+_BELGIAN_FIGURE_RATE_MARKER_BODY = (
     r"(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b|"
     r"\bProzent\b|\bvom\s+Hundert\b|"
-    rf"{_LOCALE_PERCENT_WORD_BODY})"
+    rf"{_BELGIAN_PERCENT_WORD_BODY}|{_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY})"
 )
-# French and German typography set a no-break space before the marker
-# ("28\u00a0%", "28\u202fProzent").
 _LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN = re.compile(
-    rf"[ \t\u00a0\u202f]*(?:{_RATE_MARKER_AFTER_FIGURE_BODY})",
+    rf"[ \t]*(?:{_RATE_MARKER_AFTER_FIGURE_BODY})",
     re.IGNORECASE,
 )
-# The Belgian, Dutch and German markers alone, the only ones that let a
-# figure restated in parentheses stand ("pour (75) p.c.").
-_LOCALE_RATE_MARKER_AFTER_FIGURE_PATTERN = re.compile(
+# German and Belgian typography set a no-break space before the marker
+# ("28\u00a0%", "28\u202fProzent"). German sources read "v. H." too, and
+# Belgian sources their own words as well.
+_LOCALE_LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERNS = {
+    "de-DE": re.compile(
+        rf"[ \t\u00a0\u202f]*(?:{_RATE_MARKER_AFTER_FIGURE_BODY}|"
+        rf"{_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY})",
+        re.IGNORECASE,
+    ),
+    "be-BE": re.compile(
+        rf"[ \t\u00a0\u202f]*(?:{_RATE_MARKER_AFTER_FIGURE_BODY}|"
+        rf"{_BELGIAN_PERCENT_WORD_BODY}|{_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY})",
+        re.IGNORECASE,
+    ),
+}
+# The markers before which a Belgian source may restate a figure in
+# parentheses ("pour (75) p.c."): its own words, the German ones, and "p.c."
+# in lowercase. "%", the English words and "P.C." never license it.
+_BELGIAN_RESTATED_RATE_MARKER_PATTERN = re.compile(
     r"[ \t\u00a0\u202f]*(?:"
-    r"\bp\.[ \t]?c\.|"
+    r"\b(?-i:p\.[ \t]?c\.)|"
     r"\bProzent\b|"
     r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
     r"\bvom[ \t]+Hundert\b|"
-    rf"{_LOCALE_PERCENT_WORD_BODY})",
+    rf"{_BELGIAN_PERCENT_WORD_BODY}|{_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY})",
     re.IGNORECASE,
 )
 # The closing parenthesis of a figure restated in parentheses ("(14,75)
@@ -7718,13 +7707,17 @@ _TABLE_RATE_HEADER_PATTERN = re.compile(
     r")",
     re.IGNORECASE,
 )
-# The Belgian and German words name a rate column only above a Markdown
-# table's delimiter row, where the table declares its columns.
-_TABLE_LOCALE_RATE_HEADER_PATTERN = re.compile(
-    _LOCALE_PERCENT_WORD_BODY,
-    re.IGNORECASE,
-)
-# A body cell whose marker follows a figure ("28 pour cent", "(14,75) p.c.")
+# The words a source's own percent markers add to a rate column's header,
+# read only in the header row right above a Markdown table's delimiter row,
+# where the table declares its columns.
+_TABLE_LOCALE_RATE_HEADER_PATTERNS = {
+    "be-BE": re.compile(
+        rf"{_BELGIAN_PERCENT_WORD_BODY}|{_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY}",
+        re.IGNORECASE,
+    ),
+    "de-DE": re.compile(_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY),
+}
+# A body cell whose marker follows a figure ("28 percent", "(14,75) p.c.")
 # holds a value, not a header: it types itself and declares nothing about the
 # rest of its column.
 _TABLE_VALUE_CELL_RATE_PATTERN = re.compile(
@@ -12246,7 +12239,7 @@ def _extract_percentage_context_values(text: str) -> set[float]:
     )
     for match in re.finditer(
         rf"\b({percentage_number})\s+{range_separator}\s+({percentage_number})"
-        rf"\s*{_FIGURE_RATE_MARKER_BODY}",
+        r"\s*(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b)",
         text,
         re.IGNORECASE,
     ):
@@ -12259,7 +12252,7 @@ def _extract_percentage_context_values(text: str) -> set[float]:
     for match in re.finditer(
         r"(?:^|(?<=[\s(\[,+\-−*/\"'`“”‘’]))"
         r"(-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+),\d{1,4})"
-        rf"\s*{_FIGURE_RATE_MARKER_BODY}",
+        r"\s*(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b)",
         text,
         re.IGNORECASE,
     ):
@@ -13342,7 +13335,8 @@ def _clean_source_text_for_numeric_extraction_tracked(
     tracked = tracked.sub(_MONTH_NAME_DAY_PATTERN, _blank_match)
     tracked = tracked.sub(_MONTH_DAY_OF_MONTH_PATTERN, _blank_match)
     tracked = tracked.sub(
-        _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN, _blank_subdivision_label
+        _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN,
+        _blank_subdivision_label if profile == "be-BE" else _blank_match,
     )
     tracked = tracked.sub(
         _SCHEDULE_SIZE_CAP_RESTATEMENT_PATTERN,
@@ -13373,26 +13367,21 @@ def _blank_match(match: re.Match[str]) -> str:
 
 
 def _blank_subdivision_label(match: re.Match[str]) -> str:
-    """Blank a subdivision label, but keep a figure restated before its marker.
+    """Blank a Belgian subdivision label unless it restates a rate figure.
 
-    ``pour (75) p.c.`` restates the rate 75 percent: a lead-in word and one
-    space come before the parenthesis and a Belgian, Dutch or German rate
-    marker follows it. Without either, ``(17)`` is the label it looks like
-    (``Item (17) Percent``, ``apply. (17) p.c.``); after a spelled number
-    that a structural word names it is that subdivision's label
-    (``l'article six (12) p.c.``); and after a figure it is a note, since the
-    figure owns the marker (``5 (7) percent`` is five percent).
+    ``pour (75) p.c.`` restates the rate 75 percent: a French, Dutch or German
+    preposition or copula and one space come before the parenthesis, and a
+    Belgian, Dutch or German marker or a lowercase ``p.c.`` follows it.
+    Otherwise ``(17)`` is the label it looks like (``Item (17) Percent``,
+    ``met (17) P.C.``, ``l'article six (12) p.c.``, ``apply. (17) p.c.``,
+    ``5 (2) p.c.``).
     """
     start, end = match.span()
     text = match.string
-    if not _LOCALE_RATE_MARKER_AFTER_FIGURE_PATTERN.match(text, end):
-        return _blank_match(match)
-    before = text[max(0, start - 64) : start]
-    if _RATE_RESTATEMENT_PREPOSITION_PATTERN.search(before):
-        return match.group(0)
-    numeral = _RATE_RESTATEMENT_NUMERAL_PATTERN.search(before)
-    if numeral and not _STRUCTURAL_REFERENCE_BEFORE_NUMERAL_PATTERN.search(
-        before[: numeral.start()]
+    if _BELGIAN_RESTATED_RATE_MARKER_PATTERN.match(
+        text, end
+    ) and _RATE_RESTATEMENT_PREPOSITION_PATTERN.search(
+        text[max(0, start - 64) : start]
     ):
         return match.group(0)
     return _blank_match(match)
@@ -14189,7 +14178,14 @@ def _local_rate_context_after_number(
             patterns=(_GENERIC_RATE_MARKER_PATTERN, _DANISH_RATE_MARKER_PATTERN),
             boundaries=boundaries,
         )
-    return bool(_LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN.match(text, end))
+    return bool(_local_rate_context_pattern(profile).match(text, end))
+
+
+def _local_rate_context_pattern(profile: str) -> re.Pattern[str]:
+    """Return the markers after a figure that make it a rate in ``profile``."""
+    return _LOCALE_LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERNS.get(
+        profile, _LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN
+    )
 
 
 def _parenthesized_figure_rate_context(
@@ -14206,9 +14202,10 @@ def _parenthesized_figure_rate_context(
     right before the opening parenthesis, across any space or a comma, owns
     the marker instead ("5 (2,5) p.c." is five percent and a note), so it
     blocks the reading, and an unopened parenthesis ("2) p.c.", a list label)
-    is no restatement.
+    is no restatement. Only Belgian sources read it; elsewhere the parenthesis
+    is a label or a note, as on main.
     """
-    if profile == "da-DK":
+    if profile != "be-BE":
         return False
     start, end = span
     opening = start - 1
@@ -14242,12 +14239,14 @@ def _table_rate_header_matches(
 
     ``row`` places the cell in its Markdown table: "header" above the
     delimiter row, "body" below it, "undelimited" in a block without one. A
-    header cell may name the rate in Belgian or German words too; a body cell
-    whose marker follows its own figure is a value and types no column.
+    header cell may name the rate in its source's own words too (Belgian
+    words, German "v. H."); a body cell whose marker follows its own figure is
+    a value and types no column.
     """
     if profile == "da-DK":
         return False
-    if row == "header" and _TABLE_LOCALE_RATE_HEADER_PATTERN.search(text):
+    locale_header = _TABLE_LOCALE_RATE_HEADER_PATTERNS.get(profile)
+    if row == "header" and locale_header and locale_header.search(text):
         return True
     if row == "body":
         text = _TABLE_VALUE_CELL_RATE_PATTERN.sub(" ", text)
@@ -14407,6 +14406,10 @@ def _pipe_table_rate_cell_spans(
         rate_columns: set[int] = set()
         width: int | None = None
         for (offset, line), row in zip(block, rows, strict=True):
+            # The header row starts the table: pipe text above it sets no
+            # width for the table's own rows.
+            if row == "header":
+                width = None
             width = _pipe_table_next_width(line, width)
             cells = _pipe_table_line_cells(line, width)
 
@@ -14980,7 +14983,12 @@ class _LegacyNumericCollector:
         self.inventory.append(self.occurrence(view, span, value, **kwargs))
 
 
-_NUMERIC_EXTRACTION_PROFILES = frozenset({"legacy", "en-US", "en-GB", "de-DE", "da-DK"})
+_NUMERIC_EXTRACTION_PROFILES = frozenset(
+    {"legacy", "be-BE", "en-US", "en-GB", "de-DE", "da-DK"}
+)
+# The profiles the legacy tokenizer reads: be-BE is the legacy reading with
+# the Belgian rate markers (_BELGIAN_PERCENT_WORD_BODY).
+_LEGACY_NUMERIC_PROFILES = frozenset({"legacy", "be-BE"})
 _DECIMAL_COMMA_NUMERIC_PROFILES = frozenset({"de-DE", "da-DK"})
 _LOCALE_NUMERIC_GROUPING_SPACES = " \u00a0\u202f"
 # An ASCII space commonly separates adjacent Danish table values (for example,
@@ -15207,6 +15215,10 @@ def _numeric_profile_for_citation_path(citation_path: str | None) -> str:
         return "de-DE"
     if canonical.startswith("dk/"):
         return "da-DK"
+    # Belgium's federal and regional corpora: be/, be-vlg/, be-wal/, be-bru/,
+    # be-dg/.
+    if re.match(r"be(?:-[a-z]+)?/", canonical):
+        return "be-BE"
     return "legacy"
 
 
@@ -15922,7 +15934,7 @@ def _has_malformed_profiled_numeric_envelope(
     profile: str,
 ) -> bool:
     """Return whether strict-profile text contains an unparseable full span."""
-    if profile == "legacy":
+    if profile in _LEGACY_NUMERIC_PROFILES:
         return False
     if profile not in _NUMERIC_EXTRACTION_PROFILES:
         raise ValueError(f"Unsupported numeric profile: {profile}")
@@ -16306,10 +16318,10 @@ def _tokenize_numeric_occurrences_from_text(
     """Tokenize once into typed grounding and source-inventory emission streams."""
     if profile not in _NUMERIC_EXTRACTION_PROFILES:
         raise ValueError(f"Unsupported numeric profile: {profile}")
-    if profile != "legacy":
+    if profile not in _LEGACY_NUMERIC_PROFILES:
         return _tokenize_profiled_numeric_occurrences(text, profile=profile)
 
-    collector = _LegacyNumericCollector(text)
+    collector = _LegacyNumericCollector(text, profile=profile)
     source_view = _NumericTextView.identity(text)
     implied_cents_matches = _iter_form_implied_cents_matches(text)
     raw_tracked = _bind_hebrew_source_text_tracked(
@@ -16325,7 +16337,9 @@ def _tokenize_numeric_occurrences_from_text(
     # ends and maqaf wrap space read as the cleaner reads them, each
     # character carrying its offset into text; offsets carried through the
     # cleaning of raw_text are offsets into raw_text, composed here.
-    cleaned_tracked = _clean_source_text_for_numeric_extraction_tracked(raw_text)
+    cleaned_tracked = _clean_source_text_for_numeric_extraction_tracked(
+        raw_text, profile=profile
+    )
     cleaned_tracked = _TrackedText(
         cleaned_tracked.text,
         [
@@ -16756,7 +16770,7 @@ def _tokenize_numeric_occurrences_from_text(
                 continue
             if (
                 _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN.match(cleaned, match.end())
-                or _LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN.match(cleaned, match.end())
+                or _local_rate_context_pattern(profile).match(cleaned, match.end())
                 or _HEBREW_PERCENT_WORD_PATTERN.match(cleaned, match.end())
             ):
                 # "16 1⁄2%" and "10 1⁄4 percent" are the rates 0.165 and
@@ -16886,6 +16900,11 @@ def _tokenize_numeric_occurrences_from_text(
                     float(match.group(group_index).replace(",", "")),
                 )
 
+    figure_rate_marker = (
+        _BELGIAN_FIGURE_RATE_MARKER_BODY
+        if profile == "be-BE"
+        else _FIGURE_RATE_MARKER_BODY
+    )
     percentage_number = (
         r"-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+)"
         r"(?:,\d{1,4})?"
@@ -16895,7 +16914,7 @@ def _tokenize_numeric_occurrences_from_text(
     )
     for match in re.finditer(
         rf"\b({percentage_number})\s+{range_separator}\s+({percentage_number})"
-        rf"\s*{_FIGURE_RATE_MARKER_BODY}",
+        rf"\s*{figure_rate_marker}",
         cleaned,
         re.IGNORECASE,
     ):
@@ -16917,7 +16936,7 @@ def _tokenize_numeric_occurrences_from_text(
     for match in re.finditer(
         r"(?:^|(?<=[\s(\[+\-−*/\"'`“”‘’])|(?<=(?<!\d),))"
         r"(-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+),\d{1,4})"
-        rf"\s*{_FIGURE_RATE_MARKER_BODY}",
+        rf"\s*{figure_rate_marker}",
         cleaned,
         re.IGNORECASE,
     ):
@@ -33992,7 +34011,7 @@ def _find_source_text_value_issues(
         for raw_key, expected_cell in expected_value.items():
             cell_key = str(raw_key)
             if (
-                numeric_profile != "legacy"
+                numeric_profile not in _LEGACY_NUMERIC_PROFILES
                 and _numeric_rule_value(expected_cell) is not None
             ):
                 profiled_numeric_cells.append((cell_key, expected_cell))
@@ -34008,7 +34027,7 @@ def _find_source_text_value_issues(
                     f"{_format_verification_value(expected_cell)}."
                 )
         if (
-            numeric_profile == "legacy"
+            numeric_profile in _LEGACY_NUMERIC_PROFILES
             and issues
             and _source_text_contains_table_value_multiset(
                 normalized_text,
@@ -34032,7 +34051,7 @@ def _find_source_text_value_issues(
         return issues
 
     expected_is_numeric = _numeric_rule_value(expected_value) is not None
-    if numeric_profile != "legacy" and expected_is_numeric:
+    if numeric_profile not in _LEGACY_NUMERIC_PROFILES and expected_is_numeric:
         value_is_present = _source_text_contains_numeric_value_equivalent(
             source_text,
             expected_value,

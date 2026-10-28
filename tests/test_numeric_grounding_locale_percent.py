@@ -3,9 +3,11 @@
 A rate literal grounds only when its source marks the figure as a
 percentage. Belgian legal French and Dutch write that marker out ("28 pour
 cent", "9 procent") or restate the figure in parentheses before it ("(14,75)
-p.c."); German statutes abbreviate "vom Hundert" ("15 v. H."). A figure with
-no marker must never ground N/100: the July 2026 encoder accepted "tarief 9
-euro" as 0.09, and the gate exists to refuse that.
+p.c."); German statutes abbreviate "vom Hundert" ("15 v. H."). Belgian
+sources (the be-BE profile, chosen from a be/ or be-<region>/ citation) read
+all of these; German sources read "v. H."; every other source reads as on
+main. A figure with no marker must never ground N/100: the July 2026 encoder
+accepted "tarief 9 euro" as 0.09, and the gate exists to refuse that.
 """
 
 import re
@@ -16,6 +18,8 @@ from hypothesis import assume, example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode.harness.validator_pipeline import (
+    _find_source_text_value_issues,
+    _has_malformed_profiled_numeric_envelope,
     extract_typed_numeric_inventory_occurrences_from_text,
     extract_typed_numeric_occurrences_from_text,
     find_ungrounded_numeric_issues,
@@ -57,7 +61,7 @@ def _gate_grounds(
     )
 
 
-def _grounds(source_text: str, value: float, *, profile: str = "legacy") -> bool:
+def _grounds(source_text: str, value: float, *, profile: str = "be-BE") -> bool:
     return numeric_value_is_grounded(
         value,
         extract_typed_numeric_occurrences_from_text(source_text, profile=profile),
@@ -71,6 +75,7 @@ def _grounds(source_text: str, value: float, *, profile: str = "legacy") -> bool
     (
         ("suspendu (pour 28 pour cent) pour", "0.28", True),
         ("suspendu de 28 pour cent pour", "0.28", True),
+        ("suspendu (pour 28 pour cent) pour l'allocation", "0.28", True),
         ("suspendu de 28 pourcent", "0.28", True),
         ("suspendu de 28 % pour", "0.28", True),
         ("suspendu de 28 percent", "0.28", True),
@@ -114,6 +119,16 @@ def test_probe_table_rows(source_text, formula, grounded):
         ("1° 28 pour cent;\n2° 30 pour cent.", 0.28),
         ("1° 28 pour cent;\n2° 30 pour cent.", 0.3),
         ("5 pour cent, 10 pour cent", 0.05),
+        # Each rate of a list is one ("5 pour cent, 10 pour cent et 15").
+        ("5 pour cent, 10 pour cent et 15 pour cent", 0.05),
+        ("5 pour cent, 10 pour cent et 15 pour cent", 0.1),
+        ("5 pour cent, 10 pour cent et 15 pour cent", 0.15),
+        ("de 10 pour cent à 20 pour cent du montant", 0.1),
+        ("de 5 pour cent ou 3 % du montant", 0.05),
+        # A quotation mark set against "cent" closes it.
+        ("le taux est '5 pour cent' du montant", 0.05),
+        ('le taux est "5 pour cent".', 0.05),
+        ("le taux est « 5 pour cent » du montant", 0.05),
         ("taux de 28 POUR CENT DU MONTANT", 0.28),
         ("The rate is 5 pct of income", 0.05),
     ),
@@ -159,6 +174,19 @@ def test_locale_percent_markers_ground_the_rate(source_text, value):
         ("un droit de 2 pour cent à vingt-deux kilogrammes", 0.02),
         ("un droit de 2 pour cent à 200 kilogrammes", 0.02),
         ("un droit de 2 pour cent et un kilogrammes", 0.02),
+        # "quelques", "plusieurs" and "demi", behind "et" or "ou" too, and a
+        # quotation mark that opens a word, may continue a count.
+        ("un droit de 2 pour cent et quelques kilogrammes", 0.02),
+        ("un droit de 2 pour cent et demi kilogrammes", 0.02),
+        ("un droit de 2 pour cent, et demi", 0.02),
+        ("un droit de 2 pour cent de quelques kilogrammes", 0.02),
+        ('un droit de 2 pour cent "kilogrammes"', 0.02),
+        ('un droit de 2 pour cent "cent kilogrammes"', 0.02),
+        ("un droit de 2 pour cent, deux cents kilogrammes", 0.02),
+        ("un droit de 2 pour cent, 200 kilogrammes", 0.02),
+        # Only listed phrases close "pour cent": "et", "en" and "soit" do not.
+        ("un droit de 2 pour cent en tout", 0.02),
+        ("un droit de 2 pour cent soit", 0.02),
         # Per mille is no percent.
         ("à concurrence de 0,15 pour mille des prestations", 0.0015),
         # Words that only begin like a marker.
@@ -180,6 +208,11 @@ def test_near_markers_do_not_ground_the_rate(source_text, value):
         ("uk/statute/example/1", "The office received 28 PCT applications.", "0.28"),
         ("ca/statute/example/1", "The office received 28 PCT applications.", "0.28"),
         ("us/statute/example/1", "officers of the 28 Pct. shall", "0.28"),
+        # Outside Belgium "pct." is no marker at all, as on main: it may name
+        # a police precinct.
+        ("us/statute/example/1", "The officers of the 28 pct. shall report.", "0.28"),
+        ("uk/statute/example/1", "The officers of the 28 pct. shall report.", "0.28"),
+        ("ca/statute/example/1", "The officers of the 28 pct. shall report.", "0.28"),
         # Dutch "v.h." is "voorheen", formerly.
         (BE_CITATION, "artikel 15 v.h. Wetboek", "0.15"),
         (
@@ -193,6 +226,97 @@ def test_abbreviations_in_another_case_are_no_rate_marker(
     citation_path, source_text, formula
 ):
     assert not _gate_grounds(source_text, formula, citation_path=citation_path)
+
+
+@pytest.mark.parametrize(
+    ("citation_path", "source_text", "formula"),
+    (
+        # Outside Belgium the Belgian words, the restated figure and the
+        # Belgian table header are read as on main: no rate.
+        ("us/statute/example/1", "28 pour cent du montant", "0.28"),
+        ("uk/statute/example/1", "taux de 14,75 pourcents", "0.1475"),
+        ("us/statute/example/1", "tarief 9 procent", "0.09"),
+        ("us/statute/example/1", "Der Satz beträgt 15 v. H.", "0.15"),
+        ("de/statute/estg/32a", "28 pour cent du montant", "0.28"),
+        ("us/statute/example/1", "sont pour (75) p.c. remboursés", "0.75"),
+        ("us/statute/example/1", "f (14,75) p.c.du montant", "0.1475"),
+        ("de/statute/estg/32a", "Satz von (14,75) Prozent", "0.1475"),
+        ("us/statute/example/1", "entre 10 et 20 pour cent du montant", "0.1"),
+        (
+            "us/statute/example/1",
+            "| Categorie | tarief in procent |\n| --- | --- |\n| A | 28 |\n",
+            "0.28",
+        ),
+        # A label after "met", English or Dutch, before an uppercase "P.C.".
+        (
+            "us/statute/example/1",
+            "P.C. means police constable. The panel met (17) P.C. applicants",
+            "0.17",
+        ),
+        (
+            BE_CITATION,
+            "P.C. means police constable. The panel met (17) P.C. applicants",
+            "0.17",
+        ),
+        (BE_CITATION, "Annexure Six (17) P.C.", "0.17"),
+        (BE_CITATION, "sections five and six (17) P.C.", "0.17"),
+        (BE_CITATION, "sont pour (75) P.C. remboursés", "0.75"),
+    ),
+)
+def test_readings_outside_their_profile_are_as_on_main(
+    citation_path, source_text, formula
+):
+    assert not _gate_grounds(source_text, formula, citation_path=citation_path)
+
+
+def _value_issues(citation_path: str, source_text: str, expected) -> list[str]:
+    return [
+        issue.replace(citation_path, "<source>")
+        for issue in _find_source_text_value_issues(
+            source_label=citation_path,
+            source_text=source_text,
+            value_name="rate",
+            expected_value=expected,
+        )
+    ]
+
+
+def test_belgian_sources_take_the_legacy_numeric_readers():
+    # be-BE is the legacy reading with the Belgian markers: the strict
+    # envelope check and the strict source-verification branches stay off.
+    assert not _has_malformed_profiled_numeric_envelope("1.2345,6", profile="be-BE")
+    assert _has_malformed_profiled_numeric_envelope("1.2345,6", profile="de-DE")
+    for source_text, expected in (
+        ("Bedrag: 1.234 euro", 1.234),
+        ("Taux: 28 %; plafond 2.500 EUR", {"rate": 0.28, "cap": 2500}),
+    ):
+        legacy = _value_issues("us/statute/example/1", source_text, expected)
+        assert _value_issues(BE_CITATION, source_text, expected) == legacy
+        assert _value_issues("de/statute/estg/32a", source_text, expected) != legacy
+    # Source verification reads the Belgian markers in Belgian sources only.
+    assert not _value_issues(BE_CITATION, "Le taux est de 14,75 pour cent.", 0.1475)
+    assert _value_issues(
+        "us/statute/example/1", "Le taux est de 14,75 pour cent.", 0.1475
+    )
+
+
+@pytest.mark.parametrize(
+    ("profile", "grounded"), (("be-BE", True), ("legacy", False), ("en-US", False))
+)
+def test_mixed_fraction_reads_its_profile_markers(profile, grounded):
+    source_text = "un taux de 16 1\u20442 pour cent du montant"
+
+    assert _grounds(source_text, 0.165, profile=profile) is grounded
+
+
+@pytest.mark.parametrize(
+    ("profile", "grounded"),
+    (("de-DE", True), ("be-BE", True), ("legacy", False), ("en-GB", False)),
+)
+def test_german_v_h_header_types_its_column(profile, grounded):
+    table = "| Art | Satz in v. H. |\n| --- | --- |\n| A | 28 |\n"
+
+    assert _grounds(table, 0.28, profile=profile) is grounded
 
 
 def test_pour_mille_still_grounds_the_printed_figure():
@@ -219,12 +343,16 @@ def test_parenthesized_figure_takes_the_marker_after_the_parenthesis(
 
 def test_parenthesized_integer_followed_by_a_marker_is_no_subdivision_label():
     occurrences = extract_typed_numeric_occurrences_from_text(
-        "sont pour (75) p.c. remboursés"
+        "sont pour (75) p.c. remboursés", profile="be-BE"
     )
 
     assert [(item.value, item.raw, item.has_rate_context) for item in occurrences] == [
         (75.0, "75", True)
     ]
+    # Outside Belgium "(75)" stays the masked label it is on main.
+    assert not extract_typed_numeric_occurrences_from_text(
+        "sont pour (75) p.c. remboursés"
+    )
 
 
 @pytest.mark.parametrize(
@@ -308,7 +436,7 @@ def test_label_opening_a_clause_stays_masked(citation_path, source_text, formula
 
 def test_danish_profile_masks_a_parenthesized_figure_as_main_did():
     # da-DK reads no rate from a parenthesized figure, so "(75)" stays the
-    # masked label it was; the legacy profile reads it as a restated rate.
+    # masked label it was; the be-BE profile reads it as a restated rate.
     danish = "svarende til (75) pct. af grundlaget"
 
     assert not _gate_grounds(danish, "75", citation_path="dk/statute/example/1")
@@ -356,6 +484,11 @@ def test_range_endpoints_share_the_marker(source_text, values):
         # The decimal-comma reader.
         ("un droit de 2,5 pour cent quintaux", (0.025,)),
         ("une taxe de 1.000,5 pour cent litres", (10.005,)),
+        # ... and before a count's continuation.
+        ("entre 2 et 3 pour cent et quelques kilogrammes", (0.02, 0.03)),
+        ('de 2 à 3 pour cent "kilogrammes"', (0.02, 0.03)),
+        ("un droit de 2,5 pour cent et demi kilogrammes", (0.025,)),
+        ('un droit de 2,5 pour cent "cent kilogrammes"', (0.025,)),
     ),
 )
 def test_noun_after_pour_cent_is_no_marker_in_any_reader(source_text, values):
@@ -392,7 +525,7 @@ def test_noun_after_pour_cent_is_no_marker_in_any_reader(source_text, values):
         (BE_CITATION, "tarief van (19) euro", ("19", "0.19")),
         # "bis" numbers an inserted article in Belgian law.
         (BE_CITATION, "article 5 bis (12) p.c. du montant", ("12", "0.12")),
-        # A spelled number a structural word names is that subdivision.
+        # A spelled number before the label never licenses it.
         (
             "us/statute/example/1",
             "A provision under Schedule Six (17) Percent of income disregarded",
@@ -432,22 +565,34 @@ def test_label_after_a_word_that_states_no_amount_stays_masked(
 @pytest.mark.parametrize(
     ("citation_path", "source_text", "formula"),
     (
-        (BE_CITATION, "à raison de vingt-huit (28) pour cent", "0.28"),
-        (BE_CITATION, "vijfenzeventig (75) procent van het bedrag", "0.75"),
+        (BE_CITATION, "sont pour (75) p.c. remboursés", "0.75"),
         (BE_CITATION, "tarief van (9) procent", "0.09"),
-        ("be-dg/statute/example/1", "fünfundzwanzig (25) Prozent des Betrags", "0.25"),
+        (BE_CITATION, "met (17) p.c. verhoogd", "0.17"),
         ("be-dg/statute/example/1", "Der Satz beträgt (15) Prozent", "0.15"),
-        (
-            BE_CITATION,
-            "le taux visé à l'article 5 est de vingt-huit (28) pour cent",
-            "0.28",
-        ),
+        ("be-dg/statute/example/1", "Satz von (15) v. H.", "0.15"),
+        ("be-vlg/statute/example/1", "bedraagt (12) procent", "0.12"),
     ),
 )
 def test_figure_restated_after_a_lead_in_word_grounds(
     citation_path, source_text, formula
 ):
     assert _gate_grounds(source_text, formula, citation_path=citation_path)
+
+
+@pytest.mark.parametrize(
+    ("citation_path", "source_text", "formula"),
+    (
+        # A rate spelled out before its figure keeps main's masking of the
+        # figure: the reading is lost, as it is on main.
+        (BE_CITATION, "à raison de vingt-huit (28) pour cent", "0.28"),
+        (BE_CITATION, "vijfenzeventig (75) procent van het bedrag", "0.75"),
+        ("be-dg/statute/example/1", "fünfundzwanzig (25) Prozent des Betrags", "0.25"),
+    ),
+)
+def test_figure_restated_after_a_spelled_number_stays_masked(
+    citation_path, source_text, formula
+):
+    assert not _gate_grounds(source_text, formula, citation_path=citation_path)
 
 
 @pytest.mark.parametrize(
@@ -472,20 +617,29 @@ def test_english_restatement_reads_as_on_main(source_text, rate, label):
 def test_locale_marker_types_the_recall_inventory_like_prozent():
     # Source recall reads the figure as German "Prozent" has always been read:
     # the printed figure, typed as a rate.
-    for marker in ("Prozent", "pour cent", "pourcent", "procent", "pct."):
+    for marker in ("Prozent", "pour cent", "pourcent", "procent", "pct.", "v. H."):
+        inventory = extract_typed_numeric_inventory_occurrences_from_text(
+            f"Le taux est de 28 {marker} du montant.", profile="be-BE"
+        )
+
+        assert [(item.value, item.has_rate_context) for item in inventory] == [
+            (28.0, True)
+        ], marker
+    # Outside Belgium the Belgian words type nothing, as on main.
+    for marker in ("pour cent", "procent", "pct."):
         inventory = extract_typed_numeric_inventory_occurrences_from_text(
             f"Le taux est de 28 {marker} du montant."
         )
 
         assert [(item.value, item.has_rate_context) for item in inventory] == [
-            (28.0, True)
+            (28.0, False)
         ], marker
 
 
 @pytest.mark.parametrize(
     "citation_path",
     (
-        # The German-speaking Community reads under the legacy profile and
+        # The German-speaking Community reads under the be-BE profile and
         # rulespec-de under the strict de-DE one.
         "be-dg/statute/dekret/2018/04/23/article/1",
         "de/statute/estg/32a",
@@ -727,6 +881,22 @@ def test_locale_header_types_a_column_only_right_above_a_matching_delimiter(tabl
     assert not _grounds(table, 50.0)
 
 
+@pytest.mark.parametrize(
+    ("citation_path", "header", "amount"),
+    (
+        (BE_CITATION, "tarief in procent", "5000 euro"),
+        ("us/statute/example/1", "rate percent", "5000 euro"),
+    ),
+)
+def test_pipe_text_above_the_header_sets_no_width(citation_path, header, amount):
+    # Three-cell pipe text above a mixed-border header would read the header's
+    # border as an empty first cell and move its rate column onto the amount.
+    table = f"Notes | words | text\n| {header} | Amount\n--- | ---\n28 | {amount}\n"
+
+    assert _gate_grounds(table, "0.28", citation_path=citation_path)
+    assert not _gate_grounds(table, "50", citation_path=citation_path)
+
+
 def test_locale_header_types_its_column_under_pipe_text():
     table = (
         "| Notes | see below |\n"
@@ -908,8 +1078,16 @@ _CLOSING_WORDS = (
     " pour chaque enfant",
     " sur le montant",
     ";\n2° 30 euros",
-    ", 200 euros",
     ")",
+    " pour",
+    '"',
+    "' du montant",
+    " »",
+    ", 10 pour cent",
+    " et 15 pour cent",
+    " ou 3 %",
+    " à 20 p.c.",
+    "\n",
 )
 # What may continue "pour cent" into a count: a hyphen, an opening
 # parenthesis, or closed-class words before a figure. The rate reading may be
@@ -926,6 +1104,19 @@ _COUNT_CONTINUATIONS = (
     " de 1000 euros",
     ".000 kilogrammes",
     " (cinq pour cent)",
+    ", 200 euros",
+    ", deux cents kilogrammes",
+    " et quelques kilogrammes",
+    " et demi kilogrammes",
+    ", et demi",
+    " de quelques kilogrammes",
+    " plusieurs kilogrammes",
+    ' "kilogrammes"',
+    ' "cent kilogrammes"',
+    ', "cent kilogrammes"',
+    " de (100) kilogrammes",
+    " et 15 euros",
+    " en tout",
 )
 _FRENCH_NOUNS = (
     "kilogrammes",
@@ -1186,6 +1377,8 @@ def test_pour_cent_before_a_count_never_grounds_its_rate(
     # The range's other endpoint grounds 1 and the continuation's figures
     # ground themselves, so the rate may equal none of them.
     assume(value not in (1, 5, 100))
+    # Nor any figure the continuation grounds by itself.
+    assume(not _grounds(f"{lead}{continuation}", value / 100))
     source_text = f"{lead}{printed} {spelling}{continuation}"
 
     assert not _grounds(source_text, value / 100), source_text
@@ -1278,11 +1471,8 @@ def test_escaped_pipes_never_move_a_rate_column(
 )
 def test_german_profile_marked_figure_grounds_its_rate(figure, marker):
     printed, value = figure
+    # The de-DE reader takes no figure restated in parentheses, as on main.
+    assume(not printed.startswith("("))
     source_text = f"Der Satz beträgt {printed} {marker} des Betrags."
 
-    if marker == "%" and _LABEL_SHAPED.fullmatch(printed):
-        # "%" licenses no restatement: "(1) %" stays the masked label it is
-        # on main.
-        assert not _grounds(source_text, value / 100, profile="de-DE"), source_text
-    else:
-        assert _grounds(source_text, value / 100, profile="de-DE"), source_text
+    assert _grounds(source_text, value / 100, profile="de-DE"), source_text

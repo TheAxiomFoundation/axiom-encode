@@ -11476,9 +11476,10 @@ def test_existing_percentage_point_grounding_conventions_are_pinned():
             "dk/statute/lbk-603-2025/boerne-og-ungeydelsesloven/paragraf-1-a",
             "svarende til 2 pct. af grundlaget",
             "0.02",
-            # Belgian Dutch abbreviates the percent sign as Danish does ("60
-            # pct."), so the legacy reader grounds this rate too.
-            [],
+            [
+                "Ungrounded generated numeric literal: 0.02 does not appear as a "
+                "substantive numeric value in the source text."
+            ],
         ),
         (
             "dk/statute/lbk-603-2025/boerne-og-ungeydelsesloven/paragraf-1",
@@ -14531,6 +14532,9 @@ def test_da_numeric_profile_terminates_at_glued_juris_sentence_marker():
             "da-DK",
         ),
         ("de/statute/estg/32a", "de-DE"),
+        ("be/statute/loi/1987/02/27/1987022077/article/12", "be-BE"),
+        ("be-vlg/statute/example/1", "be-BE"),
+        ("be-dg/statute/example/1", "be-BE"),
         ("us/statute/example/1", "legacy"),
         ("us-al/statute/40-18-5", "legacy"),
         (None, "legacy"),
