@@ -1444,7 +1444,9 @@ def _odd_branch_pools(draw):
     for _ in range(draw(st.integers(0, 10))):
         parts = draw(st.lists(st.sampled_from(_PATH_PARTS[:3]), max_size=5))
         shape = draw(
-            st.sampled_from(("tuple",) * 6 + ("string", "list-part", "nested"))
+            st.sampled_from(
+                ("tuple",) * 6 + ("string", "list-part", "nested", "int-part")
+            )
         )
         path = {
             "tuple": tuple(parts),
@@ -1452,6 +1454,7 @@ def _odd_branch_pools(draw):
             "string": "".join(parts),
             "list-part": (*parts, ["x"]),
             "nested": (*parts, ("a",)),
+            "int-part": (1, *parts),
         }[shape]
         integral = draw(st.booleans()) or draw(st.booleans())
         start = draw(st.integers(0, 40)) if integral else draw(_ODD_STARTS)
@@ -1484,6 +1487,21 @@ def _odd_branch_pools(draw):
         )
         for _ in range(draw(st.integers(0, 3)))
     ]
+    # Prefixes of the pool's paths, of any kind: the pool holds descendants of
+    # each, which main accepts by path before it reads the kind or label.
+    held = [branch for branch in branches if type(branch.path) is tuple and branch.path]
+    if held:
+        strangers += [
+            SourceStructureBranch(
+                path=branch.path[: draw(st.integers(0, len(branch.path) - 1))],
+                kind=draw(st.sampled_from(_KINDS)),
+                label="(a)",
+                text="x" * 41,
+                start=draw(st.integers(0, 40)),
+                end=draw(st.integers(0, 41)),
+            )
+            for branch in draw(st.lists(st.sampled_from(held), max_size=3))
+        ]
     # Paths the index must not answer for, whatever the pool holds.
     strangers += [
         SourceStructureBranch(
@@ -1537,6 +1555,15 @@ def _odd_branch_pools(draw):
         [],
     )
 )
+@example(
+    # A sentence whose path is not plain strings, over its only descendant:
+    # main accepts the descendant by path and never reads the sentence's last
+    # component as a label, so the index must not treat the path as plain.
+    (
+        (SourceStructureBranch((1, "a"), "number", "", "x" * 41, 5, 41),),
+        [SourceStructureBranch((1,), "sentence", "", "x" * 41, 0, 41)],
+    )
+)
 def test_direct_text_matches_main_on_odd_pools(case):
     branches, strangers = case
     text = "x" * 41
@@ -1562,6 +1589,8 @@ def test_direct_text_matches_main_on_odd_pools(case):
         return
     with sc._source_index_scope():
         index = sc._source_branch_index(branches)
+        for branch in (*branches, *strangers):
+            assert index.plain(branch.path) == sc._plain_path(branch.path)
         if not index._knows_lowest_starts:
             return
         for branch in (*branches, *strangers):
@@ -1819,6 +1848,26 @@ def test_path_is_deferred_matches_main_on_any_path(path, deferred):
     with sc._source_index_scope():
         assert _outcome(lambda: sc._path_is_deferred(path, deferred)) == old
         assert _outcome(lambda: sc._path_is_deferred(path, deferred)) == old
+
+
+@pytest.mark.parametrize("path", [*_ANY_PATHS, (1,), ("a", 1), ("a", ("a",)), ""])
+def test_branch_index_plain_is_plain_path(path):
+    """``plain`` is ``_plain_path`` for any path: one a branch holds, an equal
+    copy of it, a path in a pool the trie refuses, or one no branch has."""
+
+    def branch(path):
+        return SourceStructureBranch(path, "sentence", "(a)", "x" * 41, 0, 41)
+
+    for pool in (
+        (branch(("a",)), branch(("a", "b"))),
+        (branch(("a",)), branch(path)),
+    ):
+        index = sc._SourceBranchIndex(pool)
+        paths = [path, *(member.path for member in pool)]
+        if type(path) in (tuple, list):
+            paths.append(type(path)(list(path)))
+        for candidate in paths:
+            assert index.plain(candidate) == sc._plain_path(candidate)
 
 
 def test_branch_helpers_match_main_on_unhashable_paths():
@@ -2408,21 +2457,10 @@ _ROUNDS = 5
 _MIN_ROUND_CPU = 0.05
 
 
-def _cold_cpu_seconds(call: Callable[[], object], *, budget: float) -> float:
-    """The CPU time of one ``call`` with every cache cold, in a fresh scope.
-
-    A ``call`` with a ``warm`` attribute runs it in the scope first, off the
-    clock, to build what the family does not time.
-    """
-
-    # Patterns built per reason are purged too: `re` keeps 512, which holds a
-    # small size's patterns between calls but not a large one's.
-    _clear_caches()
-    with sc._source_index_scope():
-        getattr(call, "warm", lambda: None)()
-        start = time.process_time()
-        call()
-        elapsed = time.process_time() - start
+def _call_cpu_seconds(call: Callable[[], object], *, budget: float) -> float:
+    start = time.process_time()
+    call()
+    elapsed = time.process_time() - start
     if elapsed > budget:
         pytest.fail(
             f"one call took {elapsed:.2f}s of CPU, over its {budget:.2f}s "
@@ -2577,18 +2615,47 @@ def test_coverage_still_measures_other_threads_after_a_timing(core, tmp_path):
     ]
 
 
+def _round_cpu_seconds(
+    call: Callable[[], object], *, repeats: int, budget: float
+) -> float:
+    """The CPU time of ``repeats`` calls, each with every cache cold, in a
+    fresh scope.
+
+    A ``call`` with a ``warm`` attribute shares one fresh scope across the
+    round instead: ``warm`` runs there once, off the clock, to build what the
+    family does not time, so that build is not repeated for every cheap call.
+    """
+
+    warm = getattr(call, "warm", None)
+    if warm is not None:
+        _clear_caches()
+        with sc._source_index_scope():
+            warm()
+            return sum(
+                _call_cpu_seconds(call, budget=budget) for _repeat in range(repeats)
+            )
+    spent = 0.0
+    for _repeat in range(repeats):
+        # Patterns built per reason are purged too: `re` keeps 512, which holds
+        # a small size's patterns between calls but not a large one's.
+        _clear_caches()
+        with sc._source_index_scope():
+            spent += _call_cpu_seconds(call, budget=budget)
+    return spent
+
+
 def _cpu_times(calls: Sequence[Callable[[], object]], *, budget: float) -> list[float]:
     """The least CPU time of each call's round, over interleaved rounds."""
 
     with _without_tracing():
-        smallest = min(_cold_cpu_seconds(calls[0], budget=budget) for _ in range(3))
+        smallest = min(
+            _round_cpu_seconds(calls[0], repeats=1, budget=budget) for _ in range(3)
+        )
         repeats = max(1, math.ceil(_MIN_ROUND_CPU / max(smallest, 1e-6)))
         best = [math.inf] * len(calls)
         for _round in range(_ROUNDS):
             for position, call in enumerate(calls):
-                spent = sum(
-                    _cold_cpu_seconds(call, budget=budget) for _repeat in range(repeats)
-                )
+                spent = _round_cpu_seconds(call, repeats=repeats, budget=budget)
                 best[position] = min(best[position], spent)
     return best
 
@@ -2700,8 +2767,9 @@ def _deep_direct_text_family(n: int):
     """``_source_branch_direct_text`` over n attached markers, n deep.
 
     These paths hold n(n+1)/2 components in all, and building the branch index
-    reads each one, so the index is built off the clock: each branch's lookup
-    is timed, and it must not read its descendants' paths.
+    reads each one, so the index is built off the clock, once per round: each
+    branch's lookup is timed, and it must not read its descendants' paths.
+    ``_deep_lowest_starts_family`` times the least starts the lookups read.
     """
 
     branches = _attached_markers(n)
@@ -2714,6 +2782,25 @@ def _deep_direct_text_family(n: int):
 
     sweep.warm = lambda: sc._source_branch_index(branches)._knows_lowest_starts
     return sweep
+
+
+def _deep_lowest_starts_family(n: int):
+    """Filling the least starts of n attached markers' branch index, n deep.
+
+    The trie is built off the clock, as in ``_deep_direct_text_family``. Each
+    node's least start comes from its children's; a fill that scanned every
+    node's descendants instead would read about n²/2 starts here.
+    """
+
+    branches = _attached_markers(n)
+    fill = sc._SourceBranchIndex._knows_lowest_starts.func
+
+    def refill():
+        # The fill sets every node's least start afresh, so it can run again.
+        return fill(sc._source_branch_index(branches))
+
+    refill.warm = lambda: sc._source_branch_index(branches)._paths
+    return refill
 
 
 def _attached_markers(n: int) -> tuple[SourceStructureBranch, ...]:
@@ -2768,6 +2855,31 @@ def test_deep_direct_text_costs_a_fraction_of_main():
     main, new = _cpu_times([main_sweep, sweep], budget=10.0)
 
     assert new * 4 <= main, f"new {new:.4f}s, main {main:.4f}s of CPU"
+
+
+def test_filling_least_starts_reads_each_start_a_few_times():
+    # A count to go with the growth family's timing: each node's least start
+    # comes from its children's, so the fill reads a few starts per branch,
+    # where one that scanned every node's descendants would read about n²/2.
+    reads = [0]
+
+    class Counted(SourceStructureBranch):
+        def __getattribute__(self, name: str) -> object:
+            if name == "start":
+                reads[0] += 1
+            return super().__getattribute__(name)
+
+    fields = [field.name for field in dataclasses.fields(SourceStructureBranch)]
+    for n in (25, 400):
+        branches = tuple(
+            Counted(**{name: getattr(branch, name) for name in fields})
+            for branch in _attached_markers(n)
+        )
+        index = sc._SourceBranchIndex(branches)
+        assert index._paths is not None
+        reads[0] = 0
+        assert index._knows_lowest_starts
+        assert reads[0] <= 3 * len(branches), f"n={n}: {reads[0]} start reads"
 
 
 _PRECISE_REASON = (
@@ -2915,6 +3027,12 @@ def test_deferral_reason_cpu_growth_is_near_linear(family, sizes, budget):
             (400, 800, 1600),
             1.0,
             id="source-branch-direct-text-deep",
+        ),
+        pytest.param(
+            _deep_lowest_starts_family,
+            (400, 800, 1600),
+            1.0,
+            id="branch-index-lowest-starts-deep",
         ),
         pytest.param(
             _branch_helper_family(
