@@ -140,11 +140,6 @@ class ConfinedOutput:
                     pass
 
 
-def publish_text(out_dir: Path, name: str, contents: str):
-    with ConfinedOutput(out_dir) as output:
-        output.write(Path(name), contents.encode())
-
-
 def inside_checkout(path: Path, checkouts: tuple[Path, ...]) -> bool:
     if any(path.resolve().is_relative_to(root.resolve()) for root in checkouts):
         return True
@@ -287,8 +282,9 @@ def classify(old: dict, new: dict, dated_rules: list[dict], period_start: str) -
     old_refusal = OLD_DATE_REFUSAL.fullmatch(old.get("error", ""))
     old_ok = "value" in old or (old_refusal and old_refusal[1] == period_start)
     if old_ok and match and match[2] == period_start:
-        # Identical entries are one rule; distinct rules sharing the name stay
-        # ambiguous and leave the difference visible.
+        # Entries with the same legal id and window are one rule. Matches that
+        # differ in legal id or window stay ambiguous and leave the difference
+        # visible.
         matches = {}
         for rule in dated_rules:
             qualified = f"{rule['module'].removesuffix('.yaml').replace('/', ':', 1)}#{rule['rule']}"
@@ -513,13 +509,19 @@ def run_modes(
     return outcomes
 
 
-def write_report(report: dict, out_dir: Path) -> Counter:
+def write_report(report: dict, output: ConfinedOutput) -> Counter:
+    """Publish report.json and report.md through the run's held output.
+
+    The artifacts use the same descriptor, so all evidence of one run lands in
+    one directory even if its path is renamed while the run is writing.
+    """
     counts = Counter(
         row["classification"] for case in report["cases"] for row in case["comparisons"]
     )
     report["counts"] = {label: counts[label] for label in CLASSES}
-    publish_text(
-        out_dir, "report.json", json.dumps(report, indent=2, default=str) + "\n"
+    output.write(
+        Path("report.json"),
+        (json.dumps(report, indent=2, default=str) + "\n").encode(),
     )
     lines = [
         "# Engine pin differential",
@@ -555,7 +557,7 @@ def write_report(report: dict, out_dir: Path) -> Counter:
     if report.get("incomplete"):
         lines.extend(["", "## Incomplete coverage", ""])
         lines.extend(f"- {json.dumps(error)}" for error in report["incomplete"])
-    publish_text(out_dir, "report.md", "\n".join(lines) + "\n")
+    output.write(Path("report.md"), ("\n".join(lines) + "\n").encode())
     return counts
 
 
@@ -697,9 +699,12 @@ def collect_modules(checkout, root, roots, selected):
         ):
             continue
         modules.append((name, path, payload))
-    for dependency in roots[1:]:
+    # Sibling roots of one checkout resolve to the same top; list it once.
+    for dependency in dict.fromkeys(path.resolve() for path in roots[1:]):
         for name in _git(dependency, "ls-files", "-z").split("\0"):
             path = dependency / name
+            if path.resolve() in inventoried:
+                continue
             if (payload := rulespec(path)) is not None:
                 admit(path, name, payload)
     return modules, classification_inventory
@@ -929,10 +934,10 @@ def _run(args, root, checkout, roots, confined_output, workspace, executor):
                     )
                 )
                 report["cases"][-1]["source_case"] = copy.deepcopy(case)
-        write_report(report, out_dir)
+        write_report(report, confined_output)
 
     for module_index, module in enumerate(modules):
         compare_module(module_index, module)
-    counts = write_report(report, out_dir)
+    counts = write_report(report, confined_output)
     print(json.dumps(dict(counts=report["counts"], report=str(out_dir / "report.md"))))
     return int(bool(counts["DIFF"] or counts["PARITY_BREAK"] or report["incomplete"]))

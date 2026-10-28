@@ -306,6 +306,7 @@ DATED_RULES = [
 ]
 
 
+@settings(deadline=None)
 @given(
     old=st.sampled_from(
         [VALUE, {"error": "parameter `rate` has no value at 2025-05-11"}, REFUSAL]
@@ -313,14 +314,18 @@ DATED_RULES = [
     new=st.sampled_from([VALUE, REFUSAL, {"value": 2}]),
     start=st.sampled_from(["2025-05-11", "2025-05-12"]),
     rules=st.lists(st.sampled_from(DATED_RULES), max_size=6),
+    data=st.data(),
 )
 def test_classification_depends_only_on_distinct_inventory_entries(
-    old, new, start, rules
+    old, new, start, rules, data
 ):
+    # Neither duplicates nor the order of entries can change a classification.
     distinct = list({json.dumps(rule, sort_keys=True): rule for rule in rules}.values())
-    assert diff.classify(old, new, rules, start) == diff.classify(
-        old, new, distinct, start
-    )
+    reordered = data.draw(st.permutations(rules))
+    expected = diff.classify(old, new, distinct, start)
+    assert diff.classify(old, new, rules, start) == expected
+    assert diff.classify(old, new, reordered, start) == expected
+    assert diff.classify(old, new, list(reversed(distinct)), start) == expected
 
 
 def test_sibling_dependency_roots_inventory_each_module_once(tmp_path):
@@ -341,6 +346,88 @@ def test_sibling_dependency_roots_inventory_each_module_once(tmp_path):
         "de/statutes/estg/66.yaml",
         "de-sn/statutes/estg/66.yaml",
     }
+
+
+def test_separate_checkouts_sharing_a_path_are_both_inventoried(tmp_path):
+    # Dedup is by resolved file, never by relative name: another checkout's
+    # file at the same path can carry other dates, and dropping it would let a
+    # refusal inside its window pass as expected.
+    checkout, root, module = _calendar_regression_module(tmp_path)
+    other = tmp_path / "rulespec-de-fork"
+    other_module = other / "de" / "statutes" / "estg" / "66.yaml"
+    other_module.parent.mkdir(parents=True)
+    payload = yaml.safe_load(module.read_text())
+    for rule in payload["rules"]:
+        for version in rule.get("versions", []):
+            if version.get("effective_from") == "2025-01-01":
+                version["effective_from"] = "2024-01-01"
+    other_module.write_text(yaml.safe_dump(payload, sort_keys=False))
+    for repo in (checkout, other):
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    _, dated = diff.collect_modules(checkout, root, (checkout, other), [])
+    windows = {}
+    for rule in dated:
+        assert rule["module"] == "de/statutes/estg/66.yaml"
+        windows.setdefault(rule["rule"], set()).add(rule["effective_from"])
+    moved = {name for name, starts in windows.items() if len(starts) == 2}
+    assert moved
+    name = sorted(moved)[0]
+    assert windows[name] == {"2024-01-01", "2025-01-01"}
+    refusal = {"error": f"derived `{name}` has no formula version at 2024-06-01"}
+    candidates = [rule for rule in dated if rule["rule"] == name]
+    assert diff.classify(VALUE, refusal, candidates, "2024-06-01") == "DIFF"
+
+
+def test_each_file_is_parsed_once_however_many_roots_list_it(tmp_path, monkeypatch):
+    checkout, root, module = _calendar_regression_module(tmp_path)
+    neighbour = checkout / "de-sn" / "statutes" / "estg" / "66.yaml"
+    neighbour.parent.mkdir(parents=True)
+    shutil.copyfile(module, neighbour)
+    subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+    subprocess.run(["git", "-C", str(checkout), "add", "."], check=True)
+    parsed = Counter()
+    load = diff.yaml.safe_load
+
+    def counting_load(text):
+        parsed[text] += 1
+        return load(text)
+
+    listed = []
+    git = diff._git
+
+    def counting_git(path, *args):
+        if args[:1] == ("ls-files",):
+            listed.append(Path(path).resolve())
+        return git(path, *args)
+
+    monkeypatch.setattr(diff.yaml, "safe_load", counting_load)
+    monkeypatch.setattr(diff, "_git", counting_git)
+    diff.collect_modules(checkout, root, (checkout,) * 5, [])
+    # Both modules hold the same text; each file is read once, and the four
+    # identical dependency roots are listed once.
+    assert sum(parsed.values()) == 2
+    assert listed == [checkout.resolve()] * 2
+
+
+def test_reports_follow_the_held_output_directory(tmp_path):
+    report = dict(
+        as_of="2026-10-28",
+        engines=dict(old=dict(ref="a" * 40), new=dict(ref="b" * 40)),
+        cases=[],
+        incomplete=[],
+    )
+    moved = tmp_path / "moved"
+    with diff.ConfinedOutput(tmp_path / "out") as output:
+        output.write(Path("artifacts/0.json"), b"{}")
+        (tmp_path / "out").rename(moved)
+        diff.write_report(report, output)
+    assert not (tmp_path / "out").exists()
+    assert sorted(p.name for p in moved.iterdir()) == [
+        "artifacts",
+        "report.json",
+        "report.md",
+    ]
 
 
 def test_seed_prefers_dependent_output_over_unrelated_case():
@@ -473,7 +560,8 @@ def test_report_includes_companion_refusal(tmp_path):
             )
         ],
     )
-    counts = diff.write_report(report, tmp_path)
+    with diff.ConfinedOutput(tmp_path) as output:
+        counts = diff.write_report(report, output)
     assert counts == {"PASS": 2, "EXPECTED_PRESTART_REFUSAL": 1}
     saved = json.loads((tmp_path / "report.json").read_text())
     assert saved["cases"][0]["needs_encoder_repair"]
@@ -527,7 +615,8 @@ def test_fake_executor_report_classes_and_whole_case(label, tmp_path):
             )
         ],
     )
-    counts = diff.write_report(report, tmp_path)
+    with diff.ConfinedOutput(tmp_path) as output:
+        counts = diff.write_report(report, output)
     assert counts[label] > 0
     assert len(observed) == 4
     if label == "OLD_PARITY_BREAK":
