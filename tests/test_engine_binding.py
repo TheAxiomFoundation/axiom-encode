@@ -539,3 +539,80 @@ def test_git_marker_symlink_is_rejected(tmp_path):
 
     with pytest.raises(EngineBindingError, match=r"\.git marker must not be a symlink"):
         resolve_pinned_engine_binary(shim, pin, allow_build=False)
+
+
+def test_targeted_workflow_receipts_engine_before_protected_runtime(
+    tmp_path, monkeypatch
+):
+    """A correct prebuilt pin must be receipted while Cargo is still available."""
+    import shlex
+    import shutil
+
+    import yaml
+
+    repo = Path(__file__).resolve().parents[1]
+    workflow = yaml.safe_load(
+        (repo / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = workflow["jobs"]["encode"]["steps"]
+    bind_index = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("name") == "Bind rules engine to declared revision"
+    )
+    install_index = next(
+        i for i, step in enumerate(steps) if step.get("name") == "Install encoder"
+    )
+    protected_index = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("id") == "provision_signing_supervisor"
+    )
+    assert install_index < bind_index < protected_index
+    step = steps[bind_index]
+    assert step["env"]["RULES_ENGINE_REF"] == "${{ inputs.rules_engine_ref }}"
+    assert "if" not in step
+
+    checkout, pin = _engine_checkout(tmp_path)
+    binary = checkout / "target/release/axiom-rules-engine"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"prebuilt without receipt")
+    binary.chmod(0o755)
+    assert read_engine_binding_receipt(binary) is None
+    normal_path = os.environ["PATH"]
+    protected_bin = tmp_path / "protected-bin"
+    protected_bin.mkdir()
+    git = shutil.which("git")
+    assert git is not None
+    (protected_bin / "git").symlink_to(git)
+    monkeypatch.setenv("PATH", str(protected_bin))
+    with pytest.raises(EngineBindingError, match="cargo"):
+        cli._pinned_apply_engine_binding(checkout, pin)
+
+    monkeypatch.setenv("PATH", normal_path)
+    _cargo_shim(tmp_path, monkeypatch)
+    python = tmp_path / "axiom-encode/.venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + ' "$@"\n')
+    python.chmod(0o755)
+    env = dict(
+        os.environ,
+        GITHUB_WORKSPACE=str(tmp_path),
+        RULES_ENGINE_REF=pin,
+        PYTHONPATH=str(repo / "src"),
+    )
+    completed = subprocess.run(
+        ["/bin/bash", "-c", step["run"]],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    receipt = read_engine_binding_receipt(binary)
+    assert receipt is not None and receipt["engine_commit"] == pin
+    monkeypatch.setenv("PATH", str(protected_bin))
+    binding = cli._pinned_apply_engine_binding(checkout, pin)
+    assert binding is not None
+    assert binding["ref"] == pin
+    assert binding["sha256"] == hashlib.sha256(binary.read_bytes()).hexdigest()
