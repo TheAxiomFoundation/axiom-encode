@@ -3,14 +3,18 @@
 Unicode's dash category is the closed class of printed prefix joints, plus
 U+2212 MINUS SIGN. A joint keeps its punctuation; only horizontal spaces
 around a joint between a standalone prefix chain and a Hebrew word fold.
+
+A run of two or three prefix letters before a dash is a prefix chain when
+grammar can stack those proclitics and the run is not itself a word, or when
+the run is ambiguous (AMBIGUOUS_CHAIN_RUNS). Every other run reads as a word,
+and the dash after it is punctuation. No dictionary decides this.
 """
 
+import itertools
 import re
 import sys
 import unicodedata
 from collections.abc import Iterator
-
-from axiom_encode.harness._hebrew_prefix_words import HSPELL_PREFIX_WORDS
 
 # Pd includes the maqaf, small hyphen-minus and fullwidth hyphen-minus. The
 # Unicode database in the interpreter defines the finite class; its complete
@@ -27,7 +31,7 @@ HEBREW_PREFIX_LETTERS = "והבכלמשד"
 # joints first compact through prefix_joint_gaps, so this remains fixed width.
 # Horizontal Unicode White_Space, excluding all vertical separators. Python's
 # \s additionally includes U+001C–U+001F; those controls are folded elsewhere.
-_HORIZONTAL_SPACE = "[\t \u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]"
+_HORIZONTAL_SPACE = "[\t    -   　]"
 _JOINT_GAP = rf"{_HORIZONTAL_SPACE}*{PREFIX_JOINT}{_HORIZONTAL_SPACE}*"
 _SPACED_PREFIX_CHAIN = re.compile(
     rf"(?<![א-תA-Za-z0-9_])"
@@ -45,19 +49,106 @@ STATUTORY_PREFIX_WHOLE_WORDS = frozenset(
     "כבד כד כה ככל כל כלל כמה כמו כשל לב לבד לה לו לכל למד לשד מד מדד מה מהו "
     "מכל ממש משל משש משה שב שבה שבו שד שהה שוב שכל של שלב שלה שלו שמה שמו שש ששב ששה".split()
 )
-# Hspell closes the finite 64+512 two/three-letter class, including inflections
-# and ordinary prefixed words missing from the statute snapshot (כלב, בד, etc.).
-# Keep the independently audited statutory words as an explicit overlay.
-PREFIX_WHOLE_WORDS = HSPELL_PREFIX_WORDS | STATUTORY_PREFIX_WHOLE_WORDS
-# Most reads are not at a joint. Require its bounded syntactic shape before
-# trying the finite lexical alternation, so ordinary prose keeps its fast path.
-PREFIX_NOT_WHOLE_WORD_JOINT = (
-    rf"(?!(?=[{HEBREW_PREFIX_LETTERS}]{{2,3}}{PREFIX_JOINT})"
-    + "(?:"
-    + "|".join(map(re.escape, sorted(PREFIX_WHOLE_WORDS)))
-    + ")"
-    + PREFIX_JOINT
-    + ")"
+# Proclitics stack in one order: the conjunction ו; a subordinator (ש, כש, מש,
+# לכש, and the legal-register בש and Aramaic ד, the subordinators of
+# hebrew_negators.ORDINARY_PREFIX_CHAINS); one preposition (ב, כ, ל, מ); then
+# the article ה. Unpointed spelling drops the article after ב, כ and ל
+# (בבית, not בהבית), so ה follows only ו, ש, כש, מש or מ. Prepositions follow
+# only ש, כש and מש, and ד takes neither a preposition nor the article.
+# Gesenius–Kautzsch–Cowley (1910), § 35n: ב, כ and ל elide the article's ה,
+# and the conjunction ו does not:
+# https://en.wikisource.org/wiki/Gesenius%27_Hebrew_Grammar/35._The_Article
+_CONJUNCTIONS = ("", "ו")
+_SUBORDINATORS = ("", "ש", "כש", "מש", "לכש", "בש", "ד")
+_PREPOSITIONS = ("", "ב", "כ", "ל", "מ")
+
+
+def _proclitic_sequences() -> Iterator[str]:
+    for conjunction in _CONJUNCTIONS:
+        for subordinator in _SUBORDINATORS:
+            prepositions = (
+                _PREPOSITIONS if subordinator in ("", "ש", "כש", "מש") else ("",)
+            )
+            for preposition in prepositions:
+                article = preposition in ("", "מ") and subordinator not in ("בש", "ד")
+                for ending in ("", "ה") if article else ("",):
+                    sequence = conjunction + subordinator + preposition + ending
+                    if 2 <= len(sequence) <= 3:
+                        yield sequence
+
+
+# The finite class of two/three-letter proclitic sequences (37 runs).
+GRAMMATICAL_PREFIX_SEQUENCES = frozenset(_proclitic_sequences())
+# Sequences in that class that are also complete words, absent from the
+# statute vocabulary above. Glosses follow ordinary Hebrew usage.
+GRAMMAR_PREFIX_WHOLE_WORDS = frozenset(
+    (
+        "מש",  # moved away, budged: לא מש ממקומו, "did not budge"
+        "ומש",  # and moved away
+        "שה",  # lamb, sheep
+        "ושה",  # and a lamb
+        "כשה",  # like a lamb
+        "כשב",  # as one who returns (כ + שב)
+        "ומה",  # and what
+        "משב",  # gust: משב רוח, "a gust of wind"
+    )
+)
+PREFIX_WHOLE_WORDS = STATUTORY_PREFIX_WHOLE_WORDS | GRAMMAR_PREFIX_WHOLE_WORDS
+# The runs a dash joins to the next word. Any two/three-letter run outside
+# the proclitic class, a word or not, cannot stack as proclitics: a dash after
+# it is punctuation and the next word stays visible. Two kinds of run are
+# ambiguous instead, and a dash after either joins as before. A word never ends
+# in the non-final forms כ and מ (a final letter is ך or ם), so a run ending in
+# either is never a complete word. And וו is the word "hook", but also the
+# conjunction ו before a word that begins with ו (וואילו, "and whereas").
+_NON_FINAL_FORMS = "כמ"
+GRAMMATICAL_CHAIN_RUNS = GRAMMATICAL_PREFIX_SEQUENCES - PREFIX_WHOLE_WORDS
+AMBIGUOUS_CHAIN_RUNS = (
+    frozenset(
+        {
+            "".join(letters) + final
+            for size in (1, 2)
+            for letters in itertools.product(HEBREW_PREFIX_LETTERS, repeat=size)
+            for final in _NON_FINAL_FORMS
+        }
+        | {"וו"}
+    )
+    - GRAMMATICAL_CHAIN_RUNS
+)
+PREFIX_CHAIN_RUNS = GRAMMATICAL_CHAIN_RUNS | AMBIGUOUS_CHAIN_RUNS
+
+
+def joins_at_dash(run: str) -> bool:
+    """Whether a dash after this run of prefix letters is a prefix joint."""
+
+    return len(run) == 1 or run in PREFIX_CHAIN_RUNS
+
+
+def _alternation(runs: frozenset[str] | set[str]) -> str:
+    return "|".join(map(re.escape, sorted(runs)))
+
+
+_TOKEN_BOUNDARY = r"(?<![א-תA-Za-z0-9_])"
+
+
+def _joining_run(length: int, chains: frozenset[str]) -> str:
+    """The runs of this length in ``chains``, as one fixed-width alternative."""
+
+    runs = {run for run in chains if len(run) == length}
+    return f"(?:{_alternation(runs)})" if runs else ""
+
+
+# A printed joint inside a prefix spelling stands only after a run that joins.
+# The run reaches back to the token boundary, so each letter of ו־ש־ joins,
+# while no reader crosses the punctuation after a word run (של, כלב) or after
+# four or more letters. The lookahead keeps this off every unjointed letter.
+_INNER_JOINT = (
+    rf"(?:(?={PREFIX_JOINT})(?:(?<={_TOKEN_BOUNDARY}[{HEBREW_PREFIX_LETTERS}])"
+    + "".join(
+        rf"|(?<={_TOKEN_BOUNDARY}{_joining_run(length, PREFIX_CHAIN_RUNS)})"
+        for length in (2, 3)
+    )
+    + rf"){PREFIX_JOINT})?"
 )
 # Every remaining prefix-only corpus token is accounted for: דמ is the
 # gazette abbreviation דמ״י; הדו/ודו/לדו are pieces of דו״ח (report); וב/וה
@@ -67,35 +158,40 @@ PREFIX_CORPUS_ABBREVIATIONS = frozenset(
     "דמ הדו וב וד ודו וה וכד כב כו לד לדו מב".split()
 )
 
+
 # Reject a restart only after an actual standalone prefix chain. A full word
-# ending in a prefix letter (טל, חשמל), or a whole prefix-only word (כל),
-# followed by dash punctuation must leave the next standalone negator visible.
-# Each lookbehind consumes exactly length+1 characters; its nested assertions
-# are zero-width. No unbounded backscan or variable-width lookbehind is needed.
-_TOKEN_BOUNDARY = r"(?<![א-תA-Za-z0-9_])"
-
-
-def _not_after_jointed_prefix(*, article: bool = False) -> str:
+# ending in a prefix letter (טל, חשמל), a whole prefix-only word (כל), or any
+# run outside the proclitic class (כלב, כלה) followed by dash punctuation must
+# leave the next standalone negator visible. Each lookbehind consumes exactly
+# length+1 characters; its alternation is fixed width. No unbounded backscan
+# or variable-width lookbehind is needed.
+def _not_after_jointed_prefix(
+    *, article: bool = False, chains: frozenset[str] = PREFIX_CHAIN_RUNS
+) -> str:
     assertions = []
     for length in range(1, 4):
-        words = "|".join(
-            re.escape(word)
-            for word in sorted(PREFIX_WHOLE_WORDS)
-            if len(word) == length
-        )
-        not_word = rf"(?!(?:{words}){PREFIX_JOINT})" if words else ""
-        chain = (
-            rf"[{HEBREW_PREFIX_LETTERS}]{{{length - 1}}}ה"
-            if article
-            else rf"[{HEBREW_PREFIX_LETTERS}]{{{length}}}"
-        )
-        assertions.append(rf"(?<!{_TOKEN_BOUNDARY}{not_word}{chain}{PREFIX_JOINT})")
-    # All three assertions end in a joint; without a preceding joint they
-    # are trivially true. Avoid their lexical work at ordinary boundaries.
+        if length == 1:
+            chain = "ה" if article else f"[{HEBREW_PREFIX_LETTERS}]"
+        else:
+            runs = frozenset(run for run in chains if not article or run.endswith("ה"))
+            chain = _joining_run(length, runs)
+            if not chain:
+                continue
+        assertions.append(rf"(?<!{_TOKEN_BOUNDARY}{chain}{PREFIX_JOINT})")
+    # All assertions end in a joint; without a preceding joint they are
+    # trivially true. Avoid their lexical work at ordinary boundaries.
     return rf"(?:(?<!{PREFIX_JOINT})|" + "".join(assertions) + ")"
 
 
 PREFIX_BOUNDARY = _TOKEN_BOUNDARY + _not_after_jointed_prefix()
+# An ambiguous run (ככ, דמ, וו) has two readings of its dash, and each reader
+# takes the stricter one: readers that admit a deferral (signals, links,
+# citations) take the joined reading above, while readers that refuse one
+# (negators, exclusions, adversatives) restart after any run that is not a
+# grammatical proclitic stack, and still read the joined spelling too.
+REFUSAL_BOUNDARY = _TOKEN_BOUNDARY + _not_after_jointed_prefix(
+    chains=GRAMMATICAL_CHAIN_RUNS
+)
 # A definite article changes חסרה/חסרות into the deduction noun, and הזולת
 # into "another person". Only an actual article prefix can suppress a reader;
 # a complete preceding word ending in ה followed by punctuation cannot.
@@ -112,7 +208,7 @@ def prefix_joint_gaps(text: str) -> Iterator[tuple[int, int]]:
 
     for chain in _SPACED_PREFIX_CHAIN.finditer(text):
         prefix = re.split(_JOINT_GAP, chain.group())[0]
-        if prefix in PREFIX_WHOLE_WORDS:
+        if not joins_at_dash(prefix):
             continue
         for gap in _HORIZONTAL_RUN.finditer(text, chain.start(), chain.end()):
             yield gap.span()
@@ -124,11 +220,7 @@ def compact_prefix_joints(text: str) -> str:
     def compact(chain: re.Match[str]) -> str:
         spelling = chain.group()
         prefix = re.split(_JOINT_GAP, spelling)[0]
-        return (
-            spelling
-            if prefix in PREFIX_WHOLE_WORDS
-            else _HORIZONTAL_RUN.sub("", spelling)
-        )
+        return _HORIZONTAL_RUN.sub("", spelling) if joins_at_dash(prefix) else spelling
 
     return _SPACED_PREFIX_CHAIN.sub(compact, text)
 
@@ -136,12 +228,7 @@ def compact_prefix_joints(text: str) -> str:
 def prefix_word(prefix: str) -> str:
     """A literal prefix chain, with an optional printed joint after each letter."""
 
-    spelling = "".join(re.escape(letter) + PREFIX_JOINT + "?" for letter in prefix)
-    return (
-        PREFIX_NOT_WHOLE_WORD_JOINT + spelling
-        if prefix in PREFIX_WHOLE_WORDS
-        else spelling
-    )
+    return "".join(re.escape(letter) + _INNER_JOINT for letter in prefix)
 
 
 def prefix_chain(letters: str, maximum: int = 3) -> str:
@@ -149,9 +236,4 @@ def prefix_chain(letters: str, maximum: int = 3) -> str:
 
     if maximum == 0:
         return ""
-    # Keep the zero-prefix alternative outside the guard: a genuine negative
-    # core such as כשל may itself be a whole word before dash punctuation.
-    return (
-        rf"(?:{PREFIX_NOT_WHOLE_WORD_JOINT}"
-        rf"(?:[{re.escape(letters)}]{PREFIX_JOINT}?){{1,{maximum}}})?"
-    )
+    return rf"(?:(?:[{re.escape(letters)}]{_INNER_JOINT}){{1,{maximum}}})?"

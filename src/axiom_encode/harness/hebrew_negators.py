@@ -27,7 +27,6 @@ from axiom_encode.harness.hebrew_prefixes import (
     HEBREW_PREFIX_LETTERS,
     NOT_ARTICLE_PREFIX,
     PREFIX_JOINT,
-    PREFIX_NOT_WHOLE_WORD_JOINT,
     prefix_chain,
     prefix_word,
 )
@@ -47,8 +46,7 @@ GENERAL_PREFIX_CHAINS = tuple(
     for chain in itertools.product(HEBREW_PREFIX_LETTERS, repeat=length)
 )
 _NEGATION_PREFIX = (
-    rf"(?:{PREFIX_NOT_WHOLE_WORD_JOINT}"
-    rf"(?:{prefix_word('ו')})?"
+    rf"(?:(?:{prefix_word('ו')})?"
     rf"(?:(?:{prefix_word('מ')}|{prefix_word('כ')}|{prefix_word('לכ')}|{prefix_word('ב')})?"
     rf"{prefix_word('ש')}|{prefix_word('ד')})?"
     r")?"

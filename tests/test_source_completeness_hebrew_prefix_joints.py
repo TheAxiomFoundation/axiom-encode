@@ -19,6 +19,7 @@ from axiom_encode.harness.hebrew_prefixes import (
     PREFIX_WHOLE_WORDS,
     STATUTORY_PREFIX_WHOLE_WORDS,
     compact_prefix_joints,
+    joins_at_dash,
     prefix_chain,
     prefix_word,
 )
@@ -35,6 +36,9 @@ PREFIXES = tuple(
     for size in range(4)
     for chain in itertools.product(PREFIX_LETTERS, repeat=size)
 )
+# Every run of prefix letters a dash leaves as punctuation (round 17): the
+# explicit words and every run grammar cannot stack as proclitics.
+WORD_RUNS = tuple(prefix for prefix in PREFIXES if prefix and not joins_at_dash(prefix))
 
 
 def _joint_chain(prefix: str, joint: str) -> str:
@@ -365,7 +369,7 @@ def test_every_pinned_prefixed_construction_preserves_verdict_and_issue_strings(
     for round_number, index, source, reason in _pinned_rows():
         for position, text in (("source", source), ("reason", reason)):
             for match in _PINNED_PREFIX.finditer(hebrew.fold_marks(text)):
-                if match["prefix"] in PREFIX_WHOLE_WORDS:
+                if not joins_at_dash(match["prefix"]):
                     continue
                 # The tables also contain invisible characters.  Their fold
                 # has its own exhaustive property; use this folded spelling
@@ -420,7 +424,7 @@ def test_pinned_cross_language_tables_preserve_every_prefix_joint(joint):
         matches = tuple(
             match
             for match in _PINNED_PREFIX.finditer(text)
-            if match["prefix"] not in PREFIX_WHOLE_WORDS
+            if joins_at_dash(match["prefix"])
         )
         if not matches:
             continue
@@ -465,7 +469,7 @@ def test_real_dash_punctuation_keeps_its_source_reading(dash, left, right):
         ("2", "4"),
         ("סעיף 2", "חסר"),
         ("תשלום", "חסר סעיף 2"),
-        *((word, "תשלום") for word in sorted(PREFIX_WHOLE_WORDS)),
+        *((word, "תשלום") for word in WORD_RUNS),
     ):
         text = before + joint + after
         assert compact_prefix_joints(text) == text
@@ -545,14 +549,14 @@ def test_dash_after_a_full_word_keeps_negators_visible_in_both_guards(joint):
 
 @pytest.mark.parametrize("joint", SPACED_JOINTS)
 def test_every_whole_word_keeps_negation_article_and_relative_readings(joint):
-    """All finite word candidates meet every dash in every Hebrew reader.
+    """All 421 word runs meet every dash in every Hebrew reader.
 
     A positive preceding word never becomes a relative prefix, and its final
     ה never becomes the article of the following feminine signal/exclusion.
     The non-prefix-alphabet controls cover the same punctuation rule.
     """
 
-    words = PREFIX_WHOLE_WORDS | {"חיה", "תקופה", "טל", "חשמל", "תשלום"}
+    words = set(WORD_RUNS) | {"חיה", "תקופה", "טל", "חשמל", "תשלום"}
     for word in sorted(words):
         for body in (
             "לא מחושב לפי סעיף 2",

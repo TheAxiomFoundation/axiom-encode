@@ -40,6 +40,7 @@ from axiom_encode.harness.hebrew_prefixes import (
     PREFIX_BOUNDARY,
     PREFIX_JOINT,
     PREFIX_JOINT_CHARS,
+    REFUSAL_BOUNDARY,
     compact_prefix_joints,
     prefix_chain,
     prefix_joint_gaps,
@@ -366,6 +367,8 @@ def cross_language_text(text: str) -> str | None:
 _GERESH_MARKS = "׳״'\"“”‘’"
 _MAQAF = "־"
 _NOT_HEBREW_BEFORE = PREFIX_BOUNDARY
+# Negators, exclusions and adversatives: see hebrew_prefixes.REFUSAL_BOUNDARY.
+_REFUSAL_BEFORE = REFUSAL_BOUNDARY
 _NOT_HEBREW_AFTER = rf"(?![{_H}])"
 
 HEBREW_LETTER = re.compile(rf"[{_H}]")
@@ -1222,18 +1225,18 @@ _ADVERSATIVE_GLUED = (
 )
 ADVERSATIVE_LANGUAGE = (
     # ``להוציא`` ("except"), unless a modal makes it "to issue".
-    rf"{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?{_GOVERNED_INFINITIVE}{_EXCEPT_INFINITIVE}{_NOT_HEBREW_AFTER}|"
+    rf"{_REFUSAL_BEFORE}(?:{prefix_word('ו')})?{_GOVERNED_INFINITIVE}{_EXCEPT_INFINITIVE}{_NOT_HEBREW_AFTER}|"
     # ``בעוד`` ("while"), unless a span of time follows ("in a year").
-    rf"{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?{prefix_word('ב')}עוד{_NOT_HEBREW_AFTER}"
+    rf"{_REFUSAL_BEFORE}(?:{prefix_word('ו')})?{prefix_word('ב')}עוד{_NOT_HEBREW_AFTER}"
     rf"(?!{_SEP}{_TIME_SPAN}{_NOT_HEBREW_AFTER})|"
     # ``אך`` ("but"), but not ``אך ורק`` ("only").
-    rf"{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?אך{_NOT_HEBREW_AFTER}(?!{_SEP}ורק{_NOT_HEBREW_AFTER})|"
-    rf"{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?(?:"
+    rf"{_REFUSAL_BEFORE}(?:{prefix_word('ו')})?אך{_NOT_HEBREW_AFTER}(?!{_SEP}ורק{_NOT_HEBREW_AFTER})|"
+    rf"{_REFUSAL_BEFORE}(?:{prefix_word('ו')})?(?:"
     + "|".join(_connective(word) for word in _ADVERSATIVE_WORDS.split())
     + "|"
     + "|".join(_connective(phrase) for phrase in _ADVERSATIVE_PHRASES)
     + rf"){_NOT_HEBREW_AFTER}"
-    + rf"|{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?(?:"
+    + rf"|{_REFUSAL_BEFORE}(?:{prefix_word('ו')})?(?:"
     + "|".join(
         rf"{_connective(phrase)}(?:{_SEP})?{prefix_word(glue)}\s*"
         for phrase, glue in _ADVERSATIVE_GLUED
@@ -1508,7 +1511,7 @@ _OWNERSHIP_STOP = re.compile(rf";|\.(?!\d)|\n(?=[ \t]*\({OUTLINE_LABEL}\))")
 # negation.
 # Both guards compile the same closed vocabulary and per-form prefix policy.
 _HEBREW_NEGATION_LANGUAGE = build_negation_language(
-    before=_NOT_HEBREW_BEFORE,
+    before=_REFUSAL_BEFORE,
     after=_NOT_HEBREW_AFTER,
     separator=_SEP,
     governed_infinitive=_GOVERNED_INFINITIVE,
