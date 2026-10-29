@@ -1247,20 +1247,32 @@ class AdversativePattern:
         self.pattern = self._regex.pattern
         self.flags = self._regex.flags
 
+    @staticmethod
+    def _kept(match: re.Match[str]) -> bool:
+        start = match.start("adversative_infinitive")
+        return start < 0 or not governs_infinitive(match.string, start)
+
     def finditer(
         self, text: str, pos: int = 0, endpos: int | None = None
     ) -> Iterator[re.Match[str]]:
         for match in self._regex.finditer(
             text, pos, len(text) if endpos is None else endpos
         ):
-            start = match.start("adversative_infinitive")
-            if start < 0 or not governs_infinitive(match.string, start):
+            if self._kept(match):
                 yield match
 
     def search(
         self, text: str, pos: int = 0, endpos: int | None = None
     ) -> re.Match[str] | None:
         return next(self.finditer(text, pos, endpos), None)
+
+    def fullmatch(
+        self, text: str, pos: int = 0, endpos: int | None = None
+    ) -> re.Match[str] | None:
+        match = self._regex.fullmatch(
+            text, pos, len(text) if endpos is None else endpos
+        )
+        return match if match and self._kept(match) else None
 
 
 _ADVERSATIVE = AdversativePattern(ADVERSATIVE_LANGUAGE)

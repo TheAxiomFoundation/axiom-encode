@@ -7027,9 +7027,11 @@ def test_every_governor_takes_every_horizontal_whitespace_run():
     for governor in sorted(INFINITIVE_GOVERNORS):
         for gap in runs:
             text = f"{governor}{gap}להוציא את החישוב"
-            assert governs_infinitive(text, len(governor) + len(gap)), (governor, gap)
+            start = len(governor) + len(gap)
+            assert governs_infinitive(text, start), (governor, gap)
             for reader in readers:
                 assert reader.search(text) is None, (governor, ascii(gap))
+                assert reader.fullmatch(text, start, start + 6) is None
         for gap in ("־", " ־ ", "\n", "\u2028"):
             text = f"{governor}{gap}להוציא את החישוב"
             assert not governs_infinitive(text, len(governor) + len(gap))
@@ -7038,6 +7040,8 @@ def test_every_governor_takes_every_horizontal_whitespace_run():
             # (hebrew_negators._ISSUING_GOVERNORS) still reads רשאית as before.
             for reader in readers if gap.strip() else ():
                 assert reader.search(text) is not None, (governor, ascii(gap))
+                start = len(governor) + len(gap)
+                assert reader.fullmatch(text, start, start + 6) is not None
     # A longer word ending in a governor is no governor: אפשר but not לאפשר.
     for text in ("לאפשר להוציא", "ממנת  להוציא", "יש\tלהוציא"):
         start = text.index("להוציא")
