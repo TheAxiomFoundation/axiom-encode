@@ -1,3 +1,7 @@
+## 0.2.2262
+
+- Bump the encoder version after merging current main's engine-binding changes into the authenticated Arizona provision-export branch.
+
 ## 0.2.2261
 
 - Refresh the dependent exporter branch after the Arizona transport preflight and historical-owner review fixes.
