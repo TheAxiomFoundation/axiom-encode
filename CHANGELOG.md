@@ -1,3 +1,7 @@
+## 0.2.2261
+
+- Cover fresh and retained candidate engine-pin forwarding through actual validation entrypoints, and clarify that local pre-generation binding can build a clean matching engine checkout.
+
 ## 0.2.2260
 
 - Forward the declared engine revision through native generation, retained-candidate and repair reevaluation, and apply validation so source witnesses use the verified runtime binding. Preserve optional unpinned callers.

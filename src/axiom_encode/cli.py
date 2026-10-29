@@ -3064,7 +3064,11 @@ def main():
         "--axiom-rules-engine-ref",
         dest="axiom_rules_engine_ref",
         default=None,
-        help="Full 40-hex engine revision for candidate and apply validation",
+        help=(
+            "Full 40-hex engine revision for candidate and apply validation; "
+            "binding may build a matching clean engine checkout before generation "
+            "if no valid binary receipt exists"
+        ),
     )
     encode_parser.add_argument(
         "--axiom-compose-path",
