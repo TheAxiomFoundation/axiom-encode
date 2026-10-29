@@ -3452,6 +3452,25 @@ class TestMain:
         assert args.model == "gpt-6.1-sol"
         assert args.escalation_model == "gpt-6.1-sol"
 
+    @pytest.mark.parametrize("engine_ref", [None, "a" * 40])
+    def test_encode_parser_preserves_optional_engine_revision(self, engine_ref):
+        argv = [
+            "axiom_encode",
+            "encode",
+            "26 USC 1",
+            "--corpus-path",
+            "/tmp/axiom-corpus",
+            "--axiom-rules-engine-path",
+            "/tmp/axiom-rules-engine",
+            "--policy-repo-path",
+            "/tmp/rulespec-us",
+        ]
+        if engine_ref is not None:
+            argv += ["--axiom-rules-engine-ref", engine_ref]
+        with patch("sys.argv", argv), patch("axiom_encode.cli.cmd_encode") as command:
+            main()
+        assert command.call_args.args[0].axiom_rules_engine_ref == engine_ref
+
     def test_no_command_shows_help_and_exits(self):
         """main() with no command should print help and exit 1."""
         with patch("sys.argv", ["axiom_encode"]):
@@ -14074,6 +14093,7 @@ class TestCmdEncode:
         args.corpus_path = corpus_path
         args.corpus_release = corpus_release
         args.axiom_rules_path = overrides.get("axiom_rules_path", axiom_rules_path)
+        args.axiom_rules_engine_ref = overrides.get("axiom_rules_engine_ref", None)
         args.policy_repo_path = policy_repo_path
         args.mode = overrides.get("mode", "repo-augmented")
         args.allow_context = overrides.get("allow_context", [])
@@ -14422,6 +14442,35 @@ class TestCmdEncode:
             mock_validate,
             mock_apply,
         )
+
+    def test_encode_declared_engine_pin_reaches_generation_and_overlay(self, tmp_path):
+        pin = "a" * 40
+        args = self._make_args(
+            tmp_path, apply=True, sync=False, axiom_rules_engine_ref=pin
+        )
+        with patch("axiom_encode.cli._pinned_apply_engine_binding") as binding:
+            code, _, _, generation, overlay, applied = (
+                self._run_validator_escalation_case(args, [True])
+            )
+        assert code == 0
+        binding.assert_called_once_with(args.axiom_rules_path, pin)
+        assert generation.call_args.kwargs["axiom_rules_engine_ref"] == pin
+        assert overlay.call_args.kwargs["axiom_rules_engine_ref"] == pin
+        applied.assert_called_once()
+
+    @pytest.mark.parametrize("pin", ["main", "a" * 39, "g" * 40, ""])
+    def test_encode_malformed_engine_pin_precedes_signing_and_generation(
+        self, tmp_path, pin
+    ):
+        args = self._make_args(tmp_path, apply=True, axiom_rules_engine_ref=pin)
+        with (
+            patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer,
+            patch("axiom_encode.cli.run_model_eval") as generate,
+        ):
+            with pytest.raises(ValueError):
+                cmd_encode(args)
+        signer.assert_not_called()
+        generate.assert_not_called()
 
     def test_encode_success(self, capsys, tmp_path):
         args = self._make_args(tmp_path)
