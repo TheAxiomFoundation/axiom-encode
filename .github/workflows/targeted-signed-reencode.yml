@@ -489,6 +489,15 @@ jobs:
           uv pip install --python .venv/bin/python \
             --target "$RUNNER_TEMP/axiom-verification-site-packages" ".[api]"
 
+      - name: Bind rules engine to declared revision
+        env:
+          RULES_ENGINE_REF: ${{ inputs.rules_engine_ref }}
+        run: |
+          set -euo pipefail
+          axiom-encode/.venv/bin/python -m axiom_encode.entrypoint engine-bind \
+            --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine" \
+            --pin "$RULES_ENGINE_REF"
+
       - name: Build protected axiom-compose runtime
         if: ${{ steps.axiom_compose.outputs.enabled == 'true' }}
         env:
@@ -2495,6 +2504,7 @@ jobs:
               --repo "$RULESPEC_CHECKOUT"
               --rulespec-path "$REPLACE_RULESPEC_PATH"
               --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
+              --axiom-rules-engine-ref "$RULES_ENGINE_REF"
               --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
               --run-id "$GITHUB_RUN_ID"
             )

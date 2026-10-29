@@ -184,7 +184,9 @@ a completely clean canonical RuleSpec checkout, verifies the historical
 signature, requires that the manifest exclusively covers the exact tracked
 primary and companion bytes at `HEAD`, revalidates those bytes against the
 current engine and corpus release, and aborts if validation changes any
-RuleSpec byte. A successful run changes only the signed manifest.
+RuleSpec byte. The required `--axiom-rules-engine-ref` argument is a full
+lowercase commit SHA; validation must bind the engine to that revision. A
+successful run changes only the signed manifest.
 
 The targeted workflow selects this mode with an exact
 `axiom-encode/atomic-source-transaction/v4` envelope whose

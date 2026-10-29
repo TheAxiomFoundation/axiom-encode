@@ -2564,6 +2564,11 @@ def main():
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
     )
     refresh_applied_manifest_parser.add_argument(
+        "--axiom-rules-engine-ref",
+        required=True,
+        help="Exact immutable engine commit used to validate the refresh",
+    )
+    refresh_applied_manifest_parser.add_argument(
         "--axiom-compose-path",
         type=Path,
         help="Explicit axiom-compose executable for composition modules",
@@ -8309,6 +8314,13 @@ def _historical_manifest_refresh_inputs(
 def cmd_refresh_applied_manifest(args):
     """Revalidate unchanged historical bytes and replace only their manifest."""
 
+    engine_ref = getattr(args, "axiom_rules_engine_ref", None)
+    if (
+        not isinstance(engine_ref, str)
+        or re.fullmatch(r"[0-9a-f]{40}", engine_ref) is None
+    ):
+        raise ValueError("manifest refresh requires a full lowercase engine commit SHA")
+
     repo_path = _resolve_canonical_rulespec_checkout(
         args.repo,
         label="RuleSpec checkout",
@@ -8438,6 +8450,7 @@ def cmd_refresh_applied_manifest(args):
                         output_root=output_root,
                         policy_repo_path=content_root,
                         axiom_rules_path=axiom_rules_path,
+                        axiom_rules_engine_ref=engine_ref,
                         axiom_compose_path=axiom_compose_path,
                         local_corpus_release=local_corpus_release,
                         rulespec_dependency_roots=dependency_roots,
@@ -23772,6 +23785,105 @@ def _guard_base_manifest_claims(
     return claims, issues
 
 
+def _guard_unchanged_obsolete_manual_alias(
+    repo_path: Path,
+    *,
+    manifest_path: str,
+    raw: bytes,
+    payload: dict[str, Any],
+    base_ref: str,
+    roots: tuple[str, ...],
+    base_tree_cache: dict[str, _GuardBaseReceiptTree],
+    preserved_claims: Mapping[str, str],
+) -> bool:
+    """Classify preserved obsolete data, never grant it ownership or authority."""
+
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate obsolete receipt key")
+            result[key] = value
+        return result
+
+    try:
+        strict_payload = json.loads(raw, object_pairs_hook=unique_object)
+        live_raw = read_bounded_regular_file(
+            repo_path,
+            repo_path / manifest_path,
+            label="unchanged obsolete receipt",
+            max_bytes=1024 * 1024,
+            required_mode=0o644,
+        )
+    except (ValueError, UnicodeError, RecursionError, OSError, UnsafeCorpusPathError):
+        return False
+    if strict_payload != payload or live_raw != raw:
+        return False
+    allowed_fields = {
+        "applied_files",
+        "axiom_encode_git",
+        "axiom_encode_version",
+        "backend",
+        "citation",
+        "context_manifest_file",
+        "context_manifest_sha256",
+        "generated_at",
+        "generated_output_file",
+        "generated_output_root",
+        "generated_output_sha256",
+        "generation_prompt_sha256",
+        "manual_exception",
+        "model",
+        "run_id",
+        "runner",
+        "schema_version",
+        "signature",
+        "tool",
+        "trace_file",
+        "trace_sha256",
+    }
+    if (
+        payload.get("schema_version") != "axiom-encode/applied-rulespec/v1"
+        or payload.get("backend") != "manual"
+        or payload.get("tool") != "axiom-encode sign-applied-files"
+        or set(payload) - allowed_fields
+    ):
+        return False
+    # Explicit changed_files can omit a mutation: compare actual regular bytes
+    # with the immutable base instead of trusting that caller-supplied list.
+    base_raw, issues = _guard_base_receipt_bytes(
+        repo_path, base_ref, Path(manifest_path), base_tree_cache=base_tree_cache
+    )
+    if issues or base_raw != raw:
+        return False
+    prefix = _applied_encoding_manifest_root_prefix(Path(manifest_path), roots=roots)
+    entries = payload.get("applied_files")
+    if prefix is None or not isinstance(entries, list) or not entries:
+        return False
+    seen: set[str] = set()
+    for item in entries:
+        if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
+            return False
+        path, digest = item["path"], item["sha256"]
+        if not isinstance(path, str) or not isinstance(digest, str):
+            return False
+        relative = Path(path)
+        if (
+            relative.is_absolute()
+            or relative.as_posix() != path
+            or any(part in {"", ".", ".."} for part in relative.parts)
+            or _SHA256_HEX_PATTERN.fullmatch(digest) is None
+        ):
+            return False
+        canonical = _prefix_applied_manifest_path(path, prefix)
+        if canonical in seen or canonical not in preserved_claims:
+            return False
+        seen.add(canonical)
+        if digest == preserved_claims[canonical]:
+            return False
+    return True
+
+
 def _guard_changed_manifest_coverage_issues(
     repo_path: Path,
     *,
@@ -23856,6 +23968,80 @@ def _guard_changed_manifest_coverage_issues(
     )
     if inventory_issues:
         return inventory_issues
+    preserved_claims: dict[str, str] | None = None
+
+    def verified_preserved_claims() -> dict[str, str]:
+        # Only independently verified canonical base and head receipts establish
+        # this set. Opaque alias claims never enter it or satisfy coverage.
+        result: dict[str, str] = {}
+        for owner, owner_raw in base_blobs.items():
+            if owner in replacement_bases:
+                continue
+            base_payload = json.loads(owner_raw)
+            base_entries = base_payload.get("applied_files")
+            if not isinstance(base_entries, list):
+                continue
+            head_payload, prefix, _, faults = (
+                _load_verified_applied_encoding_manifest_payload(
+                    repo_path,
+                    owner,
+                    historical_verification=historical_verification,
+                    historical_head_ref=historical_head_ref,
+                    retrospective=retrospective,
+                    roots=roots,
+                    signing_broker=signing_broker,
+                    local_corpus_release=local_corpus_release,
+                    expected_encoder_identity=expected_encoder_identity,
+                    expected_waiver_set_sha256=expected_waiver_set_sha256,
+                    expected_legacy_replacement_waiver_set_sha256=expected_legacy_replacement_waiver_set_sha256,
+                    path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
+                )
+            )
+            if faults or head_payload is None or prefix is None:
+                continue
+            if head_payload.get("applied_files") != base_entries:
+                continue
+            owner_claims: dict[str, str] = {}
+            canonical_primary = False
+            for item in base_entries:
+                if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
+                    break
+                canonical = _prefix_applied_manifest_path(item["path"], prefix)
+                relative = Path(canonical)
+                if not _is_protected_rulespec_yaml_path(relative, roots=roots):
+                    break
+                if not canonical.endswith(RULESPEC_TEST_FILE_SUFFIX):
+                    canonical_primary |= (
+                        _applied_encoding_manifest_path(relative).as_posix() == owner
+                    )
+                base_bytes, read_issues = _guard_base_receipt_bytes(
+                    repo_path,
+                    base_ref or head_ref,
+                    relative,
+                    base_tree_cache=base_tree_cache,
+                )
+                try:
+                    live = read_bounded_regular_file(
+                        repo_path,
+                        repo_path / relative,
+                        label="preserved canonical claim",
+                        max_bytes=4 * 1024 * 1024,
+                        required_mode=0o644,
+                    )
+                except (OSError, UnsafeCorpusPathError):
+                    break
+                if (
+                    read_issues
+                    or base_bytes != live
+                    or hashlib.sha256(live).hexdigest() != item["sha256"]
+                ):
+                    break
+                owner_claims[canonical] = item["sha256"]
+            else:
+                if canonical_primary:
+                    result.update(owner_claims)
+        return result
+
     claimants: list[str] = []
     replacement_claimants: dict[str, list[str]] = defaultdict(list)
     for manifest_path in head_paths:
@@ -23877,6 +24063,25 @@ def _guard_changed_manifest_coverage_issues(
             return [f"{manifest_path} cannot inspect head provenance claims safely"]
         if not isinstance(payload, dict):
             return [f"{manifest_path} cannot inspect head provenance claims safely"]
+        if (
+            not all_files
+            and manifest_path not in changed
+            and payload.get("schema_version") == "axiom-encode/applied-rulespec/v1"
+            and payload.get("backend") == "manual"
+        ):
+            if preserved_claims is None:
+                preserved_claims = verified_preserved_claims()
+            if _guard_unchanged_obsolete_manual_alias(
+                repo_path,
+                manifest_path=manifest_path,
+                raw=raw,
+                payload=payload,
+                base_ref=base_ref or head_ref,
+                roots=roots,
+                base_tree_cache=base_tree_cache,
+                preserved_claims=preserved_claims,
+            ):
+                continue
         for binding_name, allowed_tools in (
             ("replacement", {APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL}),
             (
@@ -57118,12 +57323,31 @@ def _apply_policy_content_files(content_root: Path) -> dict[str, str]:
     return files
 
 
+def _pinned_apply_engine_binding(
+    axiom_rules_path: Path, engine_ref: str | None
+) -> dict[str, str] | None:
+    """Bind explicit refresh validation to the verified engine's exact bytes."""
+    if engine_ref is None:
+        return None
+    pin = EnginePin(
+        sha=require_engine_ref_sha(engine_ref, description="axiom_rules_engine_ref"),
+        source=Path("<apply-validation>"),
+    )
+    binary = resolve_pinned_engine_binary(Path(axiom_rules_path), pin)
+    return {
+        "ref": pin.sha,
+        "binary": str(binary.resolve()),
+        "sha256": _sha256_file(binary),
+    }
+
+
 def _apply_validation_execution_identity(
     *,
     axiom_rules_path: Path,
     policy_repo_path: Path,
     relative_output: Path,
     rulespec_dependency_roots: Sequence[Path],
+    axiom_rules_engine_ref: str | None = None,
 ) -> dict[str, object]:
     """Hash the engine and complete RuleSpec closure used by overlay validation."""
 
@@ -57131,7 +57355,9 @@ def _apply_validation_execution_identity(
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
     dependencies = _normalize_rulespec_dependency_roots(rulespec_dependency_roots)
     encoder = _apply_encoder_execution_identity()
+    binding = _pinned_apply_engine_binding(engine, axiom_rules_engine_ref)
     return {
+        **({"axiom_rules_engine_binding": binding} if binding is not None else {}),
         "axiom_encode_identity": encoder,
         "axiom_rules_path": str(engine),
         "axiom_rules_identity": _git_checkout_execution_identity(engine),
@@ -57947,10 +58173,23 @@ def _record_successful_apply_validation(
     supplemental_files: Mapping[Path, str],
     local_corpus_release: LocalCorpusRelease,
     axiom_rules_path: Path,
+    axiom_rules_engine_ref: str | None = None,
+    expected_engine_binding: Mapping[str, str] | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
 ) -> None:
     """Persist the exact successful overlay boundary on the in-memory result."""
 
+    execution = _apply_validation_execution_identity(
+        axiom_rules_path=axiom_rules_path,
+        policy_repo_path=policy_repo_path,
+        relative_output=relative_output,
+        rulespec_dependency_roots=rulespec_dependency_roots,
+        axiom_rules_engine_ref=axiom_rules_engine_ref,
+    )
+    if expected_engine_binding is not None and (
+        execution.get("axiom_rules_engine_binding") != expected_engine_binding
+    ):
+        raise RuntimeError("Engine binding changed during overlay validation")
     setattr(
         result,
         _APPLY_VALIDATION_SNAPSHOT_ATTR,
@@ -57961,14 +58200,28 @@ def _record_successful_apply_validation(
             relative_output=relative_output,
             supplemental_files=supplemental_files,
             local_corpus_release=local_corpus_release,
-            validation_execution_identity=_apply_validation_execution_identity(
-                axiom_rules_path=axiom_rules_path,
-                policy_repo_path=policy_repo_path,
-                relative_output=relative_output,
-                rulespec_dependency_roots=rulespec_dependency_roots,
-            ),
+            validation_execution_identity=execution,
         ),
     )
+
+
+def _apply_snapshot_engine_ref(execution: Mapping[str, object]) -> str | None:
+    """Read an optional explicit binding without accepting a malformed downgrade."""
+    if "axiom_rules_engine_binding" not in execution:
+        return None
+    binding = execution["axiom_rules_engine_binding"]
+    if (
+        not isinstance(binding, dict)
+        or set(binding) != {"ref", "binary", "sha256"}
+        or not isinstance(binding["ref"], str)
+        or re.fullmatch(r"[0-9a-f]{40}", binding["ref"]) is None
+        or not isinstance(binding["binary"], str)
+        or not Path(binding["binary"]).is_absolute()
+        or not isinstance(binding["sha256"], str)
+        or _SHA256_HEX_PATTERN.fullmatch(binding["sha256"]) is None
+    ):
+        raise RuntimeError("Apply validation snapshot has malformed engine binding")
+    return binding["ref"]
 
 
 def _require_unchanged_successful_apply_validation(
@@ -58008,6 +58261,7 @@ def _require_unchanged_successful_apply_validation(
         local_corpus_release=local_corpus_release,
         validation_execution_identity=_apply_validation_execution_identity(
             axiom_rules_path=Path(axiom_rules_path),
+            axiom_rules_engine_ref=_apply_snapshot_engine_ref(validation_execution),
             policy_repo_path=policy_repo_path,
             relative_output=relative_output,
             rulespec_dependency_roots=tuple(Path(path) for path in dependency_roots),
@@ -59875,6 +60129,7 @@ def _require_apply_post_install_closure(
 
     current_execution = _apply_validation_execution_identity(
         axiom_rules_path=Path(axiom_rules_path),
+        axiom_rules_engine_ref=_apply_snapshot_engine_ref(expected_execution),
         policy_repo_path=content_root,
         relative_output=relative_output,
         rulespec_dependency_roots=tuple(Path(path) for path in dependency_roots),
@@ -59883,6 +60138,7 @@ def _require_apply_post_install_closure(
         "axiom_encode_identity",
         "axiom_rules_path",
         "axiom_rules_identity",
+        "axiom_rules_engine_binding",
         "rulespec_dependency_roots",
         "rulespec_dependency_identities",
     ):
@@ -61062,6 +61318,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     output_root: Path,
     policy_repo_path: Path,
     axiom_rules_path: Path,
+    axiom_rules_engine_ref: str | None = None,
     axiom_compose_path: Path | None = None,
     local_corpus_release: LocalCorpusRelease,
     validate_dependents: bool = True,
@@ -61076,6 +61333,9 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     """Validate generated artifacts in a temporary policy-repo overlay."""
     amendment_documents = copy.deepcopy(tuple(amendment_documents))
     setattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
+    expected_engine_binding = _pinned_apply_engine_binding(
+        axiom_rules_path, axiom_rules_engine_ref
+    )
     legacy_replacement = _result_legacy_replacement_contract(result)
     replacement_overlay_scope = _result_replacement_overlay_scope(result)
     if legacy_replacement is not None and not isinstance(
@@ -61396,6 +61656,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
         pipeline = ValidatorPipeline(
             policy_repo_path=overlay_content_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_rules_engine_ref=axiom_rules_engine_ref,
             axiom_compose_path=axiom_compose_path,
             enable_oracles=False,
             require_policy_proofs=True,
@@ -61430,6 +61691,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 overlay_pipeline=ValidatorPipeline(
                     policy_repo_path=overlay_content_root,
                     axiom_rules_path=axiom_rules_path,
+                    axiom_rules_engine_ref=axiom_rules_engine_ref,
                     axiom_compose_path=axiom_compose_path,
                     enable_oracles=False,
                     enforce_repository_layout=False,
@@ -61439,6 +61701,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 baseline_pipeline=ValidatorPipeline(
                     policy_repo_path=policy_content_root,
                     axiom_rules_path=axiom_rules_path,
+                    axiom_rules_engine_ref=axiom_rules_engine_ref,
                     axiom_compose_path=axiom_compose_path,
                     enable_oracles=False,
                     enforce_repository_layout=False,
@@ -61617,6 +61880,8 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                         supplemental_files=supplemental_files,
                         local_corpus_release=local_corpus_release,
                         axiom_rules_path=axiom_rules_path,
+                        axiom_rules_engine_ref=axiom_rules_engine_ref,
+                        expected_engine_binding=expected_engine_binding,
                         rulespec_dependency_roots=rulespec_dependency_roots,
                     )
                     return True, [], supplemental_files
@@ -62046,6 +62311,7 @@ def _run_generated_encoding_overlay_validation(
     output_root: Path,
     policy_repo_path: Path,
     axiom_rules_path: Path,
+    axiom_rules_engine_ref: str | None = None,
     axiom_compose_path: Path | None = None,
     local_corpus_release: LocalCorpusRelease,
     validate_dependents: bool = True,
@@ -62064,6 +62330,11 @@ def _run_generated_encoding_overlay_validation(
         output_root=output_root,
         policy_repo_path=policy_repo_path,
         axiom_rules_path=axiom_rules_path,
+        **(
+            {"axiom_rules_engine_ref": axiom_rules_engine_ref}
+            if axiom_rules_engine_ref is not None
+            else {}
+        ),
         axiom_compose_path=axiom_compose_path,
         local_corpus_release=local_corpus_release,
         validate_dependents=validate_dependents,
