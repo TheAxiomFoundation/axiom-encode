@@ -31,7 +31,10 @@ HEBREW_PREFIX_LETTERS = "והבכלמשד"
 # joints first compact through prefix_joint_gaps, so this remains fixed width.
 # Horizontal Unicode White_Space, excluding all vertical separators. Python's
 # \s additionally includes U+001C–U+001F; those controls are folded elsewhere.
-_HORIZONTAL_SPACE = "[\t    -   　]"
+HORIZONTAL_SPACES = frozenset(
+    "\t \u00a0\u1680" + "".join(map(chr, range(0x2000, 0x200B))) + "\u202f\u205f\u3000"
+)
+_HORIZONTAL_SPACE = "[" + re.escape("".join(sorted(HORIZONTAL_SPACES))) + "]"
 _JOINT_GAP = rf"{_HORIZONTAL_SPACE}*{PREFIX_JOINT}{_HORIZONTAL_SPACE}*"
 _SPACED_PREFIX_CHAIN = re.compile(
     rf"(?<![א-תA-Za-z0-9_])"

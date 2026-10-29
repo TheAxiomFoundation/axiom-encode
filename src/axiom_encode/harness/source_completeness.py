@@ -1545,7 +1545,7 @@ _MISSING_DEPENDENCY_LANGUAGE = re.compile(
     r")\b|" + hebrew_source_text.MISSING_DEPENDENCY_LANGUAGE,
     flags=re.IGNORECASE,
 )
-_ADVERSATIVE_LANGUAGE = re.compile(
+_ADVERSATIVE_LANGUAGE = hebrew_source_text.AdversativePattern(
     r"\b(?:"
     r"although|but|despite|even\s+though|except|however|nevertheless|nonetheless|"
     r"notwithstanding|though|unless|whereas|while|yet|aber|jedoch|obwohl"

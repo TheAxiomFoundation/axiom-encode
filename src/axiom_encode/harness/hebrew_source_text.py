@@ -26,7 +26,7 @@ import itertools
 import re
 import sys
 import unicodedata
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 
 from axiom_encode.harness._unicode_default_ignorables import DEFAULT_IGNORABLE_RANGES
@@ -34,6 +34,7 @@ from axiom_encode.harness.hebrew_negators import (
     _WITHOUT_SIGNAL,
     NegationPattern,
     build_negation_language,
+    governs_infinitive,
 )
 from axiom_encode.harness.hebrew_prefixes import (
     NOT_ARTICLE_PREFIX,
@@ -1170,18 +1171,11 @@ def _connective(words: str) -> str:
 _ADVERSATIVE_WORDS = (
     'ברם למרות חרף למעט מלבד ואילו ואולם מאידך מנגד אעפ״כ אעפ"כ אולם אבל זולת'
 )
-_INFINITIVE_GOVERNORS = (
-    "יש צריך צריכה צריכים צריכות חייב חייבת חייבים חייבות רשאי רשאית רשאים "
-    "רשאיות מוסמך מוסמכת מוסמכים מוסמכות יכול יכולה יכולים יכולות ניתן אפשר "
-    "כדי בכדי מנת עליו עליה עליהם עליהן"
-)
-# Each governor is one word, one space before the infinitive; a lookbehind
-# per governor keeps each one fixed-width. The lookahead runs them only where
-# ``להוציא`` follows, so a scan does not pay for them at every word.
+# A governor (hebrew_negators.INFINITIVE_GOVERNORS) is one word, then any run
+# of horizontal whitespace before the infinitive. No fixed-width lookbehind
+# spans such a run, so readers filter each ``להוציא`` match with
+# governs_infinitive; a scan pays for it only where ``להוציא`` matched.
 _EXCEPT_INFINITIVE = rf"{prefix_word('ל')}הוציא"
-_GOVERNED_INFINITIVE = rf"(?={_EXCEPT_INFINITIVE})" + "".join(
-    rf"(?<!(?<![{_H}]){governor} )" for governor in _INFINITIVE_GOVERNORS.split()
-)
 _TIME_SPAN = (
     r"(?:(?:\d+|כמה|מספר)\s+)?"
     r"(?:שנה|שנים|שנתיים|חודש|חודשים|חודשיים|שבוע|שבועות|שבועיים|יום|ימים"
@@ -1225,7 +1219,7 @@ _ADVERSATIVE_GLUED = (
 )
 ADVERSATIVE_LANGUAGE = (
     # ``להוציא`` ("except"), unless a modal makes it "to issue".
-    rf"{_REFUSAL_BEFORE}(?:{prefix_word('ו')})?{_GOVERNED_INFINITIVE}{_EXCEPT_INFINITIVE}{_NOT_HEBREW_AFTER}|"
+    rf"{_REFUSAL_BEFORE}(?:{prefix_word('ו')})?(?P<adversative_infinitive>{_EXCEPT_INFINITIVE}){_NOT_HEBREW_AFTER}|"
     # ``בעוד`` ("while"), unless a span of time follows ("in a year").
     rf"{_REFUSAL_BEFORE}(?:{prefix_word('ו')})?{prefix_word('ב')}עוד{_NOT_HEBREW_AFTER}"
     rf"(?!{_SEP}{_TIME_SPAN}{_NOT_HEBREW_AFTER})|"
@@ -1243,13 +1237,39 @@ ADVERSATIVE_LANGUAGE = (
     )
     + r")(?=[^\W\d_])"
 )
-_ADVERSATIVE = re.compile(ADVERSATIVE_LANGUAGE)
+
+
+class AdversativePattern:
+    """A compiled adversative language that skips the governed infinitive."""
+
+    def __init__(self, language: str, flags: int = 0) -> None:
+        self._regex = re.compile(language, flags)
+        self.pattern = self._regex.pattern
+        self.flags = self._regex.flags
+
+    def finditer(
+        self, text: str, pos: int = 0, endpos: int | None = None
+    ) -> Iterator[re.Match[str]]:
+        for match in self._regex.finditer(
+            text, pos, len(text) if endpos is None else endpos
+        ):
+            start = match.start("adversative_infinitive")
+            if start < 0 or not governs_infinitive(match.string, start):
+                yield match
+
+    def search(
+        self, text: str, pos: int = 0, endpos: int | None = None
+    ) -> re.Match[str] | None:
+        return next(self.finditer(text, pos, endpos), None)
+
+
+_ADVERSATIVE = AdversativePattern(ADVERSATIVE_LANGUAGE)
 # The adversatives a reason is read for: ``_ADVERSATIVE_LANGUAGE`` in
 # source_completeness, verbatim, the English and German words with the Hebrew
 # ones, so a reason that reverses itself in another language (``חסר סעיף 2.
 # However it is available.``) is refused as English refuses it.
 # ``test_reason_adversatives_use_the_shared_vocabulary`` holds them equal.
-_ANY_ADVERSATIVE = re.compile(
+_ANY_ADVERSATIVE = AdversativePattern(
     r"\b(?:"
     r"although|but|despite|even\s+though|except|however|nevertheless|nonetheless|"
     r"notwithstanding|though|unless|whereas|while|yet|aber|jedoch|obwohl"
@@ -1514,7 +1534,6 @@ _HEBREW_NEGATION_LANGUAGE = build_negation_language(
     before=_REFUSAL_BEFORE,
     after=_NOT_HEBREW_AFTER,
     separator=_SEP,
-    governed_infinitive=_GOVERNED_INFINITIVE,
     except_infinitive=_EXCEPT_INFINITIVE,
 )
 _REASON_NEGATION = NegationPattern(_HEBREW_NEGATION_LANGUAGE)

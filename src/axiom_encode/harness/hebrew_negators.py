@@ -25,6 +25,7 @@ from dataclasses import dataclass
 
 from axiom_encode.harness.hebrew_prefixes import (
     HEBREW_PREFIX_LETTERS,
+    HORIZONTAL_SPACES,
     NOT_ARTICLE_PREFIX,
     PREFIX_JOINT,
     prefix_chain,
@@ -252,19 +253,48 @@ NEGATOR_FAMILIES = (
 )
 
 
+# Modals and purpose words that make להוציא the infinitive "to issue" (יש
+# להוציא רישיון, "a license must be issued") rather than "except".
+INFINITIVE_GOVERNORS = frozenset(
+    "יש צריך צריכה צריכים צריכות חייב חייבת חייבים חייבות רשאי רשאית רשאים "
+    "רשאיות מוסמך מוסמכת מוסמכים מוסמכות יכול יכולה יכולים יכולות ניתן אפשר "
+    "כדי בכדי מנת עליו עליה עליהם עליהן".split()
+)
+_LONGEST_GOVERNOR = max(map(len, INFINITIVE_GOVERNORS))
+
+
+def governs_infinitive(text: str, start: int) -> bool:
+    """Whether a whole governor word and horizontal whitespace end at ``start``.
+
+    Any run of horizontal whitespace separates a governor from its infinitive
+    (יש  להוציא, יש\tלהוציא); a dash after the full word, a line break or a
+    prefix does not. Readers ask only where להוציא matched; the scan reads
+    back over that whitespace run and at most one governor's length.
+    """
+
+    end = start
+    while end and text[end - 1] in HORIZONTAL_SPACES:
+        end -= 1
+    if end == start:
+        return False
+    begin = end
+    while begin and end - begin <= _LONGEST_GOVERNOR and "א" <= text[begin - 1] <= "ת":
+        begin -= 1
+    return text[begin:end] in INFINITIVE_GOVERNORS
+
+
 def build_negation_language(
     *,
     before: str,
     after: str,
     separator: str,
-    governed_infinitive: str,
     except_infinitive: str,
 ) -> str:
     """Build the one pattern used by both reason and source guards."""
 
     _NOT_HEBREW_BEFORE, _NOT_HEBREW_AFTER = before, after
     _SEP = separator
-    _GOVERNED_INFINITIVE, _EXCEPT_INFINITIVE = governed_infinitive, except_infinitive
+    _EXCEPT_INFINITIVE = except_infinitive
 
     return (
         rf"{_NOT_HEBREW_BEFORE}(?:"
@@ -291,10 +321,10 @@ def build_negation_language(
         # ``דוחות את הטענה`` ("reject the claim"), not ``דוחות`` ("reports").
         rf"|דוחות(?=\s+את{_NOT_HEBREW_AFTER})"
         # Except, other than: ``להוציא`` but not the infinitive after a modal
-        # (``יש להוציא רישיון``, "a license must be issued"), and ``זולת`` but not
-        # the noun ``הזולת`` ("another person").
+        # (``יש להוציא רישיון``, "a license must be issued"; governs_infinitive
+        # filters it), and ``זולת`` but not the noun ``הזולת`` ("another person").
         rf"|{prefix_word('ל')}מעט|{prefix_word('מ')}לבד"
-        rf"|(?P<exceptional_infinitive>{_GOVERNED_INFINITIVE}{_EXCEPT_INFINITIVE})|{NOT_ARTICLE_PREFIX}זולת"
+        rf"|(?P<exceptional_infinitive>{_EXCEPT_INFINITIVE})|{NOT_ARTICLE_PREFIX}זולת"
         # אף is negative polarity with a following לא ("not even"), rather than
         # the affirmative connective על אף / אף כי ("despite" / "although").
         rf"|(?P<negative_af>אף)(?=(?:{_NEGATION_GAP}+\w+){{0,6}}"
@@ -342,6 +372,8 @@ def _previous_word(text: str, end: int) -> str:
 def _genuine_context(match: re.Match[str]) -> bool:
     text = match.string
     if match.group("exceptional_infinitive"):
+        if governs_infinitive(text, match.start("exceptional_infinitive")):
+            return False
         previous = _previous_word(text, match.start("exceptional_infinitive"))
         if previous in _ISSUING_GOVERNORS:
             return False
