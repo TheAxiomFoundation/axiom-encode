@@ -6797,3 +6797,312 @@ def test_all_imperfect_person_prefix_noun_ambiguities_are_intentionally_stricter
                 f"(a) It shall be paid to {english} in accordance with section 2.",
             ),
         ) == expected, ("source", prefix)
+
+
+# --- Review round 17 ------------------------------------------------------------
+# A governor (``יש``, ``ניתן``, ``כדי`` ...) makes ``להוציא`` the infinitive
+# "to issue" across any run of horizontal whitespace, at both positions. The
+# English for every gap is the same sentence, which English accepts.
+_ROUND_17_GOVERNOR_SOURCE = "(א) יש{gap}להוציא את חישוב המס בהתאם לסעיף 2."
+_ROUND_17_GOVERNOR_ENGLISH_SOURCE = (
+    "(a) The tax computation must be issued in accordance with section 2."
+)
+_ROUND_17_GOVERNOR_REASON = "חסר סעיף 2, שלפיו יש{gap}להוציא את החישוב"
+_ROUND_17_GOVERNOR_ENGLISH_REASON = (
+    "Missing section 2, under which the computation must be issued."
+)
+_ROUND_17_GAPS = (" ", "  ", "\t", " ", "　", " \t  ")
+ROUND_17_REPRODUCERS = (
+    *(
+        (
+            _ROUND_17_GOVERNOR_SOURCE.format(gap=gap),
+            _ROUND_17_GOVERNOR_ENGLISH_SOURCE,
+            "חסר סעיף 2",
+            "Missing section 2.",
+            "both",
+        )
+        for gap in _ROUND_17_GAPS
+    ),
+    *(
+        (
+            REVIEW_SOURCE,
+            REVIEW_ENGLISH_SOURCE,
+            _ROUND_17_GOVERNOR_REASON.format(gap=gap),
+            _ROUND_17_GOVERNOR_ENGLISH_REASON,
+            "both",
+        )
+        for gap in _ROUND_17_GAPS
+    ),
+    # Short prefix-letter runs before a dash. A run grammar cannot stack as
+    # proclitics is a word, so the dash after it is punctuation: בבב־לא and
+    # של־לא ("of", never ש with ללא) keep their negator, as ובל ("and not")
+    # does. A grammatical stack joins: ומ־לא is ומלא ("and full").
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "בבב־לא חסר סעיף 2",
+        "Bbb: Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        "(א) מס על בבב־לא מחושב בהתאם לסעיף 2.",
+        "(a) Tax on Bbb - not computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "של־לא חסר סעיף 2",
+        "Of: Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "הב־לא חסר סעיף 2",
+        "Give: Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "ובל־נכון שחסר סעיף 2",
+        "And let it not be true that section 2 is missing.",
+        "neither",
+    ),
+    (
+        "(א) מס ובל־מחושב בהתאם לסעיף 2.",
+        "(a) Tax, and not computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "כלב־לא חסר סעיף 2",
+        "Dog: Section 2 is not missing.",
+        "neither",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "כלב־חסר סעיף 2",
+        "Dog: Missing section 2.",
+        "both",
+    ),
+    (
+        "(א) ישולם בבב־לפי סעיף 2.",
+        "(a) Payment shall be made Bbb - under section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "both",
+    ),
+    (
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "ומ־לא חסר סעיף 2",
+        "And full: Missing section 2.",
+        "both",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("hebrew_source", "english_source", "hebrew_reason", "english_reason", "verdict"),
+    ROUND_17_REPRODUCERS,
+)
+def test_round_17_reproducers_get_the_english_verdict(
+    hebrew_source, english_source, hebrew_reason, english_reason, verdict
+):
+    assert (
+        _accepted("a", hebrew_reason, hebrew_source),
+        _english_accepted("a", english_reason, english_source),
+    ) == _DIFFERENTIAL_VERDICTS[verdict]
+
+
+# Intended stricter readings. A dash after the full governor word is
+# punctuation, as after any full word, so ``יש־להוציא`` keeps "except". An
+# ambiguous run (ככ ends in a non-final letter; וו is "hook" or ו before a
+# ו-initial word) joins for readers that admit a deferral, while readers that
+# refuse one also restart after it: each takes the stricter reading.
+ROUND_17_INTENDED_STRICTER = (
+    (
+        "governor-dash-source",
+        _ROUND_17_GOVERNOR_SOURCE.format(gap="־"),
+        _ROUND_17_GOVERNOR_ENGLISH_SOURCE,
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "hebrew-stricter",
+    ),
+    (
+        "governor-spaced-dash-source",
+        _ROUND_17_GOVERNOR_SOURCE.format(gap=" ־ "),
+        _ROUND_17_GOVERNOR_ENGLISH_SOURCE,
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "hebrew-stricter",
+    ),
+    (
+        "governor-dash-reason",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        _ROUND_17_GOVERNOR_REASON.format(gap="־"),
+        _ROUND_17_GOVERNOR_ENGLISH_REASON,
+        "hebrew-stricter",
+    ),
+    (
+        "ambiguous-non-final-run",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "ככ־לא חסר סעיף 2",
+        "Like a prison: Missing section 2.",
+        "hebrew-stricter",
+    ),
+    (
+        "ambiguous-vav-vav-run",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "וו־חסר סעיף 2",
+        "Hook: Missing section 2.",
+        "hebrew-stricter",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    (
+        "name",
+        "hebrew_source",
+        "english_source",
+        "hebrew_reason",
+        "english_reason",
+        "verdict",
+    ),
+    ROUND_17_INTENDED_STRICTER,
+    ids=[row[0] for row in ROUND_17_INTENDED_STRICTER],
+)
+def test_round_17_readings_are_intentionally_stricter(
+    name, hebrew_source, english_source, hebrew_reason, english_reason, verdict
+):
+    assert (
+        _accepted("a", hebrew_reason, hebrew_source),
+        _english_accepted("a", english_reason, english_source),
+    ) == _DIFFERENTIAL_VERDICTS[verdict], name
+
+
+def test_every_governor_takes_every_horizontal_whitespace_run():
+    """Exhaustive over governors, horizontal spaces and mixed runs."""
+
+    from axiom_encode.harness.hebrew_negators import (
+        INFINITIVE_GOVERNORS,
+        governs_infinitive,
+    )
+    from axiom_encode.harness.hebrew_prefixes import HORIZONTAL_SPACES
+
+    assert HORIZONTAL_SPACES == {
+        chr(code)
+        for code in range(sys.maxunicode + 1)
+        if chr(code).isspace()
+        and unicodedata.category(chr(code)) in ("Zs", "Cc")
+        and chr(code) not in "\n\v\f\r\x1c\x1d\x1e\x1f\x85"
+    }
+    runs = (
+        *HORIZONTAL_SPACES,
+        *(
+            "".join(pair)
+            for pair in itertools.product(sorted(HORIZONTAL_SPACES), repeat=2)
+        ),
+        " " * 64,
+    )
+    readers = (
+        hebrew._NEGATIONS,
+        hebrew._REASON_NEGATION,
+        hebrew._ADVERSATIVE,
+        hebrew._ANY_ADVERSATIVE,
+        completeness_module._ADVERSATIVE_LANGUAGE,
+    )
+    for governor in sorted(INFINITIVE_GOVERNORS):
+        for gap in runs:
+            text = f"{governor}{gap}להוציא את החישוב"
+            assert governs_infinitive(text, len(governor) + len(gap)), (governor, gap)
+            for reader in readers:
+                assert reader.search(text) is None, (governor, ascii(gap))
+        for gap in ("־", " ־ ", "\n", "\u2028"):
+            text = f"{governor}{gap}להוציא את החישוב"
+            assert not governs_infinitive(text, len(governor) + len(gap))
+            # A dash after the full word is punctuation, so להוציא is "except".
+            # Across a line break, the statute-corpus homograph list
+            # (hebrew_negators._ISSUING_GOVERNORS) still reads רשאית as before.
+            for reader in readers if gap.strip() else ():
+                assert reader.search(text) is not None, (governor, ascii(gap))
+    # A longer word ending in a governor is no governor: אפשר but not לאפשר.
+    for text in ("לאפשר להוציא", "ממנת  להוציא", "יש\tלהוציא"):
+        start = text.index("להוציא")
+        assert governs_infinitive(text, start) == text.startswith("יש")
+
+
+# The English guard is wording-sensitive (``_english_accepted`` at round 16's
+# head): ``Missing section 2.`` passes and ``Section 2 is missing.`` fails, so
+# one Hebrew sentence has faithful English renderings with different verdicts.
+# Parity is with the canonical faithful English, the rendering in the wording
+# the English guard recognises. Round 16's fifteen faithful-positive rows are
+# parity rows: Hebrew accepts as the canonical English does. Changing English
+# to accept more wordings is outside this PR, whose English verdicts hold.
+ROUND_17_ENGLISH_WORDING_ROWS = (
+    *(
+        (
+            f"joint-{ascii(joint)}-reason-signal",
+            f"ו{joint}חסר סעיף 2",
+            "And section 2 is missing.",
+            "And missing section 2.",
+        )
+        for joint in (
+            "־",
+            "-",
+            "‐",
+            "‑",
+            "–",
+            "—",
+            "‒",
+            "−",
+            "﹘",
+            "﹣",
+            "－",
+            " ־",
+            "־ ",
+            " ־ ",
+        )
+    ),
+    (
+        "world-reason",
+        "בדוגמה מעולם העבודה חסר סעיף 2",
+        "In an example from the world of work, section 2 is missing.",
+        "In an example from the world of work: Missing section 2.",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("name", "hebrew_reason", "alternate_english", "canonical_english"),
+    ROUND_17_ENGLISH_WORDING_ROWS,
+    ids=[row[0] for row in ROUND_17_ENGLISH_WORDING_ROWS],
+)
+def test_english_wording_rows_take_the_canonical_english_verdict(
+    name, hebrew_reason, alternate_english, canonical_english
+):
+    assert len(ROUND_17_ENGLISH_WORDING_ROWS) == 15
+    hebrew_verdict = _accepted("a", hebrew_reason, REVIEW_SOURCE)
+    canonical = _english_accepted("a", canonical_english, REVIEW_ENGLISH_SOURCE)
+    assert hebrew_verdict == canonical, name
+    # Both renderings stay in the row: the alternate's refusal is the English
+    # guard's wording sensitivity, not a Hebrew-only accept.
+    assert (
+        canonical,
+        _english_accepted("a", alternate_english, REVIEW_ENGLISH_SOURCE),
+    ) == (
+        True,
+        False,
+    ), name
