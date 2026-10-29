@@ -364,6 +364,10 @@ from axiom_encode.repo_routing import (
 )
 from axiom_encode.signing_broker import get_signing_broker
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
+from tests.environment_assertions import (
+    hides_environment,
+    unset_variable,
+)
 from tests.eval_evidence_fixtures import (
     TEST_APPLY_PRIVATE_KEY_B64,
     TEST_APPLY_PUBLIC_KEY_B64,
@@ -2320,6 +2324,7 @@ def test_legacy_reference_inventory_rejects_grep_failures_and_malformed_candidat
     )
     real_run = subprocess.run
 
+    @hides_environment
     def run_with_grep_result(command, **kwargs):
         if isinstance(command, list) and "grep" in command:
             return subprocess.CompletedProcess(command, returncode, stdout, stderr)
@@ -7937,6 +7942,7 @@ rules:
         compiled_dir.mkdir()
         commands: list[list[str]] = []
 
+        @hides_environment
         def fake_run(command, **_kwargs):
             if command[0] == "git":
                 return subprocess.CompletedProcess(
@@ -8004,6 +8010,7 @@ rules:
         )
         captured_request = None
 
+        @hides_environment
         def fake_run(command, **kwargs):
             nonlocal captured_request
             captured_request = json.loads(kwargs["input"])
@@ -8610,6 +8617,7 @@ rules:
         def fake_binary(self):
             return binary
 
+        @hides_environment
         def fake_run(cmd, **kwargs):
             if (
                 len(cmd) >= 6
@@ -8690,9 +8698,13 @@ rules:
         )
         for env in captured_envs:
             assert env is not None
-            assert "AXIOM_RULESPEC_REPO_ROOTS" not in env
-            assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in env
-            assert str(stale_repo) not in env.values()
+            names = set(env)
+            assert "AXIOM_RULESPEC_REPO_ROOTS" not in names
+            assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in names
+            names_holding_stale_repo = sorted(
+                name for name, value in env.items() if value == str(stale_repo)
+            )
+            assert names_holding_stale_repo == []
 
     def test_discovery_skips_axiom_dependency_tree(self, tmp_path):
         root = tmp_path / "workspace"
@@ -34790,6 +34802,7 @@ rules:
         )
         test_file.write_text("[]\n")
 
+        @hides_environment
         def reject_first_half(candidate_file, **_kwargs):
             cases = yaml.safe_load(candidate_file.read_text())
             return (
@@ -43770,9 +43783,9 @@ class TestGuardGenerated:
                 plan=plan,
             )
         )
-        monkeypatch.delenv("GIT_DIR")
-        monkeypatch.delenv("GIT_WORK_TREE")
-        monkeypatch.delenv("GIT_INDEX_FILE")
+        unset_variable(monkeypatch, "GIT_DIR")
+        unset_variable(monkeypatch, "GIT_WORK_TREE")
+        unset_variable(monkeypatch, "GIT_INDEX_FILE")
 
         assert not (repo / "us/statutes/26:1.yaml").exists()
         assert not (repo / "us/statutes/26:1.test.yaml").exists()

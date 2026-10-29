@@ -1,6 +1,7 @@
 import pytest
 
 from axiom_encode.companion_relations import executable_relation_directions
+from tests.environment_assertions import hides_environment
 
 
 def fixture(current=1):
@@ -137,6 +138,7 @@ def test_cli_qualified_companion_uses_bare_executable_alias(monkeypatch, tmp_pat
     class Captured(Exception):
         pass
 
+    @hides_environment
     def capture(*args, **kwargs):
         dataset = json.loads(kwargs["input"])["dataset"]
         assert all(

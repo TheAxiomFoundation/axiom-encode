@@ -18,6 +18,7 @@ from axiom_encode.engine_binding import (
     resolve_pinned_engine_binary,
     write_engine_binding_receipt,
 )
+from tests.environment_assertions import environment_variable
 
 _ZERO_SHA256 = "0" * 64
 
@@ -77,7 +78,7 @@ def _cargo_shim(tmp_path: Path, monkeypatch) -> Path:
         "exit 0\n"
     )
     shim.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{shim_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("PATH", f"{shim_dir}{os.pathsep}{environment_variable('PATH')}")
     return shim
 
 
@@ -458,7 +459,7 @@ def test_ambient_cargo_target_dir_is_pinned_to_the_checkout(tmp_path, monkeypatc
         "exit 0\n"
     )
     shim.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{shim_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("PATH", f"{shim_dir}{os.pathsep}{environment_variable('PATH')}")
     pin = EnginePin(sha=pin_sha, source=tmp_path / "toolchain.toml")
 
     binary = resolve_pinned_engine_binary(checkout, pin)
@@ -488,7 +489,7 @@ def test_checkout_mutation_during_build_refuses_receipt(tmp_path, monkeypatch):
         "exit 0\n"
     )
     shim.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{shim_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("PATH", f"{shim_dir}{os.pathsep}{environment_variable('PATH')}")
     pin = EnginePin(sha=pin_sha, source=tmp_path / "toolchain.toml")
 
     with pytest.raises(EngineBindingError, match="changed during the pinned build"):

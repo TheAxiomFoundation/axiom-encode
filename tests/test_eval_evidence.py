@@ -144,9 +144,10 @@ def test_isolated_signer_uses_explicit_broker_without_private_environment(monkey
 
     with isolated_eval_evidence_signer() as isolated:
         assert isolated is broker
-        assert EVAL_EVIDENCE_PRIVATE_KEY_ENV not in os.environ
-        assert APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV not in os.environ
-        assert EVAL_EVIDENCE_PUBLIC_KEY_ENV not in os.environ
+        names = set(os.environ)
+        assert EVAL_EVIDENCE_PRIVATE_KEY_ENV not in names
+        assert APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV not in names
+        assert EVAL_EVIDENCE_PUBLIC_KEY_ENV not in names
         signature = sign_eval_evidence({"inside": True}, isolated)
         verify_eval_evidence_signature({"inside": True}, signature)
 
@@ -185,9 +186,9 @@ def test_reviewer_oracle_subprocess_scrubs_keys_and_broker_markers(monkeypatch):
         monkeypatch.setenv(name, f"{name}-sentinel")
     monkeypatch.setenv("PATH", "/hostile/bin")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/hostile/gitconfig")
-    scrubbed = scrub_attestation_signing_keys()
-    assert EVAL_EVIDENCE_PRIVATE_KEY_ENV not in scrubbed
-    assert APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV not in scrubbed
+    scrubbed_names = set(scrub_attestation_signing_keys())
+    assert EVAL_EVIDENCE_PRIVATE_KEY_ENV not in scrubbed_names
+    assert APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV not in scrubbed_names
     script = (
         "import json,os; print(json.dumps({"
         f"'eval_private': os.getenv('{EVAL_EVIDENCE_PRIVATE_KEY_ENV}'),"

@@ -16,6 +16,7 @@ from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import cli
+from tests.environment_assertions import Names, changed_names, hides_environment
 from tests.test_encoder_manifest_ancestry import (
     _expected,
     _git,
@@ -412,6 +413,7 @@ def test_every_guard_git_command_scrubs_overrides_and_disables_graph_rewriting(
     calls = []
     real_run = subprocess.run
 
+    @hides_environment
     def capture(command, **kwargs):
         calls.append((command, kwargs.get("env")))
         return real_run(command, **kwargs)
@@ -449,9 +451,11 @@ def test_every_guard_git_command_scrubs_overrides_and_disables_graph_rewriting(
     assert calls
     for command, environment in calls:
         assert environment is not None
-        assert {
+        git_environment = {
             key: value for key, value in environment.items() if key.startswith("GIT_")
-        } == (_NEUTRAL_GIT_ENVIRONMENT)
+        }
+        changed = changed_names(_NEUTRAL_GIT_ENVIRONMENT, git_environment)
+        assert changed == []
         # The verification runtime's trusted git wrapper accepts only this form.
         assert command[1] == "-C", command
     if operation == "history":
@@ -487,7 +491,7 @@ def test_guard_git_queries_leave_no_graft_deprecation_hint_on_stderr(
         capture_output=True,
         text=True,
         timeout=30,
-        env=control_environment,
+        env=Names(control_environment),
     )
     assert control.returncode == 0, control.stderr
     if "advice.graftFileDeprecated" not in control.stderr:
@@ -504,6 +508,7 @@ def test_guard_git_queries_leave_no_graft_deprecation_hint_on_stderr(
     calls = []
     real_run = subprocess.run
 
+    @hides_environment
     def capture(command, **kwargs):
         result = real_run(command, **kwargs)
         calls.append((command, os.fsdecode(result.stderr or "")))
@@ -632,6 +637,7 @@ def test_every_git_proof_stage_fails_closed(graph, monkeypatch, failure, fetched
     real_run = subprocess.run
     commands = []
 
+    @hides_environment
     def record(command, **kwargs):
         commands.append(tuple(command))
         return real_run(command, **kwargs)
@@ -643,6 +649,7 @@ def test_every_git_proof_stage_fails_closed(graph, monkeypatch, failure, fetched
     for index, target in enumerate(commands):
         count = 0
 
+        @hides_environment
         def fail(command, **kwargs):
             nonlocal count
             current = count

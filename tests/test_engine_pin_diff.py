@@ -15,6 +15,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import engine_pin_diff as diff
+from tests.environment_assertions import Names, hides_environment
 
 RULE = dict(
     module="dk/statutes/test.yaml",
@@ -585,6 +586,7 @@ def test_fake_executor_report_classes_and_whole_case(label, tmp_path):
     payload["queries"][0]["outputs"] = ["amount", "total"]
     observed = []
 
+    @hides_environment
     def executor(binary, artifact, engine_request, env):
         assert engine_request["queries"][0]["outputs"] == ["amount", "total"]
         observed.append((binary.name, engine_request["mode"]))
@@ -627,27 +629,29 @@ def test_execute_records_value_without_trace(monkeypatch):
     monkeypatch.setattr(
         subprocess,
         "run",
-        lambda *args, **kwargs: SimpleNamespace(
-            returncode=0,
-            stdout=json.dumps(
-                dict(
-                    results=[
-                        dict(
-                            outputs=dict(
-                                amount=dict(
-                                    kind="scalar",
-                                    dtype="Integer",
-                                    value=dict(kind="integer", value=3),
-                                    name="amount",
-                                    id="amount",
-                                )
-                            ),
-                            trace=dict(ignored=True),
-                        )
-                    ]
-                )
-            ),
-            stderr="",
+        hides_environment(
+            lambda *args, **kwargs: SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    dict(
+                        results=[
+                            dict(
+                                outputs=dict(
+                                    amount=dict(
+                                        kind="scalar",
+                                        dtype="Integer",
+                                        value=dict(kind="integer", value=3),
+                                        name="amount",
+                                        id="amount",
+                                    )
+                                ),
+                                trace=dict(ignored=True),
+                            )
+                        ]
+                    )
+                ),
+                stderr="",
+            )
         ),
     )
     outcome = diff.execute(Path("engine"), Path("artifact"), request(), {})
@@ -767,6 +771,7 @@ def test_end_to_end_same_engine(real_engine, tmp_path):
 
     scopes = {}
 
+    @hides_environment
     def execute_with_scope(binary, artifact, payload, env):
         scope = validator_pipeline._RULESPEC_RESOLUTION_CACHE.get()
         assert scope is not None
@@ -906,7 +911,7 @@ def test_current_leap_month_executes_with_real_engine(real_engine, tmp_path):
         rulespec_roots=[checkout],
         output=artifact_path,
         cwd=real_engine.root,
-        env=os.environ.copy(),
+        env=Names(os.environ),
     )
     assert compiled.returncode == 0, compiled.stderr or compiled.stdout
     artifact = json.loads(artifact_path.read_text())
@@ -919,7 +924,7 @@ def test_current_leap_month_executes_with_real_engine(real_engine, tmp_path):
     current = diff.current_request(payload, date(2028, 2, 15))
     assert current["queries"][0]["period"]["end"] == "2028-02-29"
     outcome = diff.execute(
-        real_engine.binary, artifact_path, current, os.environ.copy()
+        real_engine.binary, artifact_path, current, Names(os.environ)
     )
     assert "value" in outcome, outcome
     output = "de:statutes/estg/66#kindergeld_payable_for_month"
@@ -1484,6 +1489,7 @@ def test_request_translation_has_a_fresh_resolution_scope(monkeypatch, tmp_path)
 
     scopes = []
 
+    @hides_environment
     def translate(*args, **kwargs):
         scope = validator_pipeline._RULESPEC_RESOLUTION_CACHE.get()
         assert scope is not None

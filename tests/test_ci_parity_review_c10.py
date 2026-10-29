@@ -48,7 +48,7 @@ def _c10_committed_engine(engine):
     def git(*args):
         return subprocess.run(
             ["git", "-C", str(engine), *args],
-            env=environment,
+            env=Names(environment),
             capture_output=True,
             text=True,
             check=True,
@@ -85,7 +85,7 @@ def _c10_committed_engine(engine):
     subprocess.run(
         ["git", "-C", str(engine), "fast-import", "--quiet"],
         input=bytes(stream),
-        env=environment,
+        env=Names(environment),
         capture_output=True,
         check=True,
     )
@@ -113,6 +113,7 @@ def _c10_mock_engine(
     pin = _c10_committed_engine(engine)
     actual_run = subprocess.run
 
+    @hides_environment
     def child(command, **kwargs):
         executable = Path(command[0]).name
         if executable == "git":
@@ -240,6 +241,7 @@ def test_c10_nonfirst_freeze_failure_survives_in_run_ci_report(
                     ),
                 )
 
+            @hides_environment
             def worker(_script, *, cwd, argv, environment):
                 if environment["IS_FIRST_SHARD"] == "true":
                     return 0, "first leg passed\n", ""
@@ -297,6 +299,7 @@ def test_c10_freeze_failure_property():
         )
         spec = ci_parity.GateSpec("retired_schema_freeze", "Freeze", "inline", (), "")
 
+        @hides_environment
         def worker(*_args, **kwargs):
             first_leg = kwargs["environment"]["IS_FIRST_SHARD"] == "true"
             return first if first_leg else other, "first" if first_leg else "other", ""
@@ -339,7 +342,9 @@ def _c10_environment_run(tmp_path, *, mode="changed"):
         path.mkdir()
     subprocess.run(
         ["git", "init", "--quiet", "--template=", str(repo)],
-        env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"},
+        env=Names(
+            {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        ),
         check=True,
     )
     (paths["encode"] / "pyproject.toml").write_text('[project]\nname="axiom-encode"\n')
@@ -388,7 +393,7 @@ def test_c10_repository_git_config_matches_empty_runner(tmp_path, monkeypatch):
     isolated = subprocess.run(
         [git, "config", "--get", "commit.gpgsign"],
         cwd=run.repo,
-        env=environment,
+        env=Names(environment),
         capture_output=True,
         text=True,
         check=False,
@@ -427,7 +432,10 @@ def test_c10_repository_environment_is_invariant_for_all_home_values():
         with mock.patch.dict(os.environ, {"HOME": "/home/runner"}, clear=True):
             expected = ci_parity._repository_test_environment(run)
             os.environ["HOME"] = home
-            assert ci_parity._repository_test_environment(run) == expected
+            changed = changed_names(
+                expected, ci_parity._repository_test_environment(run)
+            )
+            assert changed == []
 
     invariant()
 
@@ -449,7 +457,9 @@ def test_c10_committed_axiom_symlink_cannot_create_outside_links(tmp_path):
         "GIT_CONFIG_GLOBAL": os.devnull,
         "GIT_CONFIG_NOSYSTEM": "1",
     }
-    subprocess.run(["git", "add", "_axiom"], cwd=run.repo, env=environment, check=True)
+    subprocess.run(
+        ["git", "add", "_axiom"], cwd=run.repo, env=Names(environment), check=True
+    )
     subprocess.run(
         [
             "git",
@@ -465,7 +475,7 @@ def test_c10_committed_axiom_symlink_cannot_create_outside_links(tmp_path):
             "committed symlink",
         ],
         cwd=run.repo,
-        env=environment,
+        env=Names(environment),
         check=True,
     )
     with ci_parity.committed_checkout(run.repo) as checkout:
@@ -504,14 +514,18 @@ def test_e2e_links_leave_no_symlink_inside_the_rules_checkout(tmp_path, monkeypa
     monkeypatch.setattr(
         ci_parity.subprocess,
         "run",
-        lambda command, **kwargs: ci_parity.subprocess.CompletedProcess(
-            command, 0, "installed"
+        hides_environment(
+            lambda command, **kwargs: ci_parity.subprocess.CompletedProcess(
+                command, 0, "installed"
+            )
         ),
     )
     monkeypatch.setattr(
         ci_parity,
         "_python_build_of",
-        lambda python, environment: run.caller.inputs["python-version"],
+        hides_environment(
+            lambda python, environment: run.caller.inputs["python-version"]
+        ),
     )
     (run.temp / "repository-test-venv" / "bin").mkdir(parents=True)
     (run.temp / "repository-test-venv" / "bin" / "python").write_text("")
@@ -560,6 +574,7 @@ def test_c10_repository_uv_ignores_actual_repository_config(tmp_path, monkeypatc
 
     venv_python = str(run.temp / "repository-test-venv" / "bin" / "python")
 
+    @hides_environment
     def invoke(command, **kwargs):
         if command[0] == venv_python:
             # The post-creation identity probe runs the real venv interpreter.
@@ -621,6 +636,13 @@ def test_c10_engine_rejects_unsupported_cargo_config(tmp_path, monkeypatch):
 
 
 import pytest as _c11_pytest  # noqa: E402
+
+from tests.environment_assertions import (
+    Names,
+    changed_names,
+    environment_variable,
+    hides_environment,
+)
 
 
 @_c11_pytest.mark.parametrize(
@@ -955,7 +977,7 @@ def test_c10_engine_profile_and_rustflags_match_real_cargo(tmp_path, monkeypatch
             pytest.skip("installed Rust toolchain unavailable")
         cargo = tool.stdout.strip()
         monkeypatch.setenv(
-            "PATH", str(Path(cargo).parent) + os.pathsep + os.environ["PATH"]
+            "PATH", str(Path(cargo).parent) + os.pathsep + environment_variable("PATH")
         )
     engine = tmp_path / "engine"
     (engine / "src").mkdir(parents=True)
@@ -980,7 +1002,7 @@ def test_c10_engine_profile_and_rustflags_match_real_cargo(tmp_path, monkeypatch
     subprocess.run(
         [cargo, "build", "--verbose", "--offline"],
         cwd=engine,
-        env=environment,
+        env=Names(environment),
         text=True,
         capture_output=True,
         check=True,
@@ -998,6 +1020,7 @@ def test_c10_engine_profile_and_rustflags_match_real_cargo(tmp_path, monkeypatch
     _c10_committed_engine(engine)
     actual_run = subprocess.run
 
+    @hides_environment
     def subprocess_with_default_toolchain(command, **kwargs):
         if Path(command[0]).name == "rustup":
             return subprocess.CompletedProcess(
@@ -1172,6 +1195,7 @@ def test_c10_all_repository_uv_commands_disable_configuration(tmp_path):
         )
         commands = []
 
+        @hides_environment
         def invoke(command, **kwargs):
             if command[0] == "git":
                 return actual_run(command, **kwargs)
@@ -1187,7 +1211,9 @@ def test_c10_all_repository_uv_commands_disable_configuration(tmp_path):
             mock.patch.object(
                 ci_parity,
                 "_python_build_of",
-                lambda python, environment: run.caller.inputs["python-version"],
+                hides_environment(
+                    lambda python, environment: run.caller.inputs["python-version"]
+                ),
             ),
         ):
             ci_parity._repository_test_python(run)

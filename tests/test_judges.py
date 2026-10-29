@@ -56,6 +56,10 @@ from axiom_encode.run_log import (
     fold_run,
     iter_events,
 )
+from tests.environment_assertions import (
+    hides_environment,
+    unset_variable,
+)
 from tests.eval_evidence_fixtures import (
     TEST_APPLY_PRIVATE_KEY_B64,
     TEST_APPLY_PUBLIC_KEY_B64,
@@ -1066,6 +1070,7 @@ def test_fidelity_command_binds_named_release_attestation(
     monkeypatch.setenv("AXIOM_CORPUS_RELEASE_PUBLIC_KEY", TEST_RELEASE_PUBLIC_KEY)
     seen: dict[str, str] = {}
 
+    @hides_environment
     def fake_run(provision_text, generated_rule, **kwargs):
         seen["provision_text"] = provision_text
         seen["generated_rule"] = generated_rule
@@ -1415,6 +1420,7 @@ def test_drift_regenerator_uses_fixed_argv_and_minimal_environment(
     corpus = _corpus_fixture(tmp_path)
     captured: dict[str, object] = {}
 
+    @hides_environment
     def fake_run(command, **kwargs):
         captured["command"] = command
         captured["kwargs"] = kwargs
@@ -1500,6 +1506,7 @@ def test_drift_regenerator_rejects_module_at_noncanonical_citation_path(
     )
     called = False
 
+    @hides_environment
     def fake_run(*_args, **_kwargs):
         nonlocal called
         called = True
@@ -1529,6 +1536,7 @@ def test_drift_error_report_and_published_issue_redact_model_key(tmp_path, monke
     corpus = _corpus_fixture(tmp_path)
     secret = "openai-super-secret-test-key"
 
+    @hides_environment
     def fake_encoder(*_args, **_kwargs):
         return types.SimpleNamespace(
             returncode=1,
@@ -1559,10 +1567,11 @@ def test_drift_error_report_and_published_issue_redact_model_key(tmp_path, monke
     assert "[REDACTED]" in result.error
     assert secret not in report_path.read_text(encoding="utf-8")
 
-    monkeypatch.delenv("OPENAI_API_KEY")
+    unset_variable(monkeypatch, "OPENAI_API_KEY")
     monkeypatch.setenv("GH_TOKEN", "github-publisher-test-token")
     published_bodies: list[str] = []
 
+    @hides_environment
     def fake_github(command, **_kwargs):
         if command[1:3] == ["issue", "create"]:
             body_path = Path(command[command.index("--body-file") + 1])
@@ -1660,6 +1669,7 @@ def test_drift_publisher_rejects_invalid_diff_before_github_mutation(
         encoding="utf-8",
     )
 
+    @hides_environment
     def fail_github(*_args, **_kwargs):
         raise AssertionError("invalid report reached GitHub CLI")
 
@@ -1735,6 +1745,7 @@ def test_drift_regenerator_rejects_unsafe_module_paths(tmp_path, monkeypatch, mo
 
     called = False
 
+    @hides_environment
     def fake_run(*_args, **_kwargs):
         nonlocal called
         called = True
@@ -1814,6 +1825,7 @@ def test_drift_regenerator_rejects_manifest_citation_traversal(tmp_path, monkeyp
     _rewrite_signed_regeneration_manifest(manifest, payload)
     called = False
 
+    @hides_environment
     def fake_run(*_args, **_kwargs):
         nonlocal called
         called = True
@@ -2011,9 +2023,9 @@ def test_drift_child_environment_rejects_release_public_key_forwarding(monkeypat
     monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
     monkeypatch.setenv("AXIOM_CORPUS_RELEASE_PUBLIC_KEY", "counterfeit")
 
-    env = regeneration.child_environment("openai")
+    names = set(regeneration.child_environment("openai"))
 
-    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" not in env
+    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" not in names
 
 
 def test_drift_child_environment_excludes_apply_manifest_signer(monkeypatch):
@@ -2024,9 +2036,9 @@ def test_drift_child_environment_excludes_apply_manifest_signer(monkeypatch):
         "must-not-leak",
     )
 
-    env = regeneration.child_environment("openai")
+    names = set(regeneration.child_environment("openai"))
 
-    assert "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY" not in env
+    assert "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY" not in names
 
 
 def test_drift_github_cli_environment_excludes_model_credentials(monkeypatch):
@@ -2037,8 +2049,9 @@ def test_drift_github_cli_environment_excludes_model_credentials(monkeypatch):
     env = cli_commands._github_cli_environment()
 
     assert env["GH_TOKEN"] == "github-test-key"
-    assert "OPENAI_API_KEY" not in env
-    assert "ANTHROPIC_API_KEY" not in env
+    names = set(env)
+    assert "OPENAI_API_KEY" not in names
+    assert "ANTHROPIC_API_KEY" not in names
 
 
 def test_drift_cli_rejects_removed_shell_template():
@@ -2373,7 +2386,7 @@ def _at_or_under_opt(paths):
     return any(path == "/opt" or path.startswith("/opt/") for path in paths)
 
 
-def _opt_permission_suspects(run, env=None, working_directory=None):
+def _opt_permission_suspects(run, step_env=None, working_directory=None):
     """Return the lines of a step that could change the permissions of /opt or /.
 
     Deliberately conservative rather than a shell parser. When a step names a
@@ -2401,7 +2414,7 @@ def _opt_permission_suspects(run, env=None, working_directory=None):
     ancestor check still refuses to start on a loose /opt.
     """
 
-    context = [f"{name}={value}" for name, value in (env or {}).items()]
+    context = [f"{name}={value}" for name, value in (step_env or {}).items()]
     if working_directory:
         context.append(f"working-directory={working_directory}")
     code = []
@@ -3548,6 +3561,7 @@ def test_drift_issue_publisher_uses_fixed_gh_argv(monkeypatch):
     )
     calls: list[tuple[list[str], dict[str, object]]] = []
 
+    @hides_environment
     def fake_github(command, **kwargs):
         calls.append((command, kwargs))
         if command[1:3] == ["issue", "create"]:
@@ -3634,6 +3648,7 @@ def test_drift_issue_publisher_isolates_body_rendering_failures(
 
     issue_commands: list[list[str]] = []
 
+    @hides_environment
     def fake_github(command, **_kwargs):
         if command[1:3] == ["issue", "create"]:
             issue_commands.append(command)
@@ -3685,6 +3700,7 @@ def test_drift_publisher_reapplies_budgets_after_redaction(monkeypatch):
     )
     published: list[tuple[str, str]] = []
 
+    @hides_environment
     def fake_github(command, **_kwargs):
         if command[1:3] == ["issue", "create"]:
             title = command[command.index("--title") + 1]
@@ -3715,6 +3731,7 @@ def test_drift_error_publisher_neutralizes_markdown_and_mentions(monkeypatch, tm
     )
     published_bodies: list[str] = []
 
+    @hides_environment
     def fake_github(command, **_kwargs):
         if command[1:3] == ["issue", "create"]:
             body_path = Path(command[command.index("--body-file") + 1])

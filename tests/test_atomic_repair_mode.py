@@ -17,6 +17,7 @@ from axiom_encode.prepare_signed_backfill import (
     split_atomic_source_input,
 )
 from scripts.extract_repair_candidate import _repair_lane_for_atomic_source
+from tests.environment_assertions import Names
 
 ROOT = Path(__file__).resolve().parents[1]
 CASE = {
@@ -195,7 +196,7 @@ def test_actual_resolve_shell_selects_mode_before_artifact_access(tmp_path, mode
         "GITHUB_OUTPUT": str(output),
     }
     result = subprocess.run(
-        ["bash", "-e", "-c", script], env=env, capture_output=True, text=True
+        ["bash", "-e", "-c", script], env=Names(env), capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr
     selected = dict(line.split("=", 1) for line in output.read_text().splitlines())
@@ -240,7 +241,7 @@ def test_actual_resolve_shell_selects_mode_before_artifact_access(tmp_path, mode
             raw,
             "--check-selected",
         ],
-        env=env,
+        env=Names(env),
         capture_output=True,
         text=True,
     )
@@ -305,7 +306,7 @@ def test_actual_early_failure_package_needs_no_installed_encoder(
     result = subprocess.run(
         ["bash", "-e", "-c", step["run"]],
         cwd=tmp_path,
-        env=env,
+        env=Names(env),
         capture_output=True,
         text=True,
     )
@@ -346,7 +347,7 @@ def test_actual_always_run_or_resolve_rejects_v6_before_artifact_access(
         "GITHUB_OUTPUT": str(tmp_path / "output"),
     }
     result = subprocess.run(
-        ["bash", "-e", "-c", script], env=env, capture_output=True, text=True
+        ["bash", "-e", "-c", script], env=Names(env), capture_output=True, text=True
     )
     assert result.returncode != 0
     assert (

@@ -37,6 +37,7 @@ from axiom_encode.corpus_resolver import (
     UnmaterializedCorpusReleaseError,
     resolve_local_corpus_source,
 )
+from tests.environment_assertions import Names, changed_names, hides_environment
 from tests.release_object_fixtures import (
     TEST_RELEASE_PUBLIC_KEY,
     write_test_release_object,
@@ -1150,6 +1151,7 @@ def test_a_symlinked_staging_directory_is_refused(tmp_path):
 
 
 def _refuse_links(monkeypatch, code: int) -> None:
+    @hides_environment
     def link(*_args, **_kwargs):
         raise OSError(code, os.strerror(code))
 
@@ -2387,6 +2389,7 @@ def test_property_a_destination_replaced_after_publication_is_left_untouched(
         if publication == "link":
             original_link = cm.os.link
 
+            @hides_environment
             def link(*args, **kwargs):
                 original_link(*args, **kwargs)
                 replace_destination(kwargs["dst_dir_fd"], args[1])
@@ -2683,12 +2686,16 @@ def test_git_runs_without_inherited_overrides_and_never_lazy_fetches():
             "SSH_ASKPASS": "/bin/askpass",
         }
     )
-    assert clean == {
-        "PATH": "/bin",
-        "GIT_NO_LAZY_FETCH": "1",
-        "GIT_NO_REPLACE_OBJECTS": "1",
-        "GIT_TERMINAL_PROMPT": "0",
-    }
+    changed = changed_names(
+        {
+            "PATH": "/bin",
+            "GIT_NO_LAZY_FETCH": "1",
+            "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_TERMINAL_PROMPT": "0",
+        },
+        clean,
+    )
+    assert changed == []
 
 
 @needs_git
@@ -2735,7 +2742,7 @@ def test_a_partial_clone_is_read_locally_without_fetching(tmp_path):
         return (
             subprocess.run(
                 [GIT, "-C", str(clone), "cat-file", "-e", blob],
-                env={**os.environ, "GIT_NO_LAZY_FETCH": "1"},
+                env=Names({**os.environ, "GIT_NO_LAZY_FETCH": "1"}),
                 capture_output=True,
             ).returncode
             == 0

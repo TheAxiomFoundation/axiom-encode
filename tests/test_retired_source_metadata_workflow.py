@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import subprocess
 import sys
 from functools import lru_cache
@@ -31,6 +30,7 @@ from axiom_encode.retired_source_metadata_workflow import (
     verify_inventory,
 )
 from scripts.enforce_attempt_budget import is_retired_source_metadata_plan
+from tests.environment_assertions import environment_variable
 from tests.test_cli import (
     TEST_APPLY_SIGNING_BROKER,
     TEST_PINNED_ENCODER_IDENTITY,
@@ -413,7 +413,7 @@ def test_workflow_resolver_executes_without_model_credentials(tmp_path: Path) ->
         check=False,
         capture_output=True,
         text=True,
-        env={"PATH": os.environ["PATH"], "PYTHONPATH": str(ROOT / "src")},
+        env={"PATH": environment_variable("PATH"), "PYTHONPATH": str(ROOT / "src")},
     )
     assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout) == _plan()

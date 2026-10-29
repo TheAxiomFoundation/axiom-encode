@@ -13,6 +13,7 @@ from axiom_encode.harness.evals import (
     _format_validation_retry_feedback,
 )
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+from tests.environment_assertions import hides_environment
 
 
 def test_cross_entity_companion_ci_failure_reaches_encoder_repair_prompt(
@@ -56,6 +57,7 @@ def test_cross_entity_companion_ci_failure_reaches_encoder_repair_prompt(
         compiled_path.write_text(json.dumps(compiled_payload))
         return subprocess.CompletedProcess([], 0, "", ""), compiled_payload
 
+    @hides_environment
     def execute_fixture(command, *, input, **_kwargs):
         request = json.loads(input)
         query_id = request["queries"][0]["entity_id"]
@@ -143,8 +145,10 @@ def test_empty_input_missing_fact_remains_an_execution_finding(
     )
     monkeypatch.setattr(
         "axiom_encode.harness.validator_pipeline.subprocess.run",
-        lambda command, **_kwargs: subprocess.CompletedProcess(
-            command, 1, "", "missing input `claimant` for entity case"
+        hides_environment(
+            lambda command, **_kwargs: subprocess.CompletedProcess(
+                command, 1, "", "missing input `claimant` for entity case"
+            )
         ),
     )
     outputs, issues = pipeline._run_rulespec_derived_test_case(

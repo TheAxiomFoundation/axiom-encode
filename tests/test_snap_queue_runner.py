@@ -9,6 +9,7 @@ from uuid import uuid4
 import pytest
 
 from axiom_encode.toolchain import RuleSpecToolchainError
+from tests.environment_assertions import hides_environment
 
 
 def load_queue_runner_module():
@@ -53,10 +54,10 @@ def test_subprocess_env_drops_removed_policyengine_interpreter_overrides(
     monkeypatch.setenv("AXIOM_ENCODE_POLICYENGINE_US_PYTHON", "/ambient/us")
     monkeypatch.setenv("AXIOM_ENCODE_POLICYENGINE_UK_PYTHON", "/ambient/uk")
 
-    env = module.build_subprocess_env()
+    names = set(module.build_subprocess_env())
 
-    assert "AXIOM_ENCODE_POLICYENGINE_US_PYTHON" not in env
-    assert "AXIOM_ENCODE_POLICYENGINE_UK_PYTHON" not in env
+    assert "AXIOM_ENCODE_POLICYENGINE_US_PYTHON" not in names
+    assert "AXIOM_ENCODE_POLICYENGINE_UK_PYTHON" not in names
 
 
 def test_iter_manifest_queue_candidates_includes_federal_rules_us(
@@ -178,6 +179,7 @@ def test_run_eval_item_uses_manifest_runners_and_required_dependency_roots(
     policyengine_runtime_root.mkdir()
     recorded: dict[str, object] = {}
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
         recorded["cmd"] = cmd
         recorded["kwargs"] = kwargs
@@ -231,6 +233,7 @@ def test_archive_eval_passes_required_dependency_roots(tmp_path, monkeypatch):
         path.mkdir()
     recorded: dict[str, object] = {}
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
         recorded["cmd"] = cmd
         recorded["kwargs"] = kwargs

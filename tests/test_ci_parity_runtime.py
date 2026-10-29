@@ -82,6 +82,12 @@ from axiom_encode.toolchain import (
     RuleSpecToolchainError,
     local_corpus_release_verification,
 )
+from tests.environment_assertions import (
+    Names,
+    changed_names,
+    environment_variable,
+    hides_environment,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
@@ -542,7 +548,8 @@ def test_run_embedded_python_withholds_ambient_actions_context(
         "NOT_GITHUB_PREFIXED": "kept-too",
         "EXTRA_STEP_ENV": "1",
     }
-    assert dict(os.environ) == before
+    changed = changed_names(before, os.environ)
+    assert changed == []
 
 
 def test_run_embedded_python_defaults_and_undecodable_output(tmp_path: Path) -> None:
@@ -736,6 +743,7 @@ def test_release_verification_never_uses_a_shared_temporary_path(
     seen: list[str] = []
     real = ci_parity._run_embedded_python
 
+    @hides_environment
     def spy(script: str, **kwargs: Any) -> tuple[int, str, str]:
         seen.append(kwargs["argv"][0])
         return real(script, **kwargs)
@@ -1521,7 +1529,7 @@ def _install_fake_main(
     from axiom_encode import cli
 
     def main() -> None:
-        record["environ"] = dict(os.environ)
+        record["environ"] = Names(os.environ)
         record["cwd"] = os.getcwd()
         record["argv"] = list(sys.argv)
         print("stdout line")
@@ -1589,7 +1597,8 @@ def test_supervised_run_cli_mirrors_the_supervisor_child_environment(
         "--root",
         "x",
     ]
-    assert dict(os.environ) == before_environ
+    changed = changed_names(before_environ, os.environ)
+    assert changed == []
     assert os.getcwd() == before_cwd
     assert sys.argv == before_argv
 
@@ -1613,11 +1622,13 @@ def test_unsupervised_run_cli_keeps_ambient_axiom_environment(
     assert seen["AXIOM_SECRET_TOKEN"] == "withheld"
     assert seen["AXIOM_ENCODE_WAIVER_AUDIT_WORKERS"] == "9"
     assert seen["AXIOM_RULESPEC_REPO_ROOTS"] == "/repo:/rulespec-us"
-    assert "GIT_CONFIG_GLOBAL" not in seen
-    assert "GIT_TERMINAL_PROMPT" not in seen
+    seen_names = set(seen)
+    assert "GIT_CONFIG_GLOBAL" not in seen_names
+    assert "GIT_TERMINAL_PROMPT" not in seen_names
     # Without cwd the working directory is left as it is.
     assert record["cwd"] == os.getcwd()
-    assert dict(os.environ) == before_environ
+    changed = changed_names(before_environ, os.environ)
+    assert changed == []
 
 
 def test_environment_overrides_apply_after_supervised_withholding(
@@ -1643,7 +1654,8 @@ def test_environment_overrides_apply_after_supervised_withholding(
     assert seen[WAIVER_AUDIT_WORKERS_ENV] == "2"
     assert seen["AXIOM_RULESPEC_REPO_ROOTS"] == "/repo:/rulespec-us"
     assert seen["GIT_TERMINAL_PROMPT"] == "1"
-    assert "AXIOM_SECRET_TOKEN" not in seen
+    seen_names = set(seen)
+    assert "AXIOM_SECRET_TOKEN" not in seen_names
 
 
 @pytest.mark.parametrize("scenario", ["ambient-git-dir", "env-injected-config"])
@@ -1702,7 +1714,8 @@ def test_run_cli_reports_exceptions_and_restores_process_state(
 
     assert code == 1
     assert output == "stdout line\nstderr line\nRuntimeError: boom\n"
-    assert dict(os.environ) == before_environ
+    changed = changed_names(before_environ, os.environ)
+    assert changed == []
     assert os.getcwd() == before_cwd
     assert sys.argv == before_argv
 
@@ -1723,7 +1736,8 @@ def test_run_cli_restores_process_state_when_interrupted(
     with pytest.raises(KeyboardInterrupt):
         _run_cli(["validate", "x"], cwd=tmp_path, supervised=True)
 
-    assert dict(os.environ) == before_environ
+    changed = changed_names(before_environ, os.environ)
+    assert changed == []
     assert os.getcwd() == before_cwd
     assert sys.argv == before_argv
 
@@ -1785,6 +1799,7 @@ def _invocations(tmp_path: Path, count: int) -> list[CliInvocation]:
     ]
 
 
+@hides_environment
 def _refuse_isolation(*_args: Any, **_kwargs: Any) -> Any:
     raise AssertionError("unexpected isolated worker")
 
@@ -1795,6 +1810,7 @@ def test_run_cli_batch_runs_in_process_in_order(
 ) -> None:
     calls = []
 
+    @hides_environment
     def fake_run_cli(arguments, *, environment, cwd, supervised):
         calls.append((tuple(arguments), environment, cwd, supervised))
         return len(calls) - 1, f"out {arguments[1]}\n"
@@ -1808,7 +1824,7 @@ def test_run_cli_batch_runs_in_process_in_order(
     assert calls == [
         (
             invocation.arguments,
-            dict(invocation.environment or {}),
+            Names(invocation.environment or {}),
             invocation.cwd,
             invocation.supervised,
         )
@@ -1886,6 +1902,7 @@ def test_run_cli_isolated_passes_keyring_on_stdin_only(
     captured: dict[str, Any] = {}
     monkeypatch.setenv("PYTHONPATH", "/existing/path")
 
+    @hides_environment
     def fake_run(argv, *, input, stdout, stderr, cwd, env, check):
         captured.update(argv=argv, input=input, env=env, check=check, cwd=cwd)
         return subprocess.CompletedProcess(argv, 4, b"worker out\n", b"worker err\n")
@@ -1941,6 +1958,7 @@ def test_isolated_cli_main_runs_under_the_local_keyring(
 ) -> None:
     seen: dict[str, Any] = {}
 
+    @hides_environment
     def fake_run_cli(arguments, *, environment, cwd, supervised):
         seen.update(
             keys=toolchain_module._LOCAL_CORPUS_RELEASE_PUBLIC_KEYS.get(),
@@ -2001,6 +2019,7 @@ def test_isolated_cli_main_runs_offline_requests_without_remote_fetches(
 ) -> None:
     seen: dict[str, bool] = {}
 
+    @hides_environment
     def fake_run_cli(arguments, *, environment, cwd, supervised):
         seen["remote_fetch_disabled"] = remote_fetch_is_disabled()
         return 0, ""
@@ -3490,7 +3509,7 @@ def test_run_ci_gates_run_on_the_runners_utc_clock_with_the_engine_on_path(
     def gates(run):
         seen["TZ"] = os.environ.get("TZ")
         seen["offset"] = time.localtime().tm_gmtoff
-        seen["PATH"] = os.environ["PATH"]
+        seen["PATH"] = environment_variable("PATH")
         return harness.results
 
     monkeypatch.setattr(ci_parity, "execute_workflow_gates", gates)
@@ -3501,8 +3520,8 @@ def test_run_ci_gates_run_on_the_runners_utc_clock_with_the_engine_on_path(
             "offset": 0,
             "PATH": f"{harness.paths['engine'] / 'target' / 'debug'}{os.pathsep}/usr/bin",
         }
-        assert os.environ["TZ"] == "America/New_York"
-        assert os.environ["PATH"] == "/usr/bin"
+        assert environment_variable("TZ") == "America/New_York"
+        assert environment_variable("PATH") == "/usr/bin"
         assert harness.calls["resolve_github_repository"] == [
             (harness.repo, "origin/main", None)
         ]

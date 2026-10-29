@@ -30,6 +30,11 @@ from axiom_encode.retired_source_metadata import (
     receipt_identity_sha256,
 )
 from scripts.provision_verification_supervisor import _install_trusted_git_wrapper
+from tests.environment_assertions import (
+    Names,
+    environment_variable,
+    hides_environment,
+)
 from tests.signing_broker_fixtures import SigningBrokerFixture
 from tests.test_cli import (
     TEST_VALIDATION_WAIVER_SHA256,
@@ -71,7 +76,7 @@ def git(repo: Path, *args: str) -> str:
         capture_output=True,
         text=True,
         check=True,
-        env=cli._rulespec_migration_git_environment(),
+        env=Names(cli._rulespec_migration_git_environment()),
     ).stdout.strip()
 
 
@@ -79,7 +84,7 @@ def git(repo: Path, *args: str) -> str:
 def ambient_git(tmp_path, monkeypatch, request):
     for name in tuple(os.environ):
         if name.startswith("GIT_"):
-            monkeypatch.delenv(name)
+            monkeypatch.delenv(name, raising=False)
     if request.param == "clean":
         return
     foreign = tmp_path / "foreign"
@@ -108,6 +113,7 @@ def test_guard_gitless_default_refs_run_worktree_verification(
     calls = []
     real_run = subprocess.run
 
+    @hides_environment
     def capture(command, **kwargs):
         calls.append(command)
         return real_run(command, **kwargs)
@@ -171,6 +177,7 @@ def test_guard_damaged_git_metadata_does_not_enable_gitless_fallback(
 def test_guard_git_probe_refusal_does_not_enable_gitless_fallback(
     tmp_path, monkeypatch
 ):
+    @hides_environment
     def refuse(command, **kwargs):
         return subprocess.CompletedProcess(
             command, 128, b"", b"fatal: detected dubious ownership in repository"
@@ -202,6 +209,7 @@ def test_guard_ref_arguments_cannot_be_git_options(
     calls = []
     real_run = subprocess.run
 
+    @hides_environment
     def capture(command, **kwargs):
         calls.append(command)
         return real_run(command, **kwargs)
@@ -239,6 +247,7 @@ def test_guard_freezes_symbolic_refs_before_transaction_queries(
     calls = []
     real_run = subprocess.run
 
+    @hides_environment
     def capture(command, **kwargs):
         calls.append(command)
         result = real_run(command, **kwargs)
@@ -280,6 +289,7 @@ def test_guard_resolves_identical_base_and_head_once(checkout, monkeypatch):
     calls = []
     real_run = subprocess.run
 
+    @hides_environment
     def capture(command, **kwargs):
         calls.append(command)
         return real_run(command, **kwargs)
@@ -987,7 +997,7 @@ def test_signed_cli_runs_through_production_trusted_git_allowlist(
     _install_trusted_git_wrapper(
         tools, Path(sys.executable).resolve(), Path(trusted_git).resolve()
     )
-    monkeypatch.setenv("PATH", str(tools) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", str(tools) + os.pathsep + environment_variable("PATH"))
     report = migrate(checkout, capsys)
     assert guard(checkout, changed(report)) == []
 

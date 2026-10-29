@@ -9,6 +9,10 @@ import pytest
 
 from axiom_encode import cli
 from scripts.provision_verification_supervisor import _install_trusted_git_wrapper
+from tests.environment_assertions import (
+    environment_variable,
+    hides_environment,
+)
 from tests.test_cli import (
     TEST_PINNED_ENCODER_IDENTITY,
     _git,
@@ -197,7 +201,9 @@ class TestGuardInventoryGitlinks:
         _install_trusted_git_wrapper(
             tools, Path(sys.executable).resolve(), Path(trusted_git).resolve()
         )
-        monkeypatch.setenv("PATH", str(tools) + os.pathsep + os.environ["PATH"])
+        monkeypatch.setenv(
+            "PATH", str(tools) + os.pathsep + environment_variable("PATH")
+        )
 
         issues = cli.guard_generated_change_issues(
             tmp_path,
@@ -285,11 +291,14 @@ class TestGuardInventoryGitlinks:
         _install_trusted_git_wrapper(
             tools, Path(sys.executable).resolve(), Path(trusted_git).resolve()
         )
-        monkeypatch.setenv("PATH", str(tools) + os.pathsep + os.environ["PATH"])
+        monkeypatch.setenv(
+            "PATH", str(tools) + os.pathsep + environment_variable("PATH")
+        )
 
         real_run = cli.subprocess.run
         commands = []
 
+        @hides_environment
         def record_run(command, *args, **kwargs):
             commands.append(command)
             return real_run(command, *args, **kwargs)

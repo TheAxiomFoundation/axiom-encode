@@ -30,6 +30,7 @@ from axiom_encode.oracles.snapscreener import (
     run_payloads,
     snapscreener_state_key,
 )
+from tests.environment_assertions import hides_environment
 
 
 def test_set_input_value_updates_every_matching_legal_input():
@@ -153,6 +154,7 @@ def test_run_axiom_cases_uses_configured_california_member_entity(
 ):
     runtime_requests = []
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
         assert "run-compiled" in cmd
         runtime_requests.append(ecps_snap.json.loads(kwargs["input"]))
@@ -399,6 +401,7 @@ var SnapAPI = {
 def test_snapscreener_runner_scrubs_attestation_signing_keys(tmp_path, monkeypatch):
     captured_env = None
 
+    @hides_environment
     def fake_run(*_args, **kwargs):
         nonlocal captured_env
         captured_env = kwargs["env"]
