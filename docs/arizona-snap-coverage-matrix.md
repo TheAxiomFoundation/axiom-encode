@@ -1,0 +1,557 @@
+# Arizona SNAP coverage audit (working matrix)
+
+This is an evidence ledger, not a parity claim. It distinguishes sources cited by
+PolicyEngine from additional controlling Arizona policy, and distinguishes an
+encoded RuleSpec file from tested household behavior. The pinned comparison
+points for this first pass are PolicyEngine US `d89439134c1bac8add0c8261c8a075c33c39401a`,
+RuleSpec US `9f38330fb43ffc693c6295b9a17c8d5d96520ad2`, and Axiom Corpus
+`8f7d60aaced28ee4252b9237f9d6e02360dc34bc`. Re-audit these rows when any
+pin or legal effective date changes. `not_comparable` oracle output is **not**
+behavioral parity.
+
+The repository's `oracle-coverage --program snap --json` classifier, rerun against
+the pinned RuleSpec US commit, finds 101 Arizona executable outputs: five have
+exact PolicyEngine registry mappings and companion tests, while 96 are
+`known_not_comparable`. The five mappings cover the ECE FPL rate, three medical
+deduction outputs, and the shelter-deduction income-share rate. A companion
+test is **not** a matched PolicyEngine household comparison; these counts
+establish classification and local test presence only. In particular, the
+mapped ECE rate still has the documented 2026-03 temporal discrepancy.
+
+The first-pass Arizona Populace bridge projected PolicyEngine's
+`snap_net_income`, `is_snap_eligible`, `snap_max_allotment`, `snap_min_allotment`,
+and `snap_excess_shelter_expense_deduction` into RuleSpec inputs. The merged
+[axiom-oracles #597](https://github.com/TheAxiomFoundation/axiom-oracles/pull/597),
+pinned by [axiom-encode #1772](https://github.com/TheAxiomFoundation/axiom-encode/pull/1772),
+removed the PolicyEngine-fed net-income and excess-shelter inputs and projects
+the underlying Arizona utility facts instead. The current bridge still feeds
+PolicyEngine's `is_snap_eligible`, `snap_max_allotment`, and
+`snap_min_allotment` to the Arizona benefit path (see
+`axiom_oracles/bridges/snap_populace.py`,
+`project_jurisdiction_household_inputs`). Allotment and eligibility comparison
+still cannot establish independent end-to-end parity. The merged
+[axiom-oracles #645](https://github.com/TheAxiomFoundation/axiom-oracles/pull/645)
+now marks Arizona comparison rows `not_comparable` and keeps matching benefit
+amounts as diagnostics rather than parity passes while this bridge remains.
+Remove each remaining oracle-derived input only after the corresponding
+source-grounded RuleSpec path is composed, then run matched households with the
+same member facts and compare intermediate as well as final outputs.
+
+One **partial financial-path comparison**, not household parity: at the pinned
+PolicyEngine commit, a one-person Arizona household in January 2026 with $1,003
+monthly earnings, $500 monthly rent, and separately paid heating/cooling gives
+SUA $323, SNAP net income $67, and SNAP allotment $277. The pinned
+PolicyEngine situation sets `state_name` to `AZ` for 2026, member age to 30,
+annual earnings to $12,036, annual rent to $6,000, heating/cooling expense to
+true, and weekly work hours to 25; the work-hours fact makes the member
+eligible under PolicyEngine's work rules. The pinned RuleSpec
+`one_person_sua_household_rides_the_whole_dollar_chain` case gives SUA $323,
+net income $68, and benefit $277. PolicyEngine keeps a $200.60 earned-income
+deduction and $526.30 excess-shelter deduction before its net-income rounding;
+the RuleSpec case expects integer $200 and $526 at those steps. The existing
+RuleSpec case also sets age 60 while explicitly marking the member as not
+elderly/disabled, so it is not a fully matched household record. Reconcile
+rounding and member facts against controlling authority before claiming parity.
+Re-running the pinned PolicyEngine situation at ages 30 and 60, holding every
+other stated fact fixed, yields the same $323 allowance, $200.60 earned-income
+deduction, $526.30 excess-shelter deduction, $67 net income, and $277 benefit
+at both ages. The age mismatch therefore does not explain this particular
+one-dollar net-income difference, though it still prevents claiming a matched
+RuleSpec household comparison.
+The pinned federal RuleSpec uses `floor()` for the earned-income deduction,
+while [7 CFR 273.10(e)(1)(ii)](https://www.govinfo.gov/content/pkg/CFR-2025-title7-vol4/pdf/CFR-2025-title7-vol4-part273.pdf)
+permits a nearest-dollar or state-TANF rounding procedure. A
+[2025-12-19 archive capture of DES's FY 2026 benefit example](https://web.archive.org/web/20251219133658/https://des.az.gov/node/4875)
+shows $1,739.33 gross earnings, a $347.87 earned-income deduction, and $386.46
+net income, retaining cents through those steps. The Memento response preserves
+the DES origin and 2025-12-19 last-modified header; the decompressed HTML has
+SHA-256 `0a6b5ca9d952a3d2b9a7b748d16a3927f4ba6ff0b454fe0c1ef4f9779342e896`.
+The same archived public FAQ says the FY 2026 one- or two-person minimum
+allotment is $23, conflicting with [USDA FNS's FY 2026 COLA memorandum](https://www.usda.gov/sites/default/files/guidance-documents/fns.snap-cola-fy26memo.pdf),
+which specifies $24 for the 48 states and D.C. Treat the FAQ as a worked
+example of cent handling, not as controlling authority for the minimum amount.
+The [live DES FAQ](https://des.az.gov/node/4875) now displays FFY 2027 values
+and again keeps cents through the earned-income deduction and net income:
+$1,739.33 gross earnings yield a $347.87 deduction and $354.46 net income.
+The contemporaneous FY 2026 example, corroborated by the later one, contradicts
+assuming whole-dollar intermediate values for every FY 2026 case, but it is not the
+controlling intermediate rounding procedure. [DES FAA6's current Thrifty Food
+Plan table](https://dbmefaapolicy.azdes.gov/FAA6/Thrifty_Food_Plan_(NA).html)
+instructs manual calculation to round 30% of net income **up** to the next
+whole dollar before subtracting it from the maximum allotment. The official
+[archived FY 2026 table](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA6.J08_ThriftyFoodPlanNA_2026.1.pdf)
+explicitly covers 10/01/2025–09/30/2026 and gives the same instruction; the
+[archived FY 2025 table](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA6.J08_ThriftyFoodPlanNA_2025.pdf)
+also agrees. For an integer maximum, that yields the same final
+allotment as flooring the maximum minus the unrounded 30% contribution. It
+does not establish when Arizona rounds earned-income or shelter deductions or
+net income. DES's [NA child-support expense procedure](https://dbmefaapolicy.azdes.gov/FAA5/NA_Child_Support_Expense.html)
+directs workers averaging three monthly payments to drop digits beyond cents
+without rounding; its $73.33 example is a specific deduction-budgeting rule,
+not a net-income rounding election. DES's [semi-monthly income procedure](https://dbmefaapolicy.azdes.gov/FAA4/Procedure_3a_Anticipating_Semi-Monthly_Income.html)
+likewise drops the third decimal digit when calculating an anticipated pay
+amount. These procedures corroborate cent-level budgeting in particular steps
+but do not establish the statewide choice under 7 CFR 273.10(e)(1)(ii).
+Locate the applicable DES intermediate calculation rule or approved
+state option, then resolve the RuleSpec/PolicyEngine difference through
+source-bound protected generation and matched household tests.
+
+The 922/922 FY 2024 matches reported by the
+[az-snap-qc suite](https://github.com/TheAxiomFoundation/axiom-oracles/blob/main/comparisons/az-snap-qc.yaml)
+do not settle this
+rounding election or establish FY 2026 parity. That comparison rewrites FY 2026
+RuleSpec module IDs to FY 2024 sources through a compile-time overlay and runs
+at a nominal January 2026 period. The [FY 2024 SNAP QC technical
+documentation](https://snapqcdata.net/sites/default/files/2026-08/FY-2024-Tech-Doc.pdf)
+describes edited, constructed public-use values: its consistency-edit narrative
+says the earned-income deduction is rounded down, while its `FSERNDED` codebook
+says the constructed deduction is rounded to the nearest integer. Neither is
+Arizona's election under 7 CFR 273.10(e)(1)(ii), and a transformed-QC match
+cannot substitute for source-grounded, matched-household behavior comparisons.
+
+An **ECE temporal oracle target**, not a RuleSpec parity result: at the pinned
+PolicyEngine commit, one Arizona member aged 30 with $30,000 annual employment
+income ($2,500 monthly gross), 35 weekly work hours, and no reported shelter
+expense has the same member and income facts in February and March 2026. The
+PolicyEngine `tanf_non_cash_gross_income_limit` is about $2,412.71 in February
+(185% FPL) and $2,608.33 in March (200% FPL); its
+`meets_tanf_non_cash_gross_income_test`, `is_tanf_non_cash_eligible`,
+`meets_snap_categorical_eligibility`, and `is_snap_eligible` all switch from
+false to true. PolicyEngine SNAP is $0 then $24, with the $298 maximum unchanged.
+These are observed PolicyEngine outputs, not a legal conclusion that every
+household at this income qualifies: test the same facts against the
+source-repaired Arizona ECE module and independent eligibility chain after
+protected generation, including February/March benefit-month boundaries.
+
+An **atomic gross-gate discrepancy**, not full-household parity: the signed
+Arizona FAA5 `gross-income-test.yaml` compiled without editing under a local
+Axiom engine checkout. With $2,500 countable gross income, a $1,304.1666666667
+monthly FPL input, the expanded test enabled, and no elderly/disabled or
+categorical bypass, it uses the open-ended 185% parameter and yields a
+$2,412.708333333395 gross limit and a denial in both February and March 2026.
+The focused PolicyEngine gross-test override using the same income and FPL
+fails in February but passes in March at its 200% limit. This comparison
+isolates the temporal rule gap; it does not match the complete household input
+model or use the CI-pinned Axiom engine. Repair the dated RuleSpec parameter
+and affected companion fixture only through signed, source-bound generation.
+
+The adjacent basic categorical eligibility (BCE) module is also not ready for
+independent household composition. Its four budgetary-unit judgments, including
+`na_basic_categorical_eligibility`, remain declared on `Person` in current
+RuleSpec `main`; [RuleSpec #1429](https://github.com/TheAxiomFoundation/rulespec-us/pull/1429)
+merged a regression contract that demonstrates the unit-scope defect. The
+protected BCE [run 36628613155](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/36628613155)
+produced signed [RuleSpec #1448](https://github.com/TheAxiomFoundation/rulespec-us/pull/1448),
+but that PR merged into `codex/az-nested-engine-pin`, not `main`. It is not a
+released BCE repair. A fresh protected promotion against current pins must
+precede any claim that ECE consumes an independent BCE result.
+
+The earlier ECE [run 37153765280](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37153765280)
+also rejected aggregate inputs that obscured separately stated source gates,
+proof coverage for AZTECS deeming of resources and the gross/net income tests,
+and companion evidence for that formula branch. The invalid `Person` shape
+freeze has since been removed, but that alone does not clear these other
+findings. The next source-bound run must use the signed March amendment,
+preserve `Household` unit scope, and generate executable February/March 2026
+boundary cases for the ECE rate and its dependent deeming behavior.
+
+A **matched medical-deduction amount boundary**, not end-to-end household
+parity: for January 2026 in Arizona, PolicyEngine US
+`d89439134c1bac8add0c8261c8a075c33c39401a` with a 65-year-old member
+and annual allowable medical expenses set to twelve times the stated monthly
+amount, and the signed RuleSpec US PR #1351 branch at `a384b342e4b2b8d61467e903e36141ec92068b8b`
+compiled with its declared engine `89571cc2a938707fd60a5489b951135345697296`,
+both produce medical deductions of $0, $0, $145, $145, $145, and $205 for
+monthly expenses of $0, $35, $36, $120, $180, and $240 respectively. The
+RuleSpec cases supplied the source-required elderly-expense eligibility and
+full-verification facts; PolicyEngine's annual expense input is converted to
+monthly and does not model that verification fact. At $120 incurred but $0
+verified, RuleSpec returns $0; no matched PolicyEngine scenario can express
+the same verification condition. These results establish six aligned atomic
+amount cases under explicit assumptions, not a validated composition or
+unqualified oracle parity.
+
+An **atomic self-employment oracle discrepancy**, not a RuleSpec comparison:
+at the pinned PolicyEngine commit, a one-person Arizona unit in 2027 with
+$12,000 annual gross self-employment income and $0 entered expenses yields a
+$4,800 annual SNAP self-employment expense deduction (40%). The pinned
+[rate parameter](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/parameters/gov/usda/snap/income/deductions/self_employment/rate.yaml)
+has no later Arizona entry. DES's [FAA4 change index](https://dbmefaapolicy.azdes.gov/Archived_Policy/Financial_Eligibility_Factors.html)
+dates the new 55% deduction to 06/29/2026, and its current
+[income-eligibility policy](https://dbmefaapolicy.azdes.gov/FAA4/Income_Eligibility_Requirements.html)
+says AZTECS applies the standard 55% self-employment deduction. On that
+unchanged $12,000 gross amount, **assuming verified, budgeted nonfarming
+self-employment income**, 55% would be $6,600, a $1,800 difference from
+PolicyEngine's observed output. The directly extracted archived
+[FAA6 standard](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA6.J10_SelfEmploymentExpenseDeduction_Revision54.pdf)
+states that its 40% rule began 11/01/2012 and required verification of at
+least one allowable expense. The [current FAA6 standard](https://dbmefaapolicy.azdes.gov/FAA6/Self-Employment_Expense_Deduction.html)
+applies 55% when income is verified and budgeted and excludes farming from
+the standard deduction. Both pages are in a locally extracted, complete
+**unsigned** corpus scope. This is source-based arithmetic, not an observed
+DES case determination: the dated state sources are not yet in the signed
+corpus release, no equivalent Arizona RuleSpec output was found, and the full
+SNAP household result has not been compared. Preserve this
+source-versus-oracle discrepancy when encoding the 06/29/2026 boundary;
+do not force the source-grounded rule to match the stale oracle rate.
+
+For the federal household-concept gap below, the native corpus eCFR extractor
+has now staged an **unsigned, unpublished** section-only scope for
+`us/regulation/7/273/1` as of 2025-10-01. It retains the official
+[eCFR Versioner API text](https://www.ecfr.gov/api/versioner/v1/full/2025-10-01/title-7.xml?part=273&section=273.1)
+with a complete three-provision part/subpart/section coverage report; 151
+focused corpus tests pass. Direct official API responses for 2025-10-01,
+2026-03-01, 2026-06-01, and 2026-09-30 have the same SHA-256
+`f7aa5326a23bb5d45ec777901d683373d0e40182277243a6bff23f748921497f`.
+This establishes point-in-time source identity at those four dates, not a
+signed corpus release or exhaustive proof that no intervening amendment
+occurred. The required ingest signer is unavailable, so this local staging
+does not yet satisfy the release-bound source prerequisite for encoding.
+
+| Source / behavior | Provenance and scope | RuleSpec at pinned main | Evidence status and next check |
+| --- | --- | --- | --- |
+| Federal SNAP unit eligibility: income, assets, categorical exception, and at least one member meeting person-level conditions | PolicyEngine [`is_snap_eligible.py`](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/variables/gov/usda/snap/eligibility/is_snap_eligible.py) cites 7 USC 2017(a), 2014(c), and 2015(f). [7 CFR 273.1](https://www.ecfr.gov/current/title-7/subtitle-B/chapter-II/subchapter-C/part-273/subpart-A/section-273.1) defines the household and lists additional ineligible-member categories; 273.3–273.7, 273.10, and 273.24 are other shared federal authority, not Arizona-only law. | Federal `us/policies/usda/snap/state-plan-composition.yaml` and imported regulation/statute modules exist, but there is no `us/regulations/7-cfr/273/1.yaml` in the pinned RuleSpec tree. Its `snap_member_eligible` conjunction covers four imported conditions, not every 273.1(b)(7) exclusion. Arizona `fy-2026-benefit-calculation.yaml` imports the federal composition but still has an eligibility input bridge. | Not parity-validated. The signed [July 2026 federal corpus release](https://github.com/TheAxiomFoundation/axiom-corpus/blob/main/manifests/releases/us-rulespec-foundation-v5-2026-07-15.json) contains 7 CFR 273.1 as of 07/09/2026, and the official [eCFR version history](https://www.ecfr.gov/api/versioner/v1/versions/title-7.json?part=273&section=273.1) records no §273.1 amendment during FY2026. Direct eCFR snapshots for 10/01/2025, 03/01/2026, and 07/09/2026 have identical section text. Bind that temporal evidence to a signed source scope before protected encoding, then audit household formation and omitted ineligible-member categories. Compare matched households across each net/gross/resource/categorical/member gate, including disqualified members. Audit Arizona options and overrides separately. |
+| Arizona medical deduction | PolicyEngine's SNAP medical-deduction standard [cites DES FAA5](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/parameters/gov/usda/snap/income/deductions/excess_medical_expense/standard.yaml); [official DES source](https://dbmefaapolicy.azdes.gov/FAA5/NA_Medical_Expenses_and_Deduction.html). | `us-az/policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction.yaml`. | Input-matched **atomic amount** check for January 2026: one Arizona member aged 70, eligible expenses billed to that member and fully verified. At monthly expenses $35, $35.01, $180, and $181, PolicyEngine `d89439134c1b` and the existing RuleSpec module on `8e5a837f491e` (compiled with engine `89571cc2a938`) both return $0, $145, $145, and $146. A further run on RuleSpec main `172bf04e4dd` with the same pinned engine confirms $145.01 and $145.99 at $180.01 and $180.99 monthly expenses; pinned PolicyEngine returns $145.010009765625 and $145.989990234375, respectively, matching within $0.00001 float error rather than as exact decimals. PolicyEngine takes annual `other_medical_expenses` of 12 times each monthly amount; RuleSpec takes the corresponding monthly and verified amounts. This does **not** validate the household eligibility chain, expense classification, verification policy (which PolicyEngine does not expose), or other months. |
+| Arizona child-support expense deduction | [DES FAA5 NA Child Support Expense](https://dbmefaapolicy.azdes.gov/FAA5/NA_Child_Support_Expense.html) limits the deduction to allowable, verified payments; when payments are less than monthly, lack an established frequency, vary unpredictably, or include a zero-paid month, it averages the prior three consecutive months and drops digits after the second decimal place without rounding. Pinned PolicyEngine's [`snap_countable_child_support_expense`](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/variables/gov/usda/snap/income/deductions/snap_countable_child_support_expense.py) formula sums entered expenses weighted by each member's counted-income share; its [`snap_child_support_deduction`](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/variables/gov/usda/snap/income/deductions/snap_child_support_deduction.py) then removes any amount already excluded from gross income. Neither formula itself supplies the DES verification, court-order, or irregular-payment history facts. | The pinned `us-az/policies/des/faa5/na-child-support-expense/allowable-deductions.yaml` derives an allowable amount for one payment. No Arizona module for the three-month budgeting procedure was found in the pinned tree. | January 2026 atomic diagnostic: with one Arizona payer, a $500 monthly court order, verified ordinary payments of $300 or $650, and no spousal maintenance, the existing RuleSpec payment rule executes to $300 or $500. Separately, at pinned PolicyEngine `d89439134c1b`, with the single payer's `snap_income_counted_share` explicitly set to 1, annual `child_support_expense` inputs of $3,600 or $7,800 yield $300 or $650 in both `snap_countable_child_support_expense` and `snap_child_support_deduction`; Arizona's gross-income child-support exclusion is $0 at this pin. The $650 versus $500 result exposes the missing court-order fact in PolicyEngine's input surface, not a matched-fact parity failure or a household result. The RuleSpec payment module's Git blob is unchanged between pinned `9f38330` and current `874bce4`, and it was executed with engine checkout `89571cc2`. Audit the dated DES source in the signed corpus, compose payment-level allowances into the monthly household deduction, and test verification, court-order caps, gross-income treatment, irregular-payment averaging, and cent truncation against matched facts where the oracle can express them. |
+| Arizona utility allowance eligibility and current amounts | PolicyEngine utility parameters cite [DES FAA5](https://dbmefaapolicy.azdes.gov/FAA5/NA_Utility_Expenses_and_Allowances.html) and [FAA6](https://dbmefaapolicy.azdes.gov/FAA6/Utility_Allowance_Current_Amount.html), for example [`includes_phone.yaml`](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/parameters/gov/usda/snap/income/deductions/utility/limited/includes_phone.yaml) and [`main.yaml`](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/parameters/gov/usda/snap/income/deductions/utility/limited/main.yaml). | `us-az/policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility.yaml` and `us-az/policies/des/faa6/utility-allowance-current-amount.yaml`. | Direct PolicyEngine January 2026 cases yield SUA $323/$438 for 1/4 people, LUA $149/$201 for 1/4 people, and phone-only $44 for one person, matching the five declarative amounts in signed FAA6 RuleSpec. On RuleSpec main `874bce4fe` with pinned engine `89571cc2a938`, the FAA5 eligibility module compiles and executes six January 2026 atomic fact sets: separately billed, obligated, verified heating/cooling selects SUA only; two qualifying non-heating/non-cooling expenses select LUA only; telephone-only selects TUA only; unverified heating/cooling selects none; qualifying LIHEAP with an elderly/disabled participant and a $20 annual payment selects SUA, while $19 selects none. Compiling the FAA6 amount target fails under that engine because its import chain reaches federal `us/policies/usda/snap/fy-2026-cola/deductions.yaml`, whose `module.source_verification.values` at line 20 is a removed schema field; the Arizona FAA6 module's own source-verification metadata uses the supported singular citation path. Thus the Arizona amount selector and combined program have not been executed, and these checks are **not** matched-household or PolicyEngine eligibility parity. PolicyEngine's compared utility-type formula does not expose the separate-billing, obligation, verification, or LIHEAP proof facts. PolicyEngine also cites USDA/SnapScreener tables; those are comparison data, not independent Arizona legal authority. |
+| Arizona expanded categorical eligibility (ECE) | Additional controlling [DES FAA5 categorical eligibility](https://dbmefaapolicy.azdes.gov/FAA5/NA_Categorical_Eligibility.html), corpus `us-az/manual/des/faa5/na-categorical-eligibility/block-4`. The pinned July 2026 corpus text says 200% FPL. DES's [FFY 2026 COLA page](https://dbmefaapolicy.azdes.gov/FAA5/FFY_2026_NA_COLA_Changes.html) and [03/23/2026 change notice](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/2026-03-23_What'sChanged.pdf) attest 185% before benefit month 03/2026 and 200% from 03/2026; the announced 130% change was recalled. | `us-az/policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility.yaml` still states 185% with an open-ended version. | **Material source discrepancy.** Protected atomic re-encode [run `37153765280`](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37153765280) failed validation; no RuleSpec PR was produced. The generated candidate declares Household for several ECE rules, but the apply overlay restores their existing oracle-mapped Person shape before validation, producing Person-scope diagnostics against the Household candidate. [Encoder PR #1761](https://github.com/TheAxiomFoundation/axiom-encode/pull/1761) removed the invalid shape freeze for `not_comparable` entries. [Corpus PR #799](https://github.com/TheAxiomFoundation/axiom-corpus/pull/799) has since published the signed dated DES authority; [RuleSpec PR #1768](https://github.com/TheAxiomFoundation/rulespec-us/pull/1768) to pin that release remains draft. Neither publication nor a proposed pin repairs the open-ended RuleSpec behavior. After the pin merges, use protected source-bound generation and February/March boundary tests; earlier attempts also failed temporal-coverage and proof-excerpt checks. |
+| Arizona expanded gross-income standard | [DES's archived benefit-determination page valid until 03/01/2026](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA5.I01A_NAEligBftDetermination_Revision54.pdf) states a 130% or 185% gross-income test. The [current DES page](https://dbmefaapolicy.azdes.gov/FAA5/NA_Eligibility_and_Benefit_Determination.html) lists 130% for other households, 165% for the separate special-circumstances group, and 200% when expanded categorical eligibility applies. The [DES archive index](https://dbmefaapolicy.azdes.gov/Archived_Policy/Work_Registration_and_Program_Determination.html) dates the expanded-standard change to benefit month 03/2026. | `us-az/policies/des/faa5/na-eligibility-and-benefit-determination/gross-income-test.yaml` keeps `expanded_gross_income_fpl_rate` at 1.85 with an open-ended version, and its companion test denies above 185%. The same module bypasses the gross test for categorically eligible units, so actual composition impact must be traced rather than assumed. | Both official versions were directly extracted into a local **unsigned** complete corpus scope, not the pinned release. Sign and release the dated source, then protected-re-encode the temporal standard and test February/March thresholds, the 165% special-circumstances branch, and whether screening or the final eligibility gate consumes each rate. Do not infer a benefit error solely from a stale parameter. |
+| Arizona basic categorical eligibility and benefit effects | Additional controlling DES FAA5 categorical-eligibility source, corpus `us-az/manual/des/faa5/na-categorical-eligibility/block-3` and related blocks. | Basic, expanded, and categorical-benefit modules exist. Protected BCE generation previously reached staging only. | Main-branch source/behavior review remains open; do not count staged output as merged coverage. |
+| Arizona benefit calculation and initial-month proration | Additional controlling [DES FAA5 benefit determination](https://dbmefaapolicy.azdes.gov/FAA5/NA_Eligibility_and_Benefit_Determination.html), corpus block 9 and adjacent blocks. DES distinguishes first-month prorated benefits below $10 (not issued), denial when that is the only eligible month, eligible/no-pay status when eligibility continues, and actual payment of an initial prorated amount of at least $10; the usual one- or two-person minimum allotment does not replace that initial-month result. An aggregate first-two-month allotment requires an application after the 15th, eligibility for both months, and established ongoing second-month eligibility before issuance; application and verification requirements also apply, with the expedited-case postponed-verification exception. | Atomic `benefit-amount.yaml` and `first-month-benefit-proration.yaml` exist; `fy-2026-benefit-calculation.yaml` is a **composition** module. | Block-9 protected replacement runs `37148290459`, `37148769017`, and `37150620832` did not produce an accepted module. The atomic encoder cannot replace the composition as though it were an atomic source file. Preserve the composition while grounding other eligibility conditions in their own sources. Compare matched initial/ongoing months at the $10 boundary, one- and two-person minimum-allotment boundary, and after-the-15th first-two-month aggregate issuance, including the denial versus eligible/no-pay distinction. |
+| Arizona shelter deduction | DES FAA5 `shelter-expenses-and-deduction/block-3` states the excess-shelter computation, cap, elderly/disability exception, homeless alternative, and excluded payments. | `shelter-expenses-and-deduction/shelter-deduction.yaml` exists; it is not directly imported by the FY 2026 Arizona composition. | Encoded presence is not end-to-end behavior. Check household-size and elderly/disability gates, allowable costs, utility interaction, and cap by month against matched cases. |
+| Arizona dependent-care deduction | DES FAA5 `dependent-care-expense/block-3` states qualifying dependents, work or training nexus, allowable billed costs, and exclusions. | `dependent-care-expense/na-dependent-care.yaml` exists; it is not directly imported by the FY 2026 Arizona composition. | No matched-household result is recorded. Test each qualifying purpose and exclusion, then trace whether the federal composition consumes the intended Arizona amount. |
+| Arizona child-support deduction | DES FAA5 `na-child-support-expense/block-2` distinguishes court-ordered amounts actually paid, arrearages, lump sums, third-party payments, and spousal maintenance. | `na-child-support-expense/allowable-deductions.yaml` exists; it is not directly imported by the FY 2026 Arizona composition. | Test paid-versus-ordered limits, timing, and excluded payments. A Payment-level encoded rule alone does not establish the household deduction. |
+| Disqualified NA participant effects | DES FAA5 `disqualified-na-participant-s-effect-on-the-na/block-2` addresses benefit unit size, utility allowance, and reason-specific income and expense counting. | `disqualified-na-participant-s-effect-on-the-na/disqualified-participant-effect-on-na-benefit-amount.yaml` exists; it is not directly imported by the FY 2026 Arizona composition. | Compare mixed eligible/disqualified households for each disqualification reason, including full versus prorated amounts; no such matched result is recorded. |
+| Transitional, supplemental, and restored NA benefits | DES FAA5 `na-transitional-benefit-assistance-tba` and `supplemental-payments-and-restored-benefits` govern benefits outside ordinary monthly calculation. | `na-transitional-benefit-assistance-tba.yaml` and `supplemental-payments-and-restored-benefits.yaml` exist as separate modules. | Inventory triggering events and effective periods, then test transitions, five-month TBA limit, underpayments, and restored-benefit lookback. These are not demonstrated by a regular-month allotment comparison. |
+| Arizona Simplified Nutrition Assistance Program (AZSNAP) | [DES FAA1 AZSNAP](https://dbmefaapolicy.azdes.gov/FAA1/Arizona_Simplified_Nutrition_Assistance_Progra.html) is an SSA-referred, SSI-linked simplified path with its own eligibility, reporting, and four-tier shelter-based benefit schedule. The [archived FAA6 schedule](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA6.J11_AZSNAPAllotmentAmounts_2026.pdf) covers 10/01/2023–12/31/2025 and gives tiers $103/$143/$177/$238; the [current FAA6 schedule](https://dbmefaapolicy.azdes.gov/FAA6/AZSNAP_Allotment_Amounts.html) begins 01/01/2026 and gives $72/$114/$148/$213. | No AZSNAP module or reference was found in pinned Arizona RuleSpec, and no dedicated FAA1/FAA6 AZSNAP provision in pinned Arizona corpus. The regular FY 2026 benefit composition is not this separate tiered allotment. Current and pre-January/pre-August FAA1 versions and both allotment tables are extracted in a local **unsigned** scope, not the pinned release. | Sign and release the staged FY 2026 authority, then source-bound encode and compare SSA-referral, SSI, living-arrangement, disqualification, shelter-tier, and 12/2025–01/2026 boundaries. Do not use regular SNAP allotment agreement as AZSNAP parity. |
+| Arizona Elderly Simplified Application Project (ESAP) | [Archived FAA1 ESAP policy](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA1.D01C_ESAP_12.08.2025_Revision53.pdf) requires all members to be at least 60 with no earned/self-employment income and describes a 36-month approval period and simplified renewal. [DES's change history](https://dbmefaapolicy.azdes.gov/Archived_Policy/System_Information_and_Application_Screenin.html) raises the ESAP age threshold to 65 for pending actions from 08/11/2026 and open-case benefit months from 09/2026. | No ESAP module or reference was found in pinned Arizona RuleSpec. Pinned FAA5 corpus text mentions ESAP but has no dedicated FAA1 ESAP provision. Current and pre-April/pre-August FAA1 versions are extracted in a local **unsigned** scope, not the pinned release; archived PDFs required OCR because their embedded text was scrambled. | Sign and release the staged DES versions, obtain the applicable FNS demonstration authority, and test ages 60/64/65, earned-income transitions, interview/verification/renewal duties, and the distinct pending-action versus benefit-month boundary. Do not project the current age-65 rule back to January 2026. |
+| Arizona residence and institution membership | Additional controlling [DES FAA3 Arizona Residency](https://dbmefaapolicy.azdes.gov/FAA3/Arizona_Residency.html) and [Residents of Institutions for NA](https://dbmefaapolicy.azdes.gov/FAA3/Residents_of_Institutions_for_NA.html); shared federal household/residence rules also apply. | The federal composition has residency and member wrappers; the Arizona composition does not yet bind a source-grounded Arizona eligibility chain. | Official pages located, but no FAA3 provision is present under `data/corpus/provisions/us-az` at the pinned corpus commit. Acquire release-bound source text, classify Arizona-specific conditions, then run positive/negative household tests. |
+| Arizona noncitizen qualifications | Additional controlling [DES FAA3 NA Qualified Noncitizens](https://dbmefaapolicy.azdes.gov/FAA3/NA_Qualified_Noncitizens.html), alongside federal citizenship/noncitizen law and PolicyEngine's person-level immigration filter. [DES's FAA3 change history](https://dbmefaapolicy.azdes.gov/Archived_Policy/Deprivation_and_Absent_Parent_Information.html) identifies noncitizen policy changes aligned with H.R. 1 §10108 effective 03/01/2026 and a later LPR clarification; these need effective-date-specific source review. [USDA FNS's 16th State Options Report](https://fns-prod.azureedge.us/sites/default/files/resource-files/snap-16th-state-options-report-june24.pdf), expressly current only as of 10/01/2023, lists Arizona as counting all income and deductions for a noncitizen who would have been ineligible before PRWORA, but counting all except a prorated share for one ineligible because of PRWORA. This is a historical state-election audit lead, not proof of the 2026 option. | Federal 7 CFR 273.4 and 7 USC 2015(f) modules exist; no source-grounded Arizona-specific bridge has been validated. | Official page located; FAA3 is absent from the pinned Arizona corpus provisions. Acquire current and prior authenticated source snapshots, distinguish the federal change from Arizona implementation, verify whether either historical income-allocation option remained operative in each 2026 period, and test mixed-status units without treating separate eligible people as one qualifying person. |
+| Arizona adult-student eligibility | [DES FAA3 Adult Student Eligibility for NA](https://dbmefaapolicy.azdes.gov/FAA3/Adult_Student_Eligibility_for_NA.html) applies enrollment, work/exemption, and meal-plan conditions; shared federal 7 CFR 273.5 also applies. The [DES change index](https://dbmefaapolicy.azdes.gov/Archived_Policy/Deprivation_and_Absent_Parent_Information.html) describes the 09/28/2026 revision as removing a CC note. | Federal `us/regulations/7-cfr/273/5.yaml` exists, but no Arizona FAA3 student module or binding into the Arizona eligibility composition was found in the current RuleSpec tree. Current and pre-September FAA3 pages are extracted in a local **unsigned** scope, not the pinned release; the archive required OCR. | Sign and release the staged historical page, reconcile Arizona implementation with federal student exemptions, and test enrollment, 80-hour paid work, work-study, and majority-meal-plan boundaries. No matched FY 2026 household result is recorded. |
+| Arizona ordinary work registration and sanctions | [DES FAA6 NA Work Requirements](https://dbmefaapolicy.azdes.gov/FAA6/NA_Work_Requirements.html) screens participants aged 16–59 for work registration and exemptions; this is distinct from the ABAWD time limit. The [archive valid until 09/22/2025](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA6.B01_NAWorkRequirements_09-22-2025_Revision53.pdf) says work registrants aged 18–54 may also face ABAWD limits, while the [archive valid until 02/23/2026](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA6.B01_NAWorkReq_02-23-2026_Revision54.pdf) says ages 18–64. DES's [change index](https://dbmefaapolicy.azdes.gov/Archived_Policy/Case_Maintenance_and_Administrative_Lists_2.html) dates the H.R. 1-related Arizona change to 11/01/2025; neither archive by itself proves which text applied to October. Shared federal 7 CFR 273.7 applies. | Federal `us/regulations/7-cfr/273/7.yaml` exists; no Arizona FAA6 work-registration module or demonstrated member-to-household eligibility binding was found. Current and both archived pages are directly extracted in a local **unsigned** scope, not the pinned release. | Resolve the October/November operative-text boundary before source-bound encoding, including exemptions, voluntary quit/reduction, good cause, and disqualification effects. Test members who satisfy one work rule but not the other rather than treating ABAWD and ordinary registration as interchangeable. |
+| Arizona expedited-service screening and issuance | [DES FAA2 archive valid until 02/02/2026](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA2.A03_ReqforNAX_Revision54.pdf) and the [archive valid until 07/27/2026](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA2.A03_ReqforNAX__07.27.26_Revision54.pdf) both state three screening routes: gross income under $150 with liquid resources at most $100; a destitute migrant/seasonal worker with resources at most $100; or income plus resources less than rent/mortgage plus the applicable utility allowance. They require determination and card availability by the seventh calendar day and generally permit verification other than identity to be postponed. DES removed telephone-application screening procedures effective 02/02/2026, following the end of telephone applications on 11/01/2025; that is distinct from the same-day interview process. A [02/09/2026 urgent bulletin](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/Urgent%20Bulletin%20%2802-09-2026%29%20-%20NAX%20Same%20Day%20Interview%20Requirement.pdf), repeated in the [02/17 change notice](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/2026-02-17_WhatChanged.pdf), expressly rescinded the same-day process change announced for 02/02 and immediately restored asking potentially eligible FAA-office applicants whether they could interview that day. The [current page](https://dbmefaapolicy.azdes.gov/FAA2/Requirements_for_NA_Expedited_Services_(NAX).html) dates its procedures to 09/01/2026. Shared 7 CFR 273.2(i) applies. | No Arizona FAA2 expedited-service module or federal `7-cfr/273/2/i` module was found in the current RuleSpec tree. Both archived policies, the current page, and the two February notices are directly extracted into a local **unsigned** scope with complete coverage, not the pinned release. | Sign and release the staged historical sources; separately test the telephone-application termination and 02/02–02/09 same-day interview transition, including what was operative during the short interval. Test screening thresholds, migrant/seasonal cases, negative gates, issuance timing, and postponed verification separately from ordinary monthly allotment. Resolve any applicable FNS waiver. |
+| Arizona resource and income determinations | Additional controlling [DES FAA4 NA Resources](https://dbmefaapolicy.azdes.gov/FAA4/NA_Resources.html), [FAA6 Maximum NA Resource Limit](https://dbmefaapolicy.azdes.gov/FAA6/Maximum_NA_Resource_Limit.html), and [FAA6 NA Income Standards](https://dbmefaapolicy.azdes.gov/FAA6/NA_Income_Standards.html). The [archived FAA4 Income Eligibility Requirements valid until 06/29/2026](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA4.H01A_IncomeEligibilityRequirements_Revision54.pdf) require gross and net income tests and allow a 40% self-employment expense deduction when at least one allowable expense is verified; the [DES FAA4 change index](https://dbmefaapolicy.azdes.gov/Archived_Policy/Financial_Eligibility_Factors.html) dates the later 55% deduction to 06/29/2026. | Federal income/resource modules and Arizona FAA5 gross/net-income-test modules exist; the Arizona composition still accepts eligibility as an input. Pinned PolicyEngine's [Arizona rate parameter](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/parameters/gov/usda/snap/income/deductions/self_employment/rate.yaml) stays at 40% after 2021, and its [deduction formula](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/variables/gov/usda/snap/income/deductions/self_employment/snap_self_employment_expense_deduction.py) takes the greater of percentage-based and entered expenses without a verified-expense input. | The pre-June FAA4 PDF was directly extracted into a local **unsigned** scope with complete coverage; these FAA4/FAA6 source units are not in the pinned Arizona corpus provisions. Sign and release the dated source, then separately encode operative Arizona limits/options before removing the caller bridge. Test verified and unverified expenses and the 06/29/2026 change boundary. The source-versus-PolicyEngine differences are an oracle audit lead, not a demonstrated matched-household result; resolve them by authority rather than force parity with the pinned oracle. |
+| Arizona Social Security income rounding | [DES FAA4 Social Security Benefits](https://dbmefaapolicy.azdes.gov/FAA4/Social_Security_Benefits.html), last revised 10/27/2025 and effective 09/02/2025, says to count gross Social Security benefits rounded **down** to the nearest whole dollar; it expressly excludes SSI from that instruction. The [FAA4 change index](https://dbmefaapolicy.azdes.gov/Archived_Policy/Financial_Eligibility_Factors_2.html) identifies the October revision as a verification change. | A controlled January 2026 pinned-PolicyEngine check with annual SSA $12,011.88 and SSI set to zero counts $1,000.99 monthly unearned income, versus $1,000 at annual SSA $12,000; net income differs $792 versus $791, though both benefits are $60. No matched Axiom household result or source-bound Arizona SSA rounding module is recorded. This is an intermediate source-versus-oracle lead, not a household parity result. | The official page is directly extracted into a local **unsigned** scope with nine matched provisions and complete extraction coverage; it is not in the pinned released corpus. Sign and release the source, encode the dated SSA-specific treatment through protected generation, and compare matched households on both sides of a whole-dollar boundary. Keep this distinct from Arizona's unresolved general net-income rounding election. |
+| Arizona simplified reporting income threshold and other change duties | Additional controlling [DES FAA6 change history](https://dbmefaapolicy.azdes.gov/Archived_Policy/Case_Maintenance_and_Administrative_Lists.html) records a move from 130% to 200% FPL effective 03/01/2026, updated 04/13/2026; FAA5 benefit-determination change history records the same reporting change. The [current DES change-report page](https://des.az.gov/node/4174) also lists NA reporting for gross monthly income above 200% FPL (including disqualified participants), single-game lottery/gambling winnings, and loss of ABAWD work hours. Reporting is distinct from ECE eligibility even when both use 200% FPL. | No source-bound Arizona reporting-threshold module or matched reporting-behavior result is recorded in this matrix. | Historical and current official pages are audit leads only until authenticated source bytes are ingested. Test February/March reporting changes separately from ECE and test the other reportable events; do not infer parity from the shared percentage. |
+| Arizona ABAWD work/time-limit implementation | Shared federal [7 CFR 273.24](https://www.ecfr.gov/current/title-7/subtitle-B/chapter-II/subchapter-C/part-273/section-273.24) controls the baseline. The [current DES public guidance](https://des.az.gov/services/basic-needs/food-assistance/nutrition-assistance/work-requirements-able-bodied-adult) describes 80 hours/month, exemptions and good cause, and Arizona's fixed 01/01/2025–12/31/2027 three-year clock; its current text must not be projected backward across federal or state changes. | Federal 7 CFR 273.24 modules exist; no matched Arizona ABAWD exemption, waiver-geography, countable-month, or regained-eligibility behavior is recorded here. | Obtain effective-date-specific DES policy and FNS-approved Arizona waiver authority, separate federal shared mechanics from Arizona options, then compare positive/negative monthly sequences. The indexed public guidance is an audit lead, not yet a release-bound source unit. |
+| Arizona ABAWD geographic waiver, March 2026–February 2027 | [USDA FNS's March 12, 2026 approval](https://fns-prod.azureedge.us/sites/default/files/resource-files/az-abawd-response-fy2026.pdf) under 7 CFR 273.24(f) controls the approved geography and 03/01/2026–02/28/2027 interval; [DES's March 30 bulletin](https://dbmefaapolicy.azdes.gov/FAA2/baggage/Urgent%20Bulletin%20%2803-30-2026%29%20-%202026%20ABAWD%20Geographic%20Waiver.pdf) implements the same areas: Yuma County plus six named reservation areas. FNS distinguishes the request's proposed 10/01/2025 start from the **approved 03/01/2026 implementation date**. | No Arizona waiver-geography module or matched time-limit result is recorded. | Both official PDFs have been directly extracted into a local, unsigned corpus scope; this is not a released source unit. Test eligible and ineligible locations across February/March 2026 and the February/March 2027 expiration boundary, and audit any earlier waiver or termination separately. |
+| Arizona ABAWD geographic waiver, October 2025–February 2026 | [FNS's FY 2025 Arizona approval](https://fns-prod.azureedge.us/sites/default/files/resource-files/az-abawd-response-fy2025.pdf) states an October 2024 start and a September 2025 expiration (the approval itself prints the nonexistent date September 31). [DES's August 28, 2025 urgent bulletin](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/Urgent%20Bulletin%20%20%2808-28-2025%29%20-%20ABAWD%20Time%20Limit%20Waiver%20Expires.pdf) says the geographic waiver expires September 30 and the GE code ends for October benefit months. [DES's February 10, 2026 account](https://des.az.gov/node/27695) says Arizona requested a narrower FY 2026 waiver on September 26, 2025 and that USDA approval was still pending on February 10. The [FNS public response index](https://fns-prod.azureedge.us/snap/waivers/timelimit/2025-2029), checked 2026-10-06, lists Arizona's sole FY 2026 response as March 12, 2026; that is evidence against a published earlier approval, not proof that no interim action existed. Yet [FNS's FY 2026 first-quarter status report](https://fns-prod.azureedge.us/sites/default/files/resource-files/FY26-Quarter-1-ABAWD-Waiver-Status.pdf) lists Arizona as partially waived as of October 1, 2025. The report says it is based on active approvals and state status reports, and that states may discontinue a waiver before expiration; it does not identify an Arizona approval or its covered areas for October–February. The later DES account strengthens the evidence against assuming a new waiver had been approved by February 10, but it does not resolve the conflicting FNS status entry or prove there was no other interim authority. The DES bulletin separately introduces an AI exemption for qualifying Indian participants effective September 2025; that person-level exemption must not be mistaken for a continuing geographic waiver. | No matched October 2025–February 2026 geographic-waiver result is recorded. | The official DES bulletin and February account were directly extracted into local unsigned corpus scopes; neither is a released source unit. Check for any intervening FNS approval or correction, and reconcile administrative effective dates before encoding October–February geography. Test the separate AI exemption after source release; do not extrapolate the March 2026 approval backward. |
+| Additional Arizona SNAP administration and eligibility | DES FAA5 has NA approval periods, disqualified-participant effects, transitional benefit assistance, child-support and dependent-care deductions; other DES chapters and federal/state plans must be inventoried for residency, membership, citizenship/immigration, income, resources, work, students, sanctions, expedited service, and reporting. | Some FAA5 modules exist, but an inventory of controlling source units and matched behavior is incomplete. | **Unresolved inventory, not proven absent coverage.** Classify each source as Arizona-specific, federal shared, unrelated cash-assistance material, or non-computational procedure before generating missing modules. |
+
+The [FNS FY2026 second-quarter status report](https://fns-prod.azureedge.us/sites/default/files/resource-files/FY26-Quarter-2-ABAWD-Waiver-Status.pdf)
+also lists Arizona among states with partial waivers **as of January 1, 2026**.
+This extends the conflict beyond the first-quarter October 1 entry: DES still
+described its FY2026 request as pending on February 10. The
+[third-quarter report](https://fns-prod.azureedge.us/sites/default/files/resource-files/FY26-Quarter-3-ABAWD-Waiver-Status.pdf)
+lists Arizona as partially waived as of March 1, consistent with the March 12
+approval's stated implementation date. None of these status lists identifies
+an Arizona approval or covered geography for October–February, so they do not
+justify encoding a waiver for those months.
+
+A further contemporaneous state source bears on the disputed October 2025
+ABAWD geography: [DES's FY2027 budget request, dated September 11,
+2025](https://des.az.gov/sites/default/files/dl/FY2027-DES-Budget-Request.pdf)
+says the FY2025 "insufficient jobs" waiver would cease to shield affected
+recipients beginning October 1, 2025. The directly extracted official PDF has
+SHA-256 `3df85141a9d745f0f7f36a4d847c47bcafb4003e8709b64292c7ad9f0769ef12`
+(page 50 in the extracted scope). This is an agency budget projection, not an
+FNS approval or binding determination, and it does not explain the contrary
+FNS first-quarter status entry. Keep October–February geography unencoded
+until the discrepancy is reconciled against approval-level authority.
+
+[FNS's approved Arizona FY 2026 SNAP E&T state plan](https://fns-prod.azureedge.us/sites/default/files/resource-files/az-snapet-stateplanFY26.pdf)
+records approval on December 22, 2025 and projects 55,559 ABAWDs in waived
+areas. That is an anticipated participation count in an E&T plan, not an
+ABAWD geographic-waiver approval: it names no covered areas or operative
+dates. It therefore cannot establish an October 2025–February 2026 waiver or
+resolve the conflict between FNS's first-quarter status and DES's February
+account that its FY 2026 request was still pending.
+
+[FNS's February 26, 2026 time-limit-waiver status memo](https://www.usda.gov/sites/default/files/guidance-documents/fna.obbb-time-limit-waivers-reinstatement.pdf)
+states that waivers terminated under its October 3, 2025 guidance remain in
+effect through their original expiration dates following a court order. Its
+Appendix A enumerates the affected state agencies and expiration dates, but
+does **not** list Arizona. The directly fetched official PDF has SHA-256
+`54cbcda281de7eb19c6b9035f507940e875f42c6693c46ac289adbc0ff6614c6`.
+This memo therefore provides no Arizona-specific approval for October
+2025–February 2026; it does not correct or explain the conflicting FNS
+first-quarter status entry.
+
+The [archived DES FAA2 ABAWD exemption policy preceding its H.R. 1
+implementation](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA2.M09B_ABAWD_Exemptions_09-22-2025_Revision53.pdf)
+also explicitly ends its listed geographic exemption on September 30, 2025.
+A [later archived DES policy](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA2.M09B_ABAWDExemptions_PS.pdf)
+states that its replacement exemption rules begin with the November 2025
+benefit month and refers earlier months to prior policy; it raises the upper
+ABAWD age boundary to 64 and changes the child-related exemption. These
+official PDFs were directly extracted into a local **unsigned** scope with
+complete coverage; their archive watermarks and effective-date text must be
+kept distinct. They strengthen the state-side October/November timeline but
+still do not resolve FNS's contrary first-quarter geographic-waiver entry.
+
+Separately, [DES's September 24, 2025 ABAWD look-back
+bulletin](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/Urgent%20Bulletin%20(09-24-2025)%20-%20ABAWD%20Three-Month%20Look%20Back.pdf)
+instructs staff to treat August–October 2025 as countable for participants
+whose homelessness, former-foster-youth, veteran, age-55–64, or older-child
+exemptions ended, if they have no other exemption or qualifying work. It
+directs adverse action for November after three countable months. This is
+evidence for a distinct **person-level exemption transition**, not an FNS
+approval identifying geographically waived areas or a resolution of the
+contrary FNS first-quarter status entry. The [March 2, 2026 DES change
+notice](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/2026-03-02_WhatChanged.pdf)
+repeats the need to correct August–October countable-month indicators; that
+later operational reminder likewise does not establish geographic authority.
+
+[DES's November 24, 2025 ABAWD bulletin](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/Urgent%20Bulletin%20%2811-24-2025%29%20-%20ABAWD%20Participants%27%20November%20Benefits.pdf)
+records FNS guidance to all states that November 2025 benefits do not count
+toward the ABAWD three-month limit. Arizona's FAA Systems was updating CODF to
+remove November as a countable month; normal countable-month procedures would
+resume in December 2025. This month-specific counting rule neither identifies
+geographically waived areas nor resolves whether any such waiver applied in
+October–February. After source-bound release, test October–December sequences
+separately for month countability and benefit eligibility; do not infer either
+from the other.
+
+The block-9 compile failure is reproducible without another protected attempt.
+Using the archived rejected candidate, pinned RuleSpec US
+`9f38330fb43ffc693c6295b9a17c8d5d96520ad2`, and the failed run's engine
+pin `89571cc2a938707fd60a5489b951135345697296` reproduces the reported
+`module.source_verification.values` parse error. The generated target has no
+such field; its import chain reaches the pre-existing federal FY 2026 COLA
+`deductions.yaml`, whose line 20 **does** declare `values`. Compiling that
+dependency alone produces the same error and line number. The engine reports
+the top-level target path for an imported dependency's parse failure, which
+obscured the cause. The encoder's source-value validator can read legacy
+`values`, and current protected apply can remove a model-generated `values`
+field after the engine rejects it; neither changes these pre-existing imports.
+The pinned engine allows only `corpus_citation_path`, `source_sha256`, and
+`upstream_source_check`. Direct compilation also rejects
+the sibling federal `maximum-allotments.yaml` for `values` and
+`income-eligibility-standards.yaml` for removed plural `corpus_citation_paths`;
+all three are imported by `state-plan-composition.yaml`. Migrate these legacy
+federal dependencies through protected source-bound generation before retrying
+block 9; do not edit RuleSpec by hand. The composition parent has a separate
+source-proof defect: its `source_verification.corpus_citation_path` and two
+formula proofs cite `us/guidance/usda/fns/snap-fy2026-cola/page-1`, but that
+allotment-table provision does not contain the proof's claimed span, `Federal
+SNAP state-plan composition support`, or the composed eligibility mechanics.
+The parent's assertion that the COLA citation is merely a convention does not
+make it operative authority for those formulas. Audit and repair this parent
+through the protected source-bound path as well; valid imports alone will not
+establish its source fidelity. For income standards, the signed corpus
+has a bodyless parent at
+`us/guidance/usda/fns/snap-fy2026-income-eligibility-standards` with page-1
+and page-2 descendants. The corpus resolver composes a bodyless parent's active
+descendants under the singular requested citation, so the protected replacement
+should target that parent rather than one page or a removed plural field.
+However, the existing income-standards module declares **only** the two
+sibling page citations, not a singular parent. The current encoder's retired
+replacement admission requires an existing exact singular citation alongside
+the plural history, and the merged deterministic migration in
+[axiom-encode #1811](https://github.com/TheAxiomFoundation/axiom-encode/pull/1811)
+admits a plural collapse only when one cited path is an ancestor of all the
+others. Neither route currently admits this module. The values-only deductions
+and maximum-allotments modules are candidates for #1811's narrower signed
+transaction; its protected run was cancelled after the source-provenance defect
+below was confirmed, so no signed RuleSpec change exists yet. That transaction
+alone would not make Arizona composition compile. A canceled parent-source
+[attempt 38425793435](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/38425793435)
+did not reach encoding and is not evidence that replacement succeeds.
+The same pinned engine also fails to compile the existing FAA6 Arizona utility
+amount module on this RuleSpec tree, reporting the retired `values` field while
+following its 7 CFR 273.9 import closure. The tabulated $323/$438 and
+$149/$201 matches are therefore source-amount comparisons, not executed
+RuleSpec-versus-PolicyEngine parity.
+
+The later protected 7 USC 2012(j) repair run
+[`38264620667`](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/38264620667)
+applied and signed its primary in the ephemeral runner but published no RuleSpec
+PR: its required 7 CFR 273.10 dependent failed all bounded attempts. The
+first rejected 273.10 candidate used `imports: null`; later attempts reported
+`module.source_verification.values` on the generated 273.10 target. The
+existing FY 2026 `deductions.yaml` and `maximum-allotments.yaml` imports also
+independently contain that retired field, and the engine can wrap an imported
+parse error with the top-level target filename. The encoder's overlay-only
+diagnostic repair merged in
+[axiom-encode PR #1880](https://github.com/TheAxiomFoundation/axiom-encode/pull/1880);
+it does not repair those existing signed imports.
+One direct-import path is 2012(j) → FY 2026 deductions → 273.10 → 273.11(c),
+with maximum allotments also feeding 273.10 and 2017(a). The deductions
+replacement cannot compile against the old 2012(j) relation because its tuple
+slots lack entity kinds. This is a coupled protected-migration problem, not a
+reason to retry 273.10 alone or manually strip signed legacy fields. The
+existing targeted workflow supports two dependent modules, including bounded
+two-hop proof-import chains, but a 2012(j) primary repair cannot also replace
+both existing FY 2026 deductions and maximum-allotments modules in that run.
+Its source-bundle mode adds new modules rather than replacing these existing
+imports; a source-bundle primary replacement cannot mix with dependent
+migration. Thus, the federal imports and 2012(j) relation need a coordinated,
+source-bound protected migration, followed by final program validation and
+fresh signatures.
+
+As of 2026-10-15, the protected income-standards replacement produced signed
+[RuleSpec #1770](https://github.com/TheAxiomFoundation/rulespec-us/pull/1770),
+but it remains draft and unmerged. Its Arizona validation shard passed, while
+the full exact-head run finished with seven failed validation jobs.
+Colorado's unchanged direct importer now passes,
+making its active validation waiver stale, while a New York validation
+fingerprint changed because the imported 7 CFR 273.10 module reaches the
+still-invalid federal FY 2026 deductions and maximum-allotments modules.
+Compiling the New York root, 273.10, and those two modules separately on
+RuleSpec `09007382ad02b0928c91c022b2215be464285632` with the pinned engine
+`89571cc2a938707fd60a5489b951135345697296` reproduces the removed
+`source_verification.values` error in the two federal modules. The merged
+[encoder #1907](https://github.com/TheAxiomFoundation/axiom-encode/pull/1907)
+permits narrowly checked post-apply waiver retirement for an unchanged direct
+importer, but is not a substitute for repairing the federal imports. The
+model-free signed metadata migration [encoder #1811](https://github.com/TheAxiomFoundation/axiom-encode/pull/1811)
+also merged after an independent review-fix cycle and green exact-head CI; it
+adds a receipt-bound protected rewrite and proof-hash cascade for the two
+values-only federal imports, not for the sibling-cited income module. Its
+[two-primary protected run 38667673443](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/38667673443)
+passed the attempt-budget gate on encoder main `dde29e542fa890643ce48d213aa16cfd8540fc83`
+and RuleSpec main `172bf04e4ddabff0929d4514ecac5020869b8b40`, but is
+cancelled after the mismatched PDF-labeled source objects below were confirmed.
+It produced no migration PR or usable signed repair and does not establish
+Arizona household parity.
+
+The newer [protected deductions replacement run](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37525058038)
+passed its attempt-budget check and provisioned the protected signing
+supervisor, but failed source and compile
+validation on 2026-10-07; it created no RuleSpec PR. Its generated candidate
+still imports `us:statutes/7/2012/j`, whose legacy `member_of_household`
+relation declares arity two without the tuple-slot entity kinds required by
+the pinned engine. The candidate also reintroduces the operative
+`snap_household_has_elderly_or_disabled_member` condition as a local input;
+simply deleting the statute import would make the dependency error disappear
+without establishing the source-grounded elderly/disabled household condition.
+Separately, five proof excerpts for shelter and asset-limit values synthesize
+adjacent prose
+that does not occur in the release-bound page-2 table extraction. Repair the
+upstream statute through protected source-bound generation and resolve the
+table evidence in protected generation or signed corpus extraction before
+replacing deductions. Do not treat the rejected candidate as a signed module.
+
+The signed corpus scope behind both FY 2026 COLA pages has a separate source
+provenance defect. Its locked source object (SHA-256
+`891dce6a0abdd3dcdac7eb5438827b5e986bc35c6ce550325e522da096b7c955`)
+is the FNS FY 2026 landing-page **HTML**, while the scope inventory labels that
+same object `source_format: pdf` and assigns it to the PDF-derived page-1 and
+page-2 provisions. The separately locked FY 2026 income-eligibility-standards
+scope assigns the **same HTML bytes** to its own PDF-labeled page-1 and page-2
+provisions. The HTML links to a different USDA memorandum PDF through an
+iframe and does not contain the income, maximum-allotment, or deduction
+tables. The provisions contain table text, but neither locked source snapshot
+establishes that text's provenance. Repair and sign both corpus
+source/inventory bindings, then revalidate dependent generated modules and
+proofs against the corrected release; do not infer source authentication from
+the provision text alone.
+
+The original official two-page [allotment and deduction PDF](https://fns-prod.azureedge.us/sites/default/files/resource-files/snap-fy26maximumAllotments-deductions.pdf)
+(SHA-256 `c037d4d6da50c1f3de9f6871b2c8864ab220714fbcd8d4b0da633798b99a0732`)
+and [income-standards PDF](https://fns-prod.azureedge.us/sites/default/files/resource-files/snap-fy26-incomeEligibilityStandards.pdf)
+(SHA-256 `372c7cd6309e4795634f2d6a136a583c16c3221c1e8b8f0809f86bf51d335802`)
+are still accessible at the download URLs named by the legacy manifests.
+A scoped native extraction with browser impersonation produced six matched
+citations, complete coverage, and page bodies identical to the corresponding
+legacy provision rows; 104 focused document tests passed. This is a concrete
+way to preserve the existing page identities through an authorized signed
+source-binding repair, tracked in corpus [#886](https://github.com/TheAxiomFoundation/axiom-corpus/issues/886)
+and [#883](https://github.com/TheAxiomFoundation/axiom-corpus/issues/883).
+The audit output is temporary and unsigned, not a corrected release or proof
+that the pending protected RuleSpec run is source-authenticated.
+
+An accessible, primary [USDA seven-page FY 2026 COLA memorandum](https://www.usda.gov/sites/default/files/guidance-documents/fns.snap-cola-fy26memo.pdf)
+provides row-aligned income eligibility standards on page 3, maximum
+allotments on pages 4-5, shelter and homeless deductions on page 6, and
+resource limits on page 7. Its actual PDF bytes (SHA-256
+`91c75d30be5e79781f6a424c9202ef86e58b1728c37e60dec5270013fe52ee80`)
+were directly extracted into a separate local corpus scope with complete
+coverage and 142 focused document/provenance tests passing. This scope is
+**unsigned and unreleased**; it is a candidate source repair, not a citation
+that the current protected RuleSpec run can use.
+
+The same PDF bytes are also authenticated in the corpus repository's signed
+and locked `us/guidance/2026-09-13-snap-fns-guidance` scope, under
+`us/guidance/usda/fns/snap-fy2026-cola-memo` with seven page descendants.
+The signed
+`us-rulespec-2026-10-13-snap-fy2026-memo-source-corrected` release contains
+this separate scope and 272 scopes total, preserving the August baseline
+except for two audited California successor scopes. Its
+[publication run](https://github.com/TheAxiomFoundation/axiom-corpus/actions/runs/38443760033)
+signed and registered the release object with content SHA-256
+`c0097c7ca468769aef0b5c7996dc9da91881a7e025f38a6baf2d31617afe2121`;
+serving activation is separate. The scope's signed ingest manifest and locked
+PDF were verified independently. [RuleSpec PR #1759](https://github.com/TheAxiomFoundation/rulespec-us/pull/1759)
+merged on 2026-10-14 and pins this corrected release and corpus provenance commit. After
+[the pending-waiver stage PR #1762](https://github.com/TheAxiomFoundation/rulespec-us/pull/1762)
+merged, #1759 consumed exactly 12 preapproved pending fingerprints and removed
+four stale active waivers for modules that now pass; no generated RuleSpec or
+signed manifest changed. Its independent review found no actionable issue;
+51 focused tests and all exact-head repository CI checks passed before merge.
+The earlier W6 union release was broader and failed exact-head validation due
+waiver fingerprint drift outside SNAP, so it is not the selected pin. The
+corrected source route does not repair the
+incorrect PDF provenance recorded in the older page-table scopes, and its
+flattened table text still needs exact proof and numeric-recall validation.
+
+PolicyEngine's SNAP tree at the pinned commit explicitly points to three unique
+Arizona DES manual pages in its SNAP parameters (medical deduction, FAA5 utility
+eligibility, FAA6 allowance amounts). This narrow citation set is **not** a
+complete list of Arizona SNAP controlling authority. The remaining rows must be
+built from the official DES manual, federal law/regulations, FNS approvals and
+waivers, and source-effective-date history. The current effective-policy audit
+also needs an FFY 2027 branch: [DES lists FFY 2027 NA COLA changes effective
+2026-10-01](https://dbmefaapolicy.azdes.gov/FAA5/FFY_2027_NA_COLA_Changes.html),
+while the existing composition is explicitly FY 2026.
+
+Completion for any behavior requires all four: a controlling source and
+effective-date pin; source-bound RuleSpec (or an explicit unsupported-case
+record); focused plus broad tests; and a matched-household oracle comparison
+whose inputs and outputs are actually comparable. Disagreements are resolved
+against controlling authority, not by assuming either PolicyEngine or
+SnapScreener is correct.
+
+Source acquisition has advanced. Release provenance remains a blocker for the
+other staged Arizona sources, but not for the dated ECE source described below.
+Ordinary direct HTTPS fetches of DES pages returned HTTP 403 with
+`Cf-Mitigated: challenge` on 2026-10-03. The corpus extractor's
+`request.browser_impersonation: chrome120` fetched the current official DES
+FAA3 residency, qualified-noncitizen, and institution pages; FAA4 NA resources
+and income-eligibility pages; and FAA6 resource-limit and income-standard
+tables directly. Native extraction reported complete coverage in multiple local
+manifest scopes, including a retained pre-March 2026 FAA3
+qualified-noncitizen page. Except for the separately released dated ECE scope,
+these are staged, unsigned source candidates, **not** pinned or released corpus
+units. The FAA6 200% table expressly dates both ECE and simplified reporting to 03/01/2026;
+those remain distinct behaviors. Do not infer protected-encoding readiness
+until authorized signing, locking, release, and effective-date audit complete.
+
+An archival route provided candidate source bytes for provenance review:
+the [Internet Archive's 2025-10-30 capture of the official DES FFY 2026 COLA
+page](https://web.archive.org/web/20251030220841id_/https://dbmefaapolicy.azdes.gov/FAA5/FFY_2026_NA_COLA_Changes.html)
+states the 185% ECE standard effective 10/01/2025, and its SHA-1 payload digest
+matches the archive CDX record (`Q43XL5KP4LKW55V5I3TGJ2OJ734DYBPB`; local
+SHA-256 `3dc09c5a979a5593585d05d543372acbef38dbd43616ea506db14e9932696daa`).
+The [2026-04-17 capture of DES's 2026-03-23 change
+notice](https://web.archive.org/web/20260417195741id_/https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/2026-03-23_What%27sChanged.pdf)
+states the 200% standard for benefit month 03/2026 and the recalled 130%
+announcement. Its SHA-1 payload digest matches CDX
+(`UJIAFW65IDNJ7HBLBST5WHPJZMCHICLJ`; local SHA-256
+`f8173335f1f7f73467020ed8a13d0e7ad2efd5a92d83f74f7c471b57d27232e3`),
+and the Memento response preserves the original DES URL, 200 response, and
+original last-modified header. A subsequent
+browser-impersonated fetch of the DES change-notice URL returned the same PDF
+bytes as the archived capture (SHA-256
+`f8173335f1f7f73467020ed8a13d0e7ad2efd5a92d83f74f7c471b57d27232e3`).
+The live official FFY 2026 COLA page now also explicitly records the 185%-to-200%
+ECE transition for benefit month 03/2026. [Corpus PR #799](https://github.com/TheAxiomFoundation/axiom-corpus/pull/799)
+published the [signed dated ECE release](https://pub-a8952f8657fc49fda358146ac001366c.r2.dev/releases/us-rulespec-2026-10-09-az-des-ece-dated/511219a1a8f853c2a1ed8ee0e6c14ef23ce7db6353b49698d5023a48281c692c.json)
+containing the official-origin source;
+the [public mirror run](https://github.com/TheAxiomFoundation/axiom-corpus/actions/runs/38621100048)
+succeeded. The release resolves the March change notice as an amendment to
+`us-az/manual/des/faa5/na-categorical-eligibility/block-4` with
+`effective_start=2026-03-01`, but the current RuleSpec toolchain has not yet
+pinned it. [RuleSpec PR #1768](https://github.com/TheAxiomFoundation/rulespec-us/pull/1768)
+proposes that pin and remains draft. Signed source availability is not a
+temporal RuleSpec repair or an oracle parity result.
