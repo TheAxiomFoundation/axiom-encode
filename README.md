@@ -53,6 +53,10 @@ this repo:
 - **Report problems** — a wrong or missing encoding is an issue on the
   relevant `rulespec-*` repo; fixes route through the supervised pipeline.
 
+Team members can run the encoder locally on a personal Codex login to draft
+an encoding. A local draft cannot land yet. See
+[Local encoding on a personal Codex login](docs/local-encoding.md).
+
 ## Installation
 
 ```bash
