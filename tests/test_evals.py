@@ -1450,7 +1450,7 @@ def test_repair_candidate_overlay_normalizes_destination_root_deferrals(tmp_path
 def test_run_model_eval_appends_repair_parameters_after_existing_public_parameters():
     parameters = list(inspect.signature(run_model_eval).parameters)
 
-    assert parameters[-7:] == [
+    assert parameters[-8:-1] == [
         "required_import_targets",
         "legacy_replacement",
         "replacement_overlay_scope",
@@ -1459,6 +1459,9 @@ def test_run_model_eval_appends_repair_parameters_after_existing_public_paramete
         "accept_valid_retry_candidate",
         "codex_reasoning_effort",
     ]
+
+    assert parameters[-1] == "axiom_rules_engine_ref"
+    assert inspect.signature(run_model_eval).parameters[parameters[-1]].default is None
 
 
 def test_workspace_prompt_requires_each_atomic_composition_import(tmp_path):

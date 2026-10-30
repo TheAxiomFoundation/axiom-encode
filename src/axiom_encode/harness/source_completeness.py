@@ -28288,7 +28288,224 @@ def _branch_boundary_test_witnesses(
                 ):
                     witnesses.add((rule_name, f"case:{id(case)}"))
                     break
+                # Only a principal predicate whose reached leaf itself
+                # compares the scaled amount may use this fallback. A control
+                # selector feeding an inverted if/match result is not a
+                # source-polarity witness for that result.
+                if (
+                    controller_rule is rule
+                    and boundary.has_rate_context
+                    and any(
+                        _formula_execution_references_names(
+                            controller_execution, input_names
+                        )
+                        and _formula_execution_binds_boundary(
+                            controller_execution,
+                            boundary,
+                            source_text=authoritative_numeric_recall_text(branch.text),
+                            input_names=input_names,
+                            formula_environment=(
+                                controller_execution.constant_environment
+                            ),
+                            evaluation_environment=execution_environment,
+                            source_bound_constant_occurrences=(
+                                source_bound_constant_occurrences or {}
+                            ),
+                            source_interval=source_interval,
+                            source_boolean_polarity=source_boolean_polarity,
+                            extract_numeric_occurrences=extract_numeric_occurrences,
+                            numeric_value_is_grounded=numeric_value_is_grounded,
+                            leaf_only=True,
+                        )
+                        and _formula_execution_boolean_value(controller_execution)
+                        is comparison_boolean_at_boundary
+                        and _boundary_case_changes_formula_effect(
+                            controller_rule,
+                            case,
+                            input_key=input_key,
+                            selector_names=input_names,
+                            boundary_value=scaled_value,
+                            execution=controller_execution,
+                            principal_rules=principal_rules,
+                            dependency_names=set(dependency_environment),
+                            formula_environment=formula_environment or {},
+                            source_interval=scaled_source_interval,
+                            source_boolean_polarity=scaled_effect_polarity,
+                            root_rule=rule,
+                            root_execution=execution,
+                        )
+                        for (
+                            input_key,
+                            input_names,
+                            scaled_value,
+                            comparison_boolean_at_boundary,
+                            scaled_source_interval,
+                            scaled_effect_polarity,
+                        ) in (
+                            _case_scaled_percentage_boundary_evidence(
+                                case,
+                                controller_execution,
+                                boundary,
+                                selector_names=selector_names,
+                                source_text=authoritative_numeric_recall_text(
+                                    branch.text
+                                ),
+                                source_interval=source_interval,
+                                source_boolean_polarity=source_boolean_polarity,
+                                numeric_value_is_grounded=numeric_value_is_grounded,
+                            )
+                        )
+                    )
+                ):
+                    witnesses.add((rule_name, f"case:{id(case)}"))
+                    break
     return witnesses
+
+
+def _case_scaled_percentage_boundary_evidence(
+    case: dict[str, Any],
+    execution: _FormulaExecution,
+    boundary: NumericOccurrenceLike,
+    *,
+    selector_names: set[str],
+    source_text: str,
+    source_interval: _NumericInterval | None,
+    source_boolean_polarity: int,
+    numeric_value_is_grounded: NumericGroundingPredicate,
+) -> tuple[tuple[object, set[str], float, bool, _NumericInterval, int], ...]:
+    """Find an asserted amount at a source-stated percent-of-base boundary.
+
+    A percentage may be supplied by a source-bound imported rate rather than
+    as a test input. In that case the tested boundary is ``rate * base`` in
+    money, not the rate itself in the input map.
+    """
+    if not boundary.has_rate_context or source_interval is None:
+        return ()
+    inputs = case.get("input")
+    if not isinstance(inputs, dict):
+        return ()
+    numeric_inputs = {
+        name: (key, float(value))
+        for key, value in inputs.items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+        for name in _input_key_names(key)
+    }
+    evidence: list[tuple[object, set[str], float, bool, _NumericInterval, int]] = []
+    for text in (execution.leaf,):
+        expression = _parse_formula_expression(text)
+        if expression is None:
+            continue
+        for comparison, negated in _formula_comparisons_with_polarity(expression):
+            operands = (comparison.left, *comparison.comparators)
+            for operator, left, right in zip(comparison.ops, operands, operands[1:]):
+                if not isinstance(
+                    operator,
+                    (ast.Gt, ast.GtE, ast.Lt, ast.LtE, ast.Eq, ast.NotEq),
+                ):
+                    continue
+                comparison_boolean_at_boundary = isinstance(
+                    operator, (ast.GtE, ast.LtE, ast.Eq)
+                )
+                if negated:
+                    comparison_boolean_at_boundary = not comparison_boolean_at_boundary
+                for amount_node, threshold_node in ((left, right), (right, left)):
+                    if (
+                        not isinstance(amount_node, ast.Name)
+                        or amount_node.id not in numeric_inputs
+                        or amount_node.id not in selector_names
+                        or not isinstance(threshold_node, ast.BinOp)
+                        or not isinstance(threshold_node.op, ast.Mult)
+                    ):
+                        continue
+                    amount_key, amount = numeric_inputs[amount_node.id]
+                    for rate_node, base_node in (
+                        (threshold_node.left, threshold_node.right),
+                        (threshold_node.right, threshold_node.left),
+                    ):
+                        if (
+                            not isinstance(base_node, ast.Name)
+                            or base_node.id not in numeric_inputs
+                            or not _source_percentage_base_matches(
+                                source_text,
+                                boundary=boundary,
+                                base_name=base_node.id,
+                            )
+                        ):
+                            continue
+                        rate_names = {
+                            node.id
+                            for node in ast.walk(rate_node)
+                            if isinstance(node, ast.Name)
+                        }
+                        if rate_names & numeric_inputs.keys():
+                            continue
+                        rate = _rulespec_runtime_decimal(
+                            _evaluate_condition_expression(
+                                rate_node, execution.constant_environment
+                            )
+                        )
+                        if rate is None or not numeric_value_is_grounded(
+                            float(rate), (boundary,)
+                        ):
+                            continue
+                        if not _comparison_matches_source_interval(
+                            operator,
+                            input_on_left=amount_node is left,
+                            compared_boundary_value=float(rate),
+                            boundary_names=set(),
+                            boundary=boundary,
+                            numeric_value_is_grounded=numeric_value_is_grounded,
+                            source_interval=source_interval,
+                            allow_complement_relation=source_boolean_polarity < 0,
+                            negated=negated,
+                        ):
+                            continue
+                        _base_key, base = numeric_inputs[base_node.id]
+                        if base <= 0 or not math.isclose(
+                            amount,
+                            float(rate) * base,
+                            rel_tol=1e-9,
+                            abs_tol=1e-9,
+                        ):
+                            continue
+                        scaled_source_interval = _NumericInterval(
+                            lower=(
+                                replace(
+                                    source_interval.lower,
+                                    value=float(source_interval.lower.value) * base,
+                                )
+                                if source_interval.lower is not None
+                                else None
+                            ),
+                            lower_inclusive=source_interval.lower_inclusive,
+                            upper=(
+                                replace(
+                                    source_interval.upper,
+                                    value=float(source_interval.upper.value) * base,
+                                )
+                                if source_interval.upper is not None
+                                else None
+                            ),
+                            upper_inclusive=source_interval.upper_inclusive,
+                            upper_directly_conjoined=source_interval.upper_directly_conjoined,
+                        )
+                        scaled_effect_polarity = (
+                            1
+                            if comparison_boolean_at_boundary
+                            == _interval_contains(scaled_source_interval, amount)
+                            else -1
+                        )
+                        evidence.append(
+                            (
+                                amount_key,
+                                {amount_node.id},
+                                amount,
+                                comparison_boolean_at_boundary,
+                                scaled_source_interval,
+                                scaled_effect_polarity,
+                            )
+                        )
+    return tuple(evidence)
 
 
 def _asserted_reached_rule_executions(
@@ -28397,6 +28614,7 @@ def _formula_execution_binds_boundary(
     source_boolean_polarity: int,
     extract_numeric_occurrences: NumericOccurrenceExtractor | None,
     numeric_value_is_grounded: NumericGroundingPredicate,
+    leaf_only: bool = False,
 ) -> bool:
     boundary_names = {
         name
@@ -28418,10 +28636,11 @@ def _formula_execution_binds_boundary(
         )
     }
     checks: list[tuple[str, bool]] = []
-    for step in execution.trace:
-        if step.kind not in {"if", "match"}:
-            continue
-        checks.extend((selector, True) for selector in step.selectors)
+    if not leaf_only:
+        for step in execution.trace:
+            if step.kind not in {"if", "match"}:
+                continue
+            checks.extend((selector, True) for selector in step.selectors)
     checks.append((execution.leaf, source_boolean_polarity < 0))
     resolved_environment = dict(formula_environment)
     resolved_environment.update(evaluation_environment or {})
@@ -29005,16 +29224,20 @@ def _source_percentage_base_matches(
         return False
     searchable_text = explicit_base.group("base")
     collapsed = _collapse_text(searchable_text).lower()
+    selector_tokens = tuple(_normalized_selector_name(base_name).split("_"))
     concept_tokens = tuple(
         token
-        for token in _normalized_selector_name(base_name).split("_")
+        for token in selector_tokens
         if (len(token) >= 4 or token in _SOURCE_ACRONYM_EXPANSIONS)
         and token not in _SOURCE_SELECTOR_TOKEN_STOPWORDS
         and token not in _SOURCE_SELECTOR_GENERIC_ENTITY_TOKENS
         and token not in _SOURCE_GENERIC_NUMERIC_NAME_TOKENS
     )
     return bool(concept_tokens) and all(
-        _source_concept_token_matches(collapsed, token) for token in concept_tokens
+        _source_selector_token_matches(
+            collapsed, token, selector_tokens=selector_tokens
+        )
+        for token in concept_tokens
     )
 
 
