@@ -15197,6 +15197,65 @@ def _contiguous_states_numeric_recall_spans(
             yield identifier.span()
 
 
+_IRS_PAGED_GUIDANCE_CITATION = re.compile(
+    r"us/guidance/irs/(?:rev-proc|notice)-\d{4}-\d+/page-(?P<page>[1-9]\d{0,3})"
+)
+# The page number stands alone and a blank line separates it from the page
+# text. A single line break is not enough: an amount whose unit or qualifier
+# wraps onto the next line looks the same, so it stays demanded.
+_LEADING_PAGE_NUMBER_LINE = re.compile(
+    r"[ \t]*(?P<page>[0-9]{1,4})[ \t]*\r?\n[ \t]*\r?\n"
+)
+# Extra exclusion after the blank line: text that continues a quantity (`14\ndollars per
+# hour`, `14\r\npercent`, `14\ntaxable years`, `14\nto 18 years`) makes the
+# number an amount whose unit wrapped onto the next line, not a page number.
+# A unit may follow up to two modifier words (`U.S. dollars`, `consecutive
+# months`). A range or list word (`to`, `through`, `or`, `and`) counts only
+# before a number or a comparison word, so a page that opens with
+# `To qualify, ...` keeps its page number masked. A fraction glyph (`2\n½
+# months`, `9\n1/2 months`) completes a mixed number, and a hyphenated
+# duration (`3\nconsecutive 12-month periods`) counts as a unit.
+_LEADING_PAGE_NUMBER_QUANTITY_CONTINUATION = re.compile(
+    r"\s*(?:[%\u00a2\u00bc-\u00be\u2150-\u215e]"
+    r"|(?:[A-Za-z][A-Za-z.'\-]*\s+){0,2}"
+    r"(?:dollars?|cents?|usd|percent(?:age)?s?|per|seconds?|minutes?|hours?"
+    r"|days?|weeks?|months?|quarters?|years?|times|miles?)\b"
+    r"|(?:to|through|or|and)\s+"
+    r"(?:(?:(?:not|no)\s+)?(?:less|more|fewer|greater)\s+than\s+)?\$?\d"
+    r"|but\s+(?:(?:not|no)\s+)?(?:less|more|fewer|greater)\s+than\s+\$?\d"
+    r"|\d+\s*[/\u2044]\s*\d+"
+    r"|(?:[A-Za-z][A-Za-z.'\-]*\s+){0,2}\d+-(?:hour|day|week|month|quarter|year)s?\b"
+    r"|(?:or|and)\s+(?:more|less|fewer|greater|older|younger|over|under)\b)",
+    re.IGNORECASE,
+)
+
+
+def _irs_page_locator_numeric_recall_spans(
+    source_text: str, *, corpus_citation_path: str
+) -> Iterable[tuple[int, int]]:
+    """Prove an IRS PDF page's printed page number, never a leading amount.
+
+    Revenue procedure and notice pages start with the printed page number
+    alone on the first line, then a blank line. Only that exact shape, with
+    the number equal to the citation's own page index and the following text
+    not continuing a quantity, is a locator. Any other leading number,
+    including one followed by a single line break, stays demanded.
+    """
+
+    citation = _IRS_PAGED_GUIDANCE_CITATION.fullmatch(corpus_citation_path)
+    if citation is None:
+        return
+    line = _LEADING_PAGE_NUMBER_LINE.match(source_text)
+    if (
+        line is not None
+        and line.group("page") == citation.group("page")
+        and not _LEADING_PAGE_NUMBER_QUANTITY_CONTINUATION.match(
+            source_text, line.end()
+        )
+    ):
+        yield line.span("page")
+
+
 def authoritative_numeric_recall_text(
     source_text: str,
     *,
@@ -15215,6 +15274,15 @@ def authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path
     )
     source_text = mask(source_text, form_numeric_locator_spans(source_text))
+    # This mask runs before the context-sensitive recognizers below, so they
+    # see the text after the page number. For example, a page that starts with
+    # `48 contiguous states` after its page number is then read as geography.
+    source_text = mask(
+        source_text,
+        _irs_page_locator_numeric_recall_spans(
+            source_text, corpus_citation_path=corpus_citation_path
+        ),
+    )
     source_text = mask_bare_labels(source_text)
     source_text = mask(
         source_text, _english_subdivision_numeric_recall_spans(source_text)
