@@ -33577,6 +33577,182 @@ def test_boundary_witness_rejects_effect_invariant_root_behind_dependency():
 
 
 @pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "When gross income exceeds 200% of the current federal poverty level "
+            "(FPL), the unit is not categorically eligible."
+        ),
+        (
+            "When gross income exceeds 200% of the current FPL, the unit is "
+            "not categorically eligible."
+        ),
+    ],
+)
+def test_imported_percent_rate_witness_uses_scaled_source_boundary(source: str):
+    branch = completeness_module.SourceStructureBranch(
+        ("ece",), "paragraph", "ECE", source, 0, len(source)
+    )
+    boundary = LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR(source)[0]
+    rule = {
+        "name": "ece_blocked",
+        "kind": "derived",
+        "dtype": "Judgment",
+        "versions": [
+            {
+                "formula": (
+                    "considered and gross_income > "
+                    "imported_fpl_rate * current_federal_poverty_level_amount"
+                )
+            }
+        ],
+    }
+    case = {
+        "name": "March at the ceiling",
+        "period": "2026-03",
+        "input": {
+            "considered": True,
+            "gross_income": 2000,
+            "current_federal_poverty_level_amount": 1000,
+        },
+        "output": {"ece_blocked": "not_holds"},
+    }
+    common = {
+        "principal_rules": {"ece_blocked": rule},
+        "principal_rule_paths": {"ece_blocked": {("ece",)}},
+        "numeric_value_is_grounded": numeric_value_is_grounded,
+        "formula_environment": {"imported_fpl_rate": 2.0},
+        "extract_numeric_occurrences": (LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR),
+    }
+
+    assert completeness_module._branch_boundary_test_witnesses(
+        branch, boundary, asserted_by_rule={"ece_blocked": [case]}, **common
+    )
+    for rejected_case in (
+        {**case, "input": {**case["input"], "gross_income": 1900}},
+        {**case, "input": {**case["input"], "current_federal_poverty_level_amount": 0}},
+    ):
+        assert not completeness_module._branch_boundary_test_witnesses(
+            branch,
+            boundary,
+            asserted_by_rule={"ece_blocked": [rejected_case]},
+            **common,
+        )
+    assert not completeness_module._branch_boundary_test_witnesses(
+        branch,
+        boundary,
+        asserted_by_rule={"ece_blocked": [case]},
+        **{**common, "formula_environment": {"imported_fpl_rate": 1.85}},
+    )
+
+
+@pytest.mark.parametrize(
+    "formula",
+    [
+        (
+            "if gross_income > imported_fpl_rate * "
+            "current_federal_poverty_level_amount: not_holds else: holds"
+        ),
+        (
+            "not (gross_income > imported_fpl_rate * "
+            "current_federal_poverty_level_amount)"
+        ),
+        (
+            "if gross_income <= imported_fpl_rate * "
+            "current_federal_poverty_level_amount: "
+            "gross_income <= imported_fpl_rate * "
+            "current_federal_poverty_level_amount else: not_holds"
+        ),
+        (
+            "(gross_income > imported_fpl_rate * "
+            "current_federal_poverty_level_amount) or "
+            "(gross_income == imported_fpl_rate * "
+            "current_federal_poverty_level_amount)"
+        ),
+    ],
+)
+def test_scaled_percent_boundary_rejects_reversed_eligibility(formula: str):
+    source = (
+        "The unit is eligible when gross income exceeds 200% of the current "
+        "federal poverty level."
+    )
+    branch = completeness_module.SourceStructureBranch(
+        ("ece",), "paragraph", "ECE", source, 0, len(source)
+    )
+    boundary = LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR(source)[0]
+    rule = {
+        "name": "eligible",
+        "kind": "derived",
+        "dtype": "Judgment",
+        "versions": [{"formula": formula}],
+    }
+    case = {
+        "name": "at the ceiling",
+        "period": "2026-03",
+        "input": {
+            "gross_income": 2000,
+            "current_federal_poverty_level_amount": 1000,
+        },
+        "output": {"eligible": "holds"},
+    }
+
+    assert not completeness_module._branch_boundary_test_witnesses(
+        branch,
+        boundary,
+        principal_rules={"eligible": rule},
+        principal_rule_paths={"eligible": {("ece",)}},
+        asserted_by_rule={"eligible": [case]},
+        numeric_value_is_grounded=numeric_value_is_grounded,
+        formula_environment={"imported_fpl_rate": 2.0},
+        extract_numeric_occurrences=(LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR),
+    )
+
+
+def test_scaled_percent_boundary_rejects_wrong_side_effect():
+    source = (
+        "The unit is eligible when gross income exceeds 200% of the current "
+        "federal poverty level."
+    )
+    branch = completeness_module.SourceStructureBranch(
+        ("ece",), "paragraph", "ECE", source, 0, len(source)
+    )
+    rule = {
+        "name": "eligible",
+        "kind": "derived",
+        "dtype": "Judgment",
+        "versions": [
+            {
+                "formula": (
+                    "(gross_income > imported_fpl_rate * "
+                    "current_federal_poverty_level_amount and false) or "
+                    "gross_income < imported_fpl_rate * "
+                    "current_federal_poverty_level_amount"
+                )
+            }
+        ],
+    }
+    case = {
+        "period": "2026-03",
+        "input": {
+            "gross_income": 2000,
+            "current_federal_poverty_level_amount": 1000,
+        },
+        "output": {"eligible": "not_holds"},
+    }
+
+    assert not completeness_module._branch_boundary_test_witnesses(
+        branch,
+        LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR(source)[0],
+        principal_rules={"eligible": rule},
+        principal_rule_paths={"eligible": {("ece",)}},
+        asserted_by_rule={"eligible": [case]},
+        numeric_value_is_grounded=numeric_value_is_grounded,
+        formula_environment={"imported_fpl_rate": 2.0},
+        extract_numeric_occurrences=LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+    )
+
+
+@pytest.mark.parametrize(
     "formula",
     [
         "if refund_applies: max(0, credit_amount - tax_liability) else: 0",
