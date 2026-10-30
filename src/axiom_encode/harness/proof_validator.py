@@ -24,7 +24,7 @@ import unicodedata
 from array import array
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
 
 import yaml
@@ -975,32 +975,29 @@ def _validate_source_proof_atom(
                 if not isinstance(evidence_text, str) or not evidence_text.strip():
                     continue
                 evidence_text = evidence_text.strip()
-                printed_forms = _located_proof_evidence(
+                # The excerpt must quote the source as printed. A spelling
+                # that only matches typographically is not accepted here;
+                # the generated-artifact repair rewrites it to the printed
+                # text (align_proof_excerpt) before validation reruns.
+                if not _source_contains_proof_evidence(
                     source_text=resolved_text,
                     evidence_text=evidence_text,
-                )
-                if not printed_forms:
+                ):
                     issues.append(
                         "Proof source evidence not found: "
                         f"{label} `source.{field}` does not appear in "
                         f"`{citation_path}`."
                     )
                 else:
-                    # A typographic excerpt can match several printed spans;
-                    # like a repeated literal excerpt, it is in scope when one
-                    # of the places it quotes is.
-                    scope_issues = [
+                    issues.extend(
                         _proof_excerpt_subsection_scope_issues(
                             source_text=resolved_text,
-                            evidence_text=printed,
+                            evidence_text=evidence_text,
                             rule_source=rule_source,
                             label=label,
                             field=field,
                         )
-                        for printed in printed_forms
-                    ]
-                    if all(scope_issues):
-                        issues.extend(scope_issues[0])
+                    )
 
     table = source.get("table")
     if kind == "table_cell":
@@ -1145,9 +1142,22 @@ def _source_contains_proof_evidence(
     source_text: str,
     evidence_text: str,
 ) -> bool:
-    return bool(
-        _located_proof_evidence(source_text=source_text, evidence_text=evidence_text)
-    )
+    """Whether the source prints the excerpt (up to whitespace or a maqaf wrap)."""
+    normalized_evidence = collapse_evidence_whitespace(evidence_text)
+    if not normalized_evidence:
+        return False
+    maqaf_evidence = collapse_evidence_whitespace(bind_maqaf_space(evidence_text))
+    for segment in split_proof_evidence_text(source_text):
+        if _bounded_source_evidence_match(evidence_text, segment):
+            return True
+        normalized_segment = collapse_evidence_whitespace(segment)
+        if _bounded_source_evidence_match(normalized_evidence, normalized_segment):
+            return True
+        if "\u05be" in segment and _bounded_source_evidence_match(
+            maqaf_evidence, collapse_evidence_whitespace(bind_maqaf_space(segment))
+        ):
+            return True
+    return False
 
 
 def _located_proof_evidence(*, source_text: str, evidence_text: str) -> tuple[str, ...]:
@@ -1156,28 +1166,131 @@ def _located_proof_evidence(*, source_text: str, evidence_text: str) -> tuple[st
     An excerpt the source contains as written (up to whitespace, or a maqaf
     wrap) is returned unchanged as the only form. An excerpt that matches only
     through the typographic view is returned as each distinct exact source
-    span it matched, so structural checks such as subsection scope read the
-    printed source text rather than the model's typography or quotation marks.
+    span it matched. This locates evidence for a repair; it never accepts it.
     """
-    normalized_evidence = collapse_evidence_whitespace(evidence_text)
-    if not normalized_evidence:
-        return ()
-    maqaf_evidence = collapse_evidence_whitespace(bind_maqaf_space(evidence_text))
-    for segment in split_proof_evidence_text(source_text):
-        if _bounded_source_evidence_match(evidence_text, segment):
-            return (evidence_text,)
-        normalized_segment = collapse_evidence_whitespace(segment)
-        if _bounded_source_evidence_match(normalized_evidence, normalized_segment):
-            return (evidence_text,)
-        if "\u05be" in segment and _bounded_source_evidence_match(
-            maqaf_evidence, collapse_evidence_whitespace(bind_maqaf_space(segment))
-        ):
-            return (evidence_text,)
+    if _source_contains_proof_evidence(
+        source_text=source_text, evidence_text=evidence_text
+    ):
+        return (evidence_text,)
     spans = _typographic_source_evidence_spans(
         source_text=source_text,
         evidence_text=evidence_text,
     )
     return tuple(dict.fromkeys(source_text[start:end] for start, end in spans))
+
+
+# End marks a model adds to a quotation that the source does not print there
+# ("... early retirement age." for "... early retirement age;").
+_PROOF_ADDED_END_MARKS = ".;,"
+# Spaces and at most one line wrap between two words: never a blank line, so a
+# located span never crosses a paragraph gap the matcher keeps.
+_PROOF_LOCATE_WORD_GAP = r"(?:[ \t\u00a0]*\r?\n[ \t\u00a0]*|[ \t\u00a0]+)"
+
+
+def _plain_source_occurrences(source_text: str, excerpt: str) -> tuple[str, ...]:
+    """Distinct printed texts of the excerpt's words, ignoring token boundaries.
+
+    Locating only: a caller stores a returned text only after the matcher
+    accepts it (or a version of it widened to its enclosing parentheses).
+    """
+    words = excerpt.split()
+    if not words:
+        return ()
+    pattern = re.compile(_PROOF_LOCATE_WORD_GAP.join(re.escape(word) for word in words))
+    found: dict[str, None] = {}
+    for segment in split_proof_evidence_text(source_text):
+        for match in pattern.finditer(segment):
+            found[match.group()] = None
+            start, end = match.span()
+            if (
+                0 < start
+                and end < len(segment)
+                and segment[start - 1] == "("
+                and segment[end] == ")"
+                and _PROOF_WIDENABLE_PARENTHETICAL.search(match.group())
+                and not _PROOF_SIGN_BEFORE_PARENTHESIS.search(
+                    segment[max(0, start - 9) : start - 1]
+                )
+            ):
+                found["(" + match.group() + ")"] = None
+    return tuple(found)
+
+
+# Parentheses are restored only around words ("(165 Percent of Poverty
+# Level)"): a parenthesized bare number is an accounting negative, and a sign
+# before the parenthesis belongs to the number, so neither is widened.
+_PROOF_WIDENABLE_PARENTHETICAL = re.compile(r"[^\W\d_]{2,}")
+_PROOF_SIGN_BEFORE_PARENTHESIS = re.compile("[-+\u2212\u2013\u00b1]\\s*$")
+
+
+def _distinct_printed_forms(forms: Sequence[str]) -> tuple[str, ...]:
+    """One entry per printed text: whitespace variants and nested spans merge.
+
+    The same printed words wrapped differently are one text; a form found
+    inside another found form ("magic phrase" inside "\u201cmagic phrase\u201d")
+    is part of that occurrence, so the enclosing form is kept.
+    """
+    by_text: dict[str, str] = {}
+    for form in forms:
+        by_text.setdefault(collapse_evidence_whitespace(form), form)
+    keys = list(by_text)
+    return tuple(
+        by_text[key]
+        for key in keys
+        if not any(key != other and key in other for other in keys)
+    )
+
+
+def align_proof_excerpt(*, source_text: str, excerpt: str) -> str | None:
+    """Return the exact source text a proof excerpt quotes, or ``None``.
+
+    Locating is tolerant; the result is exact. The excerpt is located through
+    the typographic view (quotation marks, dashes, ligatures, wraps, a
+    recased first letter), with an added end mark dropped. When that finds
+    nothing because a token-boundary rule rejects the bare span, the span
+    widened to its enclosing parentheses is tried ("(165 Percent of Poverty
+    Level)"). The result is returned only when every match prints one text and
+    ``_source_contains_proof_evidence`` accepts that text, so the stored
+    excerpt is always the printed source text and no check gets looser.
+    """
+    excerpt = excerpt.strip()
+    if not excerpt:
+        return None
+    if _source_contains_proof_evidence(source_text=source_text, evidence_text=excerpt):
+        return excerpt
+    queries = [excerpt]
+    trimmed = excerpt.rstrip(_PROOF_ADDED_END_MARKS).rstrip()
+    if trimmed and trimmed != excerpt:
+        queries.append(trimmed)
+    # The excerpt as written first; the trimmed excerpt only if that finds nothing.
+    forms: dict[str, None] = {}
+    for query in queries:
+        forms = dict.fromkeys(
+            _located_proof_evidence(source_text=source_text, evidence_text=query)
+        )
+        if forms:
+            break
+    if not forms:
+        for query in queries:
+            for form in _plain_source_occurrences(source_text, query):
+                forms[form] = None
+        accepted = [
+            form
+            for form in forms
+            if _source_contains_proof_evidence(
+                source_text=source_text, evidence_text=form
+            )
+        ]
+        # A bare span the boundary rules reject and its widened form are one
+        # occurrence; keep only the accepted texts.
+        forms = dict.fromkeys(accepted)
+    distinct = _distinct_printed_forms(tuple(forms))
+    if len(distinct) != 1:
+        return None
+    (form,) = distinct
+    if not _source_contains_proof_evidence(source_text=source_text, evidence_text=form):
+        return None
+    return form
 
 
 # Typographic normalization for proof evidence. A PDF, an HTML export and a
@@ -1521,13 +1634,6 @@ def _source_proof_evidence_spans(
                 end = coordinates[match.end() - 1] + 1 if coordinates else match.end()
                 spans.add((base + start, base + end))
         base += len(segment) + len(PROOF_EVIDENCE_SEGMENT_SEPARATOR)
-    if not spans:
-        # The proof check accepts an excerpt that differs from the source only
-        # typographically; locate it the same way so the two never disagree.
-        return _typographic_source_evidence_spans(
-            source_text=source_text,
-            evidence_text=evidence,
-        )
     return tuple(sorted(spans))
 
 
