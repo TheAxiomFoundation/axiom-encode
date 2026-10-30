@@ -2359,9 +2359,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["pr_base_branch"]["default"] == "main"
     assert inputs["source_bundle_json"] == {
         "description": (
-                "Atomic source input: corpus-artifact-transport/v1 wrapping v3 "
-                "with signed corpus/provision export run IDs (fresh, or exact authenticated "
-                "legacy-primary repair after dependent failure); "
+            "Atomic source input: corpus-artifact-transport/v1 wrapping v3 "
+            "with signed corpus/provision export run IDs (fresh, or exact authenticated "
+            "legacy-primary repair after dependent failure); "
             "corpus-provision-prefetch/v1 wrapping exact v2-v3 with signed provision run IDs; "
             "legacy citation array/refresh object, v2-v5 contract, "
             "or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} "
