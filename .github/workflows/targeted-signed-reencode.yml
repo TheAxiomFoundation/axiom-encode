@@ -159,16 +159,59 @@ jobs:
         run: |
           python3 "$GITHUB_WORKSPACE/axiom-encode/scripts/enforce_attempt_budget.py"
 
-  encode:
-    name: Queue protected signed RuleSpec re-encode
-    needs: attempt_budget
-    # !cancelled() disables the implicit success() gate so a skipped
-    # attempt_budget (queue dispatch) still admits encode; an explicit
-    # failure (budget exhausted) or infrastructure failure of the guard
-    # job blocks only ad hoc runs, which can always be re-dispatched.
+  # GitHub expressions coerce booleans and cannot validate the JSON object's
+  # type exactly. Classify locally using the same literal-boolean rule as the
+  # atomic-source normalizer; malformed JSON fails closed.
+  classify_run:
+    name: Classify reviewed-candidate promotion
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    permissions: {}
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    outputs:
+      is_promotion: ${{ steps.classify.outputs.is_promotion }}
+    steps:
+      - name: Classify atomic source input
+        id: classify
+        env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+        run: |
+          python3 -I - <<'PY'
+          import json
+          import os
+
+          def unique_object(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError("atomic source JSON has duplicate keys")
+                  result[key] = value
+              return result
+
+          def reject_constant(name):
+              raise ValueError(f"atomic source JSON uses non-JSON constant {name}")
+
+          payload = json.loads(
+              os.environ.get("ATOMIC_SOURCE_JSON") or "[]",
+              object_pairs_hook=unique_object,
+              parse_constant=reject_constant,
+          )
+          is_promotion = (
+              isinstance(payload, dict)
+              and payload.get("reviewed_candidate_promotion") is True
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"is_promotion={str(is_promotion).lower()}\n")
+          PY
+
+  approve_generation:
+    name: Approve signed generation
+    needs: [attempt_budget, classify_run]
     if: >-
       ${{
         !cancelled()
+        && needs.classify_run.result == 'success'
+        && needs.classify_run.outputs.is_promotion == 'false'
         && (
           needs.attempt_budget.result == 'success'
           || needs.attempt_budget.result == 'skipped'
@@ -183,7 +226,79 @@ jobs:
           )
         )
       }}
-    environment: production-signing
+    environment: generation-approval
+    permissions:
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    # Re-running failed jobs does not re-run this successful job, and its
+    # outputs carry over. Record the approved attempt so encode refuses a
+    # generation attempt that no one approved.
+    outputs:
+      approved_run_attempt: ${{ steps.record.outputs.run_attempt }}
+    steps:
+      # GitHub creates a missing environment without protection rules, so a
+      # deleted or never-configured gate would otherwise pass without a human.
+      - name: Require reviewers on the generation gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          reviewers="$(gh api "repos/$REPOSITORY/environments/generation-approval" \
+            --jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length')"
+          case "$reviewers" in
+            ''|*[!0-9]*|0)
+              echo "generation-approval has no required reviewers; refusing to sign generation" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Record generation approval
+        id: record
+        run: echo "run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+  encode:
+    name: Queue protected signed RuleSpec re-encode
+    needs: [attempt_budget, classify_run, approve_generation]
+    # !cancelled() disables the implicit success() gate so a skipped
+    # attempt_budget (queue dispatch) still admits encode; an explicit
+    # failure (budget exhausted) or infrastructure failure of the guard
+    # job blocks only ad hoc runs, which can always be re-dispatched. Reviewed
+    # promotions may skip approval; every generation attempt needs an approval
+    # recorded in that same attempt.
+    if: >-
+      ${{
+        !cancelled()
+        && (
+          needs.attempt_budget.result == 'success'
+          || needs.attempt_budget.result == 'skipped'
+        )
+        && needs.classify_run.result == 'success'
+        && (
+          (
+            needs.approve_generation.result == 'success'
+            && needs.approve_generation.outputs.approved_run_attempt == github.run_attempt
+          )
+          || (
+            needs.classify_run.outputs.is_promotion == 'true'
+            && needs.approve_generation.result == 'skipped'
+          )
+        )
+        && github.event_name == 'workflow_dispatch'
+        && github.ref == 'refs/heads/main'
+        && (
+          inputs.queue_id == ''
+          || (
+            github.actor == 'github-actions[bot]'
+            && github.run_attempt == 1
+          )
+        )
+      }}
+    # Earlier revisions of this workflow sign in production-signing with no
+    # approve_generation job, and GitHub re-runs a run with its original
+    # workflow file for 30 days. The key therefore lives only in apply-signing,
+    # which no earlier revision names. Never sign in production-signing here.
+    environment: apply-signing
     runs-on: ubuntu-latest
     # A replacement with a composed source bundle performs a target preflight,
     # each source lane, and the final target validation serially. Keep the
@@ -191,6 +306,85 @@ jobs:
     # those bounded retries to finish.
     timeout-minutes: 240
     steps:
+      # This must precede checkout and every network/model operation. Approval
+      # bypass authorizes only an exact promotion, never a generation input.
+      - name: Reject mixed promotion inputs
+        id: promotion_input_guard
+        env:
+          DISPATCH_INPUTS_JSON: ${{ toJSON(inputs) }}
+          IS_PROMOTION: ${{ needs.classify_run.outputs.is_promotion }}
+        run: |
+          python3 -I - <<'PY'
+          import json
+          import os
+
+          def unique_object(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError("promotion inputs have duplicate JSON keys")
+                  result[key] = value
+              return result
+
+          def reject_constant(name):
+              raise ValueError(f"promotion inputs use non-JSON constant {name}")
+
+          dispatch = json.loads(
+              os.environ["DISPATCH_INPUTS_JSON"], parse_constant=reject_constant
+          )
+          payload = json.loads(
+              dispatch.get("source_bundle_json") or "[]",
+              object_pairs_hook=unique_object,
+              parse_constant=reject_constant,
+          )
+          is_promotion = (
+              isinstance(payload, dict)
+              and payload.get("reviewed_candidate_promotion") is True
+          )
+          if os.environ["IS_PROMOTION"] != str(is_promotion).lower():
+              raise SystemExit("promotion classification changed before signing")
+          if not is_promotion:
+              raise SystemExit(0)
+
+          # Match split-atomic-source-input's exact normalized v5 promotion.
+          expected = {
+              "schema": "axiom-encode/atomic-source-transaction/v5",
+              "source_bundle": [],
+              "canonical_refresh_bundle": [],
+              "primary_required_test_cases": [],
+              "require_complete_source_unit": True,
+              "manifest_only_refresh": False,
+              "reviewed_candidate_promotion": True,
+          }
+          if set(payload) != set(expected) or any(
+              type(payload[key]) is not type(value) or payload[key] != value
+              for key, value in expected.items()
+          ):
+              raise SystemExit("reviewed candidate promotion requires an exact v5 promotion contract")
+          if not dispatch.get("replace_rulespec_path"):
+              raise SystemExit("reviewed candidate promotion requires one existing target")
+
+          generation_inputs = (
+              "review_finding", "repair_run_id",
+              "dependent_citation", "dependent_review_finding",
+              "second_dependent_citation", "second_dependent_review_finding",
+              "replace_legacy_rulespec_path",
+              "legacy_exact_dependent_rulespec_path",
+              "second_legacy_exact_dependent_rulespec_path",
+              "queue_id", "queue_item_id", "queue_manifest_sha256",
+              "queue_item_generation_sha256", "queue_dispatcher_run_id",
+          )
+          for name in generation_inputs:
+              if dispatch.get(name):
+                  raise SystemExit(f"reviewed candidate promotion cannot include {name}")
+          for name in (
+              "existing_signed_imports_json",
+              "legacy_retained_successor_rulespec_paths_json",
+          ):
+              if json.loads(dispatch.get(name) or "[]") != []:
+                  raise SystemExit(f"reviewed candidate promotion requires empty {name}")
+          PY
+
       - name: Checkout axiom-encode
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -5117,7 +5311,7 @@ jobs:
 
       - name: Package failed re-encode diagnostics
         id: package_failed_reencode_diagnostics
-        if: ${{ failure() && !cancelled() }}
+        if: ${{ failure() && !cancelled() && steps.promotion_input_guard.outcome == 'success' }}
         env:
           REPAIR_EXECUTION_JSON: ${{ steps.repair_candidate.outputs.execution }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
@@ -5625,6 +5819,7 @@ jobs:
       - name: Upload failed re-encode diagnostics
         if: >-
           ${{ failure() && !cancelled()
+              && steps.promotion_input_guard.outcome == 'success'
               && steps.package_failed_reencode_diagnostics.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
