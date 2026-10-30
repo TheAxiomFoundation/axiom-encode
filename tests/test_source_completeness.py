@@ -872,6 +872,182 @@ Basic categorical eligibility exists when the budgetary unit does not have a dis
     assert not completeness_module._source_conjunctive_fact_gates(clauses[0].text)
 
 
+def test_exact_physical_bullet_proof_owns_only_its_item():
+    source = (
+        "Eligibility exists when all of the following apply:\n\n"
+        "● Gross income does not exceed the limit\n\n"
+        "● The unit does not meet basic categorical eligibility\n\n"
+        "● Disqualified participant resources are within the limit\n\n"
+        "NOTE Resources from certain disqualified participants are counted in full."
+    )
+    citation = "us-az/manual/des/faa5/na-categorical-eligibility/block-4"
+    excerpt = "The unit does not meet basic categorical eligibility"
+    rule = _ky_derived_rule(
+        "unit_does_not_meet_basic_categorical_eligibility",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="not unit_meets_basic_categorical_eligibility",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path=citation,
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == ["● " + excerpt]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) < 2
+
+    chapeau = "Eligibility exists when all of the following apply:"
+    parent_rule = _ky_derived_rule(
+        "eligibility",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="gross_income_within_limit and unit_not_bce and resources_within_limit",
+        excerpt=chapeau,
+    )
+    parent_clauses, parent_ambiguous = (
+        completeness_module._source_condition_clauses_owned_by_excerpt(
+            chapeau,
+            rule=parent_rule,
+            source_text=source,
+            branches=recognize_source_structure(source),
+            corpus_citation_path=citation,
+        )
+    )
+    assert not parent_ambiguous
+    assert (
+        len(completeness_module._source_conjunctive_fact_gates(parent_clauses[0].text))
+        == 3
+    )
+    note = "Resources from certain disqualified participants are counted in full."
+    note_rule = _ky_derived_rule(
+        "disqualified_participant_resources_counted_in_full",
+        source="Arizona DES FAA5",
+        dtype="Money",
+        formula="disqualified_participant_resources",
+        excerpt=note,
+    )
+    note_clauses, note_ambiguous = (
+        completeness_module._source_condition_clauses_owned_by_excerpt(
+            note,
+            rule=note_rule,
+            source_text=source,
+            branches=recognize_source_structure(source),
+            corpus_citation_path=citation,
+        )
+    )
+    assert not note_ambiguous
+    assert [clause.text for clause in note_clauses] == ["NOTE " + note]
+
+
+def test_bullet_item_does_not_merge_independent_sentences():
+    source = (
+        "● The applicant is eligible if the applicant is a resident and a citizen. "
+        "The spouse is eligible if the spouse has income and is disabled."
+    )
+    excerpt = "The applicant is eligible if the applicant is a resident and a citizen"
+    rule = _ky_derived_rule(
+        "applicant_is_eligible",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="applicant_is_resident and applicant_is_citizen",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+    )
+
+    assert not ambiguous
+    assert len(clauses) == 1
+    assert "spouse" not in clauses[0].text
+
+
+def test_nested_bullet_chapeau_keeps_child_gates():
+    source = (
+        "● The applicant is eligible if all of the following apply:\n"
+        "  • The applicant is a resident\n"
+        "  • The applicant is disabled"
+    )
+    citation = "us-az/manual/des/faa5/na-categorical-eligibility/block-4"
+    chapeau = "The applicant is eligible if all of the following apply:"
+    parent = _ky_derived_rule(
+        "applicant_is_eligible",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="applicant_is_resident and applicant_is_disabled",
+        excerpt=chapeau,
+    )
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        chapeau,
+        rule=parent,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path=citation,
+    )
+
+    assert not ambiguous
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+    child_excerpt = "The applicant is a resident"
+    child = _ky_derived_rule(
+        "applicant_is_resident",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="applicant_residence_fact",
+        excerpt=child_excerpt,
+    )
+    child_clauses, child_ambiguous = (
+        completeness_module._source_condition_clauses_owned_by_excerpt(
+            child_excerpt,
+            rule=child,
+            source_text=source,
+            branches=recognize_source_structure(source),
+            corpus_citation_path=citation,
+        )
+    )
+    assert not child_ambiguous
+    assert "disabled" not in child_clauses[0].text
+
+
+def test_later_nested_chapeau_does_not_capture_prior_bullet_proof():
+    source = (
+        "Eligibility exists when all of the following apply:\n"
+        "● The applicant is a resident\n"
+        "● The applicant is eligible if all of the following apply:\n"
+        "  • The applicant is disabled\n"
+        "  • The applicant is a citizen"
+    )
+    excerpt = "The applicant is a resident"
+    rule = _ky_derived_rule(
+        "applicant_is_resident",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="applicant_residence_fact",
+        excerpt=excerpt,
+    )
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+    )
+
+    assert not ambiguous
+    assert len(clauses) == 1
+    assert clauses[0].text.strip() == "● " + excerpt
+
+
 def test_coordinated_list_chapeau_retains_preposed_conditions():
     source = (
         "If the applicant is a resident and the applicant is a citizen, the "
@@ -2201,6 +2377,184 @@ def test_double_negative_income_parity_is_explicitly_positive(text: str):
     assert completeness_module._source_gate_explicit_polarities(text) == {
         "income": False
     }
+
+
+def test_income_ceiling_uses_numeric_amount_without_reversing_income_polarity():
+    source = (
+        "Eligibility exists when all of the following apply:\n"
+        "● Gross income does not exceed the limit\n"
+        "● The unit does not meet basic categorical eligibility\n"
+        "● Disqualified participant resources are within the limit"
+    )
+    payload = {
+        "inputs": [
+            {"name": "gross_income", "dtype": "Money"},
+            {
+                "name": "unit_does_not_meet_basic_categorical_eligibility",
+                "dtype": "Judgment",
+            },
+            {
+                "name": "disqualified_participant_resources_within_limit",
+                "dtype": "Judgment",
+            },
+        ]
+    }
+    evidence = completeness_module._terminal_gate_evidence(payload, care_source_text="")
+    gates = completeness_module._source_conjunctive_fact_gates(source)
+
+    assert completeness_module._source_gate_predicate_polarities(
+        "Gross income does not exceed the limit"
+    ) == {"income": False}
+    assert completeness_module._terminal_names_corroborate_source_gates(
+        frozenset(evidence), gates, terminal_evidence=evidence
+    )
+    assert not completeness_module._terminal_names_corroborate_source_gates(
+        frozenset(evidence) - {"disqualified_participant_resources_within_limit"},
+        gates,
+        terminal_evidence=evidence,
+    )
+    assert not completeness_module._terminal_names_corroborate_source_gates(
+        frozenset({"gross_income"}),
+        ((frozenset(), frozenset({"no_income", "unit"})),),
+        terminal_evidence=evidence,
+    )
+    assert not completeness_module._terminal_names_corroborate_source_gates(
+        frozenset({"gross_income"}),
+        ((frozenset(), frozenset({"income", "gross"})),),
+        terminal_evidence=evidence,
+    )
+
+
+def test_income_tax_amount_cannot_corroborate_income_ceiling():
+    payload = {"inputs": [{"name": "spouse_income_tax", "dtype": "Money"}]}
+    evidence = completeness_module._terminal_gate_evidence(payload, care_source_text="")
+
+    assert not completeness_module._terminal_names_corroborate_source_gates(
+        frozenset(evidence),
+        ((frozenset({"spouse"}), frozenset({"income", "limit"})),),
+        terminal_evidence=evidence,
+    )
+
+
+def test_boolean_income_existence_cannot_corroborate_income_ceiling():
+    payload = {"inputs": [{"name": "spouse_has_income", "dtype": "Judgment"}]}
+    evidence = completeness_module._terminal_gate_evidence(payload, care_source_text="")
+
+    assert not completeness_module._terminal_names_corroborate_source_gates(
+        frozenset(evidence),
+        ((frozenset({"spouse"}), frozenset({"income", "limit"})),),
+        terminal_evidence=evidence,
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "source_predicates", "expected"),
+    (
+        ("spouse_has_income_below_limit", {"income", "below", "limit"}, True),
+        ("spouse_income_does_not_exceed_limit", {"income", "exceed"}, True),
+        ("spouse_has_income_above_limit", {"income", "below", "limit"}, False),
+        ("spouse_has_income", {"income", "below", "limit"}, False),
+    ),
+)
+def test_boolean_income_comparison_requires_explicit_matching_comparator(
+    name: str, source_predicates: set[str], expected: bool
+):
+    payload = {"inputs": [{"name": name, "dtype": "Judgment"}]}
+    evidence = completeness_module._terminal_gate_evidence(payload, care_source_text="")
+
+    assert (
+        completeness_module._terminal_names_corroborate_source_gates(
+            frozenset(evidence),
+            ((frozenset({"spouse"}), frozenset(source_predicates)),),
+            terminal_evidence=evidence,
+        )
+        is expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("source_comparison", "terminal_name", "expected"),
+    (
+        ("does not exceed the limit", "spouse_income_does_not_exceed_limit", True),
+        (
+            "does not exceed the limit",
+            "spouse_has_income_that_does_exceed_limit",
+            False,
+        ),
+        ("within the limit", "spouse_has_income_within_limit", True),
+        ("under the limit", "spouse_has_income_under_limit", True),
+        ("not below the limit", "spouse_has_income_below_limit", False),
+        ("exceeds the limit", "spouse_income_does_not_exceed_limit", False),
+        ("exceeds the limit", "spouse_has_income_above_limit", True),
+        ("no greater than the limit", "spouse_has_income_below_limit", True),
+        ("not more than the limit", "spouse_has_income_above_limit", False),
+        ("no less than the limit", "spouse_has_income_below_limit", False),
+        ("no less than the limit", "spouse_has_income_at_least_limit", True),
+        ("that doesn't exceed the limit", "spouse_has_income_below_limit", True),
+        (
+            "that doesn't exceed the limit",
+            "spouse_has_income_that_does_exceed_limit",
+            False,
+        ),
+    ),
+)
+def test_income_comparison_direction_is_preserved_from_source_text(
+    source_comparison: str, terminal_name: str, expected: bool
+):
+    source = (
+        f"Eligibility exists if the spouse has income {source_comparison} "
+        "and the applicant is disabled"
+    )
+    gates = completeness_module._source_conjunctive_fact_gates(source)
+    payload = {"inputs": [{"name": terminal_name, "dtype": "Judgment"}]}
+    evidence = completeness_module._terminal_gate_evidence(payload, care_source_text="")
+
+    assert (
+        completeness_module._terminal_names_corroborate_source_gates(
+            frozenset(evidence), gates[:1], terminal_evidence=evidence
+        )
+        is expected
+    )
+
+
+def test_negated_income_ceiling_cannot_match_unnegated_terminal():
+    source = (
+        "Eligibility exists if it is not true that spouse income does not exceed "
+        "the limit and the applicant is disabled"
+    )
+    gates = completeness_module._source_conjunctive_fact_gates(source)
+    payload = {
+        "inputs": [{"name": "spouse_income_does_not_exceed_limit", "dtype": "Judgment"}]
+    }
+    evidence = completeness_module._terminal_gate_evidence(payload, care_source_text="")
+
+    assert not completeness_module._terminal_names_corroborate_source_gates(
+        frozenset(evidence), gates[:1], terminal_evidence=evidence
+    )
+
+
+def test_age_comparison_before_income_does_not_reverse_income_ceiling():
+    source = (
+        "Eligibility exists if the spouse over age 65 has income below the limit "
+        "and the applicant is disabled"
+    )
+    gates = completeness_module._source_conjunctive_fact_gates(source)
+    payload = {
+        "inputs": [{"name": "spouse_has_income_below_limit", "dtype": "Judgment"}]
+    }
+    evidence = completeness_module._terminal_gate_evidence(payload, care_source_text="")
+
+    assert completeness_module._terminal_names_corroborate_source_gates(
+        frozenset(evidence), gates[:1], terminal_evidence=evidence
+    )
+
+
+def test_plural_incomes_do_not_crash_semantic_gate_tokenization():
+    tokens = completeness_module._source_gate_semantic_tokens(
+        "The combined incomes of both spouses are below the limit"
+    )
+
+    assert "income_upper_bound" in tokens
 
 
 @pytest.mark.parametrize(
