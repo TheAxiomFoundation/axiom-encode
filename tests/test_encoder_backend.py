@@ -153,6 +153,9 @@ def _assert_encoder_prompt_topics(prompt: str) -> None:
         "Only include `blocked_by` entries when you know the exact RuleSpec output",
         "us:statutes/us-ca/17000",
         "direct release-bound corpus source text",
+        "source_relation.amendment.operation",
+        "source_relation.amendment.effective",
+        "do not\n  invent an operation or date",
     ]
     for topic in required_topics:
         assert topic in prompt
