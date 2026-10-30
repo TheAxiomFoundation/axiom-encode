@@ -1276,6 +1276,21 @@ jobs:
             gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_7" > "$RUNNER_TEMP/corpus-provision-7-run.json"
             gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_7/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-7-artifacts.json"
           fi
+          export_run_8="$(jq -r '.[8] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_8" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_8" > "$RUNNER_TEMP/corpus-provision-8-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_8/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-8-artifacts.json"
+          fi
+          export_run_9="$(jq -r '.[9] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_9" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_9" > "$RUNNER_TEMP/corpus-provision-9-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_9/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-9-artifacts.json"
+          fi
+          export_run_10="$(jq -r '.[10] // empty' "$RUNNER_TEMP/corpus-provision-run-ids.json")"
+          if [ -n "$export_run_10" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_10" > "$RUNNER_TEMP/corpus-provision-10-run.json"
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/runs/$export_run_10/artifacts?per_page=100" > "$RUNNER_TEMP/corpus-provision-10-artifacts.json"
+          fi
 
       - name: Validate authenticated provision export metadata
         env:
@@ -1332,6 +1347,18 @@ jobs:
           artifact_id_7="$(jq -r '.[7] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
           if [ -n "$artifact_id_7" ]; then
             gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_7/zip" > "$RUNNER_TEMP/corpus-provision-7.zip"
+          fi
+          artifact_id_8="$(jq -r '.[8] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_8" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_8/zip" > "$RUNNER_TEMP/corpus-provision-8.zip"
+          fi
+          artifact_id_9="$(jq -r '.[9] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_9" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_9/zip" > "$RUNNER_TEMP/corpus-provision-9.zip"
+          fi
+          artifact_id_10="$(jq -r '.[10] // empty' "$RUNNER_TEMP/corpus-provision-artifact-ids.json")"
+          if [ -n "$artifact_id_10" ]; then
+            gh api "repos/TheAxiomFoundation/axiom-corpus/actions/artifacts/$artifact_id_10/zip" > "$RUNNER_TEMP/corpus-provision-10.zip"
           fi
 
       - name: Prefetch authenticated signed provision members

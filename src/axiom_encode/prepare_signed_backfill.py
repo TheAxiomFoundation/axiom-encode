@@ -447,7 +447,7 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
             run_ids = payload["provision_export_run_ids"]
             if (
                 not isinstance(run_ids, list)
-                or not 1 <= len(run_ids) <= 7
+                or not 1 <= len(run_ids) <= 10
                 or any(
                     not isinstance(extra_run_id, str)
                     or re.fullmatch(r"[1-9][0-9]{0,19}", extra_run_id) is None
@@ -457,7 +457,7 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
                 or run_id in run_ids
             ):
                 raise ValueError(
-                    "transport prefetch needs 1-7 unique decimal run IDs distinct from its primary run"
+                    "transport prefetch needs 1-10 unique decimal run IDs distinct from its primary run"
                 )
             result["provision_export_run_ids"] = run_ids
         return result
@@ -471,7 +471,7 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         run_ids = payload["provision_export_run_ids"]
         if (
             not isinstance(run_ids, list)
-            or not 1 <= len(run_ids) <= 8
+            or not 1 <= len(run_ids) <= 11
             or any(
                 not isinstance(run_id, str)
                 or re.fullmatch(r"[1-9][0-9]{0,19}", run_id) is None
@@ -479,7 +479,7 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
             )
             or len(set(run_ids)) != len(run_ids)
         ):
-            raise ValueError("provision prefetch needs 1-8 unique decimal run IDs")
+            raise ValueError("provision prefetch needs 1-11 unique decimal run IDs")
         inner = payload["transaction"]
         if not isinstance(inner, dict) or inner.get("schema") not in {
             "axiom-encode/atomic-source-transaction/v2",

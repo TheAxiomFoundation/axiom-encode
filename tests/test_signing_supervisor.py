@@ -2180,6 +2180,21 @@ def test_provision_prefetch_is_authenticated_before_release_fetch() -> None:
     )
 
 
+def test_provision_prefetch_workflow_has_all_eleven_authenticated_slots() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = {step.get("name"): step for step in workflow["jobs"]["encode"]["steps"]}
+    metadata = steps["Download authenticated provision export metadata"]["run"]
+    archives = steps["Download authenticated provision export archives"]["run"]
+    for index in range(11):
+        assert f"corpus-provision-{index}-run.json" in metadata
+        assert f"corpus-provision-{index}-artifacts.json" in metadata
+        assert f"corpus-provision-{index}.zip" in archives
+    assert "corpus-provision-11-run.json" not in metadata
+    assert "corpus-provision-11.zip" not in archives
+
+
 def test_transport_legacy_required_cases_keep_all_three_protected_guards() -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()

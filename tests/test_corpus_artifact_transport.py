@@ -78,13 +78,20 @@ def test_transport_can_prefetch_distinct_signed_provisions():
         ["456", "456"],
         [456],
         ["1" * 21],
-        [str(i) for i in range(1, 9)],
+        [str(i) for i in range(1, 12)],
     ],
 )
 def test_transport_rejects_invalid_prefetch_run_ids(ids):
     wrapper = {**WRAPPER, "provision_export_run_ids": ids}
     with pytest.raises(ValueError, match="prefetch"):
         transport.provision_run_ids(json.dumps(wrapper))
+
+
+def test_transport_accepts_ten_distinct_prefetch_runs_plus_primary():
+    wrapper = {**WRAPPER, "provision_export_run_ids": [str(i) for i in range(2, 12)]}
+    assert transport.provision_run_ids(json.dumps(wrapper)) == [
+        str(i) for i in range(2, 12)
+    ]
 
 
 def test_provision_prefetch_projects_only_source_contract():
@@ -155,7 +162,7 @@ def test_provision_run_id_is_rejected_in_request_mode(monkeypatch):
         ["123", "123"],
         [123],
         ["1" * 21],
-        [str(i) for i in range(1, 10)],
+        [str(i) for i in range(1, 13)],
     ],
 )
 def test_provision_prefetch_rejects_invalid_run_ids(ids):
@@ -163,6 +170,16 @@ def test_provision_prefetch_rejects_invalid_run_ids(ids):
         transport.provision_run_ids(
             json.dumps({**PREFETCH, "provision_export_run_ids": ids})
         )
+
+
+def test_provision_prefetch_accepts_eleven_distinct_runs():
+    runs = [str(i) for i in range(1, 12)]
+    assert (
+        transport.provision_run_ids(
+            json.dumps({**PREFETCH, "provision_export_run_ids": runs})
+        )
+        == runs
+    )
 
 
 @pytest.mark.parametrize(

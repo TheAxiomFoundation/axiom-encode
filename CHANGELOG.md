@@ -1,3 +1,7 @@
+## 0.2.2264
+
+- Support eleven authenticated signed provision exports for the current pinned corpus release, including the atomic transport's distinct primary run and all bounded workflow metadata and archive slots. Keep exact source-contract and export-byte verification.
+
 ## 0.2.2263
 
 - Prefetch authenticated signed corpus provision exports for protected runs whose release provisions are R2-only, with exact exporter, archive, release, and provision-byte checks. Admit the reviewed PyMuPDF exporter dependency-file pair.
