@@ -28312,6 +28312,7 @@ def _branch_boundary_test_witnesses(
                         source_boolean_polarity=source_boolean_polarity,
                         extract_numeric_occurrences=extract_numeric_occurrences,
                         numeric_value_is_grounded=numeric_value_is_grounded,
+                        leaf_only=True,
                     )
                     and _boundary_case_changes_formula_effect(
                         controller_rule,
@@ -28542,6 +28543,7 @@ def _formula_execution_binds_boundary(
     source_boolean_polarity: int,
     extract_numeric_occurrences: NumericOccurrenceExtractor | None,
     numeric_value_is_grounded: NumericGroundingPredicate,
+    leaf_only: bool = False,
 ) -> bool:
     boundary_names = {
         name
@@ -28563,10 +28565,11 @@ def _formula_execution_binds_boundary(
         )
     }
     checks: list[tuple[str, bool]] = []
-    for step in execution.trace:
-        if step.kind not in {"if", "match"}:
-            continue
-        checks.extend((selector, True) for selector in step.selectors)
+    if not leaf_only:
+        for step in execution.trace:
+            if step.kind not in {"if", "match"}:
+                continue
+            checks.extend((selector, True) for selector in step.selectors)
     checks.append((execution.leaf, source_boolean_polarity < 0))
     resolved_environment = dict(formula_environment)
     resolved_environment.update(evaluation_environment or {})

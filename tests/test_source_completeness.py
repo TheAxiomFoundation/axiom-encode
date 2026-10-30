@@ -33659,6 +33659,12 @@ def test_imported_percent_rate_witness_uses_scaled_source_boundary(source: str):
             "not (gross_income > imported_fpl_rate * "
             "current_federal_poverty_level_amount)"
         ),
+        (
+            "if gross_income <= imported_fpl_rate * "
+            "current_federal_poverty_level_amount: "
+            "gross_income <= imported_fpl_rate * "
+            "current_federal_poverty_level_amount else: not_holds"
+        ),
     ],
 )
 def test_scaled_percent_boundary_rejects_reversed_eligibility(formula: str):
