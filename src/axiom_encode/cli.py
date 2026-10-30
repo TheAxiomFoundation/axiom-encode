@@ -269,6 +269,8 @@ from .harness.proof_validator import (
     _rule_source_subsection_scope,
     _source_contains_proof_evidence,
     _source_numeric_parent_alpha_range_blocks,
+    _source_proof_evidence_spans,
+    align_proof_excerpt,
     emit_money_atom_ratchet,
     evaluate_money_atoms,
     find_interpretation_yaml_issues,
@@ -14696,28 +14698,51 @@ def _prune_unused_imports(content: str) -> tuple[str, list[str]]:
     imports_indent = 0
     removed: list[str] = []
 
+    # Per `imports:` block: its header line index, how many items it lost,
+    # and whether any other content (a kept item or a nested key) remains.
+    import_headers: list[int] = []
+    import_removals: list[int] = []
+    import_retained: list[bool] = []
+
     for line in content.splitlines(keepends=True):
         imports_match = re.match(r"^(\s*)imports:\s*$", line)
         if imports_match:
             in_imports = True
             imports_indent = len(imports_match.group(1))
+            import_headers.append(len(repaired_lines))
+            import_removals.append(0)
+            import_retained.append(False)
             repaired_lines.append(line)
             continue
 
         if in_imports:
             stripped = line.strip()
-            if stripped:
+            # A comment line neither ends the block nor counts as content.
+            if stripped and not stripped.startswith("#"):
                 indent = len(line) - len(line.lstrip())
                 item_match = re.match(r"^\s*-\s+(.+?)\s*$", line)
                 if item_match and indent >= imports_indent:
                     item = _strip_yaml_scalar_quotes(item_match.group(1).strip())
                     if item in unused:
                         removed.append(item)
+                        import_removals[-1] += 1
                         continue
+                    import_retained[-1] = True
                 elif indent <= imports_indent:
                     in_imports = False
+                else:
+                    import_retained[-1] = True
 
         repaired_lines.append(line)
+
+    # Pruning every item of a block must drop its header too: a bare
+    # `imports:` loads as null, which the rules engine rejects ("expected a
+    # sequence"). A block that lost nothing, or keeps any content, stays.
+    for header_index, removal_count, retained in reversed(
+        list(zip(import_headers, import_removals, import_retained, strict=True))
+    ):
+        if removal_count and not retained:
+            del repaired_lines[header_index]
 
     return "".join(repaired_lines), removed
 
@@ -45284,12 +45309,37 @@ def _try_repair_generated_nonexact_proof_excerpts(
                     excerpt=excerpt,
                 )
             else:
-                exact_excerpt = _closest_exact_source_excerpt(
+                # The printed text the excerpt quotes (typography, an added
+                # end mark, enclosing parentheses); then the nearest exact span.
+                # An excerpt the matcher already accepts gets no alignment and
+                # keeps the existing closest-exact repair.
+                aligned = align_proof_excerpt(source_text=source_text, excerpt=excerpt)
+                if aligned == excerpt.strip():
+                    aligned = None
+                exact_excerpt = aligned or _closest_exact_source_excerpt(
                     source_text=source_text,
                     excerpt=excerpt,
                     numeric_profile=numeric_profile,
                     require_all_query_numbers=not targets[target],
                 )
+            if (
+                exact_excerpt is None
+                and corpus_release is not None
+                and corpus_citation_path
+                and not targets[target]
+                and not source.get("source_sha256")
+                and _normalized_proof_excerpt(excerpt) not in protected_normalized
+            ):
+                moved = _same_document_page_for_proof_excerpt(
+                    corpus_citation_path,
+                    excerpt,
+                    corpus_release=corpus_release,
+                    source_texts=cited_source_texts,
+                )
+                if moved is not None:
+                    source["corpus_citation_path"], source["excerpt"] = moved
+                    repaired.append(f"{rule_name}[{atom_index}]")
+                    continue
             if exact_excerpt is None or exact_excerpt == excerpt:
                 continue
             source["excerpt"] = exact_excerpt
@@ -45300,6 +45350,103 @@ def _try_repair_generated_nonexact_proof_excerpts(
     if not _install_generated_yaml_payload(rules_file, payload):
         return []
     return repaired
+
+
+_PROOF_DOCUMENT_PAGE_PATH = re.compile(r"^(?P<document>.+)/page-(?P<page>[1-9]\d*)$")
+
+
+def _proof_document_text_and_pages(
+    document: str,
+    *,
+    corpus_release: LocalCorpusRelease,
+) -> tuple[str, tuple[str, ...]] | None:
+    """A document's release text and its ``page-N`` children, from one resolution.
+
+    The pages come from the rows the resolver composed the document from, so
+    the list has no numbering limit and no gaps. Any resolution failure means
+    no document.
+    """
+    try:
+        source = resolve_local_corpus_source(document, corpus_release)
+    except CorpusResolutionError:
+        return None
+    pages = sorted(
+        {
+            row.citation_path
+            for row in source.component_rows
+            if (match := _PROOF_DOCUMENT_PAGE_PATH.match(row.citation_path))
+            and match.group("document") == document
+        },
+        key=lambda path: int(path.rsplit("-", 1)[1]),
+    )
+    return source.proof_evidence_text, tuple(pages)
+
+
+def _proof_page_text(
+    corpus_citation_path: str,
+    *,
+    corpus_release: LocalCorpusRelease,
+    source_texts: dict[str, str | None],
+) -> str | None:
+    """Release text for one page; any resolution failure is absent."""
+    if corpus_citation_path not in source_texts:
+        try:
+            source_texts[corpus_citation_path] = _local_source_text_for_corpus_path(
+                corpus_citation_path,
+                corpus_release=corpus_release,
+            )
+        except CorpusResolutionError:
+            source_texts[corpus_citation_path] = None
+    return source_texts[corpus_citation_path]
+
+
+def _same_document_page_for_proof_excerpt(
+    corpus_citation_path: str,
+    excerpt: str,
+    *,
+    corpus_release: LocalCorpusRelease,
+    source_texts: dict[str, str | None],
+) -> tuple[str, str] | None:
+    """Return (page path, printed excerpt) when exactly one other page holds it.
+
+    Only between ``page-N`` provisions of one document: a quote printed on
+    page 3 of a memo and cited to page 4 moves to page 3. The printed quote
+    must occur exactly once in the whole document's release text, and exactly
+    one of the document's pages must print it. It never moves to a different
+    document, section or statute; a document that does not resolve keeps the
+    citation as written.
+    """
+    match = _PROOF_DOCUMENT_PAGE_PATH.match(corpus_citation_path)
+    if match is None:
+        return None
+    document = _proof_document_text_and_pages(
+        match.group("document"), corpus_release=corpus_release
+    )
+    if document is None or not document[0]:
+        return None
+    document_text, pages = document
+    printed = align_proof_excerpt(source_text=document_text, excerpt=excerpt)
+    if printed is None or (
+        len(
+            _source_proof_evidence_spans(
+                source_text=document_text, evidence_text=printed
+            )
+        )
+        != 1
+    ):
+        return None
+    hits = [
+        page
+        for page in pages
+        if page != corpus_citation_path
+        and (
+            text := _proof_page_text(
+                page, corpus_release=corpus_release, source_texts=source_texts
+            )
+        )
+        and _source_contains_proof_evidence(source_text=text, evidence_text=printed)
+    ]
+    return (hits[0], printed) if len(hits) == 1 else None
 
 
 def _reanchor_legacy_exact_dependent_proof_excerpts(
