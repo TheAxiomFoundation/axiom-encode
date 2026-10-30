@@ -57349,13 +57349,19 @@ def _apply_policy_content_files(content_root: Path) -> dict[str, str]:
 def _pinned_apply_engine_binding(
     axiom_rules_path: Path, engine_ref: str | None
 ) -> dict[str, str] | None:
-    """Bind explicit refresh validation to the verified engine's exact bytes."""
+    """Bind explicit apply validation to the verified engine's exact bytes."""
     if engine_ref is None:
         return None
     pin = EnginePin(
         sha=require_engine_ref_sha(engine_ref, description="axiom_rules_engine_ref"),
         source=Path("<apply-validation>"),
     )
+    checkout = _git_checkout_execution_identity(Path(axiom_rules_path))
+    if checkout.get("kind") != "git" or checkout.get("commit") != pin.sha:
+        raise EngineBindingError(
+            "Apply engine binding revision must match engine checkout HEAD: "
+            f"pin {pin.sha}, checkout {checkout.get('commit')!r}"
+        )
     binary = resolve_pinned_engine_binary(Path(axiom_rules_path), pin)
     return {
         "ref": pin.sha,
@@ -57812,6 +57818,12 @@ def _portable_apply_validation_execution_identity(
         label="Axiom rules engine",
         expected_repository="github.com/TheAxiomFoundation/axiom-rules-engine",
     )
+    binding_ref = _apply_snapshot_engine_ref(execution)
+    if binding_ref is not None and binding_ref != engine["commit"]:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: engine binding revision does not "
+            "match portable engine checkout commit"
+        )
 
     policy = execution.get("policy_root_identity")
     if not isinstance(policy, dict):

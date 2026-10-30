@@ -1,3 +1,7 @@
+## 0.2.2262
+
+- Reject explicit apply engine pins that disagree with checkout HEAD before binary resolution and independently reject mismatched captured bindings when constructing portable signed provenance. Preserve the signed schema and legacy unpinned behavior.
+
 ## 0.2.2261
 
 - Cover fresh and retained candidate engine-pin forwarding through actual validation entrypoints, and clarify that local pre-generation binding can build a clean matching engine checkout.
