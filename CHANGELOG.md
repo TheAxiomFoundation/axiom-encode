@@ -1,3 +1,7 @@
+## 0.2.2266
+
+- Integrate current source-bound amendment relation guidance with the reviewed explicit engine-pin and portable provenance checks.
+
 ## 0.2.2265
 
 - Integrate current authenticated source-transport support with the reviewed explicit apply-engine revision and portable provenance checks.
