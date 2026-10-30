@@ -14467,10 +14467,50 @@ class TestCmdEncode:
             patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer,
             patch("axiom_encode.cli.run_model_eval") as generate,
         ):
-            with pytest.raises(ValueError):
+            with pytest.raises(
+                ValueError,
+                match="axiom_rules_engine_ref must be a full lowercase 40-hex",
+            ):
                 cmd_encode(args)
         signer.assert_not_called()
         generate.assert_not_called()
+
+    @pytest.mark.parametrize("pin", ["main", "a" * 39, "g" * 40, ""])
+    def test_retry_entry_rejects_malformed_engine_pin_before_binding(
+        self, tmp_path, pin
+    ):
+        from axiom_encode import cli as cli_module
+
+        args = self._make_args(tmp_path, apply=True, axiom_rules_engine_ref=pin)
+        config = cli_module._EncodeEscalationConfig(
+            enabled=False,
+            initial_model="test-model",
+            escalation_model="test-model",
+            escalate_after=1,
+        )
+        signer = MagicMock(spec=cli_module.SigningBroker)
+        with (
+            patch(
+                "axiom_encode.cli._pinned_apply_engine_binding",
+                wraps=cli_module._pinned_apply_engine_binding,
+            ) as binding,
+            patch("axiom_encode.cli.run_model_eval") as generate,
+        ):
+            with pytest.raises(
+                ValueError,
+                match="axiom_rules_engine_ref must be a full lowercase 40-hex",
+            ):
+                cli_module._run_encode_attempts_with_retries(
+                    args,
+                    config=config,
+                    live_run=MagicMock(),
+                    apply_signing_broker=signer,
+                )
+        # Binding can build an engine: reject malformed refs before entering it.
+        # The spy wraps the real binding, whose own validation is left intact.
+        binding.assert_not_called()
+        generate.assert_not_called()
+        assert signer.mock_calls == []
 
     def test_encode_success(self, capsys, tmp_path):
         args = self._make_args(tmp_path)
