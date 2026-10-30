@@ -28329,10 +28329,8 @@ def _branch_boundary_test_witnesses(
                             principal_rules=principal_rules,
                             dependency_names=set(dependency_environment),
                             formula_environment=formula_environment or {},
-                            # The source interval is a rate; the perturbed input is
-                            # the corresponding amount at that rate of its base.
-                            source_interval=None,
-                            source_boolean_polarity=0,
+                            source_interval=scaled_source_interval,
+                            source_boolean_polarity=scaled_effect_polarity,
                             root_rule=rule,
                             root_execution=execution,
                         )
@@ -28341,6 +28339,8 @@ def _branch_boundary_test_witnesses(
                             input_names,
                             scaled_value,
                             comparison_boolean_at_boundary,
+                            scaled_source_interval,
+                            scaled_effect_polarity,
                         ) in (
                             _case_scaled_percentage_boundary_evidence(
                                 case,
@@ -28372,7 +28372,7 @@ def _case_scaled_percentage_boundary_evidence(
     source_interval: _NumericInterval | None,
     source_boolean_polarity: int,
     numeric_value_is_grounded: NumericGroundingPredicate,
-) -> tuple[tuple[object, set[str], float, bool], ...]:
+) -> tuple[tuple[object, set[str], float, bool, _NumericInterval, int], ...]:
     """Find an asserted amount at a source-stated percent-of-base boundary.
 
     A percentage may be supplied by a source-bound imported rate rather than
@@ -28390,7 +28390,7 @@ def _case_scaled_percentage_boundary_evidence(
         if isinstance(value, (int, float)) and not isinstance(value, bool)
         for name in _input_key_names(key)
     }
-    evidence: list[tuple[object, set[str], float, bool]] = []
+    evidence: list[tuple[object, set[str], float, bool, _NumericInterval, int]] = []
     for text in (execution.leaf,):
         expression = _parse_formula_expression(text)
         if expression is None:
@@ -28468,12 +28468,41 @@ def _case_scaled_percentage_boundary_evidence(
                             abs_tol=1e-9,
                         ):
                             continue
+                        scaled_source_interval = _NumericInterval(
+                            lower=(
+                                replace(
+                                    source_interval.lower,
+                                    value=float(source_interval.lower.value) * base,
+                                )
+                                if source_interval.lower is not None
+                                else None
+                            ),
+                            lower_inclusive=source_interval.lower_inclusive,
+                            upper=(
+                                replace(
+                                    source_interval.upper,
+                                    value=float(source_interval.upper.value) * base,
+                                )
+                                if source_interval.upper is not None
+                                else None
+                            ),
+                            upper_inclusive=source_interval.upper_inclusive,
+                            upper_directly_conjoined=source_interval.upper_directly_conjoined,
+                        )
+                        scaled_effect_polarity = (
+                            1
+                            if comparison_boolean_at_boundary
+                            == _interval_contains(scaled_source_interval, amount)
+                            else -1
+                        )
                         evidence.append(
                             (
                                 amount_key,
                                 {amount_node.id},
                                 amount,
                                 comparison_boolean_at_boundary,
+                                scaled_source_interval,
+                                scaled_effect_polarity,
                             )
                         )
     return tuple(evidence)
