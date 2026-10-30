@@ -58,6 +58,12 @@ from axiom_oracles.bridges.registry import (
 )
 
 from axiom_encode.bare_structure import bare_outline, mask_bare_labels
+from axiom_encode.checks import (
+    IssueSubject,
+    ValidationIssue,
+    declare_check,
+    map_issue_text,
+)
 from axiom_encode.codex_cli import (
     resolve_codex_cli,
     with_codex_model_availability_hint,
@@ -225,6 +231,117 @@ _AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS: ContextVar[tuple[Path, ...]] = Context
     "axiom_authoritative_rulespec_dependency_roots",
     default=(),
 )
+
+
+_SITE_COMPILE = "axiom_encode/harness/validator_pipeline.py:_run_rulespec_compile_check"
+CHECK_RULES_ENGINE_COMPILE_FAILED = declare_check(
+    "compile:rules-engine/failed",
+    title="Axiom rules engine rejected the RuleSpec",
+    requires="The RuleSpec module compiles with the pinned Axiom rules engine.",
+    why=(
+        "Nothing downstream (tests, grounding, apply) can run on a module "
+        "that does not compile; the engine message names the first error."
+    ),
+    fix=(
+        "Read the engine message (found) and fix the named rule, field or "
+        "expression at the reported line; then recompile. Do not work around "
+        "the error by deleting rules the source requires."
+    ),
+    cause="encoder_output",
+    gate="compile",
+    site=_SITE_COMPILE,
+)
+CHECK_RULES_ENGINE_COMPILE_CRASHED = declare_check(
+    "compile:rules-engine/crashed",
+    title="Axiom rules engine could not be run",
+    requires="The pinned Axiom rules engine runs and returns a result.",
+    why=(
+        "When the engine itself fails (missing binary, timeout, crash), the "
+        "artifact was not judged; the failure is not the encoder output's."
+    ),
+    fix=(
+        "Check the engine binding (`axiom-encode engine-bind`), the "
+        "`AXIOM_RULES_ENGINE_*` environment and the runner; retry the "
+        "validation without changing the RuleSpec."
+    ),
+    cause="infra",
+    gate="compile",
+    site=_SITE_COMPILE,
+)
+_ENGINE_LINE_RE = re.compile(r"\bline (\d+)\b")
+
+
+def _compile_issue_root_jurisdiction(root: Path) -> str | None:
+    """The jurisdiction a canonical content root holds, such as ``us-ky``."""
+    try:
+        identity = canonical_rulespec_root_identity(root)
+    except (OSError, ValueError):
+        return None
+    if identity is None:
+        return None
+    return identity.rsplit("/", 1)[-1]
+
+
+def _compile_issue_module(rules_file: Path, roots: Sequence[Path | None]) -> str:
+    """The module's path relative to the first root that holds it.
+
+    A repo-relative path names one module, whatever staging directory holds the
+    checkout, so the issue fingerprint is stable across runs and distinct for
+    modules that share a basename. A canonical jurisdiction content root
+    (``rulespec-us/us-ky``) keeps its jurisdiction as the first path part, so
+    ``us/statutes/1/1.yaml`` and ``us-ky/statutes/1/1.yaml`` stay distinct and
+    match the path relative to the checkout root. A file under no root keeps
+    its full path.
+    """
+    candidates = [rules_file]
+    try:
+        candidates.append(rules_file.resolve())
+    except OSError:
+        pass
+    for root in roots:
+        if root is None:
+            continue
+        bases = [root]
+        try:
+            bases.append(root.resolve())
+        except OSError:
+            pass
+        for base in bases:
+            for path in candidates:
+                try:
+                    relative = path.relative_to(base).as_posix()
+                except ValueError:
+                    continue
+                jurisdiction = _compile_issue_root_jurisdiction(root)
+                if jurisdiction is None:
+                    return relative
+                return f"{jurisdiction}/{relative}"
+    return rules_file.as_posix()
+
+
+def _rules_engine_compile_failed_issue(detail: str, module: str) -> str:
+    line_match = _ENGINE_LINE_RE.search(detail)
+    first_line = detail.splitlines()[0] if detail else ""
+    return ValidationIssue(
+        f"Axiom rules engine compile failed: {detail}",
+        check=CHECK_RULES_ENGINE_COMPILE_FAILED,
+        subject=IssueSubject(
+            module=module,
+            line=int(line_match.group(1)) if line_match else None,
+        ),
+        expected="successful compile",
+        found=first_line or "engine returned a nonzero exit status",
+    )
+
+
+def _rules_engine_compile_crashed_issue(exc: BaseException, module: str) -> str:
+    return ValidationIssue(
+        f"Axiom rules engine compile failed: {exc}",
+        check=CHECK_RULES_ENGINE_COMPILE_CRASHED,
+        subject=IssueSubject(module=module),
+        expected="engine result",
+        found=f"{type(exc).__name__}: {exc}",
+    )
 
 
 @dataclass(frozen=True)
@@ -35686,7 +35803,7 @@ class ValidatorPipeline:
                 )
             return text
 
-        result.issues = [normalize(issue) for issue in result.issues]
+        result.issues = [map_issue_text(issue, normalize) for issue in result.issues]
         if result.error is not None:
             result.error = normalize(result.error)
         if result.raw_output is not None:
@@ -36871,6 +36988,12 @@ class ValidatorPipeline:
         )
         return result
 
+    def _compile_issue_module(self, rules_file: Path) -> str:
+        """The module path a compile issue names: repo-relative where possible."""
+        return _compile_issue_module(
+            rules_file, (self.policy_repo_path, self.validation_staging_root)
+        )
+
     def _rulespec_compile_success_output(self, payload: Any) -> str:
         """Return a concise successful compile summary for validator output."""
         program = payload.get("program") if isinstance(payload, dict) else {}
@@ -36895,7 +37018,11 @@ class ValidatorPipeline:
                 )
                 if result.returncode != 0:
                     detail = result.stderr.strip() or result.stdout.strip()
-                    issues.append(f"Axiom rules engine compile failed: {detail}")
+                    issues.append(
+                        _rules_engine_compile_failed_issue(
+                            detail, self._compile_issue_module(rules_file)
+                        )
+                    )
                     return ValidationResult(
                         validator_name="compile",
                         passed=False,
@@ -36912,7 +37039,11 @@ class ValidatorPipeline:
                 raw_output=self._rulespec_compile_success_output(payload),
             )
         except Exception as exc:
-            issues.append(f"Axiom rules engine compile failed: {exc}")
+            issues.append(
+                _rules_engine_compile_crashed_issue(
+                    exc, self._compile_issue_module(rules_file)
+                )
+            )
             return ValidationResult(
                 validator_name="compile",
                 passed=False,
@@ -38352,7 +38483,11 @@ class ValidatorPipeline:
             raw_output = compile_result.stdout + compile_result.stderr
             if compile_result.returncode != 0:
                 detail = compile_result.stderr.strip() or compile_result.stdout.strip()
-                issues.append(f"Axiom rules engine compile failed: {detail}")
+                issues.append(
+                    _rules_engine_compile_failed_issue(
+                        detail, self._compile_issue_module(rules_file)
+                    )
+                )
             elif isinstance(payload, dict):
                 compiled_payload = payload
                 if execution_capture is not None:
@@ -38363,7 +38498,11 @@ class ValidatorPipeline:
                     "Axiom rules engine compile did not return an artifact payload."
                 )
         except Exception as exc:
-            issues.append(f"Axiom rules engine compile failed: {exc}")
+            issues.append(
+                _rules_engine_compile_crashed_issue(
+                    exc, self._compile_issue_module(rules_file)
+                )
+            )
 
         validation_source_texts = self._source_texts_for_rulespec_content(content)
         numeric_source_texts = self._numeric_source_texts_for_rulespec_content(

@@ -189,6 +189,12 @@ class IterationError:
     message: str
     variable: Optional[str] = None  # Which variable failed, if applicable
     fix_applied: Optional[str] = None  # What fix was attempted
+    # The attempt's typed validator issues: an ``axiom-encode/validation-issue/v2``
+    # document (see :func:`axiom_encode.checks.typed_issue_document`), stored
+    # under its own ``issue_document`` key so that a reader of another per-try
+    # issue shape never reads it by accident. ``None`` when no issue was typed;
+    # the stored payload then omits the key.
+    issue_document: Optional[dict[str, Any]] = None
 
 
 @dataclass
@@ -247,6 +253,11 @@ def iteration_payload(iteration: Iteration) -> dict[str, Any]:
                 "message": e.message,
                 "variable": e.variable,
                 "fix_applied": e.fix_applied,
+                **(
+                    {"issue_document": e.issue_document}
+                    if e.issue_document is not None
+                    else {}
+                ),
             }
             for e in iteration.errors
         ],
@@ -890,6 +901,9 @@ class EncodingDB:
                         message=e["message"],
                         variable=e.get("variable"),
                         fix_applied=e.get("fix_applied"),
+                        issue_document=e.get("issue_document")
+                        if isinstance(e.get("issue_document"), dict)
+                        else None,
                     )
                     for e in it_data.get("errors", [])
                 ]

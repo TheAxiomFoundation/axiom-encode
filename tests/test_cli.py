@@ -14226,6 +14226,48 @@ class TestCmdEncode:
         # Neither attempt reported a provider-billed cost, so it stays unknown.
         assert persisted.actual_cost_usd is None
 
+    def test_final_try_records_overlay_rejection_typed_issues(self, tmp_path):
+        from axiom_encode.checks import IssueSubject, ValidationIssue
+        from axiom_encode.cli import _log_eval_result
+        from axiom_encode.harness.evals import EvalArtifactMetrics
+
+        # The standalone validators passed; the overlay then rejected the
+        # candidate with an issue the eval metrics never saw.
+        result = self._make_eval_result(True)
+        result.metrics = EvalArtifactMetrics(
+            compile_pass=True,
+            compile_issues=[],
+            ci_pass=True,
+            ci_issues=[],
+            embedded_source_present=True,
+            grounded_numeric_count=0,
+            ungrounded_numeric_count=0,
+            grounding=[],
+        )
+        overlay_issue = ValidationIssue(
+            "[complete-source-unit:tests] Principal output `x` is never "
+            "asserted by a companion test.",
+            check="complete-source-unit:tests/output-unasserted",
+            subject=IssueSubject(citation="us/statutes/26/1/j/2", rule="x"),
+            expected="at least one asserting companion case",
+            found="no case asserts it",
+        )
+        db_path = tmp_path / "encodings.db"
+
+        run = _log_eval_result(
+            result,
+            db_path=db_path,
+            log_issue=False,
+            final_attempt_success=False,
+            final_attempt_error=str(overlay_issue),
+            final_attempt_issues=(overlay_issue,),
+        )
+
+        final_try = EncodingDB(db_path).get_run(run.id).iterations[-1]
+        document = final_try.errors[0].issue_document
+        assert document is not None and document["typed"] == 1
+        assert document["issues"][0]["fingerprint"] == overlay_issue.fingerprint
+
     def test_attempt_cost_sum_requires_recorded_usage_and_finite_cost(self):
         from axiom_encode.cli import _sum_attempt_cost
 
