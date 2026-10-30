@@ -672,11 +672,15 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
                     in files
                 }
             )
-            if len(runners) != 1:
+            escalated = [name for name in ESCALATION_RUNNERS if name in runners]
+            if escalated:
+                runner = escalated[0]
+            elif len(runners) == 1:
+                runner = runners[0]
+            else:
                 raise ValueError(
                     "successful target preflight must bind one final candidate"
                 )
-            runner = runners[0]
         else:
             raise ValueError("repair artifact must bind one final repair manifest")
 
