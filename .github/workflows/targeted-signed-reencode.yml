@@ -39,7 +39,7 @@ on:
         required: false
         type: string
       source_bundle_json:
-        description: 'Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3 for an ordinary or in-place legacy replacement, with optional signed provision export run IDs; legacy citation array/refresh object, v2-v5 contract, or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} for an authenticated failed ordinary single-target repair'
+        description: 'Atomic source input: corpus-artifact-transport/v1 wrapping fresh v3 with an optional signed corpus export and signed provision export run IDs; corpus-provision-prefetch/v1 wrapping exact v2-v3 with signed provision run IDs; legacy citation array/refresh object, v2-v5 contract, or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} for an authenticated failed ordinary single-target repair'
         required: false
         default: "[]"
         type: string
@@ -4353,7 +4353,11 @@ jobs:
                               "historical legacy replacement manifest binding differs"
                           )
                   if legacy_source_path == normalized_replacement_path:
-                      if expected_old_manifest != relative_path:
+                      if relative_path != canonical_old_manifest:
+                          raise SystemExit(
+                              "in-place legacy replacement manifest path differs"
+                          )
+                      if expected_old_manifest == historical_old_manifest:
                           expected_deleted_manifest_paths.add(expected_old_manifest)
                       live_primary = (
                           Path(os.environ["RULESPEC_CHECKOUT"])

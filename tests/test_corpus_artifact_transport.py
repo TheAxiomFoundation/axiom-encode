@@ -70,7 +70,16 @@ def test_transport_can_prefetch_distinct_signed_provisions():
 
 @pytest.mark.parametrize(
     "ids",
-    [[], ["0"], ["01"], ["123"], ["456", "456"], [456], ["1" * 21], ["1"] * 8],
+    [
+        [],
+        ["0"],
+        ["01"],
+        ["123"],
+        ["456", "456"],
+        [456],
+        ["1" * 21],
+        [str(i) for i in range(1, 9)],
+    ],
 )
 def test_transport_rejects_invalid_prefetch_run_ids(ids):
     wrapper = {**WRAPPER, "provision_export_run_ids": ids}
@@ -97,6 +106,24 @@ def test_provision_run_ids_cli_emits_no_blank_run(monkeypatch, capsys):
     assert capsys.readouterr().out == "123\n456\n789\n"
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "[]",
+        json.dumps(INNER),
+        json.dumps(
+            {"schema_version": "axiom-encode/retired-source-metadata-migration-plan/v1"}
+        ),
+    ],
+)
+def test_old_inputs_select_no_provision_runs(raw, monkeypatch, capsys):
+    assert transport.provision_run_ids(raw) == []
+    monkeypatch.setattr(sys, "argv", ["corpus_artifact_transport", "provision-run-ids"])
+    monkeypatch.setenv("ATOMIC_SOURCE_JSON", raw)
+    transport.main()
+    assert capsys.readouterr().out == ""
+
+
 def test_provision_materialization_rejects_unlisted_run_before_any_io(monkeypatch):
     monkeypatch.setattr(
         sys,
@@ -108,9 +135,28 @@ def test_provision_materialization_rejects_unlisted_run_before_any_io(monkeypatc
         transport.main()
 
 
+def test_provision_run_id_is_rejected_in_request_mode(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["corpus_artifact_transport", "request", "--provision-run-id", "123"],
+    )
+    monkeypatch.setenv("ATOMIC_SOURCE_JSON", json.dumps(PREFETCH))
+    with pytest.raises(ValueError, match="not valid for this mode"):
+        transport.main()
+
+
 @pytest.mark.parametrize(
     "ids",
-    [[], ["0"], ["01"], ["123", "123"], [123], ["1" * 21], ["1"] * 9],
+    [
+        [],
+        ["0"],
+        ["01"],
+        ["123", "123"],
+        [123],
+        ["1" * 21],
+        [str(i) for i in range(1, 10)],
+    ],
 )
 def test_provision_prefetch_rejects_invalid_run_ids(ids):
     with pytest.raises(ValueError, match="run IDs"):
@@ -134,6 +180,8 @@ def test_provision_prefetch_rejects_mixed_or_unknown_envelopes(change):
         wrapper["transaction"]["schema"] = (
             f"axiom-encode/atomic-source-transaction/{change}"
         )
+        if change == "v4":
+            wrapper["transaction"]["manifest_only_refresh"] = True
     else:
         wrapper["transaction"] = []
     with pytest.raises(ValueError):

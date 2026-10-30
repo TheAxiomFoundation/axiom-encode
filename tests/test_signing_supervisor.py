@@ -2344,9 +2344,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["pr_base_branch"]["default"] == "main"
     assert inputs["source_bundle_json"] == {
         "description": (
-            "Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3 "
-            "for an ordinary or in-place legacy replacement, with optional signed "
-            "provision export run IDs; "
+            "Atomic source input: corpus-artifact-transport/v1 wrapping fresh v3 "
+            "with an optional signed corpus export and signed provision export run IDs; "
+            "corpus-provision-prefetch/v1 wrapping exact v2-v3 with signed provision run IDs; "
             "legacy citation array/refresh object, v2-v5 contract, "
             "or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} "
             "for an authenticated failed ordinary single-target repair"
@@ -7663,6 +7663,12 @@ def test_targeted_artifact_preserves_pre_v4_replacement_receipts(
     [
         ("none", None),
         ("wrong-owner-hash", "historical legacy replacement manifest binding differs"),
+        (
+            "wrong-receipt-and-owner-hash",
+            "historical legacy replacement manifest binding differs",
+        ),
+        ("wrong-owner-path", "historical legacy replacement manifest binding differs"),
+        ("moved-manifest", "in-place legacy replacement manifest path differs"),
         ("owner-not-deleted", "deleted manifest inventory differs"),
     ],
 )
@@ -7723,7 +7729,16 @@ def test_targeted_artifact_packages_historical_in_place_owner(
     }
     receipt_payload = {
         "schema_version": "axiom-encode/legacy-fresh-reencode-receipt/v8",
-        "legacy": {"manifest": {"path": old_manifest_path, "sha256": old_owner_sha}},
+        "legacy": {
+            "manifest": {
+                "path": old_manifest_path,
+                "sha256": (
+                    "0" * 64
+                    if mutation == "wrong-receipt-and-owner-hash"
+                    else old_owner_sha
+                ),
+            }
+        },
         "replacement": {
             "source": primary_path,
             "destination": primary_path,
@@ -7743,13 +7758,23 @@ def test_targeted_artifact_packages_historical_in_place_owner(
         "replacement": {
             "receipt_path": receipt.relative_to(rulespec).as_posix(),
             "receipt_sha256": hashlib.sha256(receipt.read_bytes()).hexdigest(),
-            "legacy_manifest_path": old_manifest_path,
+            "legacy_manifest_path": (
+                new_manifest_path
+                if mutation == "wrong-owner-path"
+                else old_manifest_path
+            ),
             "legacy_manifest_sha256": (
-                "0" * 64 if mutation == "wrong-owner-hash" else old_owner_sha
+                "0" * 64
+                if mutation in {"wrong-owner-hash", "wrong-receipt-and-owner-hash"}
+                else old_owner_sha
             ),
         },
     }
-    new_manifest = rulespec / new_manifest_path
+    new_manifest = rulespec / (
+        new_manifest_path.replace("expanded.json", "moved.json")
+        if mutation == "moved-manifest"
+        else new_manifest_path
+    )
     new_manifest.parent.mkdir(parents=True)
     new_manifest.write_text(json.dumps(outer) + "\n")
     (tmp_path / "source-bundle.json").write_text("[]\n")

@@ -1,37 +1,21 @@
-## 0.2.2262
+## 0.2.2263
 
-- Bump the encoder version after merging current main's engine-binding changes into the authenticated Arizona provision-export branch.
-
-## 0.2.2261
-
-- Refresh the dependent exporter branch after the Arizona transport preflight and historical-owner review fixes.
-
-## 0.2.2260
-
-- Refresh the dependent exporter branch after the protected Arizona transport parent absorbed current main; retain both signed-transport and Canadian repair-head admission.
+- Prefetch authenticated signed corpus provision exports for protected runs whose release provisions are R2-only, with exact exporter, archive, release, and provision-byte checks. Admit the reviewed PyMuPDF exporter dependency-file pair.
+- Allow one authenticated Arizona corpus export and up to seven distinct signed provision exports in the same fresh protected transaction, without altering the source contract or the reviewed Canadian repair-head admission.
+- Bind historical Arizona SNAP manifest-owner replacement to the signed receipt and original Git bytes throughout protected packaging and publication; retain the canonical in-place manifest path and existing retired-source-metadata migration dispatches.
+- Refresh the encoder version after merging current main's engine-binding changes into the authenticated Arizona provision-export branch.
 
 ## 0.2.2259
 
-- Bump the encoder version after the previous protected Arizona transport parent refresh.
 - Bind manifest refresh validation to the declared engine revision and verified binary through apply checks, creating the engine receipt before the protected runtime. Preserve byte-identical obsolete manual aliases only when independently verified canonical base and head receipts cover unchanged live files; retain changed-receipt and full-census verification.
 
 ## 0.2.2258
 
-- Bind historical Arizona SNAP manifest-owner replacement to the signed receipt and original Git bytes throughout protected packaging and publication.
 - Forward the reviewed dependent finding through all Arizona corpus-transport preflights, admit canonical shallow historical-owner deletions, and refresh the encoder version after current main.
 
 ## 0.2.2257
 
-- Allow one authenticated Arizona corpus export and up to seven distinct signed provision exports in the same fresh protected transaction, so R2-only federal dependencies are available without altering the source contract.
 - Refresh the encoder version after merging the reviewed Canadian repair-head admission into the Arizona ECE transport branch.
-
-## 0.2.2256
-
-- Admit the reviewed PyMuPDF corpus exporter dependency-file pair alongside the protected signed Arizona source/dependent transaction and its completed-manifest census check.
-
-## 0.2.2255
-
-- Prefetch authenticated signed corpus provision exports for protected runs whose release provisions are R2-only, with exact exporter, archive, release, and provision-byte checks.
 
 ## 0.2.2254
 

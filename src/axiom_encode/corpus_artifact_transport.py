@@ -69,6 +69,15 @@ def request_run_id(raw: str, dispatch: dict[str, str]) -> str:
 def provision_run_ids(raw: str) -> list[str]:
     """Return only strictly validated export IDs; the wrapper adds no source authority."""
 
+    try:
+        schema = json.loads(raw).get("schema")
+    except (AttributeError, ValueError, RecursionError):
+        return []
+    if schema not in {
+        "axiom-encode/corpus-artifact-transport/v1",
+        "axiom-encode/corpus-provision-prefetch/v1",
+    }:
+        return []
     normalized = split_atomic_source_input(raw)
     return list(normalized.get("provision_export_run_ids", []))
 
