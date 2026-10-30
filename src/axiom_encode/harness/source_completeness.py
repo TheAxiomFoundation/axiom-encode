@@ -28288,7 +28288,155 @@ def _branch_boundary_test_witnesses(
                 ):
                     witnesses.add((rule_name, f"case:{id(case)}"))
                     break
+                if boundary.has_rate_context and any(
+                    _formula_execution_references_names(
+                        controller_execution, input_names
+                    )
+                    and _formula_execution_binds_boundary(
+                        controller_execution,
+                        boundary,
+                        source_text=authoritative_numeric_recall_text(branch.text),
+                        input_names=input_names,
+                        formula_environment=(
+                            controller_execution.constant_environment
+                        ),
+                        evaluation_environment=execution_environment,
+                        source_bound_constant_occurrences=(
+                            source_bound_constant_occurrences or {}
+                        ),
+                        source_interval=source_interval,
+                        source_boolean_polarity=source_boolean_polarity,
+                        extract_numeric_occurrences=extract_numeric_occurrences,
+                        numeric_value_is_grounded=numeric_value_is_grounded,
+                    )
+                    and _boundary_case_changes_formula_effect(
+                        controller_rule,
+                        case,
+                        input_key=input_key,
+                        selector_names=input_names,
+                        boundary_value=scaled_value,
+                        execution=controller_execution,
+                        principal_rules=principal_rules,
+                        dependency_names=set(dependency_environment),
+                        formula_environment=formula_environment or {},
+                        # The source interval is a rate; the perturbed input is
+                        # the corresponding amount at that rate of its base.
+                        source_interval=None,
+                        source_boolean_polarity=0,
+                        root_rule=rule,
+                        root_execution=execution,
+                    )
+                    for input_key, input_names, scaled_value in (
+                        _case_scaled_percentage_boundary_evidence(
+                            case,
+                            controller_execution,
+                            boundary,
+                            selector_names=selector_names,
+                            source_text=authoritative_numeric_recall_text(
+                                branch.text
+                            ),
+                            numeric_value_is_grounded=numeric_value_is_grounded,
+                        )
+                    )
+                ):
+                    witnesses.add((rule_name, f"case:{id(case)}"))
+                    break
     return witnesses
+
+
+def _case_scaled_percentage_boundary_evidence(
+    case: dict[str, Any],
+    execution: _FormulaExecution,
+    boundary: NumericOccurrenceLike,
+    *,
+    selector_names: set[str],
+    source_text: str,
+    numeric_value_is_grounded: NumericGroundingPredicate,
+) -> tuple[tuple[object, set[str], float], ...]:
+    """Find an asserted amount at a source-stated percent-of-base boundary.
+
+    A percentage may be supplied by a source-bound imported rate rather than
+    as a test input. In that case the tested boundary is ``rate * base`` in
+    money, not the rate itself in the input map.
+    """
+    if not boundary.has_rate_context:
+        return ()
+    inputs = case.get("input")
+    if not isinstance(inputs, dict):
+        return ()
+    numeric_inputs = {
+        name: (key, float(value))
+        for key, value in inputs.items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+        for name in _input_key_names(key)
+    }
+    checks = [execution.leaf]
+    checks.extend(
+        selector
+        for step in execution.trace
+        if step.kind in {"if", "match"}
+        for selector in step.selectors
+    )
+    evidence: list[tuple[object, set[str], float]] = []
+    for text in checks:
+        expression = _parse_formula_expression(text)
+        if expression is None:
+            continue
+        for comparison, _negated in _formula_comparisons_with_polarity(expression):
+            operands = (comparison.left, *comparison.comparators)
+            for left, right in zip(operands, operands[1:]):
+                for amount_node, threshold_node in ((left, right), (right, left)):
+                    if (
+                        not isinstance(amount_node, ast.Name)
+                        or amount_node.id not in numeric_inputs
+                        or amount_node.id not in selector_names
+                        or not isinstance(threshold_node, ast.BinOp)
+                        or not isinstance(threshold_node.op, ast.Mult)
+                    ):
+                        continue
+                    amount_key, amount = numeric_inputs[amount_node.id]
+                    for rate_node, base_node in (
+                        (threshold_node.left, threshold_node.right),
+                        (threshold_node.right, threshold_node.left),
+                    ):
+                        if (
+                            not isinstance(base_node, ast.Name)
+                            or base_node.id not in numeric_inputs
+                            or not _source_percentage_base_matches(
+                                source_text,
+                                boundary=boundary,
+                                base_name=base_node.id,
+                            )
+                        ):
+                            continue
+                        rate_names = {
+                            node.id
+                            for node in ast.walk(rate_node)
+                            if isinstance(node, ast.Name)
+                        }
+                        if rate_names & numeric_inputs.keys():
+                            continue
+                        rate = _rulespec_runtime_decimal(
+                            _evaluate_condition_expression(
+                                rate_node, execution.constant_environment
+                            )
+                        )
+                        if rate is None or not numeric_value_is_grounded(
+                            float(rate), (boundary,)
+                        ):
+                            continue
+                        _base_key, base = numeric_inputs[base_node.id]
+                        if base <= 0 or not math.isclose(
+                            amount,
+                            float(rate) * base,
+                            rel_tol=1e-9,
+                            abs_tol=1e-9,
+                        ):
+                            continue
+                        evidence.append(
+                            (amount_key, {amount_node.id}, amount)
+                        )
+    return tuple(evidence)
 
 
 def _asserted_reached_rule_executions(
@@ -29005,16 +29153,20 @@ def _source_percentage_base_matches(
         return False
     searchable_text = explicit_base.group("base")
     collapsed = _collapse_text(searchable_text).lower()
+    selector_tokens = tuple(_normalized_selector_name(base_name).split("_"))
     concept_tokens = tuple(
         token
-        for token in _normalized_selector_name(base_name).split("_")
+        for token in selector_tokens
         if (len(token) >= 4 or token in _SOURCE_ACRONYM_EXPANSIONS)
         and token not in _SOURCE_SELECTOR_TOKEN_STOPWORDS
         and token not in _SOURCE_SELECTOR_GENERIC_ENTITY_TOKENS
         and token not in _SOURCE_GENERIC_NUMERIC_NAME_TOKENS
     )
     return bool(concept_tokens) and all(
-        _source_concept_token_matches(collapsed, token) for token in concept_tokens
+        _source_selector_token_matches(
+            collapsed, token, selector_tokens=selector_tokens
+        )
+        for token in concept_tokens
     )
 
 
