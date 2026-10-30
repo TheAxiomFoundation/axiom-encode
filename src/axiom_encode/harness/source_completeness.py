@@ -294,6 +294,7 @@ class _TerminalGateEvidence:
     predicates: frozenset[str]
     polarity_conflict: bool
     explicit_name_polarities: frozenset[tuple[str, bool]] = frozenset()
+    numeric_income_amount: bool = False
 
 
 @dataclass(frozen=True)
@@ -16535,6 +16536,38 @@ def _source_gate_semantic_tokens(
         and normalized not in _SOURCE_GATE_STOPWORDS
         and len(normalized) > 1
     }
+    if "income" in tokens:
+        comparison_text = _normalized_source_gate_polarity_text(subject_text)
+        comparison_tokens = re.findall(r"[a-z]+", comparison_text)
+        comparison_tokens, wrapper_parity = _source_gate_unwrap_negation(
+            comparison_tokens
+        )
+        income_index = next(
+            index
+            for index, token in enumerate(comparison_tokens)
+            if _source_gate_normalized_token(token) == "income"
+        )
+        comparison_text = " ".join(comparison_tokens[income_index + 1 :])
+        upper = re.search(
+            r"\b(?:not\s+exceed(?:s|ed|ing)?|not\s+above|not\s+over|within|"
+            r"under|below|less\s+than|at\s+most|"
+            r"(?:no|not)\s+(?:more|greater)\s+than)\b",
+            comparison_text,
+        )
+        lower = re.search(
+            r"\b(?:not\s+within|not\s+under|not\s+below|"
+            r"(?:no|not)\s+less\s+than|"
+            r"exceed(?:s|ed|ing)?|above|over|more\s+than|greater\s+than|"
+            r"at\s+least)\b",
+            comparison_text,
+        )
+        if upper is not None or lower is not None:
+            upper_bound = upper is not None and (
+                lower is None or upper.start() <= lower.start()
+            )
+            if wrapper_parity:
+                upper_bound = not upper_bound
+            tokens.add("income_upper_bound" if upper_bound else "income_lower_bound")
     if "care" in tokens:
         tokens.update(_source_gate_care_action_tokens(text))
         tokens.update(_source_gate_care_expense_tokens(text))
@@ -16926,6 +16959,13 @@ def _source_gate_income_reading(
         blockers=_SOURCE_GATE_INCOME_BLOCKERS,
     ):
         return _SourceGatePredicateReading("income", None)
+    # An amount ceiling negates the comparison, not the existence of income.
+    # Treating "income does not exceed" as unknown existence makes a
+    # source-stated eligibility gate impossible to corroborate.
+    if tuple(tokens[index + 1 : index + 4]) == ("does", "not", "exceed"):
+        if wrapper_parity or out_of_window_negation:
+            return _SourceGatePredicateReading("income", None)
+        return _SourceGatePredicateReading("income", False)
     prefix_start = max(0, index - _SOURCE_GATE_PREDICATE_SCAN_LIMIT)
     if out_of_window_negation:
         return _SourceGatePredicateReading("income", None)
@@ -17638,6 +17678,13 @@ def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, in
     boundaries.extend(_work_chart_heading_starts(text))
     boundaries.extend(_printed_chart_arithmetic_starts(text))
     boundaries.extend(_printed_page_header_boundaries(text))
+    # DES manual notes following a physical bullet list are separate
+    # propositions, not another conjunctive eligibility condition.
+    boundaries.extend(
+        match.start()
+        for match in re.finditer(r"(?m)^[ \t]*NOTE\b", text)
+        if text[: match.start()].endswith("\n\n")
+    )
     boundaries.extend(
         match.end()
         for match in re.finditer(
@@ -17666,6 +17713,49 @@ def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, in
         max(position for position in ordered if position <= start),
         min(position for position in ordered if position >= end),
     )
+
+
+def _source_bullet_item_bounds(
+    text: str, start: int, end: int
+) -> tuple[int, int] | None:
+    """Keep an exact proof inside one physical bullet from owning its siblings."""
+
+    markers = tuple(re.finditer(r"(?m)^(?P<indent>[ \t]*)[●•][ \t]+", text))
+    # Prefer the most deeply nested item containing the proof. An indented
+    # child does not terminate its parent item.
+    for index in range(len(markers) - 1, -1, -1):
+        marker = markers[index]
+        indent = len(marker.group("indent"))
+        next_marker = next(
+            (
+                candidate.start()
+                for candidate in markers[index + 1 :]
+                if len(candidate.group("indent")) <= indent
+            ),
+            len(text),
+        )
+        first_line_end = text.find("\n", marker.end(), next_marker)
+        if first_line_end < 0:
+            first_line_end = next_marker
+        if (
+            marker.end() <= start
+            and end <= first_line_end
+            and text[marker.end() : first_line_end].rstrip().endswith(":")
+        ):
+            # A bullet can itself be the chapeau of an indented list. Its
+            # exact proof retains the child conditions.
+            return None
+        paragraph_break = re.search(
+            r"\r?\n[ \t]*\r?\n", text[marker.end() : next_marker]
+        )
+        item_end = (
+            marker.end() + paragraph_break.start()
+            if paragraph_break is not None
+            else next_marker
+        )
+        if marker.end() <= start and end <= item_end:
+            return marker.start(), item_end
+    return None
 
 
 def _flattened_inline_dotted_marker_has_item_boundary(
@@ -17979,6 +18069,10 @@ def _source_condition_clauses_owned_by_excerpt(
             local_start,
             local_end,
         )
+        bullet_item = _source_bullet_item_bounds(container_text, local_start, local_end)
+        if bullet_item is not None:
+            proposition_start = max(proposition_start, bullet_item[0])
+            proposition_end = min(proposition_end, bullet_item[1])
         if (
             narrow_conjunctive_excerpt
             and _excerpt_is_conjunction_delimited_subclause(
@@ -18253,7 +18347,9 @@ def _terminal_gate_evidence(
 ) -> dict[str, _TerminalGateEvidence]:
     evidence: dict[str, _TerminalGateEvidence] = {}
 
-    def build(name: str, description: str = "") -> _TerminalGateEvidence:
+    def build(
+        name: str, description: str = "", *, numeric_amount: bool = False
+    ) -> _TerminalGateEvidence:
         if care_source_text in _SOURCE_GATE_REVIEWED_DEPENDENT_CARE_SOURCES and (
             name,
             description,
@@ -18307,6 +18403,14 @@ def _terminal_gate_evidence(
                 for base_predicate, negative in name_polarities.items()
                 if negative is not None
             ),
+            numeric_amount
+            and re.search(r"(?:^|_)income(?:_amount)?$", name) is not None
+            and not _SOURCE_GATE_INCOME_BLOCKERS.intersection(
+                name_text.casefold().split() + description.casefold().split()
+            )
+            and not _SOURCE_GATE_INCOME_NEGATION_MARKERS.intersection(
+                name_text.casefold().split() + description.casefold().split()
+            ),
         )
 
     for item in payload.get("inputs", ()) or ():
@@ -18315,7 +18419,14 @@ def _terminal_gate_evidence(
         name = str(item.get("name") or "").strip()
         if not name:
             continue
-        evidence[name] = build(name, str(item.get("description") or ""))
+        evidence[name] = build(
+            name,
+            str(item.get("description") or ""),
+            numeric_amount=(
+                str(item.get("dtype") or "").strip().casefold()
+                in {"money", "decimal", "integer", "count"}
+            ),
+        )
     for item in payload.get("imports", ()) or ():
         if not isinstance(item, str) or "#" not in item:
             continue
@@ -18383,16 +18494,76 @@ def _terminal_names_corroborate_source_gates(
         if predicates & _SOURCE_GATE_UNKNOWN_POLARITY_PREDICATES:
             candidates.append(())
             continue
+        income_ceiling_gate = "income" in predicates and bool(
+            predicates
+            & {
+                "exceed",
+                "limit",
+                "over",
+                "under",
+                "below",
+                "above",
+                "income_upper_bound",
+                "income_lower_bound",
+            }
+        )
+        source_income_comparators = predicates & {
+            "exceed",
+            "over",
+            "under",
+            "below",
+            "above",
+        }
+        source_income_direction = predicates & {
+            "income_upper_bound",
+            "income_lower_bound",
+        }
         matches: list[str] = []
         for name in sorted(names):
             evidence = terminal_evidence.get(
                 name,
                 _TerminalGateEvidence(frozenset(), frozenset(), True),
             )
-            if evidence.polarity_conflict:
+            numeric_income_comparison = (
+                evidence.numeric_income_amount
+                and income_ceiling_gate
+                and "unknown_income" in evidence.predicates
+            )
+            terminal_income_comparators = evidence.predicates & {
+                "exceed",
+                "over",
+                "under",
+                "below",
+                "above",
+            }
+            terminal_income_direction = evidence.predicates & {
+                "income_upper_bound",
+                "income_lower_bound",
+            }
+            explicit_income_comparison = (
+                bool(terminal_income_comparators or terminal_income_direction)
+                and (
+                    not source_income_direction
+                    or source_income_direction == terminal_income_direction
+                )
+                and (
+                    not source_income_comparators
+                    or bool(source_income_comparators & terminal_income_comparators)
+                    or bool(source_income_direction & terminal_income_direction)
+                )
+            )
+            if income_ceiling_gate and not (
+                evidence.numeric_income_amount or explicit_income_comparison
+            ):
+                continue
+            if evidence.polarity_conflict and not numeric_income_comparison:
                 continue
             terminal_entities = evidence.entities
             terminal_predicates = evidence.predicates
+            if numeric_income_comparison:
+                terminal_predicates = (terminal_predicates - {"unknown_income"}) | {
+                    "income"
+                }
             if "care" in predicates:
                 care_facts = predicates & {"care", "expense", "payment"}
                 if not care_facts <= terminal_predicates:
