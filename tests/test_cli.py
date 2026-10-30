@@ -1624,7 +1624,10 @@ def test_refresh_wrong_engine_pin_fails_before_apply_or_signing(tmp_path):
         patch("axiom_encode.cli._apply_generated_encoding_result") as apply_mock,
         patch("axiom_encode.cli._sign_applied_encoding_manifest") as sign_mock,
         patch("axiom_encode.cli.ValidatorPipeline") as pipeline,
-        pytest.raises(EngineBindingError, match="does not match the pinned commit"),
+        pytest.raises(
+            EngineBindingError,
+            match="Apply engine binding revision must match engine checkout HEAD",
+        ),
     ):
         signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
         cmd_refresh_applied_manifest(args)
