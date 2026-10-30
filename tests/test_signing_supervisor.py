@@ -2359,8 +2359,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["pr_base_branch"]["default"] == "main"
     assert inputs["source_bundle_json"] == {
         "description": (
-            "Atomic source input: corpus-artifact-transport/v1 wrapping fresh v3 "
-            "with an optional signed corpus export and signed provision export run IDs; "
+                "Atomic source input: corpus-artifact-transport/v1 wrapping v3 "
+                "with signed corpus/provision export run IDs (fresh, or exact authenticated "
+                "legacy-primary repair after dependent failure); "
             "corpus-provision-prefetch/v1 wrapping exact v2-v3 with signed provision run IDs; "
             "legacy citation array/refresh object, v2-v5 contract, "
             "or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} "
@@ -2651,7 +2652,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert '.path == ".github/workflows/targeted-signed-reencode.yml"' in repair_command
     assert "merge-base --is-ancestor" in repair_command
     assert '"$repair_encoder_commit" "$GITHUB_SHA"' in repair_command
-    assert "repair replay is limited to one non-legacy target" in repair_command
+    assert "legacy replay also requires its exact target path" in repair_command
     assert 'resolve-atomic-repair-mode "${ATOMIC_SOURCE_JSON:-[]}"' in repair_command
     assert "repair_tests_only=\"$(jq -r '.tests_only'" in repair_command
     assert 'echo "tests_only=$repair_tests_only" >> "$GITHUB_OUTPUT"' in (
@@ -3762,6 +3763,78 @@ def test_repair_preflight_accepts_one_bound_dependent_lane(tmp_path: Path) -> No
         "requested_mode": "legacy_inference",
         "tests_only": False,
     }
+
+
+def test_repair_preflight_accepts_bound_legacy_transport(tmp_path: Path) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Resolve trusted prior-run repair candidate"
+    ).split('api_version="', 1)[0]
+    command = command.replace("axiom-encode/.venv/bin/python", sys.executable)
+    command = command.replace(
+        "axiom-encode/scripts/prepare_signed_backfill.py",
+        str(ROOT / "scripts/prepare_signed_backfill.py"),
+    )
+    legacy_path = "us-az/policies/des/faa5/expanded-categorical-eligibility.yaml"
+    atomic_source = json.dumps(
+        {
+            "schema": "axiom-encode/corpus-artifact-transport/v1",
+            "transaction": {
+                "schema": "axiom-encode/atomic-source-transaction/v3",
+                "source_bundle": [],
+                "canonical_refresh_bundle": [],
+                "require_complete_source_unit": True,
+                "primary_required_test_cases": [
+                    {
+                        "name": "March boundary",
+                        "period": {
+                            "period_kind": "month",
+                            "start": "2026-03-01",
+                            "end": "2026-03-31",
+                        },
+                        "input": {"us-az:test#input": 1000},
+                        "required_output": {"us-az:test#output": 2.0},
+                    }
+                ],
+            },
+            "corpus_artifact_run_id": "123",
+        }
+    )
+    completed = subprocess.run(
+        ["bash", "-c", command],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "ATOMIC_SOURCE_JSON": atomic_source,
+            "CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+            "DEPENDENT_CITATION": "us-az/manual/des/faa5/na-categorical-eligibility/block-5",
+            "DEPENDENT_REVIEW_FINDING": "Re-encode against the signed source boundary.",
+            "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+            "GITHUB_OUTPUT": str(tmp_path / "github-output"),
+            "GITHUB_RUN_ID": "200",
+            "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
+            "QUEUE_ID": "",
+            "REPAIR_RUN_ID": "100",
+            "REPLACE_LEGACY_RULESPEC_PATH": legacy_path,
+            "REPLACE_RULESPEC_PATH": legacy_path,
+            "SECOND_DEPENDENT_CITATION": "",
+            "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+        },
+    )
+    assert completed.returncode == 0, completed.stderr
+    outputs = dict(
+        line.split("=", 1)
+        for line in (tmp_path / "github-output").read_text().splitlines()
+    )
+    assert outputs["mode"] == "full_artifact"
+    assert outputs["tests_only"] == "false"
 
 
 @pytest.mark.parametrize("second_without_first", [False, True])

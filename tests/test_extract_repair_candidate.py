@@ -333,6 +333,91 @@ def test_extracts_dependent_candidate_for_atomic_repair(tmp_path):
     assert result["path"] == "statutes/42/1437c-1.yaml"
 
 
+def test_extracts_bound_legacy_primary_after_dependent_failure(tmp_path):
+    archive, metadata = _archive(tmp_path)
+    primary_citation = "us/guidance/primary/source"
+    primary_path = "us/statutes/42/1437c-1.yaml"
+    dependent_citation = "us/statute/42/dependent"
+    atomic_source = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v3",
+            "source_bundle": [],
+            "canonical_refresh_bundle": [],
+            "require_complete_source_unit": True,
+            "primary_required_test_cases": [
+                {
+                    "name": "March boundary",
+                    "period": {
+                        "period_kind": "month",
+                        "start": "2026-03-01",
+                        "end": "2026-03-31",
+                    },
+                    "input": {"us:test#input": 1000},
+                    "required_output": {"us:test#output": 2.0},
+                }
+            ],
+        }
+    )
+    metadata.pop("source_bundle_input")
+    metadata["atomic_source_input"] = atomic_source
+    metadata["citation"] = primary_citation
+    metadata["dependent_citation"] = dependent_citation
+    metadata["replace_legacy_rulespec_path"] = primary_path
+    metadata["generated_lanes"] = ["dependent", "target"]
+    metadata["files"] = [
+        entry
+        for entry in metadata["files"]
+        if not entry["path"].endswith(".repair.json")
+    ]
+    prior = _rewrite_metadata(archive, tmp_path / "legacy-dependent.tar", metadata)
+
+    result = extract_candidate(
+        _args(
+            tmp_path,
+            prior,
+            citation=primary_citation,
+            atomic_source_json=atomic_source,
+            dependent_citation=dependent_citation,
+            replace_legacy_rulespec_path=primary_path,
+            transaction_citation=primary_citation,
+            transaction_rulespec_path=primary_path,
+        )
+    )
+
+    assert result["lane"] == "target"
+    assert result["runner"] == "openai-gpt-5.6-sol"
+    assert (Path(result["root"]) / "statutes/42/1437c-1.yaml").is_file()
+
+
+def test_rejects_legacy_primary_when_required_test_contract_changes(tmp_path):
+    archive, metadata = _archive(tmp_path)
+    metadata.pop("source_bundle_input")
+    metadata["atomic_source_input"] = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v3",
+            "source_bundle": [],
+            "canonical_refresh_bundle": [],
+            "require_complete_source_unit": True,
+            "primary_required_test_cases": [{"name": "prior"}],
+        }
+    )
+    metadata["dependent_citation"] = "us/statute/42/dependent"
+    metadata["replace_legacy_rulespec_path"] = metadata["replace_rulespec_path"]
+    metadata["generated_lanes"] = ["dependent", "target"]
+    prior = _rewrite_metadata(archive, tmp_path / "legacy-dependent.tar", metadata)
+
+    with pytest.raises(ValueError, match="metadata mismatch: atomic_source_input"):
+        extract_candidate(
+            _args(
+                tmp_path,
+                prior,
+                atomic_source_json="[]",
+                dependent_citation="us/statute/42/dependent",
+                replace_legacy_rulespec_path="us/statutes/42/1437c-1.yaml",
+            )
+        )
+
+
 def test_rejects_dependent_candidate_with_different_citation(tmp_path):
     archive, metadata = _archive(tmp_path)
     replacement = _rewrite_as_dependent_candidate(

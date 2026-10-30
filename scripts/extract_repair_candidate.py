@@ -256,7 +256,10 @@ def _expected_module_path(country: str, replace_rulespec_path: str) -> str:
 
 
 def _repair_lane_for_atomic_source(
-    metadata: dict[str, object], expected_atomic_source: object
+    metadata: dict[str, object],
+    expected_atomic_source: object,
+    *,
+    legacy_dependent_replay: bool = False,
 ) -> tuple[str, list[str]]:
     try:
         expected = SPLIT_ATOMIC_SOURCE_INPUT(expected_atomic_source)
@@ -293,6 +296,18 @@ def _repair_lane_for_atomic_source(
             ) from exc
         if split != expected:
             raise ValueError("repair artifact metadata mismatch: atomic_source_input")
+        if legacy_dependent_replay:
+            if (
+                raw_atomic != expected_atomic_source
+                or expected["source_bundle"]
+                or not expected["primary_required_test_cases"]
+                or metadata.get("generated_lanes") != ["dependent", "target"]
+            ):
+                raise ValueError(
+                    "legacy dependent repair requires the exact prior source "
+                    "transport, boundary tests, and generated lanes"
+                )
+            return "target", ["dependent", "target"]
         if not expected["source_bundle"]:
             return "target", ["target"]
         generated_lanes = metadata.get("generated_lanes")
@@ -480,6 +495,17 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
         canonical_citation = require_canonical_corpus_citation_path(args.citation)
         expected_rulespec_path = str(CITATION_RULESPEC_PATH(canonical_citation))
     expected_module = _expected_module_path(args.country, expected_rulespec_path)
+    legacy_path = getattr(args, "replace_legacy_rulespec_path", None)
+    dependent_citation = getattr(args, "dependent_citation", None)
+    legacy_dependent_replay = bool(legacy_path)
+    if legacy_dependent_replay and (
+        requested_repair_lane != "target"
+        or legacy_path != args.replace_rulespec_path
+        or legacy_path != transaction_rulespec_path
+        or not isinstance(dependent_citation, str)
+        or not dependent_citation
+    ):
+        raise ValueError("legacy dependent repair target identity is invalid")
 
     with tarfile.open(args.archive, mode="r:") as bundle:
         members = _member_index(bundle)
@@ -511,6 +537,9 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
         expected_mode_fields["existing_signed_imports_input"] = (
             args.existing_signed_imports_json
         )
+        if legacy_dependent_replay:
+            expected_mode_fields["replace_legacy_rulespec_path"] = legacy_path
+            expected_mode_fields["dependent_citation"] = dependent_citation
         if requested_repair_lane == "dependent":
             expected_mode_fields["dependent_citation"] = args.citation
         for field, expected in expected_mode_fields.items():
@@ -524,7 +553,9 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
             raise ValueError("expected atomic source input is invalid") from exc
         if requested_repair_lane == "target":
             repair_lane, expected_generated_lanes = _repair_lane_for_atomic_source(
-                metadata, args.atomic_source_json
+                metadata,
+                args.atomic_source_json,
+                legacy_dependent_replay=legacy_dependent_replay,
             )
         else:
             if "repair_mode" in PARSE_ATOMIC_SOURCE_INPUT(args.atomic_source_json):
@@ -624,7 +655,9 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
                 or repair_payload.get("runner") != runner
             ):
                 raise ValueError("final repair manifest identity is invalid")
-        elif len(repair_matches) == 0 and is_partial_source_repair:
+        elif len(repair_matches) == 0 and (
+            is_partial_source_repair or legacy_dependent_replay
+        ):
             candidate_pattern = re.compile(
                 rf"{re.escape(repair_lane)}/({RUNNER_PATTERN.pattern})/"
                 rf"{re.escape(expected_module)}"
@@ -710,6 +743,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--atomic-source-json", required=True)
     parser.add_argument("--existing-signed-imports-json", default="[]")
     parser.add_argument("--replace-rulespec-path", required=True)
+    parser.add_argument("--replace-legacy-rulespec-path")
+    parser.add_argument("--dependent-citation")
     parser.add_argument("--repair-lane", choices=sorted(REPAIR_LANES), default="target")
     parser.add_argument("--source-rulespec-paths-json")
     parser.add_argument("--transaction-citation")
