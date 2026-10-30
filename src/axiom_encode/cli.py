@@ -3089,6 +3089,16 @@ def main():
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
     )
     encode_parser.add_argument(
+        "--axiom-rules-engine-ref",
+        dest="axiom_rules_engine_ref",
+        default=None,
+        help=(
+            "Full 40-hex engine revision for candidate and apply validation; "
+            "binding may build a matching clean engine checkout before generation "
+            "if no valid binary receipt exists"
+        ),
+    )
+    encode_parser.add_argument(
         "--axiom-compose-path",
         type=Path,
         help=(
@@ -31018,6 +31028,9 @@ def _read_only_guard_encoder_execution_identity(
 
 def cmd_encode(args):
     """Encode with the exact caller-authorized RuleSpec dependency roots."""
+    engine_ref = getattr(args, "axiom_rules_engine_ref", None)
+    if engine_ref is not None:
+        require_engine_ref_sha(engine_ref, description="axiom_rules_engine_ref")
     with _authoritative_rulespec_dependency_scope(
         _rulespec_dependency_roots_from_args(args)
     ):
@@ -35259,6 +35272,9 @@ def _run_encode_attempt(
         raise RuntimeError(
             "encode --apply requires its signing key to be isolated before generation"
         )
+    engine_ref = getattr(args, "axiom_rules_engine_ref", None)
+    if engine_ref is not None:
+        require_engine_ref_sha(engine_ref, description="axiom_rules_engine_ref")
     # Phases advance inside run_model_eval (model_call, stage_candidate,
     # candidate_validation, record_result) and below under --apply.
     mark_encode_phase(PHASE_PREPARE)
@@ -35280,6 +35296,9 @@ def _run_encode_attempt(
         args.axiom_rules_path,
         label="Axiom rules engine",
     )
+    if engine_ref is not None:
+        _pinned_apply_engine_binding(axiom_rules_path, engine_ref)
+
     policy_checkout_path = resolved_policy_checkout_path
     if policy_checkout_path is None:
         policy_checkout_path = _resolve_explicit_existing_directory(
@@ -35373,6 +35392,9 @@ def _run_encode_attempt(
             output_root=output_root,
             policy_repo_path=policy_repo_path,
             axiom_rules_path=axiom_rules_path,
+            **(
+                {"axiom_rules_engine_ref": engine_ref} if engine_ref is not None else {}
+            ),
             axiom_compose_path=axiom_compose_path,
             local_corpus_release=corpus_release,
             validate_dependents=validate_dependents,
@@ -35430,6 +35452,7 @@ def _run_encode_attempt(
         output_root=args.output,
         policy_path=policy_repo_path,
         runtime_axiom_rules_path=axiom_rules_path,
+        **({"axiom_rules_engine_ref": engine_ref} if engine_ref is not None else {}),
         axiom_compose_path=axiom_compose_path,
         corpus_release=corpus_release,
         mode=args.mode,
@@ -57402,13 +57425,19 @@ def _apply_policy_content_files(content_root: Path) -> dict[str, str]:
 def _pinned_apply_engine_binding(
     axiom_rules_path: Path, engine_ref: str | None
 ) -> dict[str, str] | None:
-    """Bind explicit refresh validation to the verified engine's exact bytes."""
+    """Bind explicit apply validation to the verified engine's exact bytes."""
     if engine_ref is None:
         return None
     pin = EnginePin(
         sha=require_engine_ref_sha(engine_ref, description="axiom_rules_engine_ref"),
         source=Path("<apply-validation>"),
     )
+    checkout = _git_checkout_execution_identity(Path(axiom_rules_path))
+    if checkout.get("kind") != "git" or checkout.get("commit") != pin.sha:
+        raise EngineBindingError(
+            "Apply engine binding revision must match engine checkout HEAD: "
+            f"pin {pin.sha}, checkout {checkout.get('commit')!r}"
+        )
     binary = resolve_pinned_engine_binary(Path(axiom_rules_path), pin)
     return {
         "ref": pin.sha,
@@ -57865,6 +57894,12 @@ def _portable_apply_validation_execution_identity(
         label="Axiom rules engine",
         expected_repository="github.com/TheAxiomFoundation/axiom-rules-engine",
     )
+    binding_ref = _apply_snapshot_engine_ref(execution)
+    if binding_ref is not None and binding_ref != engine["commit"]:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: engine binding revision does not "
+            "match portable engine checkout commit"
+        )
 
     policy = execution.get("policy_root_identity")
     if not isinstance(policy, dict):

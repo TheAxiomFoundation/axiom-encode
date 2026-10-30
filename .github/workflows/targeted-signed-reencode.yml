@@ -1942,6 +1942,7 @@ jobs:
               --backend openai
               --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
               --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
+              --axiom-rules-engine-ref "$RULES_ENGINE_REF"
               --policy-repo-path "$RULESPEC_CHECKOUT"
               --output "$RUNNER_TEMP/generated/$output_lane"
               --emit-final-rejected-candidate \
