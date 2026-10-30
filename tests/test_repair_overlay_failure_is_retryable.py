@@ -31,6 +31,7 @@ from axiom_encode.harness.evals import (
     _run_single_eval,
     parse_runner_spec,
     resolve_corpus_source_unit,
+    run_model_eval,
 )
 from tests.release_object_fixtures import bind_test_corpus_release
 
@@ -110,7 +111,10 @@ def _bind_corpus(tmp_path: Path):
     )
 
 
-def test_valid_retained_candidate_skips_model_and_is_not_rewritten(tmp_path, capsys):
+@pytest.mark.parametrize("engine_ref", [None, "a" * 40])
+def test_valid_retained_candidate_skips_model_and_is_not_rewritten(
+    tmp_path, capsys, engine_ref
+):
     output_root = tmp_path / "out"
     workspace = _make_workspace(output_root / "_eval_workspaces" / "workspace")
     policy_path = tmp_path / "policy"
@@ -118,9 +122,6 @@ def test_valid_retained_candidate_skips_model_and_is_not_rewritten(tmp_path, cap
     rules_path = tmp_path / "rules"
     rules_path.mkdir()
     corpus_release = _bind_corpus(tmp_path)
-    source_unit = resolve_corpus_source_unit(
-        "us-ca/regulation/mpp/63-503", corpus_release
-    )
     candidate = ValidationRetryCandidate(
         rulespec="format: rulespec/v1\r\nmodule: {summary: retained}\r\nrules: []\r\n",
         tests="[]\r\n",
@@ -141,19 +142,18 @@ def test_valid_retained_candidate_skips_model_and_is_not_rewritten(tmp_path, cap
             return_value=_metrics(passed=True),
         ) as evaluate,
     ):
-        result = _run_single_eval(
-            citation="us-ca/regulation/mpp/63-503",
-            runner=parse_runner_spec("codex:gpt-5.5"),
+        result = run_model_eval(
+            citations=["us-ca/regulation/mpp/63-503"],
+            runner_specs=["codex:gpt-5.5"],
             output_root=output_root,
             policy_path=policy_path,
             runtime_axiom_rules_path=rules_path,
             corpus_release=corpus_release,
             mode="cold",
-            extra_context_paths=[],
-            source_unit=source_unit,
             validation_retry_candidate=candidate,
             accept_valid_retry_candidate=True,
-        )
+            axiom_rules_engine_ref=engine_ref,
+        )[0]
 
     assert result.success is True
     assert result.input_tokens == result.output_tokens == 0
@@ -169,12 +169,16 @@ def test_valid_retained_candidate_skips_model_and_is_not_rewritten(tmp_path, cap
     assert result.trace_sha256 is not None
     model_call.assert_not_called()
     evaluate.assert_called_once()
+    assert evaluate.call_args.kwargs.get("axiom_rules_engine_ref") == engine_ref
     assert evaluate.call_args.kwargs["allow_artifact_repairs"] is False
     assert evaluate.call_args.kwargs["skip_reviewers"] is True
     assert "retained_candidate_preflight=accepted" in capsys.readouterr().out
 
 
-def test_retained_candidate_rebinds_only_stale_proof_import_hashes(tmp_path, capsys):
+@pytest.mark.parametrize("engine_ref", [None, "a" * 40])
+def test_retained_candidate_rebinds_only_stale_proof_import_hashes(
+    tmp_path, capsys, engine_ref
+):
     output_root = tmp_path / "out"
     workspace = _make_workspace(output_root / "_eval_workspaces" / "workspace")
     policy_path = tmp_path / "policy"
@@ -182,9 +186,6 @@ def test_retained_candidate_rebinds_only_stale_proof_import_hashes(tmp_path, cap
     rules_path = tmp_path / "rules"
     rules_path.mkdir()
     corpus_release = _bind_corpus(tmp_path)
-    source_unit = resolve_corpus_source_unit(
-        "us-ca/regulation/mpp/63-503", corpus_release
-    )
     candidate = ValidationRetryCandidate(
         rulespec="format: rulespec/v1\nmodule: {summary: retained}\nrules: []\n",
         tests="[]\n",
@@ -223,19 +224,19 @@ def test_retained_candidate_rebinds_only_stale_proof_import_hashes(tmp_path, cap
             side_effect=(hash_mismatch, _metrics(passed=True)),
         ) as evaluate,
     ):
-        result = _run_single_eval(
-            citation="us-ca/regulation/mpp/63-503",
-            runner=parse_runner_spec("codex:gpt-5.5"),
+        result = run_model_eval(
+            citations=["us-ca/regulation/mpp/63-503"],
+            runner_specs=["codex:gpt-5.5"],
             output_root=output_root,
             policy_path=policy_path,
             runtime_axiom_rules_path=rules_path,
             corpus_release=corpus_release,
             mode="cold",
             extra_context_paths=[],
-            source_unit=source_unit,
             validation_retry_candidate=candidate,
             accept_valid_retry_candidate=True,
-        )
+            axiom_rules_engine_ref=engine_ref,
+        )[0]
 
     assert result.success is True
     assert result.input_tokens == result.output_tokens == 0
@@ -244,6 +245,10 @@ def test_retained_candidate_rebinds_only_stale_proof_import_hashes(tmp_path, cap
     model_call.assert_not_called()
     rebind_hashes.assert_called_once()
     assert evaluate.call_count == 2
+    assert all(
+        call.kwargs.get("axiom_rules_engine_ref") == engine_ref
+        for call in evaluate.call_args_list
+    )
     assert all(
         call.kwargs["allow_artifact_repairs"] is False
         and call.kwargs["skip_reviewers"] is True
@@ -347,7 +352,10 @@ rules:
     )
 
 
-def test_invalid_retained_candidate_falls_through_to_model(tmp_path, capsys):
+@pytest.mark.parametrize("engine_ref", [None, "a" * 40])
+def test_invalid_retained_candidate_falls_through_to_model(
+    tmp_path, capsys, engine_ref
+):
     output_root = tmp_path / "out"
     workspace = _make_workspace(output_root / "_eval_workspaces" / "workspace")
     policy_path = tmp_path / "policy"
@@ -355,9 +363,6 @@ def test_invalid_retained_candidate_falls_through_to_model(tmp_path, capsys):
     rules_path = tmp_path / "rules"
     rules_path.mkdir()
     corpus_release = _bind_corpus(tmp_path)
-    source_unit = resolve_corpus_source_unit(
-        "us-ca/regulation/mpp/63-503", corpus_release
-    )
     candidate = ValidationRetryCandidate(
         rulespec="format: rulespec/v1\nmodule: {summary: invalid}\nrules: []\n",
         tests="[]\n",
@@ -380,25 +385,29 @@ def test_invalid_retained_candidate_falls_through_to_model(tmp_path, capsys):
             side_effect=(_metrics(passed=False), _metrics(passed=True)),
         ) as evaluate,
     ):
-        result = _run_single_eval(
-            citation="us-ca/regulation/mpp/63-503",
-            runner=parse_runner_spec("codex:gpt-5.5"),
+        result = run_model_eval(
+            citations=["us-ca/regulation/mpp/63-503"],
+            runner_specs=["codex:gpt-5.5"],
             output_root=output_root,
             policy_path=policy_path,
             runtime_axiom_rules_path=rules_path,
             corpus_release=corpus_release,
             mode="cold",
             extra_context_paths=[],
-            source_unit=source_unit,
             validation_retry_candidate=candidate,
             accept_valid_retry_candidate=True,
-        )
+            axiom_rules_engine_ref=engine_ref,
+        )[0]
 
     assert result.success is True
     assert Path(result.output_file).read_text() != candidate.rulespec
     assert "summary: repaired" in Path(result.output_file).read_text()
     model_call.assert_called_once()
     assert evaluate.call_count == 2
+    assert all(
+        call.kwargs.get("axiom_rules_engine_ref") == engine_ref
+        for call in evaluate.call_args_list
+    )
     assert evaluate.call_args_list[0].kwargs["allow_artifact_repairs"] is False
     assert evaluate.call_args_list[0].kwargs["skip_reviewers"] is True
     assert evaluate.call_args_list[1].kwargs["allow_artifact_repairs"] is True
@@ -593,3 +602,43 @@ def test_retained_overlay_base_rejects_ambiguous_structures(candidate, expected_
     issue = _repair_overlay_candidate_base_issue(candidate)
     assert issue is not None
     assert expected_issue in issue
+
+
+@pytest.mark.parametrize("engine_ref", [None, "a" * 40])
+def test_repair_reevaluation_preserves_declared_engine_pin(tmp_path, engine_ref):
+    from axiom_encode.harness.evals import _evaluate_generated_artifact_with_repairs
+
+    candidate = tmp_path / "candidate.yaml"
+    candidate.write_text("rules: []\n")
+    release = _bind_corpus(tmp_path)
+
+    def repair(**kwargs):
+        if candidate.read_text() == "rules: []\n":
+            candidate.write_text("rules: []\n# repaired\n")
+            return ["repair"]
+        return []
+
+    with (
+        patch(
+            "axiom_encode.harness.evals.evaluate_artifact",
+            side_effect=[_metrics(passed=False), _metrics(passed=True)],
+        ) as evaluate,
+        patch(
+            "axiom_encode.harness.evals._apply_generated_eval_repairs",
+            side_effect=repair,
+        ),
+    ):
+        result = _evaluate_generated_artifact_with_repairs(
+            candidate,
+            tmp_path,
+            tmp_path,
+            "source",
+            release,
+            axiom_rules_engine_ref=engine_ref,
+        )
+    assert result.ci_pass
+    assert evaluate.call_count == 2
+    assert all(
+        call.kwargs.get("axiom_rules_engine_ref") == engine_ref
+        for call in evaluate.call_args_list
+    )
