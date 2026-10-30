@@ -28288,7 +28288,11 @@ def _branch_boundary_test_witnesses(
                 ):
                     witnesses.add((rule_name, f"case:{id(case)}"))
                     break
-                if boundary.has_rate_context and any(
+                # Only a principal predicate whose reached leaf itself
+                # compares the scaled amount may use this fallback. A control
+                # selector feeding an inverted if/match result is not a
+                # source-polarity witness for that result.
+                if controller_rule is rule and boundary.has_rate_context and any(
                     _formula_execution_references_names(
                         controller_execution, input_names
                     )
@@ -28370,15 +28374,8 @@ def _case_scaled_percentage_boundary_evidence(
         if isinstance(value, (int, float)) and not isinstance(value, bool)
         for name in _input_key_names(key)
     }
-    checks = [execution.leaf]
-    checks.extend(
-        selector
-        for step in execution.trace
-        if step.kind in {"if", "match"}
-        for selector in step.selectors
-    )
     evidence: list[tuple[object, set[str], float]] = []
-    for text in checks:
+    for text in (execution.leaf,):
         expression = _parse_formula_expression(text)
         if expression is None:
             continue
