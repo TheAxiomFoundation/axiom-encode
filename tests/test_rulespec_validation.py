@@ -21721,7 +21721,9 @@ def test_the_range_passes_scan_thousands_of_members_and_clauses_in_linear_time()
     # once per text and whitespace is trimmed in place, so a headed list of
     # thousands of members and a text of hundreds of clauses cost their
     # size. Before, 1,000, 2,000 and 4,000 members took 0.38, 1.44 and 5.71
-    # seconds, and 800 clauses 5.53 seconds.
+    # seconds, and 800 clauses 5.53 seconds. Four times the size may take at
+    # most eight times as long, and a quadratic scan takes sixteen: the ratio
+    # holds on a runner of any speed, which a limit in seconds does not.
     timings = {}
     for count in (1000, 4000):
         for heading, unit in (
@@ -21734,14 +21736,15 @@ def test_the_range_passes_scan_thousands_of_members_and_clauses_in_linear_time()
             timings[(count, unit)] = time.perf_counter() - started
             assert len(values) == count, (count, unit, len(values))
     for unit in ("אחוזים", "מיליון שקלים"):
-        assert timings[(4000, unit)] < 2.0, timings
         assert timings[(4000, unit)] < 8 * max(timings[(1000, unit)], 0.02), timings
     clause = "הקנס יהיה 50 או 2 אחוזים מהמחזור, לפי הגבוה.\n"
-    started = time.perf_counter()
-    matches = _iter_hebrew_percent_range_lower_matches(clause * 800)
-    elapsed = time.perf_counter() - started
-    assert len(matches) == 800
-    assert elapsed < 1.0, elapsed
+    clause_timings = {}
+    for count in (200, 800):
+        started = time.perf_counter()
+        matches = _iter_hebrew_percent_range_lower_matches(clause * count)
+        clause_timings[count] = time.perf_counter() - started
+        assert len(matches) == count
+    assert clause_timings[800] < 8 * max(clause_timings[200], 0.02), clause_timings
 
 
 def test_a_shared_unit_crosses_indentation_and_a_long_relative_clause():

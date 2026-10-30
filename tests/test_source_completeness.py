@@ -9276,22 +9276,32 @@ rules: []
 
 
 def test_parenthesized_cfr_outline_is_recognized_with_bounded_runtime():
-    source = (
-        "(a) Start.\n"
-        + "".join(f"({index}) Item {index}.\n" for index in range(1, 20_001))
-        + "(b) End."
-    )
+    def outline(items):
+        return (
+            "(a) Start.\n"
+            + "".join(f"({index}) Item {index}.\n" for index in range(1, items + 1))
+            + "(b) End."
+        )
 
-    started = time.perf_counter()
-    branches = recognize_source_structure(source)
-    elapsed = time.perf_counter() - started
+    def fastest_run(source):
+        elapsed = []
+        for _ in range(3):
+            started = time.perf_counter()
+            branches = recognize_source_structure(source)
+            elapsed.append(time.perf_counter() - started)
+        return min(elapsed), branches
+
+    small, _ = fastest_run(outline(5_000))
+    large, branches = fastest_run(outline(20_000))
 
     assert len(branches) == 20_002
     assert branches[-2].path == ("a", "20000")
     assert branches[-1].path == ("b",)
-    # Shared CI runners can add scheduling noise to this large outline.
-    # Keep the guard bounded without treating small variance as a regression.
-    assert elapsed < 3.0
+    # Four times the items may take at most eight times as long, and a
+    # quadratic scan takes sixteen. The ratio holds on a runner of any speed,
+    # which a limit in seconds does not. Each size keeps its fastest of three
+    # runs, so a busy moment on a shared runner does not count against it.
+    assert large < 8 * max(small, 0.02), (small, large)
 
 
 def test_parenthesized_nonoutline_without_root_sequence_remains_flat():
