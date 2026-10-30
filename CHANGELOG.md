@@ -1,3 +1,7 @@
+## 0.2.2270
+
+- Integrate current source-completeness updates with the reviewed explicit engine-pin and portable provenance checks.
+
 ## 0.2.2266
 
 - Integrate current source-bound amendment relation guidance with the reviewed explicit engine-pin and portable provenance checks.
