@@ -62,6 +62,10 @@ from axiom_encode.encode_timing import (
     mark_encode_phase,
     timed_phase,
 )
+from axiom_encode.harness.same_case_execution import (
+    bind_execution_overlay_origin,
+    capture_execution_git_origin,
+)
 from axiom_encode.legacy_replacement import LegacyReplacementContract
 from axiom_encode.legacy_replacement_overlay import (
     LegacyReplacementOverlayError,
@@ -8297,6 +8301,14 @@ def _evaluate_artifact_in_scope(
                     target=target,
                 )
             )
+    execution_git_origin = (
+        capture_execution_git_origin(Path(policy_repo_root))
+        if require_complete_source_unit
+        and legacy_replacement is None
+        and not replacement_overlay_scope
+        and not rulespec_dependency_roots
+        else None
+    )
     with _rulespec_validation_target(
         rulespec_file,
         policy_repo_root,
@@ -8315,6 +8327,15 @@ def _evaluate_artifact_in_scope(
         )
         pipeline = ValidatorPipeline(
             policy_repo_path=validation_policy_repo_root,
+            execution_overlay_origin=(
+                bind_execution_overlay_origin(
+                    execution_git_origin, validation_policy_repo_root
+                )
+                if legacy_replacement is None
+                and not replacement_overlay_scope
+                and not validation_dependency_roots
+                else None
+            ),
             axiom_rules_path=axiom_rules_path,
             **(
                 {"axiom_rules_engine_ref": axiom_rules_engine_ref}

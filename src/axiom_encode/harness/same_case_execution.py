@@ -9,6 +9,9 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
+import re
+import stat
 import subprocess
 import tempfile
 import time
@@ -161,6 +164,161 @@ def _has_consumer(
     return False
 
 
+def _directory_identity(path: Path) -> tuple[int, int]:
+    # Reject aliases before resolving; a symlink must not launder an origin.
+    if path.resolve(strict=True) != path or not path.is_dir():
+        raise ValueError("execution origin must be an exact directory")
+    stat = path.stat()
+    return stat.st_dev, stat.st_ino
+
+
+def _checkout_head(root: Path) -> str:
+    lines = subprocess.check_output(
+        ["git", "-C", str(root), "rev-parse", "--show-toplevel", "HEAD"],
+        text=True,
+        stderr=subprocess.DEVNULL,
+        timeout=10,
+    ).splitlines()
+    if (
+        len(lines) != 2
+        or Path(lines[0]) != root
+        or not re.fullmatch(r"[0-9a-f]{40}", lines[1])
+    ):
+        raise ValueError("execution origin is not a checkout root")
+    return lines[1]
+
+
+@dataclass(frozen=True)
+class ExecutionOverlayOrigin:
+    """Private staging capability: Git base is separate from candidate bytes.
+
+    Only trusted eval/apply staging constructs this; no RuleSpec or environment
+    field can grant it. Closure files and all ordinary checks still use overlay.
+    """
+
+    source_content_root: Path
+    overlay_content_root: Path
+    git_head: str
+    directory_identities: tuple[tuple[int, int], ...]
+
+    def fresh(self, root: Path) -> bool:
+        from axiom_encode.repo_routing import canonical_rulespec_root_identity
+
+        try:
+            source, overlay = self.source_content_root, self.overlay_content_root
+            identity = canonical_rulespec_root_identity(source)
+            return (
+                root == overlay.parent
+                and source.parent != overlay.parent
+                and identity is not None
+                and canonical_rulespec_root_identity(overlay) == identity
+                and tuple(
+                    _directory_identity(p)
+                    for p in (source.parent, source, overlay.parent, overlay)
+                )
+                == self.directory_identities
+                and _checkout_head(source.parent) == self.git_head
+            )
+        except (
+            OSError,
+            ValueError,
+            TypeError,
+            AttributeError,
+            subprocess.SubprocessError,
+        ):
+            return False
+
+
+@dataclass(frozen=True)
+class ExecutionGitOrigin:
+    """Original checkout identity captured before the trusted staging copy."""
+
+    source_content_root: Path
+    git_head: str
+    directory_identities: tuple[tuple[int, int], ...]
+
+    def fresh(self) -> bool:
+        try:
+            source = self.source_content_root
+            return (
+                tuple(_directory_identity(p) for p in (source.parent, source))
+                == self.directory_identities
+                and _checkout_head(source.parent) == self.git_head
+            )
+        except (
+            OSError,
+            ValueError,
+            TypeError,
+            AttributeError,
+            subprocess.SubprocessError,
+        ):
+            return False
+
+
+def capture_execution_git_origin(
+    source_content_root: Path,
+) -> ExecutionGitOrigin | None:
+    from axiom_encode.repo_routing import canonical_rulespec_root_identity
+
+    try:
+        source = Path(source_content_root)
+        if canonical_rulespec_root_identity(source) is None:
+            return None
+        origin = ExecutionGitOrigin(
+            source,
+            _checkout_head(source.parent),
+            tuple(_directory_identity(p) for p in (source.parent, source)),
+        )
+        return origin if origin.fresh() else None
+    except (OSError, ValueError, TypeError, AttributeError, subprocess.SubprocessError):
+        return None
+
+
+def bind_execution_overlay_origin(
+    original: ExecutionGitOrigin | None, overlay_content_root: Path
+) -> ExecutionOverlayOrigin | None:
+    """Bind the staged copy only if its pre-copy Git identity is still current."""
+    try:
+        if not isinstance(original, ExecutionGitOrigin) or not original.fresh():
+            return None
+        source, overlay = original.source_content_root, Path(overlay_content_root)
+        origin = ExecutionOverlayOrigin(
+            source,
+            overlay,
+            original.git_head,
+            original.directory_identities
+            + tuple(_directory_identity(p) for p in (overlay.parent, overlay)),
+        )
+        return origin if origin.fresh(overlay.parent) else None
+    except (OSError, ValueError, TypeError, AttributeError, subprocess.SubprocessError):
+        return None
+
+
+def _file_matches(path: Path, raw: bytes) -> bool:
+    """Do not accept a same-byte symlink or a replaced file during reading."""
+    try:
+        if path.resolve(strict=True) != path:
+            return False
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode):
+            return False
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as stream:
+            opened = os.fstat(stream.fileno())
+            data = stream.read(len(raw) + 1)
+        after = path.lstat()
+        return (
+            stat.S_ISREG(after.st_mode)
+            and (before.st_dev, before.st_ino)
+            == (opened.st_dev, opened.st_ino)
+            == (after.st_dev, after.st_ino)
+            and path.resolve(strict=True) == path
+            and data == raw
+        )
+    except (OSError, ValueError):
+        return False
+
+
 @dataclass(frozen=True)
 class ClosureFile:
     relative: str
@@ -192,15 +350,19 @@ class ExecutionCapture:
     artifact: Path | None = None
     artifact_sha256: str | None = None
     records: list[CaseExecution] = field(default_factory=list)
+    overlay_origin: ExecutionOverlayOrigin | None = None
 
     def fresh(self) -> bool:
         try:
             return (
-                digest(self.binary.read_bytes()) == self.binary_sha256
+                (
+                    self.overlay_origin is None
+                    or self.overlay_origin.fresh(self.original_root)
+                )
+                and digest(self.binary.read_bytes()) == self.binary_sha256
                 and all(
-                    f.original.read_bytes()
-                    == f.raw
-                    == (self.snapshot_root / f.relative).read_bytes()
+                    _file_matches(f.original, f.raw)
+                    and _file_matches(self.snapshot_root / f.relative, f.raw)
                     for f in self.files
                 )
                 and (
@@ -280,6 +442,7 @@ class ExecutionCapture:
             self.engine_pin,
             self.artifact.read_bytes(),
             tuple(self.records),
+            self.overlay_origin,
         )
 
 
@@ -293,6 +456,7 @@ class SameCaseEvidence:
     engine_pin: str
     artifact_bytes: bytes
     records: tuple[CaseExecution, ...]
+    overlay_origin: ExecutionOverlayOrigin | None = None
 
     def bound(self, content: str, imports: Any) -> bool:
         originals = {str(f.original): f for f in self.files}
@@ -300,10 +464,24 @@ class SameCaseEvidence:
         try:
             if (
                 root is None
+                or (
+                    self.overlay_origin is not None
+                    and (
+                        not self.overlay_origin.fresh(
+                            self.overlay_origin.overlay_content_root.parent
+                        )
+                        or any(
+                            f.original
+                            != self.overlay_origin.overlay_content_root.parent
+                            / f.relative
+                            for f in self.files
+                        )
+                    )
+                )
                 or root.raw.decode() != content
                 or any(
-                    f.original.read_bytes() != f.raw
-                    or (self.snapshot_root / f.relative).read_bytes() != f.raw
+                    not _file_matches(f.original, f.raw)
+                    or not _file_matches(self.snapshot_root / f.relative, f.raw)
                     for f in self.files
                 )
             ):
@@ -469,9 +647,17 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
         files[companion] = ClosureFile(
             companion.relative_to(root).as_posix(), companion, companion.read_bytes()
         )
-        head = subprocess.check_output(
-            ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
-        ).strip()
+        origin = getattr(pipe, "execution_overlay_origin", None)
+        if origin is not None:
+            if (
+                not isinstance(origin, ExecutionOverlayOrigin)
+                or not origin.fresh(root)
+                or pipe.policy_repo_path != origin.overlay_content_root
+            ):
+                return None
+            clone_root, head = origin.source_content_root.parent, origin.git_head
+        else:
+            clone_root, head = root, _checkout_head(root)
         binary = pipe._axiom_rules_binary()
         binary_sha = digest(binary.read_bytes())
     except (
@@ -483,13 +669,13 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
         subprocess.SubprocessError,
     ):
         return None
-    return root, files, head, binary, binary_sha
+    return root, files, head, binary, binary_sha, clone_root, origin
 
 
 def _materialize_snapshot(
     pipe: Any, rules_file: Path, plan: tuple, directory: str
 ) -> ExecutionCapture | None:
-    root, files, head, binary, binary_sha = plan
+    root, files, head, binary, binary_sha, clone_root, origin = plan
     snapshot_root = Path(directory).resolve() / root.name
     start = time.monotonic()
     cloned = subprocess.run(
@@ -499,7 +685,7 @@ def _materialize_snapshot(
             "--no-local",
             "--no-hardlinks",
             "--no-checkout",
-            str(root),
+            str(clone_root),
             str(snapshot_root),
         ],
         capture_output=True,
@@ -540,6 +726,7 @@ def _materialize_snapshot(
         pipe._declared_engine_pin().sha,
         time.monotonic() - start,
         head,
+        overlay_origin=origin,
     )
     if not capture.fresh():
         return None

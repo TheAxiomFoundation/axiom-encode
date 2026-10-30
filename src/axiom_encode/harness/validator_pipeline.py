@@ -180,6 +180,7 @@ from .proof_validator import (
 )
 from .same_case_execution import (
     ExecutionCapture,
+    ExecutionOverlayOrigin,
     SameCaseEvidence,
     compilation_snapshot,
 )
@@ -35514,8 +35515,10 @@ class ValidatorPipeline:
         validation_staging_root: Path | None = None,
         existing_target_oracle_contract: ExistingTargetOracleContract | None = None,
         axiom_rules_engine_ref: str | None = None,
+        execution_overlay_origin: ExecutionOverlayOrigin | None = None,
     ):
         self.policy_repo_path = Path(policy_repo_path)
+        self.execution_overlay_origin = execution_overlay_origin
         self.axiom_rules_path = Path(axiom_rules_path)
         self.axiom_compose_path = (
             Path(axiom_compose_path) if axiom_compose_path is not None else None

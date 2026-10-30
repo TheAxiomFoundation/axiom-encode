@@ -278,6 +278,10 @@ from .harness.proof_validator import (
     proof_source_citation_paths,
     validate_rulespec_proofs,
 )
+from .harness.same_case_execution import (
+    bind_execution_overlay_origin,
+    capture_execution_git_origin,
+)
 from .harness.source_completeness import (
     _deferred_coverage,
     _rulespec_target_base,
@@ -61569,6 +61573,14 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             policy_repo_path,
             relative_output,
         )
+        execution_git_origin = (
+            capture_execution_git_origin(policy_content_root)
+            if require_complete_source_unit
+            and legacy_replacement is None
+            and not replacement_overlay_scope
+            and not rulespec_dependency_roots
+            else None
+        )
         overlay_repo_name = policy_checkout_path.name
         staged_dependency_roots = _stage_apply_overlay_dependency_roots(
             overlay_parent=overlay_parent,
@@ -61690,6 +61702,15 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
 
         pipeline = ValidatorPipeline(
             policy_repo_path=overlay_content_root,
+            execution_overlay_origin=(
+                bind_execution_overlay_origin(
+                    execution_git_origin, overlay_content_root
+                )
+                if legacy_replacement is None
+                and not replacement_overlay_scope
+                and not staged_dependency_roots
+                else None
+            ),
             axiom_rules_path=axiom_rules_path,
             axiom_rules_engine_ref=axiom_rules_engine_ref,
             axiom_compose_path=axiom_compose_path,
