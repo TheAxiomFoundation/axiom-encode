@@ -31,6 +31,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_ungrounded_numeric_issues_scoped,
     numeric_value_is_grounded,
 )
+from tests.scaling import assert_grows_linearly, fastest_cpu_seconds
 
 CORPUS_CITATION_PATH = "de/statute/estg/32a"
 DE_NUMERIC_OCCURRENCE_EXTRACTOR = functools.partial(
@@ -9276,32 +9277,21 @@ rules: []
 
 
 def test_parenthesized_cfr_outline_is_recognized_with_bounded_runtime():
-    def outline(items):
-        return (
+    def outline_seconds(items):
+        source = (
             "(a) Start.\n"
             + "".join(f"({index}) Item {index}.\n" for index in range(1, items + 1))
             + "(b) End."
         )
 
-    def fastest_run(source):
-        elapsed = []
-        for _ in range(3):
-            started = time.perf_counter()
-            branches = recognize_source_structure(source)
-            elapsed.append(time.perf_counter() - started)
-        return min(elapsed), branches
+        def check(branches):
+            assert len(branches) == items + 2
+            assert branches[-2].path == ("a", str(items))
+            assert branches[-1].path == ("b",)
 
-    small, _ = fastest_run(outline(5_000))
-    large, branches = fastest_run(outline(20_000))
+        return fastest_cpu_seconds(lambda: recognize_source_structure(source), check)
 
-    assert len(branches) == 20_002
-    assert branches[-2].path == ("a", "20000")
-    assert branches[-1].path == ("b",)
-    # Four times the items may take at most eight times as long, and a
-    # quadratic scan takes sixteen. The ratio holds on a runner of any speed,
-    # which a limit in seconds does not. Each size keeps its fastest of three
-    # runs, so a busy moment on a shared runner does not count against it.
-    assert large < 8 * max(small, 0.02), (small, large)
+    assert_grows_linearly(outline_seconds(5_000), outline_seconds(20_000))
 
 
 def test_parenthesized_nonoutline_without_root_sequence_remains_flat():
