@@ -87,6 +87,8 @@ class SigningBrokerFixture:
         eval_public_key: str | None = None,
         corpus_release_public_key: str | None = None,
         corpus_release_public_keys: tuple[str, ...] | None = None,
+        retired_apply_public_keys: tuple[str, ...] = (),
+        retired_apply_inventory: dict[str, object] | None = None,
     ):
         self._apply_private_key = (
             _private_key(apply_private_key, label="Apply manifest")
@@ -98,6 +100,11 @@ class SigningBrokerFixture:
             private_key=self._apply_private_key,
             public_text=apply_public_key,
         )
+        self._retired_apply_public_keys = tuple(
+            _raw_public_key(_public_key(public_text, label="Retired apply manifest"))
+            for public_text in retired_apply_public_keys
+        )
+        self._retired_apply_inventory = retired_apply_inventory
         self._eval_private_key = (
             _private_key(eval_private_key, label="Eval evidence")
             if eval_private_key
@@ -173,6 +180,14 @@ class SigningBrokerFixture:
     @property
     def apply_public_key_raw(self) -> bytes | None:
         return self._apply_public
+
+    @property
+    def retired_apply_public_keys_raw(self) -> tuple[bytes, ...]:
+        return self._retired_apply_public_keys
+
+    @property
+    def retired_apply_inventory(self) -> dict[str, object] | None:
+        return self._retired_apply_inventory
 
     @property
     def eval_public_key_raw(self) -> bytes | None:

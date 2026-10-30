@@ -1,0 +1,53 @@
+When this section applies
+1
+This section applies when—
+a
+a person incurs expenditure for an income year for which they are allowed a deduction that is limited under 1 or more of sections DG 12 to DG 14 ; and
+b
+the income year is an income year in which section DG 16(1)﻿(b) applies.
+How this section applies: first looping rule
+2
+The first application of this section is to every group company B in sequence until no other group companies exist to which this subsection applies.
+How this section applies: second looping rule
+3
+The second application of this section is sequentially to—
+a
+first, 1 or more of the following persons, none of which is a company referred to in subsection (2):
+i
+a person who is a shareholder in company A:
+ii
+a person who is a shareholder in a company that is part of the same group of companies as company A and has a voting interest in company A; and
+b
+secondly, a person who is a shareholder in a company referred to in paragraph (a); and
+c
+so on, until no other persons exist to which this subsection applies.
+Quarantined amount
+4
+The amount of the person's excess expenditure for the income year is calculated using the formula—
+expenditure − outstanding profit balance.
+Definition of items in formula
+5
+In the formula,—
+a
+expenditure is the total of the following amounts:
+i
+the total amount of deductions that the person is allowed for the income year under sections DG 12 to DG 14 , as applicable and after any necessary apportionment; and
+ii
+an amount of the person that was quarantined under this section for an earlier income year and is not yet allocated to an income year:
+b
+outstanding profit balance ,—
+i
+for company B, is the amount of the outstanding profit balance referred to in section DG 16(5) :
+ii
+for a shareholder, is the amount that is the person's share of the outstanding profit balance referred to in section DG 16(5) , calculated using the formula in section DG 13(3) , treating the outstanding profit balance as if it were the net asset balance.
+No deduction for quarantined amount
+6
+The excess expenditure calculated under subsection (4) is either quarantined or remains quarantined, as applicable, and is denied as a deduction for the income year.
+Recalculation of outstanding profit balance
+7
+For the purposes of subsections (4) and (5)﻿(b), the amount that is the outstanding profit balance must be recalculated on each application, being reduced by an amount equal to the amount of any deduction counted.
+Zero result
+8
+For the purposes of the formula in subsection (4), if the amount of the outstanding profit balance for the income year is greater than the amount of expenditure for the income year, the result of the formula is treated as zero.
+Example
+Aircraft Ltd owns an aircraft to which the rules in this subpart apply; the income derived from the asset in the current year is less than 2% of the cost of the aircraft. The company has calculated an outstanding profit balance of $12,000 after the application of section DG 16. Aircraft is 100% owned by Parent Ltd, which has apportioned interest expenditure of $5,000 calculated under section DG 12. Parent has 2 equal shareholders, Alisa who has apportioned interest expenditure of $8,000, and Hamish who has apportioned interest expenditure of $1,000, both calculated under section DG 14. Parent must apply section DG 18 first, and is not required to quarantine any of its interest expenditure; the outstanding profit balance is reduced to $7,000 ($12,000 − $5,000). Alisa’s and Hamish’s share of the outstanding profit balance is $3,500 each ($7,000 × 50%) . Alisa must quarantine $4,500 of interest expenditure ($8,000 − $3,500); Hamish is not required to quarantine any interest expenditure.

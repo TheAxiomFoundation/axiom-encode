@@ -509,6 +509,10 @@ def test_full_generated_guard_uses_fetched_history_while_encoder_head_stays_at_p
     manifest_fixture, identity_checkout, monkeypatch
 ):
     fixtures, repo, rule, payload = manifest_fixture
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "commit", "--allow-empty", "-m", "guard checkout HEAD")
     checkout, pin, producer = identity_checkout
     _set_producer(payload, producer, cli.__version__)
     cli._sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)

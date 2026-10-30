@@ -10,12 +10,16 @@ import yaml
 from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness import source_path_evidence as evidence
 from axiom_encode.harness import validator_pipeline as v
+from axiom_encode.harness.proof_validator import validate_rulespec_proofs
 
 FIXTURE = Path(__file__).parent / "fixtures/source_path_shadow"
 SOURCE = (FIXTURE / "source.txt").read_text()
 CITATION = "ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit"
 EXTRACT = functools.partial(
     v.extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+)
+GROUNDING = functools.partial(
+    v.extract_typed_numeric_occurrences_from_text, profile="legacy"
 )
 
 
@@ -32,7 +36,7 @@ def certify(payload, cases, source=SOURCE):
         corpus_citation_path=CITATION,
         test_cases=cases,
         numeric_value_is_grounded=v.numeric_value_is_grounded,
-        extract_numeric_occurrences=EXTRACT,
+        extract_numeric_occurrences=GROUNDING,
     )
 
 
@@ -43,7 +47,7 @@ def analyze(payload, cases):
         corpus_citation_path=CITATION,
         test_cases=cases,
         extract_numeric_occurrences=EXTRACT,
-        extract_numeric_grounding_occurrences=EXTRACT,
+        extract_numeric_grounding_occurrences=GROUNDING,
         extract_named_scalars=v.extract_named_scalar_occurrences,
         numeric_value_is_grounded=v.numeric_value_is_grounded,
     )
@@ -64,6 +68,94 @@ def test_original47_certifies_only_four_note4_frames_not_missing_amt_pairs():
     assert all(o.certified for o in result.obligations if o.owner == evidence._TAX)
     assert not result.owns_exception(1493, 1807)  # cap/transfer untouched
     assert not result.owns_exception(1808, 2097)
+
+
+def test_interpretation_of_an_omitted_rule_does_not_change_path_evidence():
+    payload, cases = inputs()
+    baseline = certify(payload, cases)
+    payload["module"]["interpretations"] = [
+        {
+            "id": "separate-country-forms",
+            "question": "Should a separate form be used for each country?",
+            "texts": [
+                {
+                    "corpus_citation_path": CITATION,
+                    "excerpt": "Country or countries for which you are making this claim:",
+                }
+            ],
+            "reading": "The country count governs separate forms.",
+            "alternatives": [
+                {
+                    "id": "single-form-for-all-countries",
+                    "reading": "One form always covers every country.",
+                }
+            ],
+            "basis": "The source distinguishes country counts.",
+            "status": "open",
+            "affects": ["separate_country_form_required"],
+        }
+    ]
+
+    # Keep all declarations for affects resolution; unrelated fixture proofs
+    # are outside this assertion about interpretation metadata.
+    metadata_context = {
+        "format": payload["format"],
+        "module": {
+            key: copy.deepcopy(value)
+            for key, value in payload["module"].items()
+            if key in {"interpretations", "deferred_outputs"}
+        },
+        "rules": [{"name": rule["name"]} for rule in payload["rules"]],
+    }
+    metadata_validation = validate_rulespec_proofs(
+        yaml.safe_dump(metadata_context), source_texts={CITATION: SOURCE}
+    )
+    assert metadata_validation.passed, metadata_validation.issues
+    original_payload = copy.deepcopy(payload)
+    result = certify(payload, cases)
+    assert baseline.condition_spans
+    assert result.condition_spans == baseline.condition_spans
+    assert result.obligations == baseline.obligations
+    assert result.unresolved == baseline.unresolved
+    assert payload == original_payload
+
+    metadata_context["module"]["interpretations"][0]["affects"] = ["undefined_output"]
+    invalid = validate_rulespec_proofs(
+        yaml.safe_dump(metadata_context), source_texts={CITATION: SOURCE}
+    )
+    assert not invalid.passed
+    assert any("must name a rule defined in this module" in x for x in invalid.issues)
+
+
+@pytest.mark.parametrize("mutation", ("wrong_count", "unrelated_proof"))
+def test_selected_country_count_requires_its_owned_word_number_proof(mutation):
+    p, c = inputs()
+    threshold = rule(p, "multiple_foreign_country_count_threshold")
+    if mutation == "wrong_count":
+        threshold["versions"][0]["formula"] = 2
+    else:
+        proof = next(
+            atom
+            for atom in threshold["metadata"]["proof"]["atoms"]
+            if atom["path"] == "versions[0].formula"
+        )
+        proof["source"]["excerpt"] = next(
+            atom["source"]["excerpt"]
+            for atom in rule(p, "t2036_foreign_tax_threshold")["metadata"]["proof"][
+                "atoms"
+            ]
+            if atom["path"] == "versions[0].formula"
+        )
+
+    result = certify(p, c)
+
+    assert not any(name == evidence._TAX for name, *_ in result.condition_spans)
+    if mutation == "unrelated_proof":
+        assert any(
+            "multiple_foreign_country_count_threshold: ungrounded selected parameter"
+            in issue
+            for issue in result.unresolved
+        )
 
 
 def test_actual_analyzer_keeps_cap_transfer_year_and_amt_findings():

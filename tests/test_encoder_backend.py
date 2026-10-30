@@ -153,6 +153,9 @@ def _assert_encoder_prompt_topics(prompt: str) -> None:
         "Only include `blocked_by` entries when you know the exact RuleSpec output",
         "us:statutes/us-ca/17000",
         "direct release-bound corpus source text",
+        "source_relation.amendment.operation",
+        "source_relation.amendment.effective",
+        "do not\n  invent an operation or date",
     ]
     for topic in required_topics:
         assert topic in prompt
@@ -167,6 +170,8 @@ def test_generic_encoder_prompt_includes_durable_rule_spec_guidance():
 
     _assert_encoder_prompt_topics(ENCODER_PROMPT)
     _assert_encoder_prompt_topics(prompt)
+    assert "data_relation.arguments" in ENCODER_PROMPT
+    assert "arguments: [Person, Household]" in prompt
     assert "For 26 USC 1402(a)(12)" not in ENCODER_PROMPT
     normalized_prompt = " ".join(prompt.split())
     assert "Include `us/statute/26/63` in `module.source_verification`." in prompt

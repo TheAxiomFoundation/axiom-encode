@@ -35,6 +35,7 @@ def package_retired_source_evidence(
         "retired-source-containment/v1",
         "retired-source-containment/v2",
         "retired-source-external-parameters/v1",
+        "retired-source-external-preserved-rules/v1",
     }:
         raise ValueError("Invalid retired source admission report")
     relative = Path("source-admission") / lane / REPORT_NAME

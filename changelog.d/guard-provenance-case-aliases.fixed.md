@@ -1,0 +1,1 @@
+Reject noncanonical case aliases of provenance inventory components and JSON receipt suffixes using Unicode case folding. The generated-change guard checks the base, head, index, filesystem inventories, and explicit changed paths before receipt filtering in every mode, so case-insensitive filesystems cannot hide unverified receipts.

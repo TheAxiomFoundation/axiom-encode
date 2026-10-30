@@ -8,7 +8,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import textwrap
 from decimal import Decimal
 from pathlib import Path
@@ -1967,25 +1966,38 @@ def test_rulespec_target_resolution_rejects_workspace_dependency_root(tmp_path):
 
 
 def test_rulespec_target_resolution_accepts_macos_system_path_alias(tmp_path):
-    if not Path("/var").is_symlink():
-        pytest.skip("macOS /var system alias is unavailable")
-    with tempfile.TemporaryDirectory(dir="/var/tmp") as raw_tmpdir:
-        checkout = Path(raw_tmpdir) / "rulespec-us"
-        target = checkout / "us" / "statutes/1/target.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text("format: rulespec/v1\nrules: []\n")
-        policy_repo = _canonical_rulespec_content_root(tmp_path, "uk")
-        target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
+    resolved_tmp = tmp_path.resolve()
+    for alias_root, physical_root in (
+        (Path("/var"), Path("/private/var")),
+        (Path("/tmp"), Path("/private/tmp")),
+    ):
+        if (
+            resolved_tmp.is_relative_to(physical_root)
+            and alias_root.is_symlink()
+            and alias_root.resolve() == physical_root
+        ):
+            aliased_tmp = alias_root / resolved_tmp.relative_to(physical_root)
+            break
+    else:
+        pytest.skip("temporary directory has no macOS system path alias")
+    assert aliased_tmp != resolved_tmp
+    assert aliased_tmp.resolve() == resolved_tmp
+    checkout = aliased_tmp / "rulespec-us"
+    target = checkout / "us" / "statutes/1/target.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text("format: rulespec/v1\nrules: []\n")
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "uk")
+    target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
 
-        assert target_ref is not None
-        assert (
-            validator_pipeline._resolve_rulespec_target_file(
-                target_ref,
-                policy_repo,
-                rulespec_dependency_roots=(checkout,),
-            )
-            == target.resolve()
+    assert target_ref is not None
+    assert (
+        validator_pipeline._resolve_rulespec_target_file(
+            target_ref,
+            policy_repo,
+            rulespec_dependency_roots=(checkout,),
         )
+        == target.resolve()
+    )
 
 
 def test_rulespec_target_resolution_rejects_explicit_checkout_symlink(tmp_path):
@@ -4928,6 +4940,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -4985,6 +4998,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -5039,6 +5053,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -5399,8 +5414,9 @@ def test_policyengine_registry_is_legal_id_keyed():
         "us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#snap_gross_income_limit_130_percent_fpl_48_states_dc",
         country="us",
     )
-    assert gross_income_limit_mapping.policyengine_variable == "snap_fpg"
-    assert gross_income_limit_mapping.result_multiplier == 1.3
+    assert gross_income_limit_mapping.mapping_type == "not_comparable"
+    assert gross_income_limit_mapping.candidate_priority == "P4"
+    assert gross_income_limit_mapping.policyengine_variable is None
     colorado_ccap_smi_limit_mapping = registry.mapping_for_legal_id(
         "us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#monthly_state_median_income_85_limit",
         country="us",
@@ -6457,7 +6473,7 @@ def test_packaged_alabama_2026_schedule_registry_and_fallback_are_synchronized()
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6568,7 +6584,7 @@ def test_packaged_connecticut_2026_ordinary_tax_registry_is_exactly_synchronized
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6652,7 +6668,7 @@ def test_packaged_georgia_2026_annual_tax_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6747,7 +6763,7 @@ def test_packaged_mississippi_2026_schedule_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6908,7 +6924,7 @@ def test_packaged_kansas_2026_k40es_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -7013,7 +7029,7 @@ def test_packaged_dc_2026_section_47_1806_03_has_exact_bounded_slice():
 def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     import axiom_oracles.bridges.registry as runtime_registry_module
 
-    durable_oracle_merge = "d3419010d9c8de6a790220bf47912d85aadc2588"
+    durable_oracle_merge = "9434ce833bacbc60bc1572ea0245913ff4e48501"
     root = Path(__file__).parents[1]
     bundled_path = root / "src/axiom_encode/oracles/policyengine/mappings/us.yaml"
     runtime_path = (
@@ -7090,7 +7106,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2198"')
+        .startswith('__version__ = "0.2.2269"')
     )
 
 
@@ -7216,7 +7232,7 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
 
     import axiom_oracles.bridges.registry as runtime_registry_module
 
-    durable_oracle_merge = "d3419010d9c8de6a790220bf47912d85aadc2588"
+    durable_oracle_merge = "9434ce833bacbc60bc1572ea0245913ff4e48501"
     root = Path(__file__).parents[1]
     bundled_path = root / "src/axiom_encode/oracles/policyengine/mappings/us.yaml"
     runtime_path = (
@@ -7322,13 +7338,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2198"
+    assert encoder_package["version"] == "0.2.2269"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2198"
+    assert project["project"]["version"] == "0.2.2269"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2198"')
+        .startswith('__version__ = "0.2.2269"')
     )
 
 
@@ -7492,7 +7508,7 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
 
     import axiom_oracles.bridges.registry as runtime_registry_module
 
-    durable_oracle_merge = "d3419010d9c8de6a790220bf47912d85aadc2588"
+    durable_oracle_merge = "9434ce833bacbc60bc1572ea0245913ff4e48501"
     root = Path(__file__).parents[1]
     bundled_path = root / "src/axiom_encode/oracles/policyengine/mappings/us.yaml"
     runtime_path = (
@@ -7590,13 +7606,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2198"
+    assert encoder_package["version"] == "0.2.2269"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2198"
+    assert project["project"]["version"] == "0.2.2269"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2198"')
+        .startswith('__version__ = "0.2.2269"')
     )
 
 
@@ -7843,7 +7859,7 @@ def test_packaged_utah_2026_before_credit_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -27046,9 +27062,18 @@ def test_rulespec_proof_parent_resolution_is_bounded_for_repeated_lists():
     def resolve_repeated_lists(count: int) -> tuple[tuple[str, str] | None, float]:
         source_text = " ".join("a. (1) Items: (a) Item." for _ in range(count))
         numeric_start = source_text.rfind("(1)")
-        started = monotonic()
-        result = _source_top_level_marker_for_numeric_parent(source_text, numeric_start)
-        return result, monotonic() - started
+        results, timings = set(), []
+        # Best of three, each after a collection, so heap debt left by preceding
+        # tests or a one-off runner stall is not charged to the resolver.
+        for _ in range(3):
+            gc.collect()
+            started = monotonic()
+            results.add(
+                _source_top_level_marker_for_numeric_parent(source_text, numeric_start)
+            )
+            timings.append(monotonic() - started)
+        assert len(results) == 1
+        return results.pop(), min(timings)
 
     small_result, small_elapsed = resolve_repeated_lists(192)
     large_result, large_elapsed = resolve_repeated_lists(768)
@@ -31967,6 +31992,49 @@ rules:
 
     assert len(issues) == 1
     assert "disqualifying_condition" in issues[0]
+
+
+def test_test_input_assignment_lists_every_missing_fact_when_none_assigned():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: fact_one and fact_two and fact_three and fact_four and fact_five and fact_six and fact_seven and fact_eight and fact_nine
+"""
+    cases = [
+        {
+            "name": "no_facts",
+            "input": {"us:regulations/7-cfr/273/4#relation.person": [True]},
+            "output": {"us:regulations/7-cfr/273/4#eligible": "holds"},
+        }
+    ]
+
+    issues = find_test_input_assignment_issues(content, cases)
+
+    assert len(issues) == 1
+    assert "`no_facts` does not assign" in issues[0]
+    assert all(
+        f"#input.fact_{name}" in issues[0]
+        for name in (
+            "one",
+            "two",
+            "three",
+            "four",
+            "five",
+            "six",
+            "seven",
+            "eight",
+            "nine",
+        )
+    )
 
 
 def test_test_input_assignment_selects_formula_dependencies_by_case_period():
@@ -37843,6 +37911,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: household_size
     kind: derived
     entity: Household
@@ -40292,6 +40361,199 @@ def test_validator_pipeline_resolves_direct_proof_sources_from_authoritative_cor
 
     assert source_texts == {citation_path: "The official amount is $298."}
     assert find_rulespec_proof_issues(content, source_texts=source_texts) == []
+
+
+def _interpretation_pipeline_content(*, excerpt="The official amount is $298."):
+    payload = yaml.safe_load(_corpus_checked_proof_content())
+    payload["module"].pop("proof_validation", None)
+    payload["module"]["interpretations"] = [
+        {
+            "id": "official-amount-reading",
+            "question": "Which amount applies?",
+            "texts": [
+                {
+                    "corpus_citation_path": "us/guidance/example/page-1",
+                    "excerpt": excerpt,
+                }
+            ],
+            "reading": "The stated official amount applies.",
+            "alternatives": [
+                {"id": "different-amount", "reading": "A different amount applies."}
+            ],
+            "basis": "The source states the official amount.",
+            "status": "open",
+            "affects": [payload["rules"][0]["name"]],
+        }
+    ]
+    return yaml.safe_dump(payload)
+
+
+def test_validator_pipeline_resolves_interpretations_without_numeric_coverage(
+    tmp_path,
+):
+    citation_path = "us/guidance/example/page-1"
+    body = "The official amount is $298."
+    corpus_root = tmp_path / "axiom-corpus"
+    provisions = corpus_root / "data/corpus/provisions/us/guidance"
+    provisions.mkdir(parents=True)
+    (provisions / "example.jsonl").write_text(
+        json.dumps(_active_corpus_record(citation_path, body, version="example")) + "\n"
+    )
+    release = _test_corpus_release(corpus_root, ("us", "guidance", "example"))
+    payload = yaml.safe_load(_interpretation_pipeline_content())
+    payload["rules"][0].pop("metadata", None)
+    content = yaml.safe_dump(payload)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        local_corpus_release=release,
+    )
+
+    with validator_pipeline._authoritative_corpus_scope(release):
+        proof_sources = pipeline._proof_source_texts_for_rulespec_content(
+            content, source_texts=None
+        )
+        numeric_sources = pipeline._numeric_source_texts_for_rulespec_content(
+            content, source_texts=None
+        )
+
+    assert proof_sources == {citation_path: body}
+    assert numeric_sources == {}
+    optional = validate_rulespec_proofs(content, source_texts=proof_sources)
+    strict = validate_rulespec_proofs(
+        content, source_texts=proof_sources, require_policy_proofs=True
+    )
+    assert optional.passed
+    assert optional.atoms_checked == strict.atoms_checked == 0
+    assert not strict.passed
+    assert any("Proof missing" in issue for issue in strict.issues)
+
+
+@pytest.mark.parametrize("require_policy_proofs", [False, True])
+def test_rulespec_ci_blocks_invalid_interpretation_excerpt_without_engine_support(
+    tmp_path, monkeypatch, require_policy_proofs
+):
+    rulespec_file = tmp_path / "rulespec-us/statutes/example.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(
+        _interpretation_pipeline_content(excerpt="A fabricated official amount.")
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        require_policy_proofs=require_policy_proofs,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_compile_rulespec_to_artifact",
+        lambda *_args: (
+            subprocess.CompletedProcess(["axiom-rules-engine"], 0, "", ""),
+            {"program": {"parameters": [], "derived": [], "relations": []}},
+        ),
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_corpus_proof_evidence_text",
+        lambda _citation: "The official amount is $298.",
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_corpus_source_text",
+        lambda _citation: "The official amount is $298.",
+    )
+
+    result = pipeline._run_rulespec_ci(rulespec_file)
+
+    assert not result.passed
+    assert any(
+        "official-amount-reading" in issue
+        and ".texts[0]" in issue
+        and "does not appear" in issue
+        for issue in result.issues
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "original"),
+    [
+        ("question", "1e5", "Which amount applies?"),
+        ("basis", "-0o17", "The source states the official amount."),
+        ("effect", "+.5", "A different amount applies."),
+        ("reading", "2e10", "The stated official amount applies."),
+    ],
+)
+@pytest.mark.parametrize("style", ["plain", "quoted", "explicit-string-tag"])
+def test_rulespec_ci_checks_raw_numeric_interpretation_strings_without_engine_support(
+    tmp_path, monkeypatch, field, value, original, style
+):
+    scalar = {
+        "plain": value,
+        "quoted": f"'{value}'",
+        "explicit-string-tag": f"!!str {value}",
+    }[style]
+    content = _interpretation_pipeline_content()
+    if field == "effect":
+        line = next(
+            line
+            for line in content.splitlines()
+            if line.strip() == f"reading: {original}"
+        )
+        indent = line[: len(line) - len(line.lstrip())]
+        content = content.replace(line, f"{line}\n{indent}effect: {scalar}")
+    else:
+        old = f"{field}: {original}"
+        assert old in content
+        content = content.replace(old, f"{field}: {scalar}", 1)
+    # Keep the replacement raw: safe_dump would remove some protective quoting.
+    rulespec_file = tmp_path / "rulespec-us/statutes/example.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(content)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        require_policy_proofs=False,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_compile_rulespec_to_artifact",
+        lambda *_args: (
+            subprocess.CompletedProcess(["axiom-rules-engine"], 0, "", ""),
+            {"program": {"parameters": [], "derived": [], "relations": []}},
+        ),
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_corpus_proof_evidence_text",
+        lambda _citation: "The official amount is $298.",
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_corpus_source_text",
+        lambda _citation: "The official amount is $298.",
+    )
+
+    result = pipeline._run_rulespec_ci(rulespec_file)
+
+    interpretation_issues = [
+        issue for issue in result.issues if "module.interpretations" in issue
+    ]
+    if style == "plain":
+        assert not result.passed
+        assert len(interpretation_issues) == 1
+        location = (
+            "module.interpretations[0].alternatives[0].effect"
+            if field == "effect"
+            else f"module.interpretations[0].{field}"
+        )
+        assert (
+            f"{location} must be a quoted string when YAML reads this scalar as a number."
+            in interpretation_issues[0]
+        )
+    else:
+        assert interpretation_issues == []
 
 
 def test_validator_pipeline_fails_closed_for_invalid_generated_proof_citation(
@@ -44915,7 +45177,9 @@ rules: []
     )
 
 
-def test_source_subparagraph_coverage_allows_repealed_empty_slice(tmp_path):
+def test_source_subparagraph_coverage_requires_reviewed_evidence_for_repealed_empty_slice(
+    tmp_path,
+):
     source_text = """Wages
 (a) Wages means all remuneration for employment.
 """
@@ -44938,16 +45202,16 @@ rules: []
     assert len(issues) == 1
     assert "26 USC 3121(a)" in issues[0]
 
-    # A generated repeal needs a matching source notice in a proven outline.
+    # Matching source text is still insufficient without a reviewed tombstone
+    # entry or the exact requested corpus row's authoritative repealed status.
     source_text += "(3) Repealed.\n(b) Employment details.\n"
-    assert (
-        find_source_subparagraph_coverage_issues(
-            content,
-            rules_file=rules_file,
-            source_texts={"us/statute/26/3121": source_text},
-        )
-        == []
+    issues = find_source_subparagraph_coverage_issues(
+        content,
+        rules_file=rules_file,
+        source_texts={"us/statute/26/3121": source_text},
     )
+    assert len(issues) == 1
+    assert "26 USC 3121(a)" in issues[0]
 
 
 def test_source_subparagraph_coverage_allows_rule_citing_child():
@@ -47288,7 +47552,7 @@ rules:
     assert "sum(member_of_tax_unit, ...)" in issues[0]
 
 
-def test_relation_aggregate_syntax_rejects_sum_of_local_derived_relation_field():
+def test_relation_aggregate_syntax_accepts_sum_of_local_derived_relation_field():
     content = """format: rulespec/v1
 rules:
   - name: capital_asset_of_tax_unit
@@ -47319,9 +47583,7 @@ rules:
 
     issues = find_relation_aggregate_syntax_issues(content)
 
-    assert any("local executable output" in issue for issue in issues)
-    assert "sum(capital_asset_of_tax_unit.short_term_capital_gain)" in issues[0]
-    assert "sum_where(capital_asset_of_tax_unit, short_term_capital_gain" in issues[0]
+    assert issues == []
 
 
 def test_relation_aggregate_syntax_accepts_sum_of_relation_row_fact():

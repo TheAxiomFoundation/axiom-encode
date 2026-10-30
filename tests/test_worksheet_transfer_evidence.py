@@ -10,6 +10,7 @@ import yaml
 from axiom_encode.harness import validator_pipeline as v
 from axiom_encode.harness import worksheet_operation_evidence as operations
 from axiom_encode.harness import worksheet_transfer_evidence as transfer
+from axiom_encode.harness.proof_validator import validate_rulespec_proofs
 
 ROOT = Path(__file__).parent / "fixtures"
 SOURCE = (ROOT / "source_path_shadow/source.txt").read_text()
@@ -17,6 +18,9 @@ CONTEXT = {
     operations._PRIMARY: SOURCE,
     operations._SECONDARY: (ROOT / "worksheet_operations/secondary.txt").read_text(),
 }
+GROUNDING = functools.partial(
+    v.extract_typed_numeric_occurrences_from_text, profile="legacy"
+)
 
 
 def inputs():
@@ -33,9 +37,7 @@ def certify(payload, cases):
         source_context=CONTEXT,
         test_cases=cases,
         numeric_value_is_grounded=v.numeric_value_is_grounded,
-        extract_numeric_occurrences=functools.partial(
-            v.extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
-        ),
+        extract_numeric_occurrences=GROUNDING,
     )
 
 
@@ -57,6 +59,67 @@ def test_actual_four_cases_compute_children_before_sum_and_routes():
     assert [x.total for x in result.cases] == [300, 300, 230, 230]
     assert result.routing_pairs == ((50, 51), (52, 53))
     assert result.source_spans == ((1669, 1807), (1808, 2097))
+
+
+def test_interpretation_of_an_omitted_rule_does_not_change_transfer_evidence():
+    payload, cases = inputs()
+    baseline = certify(payload, cases)
+    payload["module"]["interpretations"] = [
+        {
+            "id": "separate-country-forms",
+            "question": "Should a separate form be used for each country?",
+            "texts": [
+                {
+                    "corpus_citation_path": operations._PRIMARY,
+                    "excerpt": "Country or countries for which you are making this claim:",
+                }
+            ],
+            "reading": "The country count governs separate forms.",
+            "alternatives": [
+                {
+                    "id": "single-form-for-all-countries",
+                    "reading": "One form always covers every country.",
+                }
+            ],
+            "basis": "The source distinguishes country counts.",
+            "status": "open",
+            "affects": ["separate_country_form_required"],
+        }
+    ]
+
+    # Keep all declarations for affects resolution; unrelated fixture proofs
+    # are outside this assertion about interpretation metadata.
+    metadata_context = {
+        "format": payload["format"],
+        "module": {
+            key: copy.deepcopy(value)
+            for key, value in payload["module"].items()
+            if key in {"interpretations", "deferred_outputs"}
+        },
+        "rules": [{"name": rule["name"]} for rule in payload["rules"]],
+    }
+    metadata_validation = validate_rulespec_proofs(
+        yaml.safe_dump(metadata_context), source_texts=CONTEXT
+    )
+    assert metadata_validation.passed, metadata_validation.issues
+    original_payload = copy.deepcopy(payload)
+    result = certify(payload, cases)
+    assert not baseline.unresolved and not result.unresolved
+    assert result.source_spans == baseline.source_spans
+    assert result.cases == baseline.cases
+    assert result.routing_pairs == baseline.routing_pairs
+    assert (
+        result.scalar_operations.annual_spans == baseline.scalar_operations.annual_spans
+    )
+    assert result.matches(payload, cases, SOURCE, CONTEXT)
+    assert payload == original_payload
+
+    metadata_context["module"]["interpretations"][0]["affects"] = ["undefined_output"]
+    invalid = validate_rulespec_proofs(
+        yaml.safe_dump(metadata_context), source_texts=CONTEXT
+    )
+    assert not invalid.passed
+    assert any("must name a rule defined in this module" in x for x in invalid.issues)
 
 
 @pytest.mark.parametrize(
@@ -218,9 +281,7 @@ def test_unknown_post_transfer_restriction_is_not_ignored():
         source_context={**CONTEXT, operations._PRIMARY: source},
         test_cases=c,
         numeric_value_is_grounded=v.numeric_value_is_grounded,
-        extract_numeric_occurrences=functools.partial(
-            v.extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
-        ),
+        extract_numeric_occurrences=GROUNDING,
     )
     assert result.unresolved == ("unknown transfer tail ownership",)
     assert not result.source_spans

@@ -1,0 +1,1 @@
+Treat canonical engine compilation failures as unsafe when selecting a rejected repair candidate, including failures present only in its full validation diagnostics. Preserve existing source-obligation ranking and validation gates.

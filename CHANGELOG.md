@@ -1,6 +1,124 @@
-## 0.2.2198
+## 0.2.2264
 
-- Read proof excerpts that differ from the cited source only typographically (ligatures, quotation-mark and in-word dash variants, wrapped compound and line-end hyphens, a space after a currency or section sign, a space before a comma, enclosing quotation marks, a recased first letter) as the printed source text, recognize the Code's "($X in the case of a joint return)" parenthetical as prose, and scope fused "(1)(a)" markers; ellipsis, paraphrase, stitched table text and sign changes stay rejected. State the contiguous-verbatim excerpt contract in the encoder prompts, and drop the bare `imports:` header when unused-import pruning removes every import.
+- Support eleven authenticated signed provision exports for the current pinned corpus release, including the atomic transport's distinct primary run and all bounded workflow metadata and archive slots. Keep exact source-contract and export-byte verification.
+
+## 0.2.2263
+
+- Prefetch authenticated signed corpus provision exports for protected runs whose release provisions are R2-only, with exact exporter, archive, release, and provision-byte checks. Admit the reviewed PyMuPDF exporter dependency-file pair.
+- Allow one authenticated Arizona corpus export and up to seven distinct signed provision exports in the same fresh protected transaction, without altering the source contract or the reviewed Canadian repair-head admission.
+- Bind historical Arizona SNAP manifest-owner replacement to the signed receipt and original Git bytes throughout protected packaging and publication; retain the canonical in-place manifest path and existing retired-source-metadata migration dispatches.
+- Refresh the encoder version after merging current main's engine-binding changes into the authenticated Arizona provision-export branch.
+
+## 0.2.2259
+
+- Bind manifest refresh validation to the declared engine revision and verified binary through apply checks, creating the engine receipt before the protected runtime. Preserve byte-identical obsolete manual aliases only when independently verified canonical base and head receipts cover unchanged live files; retain changed-receipt and full-census verification.
+
+## 0.2.2258
+
+- Forward the reviewed dependent finding through all Arizona corpus-transport preflights, admit canonical shallow historical-owner deletions, and refresh the encoder version after current main.
+
+## 0.2.2257
+
+- Refresh the encoder version after merging the reviewed Canadian repair-head admission into the Arizona ECE transport branch.
+
+## 0.2.2254
+
+- Recognize completed signed in-place source-bound dependents in the legacy replacement census, retaining source-citation, primary-proof, and fresh-manifest checks.
+
+## 0.2.2253
+
+- Regenerate Arizona ECE's proof-pinned dependent from its own signed FAA5 source in the same protected legacy replacement transaction, and verify both source bindings and the updated proof hash before publication.
+
+## 0.2.2252
+
+- Admit authenticated in-place legacy Arizona ECE replacement from a signed corpus artifact while preserving the existing RuleSpec identity and dependent references; keep distinct-path moves and unsupported transport modes rejected.
+- Admit the exact reviewed Canadian repair head for all protected artifact-only modes, including manifest refresh and reviewed-candidate promotion. Preserve publication restrictions and every signing and validation gate; link the admission evidence.
+
+## 0.2.2248
+
+- Add reviewed `repealed_tombstone` coverage exemptions for the exact repealed leaf scopes 26 USC 3121(a)(3), 3121(a)(17) and 3306(b)(3), bound to the signed corpus bytes, with their review evidence. The operative parent paragraphs and every other scope keep their coverage demands.
+
+## 0.2.2247
+
+- Add bounded authenticated corpus artifact transport for fresh complete-source replacements, binding the official reviewed exporter, run and artifact metadata, archive bytes, signed release, immutable and current scope locks, and protected signing workflow without granting source authority.
+
+## 0.2.2246
+
+- Verify a closed printed net-income row using independently executed floored and retained signed values with authenticated informational referral identities. Preserve source operands, version frames, and refusal for missing or conflicting evidence; do not infer loss eligibility or execute downstream policies.
+
+- Accept an optional nonempty descriptive `source` on imported entered-amount observations and direct worksheet entered-condition wrappers without treating that text as proof or changing canonical identity, formula, type, frame, or proof checks.
+
+## 0.2.2243
+
+- Verify a complete source repayment alternative group only when every top-level alternative and every owner version has its own executed threshold pair. Preserve partial conditions, leaf-level coverage, and separate floor/advisory obligations.
+
+## 0.2.2242
+
+- Verify exact source repayment thresholds using separately executed equality and above-threshold cases, authenticated entered observations and branch-required worksheet facts. Preserve generic boundary evaluation and separate compound-condition and advisory obligations.
+
+## 0.2.2241
+
+- Verify signed numeric representation of exact printed bracket-format instructions using authenticated operand ownership and separate actual negative and nonnegative executions. Preserve floor, advisory, repayment and boundary obligations.
+
+## 0.2.2240
+
+- Recognize referral URLs inside verified printed arithmetic rows without treating URL punctuation as calculation operators. Require exact source-bound local operand order, all-version proofs and matching executed formulas; preserve advisory text and separate condition checks.
+
+## 0.2.2239
+
+- Verify sparse worksheet choices using exact source-bound entered observations and separately executed cases. Require the selected-only worksheet fact, preserve canonical ownership and unchanged common facts, and keep generic paired-condition and boundary checks unchanged.
+
+## 0.2.2238
+
+- Verify source-bound subtraction floors using separate actual negative and positive cases, canonical imported operand proofs and exact execution receipts. Preserve legacy paired-condition and boundary checks, including unresolved sparse worksheet branches.
+
+## 0.2.2237
+
+- Verify imported formula witnesses against pinned, isolated compilation and exact-case Explain execution, while retaining original repository checks and separate boundary and paired-condition obligations.
+
+## 0.2.2236
+
+- Bind imported entered-line observations to their canonical providers and authenticated source proofs. Check complete repayment alternative trees, strict thresholds and result branches before treating their conditions as explicit, while preserving ordinary execution and source checks.
+
+## 0.2.2235
+
+- Preserve verified whole-form reference locations when extracting computation clauses, so a referral such as Step 4 is not mistaken for an arithmetic operand. Keep real amounts and malformed references subject to the existing checks.
+
+## 0.2.2234
+
+- Recognize complete printed-form referrals and label typography without treating them as arithmetic. Keep condition proofs within their source rows while preserving inherited repayment guards and conditional branches.
+
+## 0.2.2233
+
+- Preserve printed form operation rows and inherited conditions during source-clause recognition. Bind complete Add-range proof excerpts to their unique source context while retaining structural ownership and selected-version checks.
+
+## 0.2.2232
+
+- Distinguish complete slip-box referrals, coordinated printed line labels, and corroborated form footers from numeric policy values, preserving amounts, source offsets, and unrelated completeness checks.
+
+## 0.2.2230
+
+- Keep a person responsible for a family-type resource distinct from a Family claimant in source-scope validation, while retaining genuine Family and Household requirements.
+
+## 0.2.2229
+
+- Validate Schedule L partnership reporting with executed sparse-input evidence and gross/net separation. Recognize complete form locators and corroborated printed table glyphs while preserving substantive values, source operations, and general validation requirements.
+
+## 0.2.2228
+
+- Bind student-loan reporting routes to executed, source-owned sparse facts and canonical module assertions; preserve unrelated condition checks.
+
+## 0.2.2227
+
+- Bind student-loan measurement periods to exact source roles, factual declarations, annual proofs, and ordinary executed witnesses without treating historical years as arithmetic operands; preserve unresolved conditions and unknown numeric obligations. Recognize the exact optional copy-for-records guide referral as nonoperative guidance.
+
+## 0.2.2226
+
+- Recognize correlated printed form titles, complete form identifiers, and corroborated terminal line coordinates without treating them as computations or scalar amounts; preserve substantive years and source offsets.
+
+## 0.2.2220
+
+- Preserve the complete tracked baseline for fresh same-source canonical replacements, supply full target edit context, and overlay omitted rules and companion cases before validation without accepting the old artifact as a generated repair.
 
 ## 0.2.2183
 
