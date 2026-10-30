@@ -33622,9 +33622,7 @@ def test_imported_percent_rate_witness_uses_scaled_source_boundary(source: str):
         "principal_rule_paths": {"ece_blocked": {("ece",)}},
         "numeric_value_is_grounded": numeric_value_is_grounded,
         "formula_environment": {"imported_fpl_rate": 2.0},
-        "extract_numeric_occurrences": (
-            LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR
-        ),
+        "extract_numeric_occurrences": (LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR),
     }
 
     assert completeness_module._branch_boundary_test_witnesses(
@@ -33665,6 +33663,12 @@ def test_imported_percent_rate_witness_uses_scaled_source_boundary(source: str):
             "gross_income <= imported_fpl_rate * "
             "current_federal_poverty_level_amount else: not_holds"
         ),
+        (
+            "(gross_income > imported_fpl_rate * "
+            "current_federal_poverty_level_amount) or "
+            "(gross_income == imported_fpl_rate * "
+            "current_federal_poverty_level_amount)"
+        ),
     ],
 )
 def test_scaled_percent_boundary_rejects_reversed_eligibility(formula: str):
@@ -33700,9 +33704,7 @@ def test_scaled_percent_boundary_rejects_reversed_eligibility(formula: str):
         asserted_by_rule={"eligible": [case]},
         numeric_value_is_grounded=numeric_value_is_grounded,
         formula_environment={"imported_fpl_rate": 2.0},
-        extract_numeric_occurrences=(
-            LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR
-        ),
+        extract_numeric_occurrences=(LEGACY_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR),
     )
 
 

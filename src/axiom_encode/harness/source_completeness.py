@@ -28292,55 +28292,68 @@ def _branch_boundary_test_witnesses(
                 # compares the scaled amount may use this fallback. A control
                 # selector feeding an inverted if/match result is not a
                 # source-polarity witness for that result.
-                if controller_rule is rule and boundary.has_rate_context and any(
-                    _formula_execution_references_names(
-                        controller_execution, input_names
-                    )
-                    and _formula_execution_binds_boundary(
-                        controller_execution,
-                        boundary,
-                        source_text=authoritative_numeric_recall_text(branch.text),
-                        input_names=input_names,
-                        formula_environment=(
-                            controller_execution.constant_environment
-                        ),
-                        evaluation_environment=execution_environment,
-                        source_bound_constant_occurrences=(
-                            source_bound_constant_occurrences or {}
-                        ),
-                        source_interval=source_interval,
-                        source_boolean_polarity=source_boolean_polarity,
-                        extract_numeric_occurrences=extract_numeric_occurrences,
-                        numeric_value_is_grounded=numeric_value_is_grounded,
-                        leaf_only=True,
-                    )
-                    and _boundary_case_changes_formula_effect(
-                        controller_rule,
-                        case,
-                        input_key=input_key,
-                        selector_names=input_names,
-                        boundary_value=scaled_value,
-                        execution=controller_execution,
-                        principal_rules=principal_rules,
-                        dependency_names=set(dependency_environment),
-                        formula_environment=formula_environment or {},
-                        # The source interval is a rate; the perturbed input is
-                        # the corresponding amount at that rate of its base.
-                        source_interval=None,
-                        source_boolean_polarity=0,
-                        root_rule=rule,
-                        root_execution=execution,
-                    )
-                    for input_key, input_names, scaled_value in (
-                        _case_scaled_percentage_boundary_evidence(
-                            case,
+                if (
+                    controller_rule is rule
+                    and boundary.has_rate_context
+                    and any(
+                        _formula_execution_references_names(
+                            controller_execution, input_names
+                        )
+                        and _formula_execution_binds_boundary(
                             controller_execution,
                             boundary,
-                            selector_names=selector_names,
-                            source_text=authoritative_numeric_recall_text(
-                                branch.text
+                            source_text=authoritative_numeric_recall_text(branch.text),
+                            input_names=input_names,
+                            formula_environment=(
+                                controller_execution.constant_environment
                             ),
+                            evaluation_environment=execution_environment,
+                            source_bound_constant_occurrences=(
+                                source_bound_constant_occurrences or {}
+                            ),
+                            source_interval=source_interval,
+                            source_boolean_polarity=source_boolean_polarity,
+                            extract_numeric_occurrences=extract_numeric_occurrences,
                             numeric_value_is_grounded=numeric_value_is_grounded,
+                            leaf_only=True,
+                        )
+                        and _formula_execution_boolean_value(controller_execution)
+                        is comparison_boolean_at_boundary
+                        and _boundary_case_changes_formula_effect(
+                            controller_rule,
+                            case,
+                            input_key=input_key,
+                            selector_names=input_names,
+                            boundary_value=scaled_value,
+                            execution=controller_execution,
+                            principal_rules=principal_rules,
+                            dependency_names=set(dependency_environment),
+                            formula_environment=formula_environment or {},
+                            # The source interval is a rate; the perturbed input is
+                            # the corresponding amount at that rate of its base.
+                            source_interval=None,
+                            source_boolean_polarity=0,
+                            root_rule=rule,
+                            root_execution=execution,
+                        )
+                        for (
+                            input_key,
+                            input_names,
+                            scaled_value,
+                            comparison_boolean_at_boundary,
+                        ) in (
+                            _case_scaled_percentage_boundary_evidence(
+                                case,
+                                controller_execution,
+                                boundary,
+                                selector_names=selector_names,
+                                source_text=authoritative_numeric_recall_text(
+                                    branch.text
+                                ),
+                                source_interval=source_interval,
+                                source_boolean_polarity=source_boolean_polarity,
+                                numeric_value_is_grounded=numeric_value_is_grounded,
+                            )
                         )
                     )
                 ):
@@ -28356,15 +28369,17 @@ def _case_scaled_percentage_boundary_evidence(
     *,
     selector_names: set[str],
     source_text: str,
+    source_interval: _NumericInterval | None,
+    source_boolean_polarity: int,
     numeric_value_is_grounded: NumericGroundingPredicate,
-) -> tuple[tuple[object, set[str], float], ...]:
+) -> tuple[tuple[object, set[str], float, bool], ...]:
     """Find an asserted amount at a source-stated percent-of-base boundary.
 
     A percentage may be supplied by a source-bound imported rate rather than
     as a test input. In that case the tested boundary is ``rate * base`` in
     money, not the rate itself in the input map.
     """
-    if not boundary.has_rate_context:
+    if not boundary.has_rate_context or source_interval is None:
         return ()
     inputs = case.get("input")
     if not isinstance(inputs, dict):
@@ -28375,14 +28390,24 @@ def _case_scaled_percentage_boundary_evidence(
         if isinstance(value, (int, float)) and not isinstance(value, bool)
         for name in _input_key_names(key)
     }
-    evidence: list[tuple[object, set[str], float]] = []
+    evidence: list[tuple[object, set[str], float, bool]] = []
     for text in (execution.leaf,):
         expression = _parse_formula_expression(text)
         if expression is None:
             continue
-        for comparison, _negated in _formula_comparisons_with_polarity(expression):
+        for comparison, negated in _formula_comparisons_with_polarity(expression):
             operands = (comparison.left, *comparison.comparators)
-            for left, right in zip(operands, operands[1:]):
+            for operator, left, right in zip(comparison.ops, operands, operands[1:]):
+                if not isinstance(
+                    operator,
+                    (ast.Gt, ast.GtE, ast.Lt, ast.LtE, ast.Eq, ast.NotEq),
+                ):
+                    continue
+                comparison_boolean_at_boundary = isinstance(
+                    operator, (ast.GtE, ast.LtE, ast.Eq)
+                )
+                if negated:
+                    comparison_boolean_at_boundary = not comparison_boolean_at_boundary
                 for amount_node, threshold_node in ((left, right), (right, left)):
                     if (
                         not isinstance(amount_node, ast.Name)
@@ -28423,6 +28448,18 @@ def _case_scaled_percentage_boundary_evidence(
                             float(rate), (boundary,)
                         ):
                             continue
+                        if not _comparison_matches_source_interval(
+                            operator,
+                            input_on_left=amount_node is left,
+                            compared_boundary_value=float(rate),
+                            boundary_names=set(),
+                            boundary=boundary,
+                            numeric_value_is_grounded=numeric_value_is_grounded,
+                            source_interval=source_interval,
+                            allow_complement_relation=source_boolean_polarity < 0,
+                            negated=negated,
+                        ):
+                            continue
                         _base_key, base = numeric_inputs[base_node.id]
                         if base <= 0 or not math.isclose(
                             amount,
@@ -28432,7 +28469,12 @@ def _case_scaled_percentage_boundary_evidence(
                         ):
                             continue
                         evidence.append(
-                            (amount_key, {amount_node.id}, amount)
+                            (
+                                amount_key,
+                                {amount_node.id},
+                                amount,
+                                comparison_boolean_at_boundary,
+                            )
                         )
     return tuple(evidence)
 
