@@ -1,6 +1,17 @@
-## 0.2.2278
+## 0.2.2279
 
 - Align proof excerpts to the printed source text instead of accepting the model's spelling. The proof check stays exact; the generated-artifact repair, which runs after every try, now stores the printed text an excerpt quotes when exactly one printed text matches: typographic spellings (ligatures, quotation-mark and in-word dash variants, wrapped compound and line-end hyphens, a space after a currency or section sign, a space before a comma, enclosing quotation marks, a recased first letter), an added end mark (`.`, `;`, `,`), or the enclosing parentheses a token-boundary rule needs (`(165 Percent of Poverty Level)`). A quote cited to the wrong page of a multi-page document moves to the one other `page-N` of that document that prints it; it never moves to another document or section. Recognize the Code's "($X in the case of a joint return)" parenthetical as prose, read fused ORS `(1)(a)` markers in subsection scope, and drop an `imports:` header that unused-import pruning leaves empty (the engine rejected `imports: null`). Encoder prompts state the excerpt contract (one contiguous printed span; no `...`, wrapping quotation marks or reworded words; table values name `source.table` coordinates).
+## 0.2.2270
+
+- Integrate current source-completeness updates with the reviewed explicit engine-pin and portable provenance checks.
+
+## 0.2.2266
+
+- Integrate current source-bound amendment relation guidance with the reviewed explicit engine-pin and portable provenance checks.
+
+## 0.2.2265
+
+- Integrate current authenticated source-transport support with the reviewed explicit apply-engine revision and portable provenance checks.
 
 ## 0.2.2264
 
@@ -12,6 +23,18 @@
 - Allow one authenticated Arizona corpus export and up to seven distinct signed provision exports in the same fresh protected transaction, without altering the source contract or the reviewed Canadian repair-head admission.
 - Bind historical Arizona SNAP manifest-owner replacement to the signed receipt and original Git bytes throughout protected packaging and publication; retain the canonical in-place manifest path and existing retired-source-metadata migration dispatches.
 - Refresh the encoder version after merging current main's engine-binding changes into the authenticated Arizona provision-export branch.
+
+## 0.2.2262
+
+- Reject explicit apply engine pins that disagree with checkout HEAD before binary resolution and independently reject mismatched captured bindings when constructing portable signed provenance. Preserve the signed schema and legacy unpinned behavior.
+
+## 0.2.2261
+
+- Cover fresh and retained candidate engine-pin forwarding through actual validation entrypoints, and clarify that local pre-generation binding can build a clean matching engine checkout.
+
+## 0.2.2260
+
+- Forward the declared engine revision through native generation, retained-candidate and repair reevaluation, and apply validation so source witnesses use the verified runtime binding. Preserve optional unpinned callers.
 
 ## 0.2.2259
 

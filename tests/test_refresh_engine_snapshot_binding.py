@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from axiom_encode import cli
+from tests.test_engine_binding import _engine_checkout
 
 
 @pytest.mark.parametrize("ref", [None, "a" * 40])
@@ -68,21 +69,24 @@ def test_snapshot_rejects_engine_bytes_changed_since_overlay_start(tmp_path):
 
 
 def test_pinned_binding_uses_existing_verified_resolver_and_exact_bytes(tmp_path):
-    binary = tmp_path / "engine"
+    checkout, ref = _engine_checkout(tmp_path)
+    binary = checkout / "target" / "engine"
+    binary.parent.mkdir()
     binary.write_bytes(b"actual engine bytes")
     with patch.object(
         cli, "resolve_pinned_engine_binary", return_value=binary
     ) as resolve:
-        actual = cli._pinned_apply_engine_binding(tmp_path, "a" * 40)
-    assert resolve.call_args.args[1].sha == "a" * 40
+        actual = cli._pinned_apply_engine_binding(checkout, ref)
+    assert resolve.call_args.args[1].sha == ref
     assert actual == {
-        "ref": "a" * 40,
+        "ref": ref,
         "binary": str(binary),
         "sha256": cli._sha256_file(binary),
     }
 
 
 def test_pin_resolution_failure_prevents_overlay_snapshot(tmp_path):
+    checkout, ref = _engine_checkout(tmp_path)
     result = SimpleNamespace()
     with (
         patch.object(
@@ -97,8 +101,8 @@ def test_pin_resolution_failure_prevents_overlay_snapshot(tmp_path):
             result,
             output_root=tmp_path,
             policy_repo_path=tmp_path,
-            axiom_rules_path=tmp_path,
-            axiom_rules_engine_ref="a" * 40,
+            axiom_rules_path=checkout,
+            axiom_rules_engine_ref=ref,
             local_corpus_release=object(),
         )
     pipeline.assert_not_called()
