@@ -12097,8 +12097,8 @@ RuleSpec requirements:
   the corpus locator.
 - Use `kind: derived_relation` only when the source text explicitly defines
   membership in a derived legal unit by filtering candidates from a source
-  relation or path through a stated predicate. "This source is about SNAP" is
-  not enough. If the source
+  relation or path through a stated predicate.
+  "This source is about SNAP" is not enough. If the source
   uses an existing structural entity such as `Household`, `TaxUnit`, `Employer`,
   or `Person`, and merely references a program-specific concept without defining
   who belongs to it, stay on the source-stated structural entity.

@@ -537,8 +537,8 @@ RELATION_ROLES_SELF_CHECK = """  5. Relation-role inventory: name both slot role
 _STRUCTURE_PROTOCOL = """- Use `kind: derived` for entity-scoped outputs.
 - Use `kind: derived_relation` only when the source text explicitly defines
   membership in a derived legal unit by filtering candidates from a source
-  relation or path through a stated predicate. "This source is about SNAP" is
-  not enough. If the source
+  relation or path through a stated predicate.
+  "This source is about SNAP" is not enough. If the source
   uses an existing structural entity such as `Household`, `TaxUnit`, `Employer`,
   `Person`, or a source-stated administrative or organizational entity such as
   `StateAgency`, and merely references a program-specific concept without
