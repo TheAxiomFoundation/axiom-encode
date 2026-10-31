@@ -478,7 +478,7 @@ def test_shared_sentence_deletion_is_detected(monkeypatch, block_name, sentence)
         assert_role_sentences(get_encoder_prompt("example", "example.yaml"))
 
 
-def test_uncached_scope_hint_keeps_guarded_aggregates_on_person(tmp_path):
+def test_uncached_scope_hint_keeps_person_anchored_aggregates_on_person(tmp_path):
     from axiom_encode.harness.evals import _MINIMAL_SCOPE_HINT
 
     source = tmp_path / "source.txt"
@@ -501,6 +501,9 @@ def test_uncached_scope_hint_keeps_guarded_aggregates_on_person(tmp_path):
     retry = _build_empty_artifact_retry_prompt(
         str(prompt), target_file_name="1.yaml", include_tests=True
     )
-    assert "Outside that guarded relation-role shape" in _MINIMAL_SCOPE_HINT
+    assert (
+        "For household-level rules without a relation anchored on `Person`"
+        in _MINIMAL_SCOPE_HINT
+    )
     assert "keep composition and participation aggregates on `entity: Person`" in retry
     assert_role_sentences(retry)

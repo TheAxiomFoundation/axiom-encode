@@ -9438,12 +9438,12 @@ def _relative_rulespec_source_path(path: Path) -> Path | None:
 
 _MINIMAL_SCOPE_HINT = """Source-scope protocol (minimal):
 - Match each executable rule's `entity:` to the legal subject stated by the supplied source text.
-- For the guarded relation-role shape, keep composition and participation aggregates on `entity: Person`, anchored on the applicant, even when the source says "household".
-- Outside that guarded relation-role shape, if the source uses the word "household" or "household's", use `entity: Household`. Prefer `Household` over `SnapUnit` for plain household-level SNAP rules.
+- For any relation anchored on `Person`, keep composition and participation aggregates on `entity: Person`, anchored on the applicant or other source-stated person, even when the source says "household".
+- For household-level rules without a relation anchored on `Person`, if the source uses the word "household" or "household's", use `entity: Household`. Prefer `Household` over `SnapUnit` for plain household-level SNAP rules.
 - If the source says "households in which all members", "households with a member",
   or another household-level condition expressed through member facts, encode the
-  executable eligibility/result on `Household`, except for the guarded
-  relation-role shape anchored on `Person`. Use person/member facts only as
+  executable eligibility/result on `Household`, except for aggregates over a
+  relation anchored on `Person`. Use person/member facts only as
   inputs or relation children needed to evaluate that household rule.
 - If the source's legal subject is an "individual", "person", "member", "claimant",
   "child", "dependent", "spouse", or "employee" rather than a household/unit
