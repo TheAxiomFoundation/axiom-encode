@@ -17455,7 +17455,7 @@ def _replace_formula_identifier(content: str, *, old: str, new: str) -> str:
 
 def _repair_missing_source_proof_atoms(content: str) -> tuple[str, list[str]]:
     try:
-        payload = yaml.safe_load(content)
+        payload = _safe_load_unique_keys(content)
     except (yaml.YAMLError, ValueError):
         return content, []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
@@ -17494,13 +17494,77 @@ def _repair_missing_source_proof_atoms(content: str) -> tuple[str, list[str]]:
     repaired_lines, repaired_rules = _insert_missing_source_proof_atoms(
         lines, repairs_by_rule
     )
-    if set(repaired_rules) != set(repairs_by_rule):
-        structured_content, structured_rules = (
-            _insert_missing_source_proof_atoms_structured(payload, repairs_by_rule)
-        )
-        if structured_rules:
+    repaired_content = "".join(repaired_lines)
+    text_repair_valid = set(repaired_rules) == set(repairs_by_rule)
+    if text_repair_valid:
+        try:
+            repaired_payload = _safe_load_unique_keys(repaired_content)
+        except (yaml.YAMLError, ValueError):
+            text_repair_valid = False
+        else:
+            text_repair_valid = _source_proof_repairs_complete(
+                repaired_payload, repairs_by_rule
+            )
+    if text_repair_valid:
+        return repaired_content, repaired_rules
+
+    structured_content, structured_rules = _insert_missing_source_proof_atoms_structured(
+        payload, repairs_by_rule
+    )
+    if set(structured_rules) == set(repairs_by_rule):
+        try:
+            structured_payload = _safe_load_unique_keys(structured_content)
+        except (yaml.YAMLError, ValueError):
+            return content, []
+        if _source_proof_repairs_complete(structured_payload, repairs_by_rule):
             return structured_content, structured_rules
-    return "".join(repaired_lines), repaired_rules
+    return content, []
+
+
+def _source_proof_repairs_complete(
+    payload: object, repairs_by_rule: dict[str, dict[str, str]]
+) -> bool:
+    """Verify generated atoms belong to the selected rules and require proof checks."""
+    if not isinstance(payload, dict):
+        return False
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return False
+    proof_validation = module.get("proof_validation")
+    if (
+        not isinstance(proof_validation, dict)
+        or proof_validation.get("required") is not True
+    ):
+        return False
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return False
+    for rule_name, repair in repairs_by_rule.items():
+        owners = [
+            rule
+            for rule in rules
+            if isinstance(rule, dict)
+            and str(rule.get("name") or "").strip() == rule_name
+        ]
+        if len(owners) != 1:
+            return False
+        metadata = owners[0].get("metadata")
+        proof = metadata.get("proof") if isinstance(metadata, dict) else None
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list):
+            return False
+        expected_source = {"corpus_citation_path": repair["corpus_citation_path"]}
+        if repair["span"]:
+            expected_source["span"] = repair["span"]
+        if not any(
+            isinstance(atom, dict)
+            and atom.get("path") == repair.get("path", "versions[0].formula")
+            and atom.get("kind") == repair["kind"]
+            and atom.get("source") == expected_source
+            for atom in atoms
+        ):
+            return False
+    return True
 
 
 def _only_pending_nonnegative_amount_reduction_issues(issues: list[str]) -> bool:

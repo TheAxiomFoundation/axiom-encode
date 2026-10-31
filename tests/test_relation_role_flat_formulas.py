@@ -13,6 +13,7 @@ from axiom_encode.cli import (
     _reachable_local_formulas_for_rule,
     _repair_missing_source_proof_atoms,
     _rulespec_rule_formula_texts_for_generated_repair,
+    _safe_load_unique_keys,
 )
 from axiom_encode.harness import validator_pipeline as validation
 from axiom_encode.harness.proof_validator import validate_rulespec_proofs
@@ -151,7 +152,7 @@ def test_flat_proof_selection_and_repair_use_actual_formula_anchor(indented, rul
         content = prefix + "rules:\n" + textwrap.indent(rules, "  ")
     repaired, repairs = _repair_missing_source_proof_atoms(content)
     assert repairs == [rule_name]
-    repaired_rule = yaml.safe_load(repaired)["rules"][0]
+    repaired_rule = _safe_load_unique_keys(repaired)["rules"][0]
     assert repaired_rule["metadata"]["proof"]["atoms"][0]["path"] == "formula"
     assert not _parsed_rule_requires_generated_source_proof(repaired_rule)
     assert (
@@ -220,3 +221,88 @@ def test_native_shorthand_formula_precedence(tmp_path, real_engine, nonempty_ver
     assert validation.find_relation_role_issues(module.read_text()) == []
     if nonempty_versions:
         assert _generated_rule_formula_identifiers(rule) == {"pairs"}
+
+
+@pytest.mark.parametrize("metadata", [None, {"private": True}, {"proof": {}}, []])
+def test_indented_flat_proof_repair_preserves_unique_metadata(metadata):
+    payload = declaration()
+    rule = payload["rules"][1]
+    if metadata is not None:
+        rule["metadata"] = metadata
+    payload = {
+        "format": "rulespec/v1",
+        "module": {"source_verification": {"corpus_citation_path": SOURCE}},
+        "rules": [rule],
+    }
+    content = yaml.safe_dump(payload, sort_keys=False)
+    prefix, _, rules = content.partition("rules:\n")
+    content = prefix + "rules:\n" + textwrap.indent(rules, "  ")
+    repaired, repairs = _repair_missing_source_proof_atoms(content)
+    assert repairs == ["members"]
+    result = _safe_load_unique_keys(repaired)["rules"][0]
+    assert result["metadata"]["proof"]["atoms"][0]["path"] == "formula"
+    if metadata == {"private": True}:
+        assert result["metadata"]["private"] is True
+
+
+@pytest.mark.parametrize("inline_module", [False, True])
+@pytest.mark.parametrize("trailing_inputs", [False, True])
+def test_flat_proof_repair_keeps_atom_on_rule_and_requires_module_proofs(
+    inline_module, trailing_inputs
+):
+    rule = declaration()["rules"][1]
+    rule["source"] = {"span": "Synthetic bounded membership evidence."}
+    module = {"source_verification": {"corpus_citation_path": SOURCE}}
+    module_text = (
+        f"module: {{source_verification: {{corpus_citation_path: {SOURCE}}}}}\n"
+        if inline_module
+        else yaml.safe_dump({"module": module}, sort_keys=False)
+    )
+    content = (
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        "format: rulespec/v1\n"
+        + module_text
+        + "rules:\n"
+        + textwrap.indent(yaml.safe_dump([rule], sort_keys=False), "  ")
+    )
+    if trailing_inputs:
+        content += "inputs:\n  age:\n    dtype: Integer\n"
+    repaired, repairs = _repair_missing_source_proof_atoms(content)
+    assert repairs == ["members"]
+    result = _safe_load_unique_keys(repaired)
+    assert result["module"]["proof_validation"]["required"] is True
+    assert result["rules"][0]["metadata"]["proof"]["atoms"] == [
+        {
+            "path": "formula",
+            "kind": "formula",
+            "source": {
+                "corpus_citation_path": SOURCE,
+                "span": "Synthetic bounded membership evidence.",
+            },
+        }
+    ]
+    if trailing_inputs:
+        assert result["inputs"] == {"age": {"dtype": "Integer"}}
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "format: rulespec/v1\nmodule: [broken\n",
+        """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/guidance/axiom/relation-roles
+rules:
+  - name: members
+    kind: derived_relation
+    metadata: {}
+    metadata: {private: true}
+    formula: candidate.age < 22
+""",
+    ],
+)
+def test_source_proof_repair_leaves_invalid_or_duplicate_input_unchanged(content):
+    with pytest.raises((yaml.YAMLError, ValueError)):
+        _safe_load_unique_keys(content)
+    assert _repair_missing_source_proof_atoms(content) == (content, [])

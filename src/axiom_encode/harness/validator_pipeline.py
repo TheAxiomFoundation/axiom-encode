@@ -27048,7 +27048,7 @@ def find_formula_date_literal_issues(content: str) -> list[str]:
         }:
             continue
         name = str(rule.get("name") or "").strip()
-        versions = rule.get("versions")
+        versions = effective_versions(rule)
         if not isinstance(versions, list):
             continue
         for version in versions:

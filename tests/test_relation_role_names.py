@@ -420,7 +420,9 @@ def test_guarded_fixture_reports_exact_default_finding():
     payload["inputs"]["snap_household_unit"]["default"] = 0
     assert validation.find_relation_role_issues(yaml.safe_dump(payload)) == [
         "[relation-input-default] Input `snap_household_unit` read by derived "
-        "relation `snap_household_member` must not declare a default. Supply the fact explicitly."
+        "relation `snap_household_member` must not declare a default. Supply the fact explicitly.",
+        "[relation-input-default] Input `snap_household_unit` read by derived "
+        "relation `snap_participating_member` must not declare a default. Supply the fact explicitly.",
     ]
 
 
