@@ -1,10 +1,11 @@
-"""Complexity guards that don't depend on how fast or busy a runner is.
+"""Complexity guards that depend less on how fast or busy a runner is.
 
 A limit in seconds fails on a slow runner, and wall-clock time also counts every
 moment the scheduler keeps the process waiting, so even a ratio of two wall-clock
 times can fail correct code or pass a quadratic scan on a busy host. These helpers
 compare CPU time, which leaves the waiting out, at two input sizes, and keep each
-size's fastest run. Where a call's work can be counted exactly, count it as well.
+size's fastest run. Cache and memory contention can still move the ratio. Where a
+call's work can be counted exactly, count it as well.
 """
 
 from __future__ import annotations
