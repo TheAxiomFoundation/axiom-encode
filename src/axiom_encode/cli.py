@@ -6168,8 +6168,12 @@ def _execute_rulespec_test_case(
             table_rows_by_entity[table_entity] = resolved_rows
 
     require_distinct_entity_ids(occupied_entity_ids, query_kinds=query_kinds)
-    assign_generated_fixture_ids(generated_table_rows, occupied_entity_ids)
-    assign_generated_fixture_ids(generated_relation_rows, occupied_entity_ids)
+    assign_generated_fixture_ids(
+        generated_table_rows, occupied_entity_ids, query_kinds=query_kinds
+    )
+    assign_generated_fixture_ids(
+        generated_relation_rows, occupied_entity_ids, query_kinds=query_kinds
+    )
     flat_entity_ids: dict[str, str] = {}
     for record in flat_input_records:
         input_entity = record["entity"]

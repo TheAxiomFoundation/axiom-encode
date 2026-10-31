@@ -137,6 +137,7 @@ from axiom_encode.formula_references import (
     formula_identifiers,
     local_reference_name,
     relation_source_names,
+    rule_lowering_entry,
     rule_uses_relation_predicate,
 )
 from axiom_encode.harness.amendment_timing import amendment_timing_issues
@@ -21710,9 +21711,7 @@ def find_missing_derived_companion_output_issues(
                 analyzed = analyze_relation_predicate(
                     formula,
                     predicate_terms=predicate,
-                    lowering_entry="derived_relation"
-                    if rule_kinds[name] == "derived_relation"
-                    else "rule",
+                    lowering_entry=rule_lowering_entry(rule),
                     relation_names=relation_names,
                 )
                 names.update(analyzed.identifiers)
@@ -23543,9 +23542,7 @@ def find_relation_role_issues(
                 analyzed = analyze_relation_predicate(
                     formula,
                     predicate_terms=rule_uses_relation_predicate(dependency),
-                    lowering_entry="derived_relation"
-                    if dependency.get("kind") == "derived_relation"
-                    else "rule",
+                    lowering_entry=rule_lowering_entry(dependency),
                     relation_names=declared_relations,
                 )
                 names.update(analyzed.identifiers)
@@ -27853,6 +27850,17 @@ def _rulespec_relation_names(payload: dict[str, Any]) -> set[str]:
     }
 
 
+def _rulespec_member_relations(payload: dict[str, Any]) -> set[str]:
+    rules = payload.get("rules")
+    return {
+        str(config["member_relation"]).strip()
+        for rule in (rules if isinstance(rules, list) else [])
+        if isinstance(rule, dict)
+        and isinstance(config := rule.get("derived_relation"), dict)
+        and config.get("member_relation")
+    }
+
+
 def _source_limitation_subject_slugs(source_text: str) -> set[str]:
     slugs: set[str] = set()
     for match in _LIMITATION_ON_SUBJECT_PATTERN.finditer(source_text):
@@ -31634,9 +31642,7 @@ def _rulespec_terminal_executable_names_from_payload(payload: Any) -> list[str]:
         analyzed = analyze_relation_predicate(
             formula,
             predicate_terms=rule_uses_relation_predicate(rules_by_name[owner]),
-            lowering_entry="derived_relation"
-            if rules_by_name[owner].get("kind") == "derived_relation"
-            else "rule",
+            lowering_entry=rule_lowering_entry(rules_by_name[owner]),
             relation_names=frozenset(relation_names),
         )
         relation_arguments = analyzed.relation_arguments | analyzed.atom_relations
@@ -31809,9 +31815,7 @@ def _rulespec_relation_value_input_names(
             analyzed = analyze_relation_predicate(
                 formula,
                 predicate_terms=rule_uses_relation_predicate(rule),
-                lowering_entry="derived_relation"
-                if rule.get("kind") == "derived_relation"
-                else "rule",
+                lowering_entry=rule_lowering_entry(rule),
                 relation_names=relations,
                 rule_names=derived,
                 parameter_names=parameters,
@@ -32227,15 +32231,12 @@ def find_unused_import_issues(content: str) -> list[str]:
             if not isinstance(rule, dict):
                 continue
             predicate = rule_uses_relation_predicate(rule)
-            lowering_entry = (
-                "derived_relation" if rule.get("kind") == "derived_relation" else "rule"
-            )
             for formula in _rulespec_rule_formula_texts(rule):
                 analyzed = analyze_relation_predicate(
                     formula,
                     predicate_terms=predicate,
                     relation_names=relation_names,
-                    lowering_entry=lowering_entry,
+                    lowering_entry=rule_lowering_entry(rule),
                 )
                 if analyzed.parse_error is not None:
                     # Preserve the base check for syntax outside the port.
@@ -32253,6 +32254,15 @@ def find_unused_import_issues(content: str) -> list[str]:
             for source in relation_source_names(rule.get("derived_relation"))
         }
         proof_import_targets = _rulespec_proof_import_targets(payload)
+        # This check reads one module, so a provider's filtered alias resolves
+        # to no name here. A relation read with no local or imported name can
+        # only come through such an alias, which keeps relation imports in use.
+        alias_reads = (
+            relation_reads
+            - relation_names
+            - _rulespec_member_relations(payload)
+            - {local_reference_name(item) for item in imports if isinstance(item, str)}
+        )
         issues: list[str] = []
         for raw_item in imports:
             if not isinstance(raw_item, str):
@@ -32266,6 +32276,8 @@ def find_unused_import_issues(content: str) -> list[str]:
             explicit_relation = import_item.rsplit("#", 1)[1].startswith("relation.")
             reads = relation_reads if explicit_relation else identifiers
             if symbol in reads or symbol in source_references:
+                continue
+            if explicit_relation and alias_reads:
                 continue
             if not explicit_relation and any(
                 _formula_references_symbol(formula, symbol)
@@ -32313,9 +32325,7 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                 analyzed = analyze_relation_predicate(
                     formula,
                     predicate_terms=rule_uses_relation_predicate(rule),
-                    lowering_entry="derived_relation"
-                    if rule.get("kind") == "derived_relation"
-                    else "rule",
+                    lowering_entry=rule_lowering_entry(rule),
                 )
                 if analyzed.parse_error is not None:
                     unparsed_formulas.append(formula)
@@ -32814,9 +32824,7 @@ def _rule_formula_tree_identifiers(formula: str, rule: dict[str, Any]) -> set[st
     analyzed = analyze_relation_predicate(
         formula,
         predicate_terms=predicate,
-        lowering_entry="derived_relation"
-        if rule.get("kind") == "derived_relation"
-        else "rule",
+        lowering_entry=rule_lowering_entry(rule),
     )
     if analyzed.parse_error is not None:
         return _formula_local_identifiers(formula, relation_predicate=predicate)
@@ -38338,8 +38346,12 @@ class ValidatorPipeline:
                         )
 
         require_distinct_entity_ids(occupied_entity_ids, query_kinds=query_kinds)
-        assign_generated_fixture_ids(generated_table_rows, occupied_entity_ids)
-        assign_generated_fixture_ids(generated_relation_rows, occupied_entity_ids)
+        assign_generated_fixture_ids(
+            generated_table_rows, occupied_entity_ids, query_kinds=query_kinds
+        )
+        assign_generated_fixture_ids(
+            generated_relation_rows, occupied_entity_ids, query_kinds=query_kinds
+        )
         if table_entity_ids is not None:
             table_entity_ids.update(
                 {

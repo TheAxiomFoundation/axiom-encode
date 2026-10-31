@@ -68,6 +68,7 @@ from axiom_encode.formula_references import (
     formula_identifiers,
     local_reference_name,
     relation_source_names,
+    rule_lowering_entry,
     rule_uses_relation_predicate,
 )
 from axiom_encode.legacy_replacement import LegacyReplacementContract
@@ -15462,9 +15463,7 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
         analyzed = analyze_relation_predicate(
             formula,
             predicate_terms=rule_uses_relation_predicate(rule),
-            lowering_entry="derived_relation"
-            if rule.get("kind") == "derived_relation"
-            else "rule",
+            lowering_entry=rule_lowering_entry(rule),
             relation_names=frozenset(relation_names),
         )
         relation_arguments = analyzed.relation_arguments | analyzed.atom_relations

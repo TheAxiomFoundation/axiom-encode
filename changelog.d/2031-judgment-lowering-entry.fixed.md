@@ -1,0 +1,1 @@
+Analyze an ordinary `Judgment` rule from the engine's judgment entry, so its `and`, `or` and `not` roots no longer record a scalar-position error and a scalar named like a relation keeps its input slot.

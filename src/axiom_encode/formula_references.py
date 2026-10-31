@@ -71,6 +71,7 @@ _FUNCTIONS = frozenset(
     }
 )
 FORMULA_BUILTINS = _KEYWORDS | _FUNCTIONS
+LoweringEntry = Literal["derived_relation", "judgment", "rule"]
 
 
 def rule_uses_relation_predicate(rule: object) -> bool:
@@ -162,20 +163,35 @@ class RelationPredicateReferences:
     parameter_reads: frozenset[str] = frozenset()
 
 
+def rule_lowering_entry(rule: object) -> LoweringEntry:
+    """Name the engine entry that lowers a rule's formulas.
+
+    The engine lowers a derived relation's predicate and an ordinary Judgment
+    rule as judgments, and every other ordinary rule as a scalar.
+    """
+
+    if isinstance(rule, Mapping):
+        if rule.get("kind") == "derived_relation":
+            return "derived_relation"
+        if rule.get("dtype") in {"Judgment", "judgment"}:
+            return "judgment"
+    return "rule"
+
+
 def analyze_relation_predicate(
     formula: str,
     *,
     predicate_terms: bool = True,
-    lowering_entry: Literal["derived_relation", "rule"] = "derived_relation",
+    lowering_entry: LoweringEntry = "derived_relation",
     relation_names: frozenset[str] | None = None,
     rule_names: frozenset[str] = frozenset(),
     parameter_names: frozenset[str] = frozenset(),
 ) -> RelationPredicateReferences:
     """Walk parsed expressions in the positions that engine lowering reads.
 
-    ``lowering_entry`` selects the engine's relation namespace independently of
-    the legacy scanner's ``predicate_terms`` dispatch. Ordinary rule lowering
-    never resolves a bare judgment name as a relation.
+    ``lowering_entry`` selects the engine's root position and relation namespace
+    independently of the legacy scanner's ``predicate_terms`` dispatch. Ordinary
+    rule lowering never resolves a bare judgment name as a relation.
     Optional declaration inventories resolve the engine's three namespaces.
     Without them, unknown value names remain input candidates and unknown calls
     remain visible as atoms, so source validators can diagnose declarations.
@@ -570,7 +586,7 @@ def analyze_relation_predicate(
         walk(
             tree,
             initial_scope,
-            "judgment" if lowering_entry == "derived_relation" else "scalar",
+            "scalar" if lowering_entry == "rule" else "judgment",
         )
     ]
     while pending:

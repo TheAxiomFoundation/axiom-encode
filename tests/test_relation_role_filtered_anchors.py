@@ -19,6 +19,7 @@ from hypothesis import strategies as st
 
 from axiom_encode.cli import _execute_rulespec_test_case
 from axiom_encode.companion_entities import (
+    assign_generated_fixture_ids,
     flat_input_entity_id,
     require_distinct_entity_ids,
 )
@@ -192,6 +193,46 @@ def test_filtered_compact_rows_keep_their_declared_kind(tmp_path, real_engine):
         ("Person", "case"),
     }
     assert [r["tuple"] for r in cli["dataset"]["relations"]] == [["case", "bob"]]
+
+
+@pytest.mark.parametrize(
+    "expected,passes", [(1, True), (0, False)], ids=["right", "wrong"]
+)
+def test_generated_row_keeps_a_root_id_the_alias_shares(
+    tmp_path, real_engine, expected, passes
+):
+    root, module = _filtered(tmp_path, predicate="candidate == anchor")
+    case = {
+        "name": "generated",
+        "period": "2026-01",
+        "entity_id": "related_0",
+        "input": {PAIRS: [{}], TIES: []},
+        "output": {OUTPUT: expected},
+    }
+    cli, other, payload = _run_both(tmp_path, root, module, case, real_engine)
+    assert (cli == [], other == []) == (passes, passes)
+    requests = _requests(tmp_path, copy.deepcopy(case), payload)
+    assert requests[0] == requests[1]
+    assert [r["tuple"] for r in requests[0]["dataset"]["relations"]] == [
+        ["related_0", "related_0"]
+    ]
+
+
+def test_generated_table_row_keeps_a_root_id_the_alias_shares(tmp_path, real_engine):
+    root, module = _filtered(tmp_path, predicate="anchor.age == anchor.age")
+    case = {
+        "name": "table",
+        "period": "2026-01",
+        "entity_id": "person-1",
+        "input": {PAIRS: [{"tuple": ["person-1", "bob"]}], TIES: []},
+        "tables": {"Person": [{AGE: "01"}]},
+        "output": {OUTPUT: 1},
+    }
+    cli, other, payload = _run_both(tmp_path, root, module, case, real_engine)
+    assert (cli, other) == ([], [])
+    requests = _requests(tmp_path, copy.deepcopy(case), payload)
+    assert requests[0] == requests[1]
+    assert _ids_by_name(requests[0]) == {(AGE, "person-1")}
 
 
 def test_filtered_query_refuses_a_relation_row_without_a_direction(tmp_path):
@@ -380,6 +421,32 @@ def test_distinct_id_check_accepts_a_filtered_alias_and_its_anchor():
     )
 
 
+def _allocated(entity, occupied, query_kinds):
+    ids, facts = ["case"], [{"entity_id": "case"}]
+    assign_generated_fixture_ids(
+        [(entity, ids, 0, facts)], occupied, query_kinds=query_kinds
+    )
+    assert facts[0]["entity_id"] == ids[0]
+    return ids[0]
+
+
+@pytest.mark.parametrize(
+    "entity,occupied,query_kinds,expected",
+    [
+        ("Person", {"SnapUnit"}, {"SnapUnit", "Person"}, "case"),
+        ("SnapUnit", {"Person"}, {"SnapUnit", "Person"}, "case"),
+        ("Household", {"SnapUnit"}, {"SnapUnit", "Person"}, "case:entity:Household"),
+        ("Person", {"Household"}, {"SnapUnit", "Person"}, "case:entity:Person"),
+        ("Person", {"SnapUnit"}, (), "case:entity:Person"),
+        ("Person", {"SnapUnit"}, {"SnapUnit"}, "case:entity:Person"),
+    ],
+)
+def test_generated_ids_share_a_root_only_across_query_kinds(
+    entity, occupied, query_kinds, expected
+):
+    assert _allocated(entity, {"case": occupied}, query_kinds) == expected
+
+
 def _relation(alias, slots, current=0, **extra):
     return {
         "name": f"{alias}-{len(slots)}",
@@ -440,6 +507,29 @@ def test_query_kinds_ignore_missing_relations():
 
 
 KINDS = st.sampled_from(["A", "B", "C", "D", "E"])
+
+
+FIXTURE_IDS = st.sampled_from(["a", "b", "c"])
+OCCUPIED = st.dictionaries(FIXTURE_IDS, KINDS, max_size=3)
+GENERATED = st.lists(st.tuples(KINDS, FIXTURE_IDS), max_size=6)
+
+
+def _allocate_all(occupied, rows, query_kinds):
+    placed = {entity_id: {kind} for entity_id, kind in occupied.items()}
+    generated = [(kind, [preferred], 0, []) for kind, preferred in rows]
+    assign_generated_fixture_ids(generated, placed, query_kinds=query_kinds)
+    return placed, [ids[0] for _, ids, _, _ in generated]
+
+
+@given(OCCUPIED, GENERATED, st.frozensets(KINDS))
+def test_allocation_never_makes_an_id_the_check_refuses(occupied, rows, query_kinds):
+    placed, _ = _allocate_all(occupied, rows, query_kinds)
+    require_distinct_entity_ids(placed, query_kinds=query_kinds)
+
+
+@given(OCCUPIED, GENERATED, KINDS)
+def test_one_query_kind_keeps_the_legacy_allocation(occupied, rows, query):
+    assert _allocate_all(occupied, rows, {query}) == _allocate_all(occupied, rows, ())
 
 
 @given(st.lists(st.tuples(KINDS, KINDS), max_size=8), KINDS)
