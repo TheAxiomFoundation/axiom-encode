@@ -630,15 +630,38 @@ def test_generated_ordinary_collision_reads_equal_compiled_artifact(
     real_engine, formula, legacy
 ):
     """Ordinary rule lowering keeps a relation-spelled input in its namespace."""
+    assert_collision_reads_equal_compiled(
+        real_engine, collision_payload(formula, legacy), formula, "rule"
+    )
+
+
+@settings(max_examples=12, deadline=None, derandomize=True)
+@given(
+    formula=st.sampled_from(
+        ["not view", "view and flag", "not (view or flag)", "view or not flag"]
+    ),
+    legacy=st.booleans(),
+)
+def test_generated_judgment_collision_reads_equal_compiled_artifact(
+    real_engine, formula, legacy
+):
+    """Ordinary Judgment lowering takes Boolean roots in the same namespace."""
+    payload = collision_payload(formula, legacy)
+    payload["rules"][-1]["dtype"] = "Judgment"
+    assert_collision_reads_equal_compiled(real_engine, payload, formula, "judgment")
+
+
+def assert_collision_reads_equal_compiled(real_engine, payload, formula, entry):
     import tempfile
     from pathlib import Path
 
     with tempfile.TemporaryDirectory() as scratch:
-        temp = Path(scratch)
+        # The engine refuses a root that a symlink reaches, such as macOS's /var.
+        temp = Path(scratch).resolve()
         root = temp / "rulespec-us"
         module = root / "us/policies/example/collision.yaml"
         module.parent.mkdir(parents=True)
-        module.write_text(LABEL + yaml.safe_dump(collision_payload(formula, legacy)))
+        module.write_text(LABEL + yaml.safe_dump(payload))
         artifact = _compile(
             real_engine.binary, real_engine.root, root, module, temp / "artifact.json"
         )
@@ -651,9 +674,10 @@ def test_generated_ordinary_collision_reads_equal_compiled_artifact(
         actual = analyze_relation_predicate(
             formula,
             predicate_terms=False,
-            lowering_entry="rule",
+            lowering_entry=entry,
             relation_names=frozenset({"view", "pairs"}),
         )
+        assert actual.analysis_errors == ()
         assert actual.input_reads == expected["inputs"]
         assert (
             actual.relation_arguments | actual.atom_relations == expected["relations"]
