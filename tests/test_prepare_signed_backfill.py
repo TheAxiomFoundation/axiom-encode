@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import errno
 import hashlib
 import json
 import os
@@ -10,13 +12,17 @@ from pathlib import Path, PurePosixPath
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from axiom_encode import prepare_signed_backfill as signed_backfill
 from axiom_encode.cli import _legacy_replacement_manifest_issues
 from axiom_encode.legacy_replacement import (
     migrate_legacy_exact_dependent_source_verification,
     receipt_identity_payload,
     receipt_identity_sha256,
 )
-from axiom_encode.prepare_signed_backfill import _classify_dependent_cascade
+from axiom_encode.prepare_signed_backfill import (
+    _checkout_path_exists_without_indirection,
+    _classify_dependent_cascade,
+)
 from scripts.prepare_signed_backfill import (
     MAX_CANONICAL_REFRESH_BUNDLE_CITATIONS,
     MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES,
@@ -5067,3 +5073,268 @@ def test_reviewed_head_rejects_country_or_full_sha_mismatch(
         validate_rulespec_base(
             tmp_path / f"rulespec-{country}", country, requested, open_pr=False
         )
+
+
+def _checkout_probe_repo(tmp_path: Path) -> tuple[Path, PurePosixPath]:
+    repo = tmp_path / "rulespec-us"
+    (repo / "us/statutes").mkdir(parents=True)
+    return repo, PurePosixPath("us/statutes/example.yaml")
+
+
+def test_checkout_presence_reports_regular_and_missing_paths(tmp_path: Path):
+    repo, relative = _checkout_probe_repo(tmp_path)
+
+    assert not _checkout_path_exists_without_indirection(
+        repo, relative, label="RuleSpec primary"
+    )
+    assert not _checkout_path_exists_without_indirection(
+        repo, PurePosixPath("us/missing/example.yaml"), label="RuleSpec primary"
+    )
+    (repo / relative).write_text("module: {}\n", encoding="utf-8")
+    assert _checkout_path_exists_without_indirection(
+        repo, relative, label="RuleSpec primary"
+    )
+
+
+@pytest.mark.parametrize(
+    "relative",
+    ["/us/statutes/example.yaml", "us/../us/example.yaml"],
+)
+def test_checkout_presence_rejects_noncanonical_paths(tmp_path: Path, relative: str):
+    repo, _relative = _checkout_probe_repo(tmp_path)
+
+    with pytest.raises(ValueError, match="noncanonical path"):
+        _checkout_path_exists_without_indirection(
+            repo, PurePosixPath(relative), label="RuleSpec primary"
+        )
+
+
+def test_checkout_presence_rejects_symlinked_ancestor(tmp_path: Path):
+    repo, relative = _checkout_probe_repo(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "example.yaml").write_text("outside\n", encoding="utf-8")
+    (repo / "us/statutes").rmdir()
+    (repo / "us/statutes").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="cannot inspect RuleSpec primary") as raised:
+        _checkout_path_exists_without_indirection(
+            repo, relative, label="RuleSpec primary"
+        )
+
+    assert isinstance(raised.value.__cause__, OSError)
+
+
+def test_checkout_presence_rejects_symlinked_leaf(tmp_path: Path):
+    repo, relative = _checkout_probe_repo(tmp_path)
+    (repo / relative).symlink_to("missing.yaml")
+
+    with pytest.raises(ValueError, match="RuleSpec primary contains a symlink"):
+        _checkout_path_exists_without_indirection(
+            repo, relative, label="RuleSpec primary"
+        )
+
+
+def test_checkout_presence_rejects_symlinked_repo_root(tmp_path: Path):
+    actual, relative = _checkout_probe_repo(tmp_path / "actual")
+    (actual / relative).write_text("module: {}\n", encoding="utf-8")
+    repo = tmp_path / "rulespec-us"
+    repo.symlink_to(actual, target_is_directory=True)
+
+    with pytest.raises(ValueError) as raised:
+        _checkout_path_exists_without_indirection(
+            repo, relative, label="RuleSpec primary"
+        )
+
+    assert isinstance(raised.value.__cause__, OSError)
+
+
+def test_checkout_presence_pins_ancestor_swapped_for_symlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    repo, relative = _checkout_probe_repo(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "example.yaml").write_text("outside\n", encoding="utf-8")
+    original_open = signed_backfill._DESCRIPTOR_OPEN
+    swapped = False
+
+    def swap_ancestor_after_open(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal swapped
+        descriptor = original_open(path, flags, mode, dir_fd=dir_fd)
+        if path == "statutes" and dir_fd is not None and not swapped:
+            (repo / "us/statutes").rename(repo / "us/pinned")
+            (repo / "us/statutes").symlink_to(outside, target_is_directory=True)
+            swapped = True
+        return descriptor
+
+    monkeypatch.setattr(signed_backfill, "_DESCRIPTOR_OPEN", swap_ancestor_after_open)
+
+    # The leaf is probed relative to the pinned directory, which never held
+    # it, rather than through the symlink now at the ancestor path.
+    assert not _checkout_path_exists_without_indirection(
+        repo, relative, label="RuleSpec primary"
+    )
+    assert swapped
+    assert (repo / relative).is_file()
+
+
+def test_checkout_presence_pins_repo_root_swapped_for_symlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    repo, relative = _checkout_probe_repo(tmp_path)
+    outside, _outside_relative = _checkout_probe_repo(tmp_path / "outside")
+    (outside / relative).write_text("outside\n", encoding="utf-8")
+    original_open = signed_backfill._DESCRIPTOR_OPEN
+    swapped = False
+
+    def swap_repo_after_open(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal swapped
+        descriptor = original_open(path, flags, mode, dir_fd=dir_fd)
+        if dir_fd is None and Path(path) == repo and not swapped:
+            repo.rename(tmp_path / "pinned")
+            repo.symlink_to(outside, target_is_directory=True)
+            swapped = True
+        return descriptor
+
+    monkeypatch.setattr(signed_backfill, "_DESCRIPTOR_OPEN", swap_repo_after_open)
+
+    assert not _checkout_path_exists_without_indirection(
+        repo, relative, label="RuleSpec primary"
+    )
+    assert swapped
+
+
+@pytest.mark.parametrize("phase", ["root-open", "ancestor-open", "leaf-stat"])
+def test_checkout_presence_rejects_unexpected_descriptor_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    phase: str,
+):
+    repo, relative = _checkout_probe_repo(tmp_path)
+    original_open = signed_backfill._DESCRIPTOR_OPEN
+    original_stat = signed_backfill._DESCRIPTOR_STAT
+    triggered = False
+
+    def failing_open(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal triggered
+        if (phase == "root-open" and dir_fd is None) or (
+            phase == "ancestor-open" and path == "statutes"
+        ):
+            triggered = True
+            raise OSError(errno.EIO, "simulated inspection failure")
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    def failing_stat(path, *, dir_fd=None, follow_symlinks=True):
+        nonlocal triggered
+        if phase == "leaf-stat" and path == relative.name:
+            triggered = True
+            raise OSError(errno.EIO, "simulated inspection failure")
+        return original_stat(path, dir_fd=dir_fd, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(signed_backfill, "_DESCRIPTOR_OPEN", failing_open)
+    monkeypatch.setattr(signed_backfill, "_DESCRIPTOR_STAT", failing_stat)
+
+    with pytest.raises(ValueError) as raised:
+        _checkout_path_exists_without_indirection(
+            repo, relative, label="RuleSpec primary"
+        )
+
+    assert triggered
+    assert isinstance(raised.value.__cause__, OSError)
+    assert raised.value.__cause__.errno == errno.EIO
+
+
+@pytest.mark.parametrize(
+    ("capability", "unsupported_value"),
+    [
+        ("_DESCRIPTOR_OS_IS_POSIX", False),
+        ("_DESCRIPTOR_O_DIRECTORY", None),
+        ("_DESCRIPTOR_O_NOFOLLOW", None),
+        ("_DESCRIPTOR_O_CLOEXEC", None),
+        ("_DESCRIPTOR_OPEN_SUPPORTS_DIR_FD", False),
+        ("_DESCRIPTOR_STAT_SUPPORTS_DIR_FD", False),
+        ("_DESCRIPTOR_STAT_SUPPORTS_NOFOLLOW", False),
+    ],
+)
+def test_checkout_presence_rejects_unsupported_descriptor_traversal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capability: str,
+    unsupported_value: object,
+):
+    repo, relative = _checkout_probe_repo(tmp_path)
+    monkeypatch.setattr(signed_backfill, capability, unsupported_value)
+
+    with pytest.raises(ValueError, match="descriptor traversal is unsupported"):
+        _checkout_path_exists_without_indirection(
+            repo, relative, label="RuleSpec primary"
+        )
+
+
+@pytest.mark.parametrize("root_suffix", ["link/../rulespec-us", "rootlink/us/.."])
+def test_checkout_presence_refuses_dotdot_in_repo_root(
+    tmp_path: Path, root_suffix: str
+):
+    lexical, relative = _checkout_probe_repo(tmp_path / "lexical")
+    kernel, _relative = _checkout_probe_repo(tmp_path / "kernel")
+    (kernel / relative).write_text("module: {}\n", encoding="utf-8")
+    (kernel.parent / "inner").mkdir()
+    (lexical.parent / "link").symlink_to(
+        kernel.parent / "inner", target_is_directory=True
+    )
+    (lexical.parent / "rootlink").symlink_to(kernel, target_is_directory=True)
+
+    # link/../rulespec-us collapses lexically to a different root than the
+    # kernel resolves; rootlink/us/.. reaches a symlinked repository through a
+    # final ".." component that O_NOFOLLOW does not refuse.
+    with pytest.raises(ValueError, match="repository root is invalid"):
+        _checkout_path_exists_without_indirection(
+            lexical.parent / root_suffix,
+            relative,
+            label="RuleSpec primary",
+        )
+
+
+def _open_descriptor_count() -> int:
+    for listing in ("/proc/self/fd", "/dev/fd"):
+        if os.path.isdir(listing):
+            return len(os.listdir(listing))
+    pytest.skip("open descriptors cannot be listed on this platform")
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["present", "missing-leaf", "missing-ancestor", "symlinked-leaf", "leaf-error"],
+)
+def test_checkout_presence_closes_every_descriptor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+):
+    repo, relative = _checkout_probe_repo(tmp_path)
+    if case == "present":
+        (repo / relative).write_text("module: {}\n", encoding="utf-8")
+    elif case == "missing-ancestor":
+        relative = PurePosixPath("us/missing/deeper/example.yaml")
+    elif case == "symlinked-leaf":
+        (repo / relative).symlink_to("missing.yaml")
+    elif case == "leaf-error":
+        original_stat = signed_backfill._DESCRIPTOR_STAT
+
+        def failing_stat(path, *, dir_fd=None, follow_symlinks=True):
+            if path == relative.name:
+                raise OSError(errno.EIO, "simulated inspection failure")
+            return original_stat(path, dir_fd=dir_fd, follow_symlinks=follow_symlinks)
+
+        monkeypatch.setattr(signed_backfill, "_DESCRIPTOR_STAT", failing_stat)
+    before = _open_descriptor_count()
+
+    with contextlib.suppress(ValueError):
+        _checkout_path_exists_without_indirection(
+            repo, relative, label="RuleSpec primary"
+        )
+
+    assert _open_descriptor_count() == before
