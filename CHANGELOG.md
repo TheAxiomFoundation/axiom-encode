@@ -1,3 +1,7 @@
+## 0.2.2271
+
+- Read Hebrew and mixed-language deferral reasons and sources in the source-completeness gate, so a Hebrew reason cannot pass where its canonical English refuses. Preserve English and German verdicts.
+
 ## 0.2.2270
 
 - Integrate current source-completeness updates with the reviewed explicit engine-pin and portable provenance checks.
