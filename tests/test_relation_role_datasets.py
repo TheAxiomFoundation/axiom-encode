@@ -173,6 +173,9 @@ def _requests(tmp_path, case, payload=None):
                 require_legal_input_keys=True,
                 legal_ids_by_friendly_name={},
                 module_target=TARGET,
+                input_entities=pipeline._rulespec_companion_input_entities(
+                    module, case.get("input", {})
+                ),
                 declared_relation_names=names,
                 declared_relation_slots=slots,
                 compiled_relations=relations,

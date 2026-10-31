@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Collection, Iterable
 
 import yaml
 
@@ -94,9 +94,10 @@ def flat_input_entity_id(
     query_entity_id: str,
     *,
     reserved_entity_ids: Iterable[str] = (),
+    query_kinds: Collection[str] = (),
 ) -> str:
     """Retain owner IDs and avoid IDs occupied by other fixture entity kinds."""
-    if entity == query_entity:
+    if entity == query_entity or entity in query_kinds:
         return query_entity_id
     return _available_entity_id(
         f"{query_entity_id}:entity:{entity}", reserved_entity_ids
@@ -113,10 +114,20 @@ def _available_entity_id(preferred: str, reserved_entity_ids: Iterable[str]) -> 
     return candidate
 
 
-def require_distinct_entity_ids(occupied_entity_ids: dict[str, set[str]]) -> None:
-    """Reject explicit fixture IDs shared by different entity kinds."""
+def require_distinct_entity_ids(
+    occupied_entity_ids: dict[str, set[str]],
+    *,
+    query_kinds: Collection[str] = (),
+) -> None:
+    """Reject explicit fixture IDs shared by different entity kinds.
+
+    A query's filtered alias and its underlying kind name one entity.
+    """
     for entity_id, entities in occupied_entity_ids.items():
-        if len(entities) > 1:
+        distinct = len(entities.difference(query_kinds)) + bool(
+            entities.intersection(query_kinds)
+        )
+        if distinct > 1:
             raise ValueError(
                 f"fixture entity ID `{entity_id}` is shared by "
                 f"{', '.join(f'`{entity}`' for entity in sorted(entities))}; "

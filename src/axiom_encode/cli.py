@@ -114,6 +114,7 @@ from axiom_encode.companion_relations import (
     explicit_relation_tuples,
     explicit_tuple_relation_names,
     pair_relation_assignment_issues,
+    query_entity_kinds,
     relation_role_query_entity_id,
     uses_relation_roles,
 )
@@ -5878,6 +5879,7 @@ def _execute_rulespec_test_case(
         ),
         "Case",
     )
+    query_kinds = query_entity_kinds(query_entity, compiled_relations)
     root_entity_id = (
         relation_role_query_entity_id(case, query_entity)
         if relation_role_program
@@ -5990,7 +5992,7 @@ def _execute_rulespec_test_case(
             current_slot = None
             if slots is not None:
                 matching_slots = [
-                    slot for slot, entity in enumerate(slots) if entity == query_entity
+                    slot for slot, entity in enumerate(slots) if entity in query_kinds
                 ]
                 if not matching_slots:
                     raise ValueError(
@@ -6017,7 +6019,7 @@ def _execute_rulespec_test_case(
             if (
                 relation_role_program
                 and slots is not None
-                and slots.count(query_entity) > 1
+                and len(matching_slots) > 1
                 and direction is None
             ):
                 raise ValueError(
@@ -6165,7 +6167,7 @@ def _execute_rulespec_test_case(
                     )
             table_rows_by_entity[table_entity] = resolved_rows
 
-    require_distinct_entity_ids(occupied_entity_ids)
+    require_distinct_entity_ids(occupied_entity_ids, query_kinds=query_kinds)
     assign_generated_fixture_ids(generated_table_rows, occupied_entity_ids)
     assign_generated_fixture_ids(generated_relation_rows, occupied_entity_ids)
     flat_entity_ids: dict[str, str] = {}
@@ -6181,6 +6183,7 @@ def _execute_rulespec_test_case(
                     for entity_id, entities in occupied_entity_ids.items()
                     if entities - {input_entity}
                 ),
+                query_kinds=query_kinds,
             )
             flat_entity_ids[input_entity] = entity_id
             occupied_entity_ids.setdefault(entity_id, set()).add(input_entity)

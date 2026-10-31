@@ -1,0 +1,1 @@
+Keep facts on a filtered alias and on its underlying kind at the query's root ID in relation-role companions, accept compact rows and anchor table rows on that ID, and leave legacy filtered requests unchanged.

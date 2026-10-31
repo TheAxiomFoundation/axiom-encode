@@ -75,6 +75,7 @@ from axiom_encode.companion_relations import (
     explicit_relation_tuples,
     explicit_tuple_relation_names,
     pair_relation_assignment_issues,
+    query_entity_kinds,
     relation_role_query_entity_id,
     uses_relation_roles,
 )
@@ -38034,12 +38035,14 @@ class ValidatorPipeline:
         table_entity_ids: dict[str, list[str]] | None = None,
         relation_role_program: bool = False,
         input_dtypes: dict[str, str] | None = None,
+        query_kinds: frozenset[str] | None = None,
     ) -> dict[str, Any]:
         """Build an Axiom rules engine dataset from compact RuleSpec test inputs."""
         if case_input in (None, ""):
             case_input = {}
         if not isinstance(case_input, dict):
             raise ValueError("input must be a mapping")
+        query_kinds = query_kinds or frozenset({query_entity})
 
         interval = {"start": period["start"], "end": period["end"]}
         inputs: list[dict[str, Any]] = []
@@ -38110,7 +38113,7 @@ class ValidatorPipeline:
                     matching_slots = [
                         index
                         for index, entity in enumerate(slots)
-                        if entity == query_entity
+                        if entity in query_kinds
                     ]
                     if not matching_slots:
                         raise ValueError(
@@ -38139,7 +38142,7 @@ class ValidatorPipeline:
                 if (
                     relation_role_program
                     and slots is not None
-                    and slots.count(query_entity) > 1
+                    and len(matching_slots) > 1
                     and direction is None
                 ):
                     raise ValueError(
@@ -38334,7 +38337,7 @@ class ValidatorPipeline:
                             (table_entity, row_ids, 0, inputs[input_start:])
                         )
 
-        require_distinct_entity_ids(occupied_entity_ids)
+        require_distinct_entity_ids(occupied_entity_ids, query_kinds=query_kinds)
         assign_generated_fixture_ids(generated_table_rows, occupied_entity_ids)
         assign_generated_fixture_ids(generated_relation_rows, occupied_entity_ids)
         if table_entity_ids is not None:
@@ -38357,6 +38360,7 @@ class ValidatorPipeline:
                         for entity_id, entities in occupied_entity_ids.items()
                         if entities - {input_entity}
                     ),
+                    query_kinds=query_kinds,
                 )
                 flat_entity_ids[input_entity] = entity_id
                 occupied_entity_ids.setdefault(entity_id, set()).add(input_entity)
@@ -38763,6 +38767,7 @@ class ValidatorPipeline:
                 table_entity_ids=table_entity_ids,
                 relation_role_program=relation_role_program,
                 input_dtypes=input_dtypes,
+                query_kinds=query_entity_kinds(query_entity, compiled_relations),
             )
         except ValueError as exc:
             return None, [f"Test case `{case_name}` input invalid: {exc}"]

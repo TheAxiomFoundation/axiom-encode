@@ -64,6 +64,36 @@ def uses_relation_roles(relations: list[dict[str, Any]] | None) -> bool:
     return walk(relations)
 
 
+def query_entity_kinds(
+    query_entity: str, relations: list[dict[str, Any]] | None
+) -> frozenset[str]:
+    """Name each entity kind that a companion query's root ID carries.
+
+    A filtered alias takes its runtime ID from one source's current ID, so its
+    query ID also identifies that source's anchor. Legacy programs keep their
+    one query kind and their existing request bytes.
+    """
+    kinds = {query_entity}
+    if not uses_relation_roles(relations):
+        return frozenset(kinds)
+    pending = [query_entity]
+    while pending:
+        alias = pending.pop()
+        for relation in relations or []:
+            derivation = relation.get("derivation")
+            if not isinstance(derivation, dict) or derivation.get("entity") != alias:
+                continue
+            slots = derivation.get("slot_entities") or relation.get("slot_entities")
+            current = derivation.get("current_slot")
+            if not slots or type(current) is not int or current >= len(slots):
+                continue
+            underlying = str(slots[current])
+            if underlying not in kinds:
+                kinds.add(underlying)
+                pending.append(underlying)
+    return frozenset(kinds)
+
+
 def pair_relation_assignment_issues(
     relations: list[dict[str, Any]] | None,
     case: dict[str, Any],
