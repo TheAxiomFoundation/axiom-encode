@@ -169,6 +169,7 @@ from .validator_pipeline import (
     _numeric_profile_for_citation_path,
     _parse_rulespec_target,
     _resolve_rulespec_target_file,
+    _rulespec_relation_value_input_names,
     _source_text_looks_like_table,
     build_existing_target_oracle_contract,
     evaluate_numeric_grounding_values_scoped,
@@ -15332,7 +15333,7 @@ def _context_file_local_inputs(source_path: str) -> set[str]:
                 ):
                     continue
                 inputs.add(identifier)
-    return inputs
+    return inputs | _rulespec_relation_value_input_names(payload)
 
 
 def _context_file_imported_symbols(payload: dict[str, object]) -> set[str]:
@@ -15461,6 +15462,9 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
         analyzed = analyze_relation_predicate(
             formula,
             predicate_terms=rule_uses_relation_predicate(rule),
+            lowering_entry="derived_relation"
+            if rule.get("kind") == "derived_relation"
+            else "rule",
             relation_names=frozenset(relation_names),
         )
         relation_arguments = analyzed.relation_arguments | analyzed.atom_relations

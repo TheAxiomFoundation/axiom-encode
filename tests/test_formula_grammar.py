@@ -16,6 +16,8 @@ from axiom_encode.formula_references import (
     formula_identifiers,
     rule_uses_relation_predicate,
 )
+from tests.test_companion_declared_entities import _compile
+from tests.test_relation_role_round2 import LABEL, collision_payload
 
 
 @pytest.mark.parametrize(
@@ -613,3 +615,44 @@ def test_generated_predicate_reads_equal_compiled_artifact(
     }
     assert actual == expected, (label, formula, actual, expected)
     assert analyzed.identifiers == set().union(*expected.values())
+
+
+@settings(max_examples=12, deadline=None)
+@given(
+    formula=st.sampled_from(
+        ["view + 1", "if view: 1 else: 0", "len(view)", "if view: len(view) else: 0"]
+    ),
+    legacy=st.booleans(),
+)
+def test_generated_ordinary_collision_reads_equal_compiled_artifact(
+    real_engine, formula, legacy
+):
+    """Ordinary rule lowering keeps a relation-spelled input in its namespace."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as scratch:
+        temp = Path(scratch)
+        root = temp / "rulespec-us"
+        module = root / "us/policies/example/collision.yaml"
+        module.parent.mkdir(parents=True)
+        module.write_text(LABEL + yaml.safe_dump(collision_payload(formula, legacy)))
+        artifact = _compile(
+            real_engine.binary, real_engine.root, root, module, temp / "artifact.json"
+        )
+        row = next(
+            row
+            for row in artifact["program"]["derived"]
+            if short_name(row["name"]) == "result"
+        )
+        expected = compiled_reads(row)
+        actual = analyze_relation_predicate(
+            formula,
+            predicate_terms=False,
+            lowering_entry="rule",
+            relation_names=frozenset({"view", "pairs"}),
+        )
+        assert actual.input_reads == expected["inputs"]
+        assert (
+            actual.relation_arguments | actual.atom_relations == expected["relations"]
+        )

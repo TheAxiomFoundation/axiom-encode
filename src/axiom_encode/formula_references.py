@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Literal
 
 from axiom_encode.formula_grammar import (
     Expr,
@@ -165,12 +166,16 @@ def analyze_relation_predicate(
     formula: str,
     *,
     predicate_terms: bool = True,
+    lowering_entry: Literal["derived_relation", "rule"] = "derived_relation",
     relation_names: frozenset[str] | None = None,
     rule_names: frozenset[str] = frozenset(),
     parameter_names: frozenset[str] = frozenset(),
 ) -> RelationPredicateReferences:
     """Walk parsed expressions in the positions that engine lowering reads.
 
+    ``lowering_entry`` selects the engine's relation namespace independently of
+    the legacy scanner's ``predicate_terms`` dispatch. Ordinary rule lowering
+    never resolves a bare judgment name as a relation.
     Optional declaration inventories resolve the engine's three namespaces.
     Without them, unknown value names remain input candidates and unknown calls
     remain visible as atoms, so source validators can diagnose declarations.
@@ -311,6 +316,7 @@ def analyze_relation_predicate(
                 error(expr, f"`{value}` is a date and cannot be tested as a judgment")
             if (
                 mode == "judgment"
+                and lowering_entry == "derived_relation"
                 and relation_names is not None
                 and value in relation_names
                 and value not in parameter_names | rule_names

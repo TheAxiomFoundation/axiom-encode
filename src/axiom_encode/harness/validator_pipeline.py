@@ -21694,6 +21694,9 @@ def find_missing_derived_companion_output_issues(
             analyzed = analyze_relation_predicate(
                 formula,
                 predicate_terms=predicate,
+                lowering_entry="derived_relation"
+                if rule.get("kind") == "derived_relation"
+                else "rule",
                 relation_names=frozenset(
                     key
                     for key, dependency in local_rules.items()
@@ -23533,6 +23536,9 @@ def find_relation_role_issues(
                 analyzed = analyze_relation_predicate(
                     formula,
                     predicate_terms=rule_uses_relation_predicate(dependency),
+                    lowering_entry="derived_relation"
+                    if dependency.get("kind") == "derived_relation"
+                    else "rule",
                     relation_names=declared_relations,
                 )
                 names.update(analyzed.identifiers)
@@ -31621,6 +31627,9 @@ def _rulespec_terminal_executable_names_from_payload(payload: Any) -> list[str]:
         analyzed = analyze_relation_predicate(
             formula,
             predicate_terms=rule_uses_relation_predicate(rules_by_name[owner]),
+            lowering_entry="derived_relation"
+            if rules_by_name[owner].get("kind") == "derived_relation"
+            else "rule",
             relation_names=frozenset(relation_names),
         )
         relation_arguments = analyzed.relation_arguments | analyzed.atom_relations
@@ -31765,12 +31774,14 @@ def _rulespec_relation_value_input_names(
     imported_parameters: Iterable[str] = (),
     imported_relations: Iterable[str] = (),
 ) -> set[str]:
-    """Keep predicate input reads whose spelling also names a relation."""
+    """Keep input reads whose spelling also names a relation."""
     raw_rules = payload.get("rules")
     rules = raw_rules if isinstance(raw_rules, list) else []
     relations = frozenset(_rulespec_relation_names(payload)) | frozenset(
         imported_relations
     )
+    if not relations:
+        return set()
     derived = frozenset(imported_derived) | frozenset(
         str(rule["name"])
         for rule in rules
@@ -31785,11 +31796,15 @@ def _rulespec_relation_value_input_names(
     )
     inputs: set[str] = set()
     for rule in rules:
-        if not isinstance(rule, dict) or rule.get("kind") != "derived_relation":
+        if not isinstance(rule, dict):
             continue
         for formula in _rulespec_rule_formula_texts(rule):
             analyzed = analyze_relation_predicate(
                 formula,
+                predicate_terms=rule_uses_relation_predicate(rule),
+                lowering_entry="derived_relation"
+                if rule.get("kind") == "derived_relation"
+                else "rule",
                 relation_names=relations,
                 rule_names=derived,
                 parameter_names=parameters,
@@ -32194,6 +32209,12 @@ def find_unused_import_issues(content: str) -> list[str]:
 
         raw_rules = payload.get("rules")
         identifiers: set[str] = set()
+        relation_reads: set[str] = set()
+        relation_names = frozenset(_rulespec_relation_names(payload)) | frozenset(
+            local_reference_name(item)
+            for item in imports
+            if isinstance(item, str) and "#relation." in item
+        )
         unparsed_formulas: list[str] = []
         for rule in raw_rules if isinstance(raw_rules, list) else []:
             if not isinstance(rule, dict):
@@ -32202,6 +32223,10 @@ def find_unused_import_issues(content: str) -> list[str]:
                 analyzed = analyze_relation_predicate(
                     formula,
                     predicate_terms=rule_uses_relation_predicate(rule),
+                    relation_names=relation_names,
+                    lowering_entry="derived_relation"
+                    if rule.get("kind") == "derived_relation"
+                    else "rule",
                 )
                 if analyzed.parse_error is not None:
                     # Preserve the base check for syntax outside the port.
@@ -32210,6 +32235,8 @@ def find_unused_import_issues(content: str) -> list[str]:
                     identifiers.update(analyzed.identifiers)
                     identifiers.update(analyzed.atom_relations)
                     identifiers.update(analyzed.relation_arguments)
+                    relation_reads.update(analyzed.atom_relations)
+                    relation_reads.update(analyzed.relation_arguments)
         source_references = {
             local_reference_name(source)
             for rule in (raw_rules if isinstance(raw_rules, list) else [])
@@ -32227,14 +32254,16 @@ def find_unused_import_issues(content: str) -> list[str]:
             symbol = local_reference_name(import_item)
             if not symbol:
                 continue
-            if symbol in identifiers or symbol in source_references:
+            explicit_relation = import_item.rsplit("#", 1)[1].startswith("relation.")
+            reads = relation_reads if explicit_relation else identifiers
+            if symbol in reads or symbol in source_references:
                 continue
-            if any(
+            if not explicit_relation and any(
                 _formula_references_symbol(formula, symbol)
                 for formula in unparsed_formulas
             ):
                 continue
-            if import_item in proof_import_targets:
+            if not explicit_relation and import_item in proof_import_targets:
                 continue
             issues.append(
                 f"Unused import `{import_item}`: imported symbol `{symbol}` is "
@@ -36044,10 +36073,7 @@ def _rulespec_reference_summary(target_file: Path) -> _RuleSpecReferenceSummary:
     if payload is None:
         return summary
     rules = payload.get("rules")
-    if not isinstance(rules, list) or not any(
-        isinstance(rule, dict) and rule.get("kind") == "derived_relation"
-        for rule in rules
-    ):
+    if not isinstance(rules, list):
         return summary
     # Imported declaration kinds can change without changing this file's cache
     # key. Classify the predicate overlay outside the target-only cache.
