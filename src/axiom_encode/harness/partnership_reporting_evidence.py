@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 
 from axiom_encode.form_source_structure import form_display_spans
+from axiom_encode.rulespec_version_dates import version_date_fields
 from axiom_encode.source_hash import _UniqueKeySafeLoader
 
 PREFIX = "schedule_l_"
@@ -234,10 +235,12 @@ def certify_partnership_reporting(
         ):
             return None
         version = versions[0]
+        date_fields = version_date_fields(version)
         if (
-            set(version) != {"effective_from", "effective_to", "formula"}
-            or version["effective_from"] != "2025-01-01"
-            or version["effective_to"] != "2025-12-31"
+            date_fields is None
+            or set(version) != {*date_fields, "formula"}
+            or version[date_fields[0]] != "2025-01-01"
+            or version[date_fields[1]] != "2025-12-31"
         ):
             return None
         formula = version["formula"]
@@ -275,8 +278,8 @@ def certify_partnership_reporting(
         atoms = tuple(s._rule_source_excerpt_atoms(rule))
         obligations = [
             ("formula", QUOTES[name]),
-            ("effective_from", HEADER),
-            ("effective_to", HEADER),
+            (date_fields[0], HEADER),
+            (date_fields[1], HEADER),
         ]
         if name in (GROSS, NET):
             obligations.append(("formula", CONDITION))

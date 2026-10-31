@@ -1,0 +1,352 @@
+# Synthetic encoder test input; not a RuleSpec module.
+format: rulespec/v1
+inputs:
+  meal_group:
+    dtype: Integer
+    entity: Person
+    period: Month
+  age:
+    dtype: Integer
+    entity: Person
+    period: Month
+  snap_household_exception_may_apply:
+    dtype: Judgment
+    entity: Person
+    period: Month
+  snap_household_unit:
+    dtype: Integer
+    entity: Person
+    period: Month
+  snap_ineligible_member_under_b7:
+    dtype: Judgment
+    entity: Person
+    period: Month
+  test_target:
+    entity: Person
+    dtype: Judgment
+    period: Month
+rules:
+- name: member_of_household
+  kind: data_relation
+  data_relation:
+    arity: 2
+    arguments:
+    - Person
+    - Household
+- name: residence_size
+  kind: derived
+  entity: Household
+  dtype: Integer
+  period: Month
+  versions:
+  - effective_from: 2026-01-01
+    formula: len(member_of_household)
+  source: Synthetic encoder test input adapted from relation-roles.md section 8
+  metadata:
+    proof:
+      atoms:
+      - kind: formula
+        path: versions[0].formula
+        source:
+          corpus_citation_path: us/guidance/axiom/relation-roles
+          excerpt: Synthetic encoder test input adapted from relation-roles.md section 8; this is not
+            a RuleSpec module or a full encoding of any provision. The age limits in this shape are 22
+            and 18. A count greater than 0 flags an exception. Compute the closure exactly through two
+            ties only if no tie leaves that set and no exception may apply; otherwise read caller-supplied
+            household ids with no default. Keep composition and participation separate. Pair facts and
+            one full-period residence record per person are complete, and supplied ids are correct.
+- name: spouse_of
+  kind: data_relation
+  data_relation:
+    arity: 2
+    arguments:
+    - Person
+    - Person
+- name: parent_of
+  kind: data_relation
+  data_relation:
+    arity: 2
+    arguments:
+    - Person
+    - Person
+- name: under_parental_control_of
+  kind: data_relation
+  data_relation:
+    arity: 2
+    arguments:
+    - Person
+    - Person
+- name: lives_with
+  kind: derived_relation
+  derived_relation:
+    arity: 2
+    slot_entities:
+    - Person
+    - Person
+    current_slot: 0
+    related_slot: 1
+    source_path:
+    - relation: member_of_household
+      from_slot: 0
+      to_slot: 1
+    - relation: member_of_household
+      from_slot: 1
+      to_slot: 0
+  versions:
+  - effective_from: 2026-01-01
+    formula: true
+  source: Synthetic encoder test input adapted from relation-roles.md section 8
+  metadata:
+    proof:
+      atoms:
+      - kind: formula
+        path: versions[0].formula
+        source:
+          corpus_citation_path: us/guidance/axiom/relation-roles
+          excerpt: Synthetic encoder test input adapted from relation-roles.md section 8; this is not
+            a RuleSpec module or a full encoding of any provision. The age limits in this shape are 22
+            and 18. A count greater than 0 flags an exception. Compute the closure exactly through two
+            ties only if no tie leaves that set and no exception may apply; otherwise read caller-supplied
+            household ids with no default. Keep composition and participation separate. Pair facts and
+            one full-period residence record per person are complete, and supplied ids are correct.
+- name: snap_tie
+  kind: derived_relation
+  derived_relation:
+    arity: 2
+    slot_entities:
+    - Person
+    - Person
+    current_slot: 0
+    related_slot: 1
+    source_relation: lives_with
+  versions:
+  - effective_from: 2026-01-01
+    formula: "candidate.meal_group == anchor.meal_group or spouse_of(anchor, candidate) or spouse_of(candidate,\
+      \ anchor) or (parent_of(anchor, candidate) and candidate.age < 22) or (parent_of(candidate, anchor)\
+      \ and anchor.age < 22) or (under_parental_control_of(candidate, anchor)\n    and not parent_of(anchor,\
+      \ candidate) and candidate.age < 18)\nor (under_parental_control_of(anchor, candidate)\n    and\
+      \ not parent_of(candidate, anchor) and anchor.age < 18)\n"
+  source: Synthetic encoder test input adapted from relation-roles.md section 8
+  metadata:
+    proof:
+      atoms:
+      - kind: formula
+        path: versions[0].formula
+        source:
+          corpus_citation_path: us/guidance/axiom/relation-roles
+          excerpt: Synthetic encoder test input adapted from relation-roles.md section 8; this is not
+            a RuleSpec module or a full encoding of any provision. The age limits in this shape are 22
+            and 18. A count greater than 0 flags an exception. Compute the closure exactly through two
+            ties only if no tie leaves that set and no exception may apply; otherwise read caller-supplied
+            household ids with no default. Keep composition and participation separate. Pair facts and
+            one full-period residence record per person are complete, and supplied ids are correct.
+- name: snap_within_two_ties
+  kind: derived_relation
+  derived_relation:
+    arity: 2
+    slot_entities:
+    - Person
+    - Person
+    current_slot: 0
+    related_slot: 1
+    source_relation: lives_with
+  versions:
+  - effective_from: 2026-01-01
+    formula: 'candidate == anchor or snap_tie(anchor, candidate) or exists(snap_tie(anchor, p), snap_tie(p,
+      candidate))
+
+      '
+  source: Synthetic encoder test input adapted from relation-roles.md section 8
+  metadata:
+    proof:
+      atoms:
+      - kind: formula
+        path: versions[0].formula
+        source:
+          corpus_citation_path: us/guidance/axiom/relation-roles
+          excerpt: Synthetic encoder test input adapted from relation-roles.md section 8; this is not
+            a RuleSpec module or a full encoding of any provision. The age limits in this shape are 22
+            and 18. A count greater than 0 flags an exception. Compute the closure exactly through two
+            ties only if no tie leaves that set and no exception may apply; otherwise read caller-supplied
+            household ids with no default. Keep composition and participation separate. Pair facts and
+            one full-period residence record per person are complete, and supplied ids are correct.
+- name: snap_exception_in_residence
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  versions:
+  - effective_from: 2026-01-01
+    formula: count_where(lives_with, snap_household_exception_may_apply) > 0
+  source: Synthetic encoder test input adapted from relation-roles.md section 8
+  metadata:
+    proof:
+      atoms:
+      - kind: formula
+        path: versions[0].formula
+        source:
+          corpus_citation_path: us/guidance/axiom/relation-roles
+          excerpt: Synthetic encoder test input adapted from relation-roles.md section 8; this is not
+            a RuleSpec module or a full encoding of any provision. The age limits in this shape are 22
+            and 18. A count greater than 0 flags an exception. Compute the closure exactly through two
+            ties only if no tie leaves that set and no exception may apply; otherwise read caller-supplied
+            household ids with no default. Keep composition and participation separate. Pair facts and
+            one full-period residence record per person are complete, and supplied ids are correct.
+- name: snap_household_member
+  kind: derived_relation
+  derived_relation:
+    arity: 2
+    slot_entities:
+    - Person
+    - Person
+    current_slot: 0
+    related_slot: 1
+    source_relation: lives_with
+  versions:
+  - effective_from: 2026-01-01
+    formula: "(snap_within_two_ties(anchor, candidate)\n and not anchor.snap_exception_in_residence\n\
+      \ and not exists(snap_within_two_ties(anchor, p),\n                exists(snap_tie(p, r), not snap_within_two_ties(anchor,\
+      \ r))))\nor ((anchor.snap_exception_in_residence\n     or exists(snap_within_two_ties(anchor, p),\n\
+      \               exists(snap_tie(p, r), not snap_within_two_ties(anchor, r))))\n    and candidate.snap_household_unit\
+      \ == anchor.snap_household_unit)\n"
+  source: Synthetic encoder test input adapted from relation-roles.md section 8
+  metadata:
+    proof:
+      atoms:
+      - kind: formula
+        path: versions[0].formula
+        source:
+          corpus_citation_path: us/guidance/axiom/relation-roles
+          excerpt: Synthetic encoder test input adapted from relation-roles.md section 8; this is not
+            a RuleSpec module or a full encoding of any provision. The age limits in this shape are 22
+            and 18. A count greater than 0 flags an exception. Compute the closure exactly through two
+            ties only if no tie leaves that set and no exception may apply; otherwise read caller-supplied
+            household ids with no default. Keep composition and participation separate. Pair facts and
+            one full-period residence record per person are complete, and supplied ids are correct.
+- name: snap_participating_member
+  kind: derived_relation
+  derived_relation:
+    arity: 2
+    slot_entities:
+    - Person
+    - Person
+    current_slot: 0
+    related_slot: 1
+    source_relation: snap_household_member
+  versions:
+  - effective_from: 2026-01-01
+    formula: not candidate.snap_ineligible_member_under_b7
+  source: Synthetic encoder test input adapted from relation-roles.md section 8
+  metadata:
+    proof:
+      atoms:
+      - kind: formula
+        path: versions[0].formula
+        source:
+          corpus_citation_path: us/guidance/axiom/relation-roles
+          excerpt: Synthetic encoder test input adapted from relation-roles.md section 8; this is not
+            a RuleSpec module or a full encoding of any provision. The age limits in this shape are 22
+            and 18. A count greater than 0 flags an exception. Compute the closure exactly through two
+            ties only if no tie leaves that set and no exception may apply; otherwise read caller-supplied
+            household ids with no default. Keep composition and participation separate. Pair facts and
+            one full-period residence record per person are complete, and supplied ids are correct.
+- name: snap_household_size
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Month
+  versions:
+  - effective_from: '2026-01-01'
+    formula: len(snap_household_member)
+  source: Synthetic encoder test input adapted from relation-roles.md section 8
+  metadata:
+    proof:
+      atoms:
+      - kind: formula
+        path: versions[0].formula
+        source:
+          corpus_citation_path: us/guidance/axiom/relation-roles
+          excerpt: Synthetic encoder test input adapted from relation-roles.md section 8; this is not
+            a RuleSpec module or a full encoding of any provision. The age limits in this shape are 22
+            and 18. A count greater than 0 flags an exception. Compute the closure exactly through two
+            ties only if no tie leaves that set and no exception may apply; otherwise read caller-supplied
+            household ids with no default. Keep composition and participation separate. Pair facts and
+            one full-period residence record per person are complete, and supplied ids are correct.
+- name: snap_participating_size
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Month
+  versions:
+  - effective_from: '2026-01-01'
+    formula: len(snap_participating_member)
+  source: Synthetic encoder test input adapted from relation-roles.md section 8
+  metadata:
+    proof:
+      atoms:
+      - kind: formula
+        path: versions[0].formula
+        source:
+          corpus_citation_path: us/guidance/axiom/relation-roles
+          excerpt: Synthetic encoder test input adapted from relation-roles.md section 8; this is not
+            a RuleSpec module or a full encoding of any provision. The age limits in this shape are 22
+            and 18. A count greater than 0 flags an exception. Compute the closure exactly through two
+            ties only if no tie leaves that set and no exception may apply; otherwise read caller-supplied
+            household ids with no default. Keep composition and participation separate. Pair facts and
+            one full-period residence record per person are complete, and supplied ids are correct.
+- name: snap_household_contains_test_target
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Month
+  versions:
+  - effective_from: '2026-01-01'
+    formula: count_where(snap_household_member, test_target)
+  source: Synthetic encoder test input adapted from relation-roles.md section 8
+  metadata:
+    proof:
+      atoms:
+      - kind: formula
+        path: versions[0].formula
+        source:
+          corpus_citation_path: us/guidance/axiom/relation-roles
+          excerpt: Synthetic encoder test input adapted from relation-roles.md section 8; this is not
+            a RuleSpec module or a full encoding of any provision. The age limits in this shape are 22
+            and 18. A count greater than 0 flags an exception. Compute the closure exactly through two
+            ties only if no tie leaves that set and no exception may apply; otherwise read caller-supplied
+            household ids with no default. Keep composition and participation separate. Pair facts and
+            one full-period residence record per person are complete, and supplied ids are correct.
+- name: snap_participating_contains_test_target
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Month
+  versions:
+  - effective_from: '2026-01-01'
+    formula: count_where(snap_participating_member, test_target)
+  source: Synthetic encoder test input adapted from relation-roles.md section 8
+  metadata:
+    proof:
+      atoms:
+      - kind: formula
+        path: versions[0].formula
+        source:
+          corpus_citation_path: us/guidance/axiom/relation-roles
+          excerpt: Synthetic encoder test input adapted from relation-roles.md section 8; this is not
+            a RuleSpec module or a full encoding of any provision. The age limits in this shape are 22
+            and 18. A count greater than 0 flags an exception. Compute the closure exactly through two
+            ties only if no tie leaves that set and no exception may apply; otherwise read caller-supplied
+            household ids with no default. Keep composition and participation separate. Pair facts and
+            one full-period residence record per person are complete, and supplied ids are correct.
+module:
+  title: Synthetic guarded relation-role reference
+  summary: Synthetic encoder test input adapted from relation-roles.md section 8; this is not a RuleSpec
+    module or a full encoding of any provision. The age limits in this shape are 22 and 18. A count greater
+    than 0 flags an exception. Compute the closure exactly through two ties only if no tie leaves that
+    set and no exception may apply; otherwise read caller-supplied household ids with no default. Keep
+    composition and participation separate. Pair facts and one full-period residence record per person
+    are complete, and supplied ids are correct.
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/guidance/axiom/relation-roles

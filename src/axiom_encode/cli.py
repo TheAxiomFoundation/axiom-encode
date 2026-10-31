@@ -108,7 +108,32 @@ from axiom_encode.companion_entities import (
     flat_input_entity_id,
     require_distinct_entity_ids,
 )
-from axiom_encode.companion_relations import executable_relation_directions
+from axiom_encode.companion_relations import (
+    compact_relation_row,
+    executable_relation_directions,
+    explicit_relation_tuples,
+    explicit_tuple_relation_names,
+    pair_relation_assignment_issues,
+    relation_role_query_entity_id,
+    uses_relation_roles,
+)
+from axiom_encode.companion_scalars import (
+    companion_input_keys,
+    companion_scalar_value,
+    compiled_input_dtypes,
+    declared_input_dtypes,
+    input_dtype,
+)
+from axiom_encode.engine_pin_diff import effective_versions
+from axiom_encode.formula_references import (
+    formula_identifiers as _shared_formula_identifiers,
+)
+from axiom_encode.formula_references import (
+    local_reference_name,
+    relation_source_names,
+    rule_uses_relation_predicate,
+)
+from axiom_encode.rule_version_form import find_rule_version_form_issues
 from axiom_encode.yaml_serialization import (
     Yaml12SafeDumper,
     represent_yaml12_string,
@@ -5820,9 +5845,19 @@ def _execute_rulespec_test_case(
     request_only: bool = False,
 ) -> list[dict[str, str | None]] | dict:
     failures: list[dict[str, str | None]] = []
+    assignment_issues = pair_relation_assignment_issues(
+        compiled_relations, case, case_name
+    )
+    if assignment_issues:
+        if request_only:
+            raise ValueError("\n".join(assignment_issues))
+        return [
+            {"file": str(test_file), "case": case_name, "message": issue}
+            for issue in assignment_issues
+        ]
     period = _rulespec_period_spec(case.get("period", "2026-01"))
     interval = {"start": period["start"], "end": period["end"]}
-    root_entity_id = "case"
+    relation_role_program = uses_relation_roles(compiled_relations)
     expected = case.get("output") or {}
     expected_entities = {
         str(derived_by_id[str(output)].get("entity") or "Case")
@@ -5843,6 +5878,11 @@ def _execute_rulespec_test_case(
         ),
         "Case",
     )
+    root_entity_id = (
+        relation_role_query_entity_id(case, query_entity)
+        if relation_role_program
+        else "case"
+    )
     executable_directions = executable_relation_directions(
         derived_by_id,
         list(expected),
@@ -5850,6 +5890,7 @@ def _execute_rulespec_test_case(
         query_entity,
         declared_relation_slots,
         compiled_relations,
+        explicit_relations=explicit_tuple_relation_names(case.get("input")),
     )
     inputs: list[dict] = []
     relations: list[dict] = []
@@ -5882,6 +5923,35 @@ def _execute_rulespec_test_case(
             rulespec_dependency_roots=rulespec_roots,
         ),
     )
+    compiled_dtypes = (
+        compiled_input_dtypes(json.loads(compiled_path.read_text()))
+        if compiled_path.is_file()
+        else {}
+    )
+    input_dtypes = declared_input_dtypes(
+        module_file,
+        (
+            key
+            for key in companion_input_keys(case)
+            if input_dtype(compiled_dtypes, key) is None
+        ),
+        resolve_reference=lambda key: _rulespec_file_for_absolute_module_ref(
+            key,
+            policy_repo_path=policy_repo_path,
+            rulespec_dependency_roots=rulespec_roots,
+        ),
+        resolve_import=lambda target, current: _resolve_rulespec_import_file_static(
+            target,
+            rules_file=current,
+            policy_repo_path=(
+                policy_repo_path
+                if _rulespec_import_prefix_static(target)
+                else find_policy_repo_root(current) or policy_repo_path
+            ),
+            rulespec_dependency_roots=rulespec_roots,
+        ),
+    )
+    input_dtypes.update(compiled_dtypes)
 
     for key, value in (case.get("input") or {}).items():
         key = str(key)
@@ -5905,6 +5975,18 @@ def _execute_rulespec_test_case(
             ) or declared_relation_slots.get(
                 unqualified_name if "#relation." in relation_name else relation_name
             )
+            tuples = explicit_relation_tuples(value, relation=key, slots=slots)
+            if tuples is not None or (not value and relation_role_program):
+                for relation_tuple in tuples or []:
+                    for current_relation_name in relation_names:
+                        relations.append(
+                            {
+                                "name": current_relation_name,
+                                "tuple": relation_tuple,
+                                "interval": interval,
+                            }
+                        )
+                continue
             current_slot = None
             if slots is not None:
                 matching_slots = [
@@ -5932,12 +6014,37 @@ def _execute_rulespec_test_case(
             if len(matches) > 1:
                 raise ValueError(f"conflicting executable relation aliases for {key}")
             direction = next(iter(matches), None)
+            if (
+                relation_role_program
+                and slots is not None
+                and slots.count(query_entity) > 1
+                and direction is None
+            ):
+                raise ValueError(
+                    f"relation `{key}` compact rows have no unambiguous query-anchor "
+                    "direction; use explicit `tuple` rows"
+                )
             if direction is not None:
                 current_slot, executable_entity = direction
                 if executable_entity is not None:
                     related_entity = executable_entity
             for row_index, row in enumerate(value):
-                related_id = f"related_{row_index}"
+                if not isinstance(row, dict):
+                    failures.append(
+                        {
+                            "file": str(test_file),
+                            "case": case_name,
+                            "message": f"relation row for {key} is not a mapping",
+                        }
+                    )
+                    continue
+                related_id, explicit_id, factual_inputs = compact_relation_row(
+                    row, fallback_id=f"related_{row_index}"
+                )
+                if explicit_id:
+                    occupied_entity_ids.setdefault(related_id, set()).add(
+                        related_entity
+                    )
                 relation_tuple = [related_id, root_entity_id]
                 if current_slot == 0:
                     relation_tuple.reverse()
@@ -5949,34 +6056,30 @@ def _execute_rulespec_test_case(
                             "interval": interval,
                         }
                     )
-                if not isinstance(row, dict):
-                    failures.append(
-                        {
-                            "file": str(test_file),
-                            "case": case_name,
-                            "message": f"relation row for {key} is not a mapping",
-                        }
-                    )
-                    continue
                 input_start = len(inputs)
-                for row_key, row_value in row.items():
+                for row_key, row_value in factual_inputs.items():
                     inputs.append(
                         {
                             "name": str(row_key),
                             "entity": related_entity,
                             "entity_id": related_id,
                             "interval": interval,
-                            "value": _rulespec_scalar_value(row_value),
+                            "value": companion_scalar_value(
+                                row_value,
+                                dtype=input_dtype(input_dtypes, str(row_key)),
+                                relation_role_program=relation_role_program,
+                            ),
                         }
                     )
-                generated_relation_rows.append(
-                    (
-                        related_entity,
-                        relation_tuple,
-                        1 if current_slot == 0 else 0,
-                        inputs[input_start:],
+                if not explicit_id:
+                    generated_relation_rows.append(
+                        (
+                            related_entity,
+                            relation_tuple,
+                            1 if current_slot == 0 else 0,
+                            inputs[input_start:],
+                        )
                     )
-                )
         else:
             input_entity = input_entities.get(key, query_entity)
             record = {
@@ -5984,7 +6087,11 @@ def _execute_rulespec_test_case(
                 "entity": input_entity,
                 "entity_id": root_entity_id,
                 "interval": interval,
-                "value": _rulespec_scalar_value(value),
+                "value": companion_scalar_value(
+                    value,
+                    dtype=input_dtype(input_dtypes, key),
+                    relation_role_program=relation_role_program,
+                ),
             }
             inputs.append(record)
             flat_input_records.append(record)
@@ -6045,7 +6152,11 @@ def _execute_rulespec_test_case(
                             "entity": table_entity,
                             "entity_id": row_id,
                             "interval": interval,
-                            "value": _rulespec_scalar_value(row_value),
+                            "value": companion_scalar_value(
+                                row_value,
+                                dtype=input_dtype(input_dtypes, str(row_key)),
+                                relation_role_program=relation_role_program,
+                            ),
                         }
                     )
                 if not explicit_id:
@@ -6153,7 +6264,7 @@ def _execute_rulespec_test_case(
         return failures
     table_rows = table_rows_by_entity.get(query_entity, [])
     query_entity_ids = [root_entity_id]
-    if table_rows:
+    if table_rows and (list_outputs or not relation_role_program):
         query_entity_ids = [row_ids[0] for row_ids, _row in table_rows]
         for output in list_outputs:
             expected_value = derived_expected[output]
@@ -6422,19 +6533,7 @@ def _translate_rulespec_engine_envelope_error(message: str) -> str:
 
 
 def _rulespec_scalar_value(value) -> dict:
-    if isinstance(value, bool):
-        return {"kind": "bool", "value": value}
-    if isinstance(value, int):
-        return {"kind": "integer", "value": value}
-    if isinstance(value, float):
-        return {"kind": "decimal", "value": str(value)}
-    if isinstance(value, date):
-        return {"kind": "date", "value": value.isoformat()}
-    if isinstance(value, str):
-        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
-            return {"kind": "date", "value": value}
-        return {"kind": "text", "value": value}
-    raise ValueError(f"unsupported scalar value: {value!r}")
+    return companion_scalar_value(value)
 
 
 def _rulespec_parameter_value(
@@ -15506,7 +15605,6 @@ def _colorado_tax_subsection_2_input_replacement(match: re.Match[str]) -> str:
 
 
 def _rulespec_formula_references_symbol(content: str, symbol: str) -> bool:
-    token = re.compile(rf"\b{re.escape(symbol)}\b")
     with contextlib.suppress(yaml.YAMLError, AttributeError):
         payload = yaml.safe_load(content)
         rules = payload.get("rules") if isinstance(payload, dict) else None
@@ -15521,7 +15619,10 @@ def _rulespec_formula_references_symbol(content: str, symbol: str) -> bool:
                     if not isinstance(version, dict):
                         continue
                     formula = version.get("formula")
-                    if isinstance(formula, str) and token.search(formula):
+                    if isinstance(formula, str) and symbol in _formula_identifiers(
+                        formula,
+                        relation_predicate=rule_uses_relation_predicate(rule),
+                    ):
                         return True
     return False
 
@@ -17404,10 +17505,13 @@ def _replace_formula_identifier(content: str, *, old: str, new: str) -> str:
 
 def _repair_missing_source_proof_atoms(content: str) -> tuple[str, list[str]]:
     try:
-        payload = yaml.safe_load(content)
+        payload = _safe_load_unique_keys(content)
     except (yaml.YAMLError, ValueError):
         return content, []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return content, []
+
+    if find_rule_version_form_issues(content):
         return content, []
 
     module = payload.get("module")
@@ -17430,6 +17534,11 @@ def _repair_missing_source_proof_atoms(content: str) -> tuple[str, list[str]]:
             continue
         repairs_by_rule[rule_name] = {
             "kind": _generated_proof_atom_kind(rule),
+            "path": (
+                "formula"
+                if rule.get("kind") == "parameter" and not rule.get("versions")
+                else "versions[0].formula"
+            ),
             "corpus_citation_path": source_path,
             "span": _generated_proof_atom_span(rule),
         }
@@ -17442,13 +17551,77 @@ def _repair_missing_source_proof_atoms(content: str) -> tuple[str, list[str]]:
     repaired_lines, repaired_rules = _insert_missing_source_proof_atoms(
         lines, repairs_by_rule
     )
-    if set(repaired_rules) != set(repairs_by_rule):
-        structured_content, structured_rules = (
-            _insert_missing_source_proof_atoms_structured(payload, repairs_by_rule)
-        )
-        if structured_rules:
+    repaired_content = "".join(repaired_lines)
+    text_repair_valid = set(repaired_rules) == set(repairs_by_rule)
+    if text_repair_valid:
+        try:
+            repaired_payload = _safe_load_unique_keys(repaired_content)
+        except (yaml.YAMLError, ValueError):
+            text_repair_valid = False
+        else:
+            text_repair_valid = _source_proof_repairs_complete(
+                repaired_payload, repairs_by_rule
+            )
+    if text_repair_valid:
+        return repaired_content, repaired_rules
+
+    structured_content, structured_rules = (
+        _insert_missing_source_proof_atoms_structured(payload, repairs_by_rule)
+    )
+    if set(structured_rules) == set(repairs_by_rule):
+        try:
+            structured_payload = _safe_load_unique_keys(structured_content)
+        except (yaml.YAMLError, ValueError):
+            return content, []
+        if _source_proof_repairs_complete(structured_payload, repairs_by_rule):
             return structured_content, structured_rules
-    return "".join(repaired_lines), repaired_rules
+    return content, []
+
+
+def _source_proof_repairs_complete(
+    payload: object, repairs_by_rule: dict[str, dict[str, str]]
+) -> bool:
+    """Verify generated atoms belong to the selected rules and require proof checks."""
+    if not isinstance(payload, dict):
+        return False
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return False
+    proof_validation = module.get("proof_validation")
+    if (
+        not isinstance(proof_validation, dict)
+        or proof_validation.get("required") is not True
+    ):
+        return False
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return False
+    for rule_name, repair in repairs_by_rule.items():
+        owners = [
+            rule
+            for rule in rules
+            if isinstance(rule, dict)
+            and str(rule.get("name") or "").strip() == rule_name
+        ]
+        if len(owners) != 1:
+            return False
+        metadata = owners[0].get("metadata")
+        proof = metadata.get("proof") if isinstance(metadata, dict) else None
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list):
+            return False
+        expected_source = {"corpus_citation_path": repair["corpus_citation_path"]}
+        if repair["span"]:
+            expected_source["span"] = repair["span"]
+        if not any(
+            isinstance(atom, dict)
+            and atom.get("path") == repair.get("path", "versions[0].formula")
+            and atom.get("kind") == repair["kind"]
+            and atom.get("source") == expected_source
+            for atom in atoms
+        ):
+            return False
+    return True
 
 
 def _only_pending_nonnegative_amount_reduction_issues(issues: list[str]) -> bool:
@@ -17478,7 +17651,7 @@ def _parsed_rule_requires_generated_source_proof(rule: dict[str, object]) -> boo
     kind = str(rule.get("kind") or "").strip()
     if kind not in {"parameter", "derived", "derived_relation"}:
         return False
-    versions = rule.get("versions")
+    versions = effective_versions(rule)
     if not isinstance(versions, list) or not versions:
         return False
     first_version = versions[0]
@@ -17567,6 +17740,7 @@ def _insert_missing_source_proof_atoms(
         insertion_index, inserted_lines = _source_proof_insertion(
             block,
             proof_kind=repair["kind"],
+            proof_path=repair.get("path", "versions[0].formula"),
             corpus_citation_path=repair["corpus_citation_path"],
             span=repair["span"],
         )
@@ -17622,7 +17796,7 @@ def _insert_missing_source_proof_atoms_structured(
             source["span"] = repair["span"]
         proof["atoms"] = [
             {
-                "path": "versions[0].formula",
+                "path": repair.get("path", "versions[0].formula"),
                 "kind": repair["kind"],
                 "source": source,
             }
@@ -17639,6 +17813,7 @@ def _source_proof_insertion(
     rule_block: list[str],
     *,
     proof_kind: str,
+    proof_path: str = "versions[0].formula",
     corpus_citation_path: str,
     span: str,
 ) -> tuple[int, list[str]]:
@@ -17652,6 +17827,7 @@ def _source_proof_insertion(
     )
     proof_lines = _generated_source_proof_atom_lines(
         proof_kind=proof_kind,
+        proof_path=proof_path,
         corpus_citation_path=corpus_citation_path,
         span=span,
         include_metadata=metadata_index is None,
@@ -17673,6 +17849,7 @@ def _source_proof_insertion(
 def _generated_source_proof_atom_lines(
     *,
     proof_kind: str,
+    proof_path: str = "versions[0].formula",
     corpus_citation_path: str,
     span: str,
     include_metadata: bool,
@@ -17684,7 +17861,7 @@ def _generated_source_proof_atom_lines(
         [
             "      proof:\n",
             "        atoms:\n",
-            "          - path: versions[0].formula\n",
+            f"          - path: {proof_path}\n",
             f"            kind: {proof_kind}\n",
             "            source:\n",
             f"              corpus_citation_path: {corpus_citation_path}\n",
@@ -18185,7 +18362,9 @@ def _generated_test_period_for_rule(
         for version in versions:
             if not isinstance(version, dict):
                 continue
-            raw_effective_from = str(version.get("effective_from") or "").strip()
+            raw_effective_from = str(
+                version.get("effective_from", version.get("from")) or ""
+            ).strip()
             with contextlib.suppress(ValueError):
                 candidate = date.fromisoformat(raw_effective_from)
                 if candidate.year >= 1900:
@@ -19026,10 +19205,9 @@ def _reachable_local_formulas_for_rule(
         if not isinstance(rule, dict):
             return
         formula = _first_rule_formula(rule)
-        if not formula:
-            return
-        formulas.append(formula)
-        for identifier in sorted(_formula_identifiers(formula)):
+        if formula:
+            formulas.append(formula)
+        for identifier in sorted(_generated_rule_formula_identifiers(rule)):
             if identifier in rules_by_name:
                 visit(identifier)
 
@@ -21042,7 +21220,7 @@ def _imported_output_names_from_payload(payload: object) -> set[str]:
     for raw_import in imports:
         if not isinstance(raw_import, str) or "#" not in raw_import:
             continue
-        fragment = raw_import.rsplit("#", 1)[1].strip()
+        fragment = local_reference_name(raw_import)
         if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", fragment):
             names.add(fragment)
     return names
@@ -21426,9 +21604,10 @@ def _local_factual_input_names_from_rules_content(rules_content: str) -> set[str
     for rule in rules:
         if not isinstance(rule, dict):
             continue
-        if str(rule.get("kind") or "").strip().lower() != "derived":
+        kind = str(rule.get("kind") or "").strip().lower()
+        if kind not in {"derived", "derived_relation"}:
             continue
-        versions = rule.get("versions")
+        versions = effective_versions(rule)
         if not isinstance(versions, list):
             continue
         for version in versions:
@@ -21437,11 +21616,14 @@ def _local_factual_input_names_from_rules_content(rules_content: str) -> set[str
             formula = version.get("formula")
             if not isinstance(formula, str):
                 continue
-            scrubbed_formula = re.sub(r"'[^']*'|\"[^\"]*\"", " ", formula)
-            identifiers = set(
-                re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", scrubbed_formula)
+            identifiers = _shared_formula_identifiers(
+                formula, relation_predicate=rule_uses_relation_predicate(rule)
             )
-            factual_inputs.update(identifiers - defined_symbols - dsl_symbols)
+            factual_inputs.update(
+                identifiers
+                - defined_symbols
+                - (dsl_symbols if kind != "derived_relation" else set())
+            )
     return factual_inputs
 
 
@@ -39932,10 +40114,18 @@ def _existing_embedded_scalar_parameter_name(
             for version_index, version in enumerate(versions)
             if isinstance(version, dict)
             and str(version.get("formula")).strip() == literal
-            and _normalized_rulespec_date(version.get("effective_from"))
-            == _normalized_rulespec_date(target_version.get("effective_from"))
-            and _normalized_rulespec_date(version.get("effective_to"))
-            == _normalized_rulespec_date(target_version.get("effective_to"))
+            and _normalized_rulespec_date(
+                version.get("effective_from", version.get("from"))
+            )
+            == _normalized_rulespec_date(
+                target_version.get("effective_from", target_version.get("from"))
+            )
+            and _normalized_rulespec_date(
+                version.get("effective_to", version.get("to"))
+            )
+            == _normalized_rulespec_date(
+                target_version.get("effective_to", target_version.get("to"))
+            )
         ]
         if len(matching_version_indices) != 1:
             return None
@@ -40069,13 +40259,18 @@ def _embedded_scalar_parameter_rule(
     corpus_citation_path: str | None = None,
 ) -> dict[str, Any]:
     effective_from = (
-        _normalized_rulespec_date(source_version.get("effective_from")) or "0001-01-01"
+        _normalized_rulespec_date(
+            source_version.get("effective_from", source_version.get("from"))
+        )
+        or "0001-01-01"
     )
     parameter_version: dict[str, Any] = {
         "effective_from": effective_from,
         "formula": literal,
     }
-    effective_to = _normalized_rulespec_date(source_version.get("effective_to"))
+    effective_to = _normalized_rulespec_date(
+        source_version.get("effective_to", source_version.get("to"))
+    )
     if effective_to is not None:
         parameter_version["effective_to"] = effective_to
     parameter_rule: dict[str, Any] = {
@@ -40829,9 +41024,10 @@ def _rulespec_rule_effective_dates(rule: dict[str, Any]) -> list[str]:
     for version in versions:
         if not isinstance(version, dict):
             continue
-        effective_from = version.get("effective_from")
-        if isinstance(effective_from, str) and effective_from.strip():
-            dates.append(effective_from.strip())
+        effective_from = version.get("effective_from", version.get("from"))
+        effective_from = _normalized_rulespec_date(effective_from)
+        if effective_from is not None:
+            dates.append(effective_from)
     return dates
 
 
@@ -41840,7 +42036,9 @@ def _collapse_additive_formula_versions(
     ):
         if any(base_term not in terms for base_term in base_terms):
             return None
-        effective_from = str(version.get("effective_from") or "").strip()
+        effective_from = str(
+            version.get("effective_from", version.get("from")) or ""
+        ).strip()
         if not effective_from:
             return None
         predicate = _version_selector_predicate_name(rule, ordinal)
@@ -41889,7 +42087,7 @@ def _factor_conditional_rate_formula_versions(
         "source": rule.get("source"),
         "versions": [
             {
-                "effective_from": version.get("effective_from"),
+                "effective_from": version.get("effective_from", version.get("from")),
                 "formula": base_rate,
             }
             for version, _, _, base_rate, _ in parsed_versions
@@ -41907,7 +42105,9 @@ def _factor_conditional_rate_formula_versions(
     ):
         if not adjustments:
             continue
-        effective_from = str(version.get("effective_from") or "").strip()
+        effective_from = str(
+            version.get("effective_from", version.get("from")) or ""
+        ).strip()
         if not effective_from:
             return None
         predicate = _version_selector_predicate_name(rule, ordinal)
@@ -41952,7 +42152,9 @@ def _collapse_selector_formula_versions(
             continue
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expression):
             return None
-        effective_from = str(version.get("effective_from") or "").strip()
+        effective_from = str(
+            version.get("effective_from", version.get("from")) or ""
+        ).strip()
         if not effective_from:
             return None
         selector_versions.append(
@@ -42402,9 +42604,10 @@ def _first_effective_from(rule: dict[str, Any]) -> str:
         for version in versions:
             if not isinstance(version, dict):
                 continue
-            effective_from = version.get("effective_from")
-            if isinstance(effective_from, str) and effective_from.strip():
-                return effective_from.strip()
+            effective_from = version.get("effective_from", version.get("from"))
+            effective_from = _normalized_rulespec_date(effective_from)
+            if effective_from is not None:
+                return effective_from
     return "0001-01-01"
 
 
@@ -43733,7 +43936,7 @@ def _child_numeric_reencoding_wrapper_replacements(
 
 
 def _rulespec_rule_formula_strings(rule: dict[str, object]) -> list[str]:
-    versions = rule.get("versions")
+    versions = effective_versions(rule)
     if not isinstance(versions, list):
         return []
     formulas: list[str] = []
@@ -48687,8 +48890,11 @@ def _expand_affected_generated_rule_dependencies(
 
 
 def _generated_rule_formula_identifiers(rule: dict[str, Any]) -> set[str]:
-    identifiers: set[str] = set()
-    versions = rule.get("versions")
+    identifiers = {
+        local_reference_name(name)
+        for name in relation_source_names(rule.get("derived_relation"))
+    }
+    versions = effective_versions(rule)
     if not isinstance(versions, list):
         return identifiers
     for version in versions:
@@ -48696,8 +48902,17 @@ def _generated_rule_formula_identifiers(rule: dict[str, Any]) -> set[str]:
             continue
         formula = version.get("formula")
         if isinstance(formula, str):
-            identifiers.update(_formula_identifiers(formula))
-    return identifiers - _RULESPEC_FORMULA_BUILTINS
+            identifiers.update(
+                _formula_identifiers(
+                    formula,
+                    relation_predicate=rule_uses_relation_predicate(rule),
+                )
+            )
+    return (
+        identifiers
+        if rule.get("kind") == "derived_relation"
+        else identifiers - _RULESPEC_FORMULA_BUILTINS
+    )
 
 
 def _generated_rule_is_imported_judgment_composition(
@@ -49007,7 +49222,8 @@ def _rewrite_generated_day_period_test_shorthands(
                             if isinstance(version, dict)
                             and (
                                 effective_from := str(
-                                    version.get("effective_from") or ""
+                                    version.get("effective_from", version.get("from"))
+                                    or ""
                                 ).strip()
                             )
                             and _DAY_PERIOD_VALUE_PATTERN.fullmatch(effective_from)
@@ -49929,8 +50145,7 @@ def _referenced_local_rule_names(rules: list[Any]) -> set[str]:
     for rule in rules:
         if not isinstance(rule, dict):
             continue
-        for formula in _rulespec_rule_formula_texts_for_generated_repair(rule):
-            referenced.update(_formula_identifiers(formula))
+        referenced.update(_generated_rule_formula_identifiers(rule))
         metadata = rule.get("metadata")
         proof = metadata.get("proof") if isinstance(metadata, dict) else None
         atoms = proof.get("atoms") if isinstance(proof, dict) else None
@@ -49956,7 +50171,7 @@ def _rulespec_rule_formula_texts_for_generated_repair(
     rule: dict[str, Any],
 ) -> list[str]:
     formulas: list[str] = []
-    versions = rule.get("versions")
+    versions = effective_versions(rule)
     if not isinstance(versions, list):
         return formulas
     for version in versions:
@@ -52153,7 +52368,7 @@ def _set_rule_entity_to_person(rule: dict[str, object]) -> bool:
 
 
 def _first_rule_formula(rule: dict[str, object]) -> str:
-    versions = rule.get("versions")
+    versions = effective_versions(rule)
     if not isinstance(versions, list):
         return ""
     for version in versions:
@@ -52172,14 +52387,12 @@ def _formula_without_string_literals(formula: str) -> str:
     )
 
 
-def _formula_identifiers(formula: str) -> set[str]:
+def _formula_identifiers(formula: str, *, relation_predicate: bool = False) -> set[str]:
+    identifiers = _shared_formula_identifiers(
+        formula, relation_predicate=relation_predicate
+    )
     return (
-        set(
-            _RULESPEC_IDENTIFIER_PATTERN.findall(
-                _formula_without_string_literals(formula)
-            )
-        )
-        - _RULESPEC_FORMULA_BUILTINS
+        identifiers if relation_predicate else identifiers - _RULESPEC_FORMULA_BUILTINS
     )
 
 
@@ -56966,6 +57179,11 @@ def _generated_rulespec_yaml_nonparser_issue(
         return None
     try:
         content = output_file.read_text()
+        version_form_issues = find_rule_version_form_issues(content)
+        if version_form_issues:
+            return "Cannot apply invalid rule version form: " + "; ".join(
+                version_form_issues
+            )
         interpretation_issues = find_interpretation_yaml_issues(content)
         if interpretation_issues:
             return "Cannot apply invalid interpretation YAML: " + "; ".join(
@@ -56991,6 +57209,9 @@ def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> 
         return
     try:
         content = output_file.read_text()
+        version_form_issues = find_rule_version_form_issues(content)
+        if version_form_issues:
+            raise RuntimeError("; ".join(version_form_issues))
         # Reject syntax that safe_load would erase before any stamping rewrite.
         interpretation_issues = find_interpretation_yaml_issues(content)
         if interpretation_issues:
@@ -57123,6 +57344,10 @@ def _supplemental_source_attestation_issues(
                     f"{relative_path.as_posix()} must declare format: rulespec/v1"
                 )
             continue
+        issues.extend(
+            f"{relative_path.as_posix()}: {issue}"
+            for issue in find_rule_version_form_issues(content)
+        )
         module = payload.get("module")
         verification = (
             module.get("source_verification") if isinstance(module, dict) else None
@@ -63804,7 +64029,9 @@ def _earliest_rule_effective_date(rule: dict[str, Any] | None) -> date | None:
         parsed
         for version in versions
         if isinstance(version, dict)
-        for parsed in [_parse_iso_date(version.get("effective_from"))]
+        for parsed in [
+            _parse_iso_date(version.get("effective_from", version.get("from")))
+        ]
         if parsed is not None
     ]
     return min(dates) if dates else None

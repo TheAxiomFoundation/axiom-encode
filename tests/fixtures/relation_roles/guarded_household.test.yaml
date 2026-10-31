@@ -1,0 +1,406 @@
+# Synthetic encoder test input; not a RuleSpec module.
+- name: separate_meal_groups_and_empty_pair_facts
+  period: 2026-01
+  input:
+    us:policies/example/guarded_household#relation.member_of_household:
+    - tuple:
+      - a
+      - residence
+    - tuple:
+      - b
+      - residence
+    us:policies/example/guarded_household#relation.spouse_of: []
+    us:policies/example/guarded_household#relation.parent_of: []
+    us:policies/example/guarded_household#relation.under_parental_control_of: []
+  tables:
+    Person:
+    - id: a
+      us:policies/example/guarded_household#input.meal_group: 1
+      us:policies/example/guarded_household#input.age: 30
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: false
+    - id: b
+      us:policies/example/guarded_household#input.meal_group: 2
+      us:policies/example/guarded_household#input.age: 30
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: true
+  output:
+    us:policies/example/guarded_household#snap_household_size:
+    - 1
+    - 1
+    us:policies/example/guarded_household#snap_participating_size:
+    - 1
+    - 1
+    us:policies/example/guarded_household#snap_household_contains_test_target:
+    - 0
+    - 1
+    us:policies/example/guarded_household#snap_participating_contains_test_target:
+    - 0
+    - 1
+    us:policies/example/guarded_household#snap_exception_in_residence:
+    - not_holds
+    - not_holds
+- name: spouses_buy_separately_without_supplied_ids
+  period: 2026-01
+  input:
+    us:policies/example/guarded_household#relation.member_of_household:
+    - tuple:
+      - a
+      - residence
+    - tuple:
+      - b
+      - residence
+    us:policies/example/guarded_household#relation.spouse_of:
+    - tuple:
+      - a
+      - b
+    us:policies/example/guarded_household#relation.parent_of: []
+    us:policies/example/guarded_household#relation.under_parental_control_of: []
+  tables:
+    Person:
+    - id: a
+      us:policies/example/guarded_household#input.meal_group: 1
+      us:policies/example/guarded_household#input.age: 30
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: false
+    - id: b
+      us:policies/example/guarded_household#input.meal_group: 2
+      us:policies/example/guarded_household#input.age: 30
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: true
+  output:
+    us:policies/example/guarded_household#snap_household_size:
+    - 2
+    - 2
+    us:policies/example/guarded_household#snap_participating_size:
+    - 2
+    - 2
+    us:policies/example/guarded_household#snap_household_contains_test_target:
+    - 1
+    - 1
+    us:policies/example/guarded_household#snap_participating_contains_test_target:
+    - 1
+    - 1
+    us:policies/example/guarded_household#snap_exception_in_residence:
+    - not_holds
+    - not_holds
+- name: child_connects_two_parents_exactly
+  period: 2026-01
+  input:
+    us:policies/example/guarded_household#relation.member_of_household:
+    - tuple:
+      - a
+      - residence
+    - tuple:
+      - child
+      - residence
+    - tuple:
+      - other_parent
+      - residence
+    us:policies/example/guarded_household#relation.spouse_of: []
+    us:policies/example/guarded_household#relation.parent_of:
+    - tuple:
+      - a
+      - child
+    - tuple:
+      - other_parent
+      - child
+    us:policies/example/guarded_household#relation.under_parental_control_of: []
+  tables:
+    Person:
+    - id: a
+      us:policies/example/guarded_household#input.meal_group: 1
+      us:policies/example/guarded_household#input.age: 30
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: false
+    - id: child
+      us:policies/example/guarded_household#input.meal_group: 2
+      us:policies/example/guarded_household#input.age: 10
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: false
+    - id: other_parent
+      us:policies/example/guarded_household#input.meal_group: 3
+      us:policies/example/guarded_household#input.age: 30
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: true
+  output:
+    us:policies/example/guarded_household#snap_household_size:
+    - 3
+    - 3
+    - 3
+    us:policies/example/guarded_household#snap_participating_size:
+    - 3
+    - 3
+    - 3
+    us:policies/example/guarded_household#snap_household_contains_test_target:
+    - 1
+    - 1
+    - 1
+    us:policies/example/guarded_household#snap_participating_contains_test_target:
+    - 1
+    - 1
+    - 1
+    us:policies/example/guarded_household#snap_exception_in_residence:
+    - not_holds
+    - not_holds
+    - not_holds
+- name: parental_control_pair
+  period: 2026-01
+  input:
+    us:policies/example/guarded_household#relation.member_of_household:
+    - tuple:
+      - grandparent
+      - residence
+    - tuple:
+      - child
+      - residence
+    us:policies/example/guarded_household#relation.spouse_of: []
+    us:policies/example/guarded_household#relation.parent_of: []
+    us:policies/example/guarded_household#relation.under_parental_control_of:
+    - tuple:
+      - child
+      - grandparent
+  tables:
+    Person:
+    - id: grandparent
+      us:policies/example/guarded_household#input.meal_group: 1
+      us:policies/example/guarded_household#input.age: 60
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: false
+    - id: child
+      us:policies/example/guarded_household#input.meal_group: 2
+      us:policies/example/guarded_household#input.age: 15
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: true
+  output:
+    us:policies/example/guarded_household#snap_household_size:
+    - 2
+    - 2
+    us:policies/example/guarded_household#snap_participating_size:
+    - 2
+    - 2
+    us:policies/example/guarded_household#snap_household_contains_test_target:
+    - 1
+    - 1
+    us:policies/example/guarded_household#snap_participating_contains_test_target:
+    - 1
+    - 1
+    us:policies/example/guarded_household#snap_exception_in_residence:
+    - not_holds
+    - not_holds
+- name: three_tie_chain_reads_supplied_ids
+  period: 2026-01
+  input:
+    us:policies/example/guarded_household#relation.member_of_household:
+    - tuple:
+      - a
+      - residence
+    - tuple:
+      - b
+      - residence
+    - tuple:
+      - c
+      - residence
+    - tuple:
+      - d
+      - residence
+    us:policies/example/guarded_household#relation.spouse_of:
+    - tuple:
+      - a
+      - b
+    - tuple:
+      - c
+      - d
+    us:policies/example/guarded_household#relation.parent_of:
+    - tuple:
+      - b
+      - c
+    us:policies/example/guarded_household#relation.under_parental_control_of: []
+  tables:
+    Person:
+    - id: a
+      us:policies/example/guarded_household#input.meal_group: 1
+      us:policies/example/guarded_household#input.age: 40
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: false
+      us:policies/example/guarded_household#input.snap_household_unit: 9
+    - id: b
+      us:policies/example/guarded_household#input.meal_group: 2
+      us:policies/example/guarded_household#input.age: 40
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: false
+      us:policies/example/guarded_household#input.snap_household_unit: 9
+    - id: c
+      us:policies/example/guarded_household#input.meal_group: 3
+      us:policies/example/guarded_household#input.age: 20
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: false
+      us:policies/example/guarded_household#input.snap_household_unit: 9
+    - id: d
+      us:policies/example/guarded_household#input.meal_group: 4
+      us:policies/example/guarded_household#input.age: 20
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: true
+      us:policies/example/guarded_household#input.snap_household_unit: 9
+  output:
+    us:policies/example/guarded_household#snap_household_size:
+    - 4
+    - 4
+    - 4
+    - 4
+    us:policies/example/guarded_household#snap_participating_size:
+    - 4
+    - 4
+    - 4
+    - 4
+    us:policies/example/guarded_household#snap_household_contains_test_target:
+    - 1
+    - 1
+    - 1
+    - 1
+    us:policies/example/guarded_household#snap_participating_contains_test_target:
+    - 1
+    - 1
+    - 1
+    - 1
+    us:policies/example/guarded_household#snap_exception_in_residence:
+    - not_holds
+    - not_holds
+    - not_holds
+    - not_holds
+- name: exception_reads_supplied_ids_without_resolving_contested_reading
+  period: 2026-01
+  input:
+    us:policies/example/guarded_household#relation.member_of_household:
+    - tuple:
+      - a
+      - residence
+    - tuple:
+      - b
+      - residence
+    us:policies/example/guarded_household#relation.spouse_of: []
+    us:policies/example/guarded_household#relation.parent_of: []
+    us:policies/example/guarded_household#relation.under_parental_control_of: []
+  tables:
+    Person:
+    - id: a
+      us:policies/example/guarded_household#input.meal_group: 1
+      us:policies/example/guarded_household#input.age: 30
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: true
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: false
+      us:policies/example/guarded_household#input.snap_household_unit: 1
+    - id: b
+      us:policies/example/guarded_household#input.meal_group: 1
+      us:policies/example/guarded_household#input.age: 30
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: true
+      us:policies/example/guarded_household#input.snap_household_unit: 2
+  output:
+    us:policies/example/guarded_household#snap_household_size:
+    - 1
+    - 1
+    us:policies/example/guarded_household#snap_participating_size:
+    - 1
+    - 1
+    us:policies/example/guarded_household#snap_household_contains_test_target:
+    - 0
+    - 1
+    us:policies/example/guarded_household#snap_participating_contains_test_target:
+    - 0
+    - 1
+    us:policies/example/guarded_household#snap_exception_in_residence:
+    - holds
+    - holds
+- name: participation_filter_keeps_composition
+  period: 2026-01
+  input:
+    us:policies/example/guarded_household#relation.member_of_household:
+    - tuple:
+      - a
+      - residence
+    - tuple:
+      - b
+      - residence
+    us:policies/example/guarded_household#relation.spouse_of:
+    - tuple:
+      - a
+      - b
+    us:policies/example/guarded_household#relation.parent_of: []
+    us:policies/example/guarded_household#relation.under_parental_control_of: []
+  tables:
+    Person:
+    - id: a
+      us:policies/example/guarded_household#input.meal_group: 1
+      us:policies/example/guarded_household#input.age: 30
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: false
+    - id: b
+      us:policies/example/guarded_household#input.meal_group: 2
+      us:policies/example/guarded_household#input.age: 30
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: true
+      us:policies/example/guarded_household#input.test_target: true
+  output:
+    us:policies/example/guarded_household#snap_household_size:
+    - 2
+    - 2
+    us:policies/example/guarded_household#snap_participating_size:
+    - 1
+    - 1
+    us:policies/example/guarded_household#snap_household_contains_test_target:
+    - 1
+    - 1
+    us:policies/example/guarded_household#snap_participating_contains_test_target:
+    - 0
+    - 0
+    us:policies/example/guarded_household#snap_exception_in_residence:
+    - not_holds
+    - not_holds
+- name: residence_roster_count
+  period: 2026-01
+  input:
+    us:policies/example/guarded_household#relation.member_of_household:
+    - tuple:
+      - a
+      - residence
+    - tuple:
+      - b
+      - residence
+    us:policies/example/guarded_household#relation.spouse_of: []
+    us:policies/example/guarded_household#relation.parent_of: []
+    us:policies/example/guarded_household#relation.under_parental_control_of: []
+  tables:
+    Person:
+    - id: a
+      us:policies/example/guarded_household#input.meal_group: 1
+      us:policies/example/guarded_household#input.age: 30
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: false
+    - id: b
+      us:policies/example/guarded_household#input.meal_group: 2
+      us:policies/example/guarded_household#input.age: 30
+      us:policies/example/guarded_household#input.snap_household_exception_may_apply: false
+      us:policies/example/guarded_household#input.snap_ineligible_member_under_b7: false
+      us:policies/example/guarded_household#input.test_target: true
+    Household:
+    - id: residence
+  output:
+    us:policies/example/guarded_household#residence_size:
+    - 2

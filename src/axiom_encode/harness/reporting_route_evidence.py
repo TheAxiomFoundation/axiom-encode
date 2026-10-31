@@ -17,6 +17,7 @@ from axiom_encode.harness.measurement_role_evidence import (
     BoundMeasurementRoles,
     ExecutedMeasurementWitness,
 )
+from axiom_encode.rulespec_version_dates import version_date_fields
 
 
 @dataclass(frozen=True)
@@ -124,9 +125,11 @@ def certify_reporting_routes(
     ):
         return None
     version = versions[0]
+    date_fields = version_date_fields(version)
     if (
-        version.get("effective_from") != f"{context.year}-01-01"
-        or version.get("effective_to") != f"{context.year}-12-31"
+        date_fields is None
+        or version.get(date_fields[0]) != f"{context.year}-01-01"
+        or version.get(date_fields[1]) != f"{context.year}-12-31"
     ):
         return None
     expression = s._parse_formula_expression(str(version.get("formula", "")))
@@ -143,8 +146,8 @@ def certify_reporting_routes(
     flat_source = " ".join(context.source.split())
     for path, quote in (
         ("versions[0].formula", "Subtract line 60 from line 52."),
-        ("versions[0].effective_from", context.header),
-        ("versions[0].effective_to", context.header),
+        (f"versions[0].{date_fields[0]}", context.header),
+        (f"versions[0].{date_fields[1]}", context.header),
     ):
         if not any(
             p == path

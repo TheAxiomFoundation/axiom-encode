@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from axiom_encode.form_source_structure import form_display_spans
+from axiom_encode.rulespec_version_dates import version_date_fields
 
 
 @dataclass(frozen=True)
@@ -299,9 +300,11 @@ def bind_measurement_roles(
     ):
         return None
     version = versions[0]
+    date_fields = version_date_fields(version)
     if (
-        version.get("effective_from") != f"{year}-01-01"
-        or version.get("effective_to") != f"{year}-12-31"
+        date_fields is None
+        or version.get(date_fields[0]) != f"{year}-01-01"
+        or version.get(date_fields[1]) != f"{year}-12-31"
     ):
         return None
     formula = version.get("formula")
@@ -336,10 +339,7 @@ def bind_measurement_roles(
             for atom_path, atom_citation, excerpt in atoms
         )
 
-    if not all(
-        proves(f"versions[0].{field}", header[0])
-        for field in ("effective_from", "effective_to")
-    ):
+    if not all(proves(f"versions[0].{field}", header[0]) for field in date_fields):
         return None
     roles = []
     for name in ("prior", "history", "prior_amount"):
@@ -407,9 +407,11 @@ def bind_measurement_roles(
         ):
             continue
         current_version = current_versions[0]
+        current_date_fields = version_date_fields(current_version)
         if (
-            current_version.get("effective_from") != f"{year}-01-01"
-            or current_version.get("effective_to") != f"{year}-12-31"
+            current_date_fields is None
+            or current_version.get(current_date_fields[0]) != f"{year}-01-01"
+            or current_version.get(current_date_fields[1]) != f"{year}-12-31"
         ):
             continue
         expr = s._parse_formula_expression(str(current_version.get("formula", "")))
@@ -438,7 +440,7 @@ def bind_measurement_roles(
 
         if not all(
             current_proves(f"versions[0].{field}", header[0])
-            for field in ("effective_from", "effective_to")
+            for field in current_date_fields
         ) or not current_proves("versions[0].formula", operation):
             continue
         current_roles = []

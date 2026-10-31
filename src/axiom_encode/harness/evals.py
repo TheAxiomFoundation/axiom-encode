@@ -62,6 +62,14 @@ from axiom_encode.encode_timing import (
     mark_encode_phase,
     timed_phase,
 )
+from axiom_encode.engine_pin_diff import effective_versions
+from axiom_encode.formula_references import (
+    analyze_relation_predicate,
+    formula_identifiers,
+    local_reference_name,
+    relation_source_names,
+    rule_uses_relation_predicate,
+)
 from axiom_encode.legacy_replacement import LegacyReplacementContract
 from axiom_encode.legacy_replacement_overlay import (
     LegacyReplacementOverlayError,
@@ -71,6 +79,11 @@ from axiom_encode.legacy_replacement_overlay import (
 )
 from axiom_encode.prompts.encoder import (
     INTERPRETATIONS_PROTOCOL,
+    RELATION_ROLES_FORMULA_PROTOCOL,
+    RELATION_ROLES_SELF_CHECK,
+    RELATION_ROLES_SHAPE,
+    RELATION_ROLES_STRUCTURE_PROTOCOL,
+    RELATION_ROLES_TESTS_PROTOCOL,
     SOURCE_SCOPE_PROTOCOL,
 )
 from axiom_encode.repair_candidate_contract import (
@@ -89,6 +102,7 @@ from axiom_encode.retry_feedback import (
     VALIDATION_RETRY_FEEDBACK_MAX_TOTAL_CHARS,
     bounded_validation_retry_feedback_item,
 )
+from axiom_encode.rule_version_form import find_rule_version_form_issues
 from axiom_encode.signing_broker import SigningBroker
 from axiom_encode.statute import (
     CitationParts,
@@ -155,6 +169,7 @@ from .validator_pipeline import (
     _numeric_profile_for_citation_path,
     _parse_rulespec_target,
     _resolve_rulespec_target_file,
+    _rulespec_relation_value_input_names,
     _source_text_looks_like_table,
     build_existing_target_oracle_contract,
     evaluate_numeric_grounding_values_scoped,
@@ -486,7 +501,7 @@ def _numeric_concept_name_occurrences(content: str) -> Counter[float]:
             name = str(rule.get("name") or "").strip()
             if name:
                 occurrences.update(_numeric_occurrences_from_concept_text(name))
-            versions = rule.get("versions")
+            versions = effective_versions(rule)
             if not isinstance(versions, list):
                 continue
             for version in versions:
@@ -9150,7 +9165,7 @@ def _inline_table_formula_numeric_occurrences(content: str) -> Counter[float]:
         for rule in payload["rules"]:
             if not isinstance(rule, dict):
                 continue
-            versions = rule.get("versions")
+            versions = effective_versions(rule)
             if not isinstance(versions, list):
                 continue
             for version in versions:
@@ -9423,10 +9438,12 @@ def _relative_rulespec_source_path(path: Path) -> Path | None:
 
 _MINIMAL_SCOPE_HINT = """Source-scope protocol (minimal):
 - Match each executable rule's `entity:` to the legal subject stated by the supplied source text.
-- If the source uses the word "household" or "household's", use `entity: Household`. Prefer `Household` over `SnapUnit` for plain household-level SNAP rules.
+- For any relation anchored on `Person`, keep composition and participation aggregates on `entity: Person`, anchored on the applicant or other source-stated person, even when the source says "household".
+- For household-level rules without a relation anchored on `Person`, if the source uses the word "household" or "household's", use `entity: Household`. Prefer `Household` over `SnapUnit` for plain household-level SNAP rules.
 - If the source says "households in which all members", "households with a member",
   or another household-level condition expressed through member facts, encode the
-  executable eligibility/result on `Household`. Use person/member facts only as
+  executable eligibility/result on `Household`, except for aggregates over a
+  relation anchored on `Person`. Use person/member facts only as
   inputs or relation children needed to evaluate that household rule.
 - If the source's legal subject is an "individual", "person", "member", "claimant",
   "child", "dependent", "spouse", or "employee" rather than a household/unit
@@ -9452,7 +9469,13 @@ _MINIMAL_SCOPE_HINT = """Source-scope protocol (minimal):
 
 Either declare `snap_unit` inline like that (and define a real per-member eligibility predicate as its formula) or switch the executable rule's entity to `Household` and drop the SnapUnit reference. Do not leave a bare `entity: SnapUnit` rule without the matching declaration.
 
-"""
+""" + "\n".join(
+    (
+        RELATION_ROLES_FORMULA_PROTOCOL,
+        RELATION_ROLES_TESTS_PROTOCOL,
+        RELATION_ROLES_SELF_CHECK,
+    )
+)
 
 
 def _strip_source_scope_protocol(prompt: str) -> str:
@@ -11638,7 +11661,7 @@ Test file rules:
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>` key. For example, use `<jurisdiction>:<repo-path>#imported_judgment: holds` or `not_holds`, not `<jurisdiction>:<repo-path>#input.imported_judgment`.
 - Do not invent `#input` keys for imported files. Use only the bare fact names that the imported file's formulas actually reference, or mirror the imported file's companion `.test.yaml` input pattern when it is supplied in context. If that imported output is driven by an upstream structural relation, set the upstream `#relation.<name>` rows used by the companion test instead of creating a local input under the imported file.
 - A `#relation.<name>` input value must be a YAML list of row mappings. Never use a scalar row such as `- true`. Bad: `<jurisdiction>:<repo-path>#relation.member_of_household: [- true]`. Good: `<jurisdiction>:<repo-path>#relation.member_of_household:` followed by `- <jurisdiction>:<repo-path>#input.member_has_required_status: true`.
-- Put `#relation.<name>` test inputs under the test case's top-level `input:`, not inside `tables.<Entity>` rows. If a table-row entity output depends on a relation, write separate scalar cases with the row's scalar facts and relation list under `input:` instead of a row-ordered `tables` case.
+- Put `#relation.<name>` test inputs under the test case's top-level `input:`, not inside `tables.<Entity>` rows. Explicit tuple rows can connect named table rows for row-ordered outputs. For legacy synthetic relation rows, write scalar cases with relation lists under `input:`.
 - Each `.test.yaml` case may assert derived outputs for only one entity type. If a module defines outputs on multiple entities, create separate cases for each entity pair, such as `Person`/`TaxUnit`, `Person`/`Employer`, or `Employer`/`Payment`. For example: `Person` cases set person facts at the top level and assert person outputs; `TaxUnit` cases use relation rows to supply person facts and assert only tax-unit outputs. Do not assert relation-child outputs in the parent entity's case.
 - Use `holds` and `not_holds` for actual `dtype: Judgment` rule keys in test inputs and outputs; do not use YAML booleans for Judgment rule values.
 - Use YAML booleans `true` and `false` for local factual `#input.<fact>` keys referenced directly by formulas.
@@ -12080,15 +12103,17 @@ RuleSpec requirements:
   `source:` short and local to the rule; use `module.source_verification` for
   the corpus locator.
 - Use `kind: derived_relation` only when the source text explicitly defines
-  membership in a derived legal unit by filtering a source relation through a
-  stated predicate. "This source is about SNAP" is not enough. If the source
+  membership in a derived legal unit by filtering candidates from a source
+  relation or path through a stated predicate.
+  "This source is about SNAP" is not enough. If the source
   uses an existing structural entity such as `Household`, `TaxUnit`, `Employer`,
   or `Person`, and merely references a program-specific concept without defining
   who belongs to it, stay on the source-stated structural entity.
 - For source text that imposes an amount, tax, credit, or limitation on each,
   every, or any employer, use `entity: Employer`. Do not default to `TaxUnit`
   merely because the output is tax-related.
-- Keep the membership predicate as an ordinary source-backed rule, then define
+- For a single-source filtered entity, keep its per-member predicate as an
+  ordinary source-backed rule, then define
   the filtered entity under `derived_relation:` with `arity`, `source_relation`,
   `entity`, `member_relation`, `slot_entities`, and a `versions[].formula` that
   names the predicate.
@@ -12097,6 +12122,7 @@ RuleSpec requirements:
   that entity with a `kind: derived_relation` rule or import a RuleSpec file
   that declares it. Filtered entities have no structural existence without that
   dependency.
+{RELATION_ROLES_STRUCTURE_PROTOCOL}
 {SOURCE_SCOPE_PROTOCOL}{dated_parameter_instruction}
 - If `./source.txt` is a broad application, furnishing, administrative duty, or purpose clause without a computable policy condition, preserve it in `module.summary` but do not create an executable derived output just to paraphrase it. Encode only the concrete conditions, exceptions, parameters, and relations that affect computation.
 - Do not create an output for administrative clauses like "assistance shall be furnished to all eligible households who make application." Unless the source defines a calculable benefit, amount, condition, or exception, keep that text documentary in `module.summary`.
@@ -12576,7 +12602,8 @@ RuleSpec requirements:
   `min(source_amount, cap)`. The excluded excess is
   `max(0, source_amount - cap)`, but do not return `source_amount - cap` or
   `source_amount - remaining_cap` as the included amount.
-- Formula strings must use bare identifiers only. If an imported rule is listed
+- Formula strings use bare declaration names and permitted qualified role
+  reads. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
   reference `example_rule` inside formula text.
 - Axiom conditionals are expression syntax, not YAML syntax. Money/scalar formulas may use `if condition: value else: other`; do not use Python ternary syntax, `else if`, or `elif`.
@@ -12634,8 +12661,9 @@ RuleSpec requirements:
 - If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
 - For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change.
 - Every local executable `kind: derived` or `kind: derived_relation` rule must
-  appear at least once under an `output:` block in the companion `.test.yaml`;
-  do not leave helper derived rules unasserted.
+  have companion output coverage. Assert every derived rule directly under
+  `output:` and cover every derived relation through an asserted derived
+  output that reads it; do not leave helper rules or relations untested.
 - In modules with executable derived outputs, do not assert raw
   `kind: parameter` rules directly in companion test `output:` blocks; cover
   parameters through derived outputs that consume them. If a module contains
@@ -12711,6 +12739,8 @@ RuleSpec requirements:
   aggregate only when a compatible relation and numeric amount field are
   present. If neither is available, defer the numeric output instead of using
   the Judgment import as a placeholder scalar.
+{RELATION_ROLES_FORMULA_PROTOCOL}
+{RELATION_ROLES_TESTS_PROTOCOL}
 - Before finalizing, do this self-check:
   1. Numeric inventory: every source-stated legal amount, rate, threshold, cap,
      or limit has a named local numeric concept or an exact imported concept
@@ -12758,6 +12788,7 @@ RuleSpec requirements:
      request instead.
      Never drop the jurisdiction prefix from copied context imports: use
      `us:statutes/...#symbol`, not `statutes/...#symbol`.
+{RELATION_ROLES_SELF_CHECK}
 {target_hint}
 Additional encoding guidance:
 {additional_guidance}
@@ -12830,6 +12861,7 @@ rules:
         formula: snap_member_eligible
 ```
 
+{RELATION_ROLES_SHAPE}
 """
     coverage_index_section = ""
     if require_complete_source_unit and not repair_candidate_tests_only:
@@ -15091,13 +15123,17 @@ def _context_file_executable_surfaces(source_path: str) -> dict[str, dict[str, o
         name = str(rule.get("name") or "").strip()
         if not name:
             continue
-        versions = rule.get("versions")
+        versions = effective_versions(rule)
         effective_dates: list[str] = []
         if isinstance(versions, list):
             for version in versions:
-                if isinstance(version, dict) and "effective_from" in version:
+                if isinstance(version, dict) and (
+                    "effective_from" in version or "from" in version
+                ):
                     effective_dates.append(
-                        str(version.get("effective_from") or "").strip()
+                        str(
+                            version.get("effective_from", version.get("from")) or ""
+                        ).strip()
                     )
         derived_relation = rule.get("derived_relation")
         relation_entity = ""
@@ -15267,7 +15303,7 @@ def _context_file_local_inputs(source_path: str) -> set[str]:
     for rule in rules:
         if not isinstance(rule, dict):
             continue
-        versions = rule.get("versions")
+        versions = effective_versions(rule)
         if not isinstance(versions, list):
             continue
         for version in versions:
@@ -15280,15 +15316,24 @@ def _context_file_local_inputs(source_path: str) -> set[str]:
                 formula_text = formula
             else:
                 continue
-            for identifier in _CONTEXT_FORMULA_IDENTIFIER.findall(formula_text):
+            relation_predicate = rule_uses_relation_predicate(rule)
+            identifiers = (
+                formula_identifiers(formula_text, relation_predicate=True)
+                if relation_predicate
+                else _CONTEXT_FORMULA_IDENTIFIER.findall(formula_text)
+            )
+            for identifier in identifiers:
                 if (
                     identifier in defined
                     or identifier in imported
-                    or identifier in _CONTEXT_FORMULA_BUILTINS
+                    or (
+                        not relation_predicate
+                        and identifier in _CONTEXT_FORMULA_BUILTINS
+                    )
                 ):
                     continue
                 inputs.add(identifier)
-    return inputs
+    return inputs | _rulespec_relation_value_input_names(payload)
 
 
 def _context_file_imported_symbols(payload: dict[str, object]) -> set[str]:
@@ -15299,7 +15344,7 @@ def _context_file_imported_symbols(payload: dict[str, object]) -> set[str]:
     for item in imports:
         if not isinstance(item, str) or "#" not in item:
             continue
-        fragment = item.rsplit("#", 1)[1].strip()
+        fragment = local_reference_name(item)
         if fragment and "." not in fragment:
             symbols.add(fragment)
     return symbols
@@ -15363,13 +15408,14 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
         if str(rule.get("kind") or "").strip().lower() not in {
             "parameter",
             "derived",
+            "derived_relation",
         }:
             continue
         name = str(rule.get("name") or "").strip()
         if not name:
             continue
         exports.append(name)
-        versions = rule.get("versions")
+        versions = effective_versions(rule)
         if not isinstance(versions, list):
             continue
         for version in versions:
@@ -15384,14 +15430,60 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
         return []
 
     export_names = set(exports)
-    referenced: set[str] = set()
+    referenced: set[str] = {
+        local_reference_name(source)
+        for rule in rules
+        if isinstance(rule, dict)
+        for source in relation_source_names(rule.get("derived_relation"))
+    } & export_names
+    rules_by_name = {rule.get("name"): rule for rule in rules if isinstance(rule, dict)}
+    relation_names = {
+        name
+        for name, rule in rules_by_name.items()
+        if rule.get("kind") == "derived_relation"
+    }
+    filtered_aliases: dict[tuple[str, str], set[str]] = {}
+    for name in relation_names:
+        config = rules_by_name[name].get("derived_relation")
+        if isinstance(config, dict) and config.get("member_relation"):
+            key = (str(config["member_relation"]), str(config.get("entity") or ""))
+            filtered_aliases.setdefault(key, set()).add(name)
     for owner, formula in formulas:
+        rule = rules_by_name[owner]
+        identifiers = formula_identifiers(
+            formula, relation_predicate=rule_uses_relation_predicate(rule)
+        )
+        identifiers.update(
+            local_reference_name(source)
+            for source in relation_source_names(rule.get("derived_relation"))
+        )
+        # A relation name in a value position reads an input in predicates too.
+        # Only atoms, relation arguments and source declarations read relations.
+        analyzed = analyze_relation_predicate(
+            formula,
+            predicate_terms=rule_uses_relation_predicate(rule),
+            lowering_entry="derived_relation"
+            if rule.get("kind") == "derived_relation"
+            else "rule",
+            relation_names=frozenset(relation_names),
+        )
+        relation_arguments = analyzed.relation_arguments | analyzed.atom_relations
+        relation_dependencies = set(relation_arguments) & relation_names
+        for alias in relation_arguments:
+            relation_dependencies.update(
+                filtered_aliases.get((alias, str(rule.get("entity") or "")), set())
+            )
+        identifiers.difference_update(relation_names)
+        referenced.update(relation_dependencies & export_names)
         referenced.update(
             identifier
-            for identifier in _CONTEXT_FORMULA_IDENTIFIER.findall(formula)
+            for identifier in identifiers
             if identifier in export_names
             and identifier != owner
-            and identifier not in _CONTEXT_FORMULA_BUILTINS
+            and (
+                rule.get("kind") == "derived_relation"
+                or identifier not in _CONTEXT_FORMULA_BUILTINS
+            )
         )
     terminal = [name for name in exports if name not in referenced]
     return terminal or exports
@@ -18001,7 +18093,7 @@ def _extract_simple_rulespec_constant(
             for rule in payload["rules"]:
                 if not isinstance(rule, dict) or rule.get("name") != var_name:
                     continue
-                versions = rule.get("versions")
+                versions = effective_versions(rule)
                 if not isinstance(versions, list):
                     continue
                 for version in versions:
@@ -18111,7 +18203,7 @@ def _policyengine_hint_upstream_composition_issues(
             rule = rules_by_name.get(rule_name)
             if not isinstance(rule, dict):
                 continue
-            versions = rule.get("versions")
+            versions = effective_versions(rule)
             if not isinstance(versions, list):
                 continue
             for version in versions:
@@ -18126,7 +18218,9 @@ def _policyengine_hint_upstream_composition_issues(
                         formula
                     )
                 )
-                for identifier in _RULESPEC_FORMULA_IDENTIFIER_RE.findall(formula):
+                for identifier in formula_identifiers(
+                    formula, relation_predicate=rule_uses_relation_predicate(rule)
+                ):
                     if identifier in _RULESPEC_FORMULA_KEYWORDS:
                         continue
                     if identifier not in rules_by_name or identifier in visited:
@@ -18510,6 +18604,24 @@ def _normalize_repair_deferred_source_roots(
     return normalized, repairs
 
 
+def _repair_overlay_input_items(inputs: object) -> list[object]:
+    """Normalize the engine's two input declaration forms for named overlays."""
+    if isinstance(inputs, list):
+        return inputs
+    if not isinstance(inputs, dict):
+        raise ValueError("repair overlay inputs must be a list or mapping")
+    normalized: list[object] = []
+    for name, entry in inputs.items():
+        if not isinstance(name, str) or not isinstance(entry, dict):
+            raise ValueError(
+                "repair overlay input mappings need string names and mapping values"
+            )
+        if "name" in entry and entry["name"] != name:
+            raise ValueError(f"repair overlay input `{name}` has a conflicting name")
+        normalized.append({"name": name, **entry})
+    return normalized
+
+
 def _repair_overlay_candidate_base_issue(
     candidate: ValidationRetryCandidate,
 ) -> str | None:
@@ -18527,10 +18639,8 @@ def _repair_overlay_candidate_base_issue(
         not isinstance(import_target, str) for import_target in imports
     ):
         return "preserved repair overlay imports must be a list of strings"
-    preserved_inputs = preserved.get("inputs", [])
-    if not isinstance(preserved_inputs, list):
-        return "preserved repair overlay inputs must be a list"
     try:
+        preserved_inputs = _repair_overlay_input_items(preserved.get("inputs", []))
         _merge_named_yaml_items([], preserved_inputs, label="inputs")
     except ValueError as exc:
         return str(exc)
@@ -18604,6 +18714,9 @@ def _overlay_validation_retry_candidate(
         raise _PreservedRepairOverlayError(base_issue)
     try:
         generated_content = rulespec_file.read_text(encoding="utf-8")
+        version_form_issues = find_rule_version_form_issues(generated_content)
+        if version_form_issues:
+            raise ValueError("; ".join(version_form_issues))
         generated_interpretation_issues = find_interpretation_yaml_issues(
             generated_content
         )
@@ -18642,10 +18755,8 @@ def _overlay_validation_retry_candidate(
     if imports:
         generated["imports"] = imports
 
-    generated_inputs = generated.get("inputs", [])
-    preserved_inputs = preserved.get("inputs", [])
-    if not isinstance(generated_inputs, list) or not isinstance(preserved_inputs, list):
-        raise ValueError("repair overlay inputs must be lists")
+    generated_inputs = _repair_overlay_input_items(generated.get("inputs", []))
+    preserved_inputs = _repair_overlay_input_items(preserved.get("inputs", []))
     inputs, restored_inputs, removed_inputs = _merge_named_yaml_items(
         generated_inputs,
         preserved_inputs,
@@ -18848,6 +18959,11 @@ def _overlay_validation_retry_candidate(
                 + ", ".join(f"`{name}`" for name in referenced_removed_inputs)
             )
 
+    merged_content = safe_dump_yaml(generated, sort_keys=False, allow_unicode=True)
+    version_form_issues = find_rule_version_form_issues(merged_content)
+    if version_form_issues:
+        raise ValueError("; ".join(version_form_issues))
+
     if merged_test_payload is not None:
         _write_eval_artifact_text(
             test_file,
@@ -18857,7 +18973,7 @@ def _overlay_validation_retry_candidate(
 
     _write_eval_artifact_text(
         rulespec_file,
-        safe_dump_yaml(generated, sort_keys=False, allow_unicode=True),
+        merged_content,
         artifact_root,
     )
     return tuple(repairs)

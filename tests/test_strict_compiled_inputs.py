@@ -59,6 +59,44 @@ def test_recognizes_strict_program():
     assert compiled_program_has_strict_input_reads(artifact())
 
 
+def format_three_artifact():
+    data = artifact()
+    data["artifact_format_version"] = 3
+    data["engine_build"] = {"commit": "e" * 40, "dirty": False}
+    data["source_closure"] = {
+        "root": TARGET,
+        "modules": [{"target": TARGET, "sha256": "a" * 64}],
+        "digest": "sha256:" + "b" * 64,
+    }
+    data["program"]["interface"] = {"entities": [], "inputs": [], "relations": []}
+    return data
+
+
+def test_recognizes_format_three_without_exempting_expressions():
+    data = format_three_artifact()
+    assert compiled_program_has_strict_input_reads(data)
+    data["program"]["derived"][0]["versions"][0]["expr"] = {
+        "kind": "input_or_else",
+        "name": "amount",
+        "default": {"kind": "integer", "value": 0},
+    }
+    assert not compiled_program_has_strict_input_reads(data)
+
+
+@pytest.mark.parametrize("mutation", ["build", "interface", "future", "unknown"])
+def test_format_three_keeps_structural_refusals(mutation):
+    data = format_three_artifact()
+    if mutation == "build":
+        del data["engine_build"]
+    elif mutation == "interface":
+        del data["program"]["interface"]
+    elif mutation == "future":
+        data["program"]["future_executable"] = {"kind": "input_or_else"}
+    else:
+        data["artifact_format_version"] = 4
+    assert not compiled_program_has_strict_input_reads(data)
+
+
 @pytest.mark.parametrize("location", ["root", "inactive", "imported"])
 @pytest.mark.parametrize(
     "expr",
@@ -194,7 +232,7 @@ def test_normal_ci_executes_sparse_cases_and_apply_does_not_fill(
 
     monkeypatch.setattr(pipeline, "_run_rulespec_test_cases", run)
     result = pipeline._run_rulespec_ci(module)
-    assert calls == [[case]]
+    assert calls == [[case]], result.issues
     assert not any("Test input assignment missing:" in i for i in result.issues)
     runtime_errors = [i for i in result.issues if "missing input" in i.lower()]
     assert bool(runtime_errors) == (mode not in {"valid", "false_valid"})
@@ -390,7 +428,7 @@ def test_missing_related_child_fact_remains_runtime_failure(
 
     monkeypatch.setattr(pipeline, "_run_rulespec_test_cases", run)
     result = pipeline._run_rulespec_ci(module)
-    assert calls == [cases]
+    assert calls == [cases], result.issues
     assert any("missing input" in issue.lower() for issue in result.issues)
     assert not any("Test input assignment missing:" in issue for issue in result.issues)
     assert not _complete_missing_local_test_inputs(

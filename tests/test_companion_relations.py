@@ -1,6 +1,10 @@
 import pytest
 
-from axiom_encode.companion_relations import executable_relation_directions
+from axiom_encode.companion_relations import (
+    executable_relation_directions,
+    explicit_relation_tuples,
+    pair_relation_assignment_issues,
+)
 
 
 def fixture(current=1):
@@ -453,3 +457,397 @@ def test_mixed_sum_value_and_predicate_use_fallback_and_traverse_both(reverse):
         with pytest.raises(ValueError, match="coordinates"):
             resolve(d)
         d[key]["expr"] = original
+
+
+def test_path_source_keeps_only_first_step_at_query_anchor():
+    d = fixture(0)
+    d["count"]["entity"] = "Person"
+    schemas = [
+        {
+            "name": "members",
+            "derivation": {
+                "current_slot": 0,
+                "related_slot": 1,
+                "slot_entities": ["Person", "Person"],
+                "source_path": [
+                    {"relation": "roster", "from_slot": 0, "to_slot": 1},
+                    {"relation": "roster", "from_slot": 1, "to_slot": 0},
+                ],
+                "predicate": {"kind": "literal"},
+            },
+        }
+    ]
+    assert executable_relation_directions(
+        d,
+        ["count"],
+        {"start": "2024-01-01"},
+        "Person",
+        {"members": ("Person", "Person"), "roster": ("Person", "Household")},
+        schemas,
+    ) == {"members": (0, "Person"), "roster": (0, "Household")}
+
+
+@pytest.mark.parametrize("term,at_root", [("anchor", True), ("candidate", False)])
+def test_qualified_derived_reads_follow_term_in_same_kind_predicate(term, at_root):
+    d = fixture(0)
+    d["count"]["entity"] = "Person"
+    d["extra"] = {
+        "id": "extra",
+        "entity": "Person",
+        "expr": {
+            "kind": "count_related",
+            "relation": "extra_members",
+            "current_slot": 0,
+            "related_slot": 1,
+        },
+    }
+    schemas = [
+        {
+            "name": "members",
+            "derivation": {
+                "source_relation": "raw",
+                "current_slot": 0,
+                "related_slot": 1,
+                "slot_entities": ["Person", "Person"],
+                "predicate": {"kind": "role_derived", "name": "extra", "term": term},
+            },
+        }
+    ]
+    result = executable_relation_directions(
+        d,
+        ["count"],
+        {"start": "2024-01-01"},
+        "Person",
+        {"members": ("Person", "Person")},
+        schemas,
+    )
+    assert ("extra_members" in result) is at_root
+
+
+def test_exists_variable_derived_read_does_not_become_root_relation():
+    d = fixture(0)
+    d["count"]["entity"] = "Person"
+    d["extra"] = {
+        "id": "extra",
+        "entity": "Person",
+        "expr": {
+            "kind": "count_related",
+            "relation": "extra_members",
+            "current_slot": 0,
+            "related_slot": 1,
+        },
+    }
+    schemas = [
+        {"name": "domain", "arity": 2, "slot_entities": ["Person", "Person"]},
+        {
+            "name": "members",
+            "derivation": {
+                "source_relation": "raw",
+                "current_slot": 0,
+                "related_slot": 1,
+                "slot_entities": ["Person", "Person"],
+                "predicate": {
+                    "kind": "exists",
+                    "relation": "domain",
+                    "terms": ["anchor", {"var": 0}],
+                    "variable_slot": 1,
+                    "body": {
+                        "kind": "role_derived",
+                        "name": "extra",
+                        "term": {"var": 0},
+                    },
+                },
+            },
+        },
+    ]
+    result = executable_relation_directions(
+        d,
+        ["count"],
+        {"start": "2024-01-01"},
+        "Person",
+        {"members": ("Person", "Person")},
+        schemas,
+    )
+    assert "extra_members" not in result
+
+
+def role_relations():
+    return [
+        {"name": "parents", "arity": 2, "slot_entities": ["Person", "Person"]},
+        {
+            "name": "members",
+            "arity": 2,
+            "derivation": {
+                "predicate": {"kind": "relation_atom", "relation": "parents"},
+            },
+        },
+    ]
+
+
+def test_relation_roles_require_explicit_empty_pair_facts():
+    assert pair_relation_assignment_issues(
+        role_relations(), {"input": {}}, "empty"
+    ) == [
+        "Test case `empty` must assign pair relation `parents`, including `[]` when no tuples hold."
+    ]
+    assert (
+        pair_relation_assignment_issues(
+            role_relations(),
+            {"input": {"us:statutes/example#relation.parents": []}},
+            "empty",
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize("member_alias", [False, True])
+def test_legacy_filtered_relations_keep_pair_assignment_findings(member_alias):
+    relations = role_relations()
+    relations[1]["derivation"].update(
+        {
+            "entity": "SnapUnit",
+            "member_relation": "members",
+            "predicate": {"kind": "derived", "name": "eligible"},
+        }
+    )
+    if not member_alias:
+        relations[1]["derivation"].pop("member_relation")
+    assert pair_relation_assignment_issues(relations, {"input": {}}, "empty") == []
+
+
+def test_tuple_rows_preserve_declared_order_and_shared_ids():
+    assert explicit_relation_tuples(
+        [{"tuple": ["child", "parent"]}], relation="parents", slots=("Person", "Person")
+    ) == [["child", "parent"]]
+    assert (
+        explicit_relation_tuples([{"age": 10}], relation="parents", slots=None) is None
+    )
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [{"tuple": ["child"]}],
+        [{"tuple": ["child", 3]}],
+        [{"tuple": "child,parent"}],
+        [{"tuple": ["child", "parent"], "age": 10}],
+        [{"tuple": ["child", "parent"]}, {"age": 10}],
+    ],
+)
+def test_malformed_tuple_rows_fail_closed(rows):
+    with pytest.raises(ValueError, match="tuple row"):
+        explicit_relation_tuples(rows, relation="parents", slots=("Person", "Person"))
+
+
+@pytest.mark.parametrize("kind", ["relation_atom", "exists"])
+@pytest.mark.parametrize("root_slot", [0, 1])
+def test_data_atoms_and_generators_supply_query_anchor_direction(kind, root_slot):
+    d = fixture(0)
+    d["count"]["entity"] = "Person"
+    terms = ["candidate", "candidate"]
+    terms[root_slot] = "anchor"
+    predicate = {"kind": kind, "relation": "parents", "terms": terms}
+    if kind == "exists":
+        predicate["terms"][1 - root_slot] = {"var": 0}
+        predicate["variable_slot"] = 1 - root_slot
+        predicate["body"] = {"kind": "literal"}
+    schemas = [
+        {"name": "parents", "arity": 2, "slot_entities": ["Person", "Person"]},
+        {
+            "name": "members",
+            "derivation": {
+                "source_relation": "raw",
+                "current_slot": 0,
+                "related_slot": 1,
+                "slot_entities": ["Person", "Person"],
+                "predicate": predicate,
+            },
+        },
+    ]
+    assert executable_relation_directions(
+        d,
+        ["count"],
+        {"start": "2024-01-01"},
+        "Person",
+        {"members": ("Person", "Person"), "parents": ("Person", "Person")},
+        schemas,
+    )["parents"] == (root_slot, "Person")
+
+
+def test_explicit_tuples_do_not_need_one_root_direction_for_pair_atoms():
+    d = fixture(0)
+    d["count"]["entity"] = "Person"
+    schemas = [
+        {"name": "parents", "arity": 2, "slot_entities": ["Person", "Person"]},
+        {
+            "name": "members",
+            "derivation": {
+                "source_relation": "raw",
+                "current_slot": 0,
+                "related_slot": 1,
+                "slot_entities": ["Person", "Person"],
+                "predicate": {
+                    "kind": "and",
+                    "items": [
+                        {
+                            "kind": "relation_atom",
+                            "relation": "parents",
+                            "terms": ["anchor", "candidate"],
+                        },
+                        {
+                            "kind": "relation_atom",
+                            "relation": "parents",
+                            "terms": ["candidate", "anchor"],
+                        },
+                    ],
+                },
+            },
+        },
+    ]
+    args = (
+        d,
+        ["count"],
+        {"start": "2024-01-01"},
+        "Person",
+        {"members": ("Person", "Person"), "parents": ("Person", "Person")},
+        schemas,
+    )
+    with pytest.raises(
+        ValueError, match="conflicting executable directions for parents"
+    ):
+        executable_relation_directions(*args)
+    assert "parents" not in executable_relation_directions(
+        *args, explicit_relations={"parents"}
+    )
+
+
+@pytest.mark.parametrize("anchor_term", [True, False])
+def test_compact_same_kind_pair_rows_use_atom_direction_or_refuse(
+    tmp_path, anchor_term
+):
+    from axiom_encode.cli import _execute_rulespec_test_case
+
+    d = fixture(0)
+    d["count"]["entity"] = "Person"
+    schemas = [
+        {"name": "parents", "arity": 2, "slot_entities": ["Person", "Person"]},
+        {"name": "raw", "arity": 2, "slot_entities": ["Person", "Person"]},
+        {
+            "name": "members",
+            "derivation": {
+                "source_relation": "raw",
+                "current_slot": 0,
+                "related_slot": 1,
+                "slot_entities": ["Person", "Person"],
+                "predicate": {
+                    "kind": "relation_atom",
+                    "relation": "parents",
+                    "terms": ["anchor" if anchor_term else "candidate", "candidate"],
+                },
+            },
+        },
+    ]
+    kwargs = dict(
+        case_name="pair",
+        compiled_path=tmp_path / "compiled.json",
+        binary=tmp_path / "engine",
+        axiom_rules_path=tmp_path,
+        env={},
+        parameter_by_id={},
+        derived_ids=set(d),
+        derived_by_id=d,
+        declared_relation_names={"parents", "raw", "members"},
+        declared_relation_slots={
+            name: ("Person", "Person") for name in ("parents", "raw", "members")
+        },
+        compiled_relations=schemas,
+        policy_repo_path=tmp_path / "rulespec-us/us",
+        request_only=True,
+    )
+    case = {
+        "period": "2024-01",
+        "input": {
+            "us:statutes/example#relation.parents": [
+                {"us:statutes/example#input.age": 10}
+            ],
+            "us:statutes/example#relation.raw": [{"us:statutes/example#input.age": 10}],
+        },
+        "output": {"count": 1},
+    }
+    if not anchor_term:
+        with pytest.raises(ValueError) as error:
+            _execute_rulespec_test_case(tmp_path / "case.test.yaml", case, **kwargs)
+        assert str(error.value) == (
+            "relation `us:statutes/example#relation.parents` compact rows have no "
+            "unambiguous query-anchor direction; use explicit `tuple` rows"
+        )
+        return
+    request = _execute_rulespec_test_case(tmp_path / "case.test.yaml", case, **kwargs)
+    tuples = [
+        row["tuple"]
+        for row in request["dataset"]["relations"]
+        if row["name"] == "parents"
+    ]
+    assert tuples and all(pair[0] == "case" for pair in tuples)
+
+
+@pytest.mark.parametrize("value", [True, False])
+@pytest.mark.parametrize("unused_member_alias", [False, True])
+def test_anchored_constant_predicate_requires_explicit_pair_facts(
+    value, unused_member_alias
+):
+    relations = role_relations()
+    relations[1]["derivation"] = {
+        "source_relation": "parents",
+        "current_slot": 0,
+        "related_slot": 1,
+        "slot_entities": ["Person", "Person"],
+        "predicate": {
+            "kind": "comparison",
+            "left": {"kind": "literal", "value": {"kind": "bool", "value": value}},
+            "op": "eq",
+            "right": {"kind": "literal", "value": {"kind": "bool", "value": True}},
+        },
+    }
+    if unused_member_alias:
+        relations[1]["derivation"]["member_relation"] = "unused_alias"
+    assert pair_relation_assignment_issues(relations, {"input": {}}, "constant") == [
+        "Test case `constant` must assign pair relation `parents`, including `[]` when no tuples hold."
+    ]
+    assert (
+        pair_relation_assignment_issues(
+            relations, {"input": {"parents": []}}, "constant"
+        )
+        == []
+    )
+
+
+def test_mixed_constant_anchored_and_legacy_views_require_all_pair_facts():
+    relations = role_relations()
+    relations[1]["derivation"].update(
+        {
+            "entity": "SnapUnit",
+            "member_relation": "members",
+            "predicate": {"kind": "derived", "name": "eligible"},
+        }
+    )
+    relations.extend(
+        [
+            {"name": "other_pairs", "arity": 2, "slot_entities": ["Person", "Person"]},
+            {
+                "name": "anchored_members",
+                "arity": 2,
+                "derivation": {
+                    "source_relation": "other_pairs",
+                    "current_slot": 0,
+                    "related_slot": 1,
+                    "slot_entities": ["Person", "Person"],
+                    "predicate": {"kind": "comparison"},
+                },
+            },
+        ]
+    )
+    assert pair_relation_assignment_issues(relations, {"input": {}}, "mixed") == [
+        "Test case `mixed` must assign pair relation `parents`, including `[]` when no tuples hold.",
+        "Test case `mixed` must assign pair relation `other_pairs`, including `[]` when no tuples hold.",
+    ]

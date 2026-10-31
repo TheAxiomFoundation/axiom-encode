@@ -1,0 +1,1 @@
+Teach supervised encoding and deterministic validation the engine's relation roles: anchored predicates, bounded quantifiers, typed source paths, explicit pair facts, and guarded household composition. Preserve filtered-entity encodings and apply the existing grounding, dependency, companion-output and proof checks to the new forms.
