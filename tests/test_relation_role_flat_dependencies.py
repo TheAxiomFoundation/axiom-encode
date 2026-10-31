@@ -46,7 +46,9 @@ def test_flat_predicate_dependency_names_match_versioned_formula(empty_versions)
     assert source_completeness._rule_formula_identifiers(flat) == expected
     assert source_completeness._rule_formula_identifiers(versioned) == expected
     rules = {"limit": formula_rule("limit", "22", kind="parameter")}
-    assert source_completeness._local_rule_dependency_closure(flat, principal_rules=rules) == {"limit"}
+    assert source_completeness._local_rule_dependency_closure(
+        flat, principal_rules=rules
+    ) == {"limit"}
 
 
 @pytest.mark.parametrize("versions", [{"formula": "age"}, "age", [None]])
@@ -54,7 +56,10 @@ def test_flat_dependency_readers_preserve_malformed_version_handling(versions):
     rule = formula_rule("selected", "candidate.age < limit")
     rule["versions"] = versions
     assert source_completeness._rule_formula_text(rule) == ""
-    assert source_completeness._formula_dependency_source_excerpts(rule, named_rules={}) == ()
+    assert (
+        source_completeness._formula_dependency_source_excerpts(rule, named_rules={})
+        == ()
+    )
 
 
 @pytest.mark.parametrize("flat", [False, True])
@@ -68,7 +73,9 @@ def test_formula_dependency_evidence_reads_actual_proof_paths(flat):
 
 def test_explicit_versions_override_flat_dependency_formula_and_proof():
     rule = formula_rule("selected", "candidate.ignored < ignored_limit")
-    rule["versions"] = [{"effective_from": "2026-01-01", "formula": "candidate.age < limit"}]
+    rule["versions"] = [
+        {"effective_from": "2026-01-01", "formula": "candidate.age < limit"}
+    ]
     assert source_completeness._rule_formula_identifiers(rule) == {"age", "limit"}
     assert source_completeness._rule_formula_source_excerpts(rule) == ()
 

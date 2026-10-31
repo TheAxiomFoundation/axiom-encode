@@ -34,10 +34,12 @@ def eval_relation_payload():
                     "current_slot": 0,
                     "related_slot": 1,
                 },
-                "versions": [{
-                    "effective_from": "2026-01-01",
-                    "formula": "candidate.age < under_22 and candidate.age < 22",
-                }],
+                "versions": [
+                    {
+                        "effective_from": "2026-01-01",
+                        "formula": "candidate.age < under_22 and candidate.age < 22",
+                    }
+                ],
             },
             {
                 "name": "relation_count",
@@ -45,7 +47,9 @@ def eval_relation_payload():
                 "entity": "Person",
                 "dtype": "Integer",
                 "period": "Month",
-                "versions": [{"effective_from": "2026-01-01", "formula": "len(selected)"}],
+                "versions": [
+                    {"effective_from": "2026-01-01", "formula": "len(selected)"}
+                ],
             },
         ],
     }
@@ -53,7 +57,9 @@ def eval_relation_payload():
 
 def context_reader_snapshot(path, payload):
     content = yaml.safe_dump(payload)
-    path.write_text("# Synthetic encoder test input; not a RuleSpec module.\n" + content)
+    path.write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n" + content
+    )
     return {
         "inputs": evals._context_file_local_inputs(str(path)),
         "exports": evals._context_file_terminal_exports(str(path)),
@@ -124,6 +130,9 @@ def test_eval_flat_hint_reader_follows_relation_predicate_dependencies():
     for rule in payload["rules"]:
         if rule.get("versions"):
             rule.update(rule.pop("versions")[0])
-    assert evals._policyengine_hint_upstream_composition_issues(
-        yaml.safe_dump(payload), "relation_count"
-    ) == expected
+    assert (
+        evals._policyengine_hint_upstream_composition_issues(
+            yaml.safe_dump(payload), "relation_count"
+        )
+        == expected
+    )

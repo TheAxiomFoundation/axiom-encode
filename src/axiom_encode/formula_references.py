@@ -199,8 +199,16 @@ def analyze_relation_predicate(
             function == "len"
             or (function == "sum" and field)
             or (function in {"only", "min", "max"} and len(parts) == 1 and field)
-            or (function in {"count_where", "only_related"} and len(parts) == 2 and not field)
-            or (function in {"sum_where", "min_where", "max_where"} and len(parts) == 3 and not field)
+            or (
+                function in {"count_where", "only_related"}
+                and len(parts) == 2
+                and not field
+            )
+            or (
+                function in {"sum_where", "min_where", "max_where"}
+                and len(parts) == 3
+                and not field
+            )
         )
         if valid and relation not in scope:
             relation_arguments.add(relation)

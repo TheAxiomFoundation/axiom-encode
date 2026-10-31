@@ -62,7 +62,12 @@ def test_cli_factual_inputs_exclude_imported_atoms_and_bound_variables():
 
 def test_cli_predicate_inputs_preserve_legal_builtin_spellings():
     rule = relation_rule("candidate.min < min(anchor.age, 22) and exists")
-    assert _generated_rule_formula_identifiers(rule) == {"roster", "min", "age", "exists"}
+    assert _generated_rule_formula_identifiers(rule) == {
+        "roster",
+        "min",
+        "age",
+        "exists",
+    }
 
 
 def test_true_view_predicate_keeps_source_relation_dependency_walk():
@@ -72,7 +77,11 @@ def test_true_view_predicate_keeps_source_relation_dependency_walk():
     view["derived_relation"] = {"source_relation": "filtered"}
     payload = {
         "rules": [
-            {"name": "count", "kind": "derived", "versions": [{"formula": "len(members)"}]},
+            {
+                "name": "count",
+                "kind": "derived",
+                "versions": [{"formula": "len(members)"}],
+            },
             view,
             filtered,
         ]
@@ -168,7 +177,9 @@ def test_strict_input_walk_does_not_leak_roles_into_aggregate_children():
     assert not compiled_program_has_strict_input_reads(payload)
 
 
-def test_real_compiled_guarded_fixture_keeps_strict_sparse_execution(tmp_path, real_engine):
+def test_real_compiled_guarded_fixture_keeps_strict_sparse_execution(
+    tmp_path, real_engine
+):
     root, module = reference_fixture(tmp_path)
     payload = _compile(
         real_engine.binary, real_engine.root, root, module, tmp_path / "compiled.json"

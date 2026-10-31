@@ -216,8 +216,26 @@ def test_native_shorthand_formula_precedence(tmp_path, real_engine, nonempty_ver
     artifact = _compile(
         real_engine.binary, real_engine.root, root, module, tmp_path / "compiled.json"
     )
-    names = {item["name"] for item in artifact["program"]["interface"]["inputs"]}
-    assert names == (set() if nonempty_versions else {"age"})
+    (members,) = [
+        relation
+        for relation in artifact["program"]["relations"]
+        if relation["name"].endswith("#relation.members")
+    ]
+    predicate = members["derivation"]["predicate"]
+    if nonempty_versions:
+        assert predicate == {
+            "kind": "comparison",
+            "left": {"kind": "literal", "value": {"kind": "bool", "value": True}},
+            "op": "eq",
+            "right": {"kind": "literal", "value": {"kind": "bool", "value": True}},
+        }
+    else:
+        assert predicate == {
+            "kind": "comparison",
+            "left": {"kind": "role_input", "term": "candidate", "name": "age"},
+            "op": "lt",
+            "right": {"kind": "literal", "value": {"kind": "integer", "value": 22}},
+        }
     assert validation.find_relation_role_issues(module.read_text()) == []
     if nonempty_versions:
         assert _generated_rule_formula_identifiers(rule) == {"pairs"}

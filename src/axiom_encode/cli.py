@@ -17508,8 +17508,8 @@ def _repair_missing_source_proof_atoms(content: str) -> tuple[str, list[str]]:
     if text_repair_valid:
         return repaired_content, repaired_rules
 
-    structured_content, structured_rules = _insert_missing_source_proof_atoms_structured(
-        payload, repairs_by_rule
+    structured_content, structured_rules = (
+        _insert_missing_source_proof_atoms_structured(payload, repairs_by_rule)
     )
     if set(structured_rules) == set(repairs_by_rule):
         try:
@@ -52310,13 +52310,13 @@ def _formula_without_string_literals(formula: str) -> str:
     )
 
 
-def _formula_identifiers(
-    formula: str, *, relation_predicate: bool = False
-) -> set[str]:
+def _formula_identifiers(formula: str, *, relation_predicate: bool = False) -> set[str]:
     identifiers = _shared_formula_identifiers(
         formula, relation_predicate=relation_predicate
     )
-    return identifiers if relation_predicate else identifiers - _RULESPEC_FORMULA_BUILTINS
+    return (
+        identifiers if relation_predicate else identifiers - _RULESPEC_FORMULA_BUILTINS
+    )
 
 
 def _try_repair_generated_nonnegative_floors_for_apply(

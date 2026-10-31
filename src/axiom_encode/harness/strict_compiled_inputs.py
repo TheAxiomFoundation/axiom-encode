@@ -91,9 +91,11 @@ def _expression(value: object, *, predicate: bool = False, depth: int = 0) -> bo
             and _expression(value["index"], predicate=predicate, depth=depth)
         )
     if kind == "relation_member":
-        return predicate and _keys(
-            value, {"kind", "relation", "current_slot", "related_slot"}
-        ) and _coordinates(value)
+        return (
+            predicate
+            and _keys(value, {"kind", "relation", "current_slot", "related_slot"})
+            and _coordinates(value)
+        )
     if kind == "relation_atom":
         return (
             predicate
@@ -187,7 +189,13 @@ def _relation(value: object) -> bool:
         and _keys(
             derivation,
             {"current_slot", "related_slot", "predicate"},
-            {"source_relation", "source_path", "entity", "member_relation", "slot_entities"},
+            {
+                "source_relation",
+                "source_path",
+                "entity",
+                "member_relation",
+                "slot_entities",
+            },
         )
         and type(derivation["current_slot"]) is int
         and type(derivation["related_slot"]) is int

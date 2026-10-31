@@ -534,7 +534,8 @@ RELATION_ROLES_SELF_CHECK = """  5. Relation-role inventory: name both slot role
      caller-id fallback against all section 8 factual preconditions.
 """
 
-_STRUCTURE_PROTOCOL = """- Use `kind: derived` for entity-scoped outputs.
+_STRUCTURE_PROTOCOL = (
+    """- Use `kind: derived` for entity-scoped outputs.
 - Use `kind: derived_relation` only when the source text explicitly defines
   membership in a derived legal unit by filtering candidates from a source
   relation or path through a stated predicate.
@@ -556,7 +557,9 @@ _STRUCTURE_PROTOCOL = """- Use `kind: derived` for entity-scoped outputs.
   that entity with a `kind: derived_relation` rule or import a RuleSpec file
   that declares it. Filtered entities have no structural existence without that
   dependency.
-""" + RELATION_ROLES_STRUCTURE_PROTOCOL
+"""
+    + RELATION_ROLES_STRUCTURE_PROTOCOL
+)
 
 _COMPOSITION_AND_DEFERRAL = """- If source text is a broad application, furnishing, administrative duty, or
   purpose clause without a computable policy condition, preserve it in

@@ -6062,7 +6062,8 @@ def _rule_formula_source_excerpts(
     return tuple(
         (citation_path, excerpt)
         for path, citation_path, excerpt in _rule_source_excerpt_atoms(rule)
-        if _formula_proof_version_index(path) is not None or (flat and path == "formula")
+        if _formula_proof_version_index(path) is not None
+        or (flat and path == "formula")
     )
 
 
@@ -19392,8 +19393,7 @@ def _negative_local_input_clamp_test_issues(
         )
 
     all_version_dependencies = {
-        name: _rule_formula_identifiers(rule)
-        & principal_rule_names
+        name: _rule_formula_identifiers(rule) & principal_rule_names
         for name, rule in principal_rules.items()
     }
     parameter_rule_names = set(parameter_rules)

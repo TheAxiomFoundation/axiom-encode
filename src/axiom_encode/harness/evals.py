@@ -15126,7 +15126,9 @@ def _context_file_executable_surfaces(source_path: str) -> dict[str, dict[str, o
                     "effective_from" in version or "from" in version
                 ):
                     effective_dates.append(
-                        str(version.get("effective_from", version.get("from")) or "").strip()
+                        str(
+                            version.get("effective_from", version.get("from")) or ""
+                        ).strip()
                     )
         derived_relation = rule.get("derived_relation")
         relation_entity = ""
@@ -15319,7 +15321,10 @@ def _context_file_local_inputs(source_path: str) -> set[str]:
                 if (
                     identifier in defined
                     or identifier in imported
-                    or (not relation_predicate and identifier in _CONTEXT_FORMULA_BUILTINS)
+                    or (
+                        not relation_predicate
+                        and identifier in _CONTEXT_FORMULA_BUILTINS
+                    )
                 ):
                     continue
                 inputs.add(identifier)
@@ -15422,14 +15427,14 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
     export_names = set(exports)
     referenced: set[str] = {
         local_reference_name(source)
-        for rule in rules if isinstance(rule, dict)
+        for rule in rules
+        if isinstance(rule, dict)
         for source in relation_source_names(rule.get("derived_relation"))
     } & export_names
-    rules_by_name = {
-        rule.get("name"): rule for rule in rules if isinstance(rule, dict)
-    }
+    rules_by_name = {rule.get("name"): rule for rule in rules if isinstance(rule, dict)}
     relation_names = {
-        name for name, rule in rules_by_name.items()
+        name
+        for name, rule in rules_by_name.items()
         if rule.get("kind") == "derived_relation"
     }
     filtered_aliases: dict[tuple[str, str], set[str]] = {}
