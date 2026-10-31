@@ -131,7 +131,9 @@ def amendment_timing_issues(
                         "whose commencement_date is missing or invalid."
                     )
                     continue
-                effective = _parse_date(version_mapping.get("effective_from"))
+                effective = _parse_date(
+                    version_mapping.get("effective_from", version_mapping.get("from"))
+                )
                 evidence = (
                     f" (commencement evidence `{commencement_citation}`)"
                     if commencement_citation
@@ -243,14 +245,15 @@ def _is_principal_history_cutoff(
     version_index: int,
     commencement: date | None,
 ) -> bool:
+    cutoff_field = "effective_to" if "effective_to" in version else "to"
     if (
-        _local_atom_path(atom) != "effective_to"
+        _local_atom_path(atom) != cutoff_field
         or not _atom_applies_to_version(atom, version_index)
         or commencement is None
     ):
         return False
-    effective_from = _parse_date(version.get("effective_from"))
-    effective_to = _parse_date(version.get("effective_to"))
+    effective_from = _parse_date(version.get("effective_from", version.get("from")))
+    effective_to = _parse_date(version.get("effective_to", version.get("to")))
     return (
         effective_from is not None
         and effective_to is not None

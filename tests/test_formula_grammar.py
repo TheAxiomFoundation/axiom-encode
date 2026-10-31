@@ -14,7 +14,42 @@ from axiom_encode.formula_grammar import FormulaSyntaxError, parse_formula, toke
 from axiom_encode.formula_references import (
     analyze_relation_predicate,
     formula_identifiers,
+    rule_uses_relation_predicate,
 )
+
+
+@pytest.mark.parametrize(
+    "formula,predicate",
+    [
+        ("member_entry_date >= 2025-01-01", False),
+        ("age < 22", False),
+        ('code == "candidate.age exists(pair(anchor, p), true)"', False),
+        ('""" candidate.age """ age < 22', False),
+        ("candidate.age < 22", True),
+        ("anchor == candidate", True),
+        ("exists((pair(anchor, p)), p.age < 22)", True),
+        ("pair(anchor, candidate)", True),
+        ("candidate.age >= 2025-01-01", True),
+        ("'unterminated", True),
+    ],
+)
+def test_legacy_dispatch_preserves_scalar_findings_and_keeps_role_syntax(
+    formula, predicate
+):
+    rule = {
+        "kind": "derived_relation",
+        "derived_relation": {"entity": "Unit", "member_relation": "members"},
+        "versions": [{"formula": formula}],
+    }
+    assert rule_uses_relation_predicate(rule) is predicate
+    if not predicate:
+        assert analyze_relation_predicate(
+            formula, predicate_terms=False
+        ).identifiers == formula_identifiers(formula) - {"true", "false"}
+    rule["derived_relation"]["source_path"] = []
+    assert rule_uses_relation_predicate(rule)
+    rule["derived_relation"] = {"entity": "Unit"}
+    assert rule_uses_relation_predicate(rule)
 
 
 @pytest.mark.parametrize(

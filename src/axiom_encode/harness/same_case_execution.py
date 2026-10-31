@@ -25,6 +25,7 @@ from axiom_encode.formula_references import (
     formula_identifiers,
     local_reference_name,
     relation_source_names,
+    rule_uses_relation_predicate,
 )
 
 
@@ -121,7 +122,7 @@ def _has_consumer(
                 continue
             found = _formula_names(
                 version["formula"],
-                relation_predicate=rule.get("kind") == "derived_relation",
+                relation_predicate=rule_uses_relation_predicate(rule),
             )
             if found is not None:
                 names.update(found)

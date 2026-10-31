@@ -1,4 +1,4 @@
-"""Apply ordinary relation and proof checks to native shorthand formulas."""
+"""Reject shorthand formulas and preserve checks on versioned relations."""
 
 import textwrap
 
@@ -17,7 +17,7 @@ from axiom_encode.cli import (
 )
 from axiom_encode.harness import validator_pipeline as validation
 from axiom_encode.harness.proof_validator import validate_rulespec_proofs
-from tests.test_companion_declared_entities import _companions, _compile
+from tests.test_companion_declared_entities import _companions
 from tests.test_relation_role_companions import FIXTURES, SOURCE, reference_fixture
 
 
@@ -42,8 +42,9 @@ def declaration():
                     "related_slot": 1,
                     "source_relation": "pairs",
                 },
-                "effective_from": "2026-01-01",
-                "formula": "candidate.age < 22",
+                "versions": [
+                    {"effective_from": "2026-01-01", "formula": "candidate.age < 22"}
+                ],
             },
             {
                 "name": "member_count",
@@ -51,8 +52,9 @@ def declaration():
                 "entity": "Person",
                 "dtype": "Integer",
                 "period": "Month",
-                "effective_from": "2026-01-01",
-                "formula": "len(members)",
+                "versions": [
+                    {"effective_from": "2026-01-01", "formula": "len(members)"}
+                ],
             },
         ],
     }
@@ -66,12 +68,9 @@ def flatten(rule):
             atom["path"] = "formula"
 
 
-@pytest.mark.parametrize("empty_versions", [False, True])
-def test_flat_predicate_keeps_default_numeric_and_dependency_checks(empty_versions):
+def test_versioned_predicate_keeps_default_numeric_and_dependency_checks():
     payload = declaration()
     rule = payload["rules"][1]
-    if empty_versions:
-        rule["versions"] = []
     payload["inputs"]["age"]["default"] = 0
     content = yaml.safe_dump(payload)
     assert validation.find_relation_role_issues(content) == [
@@ -82,7 +81,9 @@ def test_flat_predicate_keeps_default_numeric_and_dependency_checks(empty_versio
     ) == [
         "Ungrounded generated numeric literal: 22 does not appear as a substantive numeric value in the source text."
     ]
-    assert validation._rule_grounding_values_by_path(rule) == [("formula", "22", 22.0)]
+    assert validation._rule_grounding_values_by_path(rule) == [
+        ("versions[0].formula", "22", 22.0)
+    ]
     assert _local_factual_input_names_from_rules_content(content) == {"age"}
     assert _generated_rule_formula_identifiers(rule) == {"age", "pairs"}
     assert _rulespec_rule_formula_texts_for_generated_repair(rule) == [
@@ -92,30 +93,21 @@ def test_flat_predicate_keeps_default_numeric_and_dependency_checks(empty_versio
         output_name="member_count", rules_payload=payload
     ) == ["len(members)", "candidate.age < 22"]
     rule["values"] = {1: 999}
-    assert validation._rule_grounding_values_by_path(rule) == [("formula", "22", 22.0)]
-
-
-def test_flat_predicate_keeps_import_and_date_checks():
-    payload = declaration()
-    payload["imports"] = ["us:policies/example/external_pairs#relation.external_pairs"]
-    payload["rules"][1]["formula"] = "external_pairs(anchor, candidate)"
-    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
-    assert validation._rulespec_formula_identifiers(payload) >= {"external_pairs"}
-    payload["rules"][1]["formula"] = "candidate.started > 2025-01-01"
-    assert validation.find_formula_date_literal_issues(yaml.safe_dump(payload)) == [
-        "Formula date literal unsupported: `members` uses `2025-01-01` inside an executable formula. Axiom formula syntax has no date literal type; encode effective windows with `effective_from` metadata or source-stated boolean predicates such as `taxable_year_begins_after_termination_date`."
+    assert validation._rule_grounding_values_by_path(rule) == [
+        ("versions[0].formula", "22", 22.0)
     ]
 
 
-@pytest.mark.parametrize("versions", [{"bad": {}}, "bad", 3])
-def test_flat_readers_keep_malformed_version_guards(versions):
-    rule = declaration()["rules"][1]
-    rule["versions"] = versions
-    assert validation._rulespec_rule_formula_texts(rule) == []
-    assert validation._rulespec_rule_formulas({"rules": [rule]}) == []
-    assert validation._rulespec_formula_identifiers({"rules": [rule]}) == set()
-    assert not _parsed_rule_requires_generated_source_proof(rule)
-    assert _rulespec_rule_formula_texts_for_generated_repair(rule) == []
+def test_versioned_predicate_keeps_import_and_date_checks():
+    payload = declaration()
+    payload["imports"] = ["us:policies/example/external_pairs#relation.external_pairs"]
+    payload["rules"][1]["versions"][0]["formula"] = "external_pairs(anchor, candidate)"
+    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+    assert validation._rulespec_formula_identifiers(payload) >= {"external_pairs"}
+    payload["rules"][1]["versions"][0]["formula"] = "candidate.started > 2025-01-01"
+    assert validation.find_formula_date_literal_issues(yaml.safe_dump(payload)) == [
+        "Formula date literal unsupported: `members` uses `2025-01-01` inside an executable formula. Axiom formula syntax has no date literal type; encode effective windows with `effective_from` metadata or source-stated boolean predicates such as `taxable_year_begins_after_termination_date`."
+    ]
 
 
 @pytest.mark.parametrize("indented", [False, True])
@@ -129,10 +121,11 @@ def test_flat_readers_keep_malformed_version_guards(versions):
         "snap_participating_member",
     ],
 )
-def test_flat_proof_selection_and_repair_use_actual_formula_anchor(indented, rule_name):
+def test_versioned_proof_selection_and_repair_use_actual_formula_anchor(
+    indented, rule_name
+):
     payload = yaml.safe_load((FIXTURES / "guarded_household.yaml").read_text())
     rule = next(rule for rule in payload["rules"] if rule["name"] == rule_name)
-    flatten(rule)
     assert (
         _derived_custom_proof_atom_kind(
             rule, rule["metadata"]["proof"]["atoms"][0]
@@ -153,7 +146,9 @@ def test_flat_proof_selection_and_repair_use_actual_formula_anchor(indented, rul
     repaired, repairs = _repair_missing_source_proof_atoms(content)
     assert repairs == [rule_name]
     repaired_rule = _safe_load_unique_keys(repaired)["rules"][0]
-    assert repaired_rule["metadata"]["proof"]["atoms"][0]["path"] == "formula"
+    assert (
+        repaired_rule["metadata"]["proof"]["atoms"][0]["path"] == "versions[0].formula"
+    )
     assert not _parsed_rule_requires_generated_source_proof(repaired_rule)
     assert (
         validate_rulespec_proofs(
@@ -166,14 +161,11 @@ def test_flat_proof_selection_and_repair_use_actual_formula_anchor(indented, rul
 
 
 @pytest.mark.parametrize("executor", ["cli", "validator"])
-def test_flat_guarded_reference_keeps_native_companion_memberships(
+def test_versioned_guarded_reference_keeps_native_companion_memberships(
     tmp_path, real_engine, executor
 ):
     root, module = reference_fixture(tmp_path)
     payload = yaml.safe_load(module.read_text())
-    for rule in payload["rules"]:
-        if rule.get("versions"):
-            flatten(rule)
     module.write_text(
         "# Synthetic encoder test input; not a RuleSpec module.\n"
         + yaml.safe_dump(payload)
@@ -198,51 +190,8 @@ def test_flat_guarded_reference_keeps_native_companion_memberships(
     )
 
 
-@pytest.mark.parametrize("nonempty_versions", [False, True])
-def test_native_shorthand_formula_precedence(tmp_path, real_engine, nonempty_versions):
-    root = tmp_path / "rulespec-us"
-    module = root / "us/policies/example/flat_precedence.yaml"
-    module.parent.mkdir(parents=True)
-    payload = declaration()
-    rule = payload["rules"][1]
-    rule["versions"] = []
-    if nonempty_versions:
-        rule["formula"] = "unknown_relation(anchor, candidate)"
-        rule["versions"] = [{"effective_from": "2026-01-01", "formula": True}]
-    module.write_text(
-        "# Synthetic encoder test input; not a RuleSpec module.\n"
-        + yaml.safe_dump(payload)
-    )
-    artifact = _compile(
-        real_engine.binary, real_engine.root, root, module, tmp_path / "compiled.json"
-    )
-    (members,) = [
-        relation
-        for relation in artifact["program"]["relations"]
-        if relation["name"].endswith("#relation.members")
-    ]
-    predicate = members["derivation"]["predicate"]
-    if nonempty_versions:
-        assert predicate == {
-            "kind": "comparison",
-            "left": {"kind": "literal", "value": {"kind": "bool", "value": True}},
-            "op": "eq",
-            "right": {"kind": "literal", "value": {"kind": "bool", "value": True}},
-        }
-    else:
-        assert predicate == {
-            "kind": "comparison",
-            "left": {"kind": "role_input", "term": "candidate", "name": "age"},
-            "op": "lt",
-            "right": {"kind": "literal", "value": {"kind": "integer", "value": 22}},
-        }
-    assert validation.find_relation_role_issues(module.read_text()) == []
-    if nonempty_versions:
-        assert _generated_rule_formula_identifiers(rule) == {"pairs"}
-
-
 @pytest.mark.parametrize("metadata", [None, {"private": True}, {"proof": {}}, []])
-def test_indented_flat_proof_repair_preserves_unique_metadata(metadata):
+def test_indented_versioned_proof_repair_preserves_unique_metadata(metadata):
     payload = declaration()
     rule = payload["rules"][1]
     if metadata is not None:
@@ -258,14 +207,14 @@ def test_indented_flat_proof_repair_preserves_unique_metadata(metadata):
     repaired, repairs = _repair_missing_source_proof_atoms(content)
     assert repairs == ["members"]
     result = _safe_load_unique_keys(repaired)["rules"][0]
-    assert result["metadata"]["proof"]["atoms"][0]["path"] == "formula"
+    assert result["metadata"]["proof"]["atoms"][0]["path"] == "versions[0].formula"
     if metadata == {"private": True}:
         assert result["metadata"]["private"] is True
 
 
 @pytest.mark.parametrize("inline_module", [False, True])
 @pytest.mark.parametrize("trailing_inputs", [False, True])
-def test_flat_proof_repair_keeps_atom_on_rule_and_requires_module_proofs(
+def test_versioned_proof_repair_keeps_atom_on_rule_and_requires_module_proofs(
     inline_module, trailing_inputs
 ):
     rule = declaration()["rules"][1]
@@ -291,7 +240,7 @@ def test_flat_proof_repair_keeps_atom_on_rule_and_requires_module_proofs(
     assert result["module"]["proof_validation"]["required"] is True
     assert result["rules"][0]["metadata"]["proof"]["atoms"] == [
         {
-            "path": "formula",
+            "path": "versions[0].formula",
             "kind": "formula",
             "source": {
                 "corpus_citation_path": SOURCE,
@@ -324,3 +273,32 @@ def test_source_proof_repair_leaves_invalid_or_duplicate_input_unchanged(content
     with pytest.raises((yaml.YAMLError, ValueError)):
         _safe_load_unique_keys(content)
     assert _repair_missing_source_proof_atoms(content) == (content, [])
+
+
+@pytest.mark.parametrize("kind", ["derived", "derived_relation"])
+@pytest.mark.parametrize("empty_versions", [False, True])
+def test_flat_generated_rule_refuses_before_proof_repair(kind, empty_versions):
+    payload = declaration()
+    rule = payload["rules"][1]
+    rule["kind"] = kind
+    flatten(rule)
+    if empty_versions:
+        rule["versions"] = []
+    content = yaml.safe_dump(payload)
+    from axiom_encode.rule_version_form import find_rule_version_form_issues
+
+    assert find_rule_version_form_issues(content) == [
+        "[rule-version-form] Rule `members` must put `formula` and its dates under `versions:`."
+    ]
+    assert _repair_missing_source_proof_atoms(content) == (content, [])
+
+
+@pytest.mark.parametrize("versions", [{"bad": {}}, "bad", 3])
+def test_versioned_readers_keep_malformed_version_guards(versions):
+    rule = declaration()["rules"][1]
+    rule["versions"] = versions
+    assert validation._rulespec_rule_formula_texts(rule) == []
+    assert validation._rulespec_rule_formulas({"rules": [rule]}) == []
+    assert validation._rulespec_formula_identifiers({"rules": [rule]}) == set()
+    assert not _parsed_rule_requires_generated_source_proof(rule)
+    assert _rulespec_rule_formula_texts_for_generated_repair(rule) == []

@@ -15,6 +15,7 @@ from typing import Any, Mapping, Sequence
 import yaml
 
 from axiom_encode.printed_source_rows import recognize_printed_rows
+from axiom_encode.rulespec_version_dates import version_date_fields
 
 
 @dataclass(frozen=True)
@@ -149,9 +150,14 @@ def _frame(
     version: Mapping[str, Any],
     context: Mapping[str, str | None],
 ) -> tuple[int, str, str] | None:
+    date_fields = version_date_fields(version)
+    if date_fields is None:
+        return None
     frames = []
-    for field in ("effective_from", "effective_to"):
-        atoms = _atoms(rule, f"versions[{index}].{field}", "effective_period")
+    for field, actual_field in zip(
+        ("effective_from", "effective_to"), date_fields, strict=True
+    ):
+        atoms = _atoms(rule, f"versions[{index}].{actual_field}", "effective_period")
         if len(atoms) != 1 or (source := _source(atoms[0], context)) is None:
             return None
         citation, body, excerpt, start = source
@@ -167,7 +173,7 @@ def _frame(
         expected = (
             f"{year:04d}-01-01" if field == "effective_from" else f"{year:04d}-12-31"
         )
-        if version.get(field) != expected:
+        if version.get(actual_field) != expected:
             return None
         frames.append((year, citation, _sha(body)))
     return frames[0] if frames[0] == frames[1] else None
@@ -371,6 +377,8 @@ def bind_entered_observations(
                 "formula",
                 "effective_from",
                 "effective_to",
+                "from",
+                "to",
             }:
                 break
             formula = version.get("formula")
@@ -437,8 +445,8 @@ def bind_entered_observations(
                 break
             bound.append(
                 EnteredObservationVersion(
-                    version["effective_from"],
-                    version["effective_to"],
+                    str(version.get("effective_from", version.get("from"))),
+                    str(version.get("effective_to", version.get("to"))),
                     frame[0],
                     frame[1],
                     frame[2],

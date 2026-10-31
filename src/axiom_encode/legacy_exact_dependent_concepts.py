@@ -12,6 +12,7 @@ from typing import Mapping, Sequence
 import yaml
 
 from .rulespec_path_migration import rulespec_identity
+from .rulespec_version_dates import version_date_fields
 
 _CONCEPT_NAME = re.compile(r"[a-z][a-z0-9_]*")
 _NUMERIC_LITERAL = re.compile(r"[+-]?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?")
@@ -126,20 +127,25 @@ def _dependent_use_windows(
                 version.get("formula"), concept
             ):
                 continue
+            date_fields = version_date_fields(version)
+            if date_fields is None:
+                raise LegacyExactDependentConceptError(
+                    "dependent version repeats a date with both field spellings"
+                )
             start = _parse_date(
-                version.get("effective_from"),
+                version.get(date_fields[0]),
                 label=(
                     f"dependent rule[{rule_index}].versions[{version_index}]"
-                    ".effective_from"
+                    f".{date_fields[0]}"
                 ),
             )
-            end_raw = version.get("effective_to")
+            end_raw = version.get(date_fields[1])
             end = (
                 _parse_date(
                     end_raw,
                     label=(
                         f"dependent rule[{rule_index}].versions[{version_index}]"
-                        ".effective_to"
+                        f".{date_fields[1]}"
                     ),
                 )
                 if end_raw is not None
@@ -169,6 +175,11 @@ def _parameter_versions(
             raise LegacyExactDependentConceptError(
                 f"parameter {concept!r} version {index} is malformed"
             )
+        date_fields = version_date_fields(version)
+        if date_fields is None:
+            raise LegacyExactDependentConceptError(
+                f"parameter {concept!r} version {index} repeats a date with both field spellings"
+            )
         formula = version.get("formula")
         formula_text = str(formula).strip() if isinstance(formula, (str, int)) else ""
         if _NUMERIC_LITERAL.fullmatch(formula_text) is None:
@@ -182,10 +193,10 @@ def _parameter_versions(
                 f"parameter {concept!r} version {index} is not numeric"
             ) from exc
         start = _parse_date(
-            version.get("effective_from"),
-            label=f"parameter {concept!r} version {index} effective_from",
+            version.get(date_fields[0]),
+            label=f"parameter {concept!r} version {index} {date_fields[0]}",
         )
-        end_raw = version.get("effective_to")
+        end_raw = version.get(date_fields[1])
         if end_raw is not None:
             raise LegacyExactDependentConceptError(
                 f"parameter {concept!r} version {index} uses effective_to, which "

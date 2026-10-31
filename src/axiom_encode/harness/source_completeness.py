@@ -49,6 +49,7 @@ from axiom_encode.formula_references import (
     formula_identifiers,
     local_reference_name,
     relation_source_names,
+    rule_uses_relation_predicate,
 )
 from axiom_encode.harness.imported_export_evidence import ResolvedImportedExport
 from axiom_encode.harness.manual_locator_metadata import (
@@ -83,6 +84,7 @@ from axiom_encode.printed_source_rows import (
     PrintedRowStructure,
     recognize_printed_rows,
 )
+from axiom_encode.rulespec_version_dates import version_date_fields
 from axiom_encode.statute import (
     CitationParts,
     normalize_rulespec_path_segment,
@@ -6058,12 +6060,19 @@ def _rule_formula_source_excerpts(
     rule: dict[str, Any],
 ) -> Iterable[tuple[str, str]]:
     versions = effective_versions(rule)
-    flat = isinstance(versions, list) and len(versions) == 1 and versions[0] is rule
+    if not isinstance(versions, list) or not any(
+        isinstance(version, dict) and version.get("formula") is not None
+        for version in versions
+    ):
+        return ()
+    # Derived rules enter through the version-form gate. Parameters retain the
+    # engine's shorthand form and its actual proof location.
+    parameter_shorthand = rule.get("kind") == "parameter" and not rule.get("versions")
     return tuple(
         (citation_path, excerpt)
         for path, citation_path, excerpt in _rule_source_excerpt_atoms(rule)
         if _formula_proof_version_index(path) is not None
-        or (flat and path == "formula")
+        or (parameter_shorthand and path == "formula")
     )
 
 
@@ -6289,8 +6298,12 @@ def _formula_dependency_source_excerpts(
         for version in versions
         if isinstance(version, dict) and isinstance(version.get("formula"), str)
         for identifier in formula_identifiers(
-            _mask_formula_strings_and_comments(version["formula"]),
-            relation_predicate=rule.get("kind") == "derived_relation",
+            (
+                version["formula"]
+                if rule_uses_relation_predicate(rule)
+                else _mask_formula_strings_and_comments(version["formula"])
+            ),
+            relation_predicate=rule_uses_relation_predicate(rule),
         )
     }
     for dependency_name in dependency_names:
@@ -17989,8 +18002,8 @@ def _effective_formula_version_intervals(
     if not formulas:
         return ()
     has_temporal_metadata = any(
-        str(version.get("effective_from") or "").strip()
-        or str(version.get("effective_to") or "").strip()
+        str(version.get("effective_from", version.get("from")) or "").strip()
+        or str(version.get("effective_to", version.get("to")) or "").strip()
         for _index, version, _formula in formulas
     )
     if not has_temporal_metadata:
@@ -18001,8 +18014,8 @@ def _effective_formula_version_intervals(
 
     starts: list[str] = []
     for _index, version, _formula in formulas:
-        start = str(version.get("effective_from") or "").strip()
-        end = str(version.get("effective_to") or "").strip()
+        start = str(version.get("effective_from", version.get("from")) or "").strip()
+        end = str(version.get("effective_to", version.get("to")) or "").strip()
         if (
             not _is_iso_calendar_date(start)
             or (end and not _is_iso_calendar_date(end))
@@ -18015,8 +18028,10 @@ def _effective_formula_version_intervals(
 
     intervals: list[tuple[int, str, str | None, str | None]] = []
     for index, version, formula in formulas:
-        start = str(version.get("effective_from") or "").strip()
-        explicit_end = str(version.get("effective_to") or "").strip() or None
+        start = str(version.get("effective_from", version.get("from")) or "").strip()
+        explicit_end = (
+            str(version.get("effective_to", version.get("to")) or "").strip() or None
+        )
         next_start = min((value for value in starts if value > start), default=None)
         selected_end = explicit_end
         if next_start is not None:
@@ -19660,8 +19675,10 @@ def _negative_local_input_clamp_test_issues(
             for version in versions:
                 if not isinstance(version, dict) or version.get("formula") is None:
                     continue
-                start = str(version.get("effective_from") or "").strip()
-                end = str(version.get("effective_to") or "").strip()
+                start = str(
+                    version.get("effective_from", version.get("from")) or ""
+                ).strip()
+                end = str(version.get("effective_to", version.get("to")) or "").strip()
                 if _is_iso_calendar_date(start):
                     change_points.add(start)
                 if (
@@ -20816,7 +20833,8 @@ class _PrintedOperationContext:
             for i, version in enumerate(current_versions):
                 if (
                     not isinstance(version, dict)
-                    or set(version) - {"formula", "effective_from", "effective_to"}
+                    or set(version)
+                    - {"formula", "effective_from", "effective_to", "from", "to"}
                     or not isinstance(version.get("formula"), str)
                 ):
                     return False
@@ -20852,9 +20870,17 @@ class _PrintedOperationContext:
             and len(set(all_frames)) == 1
             and None not in selected
             and len(set(selected)) == 1
-            and versions[selected[0]]["effective_from"]
+            and str(
+                versions[selected[0]].get(
+                    "effective_from", versions[selected[0]].get("from")
+                )
+            )
             <= period
-            <= versions[selected[0]]["effective_to"]
+            <= str(
+                versions[selected[0]].get(
+                    "effective_to", versions[selected[0]].get("to")
+                )
+            )
         )
 
     def operation_projection(
@@ -22048,7 +22074,13 @@ def _annual_source_evidence(
     if selected is None or "period" not in case:
         return ()
     version = rule["versions"][selected]
-    if (version.get("effective_from"), version.get("effective_to")) != (
+    date_fields = version_date_fields(version)
+    if date_fields is None:
+        return ()
+    if (
+        version.get(date_fields[0]),
+        version.get(date_fields[1]),
+    ) != (
         f"{year}-01-01",
         f"{year}-12-31",
     ):
@@ -22068,7 +22100,7 @@ def _annual_source_evidence(
     atoms = tuple(_rule_source_excerpt_atoms(rule))
     source_collapsed = _collapse_text(source_text)
     header_collapsed = _collapse_text(header.group())
-    for field in ("effective_from", "effective_to"):
+    for field in date_fields:
         if not any(
             re.sub(r"\s+", "", path) == f"versions[{selected}].{field}"
             and atom_citation.strip("/").casefold() == citation
@@ -37190,7 +37222,10 @@ def _closed_rounding_arithmetic_environment(
             continue
         if any(
             isinstance(version, dict)
-            and (version.get("effective_from") or version.get("effective_to"))
+            and (
+                version.get("effective_from", version.get("from"))
+                or version.get("effective_to", version.get("to"))
+            )
             for version in versions
         ) and not _is_iso_calendar_date(_normalized_case_period(case)):
             continue
@@ -38196,9 +38231,22 @@ def _rule_formula_identifiers(
 ) -> set[str]:
     """Keep relation terms out of source-evidence dependency walks."""
     text = _rule_formula_text(rule) if formula is None else formula
-    if rule.get("kind") != "derived_relation":
+    if not rule_uses_relation_predicate(rule):
         return set(_FORMULA_IDENTIFIER.findall(text))
-    names = formula_identifiers(text, relation_predicate=True)
+    formulas = (
+        [formula]
+        if formula is not None
+        else [
+            str(version["formula"])
+            for version in effective_versions(rule)
+            if isinstance(version, dict) and version.get("formula") is not None
+        ]
+    )
+    names = {
+        name
+        for version_formula in formulas
+        for name in formula_identifiers(version_formula, relation_predicate=True)
+    }
     names.update(
         local_reference_name(source)
         for source in relation_source_names(rule.get("derived_relation"))
@@ -38239,14 +38287,18 @@ def _rule_formula_text_for_case(
         if isinstance(version, dict) and version.get("formula") is not None
     ]
     has_temporal_metadata = any(
-        str(version.get("effective_from") or "").strip()
-        or str(version.get("effective_to") or "").strip()
+        str(version.get("effective_from", version.get("from")) or "").strip()
+        or str(version.get("effective_to", version.get("to")) or "").strip()
         for version in formula_versions
     )
     if has_temporal_metadata:
         for version in formula_versions:
-            effective_from = str(version.get("effective_from") or "").strip()
-            effective_to = str(version.get("effective_to") or "").strip()
+            effective_from = str(
+                version.get("effective_from", version.get("from")) or ""
+            ).strip()
+            effective_to = str(
+                version.get("effective_to", version.get("to")) or ""
+            ).strip()
             if (
                 not _is_iso_calendar_date(effective_from)
                 or (effective_to and not _is_iso_calendar_date(effective_to))
@@ -38262,8 +38314,10 @@ def _rule_formula_text_for_case(
         return unambiguous
     candidates: list[tuple[str, str]] = []
     for version in formula_versions:
-        effective_from = str(version.get("effective_from") or "").strip()
-        effective_to = str(version.get("effective_to") or "").strip()
+        effective_from = str(
+            version.get("effective_from", version.get("from")) or ""
+        ).strip()
+        effective_to = str(version.get("effective_to", version.get("to")) or "").strip()
         if effective_from > period or (effective_to and effective_to < period):
             continue
         candidates.append((effective_from, str(version["formula"])))
@@ -38293,8 +38347,10 @@ def _selected_rule_formula_version_index(
     ]
     if len(formula_versions) == 1:
         index, version = formula_versions[0]
-        effective_from = str(version.get("effective_from") or "").strip()
-        effective_to = str(version.get("effective_to") or "").strip()
+        effective_from = str(
+            version.get("effective_from", version.get("from")) or ""
+        ).strip()
+        effective_to = str(version.get("effective_to", version.get("to")) or "").strip()
         if not effective_from and not effective_to:
             return index
         if "period" not in case and (
@@ -38310,8 +38366,10 @@ def _selected_rule_formula_version_index(
         return None
     candidates: list[tuple[int, str]] = []
     for index, version in formula_versions:
-        effective_from = str(version.get("effective_from") or "").strip()
-        effective_to = str(version.get("effective_to") or "").strip()
+        effective_from = str(
+            version.get("effective_from", version.get("from")) or ""
+        ).strip()
+        effective_to = str(version.get("effective_to", version.get("to")) or "").strip()
         if (
             not _is_iso_calendar_date(effective_from)
             or (effective_to and not _is_iso_calendar_date(effective_to))
@@ -38436,6 +38494,20 @@ _ImportedEvidenceLoader.add_constructor(
 )
 
 
+def _canonical_version_date_aliases(version: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize documented date aliases without admitting other evidence keys."""
+    normalized = dict(version)
+    date_fields = version_date_fields(version)
+    if date_fields is None:
+        return normalized
+    for canonical, actual in zip(
+        ("effective_from", "effective_to"), date_fields, strict=True
+    ):
+        if actual != canonical and actual in normalized:
+            normalized[canonical] = normalized.pop(actual)
+    return normalized
+
+
 def _closed_imported_table_export(provider, export):
     """Corroborate a fixed literal cell without importing provider-local names."""
     if provider.get("imports", []) != [] or export.get("kind") != "derived":
@@ -38446,7 +38518,10 @@ def _closed_imported_table_export(provider, export):
     if not isinstance(versions, list) or len(versions) != 1:
         return None
     version = versions[0]
-    if not isinstance(version, dict) or set(version) != {
+    if not isinstance(version, dict):
+        return None
+    version = _canonical_version_date_aliases(version)
+    if set(version) != {
         "formula",
         "effective_from",
         "effective_to",
@@ -38500,7 +38575,10 @@ def _closed_imported_table_export(provider, export):
     if not isinstance(table_versions, list) or len(table_versions) != 1:
         return None
     table_version = table_versions[0]
-    if not isinstance(table_version, dict) or set(table_version) != {
+    if not isinstance(table_version, dict):
+        return None
+    table_version = _canonical_version_date_aliases(table_version)
+    if set(table_version) != {
         "values",
         "effective_from",
         "effective_to",
@@ -38659,8 +38737,12 @@ def _constant_rule_environment(payload: dict[str, Any]) -> dict[str, Any]:
                 ):
                     entries.append(
                         (
-                            str(version.get("effective_from") or "").strip(),
-                            str(version.get("effective_to") or "").strip(),
+                            str(
+                                version.get("effective_from", version.get("from")) or ""
+                            ).strip(),
+                            str(
+                                version.get("effective_to", version.get("to")) or ""
+                            ).strip(),
                             value,
                         )
                     )
@@ -38772,8 +38854,8 @@ def _resolved_parameter_formula_value(
     change_points: set[str] = set()
     has_temporal_metadata = False
     for _index, version in formula_versions:
-        start = str(version.get("effective_from") or "").strip()
-        end = str(version.get("effective_to") or "").strip()
+        start = str(version.get("effective_from", version.get("from")) or "").strip()
+        end = str(version.get("effective_to", version.get("to")) or "").strip()
         if start or end:
             has_temporal_metadata = True
             if (

@@ -68,6 +68,7 @@ from axiom_encode.formula_references import (
     formula_identifiers,
     local_reference_name,
     relation_source_names,
+    rule_uses_relation_predicate,
 )
 from axiom_encode.legacy_replacement import LegacyReplacementContract
 from axiom_encode.legacy_replacement_overlay import (
@@ -101,6 +102,7 @@ from axiom_encode.retry_feedback import (
     VALIDATION_RETRY_FEEDBACK_MAX_TOTAL_CHARS,
     bounded_validation_retry_feedback_item,
 )
+from axiom_encode.rule_version_form import find_rule_version_form_issues
 from axiom_encode.signing_broker import SigningBroker
 from axiom_encode.statute import (
     CitationParts,
@@ -15311,7 +15313,7 @@ def _context_file_local_inputs(source_path: str) -> set[str]:
                 formula_text = formula
             else:
                 continue
-            relation_predicate = rule.get("kind") == "derived_relation"
+            relation_predicate = rule_uses_relation_predicate(rule)
             identifiers = (
                 formula_identifiers(formula_text, relation_predicate=True)
                 if relation_predicate
@@ -15446,26 +15448,27 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
     for owner, formula in formulas:
         rule = rules_by_name[owner]
         identifiers = formula_identifiers(
-            formula, relation_predicate=rule.get("kind") == "derived_relation"
+            formula, relation_predicate=rule_uses_relation_predicate(rule)
         )
         identifiers.update(
             local_reference_name(source)
             for source in relation_source_names(rule.get("derived_relation"))
         )
-        if rule.get("kind") != "derived_relation":
-            # Scalar bare names are inputs, including names shared with a
-            # relation or filtered member alias. Aggregates supply relation
-            # dependencies without changing the existing scalar export walk.
-            relation_arguments = analyze_relation_predicate(
-                formula, predicate_terms=False
-            ).relation_arguments
-            relation_dependencies = set(relation_arguments) & relation_names
-            for alias in relation_arguments:
-                relation_dependencies.update(
-                    filtered_aliases.get((alias, str(rule.get("entity") or "")), set())
-                )
-            identifiers.difference_update(relation_names)
-            referenced.update(relation_dependencies & export_names)
+        # A relation name in a value position reads an input in predicates too.
+        # Only atoms, relation arguments and source declarations read relations.
+        analyzed = analyze_relation_predicate(
+            formula,
+            predicate_terms=rule_uses_relation_predicate(rule),
+            relation_names=frozenset(relation_names),
+        )
+        relation_arguments = analyzed.relation_arguments | analyzed.atom_relations
+        relation_dependencies = set(relation_arguments) & relation_names
+        for alias in relation_arguments:
+            relation_dependencies.update(
+                filtered_aliases.get((alias, str(rule.get("entity") or "")), set())
+            )
+        identifiers.difference_update(relation_names)
+        referenced.update(relation_dependencies & export_names)
         referenced.update(
             identifier
             for identifier in identifiers
@@ -18210,7 +18213,7 @@ def _policyengine_hint_upstream_composition_issues(
                     )
                 )
                 for identifier in formula_identifiers(
-                    formula, relation_predicate=rule.get("kind") == "derived_relation"
+                    formula, relation_predicate=rule_uses_relation_predicate(rule)
                 ):
                     if identifier in _RULESPEC_FORMULA_KEYWORDS:
                         continue
@@ -18689,6 +18692,9 @@ def _overlay_validation_retry_candidate(
         raise _PreservedRepairOverlayError(base_issue)
     try:
         generated_content = rulespec_file.read_text(encoding="utf-8")
+        version_form_issues = find_rule_version_form_issues(generated_content)
+        if version_form_issues:
+            raise ValueError("; ".join(version_form_issues))
         generated_interpretation_issues = find_interpretation_yaml_issues(
             generated_content
         )
@@ -18933,6 +18939,11 @@ def _overlay_validation_retry_candidate(
                 + ", ".join(f"`{name}`" for name in referenced_removed_inputs)
             )
 
+    merged_content = safe_dump_yaml(generated, sort_keys=False, allow_unicode=True)
+    version_form_issues = find_rule_version_form_issues(merged_content)
+    if version_form_issues:
+        raise ValueError("; ".join(version_form_issues))
+
     if merged_test_payload is not None:
         _write_eval_artifact_text(
             test_file,
@@ -18942,7 +18953,7 @@ def _overlay_validation_retry_candidate(
 
     _write_eval_artifact_text(
         rulespec_file,
-        safe_dump_yaml(generated, sort_keys=False, allow_unicode=True),
+        merged_content,
         artifact_root,
     )
     return tuple(repairs)

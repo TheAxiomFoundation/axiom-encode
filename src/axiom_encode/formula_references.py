@@ -10,7 +10,12 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from axiom_encode.formula_grammar import Expr, FormulaSyntaxError, parse_formula
+from axiom_encode.formula_grammar import (
+    Expr,
+    FormulaSyntaxError,
+    parse_formula,
+    tokenise,
+)
 
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _QUOTED = re.compile(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'")
@@ -65,6 +70,75 @@ _FUNCTIONS = frozenset(
     }
 )
 FORMULA_BUILTINS = _KEYWORDS | _FUNCTIONS
+
+
+def rule_uses_relation_predicate(rule: object) -> bool:
+    """Keep the established filtered-entity scanners on their scalar route.
+
+    Only a complete legacy destination (entity plus member relation) qualifies.
+    Role syntax still opts into predicate analysis even on that legacy shape;
+    malformed/new declarations never gain a parse-failure fallback here.
+    """
+
+    if not isinstance(rule, Mapping) or rule.get("kind") != "derived_relation":
+        return False
+    config = rule.get("derived_relation")
+    if (
+        not isinstance(config, Mapping)
+        or "source_path" in config
+        or not all(
+            isinstance(config.get(key), str) and config[key].strip()
+            for key in ("entity", "member_relation")
+        )
+    ):
+        return True
+    versions = rule.get("versions")
+    for version in versions if isinstance(versions, list) else ():
+        if not isinstance(version, Mapping) or not isinstance(
+            version.get("formula"), str
+        ):
+            continue
+        formula = version["formula"]
+        try:
+            tree = parse_formula(formula)
+        except FormulaSyntaxError:
+            # Classification needs no guessed read inventory. Lexing alone can
+            # prove the absence of reserved role spellings in a legacy formula
+            # such as an unsupported bare date; its existing validator refuses
+            # the date while the historical name scan still sees its input.
+            try:
+                tokens = tokenise(formula)
+            except FormulaSyntaxError:
+                return True
+            if any(
+                token.kind == "ident" and token.value in _TERMS | {"exists"}
+                for token in tokens
+            ):
+                return True
+            if any(
+                token.kind in {"ident", "path"}
+                and token.value not in _FUNCTIONS
+                and following.kind == "("
+                for token, following in zip(tokens, tokens[1:])
+            ):
+                return True
+            continue
+        pending = [tree]
+        while pending:
+            expr = pending.pop()
+            if (
+                expr.kind == "var"
+                and expr.value in _TERMS
+                or expr.kind == "call"
+                and (expr.value == "exists" or expr.value not in _FUNCTIONS)
+            ):
+                return True
+            pending.extend(expr.children)
+            for pattern, value in expr.cases:
+                pending.extend((pattern, value))
+            if expr.default is not None:
+                pending.append(expr.default)
+    return False
 
 
 @dataclass(frozen=True)
