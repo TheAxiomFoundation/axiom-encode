@@ -84,6 +84,63 @@ EXCLUSIONS = {
 CONTEXT_DEPENDENT = frozenset(
     "אי אל אף ואף בל הלא להוציא מעולם מנוע מנועה למנוע חוץ פרט".split()
 )
+
+# Round 19: a source also reads these heads as negating its link, but only
+# over a computation complement (without calculation, prevents calculation,
+# instead of calculation), as English's source guard reads ``without
+# calculat*``, ``prevented`` and ``rather than``. Their statutory homographs
+# (a missing person, blocked income, at a place, exclusive) take no
+# computation complement. Grammar lists the heads; the statutes supply the
+# contexts. Bare מחוסר before an indefinite complement is causal ("for lack
+# of"), so it reads only in a relative clause there.
+SOURCE_GUARDED_HEADS = frozenset(
+    """
+    נטול נטולת נטולי נטולות נעדר נעדרת נעדרי נעדרות חסר חסרה חסרת חסרי חסרות
+    מחוסרת מחוסרי מחוסרות משוללי בלעדי באפס חסום חסומה חסומים חסומות מונע
+    מונעת מונעים מונעות מניעת נדחה נדחתה נדחו דוחות אי במקום חלף תחת פטורי
+    פטורת פטורות
+    """.split()
+)
+ORDINARY_PREFIXES = tuple(
+    conjunction + subordinator
+    for conjunction in ("", "ו")
+    for subordinator in ("", "ש", "כש", "מש", "לכש", "בש", "ד")
+)
+# The Hebrew of English's determin*, comput*/calculat*, appl*, impos* and
+# aris*, as nouns with their suffixes and as infinitives.
+SOURCE_COMPUTATION_WORD = re.compile(
+    r"\s+(?:(?:כל|שום|אותו|אותה|אותם|אותן)\s+)?ה?(?:"
+    r"קביע(?:ה|ת|ות|ותי|תו|תה|תם|תן)|היקבעות|חישוב(?:ים|י|ו|ה|ם|ן)?"
+    r"|החל(?:ה|ת|ות|תו|תה|תם|תן)|יישום(?:ים|י|ו|ה|ם|ן)?|תחול(?:ה|ת|תו|תה|תם|תן)"
+    r"|הטל(?:ה|ת|ות|תו|תה|תם|תן)|השת(?:ה|ת|תו|תה|תם|תן)|חיוב(?:ים|י|ו|ה|ם|ן)?"
+    r"|היווצרות(?:ו|ה|ם|ן)?|התהוות(?:ו|ה|ם|ן)?|צמיח(?:ה|ת|תו|תה|תם|תן)"
+    r"|להיקבע|לחשב|להחיל|ליישם|להטיל|לחייב|להיווצר|לצמוח|לחול|להשית|לקום"
+    r")(?![א-ת])"
+)
+
+
+def source_guarded_head(token: str) -> str | None:
+    """The guarded head ``token`` spells after an ordinary prefix chain, if any."""
+
+    for prefix in sorted(ORDINARY_PREFIXES, key=len):
+        head = token[len(prefix) :]
+        if token.startswith(prefix) and head in SOURCE_GUARDED_HEADS:
+            return head
+        if token.startswith(prefix) and head == "מחוסר" and set(prefix) & {"ש", "ד"}:
+            return head
+    return None
+
+
+def _source_reading(token: str, after: str, negator: bool) -> bool:
+    """The source reading: a negator, or a guarded head over a computation."""
+
+    if negator:
+        return True
+    return source_guarded_head(token) is not None and bool(
+        SOURCE_COMPUTATION_WORD.match(after)
+    )
+
+
 AUDITED_WORDS = UNCONDITIONAL_NEGATORS | EXCLUSIONS.keys() | CONTEXT_DEPENDENT
 
 
@@ -242,11 +299,27 @@ def generate(snapshot: Path) -> dict:
         for match in WORD.finditer(text):
             token = match.group()
             counts[token] += 1
-            if token not in AUDITED_WORDS:
+            guarded = source_guarded_head(token) is not None
+            if token not in AUDITED_WORDS and not guarded:
                 continue
             low, high = max(0, match.start() - 100), min(len(text), match.end() + 120)
             before, after = text[low : match.start()], text[match.end() : high]
-            negative, explanation = _reading(token, before, after)
+            if token in AUDITED_WORDS:
+                negative, explanation = _reading(token, before, after)
+            else:
+                negative = False
+                explanation = (
+                    "A source-only head: it negates a link only over a computation complement."
+                    if SOURCE_COMPUTATION_WORD.match(after)
+                    else "A source-only head with no computation complement: its statutory sense."
+                )
+            source_negative = _source_reading(token, after, negative)
+            if token in AUDITED_WORDS and source_negative != negative:
+                explanation += (
+                    " In a source, a guarded head over a computation complement."
+                )
+            if before and before[-1].isdigit():
+                source_negative = negative
             if (
                 sum(
                     context["explanation"] == explanation for context in contexts[token]
@@ -261,6 +334,7 @@ def generate(snapshot: Path) -> dict:
                     "start": match.start() - low,
                     "end": match.end() - low,
                     "negator": negative,
+                    "source_negator": source_negative,
                     "explanation": explanation,
                 }
             )
@@ -278,6 +352,11 @@ def generate(snapshot: Path) -> dict:
         "vocabulary": sorted(counts),
         "probe_negators": sorted(
             (UNCONDITIONAL_NEGATORS | {"בל", "להוציא"}) & counts.keys()
+        ),
+        # Each word before " חישוב": the source also reads its guarded heads.
+        "source_probe_negators": sorted(
+            ((UNCONDITIONAL_NEGATORS | {"בל", "להוציא"}) & counts.keys())
+            | {word for word in counts if source_guarded_head(word) is not None}
         ),
         "audited_tokens": [
             {"token": token, "occurrences": counts[token], "contexts": contexts[token]}

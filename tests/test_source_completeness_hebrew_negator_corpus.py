@@ -48,15 +48,21 @@ def test_every_statutory_word_has_an_audited_negator_or_nonnegator_reading():
         text = word + " חישוב"
         reason = [match.span() for match in hebrew._REASON_NEGATION.finditer(text)]
         source = [match.span() for match in hebrew.link_negations(text)]
-        assert reason == source, word
+        # The source reads every reason negation, and its guarded heads too.
+        assert set(reason) <= set(source), word
         if any(start == 0 for start, _ in reason):
             reason_words.add(word)
         if any(start == 0 for start, _ in source):
             source_words.add(word)
     expected = set(FIXTURE["probe_negators"])
-    assert reason_words == source_words == expected, {
+    assert reason_words == expected, {
         "unreviewed_negators": sorted(reason_words - expected),
         "missed_negators": sorted(expected - reason_words),
+    }
+    source_expected = set(FIXTURE["source_probe_negators"])
+    assert source_words == source_expected, {
+        "unreviewed_source_negators": sorted(source_words - source_expected),
+        "missed_source_negators": sorted(source_expected - source_words),
     }
 
 
@@ -71,6 +77,8 @@ def test_statutory_negators_and_commented_exclusions_in_their_real_context(row):
         assert context["explanation"]
         reason = [match.span() for match in hebrew._REASON_NEGATION.finditer(text)]
         source = [match.span() for match in hebrew.link_negations(text)]
-        assert reason == source, context
+        assert set(reason) <= set(source), context
         actual = any(start == context["start"] for start, _ in reason)
         assert actual == context["negator"], context
+        read = any(start == context["start"] for start, _ in source)
+        assert read == context["source_negator"], context

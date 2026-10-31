@@ -16167,6 +16167,123 @@
     "תימנע",
     "תסרב"
   ],
+  "source_probe_negators": [
+    "אי",
+    "אילולא",
+    "אין",
+    "אינה",
+    "אינו",
+    "אינם",
+    "אינן",
+    "איננה",
+    "איננו",
+    "איסור",
+    "אלמלא",
+    "אסר",
+    "באין",
+    "בהיעדר",
+    "בהעדר",
+    "בל",
+    "בלא",
+    "בלי",
+    "בלעדי",
+    "בלתי",
+    "במקום",
+    "דוחות",
+    "דלא",
+    "האסורה",
+    "הבלתי",
+    "הנמנע",
+    "הנמנעים",
+    "השוללת",
+    "ואי",
+    "ואין",
+    "ואינה",
+    "ואינו",
+    "ואינם",
+    "ואיננה",
+    "ובאין",
+    "ובלא",
+    "ובלי",
+    "ובלתי",
+    "ובמקום",
+    "וטרם",
+    "ולא",
+    "ולהוציא",
+    "ולולא",
+    "וללא",
+    "ולמעט",
+    "ומונעים",
+    "ונדחה",
+    "ושאינה",
+    "ושאינו",
+    "ושאינם",
+    "ושלא",
+    "זולת",
+    "חלף",
+    "חסום",
+    "חסומה",
+    "חסומות",
+    "חסר",
+    "טרם",
+    "יוחרגו",
+    "כבלתי",
+    "כשטרם",
+    "כשל",
+    "כשלא",
+    "לא",
+    "לאו",
+    "להוציא",
+    "לולא",
+    "ללא",
+    "למעט",
+    "לסרב",
+    "מבלי",
+    "מונע",
+    "מונעים",
+    "מונעת",
+    "מלבד",
+    "מניעת",
+    "נבצר",
+    "נדחה",
+    "נדחו",
+    "נדחתה",
+    "נכשל",
+    "נכשלו",
+    "נמנע",
+    "נמנעה",
+    "נעדר",
+    "נשללו",
+    "סירב",
+    "סירבה",
+    "פטורות",
+    "שאי",
+    "שאילולא",
+    "שאין",
+    "שאינה",
+    "שאינו",
+    "שאינם",
+    "שאינן",
+    "שאיננה",
+    "שאיננו",
+    "שבלי",
+    "שבמקום",
+    "שהוחרג",
+    "שוללת",
+    "שחלף",
+    "שטרם",
+    "שיימנע",
+    "שכשלו",
+    "שלא",
+    "שלולא",
+    "שנדחה",
+    "שנדחתה",
+    "שנעדר",
+    "שסירב",
+    "תחת",
+    "תימנע",
+    "תסרב"
+  ],
   "audited_tokens": [
     {
       "token": "אי",
@@ -16178,6 +16295,7 @@
           "start": 18,
           "end": 20,
           "negator": true,
+          "source_negator": true,
           "explanation": "אי אפשר/ניתן means cannot."
         },
         {
@@ -16186,6 +16304,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Nominal אי (non-/in-) is outside the clause-negator construction."
         },
         {
@@ -16194,6 +16313,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Nominal אי (non-/in-) is outside the clause-negator construction."
         },
         {
@@ -16202,7 +16322,26 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Nominal אי (non-/in-) is outside the clause-negator construction."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-103a",
+          "text": "משלתיות, רשאי לאשר כי הוראות חלק זה יחולו על חברות ממשלתיות וחברות בת ממשלתיות בשינויים שקבע, לרבות אי תחולה של חלק מהוראות חלק זה, ובלבד ששיעור ההחזקה של המדינה או של רשות הפיתוח כמשמעותה בחוק רשות פיתוח (העברת נכסים), הת",
+          "start": 100,
+          "end": 102,
+          "negator": false,
+          "source_negator": true,
+          "explanation": "Nominal אי (non-/in-) is outside the clause-negator construction. In a source, a guarded head over a computation complement."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-104c",
+          "text": " לכל ענין אחר.\n(ד) (בוטל).\n(ה) (1) הוראות סעיפים קטנים (א) עד (ג) יחולו בשינויים שיורה המנהל, לרבות אי תחולה של חלק מן ההוראות האמורות, על תאגידים בנקאיים כמשמעותם בחוק הבנקאות (רישוי), התשמ״א–1981, ועל חברות שבשליטתם, המע",
+          "start": 100,
+          "end": 102,
+          "negator": false,
+          "source_negator": true,
+          "explanation": "Nominal אי (non-/in-) is outside the clause-negator construction. In a source, a guarded head over a computation complement."
         },
         {
           "citation": "il/statute/national-insurance-law-1995/section-139",
@@ -16210,6 +16349,7 @@
           "start": 100,
           "end": 102,
           "negator": true,
+          "source_negator": true,
           "explanation": "אי אפשר/ניתן means cannot."
         },
         {
@@ -16218,6 +16358,7 @@
           "start": 100,
           "end": 102,
           "negator": true,
+          "source_negator": true,
           "explanation": "אי אפשר/ניתן means cannot."
         }
       ]
@@ -16232,6 +16373,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16240,6 +16382,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16248,6 +16391,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16262,6 +16406,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16270,6 +16415,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16278,6 +16424,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16292,6 +16439,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16300,6 +16448,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16308,6 +16457,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16322,6 +16472,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16330,6 +16481,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16338,6 +16490,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16352,6 +16505,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16360,6 +16514,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16368,6 +16523,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16382,6 +16538,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16390,6 +16547,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16398,6 +16556,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16412,6 +16571,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16420,6 +16580,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16428,6 +16589,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16442,6 +16604,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16450,6 +16613,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16458,6 +16622,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16472,6 +16637,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16480,6 +16646,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16488,6 +16655,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16502,6 +16670,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Prepositional to a report, assignee, or spouse; no imperfect verb follows."
         },
         {
@@ -16510,6 +16679,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Prepositional to a report, assignee, or spouse; no imperfect verb follows."
         },
         {
@@ -16518,6 +16688,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Prepositional to a report, assignee, or spouse; no imperfect verb follows."
         }
       ]
@@ -16532,6 +16703,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16540,6 +16712,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16548,6 +16721,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16562,6 +16736,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16576,6 +16751,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Concessive על אף (despite), even when a later clause contains לא."
         },
         {
@@ -16584,6 +16760,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Concessive even if, not an independent negator."
         },
         {
@@ -16592,6 +16769,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Concessive על אף (despite), even when a later clause contains לא."
         },
         {
@@ -16600,6 +16778,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Concessive על אף (despite), even when a later clause contains לא."
         },
         {
@@ -16608,6 +16787,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Concessive even if, not an independent negator."
         },
         {
@@ -16616,6 +16796,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Concessive even if, not an independent negator."
         },
         {
@@ -16624,6 +16805,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Affirmative even/also, without an independent negative reading."
         },
         {
@@ -16632,6 +16814,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Affirmative even/also, without an independent negative reading."
         },
         {
@@ -16640,6 +16823,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Affirmative even/also, without an independent negative reading."
         },
         {
@@ -16648,6 +16832,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Concessive although not, not an independent negator."
         },
         {
@@ -16656,6 +16841,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Concessive although not, not an independent negator."
         },
         {
@@ -16664,6 +16850,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Concessive although not, not an independent negator."
         },
         {
@@ -16672,6 +16859,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Concessive even in deviation from, not an independent negator."
         },
         {
@@ -16680,6 +16868,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Concessive even in deviation from, not an independent negator."
         },
         {
@@ -16688,6 +16877,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "Concessive even in deviation from, not an independent negator."
         }
       ]
@@ -16702,6 +16892,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Nominal אי (non-/in-) or the homograph באי כוחם; only אי אפשר/ניתן is a clause negator."
         },
         {
@@ -16710,6 +16901,7 @@
           "start": 45,
           "end": 48,
           "negator": false,
+          "source_negator": false,
           "explanation": "Nominal אי (non-/in-) or the homograph באי כוחם; only אי אפשר/ניתן is a clause negator."
         },
         {
@@ -16718,6 +16910,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Nominal אי (non-/in-) or the homograph באי כוחם; only אי אפשר/ניתן is a clause negator."
         }
       ]
@@ -16732,6 +16925,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16746,6 +16940,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Inventory (מלאי) or wear (בלאי), not a prefixed negative particle."
         }
       ]
@@ -16760,6 +16955,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Wall (דופן), not prefixed פן."
         }
       ]
@@ -16774,6 +16970,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16788,6 +16985,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16802,6 +17000,7 @@
           "start": 100,
           "end": 106,
           "negator": false,
+          "source_negator": false,
           "explanation": "In its absence: the pronoun suffix is the absent thing, so no later word is negated."
         }
       ]
@@ -16816,6 +17015,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "Understated or short (ביתר או בחסר, מכירה בחסר), not ב plus the absence noun חוסר."
         },
         {
@@ -16824,6 +17024,7 @@
           "start": 31,
           "end": 35,
           "negator": false,
+          "source_negator": false,
           "explanation": "Understated or short (ביתר או בחסר, מכירה בחסר), not ב plus the absence noun חוסר."
         },
         {
@@ -16832,6 +17033,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "Understated or short (ביתר או בחסר, מכירה בחסר), not ב plus the absence noun חוסר."
         }
       ]
@@ -16846,6 +17048,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "Temporal before; the legacy English guard also excludes before."
         },
         {
@@ -16854,6 +17057,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "Temporal before; the legacy English guard also excludes before."
         },
         {
@@ -16862,6 +17066,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "Temporal before; the legacy English guard also excludes before."
         }
       ]
@@ -16876,6 +17081,7 @@
           "start": 67,
           "end": 71,
           "negator": false,
+          "source_negator": false,
           "explanation": "Cable transmission, not prefixes ב/כ plus the particle בל."
         }
       ]
@@ -16890,6 +17096,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "טופס בל/50 abbreviates National Insurance; not the particle בל."
         }
       ]
@@ -16904,6 +17111,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16912,6 +17120,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16920,6 +17129,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16934,6 +17144,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16942,6 +17153,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16950,7 +17162,41 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "בלעדי",
+      "occurrences": 4,
+      "contexts": [
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/section-4a",
+          "text": "ודעה על מעבר בין קופות החולים, והודעה בדבר ביטול הודעה על מעבר כאמור, לפי סעיפים 4 ו־5, יוגשו באופן בלעדי לבנק הדואר או לגוף אחר שיקבע שר הבריאות בהתייעצות עם שר העבודה והרווחה ועם השר הממונה על אותו גוף לפי הענין (בסעיף זה –",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/section-4a",
+          "text": "ודעה על מעבר בין קופות החולים, והודעה בדבר ביטול הודעה על מעבר כאמור, לפי סעיפים 4 ו־5, יוגשו באופן בלעדי לחברה הבת כהגדרתה בחוק הדואר, התשמ״ו–1986 או לגוף אחר שיקבע שר הבריאות בהתייעצות עם שר העבודה והרווחה ועם השר הממונה על",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/schedule-2/sign-1/item-24a",
+          "text": " אינם יכולים לקבל כלכלת מזון רגילה –\n(א) העונים על כל אלה:\n(1) תלויים בהזנה אנטרלית לאורך זמן באופן בלעדי;\n(2) בעלי צרכים תזונתיים מיוחדים לאורך זמן;\n(ב) טיפול באמצעות תכשירים אלה:\n(1) Nutren Junior;\n(2) Nutren junior with fi",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -16964,6 +17210,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16972,6 +17219,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -16980,6 +17228,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -16994,6 +17243,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "May, the month, not prefixed אי."
         },
         {
@@ -17002,6 +17252,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "May, the month, not prefixed אי."
         },
         {
@@ -17010,6 +17261,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "May, the month, not prefixed אי."
         }
       ]
@@ -17024,6 +17276,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Imprisonment, not prepositional מ plus the verb אסר (forbade)."
         },
         {
@@ -17032,6 +17285,7 @@
           "start": 10,
           "end": 15,
           "negator": false,
+          "source_negator": false,
           "explanation": "Imprisonment, not prepositional מ plus the verb אסר (forbade)."
         },
         {
@@ -17040,7 +17294,74 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Imprisonment, not prepositional מ plus the verb אסר (forbade)."
+        }
+      ]
+    },
+    {
+      "token": "במקום",
+      "occurrences": 65,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-1",
+          "text": " בין שהן מואגדות ובין שאינן מואגדות;\n”חברה“ – חברה שהואגדה או שנרשמה על פי כל דין בר־תוקף בישראל או במקום אחר, לרבות אגודה שיתופית;\n”חודש“ – לרבות חלק ממנו;\n”חוק מיסוי בתנאי אינפלציה“ – חוק מס הכנסה (מיסוי בתנאי אינפלציה), הת",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-9",
+          "text": " שנה – 80%;\n(5) אם בעת נתינת העזבון בחיים מלאו לנותן 80 שנה – 90%;\n(ב) הפטור שלפי פסקת משנה (א) הוא במקום הפטור שלפי סעיף 9ב, ונותן העזבון לא יהא זכאי לזיכוי או לניכוי לפי כל דין בשל מתן אותו עזבון בחיים.\n(24) ריבית והפרשי הצ",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-9",
+          "text": "ראל, הוועד הפאראלימפי הישראלי או התאחדות איל״ת – התאחדות ישראלית לספורט תחרותי שאינו אולימפי, לזוכה במקום הראשון, השני או השלישי בתחרות שהתקיימה במסגרת המשחקים האולימפיים, המשחקים הפאראלימפיים או משחקי העולם, או לזוכה כאמור ב",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
+      "token": "דוחות",
+      "occurrences": 15,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-64a1",
+          "text": "של בעלי המניות בזכויות לרווחים;\n(7) חבות ותשלום המס בנסיבות שבהן נמכרות מניות החברה במהלך השנה;\n(8) דוחות שיגישו החברה השקופה ובעלי מניותיה;\n(9) הוראות בדבר הגבלת קיזוז הפסדים;\n(10) הוראות לענין בעל תפקיד פעיל בחברה, כאמור בס",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-68b",
+          "text": "ענין הפקודה.\n(ד) שר האוצר, באישור ועדת הכספים של הכנסת, יקבע הוראות לביצוע סעיף זה וכן הוראות לענין דוחות שחייב הנציג בהגשתם.",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-85a",
+          "text": "או בעקיפין, לבד או יחד עם אחר;\n”ישות“ – חבר בני אדם, לרבות יחידה עסקית של חבר בני אדם שלגביה נערכים דוחות כספיים נפרדים;\n”קבוצה רב־לאומית“ – קבוצה המורכבת משתי ישויות או יותר אשר מתקיימים לגביהן שני אלה:\n(1) אחת מהן לפחות היא",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -17054,6 +17375,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "Wall (דופן), not prefixed פן."
         }
       ]
@@ -17068,6 +17390,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17082,6 +17405,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17096,6 +17420,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "The nose, not negative-polarity אף."
         },
         {
@@ -17104,6 +17429,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "The nose, not negative-polarity אף."
         }
       ]
@@ -17118,6 +17444,7 @@
           "start": 50,
           "end": 55,
           "negator": false,
+          "source_negator": false,
           "explanation": "Inventory (מלאי) or wear (בלאי), not a prefixed negative particle."
         }
       ]
@@ -17132,6 +17459,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17146,6 +17474,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "A bare or causal absence noun (absence of, for lack of); only ב with the noun in construct means without."
         }
       ]
@@ -17160,6 +17489,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Attributive הלא מנוצל means the unused (real-estate portion)."
         },
         {
@@ -17168,6 +17498,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Attributive הלא מנוצל means the unused (real-estate portion)."
         }
       ]
@@ -17182,6 +17513,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Imprisonment, not prepositional מ plus the verb אסר (forbade)."
         },
         {
@@ -17190,6 +17522,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Imprisonment, not prepositional מ plus the verb אסר (forbade)."
         }
       ]
@@ -17204,6 +17537,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         }
       ]
@@ -17218,6 +17552,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Inventory (מלאי) or wear (בלאי), not a prefixed negative particle."
         },
         {
@@ -17226,6 +17561,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Inventory (מלאי) or wear (בלאי), not a prefixed negative particle."
         },
         {
@@ -17234,6 +17570,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Inventory (מלאי) or wear (בלאי), not a prefixed negative particle."
         }
       ]
@@ -17248,6 +17585,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -17256,6 +17594,7 @@
           "start": 17,
           "end": 22,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -17264,6 +17603,7 @@
           "start": 4,
           "end": 9,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         }
       ]
@@ -17278,6 +17618,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17292,6 +17633,7 @@
           "start": 100,
           "end": 107,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17306,6 +17648,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "A bare or causal absence noun (absence of, for lack of); only ב with the noun in construct means without."
         }
       ]
@@ -17320,6 +17663,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17334,6 +17678,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Nominal אי (non-/in-) or the homograph באי כוחם; only אי אפשר/ניתן is a clause negator."
         },
         {
@@ -17342,6 +17687,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Nominal אי (non-/in-) or the homograph באי כוחם; only אי אפשר/ניתן is a clause negator."
         },
         {
@@ -17350,6 +17696,7 @@
           "start": 20,
           "end": 23,
           "negator": false,
+          "source_negator": false,
           "explanation": "Nominal אי (non-/in-) or the homograph באי כוחם; only אי אפשר/ניתן is a clause negator."
         }
       ]
@@ -17364,6 +17711,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17372,6 +17720,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17380,6 +17729,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17394,6 +17744,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17402,6 +17753,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17410,6 +17762,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17424,6 +17777,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17432,6 +17786,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17440,6 +17795,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17454,6 +17810,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17462,6 +17819,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17470,6 +17828,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17484,6 +17843,7 @@
           "start": 75,
           "end": 81,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17492,6 +17852,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17500,6 +17861,7 @@
           "start": 74,
           "end": 80,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17514,6 +17876,7 @@
           "start": 74,
           "end": 77,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative polarity: not even / nor."
         },
         {
@@ -17522,6 +17885,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative polarity: not even / nor."
         },
         {
@@ -17530,6 +17894,7 @@
           "start": 52,
           "end": 55,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative polarity: not even / nor."
         }
       ]
@@ -17544,6 +17909,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17552,6 +17918,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17560,6 +17927,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17574,6 +17942,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "And before; the legacy English guard also excludes before."
         },
         {
@@ -17582,6 +17951,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "And before; the legacy English guard also excludes before."
         }
       ]
@@ -17596,6 +17966,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17604,6 +17975,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17618,6 +17990,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17626,6 +17999,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17634,6 +18008,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17648,7 +18023,41 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "ובמקום",
+      "occurrences": 4,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-230a",
+          "text": "ופט או רשם של בית משפט שלום, לפי בקשת פקיד השומה, ליתן צו המחייב אותו להתייצב לפני פקיד השומה במועד ובמקום שצויינו בצו.",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-233",
+          "text": "(א) שר האוצר רשאי לפרסם בדרך ובמקום שיקבע, רשימה של כל הנישומים, ובה יפורש סכום ההכנסה החייבת של כל אחד מהם, לשנת מס פלונית, כפי שנמסר בדו״ח שהגיש, או כפי ",
+          "start": 29,
+          "end": 35,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-76",
+          "text": " פרק זה אם הוא ומעבידו הם תושבי ישראל וחוזה העבודה נקשר בישראל, או אף אם חוזה העבודה לא נקשר בישראל ובמקום העבודה אין ביטוח נפגעי עבודה חובה לפי החוק ונמסרה הודעה על קיומו של החוזה כפי שנקבע בתקנות.\n(ב) על אף הוראות סעיף קטן (",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -17662,6 +18071,7 @@
           "start": 100,
           "end": 106,
           "negator": false,
+          "source_negator": false,
           "explanation": "Inventory (מלאי) or wear (בלאי), not a prefixed negative particle."
         }
       ]
@@ -17676,6 +18086,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17684,6 +18095,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17692,6 +18104,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17706,6 +18119,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17714,6 +18128,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17722,6 +18137,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17736,6 +18152,7 @@
           "start": 100,
           "end": 107,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17750,6 +18167,7 @@
           "start": 82,
           "end": 87,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17764,6 +18182,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17772,6 +18191,7 @@
           "start": 25,
           "end": 29,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17780,6 +18200,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17794,6 +18215,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17802,6 +18224,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17810,7 +18233,23 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "ומונעים",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/schedule-2/sign-1/item-31",
+          "text": "טיפולי שיניים למבוטחים שמלאו להם 72 שנים\n(א) טיפולי שיניים משמרים ומונעים למבוטחים שמלאו להם 72 שנים; הזכאות כוללת –\n(1) עזרה ראשונה – טיפול דחוף שאינו סובל דיחוי, כגון: שיכוך כאב, מתן מרשם תרו",
+          "start": 66,
+          "end": 73,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -17824,6 +18263,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -17832,6 +18272,7 @@
           "start": 83,
           "end": 88,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -17840,6 +18281,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         }
       ]
@@ -17854,7 +18296,23 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Inventory (מלאי) or wear (בלאי), not a prefixed negative particle."
+        }
+      ]
+    },
+    {
+      "token": "ונדחה",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-130",
+          "text": "ת החלטת הועדה לא תובא בחשבון התקופות האמורות בסעיפים 145 ו־152(ג).\n(ה) הוגש ערר כאמור בסעיף קטן (ד) ונדחה, יראו את פנקסי החשבונות כבלתי קבילים לענין ערעור על השומה.\n(ו) לא יוצא צו לפי סעיף 152(ב) המבוסס על אי קבלת פנקסים או פ",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -17868,6 +18326,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17876,6 +18335,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17884,6 +18344,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17898,6 +18359,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17906,6 +18368,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17920,6 +18383,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17928,6 +18392,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17936,6 +18401,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17950,6 +18416,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17958,6 +18425,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17966,6 +18434,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -17980,6 +18449,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17988,6 +18458,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -17996,6 +18467,7 @@
           "start": 39,
           "end": 43,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -18010,6 +18482,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "A bare or causal absence noun (absence of, for lack of); only ב with the noun in construct means without."
         },
         {
@@ -18018,6 +18491,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "A bare or causal absence noun (absence of, for lack of); only ב with the noun in construct means without."
         }
       ]
@@ -18032,6 +18506,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Foreign/external or a compound adjective, not the exception except."
         },
         {
@@ -18040,6 +18515,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Foreign/external or a compound adjective, not the exception except."
         },
         {
@@ -18048,6 +18524,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Foreign/external or a compound adjective, not the exception except."
         },
         {
@@ -18056,6 +18533,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Foreign in a headed noun phrase; the following מ belongs to another word."
         },
         {
@@ -18064,6 +18542,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "A prefixed foreign-head noun phrase; the following מ is not except."
         },
         {
@@ -18072,6 +18551,7 @@
           "start": 33,
           "end": 36,
           "negator": false,
+          "source_negator": false,
           "explanation": "Foreign in a headed noun phrase; the following מ belongs to another word."
         },
         {
@@ -18080,6 +18560,7 @@
           "start": 97,
           "end": 100,
           "negator": false,
+          "source_negator": false,
           "explanation": "A prefixed foreign-head noun phrase; the following מ is not except."
         },
         {
@@ -18088,6 +18569,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Foreign in a headed noun phrase; the following מ belongs to another word."
         },
         {
@@ -18096,6 +18578,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Except, with a following מ complement."
         },
         {
@@ -18104,6 +18587,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Except, with a following מ complement."
         },
         {
@@ -18112,6 +18596,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "A prefixed foreign-head noun phrase; the following מ is not except."
         },
         {
@@ -18120,6 +18605,7 @@
           "start": 77,
           "end": 80,
           "negator": true,
+          "source_negator": true,
           "explanation": "Except, with a following מ complement."
         },
         {
@@ -18128,6 +18614,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "External/non- compound adjective; not the exception except."
         },
         {
@@ -18136,6 +18623,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "External/non- compound adjective; not the exception except."
         },
         {
@@ -18144,7 +18632,137 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "External/non- compound adjective; not the exception except."
+        }
+      ]
+    },
+    {
+      "token": "חלף",
+      "occurrences": 9,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-9",
+          "text": "אדם, במועד החל בתקופה שתחילתה ביום י״א באב התשס״ט (1 באוגוסט 2009) וסיומה בתום שנתיים מהמועד האמור, חלף חוב שאותו חבר בני אדם חב לקופת הגמל לפני יום תחילתה של התקופה האמורה, כולו או חלקו.\n(2א) (א) הכנסתו של ארגון מקצועי לרב",
+          "start": 100,
+          "end": 103,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-insurance-law-1995/chapter-3/sign-5",
+          "text": "סימן ד׳1: תשלום ליולדת חלף דמי אבטלה",
+          "start": 23,
+          "end": 26,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-insurance-law-1995/chapter-9/sign-8",
+          "text": "סימן ח׳: מענק חד־פעמי חלף הגדלת קצבאות הנכות לשנת 2020 (פקע)",
+          "start": 22,
+          "end": 25,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
+      "token": "חסום",
+      "occurrences": 2,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/schedule-2/item-1",
+          "text": "משמעותו בסעיף 9 לפקודת המסחר עם האויב, 1939, או נכס נפקד כמשמעותו בחוק נכסי נפקדים, תש״י–1950;\n”נכס חסום“ – כסף או נכס שבידי האפוטרופוס;\n”הכנסה חסומה“ – הכנסה המשתלמת לאפוטרופוס ושהיתה נכללת בהכנסתו החייבת של אדם לשנת מס פלו",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/schedule-2/item-10",
+          "text": "יפוכו של דבר – שמאז השלישי בספטמבר 1939 לא חל שום דבר שהיה בו כדי להחליף בעל הכנסה חסומה או בעל נכס חסום ובכל שומה לפי סעיף 2 לתוספת יפורש שמו של בעל ההכנסה.",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
+      "token": "חסומה",
+      "occurrences": 9,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-104h",
+          "text": "עיף זה – החברה הקולטת והמניות המוקצות);\n”המעביר“ – מי שהעביר את המניות המועברות לחברה הקולטת;\n”מניה חסומה“ – מניה אשר מכירתה מוגבלת לחלוטין, על פי הוראות דין או על פי הוראות הרשות המוסמכת על פי דין לקבוע כללים לגבי מסחר בנייר",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/schedule-2/item-1",
+          "text": " או נכס נפקד כמשמעותו בחוק נכסי נפקדים, תש״י–1950;\n”נכס חסום“ – כסף או נכס שבידי האפוטרופוס;\n”הכנסה חסומה“ – הכנסה המשתלמת לאפוטרופוס ושהיתה נכללת בהכנסתו החייבת של אדם לשנת מס פלונית, אילולא דיני המסחר עם האויב, ו”בעל הכנסה“",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/schedule-2/item-2",
+          "text": "הכנסה חסומה יראו כהכנסתו החייבת של בעל ההכנסה, ואפשר לשום את האפוטרופוס בשל אותה הכנסה, כדרך שהיה נישום בעל ההכנסה אילו היתה נכללת ",
+          "start": 6,
+          "end": 11,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
+      "token": "חסומות",
+      "occurrences": 2,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-104h",
+          "text": "ית;\n(ב) מועד תום תקופת הדחיה; לענין זה, ”מועד תום תקופת הדחיה“ –\n(1) לענין מניות מוקצות שאינן מניות חסומות –\n(א) לגבי מחציתן – עשרים וארבעה חודשים מיום ההחלפה; לענין חישוב המחצית, יובאו בחשבון המניות המוקצות, לרבות המניות החסו",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-104h",
+          "text": "לתום עשרים וארבעה החודשים כאמור;\n(ב) לגבי יתרתן – ארבעים ושמונה חודשים מיום ההחלפה;\n(2) לענין מניות חסומות –\n(א) לגבי מחציתן – עשרים וארבעה חודשים מיום ההחלפה או תום 6 חודשים מתום תקופת החסימה, לפי המאוחר, ובלבד שיובאו בחשבון ",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
+      "token": "חסר",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/schedule-2/sign-1/item-3",
+          "text": "yeloproliferative neoplasm – חולי מיאלופיברוזיס ראשוני או משני;\n(5) כשל של מח עצם.\n(מ) בדיקה לאבחון חסר פעילות האנזים (Dihydropyrimidine Dehydrogenase DPD) בחולים המועמדים לטיפול בתרופות ממשפחת הפלואורופירימידינים.",
+          "start": 100,
+          "end": 103,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -18158,6 +18776,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18166,6 +18785,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18174,6 +18794,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -18188,6 +18809,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -18202,6 +18824,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "As/to a financial institution; אל is a preposition here."
         }
       ]
@@ -18216,6 +18839,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18224,6 +18848,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18232,6 +18857,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -18246,6 +18872,7 @@
           "start": 53,
           "end": 59,
           "negator": false,
+          "source_negator": false,
           "explanation": "A bare or causal absence noun (absence of, for lack of); only ב with the noun in construct means without."
         }
       ]
@@ -18260,6 +18887,7 @@
           "start": 47,
           "end": 52,
           "negator": false,
+          "source_negator": false,
           "explanation": "Inventory (מלאי) or wear (בלאי), not a prefixed negative particle."
         },
         {
@@ -18268,6 +18896,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Inventory (מלאי) or wear (בלאי), not a prefixed negative particle."
         }
       ]
@@ -18282,6 +18911,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -18296,6 +18926,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18304,6 +18935,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -18318,6 +18950,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18326,6 +18959,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -18340,6 +18974,7 @@
           "start": 100,
           "end": 102,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18348,6 +18983,7 @@
           "start": 100,
           "end": 102,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18356,6 +18992,7 @@
           "start": 100,
           "end": 102,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18364,6 +19001,7 @@
           "start": 100,
           "end": 102,
           "negator": false,
+          "source_negator": false,
           "explanation": "A Hebrew section-number suffix attached to digits, not a lexical negator."
         }
       ]
@@ -18378,6 +19016,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18386,6 +19025,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18394,6 +19034,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -18408,6 +19049,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Nominal אי (non-/in-) or the homograph באי כוחם; only אי אפשר/ניתן is a clause negator."
         },
         {
@@ -18416,6 +19058,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Nominal אי (non-/in-) or the homograph באי כוחם; only אי אפשר/ניתן is a clause negator."
         },
         {
@@ -18424,6 +19067,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Nominal אי (non-/in-) or the homograph באי כוחם; only אי אפשר/ניתן is a clause negator."
         }
       ]
@@ -18438,6 +19082,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "The medical noun phrase לאין אונות, not an operative negative clause."
         }
       ]
@@ -18452,6 +19097,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Medical אל-וסת (amenorrhea), not a jussive/prohibitive clause."
         }
       ]
@@ -18466,6 +19112,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Negative-polarity any in לאף אחד; not an independent clause negator."
         }
       ]
@@ -18480,6 +19127,7 @@
           "start": 100,
           "end": 106,
           "negator": false,
+          "source_negator": false,
           "explanation": "Authorized to issue policies; not except."
         },
         {
@@ -18488,6 +19136,7 @@
           "start": 100,
           "end": 106,
           "negator": false,
+          "source_negator": false,
           "explanation": "A purpose infinitive to remove from a category, not the conjunction except."
         },
         {
@@ -18496,6 +19145,7 @@
           "start": 100,
           "end": 106,
           "negator": false,
+          "source_negator": false,
           "explanation": "Able to issue a building permit; not except."
         },
         {
@@ -18504,6 +19154,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Except/exclude, rather than issuing or spending."
         },
         {
@@ -18512,6 +19163,7 @@
           "start": 89,
           "end": 95,
           "negator": true,
+          "source_negator": true,
           "explanation": "Except/exclude, rather than issuing or spending."
         },
         {
@@ -18520,6 +19172,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Except/exclude, rather than issuing or spending."
         },
         {
@@ -18528,6 +19181,7 @@
           "start": 100,
           "end": 106,
           "negator": false,
+          "source_negator": false,
           "explanation": "Authorized spending by a health fund; not except."
         },
         {
@@ -18536,6 +19190,7 @@
           "start": 100,
           "end": 106,
           "negator": false,
+          "source_negator": false,
           "explanation": "Authorized spending by a health fund; not except."
         },
         {
@@ -18544,6 +19199,7 @@
           "start": 100,
           "end": 106,
           "negator": false,
+          "source_negator": false,
           "explanation": "A negated spending infinitive, not the conjunction except."
         }
       ]
@@ -18558,6 +19214,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18566,6 +19223,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18574,6 +19232,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -18588,6 +19247,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18596,6 +19256,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18604,6 +19265,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -18618,6 +19280,7 @@
           "start": 51,
           "end": 56,
           "negator": false,
+          "source_negator": false,
           "explanation": "Imprisonment, not prepositional מ plus the verb אסר (forbade)."
         },
         {
@@ -18626,6 +19289,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Imprisonment, not prepositional מ plus the verb אסר (forbade)."
         },
         {
@@ -18634,6 +19298,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Imprisonment, not prepositional מ plus the verb אסר (forbade)."
         }
       ]
@@ -18648,6 +19313,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -18656,6 +19322,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -18664,6 +19331,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         }
       ]
@@ -18678,6 +19346,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Inventory (מלאי) or wear (בלאי), not a prefixed negative particle."
         },
         {
@@ -18686,6 +19355,7 @@
           "start": 81,
           "end": 86,
           "negator": false,
+          "source_negator": false,
           "explanation": "Inventory (מלאי) or wear (בלאי), not a prefixed negative particle."
         }
       ]
@@ -18700,6 +19370,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -18708,6 +19379,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         }
       ]
@@ -18722,6 +19394,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Engine or an unlicensed prevent infinitive, not the prevented-from construction."
         },
         {
@@ -18730,6 +19403,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Engine or an unlicensed prevent infinitive, not the prevented-from construction."
         },
         {
@@ -18738,6 +19412,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Engine or an unlicensed prevent infinitive, not the prevented-from construction."
         },
         {
@@ -18746,6 +19421,7 @@
           "start": 30,
           "end": 35,
           "negator": true,
+          "source_negator": true,
           "explanation": "Prevented from / prevent from; a following מ complement licenses the reading."
         },
         {
@@ -18754,6 +19430,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Prevented from / prevent from; a following מ complement licenses the reading."
         }
       ]
@@ -18768,6 +19445,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18776,6 +19454,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18784,6 +19463,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -18798,6 +19478,7 @@
           "start": 20,
           "end": 24,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18806,6 +19487,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18814,6 +19496,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -18828,6 +19511,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "May, the month, not prefixed אי."
         },
         {
@@ -18836,6 +19520,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "May, the month, not prefixed אי."
         },
         {
@@ -18844,6 +19529,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "May, the month, not prefixed אי."
         }
       ]
@@ -18858,6 +19544,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "Imprisonment, not prepositional מ plus the verb אסר (forbade)."
         },
         {
@@ -18866,6 +19553,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "Imprisonment, not prepositional מ plus the verb אסר (forbade)."
         },
         {
@@ -18874,6 +19562,7 @@
           "start": 90,
           "end": 94,
           "negator": false,
+          "source_negator": false,
           "explanation": "Imprisonment, not prepositional מ plus the verb אסר (forbade)."
         }
       ]
@@ -18888,6 +19577,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18896,6 +19586,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -18904,6 +19595,7 @@
           "start": 0,
           "end": 4,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -18918,7 +19610,107 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "The nose, not negative-polarity אף."
+        }
+      ]
+    },
+    {
+      "token": "מונע",
+      "occurrences": 6,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-63",
+          "text": "; נערכה השומה כאמור לא יראו את השותפות כחבר בני־אדם לענין סעיף 162.\n(ג) שום דבר האמור בסעיף זה אינו מונע מהשיג, בערעור בהתאם לסעיפים 153–158, על החלטת פקיד השומה בהשתמשו בשיקול הדעת שניתן לו בסעיף זה.\n(ד) שר האוצר רשאי לקבוע",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-76",
+          "text": "הזוג, ובן־זוגו של כל אחד מאלה;\n(2) אדם ובא כוחו;\n(3) שותפים בשותפות.\n(ה) שום דבר האמור בפרק זה אינו מונע מהשיג בערעור, בהתאם לסעיפים 153–158 על החלטתו של המנהל בהשתמשו בכוח שניתן לו בסעיפים 77 ו־78.",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-86",
+          "text": "י נאותות אפילו אינן נוגדות את החוק.\nלענין זה, ”עסקה“ – לרבות פעולה.\n(ב) שום דבר האמור בסעיף זה אינו מונע מהשיג בערעור, בהתאם לסעיפים 153–158 על החלטתו של פקיד השומה בהשתמשו בשיקול הדעת שניתן לו בסעיף קטן (א).",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
+      "token": "מונעים",
+      "occurrences": 3,
+      "contexts": [
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/schedule-2/sign-1/item-6",
+          "text": " ושיקום הפה וכן רפואת שיניים בתחומי מניעה, טיפול משמר, ותותבות אקריליות זמניות.\n(יב5) טיפולי שיניים מונעים ומשמרים עד גיל 24 שנים ללוקים בתסמונות נוירו־התפתחותיות המלוות בלקות ביד או בלסת ובלבד שאלה –\n(1) יינתנו לאחר אבחון נוי",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/schedule-2/sign-1/item-6",
+          "text": "יניים) מכינים ונלווים לניתוחים אורתודנטיים במטופלים הזכאים לניתוחים במסגרת הסל.\n(יב7) טיפולי שיניים מונעים ומשמרים עד גיל 24 שנים ללוקים במוגבלות שכלית התפתחותית, שאינם חוסים במוסדות או מגורים של משרד הרווחה.\n(יב8) טיפול דנטלי",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/schedule-2/sign-2/item-11",
+          "text": "ניים משקם לאחר כריתה חלקית או מלאה של הלסתות עקב גידולים שפירים או ציסטות בלסתות.\n(ז) טיפולי שיניים מונעים, משמרים ומשקמים (טיפול מקדים בלבד) לחולים אונקולוגיים בביספוספונטים או Denosumab בשל מיאלומה נפוצה או גרורות לעצמות, ב־",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
+      "token": "מונעת",
+      "occurrences": 4,
+      "contexts": [
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/section-6",
+          "text": "(א) שירותי הבריאות יינתנו על־פי סל שירותי הבריאות בתחומים אלה –\n(1) רפואה מונעת אישית וחינוך לבריאות;\n(2) אבחון רפואי;\n(3) טיפול רפואי אמבולטורי, לרבות טיפול נפשי, בין במרפאה ובין בבית, לרבות במעון כ",
+          "start": 74,
+          "end": 79,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/section-6",
+          "text": "ק ועבודה סוציאלית בתחום הבריאות;\n(6) הספקת תרופות;\n(7) מכשירים ואבזרי עזר רפואיים;\n(8) רפואת שיניים מונעת לילדים, עד גיל שיקבע שר הבריאות בתקנות;\n(9) עזרה רפואית ראשונה, והסעת לבית חולים או למרפאה;\n(10) שירותי רפואה בעבודה;\n(",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/section-7a",
+          "text": "ירותי בריאות בעבודה), התשל״ג–1973, כנוסחן ביום כ״א בטבת התשנ״ז (31 בדצמבר 1996), למעט פרק ג׳: פעולה מונעת ומחקר בבריאות בעבודה, יראו אותן כאילו הותקנו לפי סעיף זה בכל הנוגע לתקופה המתחילה ביום כ״ב בטבת התשנ״ז (1 בינואר 1997).",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -18932,6 +19724,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "A bare or causal absence noun (absence of, for lack of); only ב with the noun in construct means without."
         },
         {
@@ -18940,6 +19733,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "A bare or causal absence noun (absence of, for lack of); only ב with the noun in construct means without."
         }
       ]
@@ -18954,6 +19748,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -18962,6 +19757,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -18970,6 +19766,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         }
       ]
@@ -18984,6 +19781,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -18992,6 +19790,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -19000,6 +19799,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         }
       ]
@@ -19014,6 +19814,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "Inventory (מלאי) or wear (בלאי), not a prefixed negative particle."
         },
         {
@@ -19022,6 +19823,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "Inventory (מלאי) or wear (בלאי), not a prefixed negative particle."
         },
         {
@@ -19030,6 +19832,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "Inventory (מלאי) or wear (בלאי), not a prefixed negative particle."
         }
       ]
@@ -19044,6 +19847,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19052,6 +19856,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19060,6 +19865,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19074,6 +19880,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         }
       ]
@@ -19088,6 +19895,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Imprisonment, not prepositional מ plus the verb אסר (forbade)."
         },
         {
@@ -19096,6 +19904,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "Imprisonment, not prepositional מ plus the verb אסר (forbade)."
         }
       ]
@@ -19110,6 +19919,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -19118,6 +19928,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -19126,6 +19937,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         }
       ]
@@ -19140,6 +19952,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Prevented from / prevent from; a following מ complement licenses the reading."
         }
       ]
@@ -19154,7 +19967,41 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Prevented from / prevent from; a following מ complement licenses the reading."
+        }
+      ]
+    },
+    {
+      "token": "מניעת",
+      "occurrences": 9,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-75b",
+          "text": "כויות ברווחים בכל חבר בני אדם שבשרשרת החברות המוחזק על ידו בעקיפין;\n(9) ”מדינה גומלת“ ו”הסכם“ לענין מניעת כפל מס – (נמחקו);\n(10) ”מס זר“ – מס שחייבים בו על הכנסה במדינה זרה לפי דיני המס החלים באותה מדינה;\n(11) ”קרוב“ – כהגדרת",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-119a",
+          "text": "שה נעשה בידיעתו של בעל התפקיד, אלא אם כן הוכיח אותו בעל תפקיד שהוא נקט את כל האמצעים הסבירים להבטחת מניעת המעשה.\n(ד) בסעיף זה –\n”חוב מס“ – כמשמעותו בסעיף 195א, למעט חוב מקדמות;\n”חוב מס סופי“ – חוב מס שאין לגביו עוד זכות להשגה",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-216",
+          "text": " השלוח ויאשם בה גם הנישום אם לא הוכיח שהעברה נעברה שלא בידיעתו ושהוא נקט בכל האמצעים הסבירים להבטחת מניעת העבירה;\n(8) לא דיווח בדוח על פעולה שהיא פעולה החייבת בדיווח כאמור בסעיף 131(ז), בניגוד להוראות סעיף 131(א)(5ד) או (ב1),",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -19168,6 +20015,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "מעולם לא היתה means was never; לא licenses negative polarity."
         }
       ]
@@ -19182,6 +20030,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19190,7 +20039,89 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "נדחה",
+      "occurrences": 8,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-3",
+          "text": " שהונפק לתקופה של חמש שנים לפחות, ובלבד שההלוואה אינה ניתנת לפירעון לפני תום התקופה האמורה והפירעון נדחה בפני התחייבויות אחרות וקודם רק לחלוקת עודפי הרכוש בפירוק;\n(11) שטרי הון ואיגרות חוב שהנפיק חבר בני אדם אחר, בתנאים הקבו",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-85a",
+          "text": "הלוואה;\n(3) ההלוואה אינה ניתנת לפירעון לפני תום תקופה של חמש השנים ממועד נתינתה;\n(4) פירעון ההלוואה נדחה בפני התחייבויות אחרות וקודם רק לחלוקת נכסים לבעלי המניות בפירוק;\n(ב) שטר הון או איגרת חוב שהנפיק חבר בני אדם, בתנאים הק",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-119a",
+          "text": " לפקיד השומה.\n(ג2) נקבעה לחבר בני אדם שומה בשל מעשה מהמעשים המפורטים בסעיף 220 וערעור החבר על השומה נדחה על ידי בית המשפט בפסק דין שאינו ניתן עוד לערעור או שלא הוגש ערעור לבית המשפט, ניתן לגבות את חוב המס שלא שולם על ידי החב",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
+      "token": "נדחו",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-295a",
+          "text": " חוקי השיקום או לאחר שניתנה החלטה בערעור על החלטת קצין התגמולים בתביעה כאמור, יחולו הוראות אלה:\n(1) נדחו התביעה או הערעור מהטעם שהחבלה אינה חבלת שירות או שהמחלה אינה מחלת שירות, לא תימנה לעניין סעיף 296 התקופה שממועד הגשת הת",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
+      "token": "נדחתה",
+      "occurrences": 4,
+      "contexts": [
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-295a",
+          "text": "צין התגמולים עד מועד מתן החלטת קצין התגמולים או מועד ההחלטה בערעור, לפי העניין;\n(2) אושרה התביעה או נדחתה התביעה מכל טעם אחר, לא תקום עילה לתביעה לפי פרק זה; הוראת פסקה זו לא תחול על תביעה שנדחתה מחמת התיישנות לפי סעיף 26 לחו",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-327",
+          "text": "פסיק בשל כך את תשלום הגמלה, כולה או חלקה, לפי הענין (בסעיף זה – החלטת המוסד), יחולו הוראות אלה:\n(1) נדחתה התביעה לגמלה במלואה או הופסק תשלום הגמלה במלואה –\n(א) לא תוגש תביעה חוזרת לגמלה זהה (בסעיף זה – תביעה חוזרת) בעד תקופה ",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-327",
+          "text": "ן זה, ”התקופה הקובעת“ – שלושת החודשים הראשונים שלאחר הגשת התביעה החוזרת שבעדם זכאי התובע לגמלה;\n(2) נדחתה התביעה לגמלה בחלקה או הופסק תשלום הגמלה בחלקו – יחולו הוראות פסקת משנה (א) של פסקה (1), וכן תופחת הגמלה המשתלמת בעד שלו",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -19204,6 +20135,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19218,6 +20150,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19226,6 +20159,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19240,6 +20174,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19254,7 +20189,41 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "נעדר",
+      "occurrences": 22,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-150",
+          "text": "ח להנחת דעתו של פקיד השומה, שהאדם החולק על השומה היה מנוע מהגיש את הבקשה תוך המועד האמור, משום שהיה נעדר מן הארץ או חולה או מכל סיבה סבירה אחרת, רשאי הוא להאריך את המועד ככל שנראה סביר לפי הנסיבות.\n(ב) לא הגיש הנישום דוח לשנ",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-65",
+          "text": "זה –\n”מבוטח“ –\n(1) מבוטח לפי פרק י״א, למעט עקרת בית כהגדרתה בסעיף 238;\n(2) יחיד היושב בישראל, ואינו נעדר ממנה אלא העדר ארעי שהוא סביר, לדעת עובד המוסד שהוסמך לכך, ואין בו לסתור טענת אותו יחיד כי הוא יושב בישראל, ואינו מבוטח ",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-insurance-law-1995/chapter-15",
+          "text": "פרק י״ג2: תשלומים ותגמולים בעבור חטוף או נעדר – הוראת שעה",
+          "start": 41,
+          "end": 45,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -19268,6 +20237,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19276,6 +20246,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19284,6 +20255,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19298,6 +20270,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19306,6 +20279,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19314,6 +20288,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19328,7 +20303,41 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "פטורות",
+      "occurrences": 4,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-64a9",
+          "text": " 90% לפחות מהכנסה החייבת של הקרן, למעט שבח מקרקעין או רווח הון במכירת מקרקעין מניבים, בתוספת הכנסות פטורות ובניכוי הוצאות שאינן מותרות בניכוי – עד יום 30 באפריל בשנה שלאחר השנה שבה ההכנסה הופקה או נצמחה;\n(2) רווח הון או שבח מק",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-67h",
+          "text": "רה תושבת חוץ שמניותיה נרכשו כאמור, והכל בתקופה שעל פי סעיפים 14(א) או (ג) או 97(ב) היו הכנסות כאמור פטורות ממס בידי בעל המניות אילו היו מתקבלות בידיו במישרין.",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-131",
+          "text": "נת המס;\n(5א) אדם שבשנת המס מכר זכות במקרקעין או עשה פעולה באיגוד, כהגדרתן בחוק מיסוי מקרקעין, שאינן פטורות מהמס לפי חוק זה, ולא שילם מס שבח בשיעור המרבי החל לפי חוק מיסוי מקרקעין על השבח הריאלי הנובע מהמכירה או מהפעולה, לפי הע",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -19342,6 +20351,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "An item/detail, without the except-for ל construction."
         },
         {
@@ -19350,6 +20360,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "An item/detail, without the except-for ל construction."
         },
         {
@@ -19358,6 +20369,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "An item/detail, without the except-for ל construction."
         },
         {
@@ -19366,6 +20378,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Except, with a following ל complement."
         },
         {
@@ -19374,6 +20387,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Except, with a following ל complement."
         }
       ]
@@ -19388,6 +20402,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Nominal אי (non-/in-) or the homograph באי כוחם; only אי אפשר/ניתן is a clause negator."
         },
         {
@@ -19396,6 +20411,7 @@
           "start": 35,
           "end": 38,
           "negator": false,
+          "source_negator": false,
           "explanation": "Nominal אי (non-/in-) or the homograph באי כוחם; only אי אפשר/ניתן is a clause negator."
         },
         {
@@ -19404,6 +20420,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Nominal אי (non-/in-) or the homograph באי כוחם; only אי אפשר/ניתן is a clause negator."
         }
       ]
@@ -19418,6 +20435,7 @@
           "start": 100,
           "end": 107,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19432,6 +20450,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19440,6 +20459,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19448,6 +20468,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19462,6 +20483,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19470,6 +20492,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19478,6 +20501,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19492,6 +20516,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19500,6 +20525,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19508,6 +20534,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19522,6 +20549,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19530,6 +20558,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19538,6 +20567,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19552,6 +20582,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19560,6 +20591,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19568,6 +20600,7 @@
           "start": 62,
           "end": 67,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19582,6 +20615,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19590,6 +20624,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19598,6 +20633,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19612,6 +20648,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19620,6 +20657,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19628,6 +20666,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19642,6 +20681,7 @@
           "start": 100,
           "end": 103,
           "negator": false,
+          "source_negator": false,
           "explanation": "Negative-polarity any before אינו; not an independent clause negator."
         }
       ]
@@ -19656,7 +20696,41 @@
           "start": 3,
           "end": 7,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "שבמקום",
+      "occurrences": 3,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-75f1",
+          "text": " תושב ישראל; לעניין זה, ”חוב מס סופי“ – כהגדרתו בסעיף 75טו(ו).\n(5) הוראות סעיף 75טו(ד) יחולו, ובלבד שבמקום ”היה לנאמן“ יקראו ”היה ליוצר המייצג או לנהנה המייצג, לפי העניין“.\n(ד) בכל מקום בסעיף זה שבו מדובר ביוצר מייצג ובנהנה מי",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-80",
+          "text": "ונתקיימו התנאים שנקבעו לכך בתקנות;\n(6) אירעה למבוטח שהוא עובד, תוך כדי מילוי תפקידו כחבר ועד עובדים שבמקום עבודתו ועקב מילוי תפקידו כאמור, או תוך כדי נסיעתו או הליכתו לשם מילוי תפקידו כאמור או בחזרה ממנו ועקב נסיעתו או הליכתו ",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-177c",
+          "text": "חל לגביה סעיף 171(א)(1ג), הנמצאת בהכשרה מקצועית, יקראו בתקופה שמהיום ה־176 ואילך את סעיף 173(א), כך שבמקום ”70%“ יבוא ”100%“, אולם דמי האבטלה ליום בעד התקופה האמורה לא יעלו על סכום השווה ל־1.46% מהשכר הממוצע.",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -19670,6 +20744,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19678,6 +20753,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19692,7 +20768,32 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "שחלף",
+      "occurrences": 2,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-130",
+          "text": "סים או פסילתם כאמור בסעיפים קטנים (ב) או (ג), לפני שנשלחה הודעה על כך לנישום לפי סעיף קטן (ג) ולפני שחלף המועד להגשת הערר על החלטת פקיד השומה, ואם הוגש ערר – לפני שניתנה בו החלטת הועדה לקבילות פנקסים.\n(ז) הגשת ערר לפי סעיף ז",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-297a",
+          "text": "ו הוגשה התביעה למוסד;\n”מועד תשלום“ – החודש שבו משולמת הגמלה.\n(ב) גמלה, המשולמת במועד תשלום שחל לאחר שחלף חודש קלנדרי מלא מהחודש לתשלום, תעודכן בשיעור שבו עלה המדד שפורסם לאחרונה לפני מועד התשלום, לעומת המדד שפורסם בחודש לתשל",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -19706,6 +20807,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19714,6 +20816,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19722,6 +20825,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19736,6 +20840,7 @@
           "start": 100,
           "end": 106,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19750,6 +20855,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19764,6 +20870,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19772,6 +20879,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19780,6 +20888,7 @@
           "start": 100,
           "end": 103,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19794,6 +20903,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19808,6 +20918,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "Left, not relative ש plus prohibitive אל."
         },
         {
@@ -19816,6 +20927,7 @@
           "start": 100,
           "end": 104,
           "negator": false,
+          "source_negator": false,
           "explanation": "Left, not relative ש plus prohibitive אל."
         }
       ]
@@ -19830,6 +20942,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -19838,6 +20951,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -19846,6 +20960,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         }
       ]
@@ -19860,6 +20975,7 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
         },
         {
@@ -19868,7 +20984,71 @@
           "start": 100,
           "end": 105,
           "negator": false,
+          "source_negator": false,
           "explanation": "The מלא root means full, fill, fulfil, or reach an age; it is not prefixed לא."
+        }
+      ]
+    },
+    {
+      "token": "שנדחה",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-96",
+          "text": "מדינת החוץ שבה נמצאים המקרקעין הנרכשים בשל מכירתם, יינתן זיכוי בשל מסי החוץ ששולמו על חלק רווח ההון שנדחה, כנגד המס החל על הנישום בשנת המס שבה שולמו מסי החוץ, תחילה בשל רווח הון שהופק מחוץ לישראל, והיתרה כנגד הכנסות אחרות שהו",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
+      "token": "שנדחתה",
+      "occurrences": 3,
+      "contexts": [
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-295a",
+          "text": " התביעה או נדחתה התביעה מכל טעם אחר, לא תקום עילה לתביעה לפי פרק זה; הוראת פסקה זו לא תחול על תביעה שנדחתה מחמת התיישנות לפי סעיף 26 לחוק משפחות חיילים, או שנדחתה מחמת התיישנות לפי סעיף 32 לחוק הנכים על אף קיומה של חבלה רשומה ",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-295a",
+          "text": " לפי פרק זה; הוראת פסקה זו לא תחול על תביעה שנדחתה מחמת התיישנות לפי סעיף 26 לחוק משפחות חיילים, או שנדחתה מחמת התיישנות לפי סעיף 32 לחוק הנכים על אף קיומה של חבלה רשומה כמשמעותה בסעיף 32א לאותו חוק.\n(ח) בלי לגרוע מהוראות סעיפ",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-327",
+          "text": "אמור.\n(ג) לענין סעיף זה יראו כתביעה חוזרת גם תביעה לגמלה זהה, שאינה בעד התקופה, שלגביה הוגשה התביעה שנדחתה בהחלטת המוסד או שבעדה שולמה הגמלה שתשלומה הופסק בהחלטת המוסד, לפי הענין.\n(ד) החלטת המוסד תתקבל לאחר שניתנה לתובע הגמלה ",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
+      "token": "שנעדר",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-280",
+          "text": "התגמול לפי סעיף 276(א), למעט סכום ששילם לעובד עקב עבודתו או סכום שהיה משלם לו בין שהוסיף לעבוד ובין שנעדר מעבודתו.\n(ג) דין יתרת התגמול כדין שכר עבודה, והמעביד יעבירו לעובד לכל המאוחר ביום שבו היה משתלם שכרו של העובד בעד החודש",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -19882,6 +21062,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19890,6 +21071,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         },
         {
@@ -19898,7 +21080,23 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "תחת",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/national-insurance-law-1995/schedule-r/item-8",
+          "text": "מגורים תחת קורת גג אחת, תחילתם או הפסקתם של מגורים כאמור עם אחד מאלה:\n(1) מי שנישא לזכאי לגמלה, לרבות מי שנישא על פי הדין במדינת ח",
+          "start": 7,
+          "end": 10,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -19912,6 +21110,7 @@
           "start": 100,
           "end": 105,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]
@@ -19926,6 +21125,7 @@
           "start": 100,
           "end": 104,
           "negator": true,
+          "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
         }
       ]

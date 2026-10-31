@@ -7523,6 +7523,12 @@ def _source_clause_links_dependency(
 
     before = clause[:reference_start]
     after = clause[reference_end:]
+    # A Hebrew predicate after the citation can deny the claim that holds the
+    # link (``הטענה שהתשלום is calculated in accordance with section 2 היא
+    # שקר``), as ``It is false that ...`` does before it (#1882). A clause
+    # with no Hebrew script denies nothing here.
+    if hebrew_source_text.denies_linked_claim(before, after):
+        return False
     dependency_link = re.search(
         r"\b(?:"
         r"nach|gemäß|laut|entsprechend|under|according\s+to|pursuant\s+to|"
@@ -9529,7 +9535,13 @@ def _reason_dependency_is_source_bound(
     ):
         return True
 
-    louisiana_dependencies = _qualified_louisiana_rs_dependencies(reason)
+    # The Louisiana insufficiency grammar reads English only: a reason or
+    # scope with Hebrew script takes no R.S. admission (#1882).
+    louisiana_dependencies = (
+        ()
+        if hebrew_source_text.holds_hebrew_letter(reason, source_scope_text)
+        else _qualified_louisiana_rs_dependencies(reason)
+    )
     if not _MISSING_DEPENDENCY_LANGUAGE.search(reason) and not any(
         _reason_match_has_bounded_insufficiency(
             reason,
@@ -9674,7 +9686,8 @@ def _reason_names_missing_same_act_dependency(
 ) -> bool:
     """Recognize an exact missing session-law section named by one source branch."""
 
-    if not path:
+    # English-only, like the runtime-gap route: Hebrew script refuses (#1882).
+    if not path or hebrew_source_text.holds_hebrew_letter(reason, source_scope_text):
         return False
     exact_current_branch = _reason_cites_exact_current_statute_branch(
         reason,
@@ -9831,6 +9844,9 @@ def _same_act_clause_names_missing_dependency(
     section: str,
     authenticated_same_act_aliases: Sequence[str] = (),
 ) -> bool:
+    # English-only, as `_reason_names_missing_same_act_dependency` (#1882).
+    if hebrew_source_text.holds_hebrew_letter(clause_text):
+        return False
     act_identity = _same_act_identity_pattern(
         authenticated_same_act_aliases,
     )
@@ -10201,6 +10217,9 @@ def _reason_match_has_bounded_insufficiency(
 ) -> bool:
     """Recognize one citation-local statement that a supplied dependency is incomplete."""
 
+    # English-only: a Hebrew qualifier or reversal would go unread (#1882).
+    if hebrew_source_text.holds_hebrew_letter(reason, source_scope_text):
+        return False
     _clause_start, clause_end = _reason_clause_bounds(reason, match)
     if clause_end < len(reason) and clause_end - match.end() <= 240:
         later_stop = re.search(r"[.;\n]", reason[clause_end + 1 :])
@@ -13231,6 +13250,12 @@ def _reason_names_source_bound_runtime_gap(
     corpus_citation_path: str,
 ) -> bool:
     """Accept a concrete runtime gap anchored to the exact current legal branch."""
+
+    # An English-only route: its vocabulary, word counts and computation veto
+    # read English, so a Hebrew reason or scope is refused rather than read
+    # past (#1882). `_EXPLICIT_COMPUTATION` stays as it is.
+    if hebrew_source_text.holds_hebrew_letter(reason, source_scope_text):
+        return False
 
     if (
         not path

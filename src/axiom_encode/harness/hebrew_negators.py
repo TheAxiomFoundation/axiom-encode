@@ -22,7 +22,7 @@ from __future__ import annotations
 import itertools
 import re
 import unicodedata
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 
 from axiom_encode.harness.hebrew_prefixes import (
@@ -480,12 +480,330 @@ def _genuine_context(match: re.Match[str]) -> bool:
     return True
 
 
+# --- Source-only negators (#1882, round 19) ---------------------------------
+#
+# The reason reader keeps the shared language above: there ``חסר סעיף 2`` is
+# the missing-dependency signal. A source reads more words as negating its
+# link, as English's source guard reads ``without calculation``, ``prevented``
+# and ``denied`` (``_SOURCE_LINK_NEGATION_LANGUAGE``). Two rules add them, and
+# only to the source reader (hebrew_source_text._NEGATIONS).
+#
+# 1. A form the statute snapshot holds in no other sense reads clause-wide, as
+#    לא does, with the same prefix chains. Each form below is 0/0 in the
+#    snapshot's bodies and headings under every ordinary prefix chain, except
+#    ``הוצאו מכלל``, whose one use (National Insurance Law section 75, "classes
+#    of persons excluded from the self-employed") is the same exclusion.
+SOURCE_CLAUSE_NEGATORS = (
+    # Blocked, frustrated (prevented).
+    "נחסם",
+    "נחסמה",
+    "נחסמו",
+    "סוכל",
+    "סוכלה",
+    "סוכלו",
+    "מסוכל",
+    "מסוכלת",
+    "מסוכלים",
+    "מסוכלות",
+    "מסכל",
+    "מסכלת",
+    "מסכלים",
+    "מסכלות",
+    # Prevented, the form the legacy נמנע family lacks.
+    "נמנעת",
+    # Negated, denied, refuses, disowns.
+    "שלול",
+    "שלולה",
+    "שלולים",
+    "שלולות",
+    "הוכחש",
+    "הוכחשה",
+    "הוכחשו",
+    "ממאן",
+    "ממאנת",
+    "ממאנים",
+    "ממאנות",
+    "מתכחש",
+    "מתכחשת",
+    "מתכחשים",
+    "מתכחשות",
+    "התכחש",
+    "התכחשה",
+    "התכחשו",
+    "יתכחש",
+    "תתכחש",
+    "יתכחשו",
+    "תתכחשנה",
+    # Deprived of: without (משולל also reads as מ + the legacy שולל).
+    "משולל",
+    "משוללת",
+    "משוללות",
+)
+# Clause-wide forms that take their complement: disclaims (מתנער מ),
+# excluded from (מוצא מכלל), and the denied proposition (שקר ש, "false that").
+SOURCE_CLAUSE_PHRASES = (
+    *(f"{form} מ" for form in ("מתנער", "מתנערת", "מתנערים", "מתנערות")),
+    *(
+        f"{form} מכלל"
+        for form in ("מוצא", "מוצאת", "מוצאים", "מוצאות", "הוצא", "הוצאה", "הוצאו")
+    ),
+    *(f"{form} ש" for form in ("שקר", "שקרי", "שגוי")),
+)
+
+# 2. A form with a statutory homograph (נעדר, a missing person; פטור, exempt
+#    from tax; במקום, at a place; כופר, a monetary settlement) reads only over
+#    a computation complement, as English ``without`` reads only before
+#    ``determin*``, ``comput*``, ``calculat*``, ``appl*``, ``impos*`` and
+#    ``aris*``: head, optional quantifier, optional article, computation head.
+#    The computation heads are the Hebrew of those six English stems, and the
+#    stems themselves for a mixed clause (``נטול calculation``). ``תשלום`` is
+#    no computation head: ``אי תשלום בהתאם לסעיף 2`` is "non-payment under".
+SOURCE_PRIVATIVE_HEADS = (
+    # Without, lacking: the construct adjectives, agreeing in gender and
+    # number. The absolute plurals take ב: ``נעדרים בחישוב``.
+    "נטול",
+    "נטולת",
+    "נטולי",
+    "נטולות",
+    "נעדר",
+    "נעדרת",
+    "נעדרי",
+    "נעדרות",
+    "חסר",
+    "חסרה",
+    "חסרת",
+    "חסרי",
+    "חסרות",
+    # מחוסר alone is also causal ("for lack of"): see _LACK_CONTEXT.
+    "מחוסר",
+    "מחוסרת",
+    "מחוסרי",
+    "מחוסרות",
+    "משוללי",
+    # Literary "without": בלעדי, באפס.
+    "בלעדי",
+    "באפס",
+    # Blocked, prevents, prevention of, rejected, reject.
+    "חסום",
+    "חסומה",
+    "חסומים",
+    "חסומות",
+    "מונע",
+    "מונעת",
+    "מונעים",
+    "מונעות",
+    "מניעת",
+    "נדחה",
+    "נדחתה",
+    "נדחו",
+    "דוחות",
+    # Non- over an action noun (בלתי already negates clause-wide).
+    "אי",
+    # Instead of: "rather than".
+    "במקום",
+    "חלף",
+    "תחת",
+)
+# Heads whose computation complement follows ``מ`` or ``מן``: exempt from,
+# other than, except.
+SOURCE_FROM_HEADS = (
+    "פטור",
+    "פטורה",
+    "פטורים",
+    "פטורות",
+    "שונה",
+    "שונים",
+    "שונות",
+    "בשונה",
+    "להבדיל",
+    "לבד",
+)
+# The exemption's construct forms take the complement directly: ``פטורי חישוב``.
+SOURCE_CONSTRUCT_HEADS = ("פטורי", "פטורת", "פטורות")
+# A predicate after its computation subject, with its ``מן`` complement:
+# ``החישוב נפקד מן התשלום``, "the calculation is absent from the payment".
+SOURCE_ABSENT_FROM_PREDICATES = (
+    "נפקד",
+    "נפקדת",
+    "נפקדים",
+    "נפקדות",
+    "נעדר",
+    "נעדרת",
+    "נעדרים",
+    "נעדרות",
+    "חסר",
+    "חסרה",
+    "חסרים",
+    "חסרות",
+)
+SOURCE_QUANTIFIERS = ("כל", "שום", "אותו", "אותה", "אותם", "אותן")
+ABSENCE_SUFFIXES = ("ו", "ה", "ם", "ן")
+# Denies a claim: ``כופר בטענה ש``, ``כופר בכך ש``; ``כופר כסף`` is money.
+DENIAL_HEADS = ("כופר", "כופרת", "כופרים", "כופרות")
+CLAIM_NOUNS = (
+    "טענה",
+    "טענות",
+    "דיווח",
+    "דיווחים",
+    "הנחה",
+    "אמירה",
+    "גרסה",
+)
+# Copulas before the privative adjective (``יהיה מחוסר חישוב``).
+COPULAS = frozenset(
+    "היה היתה הייתה היו יהיה תהיה יהיו תהיינה להיות הוא היא הם הן הינו הינה "
+    "הינם הינן הנו הנה הנם הנן".split()
+)
+
+# The computation heads, by family. Nouns take their construct and pronoun
+# suffixes; infinitives and the relative future read after verbs of refusal
+# and after ``במקום``. ``שיקום`` and ``שיקומו`` are left out: in the statutes
+# they are "rehabilitation", never ש with ``יקום`` ("that it arise").
+_COMPUTATION_NOUNS = (
+    r"קביע(?:ה|ת|ות|ותי|תו|תה|תם|תן)|היקבעות"
+    r"|חישוב(?:ים|י|ו|ה|ם|ן)?|עיבוד(?:ו)?\s+(?:ה)?חישובי"
+    r"|החל(?:ה|ת|ות|תו|תה|תם|תן)|יישום(?:ים|י|ו|ה|ם|ן)?"
+    r"|תחול(?:ה|ת|תו|תה|תם|תן)"
+    r"|הטל(?:ה|ת|ות|תו|תה|תם|תן)|השת(?:ה|ת|תו|תה|תם|תן)|חיוב(?:ים|י|ו|ה|ם|ן)?"
+    r"|היווצרות(?:ו|ה|ם|ן)?|התהוות(?:ו|ה|ם|ן)?|צמיח(?:ה|ת|תו|תה|תם|תן)"
+)
+_COMPUTATION_VERBS = (
+    r"להיקבע|לחשב|להחיל|ליישם|להטיל|לחייב|להיווצר|לצמוח|לחול|להשית|לקום"
+    r"|להיות\s+מוחל(?:ת|ים|ות)?"
+    r"|ש(?:ייקבע(?:ו)?|תיקבע|יחושב(?:ו)?|תחושב|יוחל(?:ו)?|תוחל|ייושם(?:ו)?"
+    r"|תייושם|יוטל(?:ו)?|תוטל|יחויב(?:ו)?|תחויב|ייווצר(?:ו)?|תיווצר|יצמח(?:ו)?"
+    r"|תצמח|יחול(?:ו)?|תחול|יושת(?:ו)?|תושת|תקום)"
+)
+# English's six stems, for a mixed clause; English reads them with \b.
+_ENGLISH_COMPUTATION = r"(?i:(?:determin|comput|calculat|appl|impos|aris)[a-z]*\b)"
+
+
+def _alternation_of(words: Iterable[str]) -> str:
+    return "|".join(map(re.escape, sorted(words, key=len, reverse=True)))
+
+
+def build_source_negation_language(
+    *,
+    before: str,
+    after: str,
+    separator: str,
+    except_infinitive: str,
+) -> str:
+    """The reason language, and the source-only forms after it.
+
+    Every source-only alternative shares one ``source_prefix`` group, the
+    ordinary prefix chains לא takes, so ``_is_relative`` reads ``שנטול`` as a
+    relative clause. A head matches alone; its complement is a lookahead, so
+    the match ends before the computation head, and the link after it.
+    """
+
+    gap = separator
+    article = rf"(?:{prefix_word('ה')})?"
+    quantifier = rf"(?:(?:{_alternation_of(SOURCE_QUANTIFIERS)}){after}{gap})?"
+    noun = rf"(?:{_COMPUTATION_NOUNS}){after}"
+
+    def computation(definite: str = article) -> str:
+        return (
+            rf"(?:{quantifier}{definite}(?:{noun}|(?:{_COMPUTATION_VERBS}){after})"
+            rf"|{_ENGLISH_COMPUTATION})"
+        )
+
+    from_complement = (
+        rf"(?:{prefix_word('מ')}|מן{after}{gap}){quantifier}{article}{noun}"
+        rf"|מן{after}{gap}{_ENGLISH_COMPUTATION}"
+    )
+    clause_phrases = "|".join(
+        re.escape(head)
+        + after
+        + gap
+        + re.escape(tail)
+        + (after if len(tail) > 1 else rf"(?=[{_H}])")
+        for head, tail in (phrase.split() for phrase in SOURCE_CLAUSE_PHRASES)
+    )
+    privative = _alternation_of(
+        head for head in SOURCE_PRIVATIVE_HEADS if head != "מחוסר"
+    )
+    claim = (
+        rf"{prefix_word('ב')}(?:{prefix_word('ה')})?(?:{_alternation_of(CLAIM_NOUNS)})"
+        rf"{after}{gap}(?:{prefix_word('ש')}(?=[{_H}])|כי{after})"
+        rf"|בכך{after}{gap}(?:{prefix_word('ש')}(?=[{_H}])|כי{after})"
+    )
+    source_only = (
+        rf"{before}(?P<source_prefix>{_NEGATION_PREFIX})(?:"
+        rf"(?:{_alternation_of(SOURCE_CLAUSE_NEGATORS)}){after}"
+        rf"|{clause_phrases}"
+        rf"|(?P<guarded>)(?:"
+        rf"(?:{privative}){after}(?={gap}{computation()})"
+        rf"|(?P<lack>מחוסר){after}(?={gap}{computation(rf'(?P<lack_article>{article})')})"
+        rf"|(?:נעדרים|חסרים){after}(?={gap}{prefix_word('ב')}{article}{noun})"
+        rf"|(?:{_alternation_of(SOURCE_FROM_HEADS)}){after}(?={gap}?{from_complement})"
+        rf"|(?:{_alternation_of(SOURCE_CONSTRUCT_HEADS)}){after}(?={gap}{computation()})"
+        rf"|{prefix_word('ב')}(?:היעדר|העדר|חוסר)(?:{'|'.join(ABSENCE_SUFFIXES)}){after}"
+        rf"(?={gap}(?:המוחלט{after}{gap})?של{after}{gap}{computation()})"
+        rf"|(?:{_alternation_of(DENIAL_HEADS)}){after}(?={gap}(?:{claim}))"
+        rf"|{article}(?:{_COMPUTATION_NOUNS}|{_ENGLISH_COMPUTATION}){after}{gap}"
+        rf"(?:{_alternation_of(SOURCE_ABSENT_FROM_PREDICATES)}){after}"
+        rf"(?={gap}?(?:{prefix_word('מ')}(?=[{_H}])|מן{after}))"
+        r"))"
+    )
+    language = build_negation_language(
+        before=before,
+        after=after,
+        separator=separator,
+        except_infinitive=except_infinitive,
+    )
+    return rf"(?:{language})|(?:{source_only})"
+
+
+# A concessive preposition takes the guarded head as its object: ``למרות אי
+# קביעתו מראש, התשלום מחושב בהתאם לסעיף 2`` concedes the non-determination
+# ("despite it"), and the payment is still computed under section 2.
+CONCESSIVE_PREPOSITIONS = frozenset(("למרות", "ולמרות", "חרף", "וחרף", "אף", "ואף"))
+
+
+def _concedes(match: re.Match[str]) -> bool:
+    """Whether a concessive preposition governs a guarded source head."""
+
+    if match.group("guarded") is None:
+        return False
+    return _previous_word(match.string, match.start()) in CONCESSIVE_PREPOSITIONS
+
+
+def _lack_is_causal(match: re.Match[str]) -> bool:
+    """Whether a bare ``מחוסר`` is causal ("for lack of"), not "lacking".
+
+    Uninflected ``מחוסר`` before an indefinite complement, with no copula
+    or relative before it, is the causal noun (``התשלום יבוצע מחוסר חישוב``,
+    "made for lack of calculation"), as round 18 pinned it. After a copula
+    (``יהיה מחוסר חישוב``), in a relative clause (``שמחוסר``) or before a
+    definite complement (``מחוסר החישוב``) it is the adjective, "without".
+    """
+
+    if match.group("lack") is None:
+        return False
+    if set(match.group("source_prefix") or "") & {"ש", "ד"}:
+        return False
+    if match.group("lack_article"):
+        return False
+    previous = _previous_word(match.string, match.start())
+    for prefix in ("", "ו", "ש", "וש"):
+        if previous.startswith(prefix) and previous[len(prefix) :] in COPULAS:
+            return False
+    return True
+
+
 class NegationPattern:
     """A shared regex with statutory homograph exclusions in every reader."""
 
     def __init__(self, language: str) -> None:
         self._regex = re.compile(language)
         self.pattern = self._regex.pattern
+        self._source = "lack" in self._regex.groupindex
+
+    def _kept(self, match: re.Match[str]) -> bool:
+        return _genuine_context(match) and not (
+            self._source and (_lack_is_causal(match) or _concedes(match))
+        )
 
     def finditer(
         self, text: str, pos: int = 0, endpos: int | None = None
@@ -493,7 +811,7 @@ class NegationPattern:
         for match in self._regex.finditer(
             text, pos, len(text) if endpos is None else endpos
         ):
-            if _genuine_context(match):
+            if self._kept(match):
                 yield match
 
     def search(
@@ -507,4 +825,4 @@ class NegationPattern:
         match = self._regex.fullmatch(
             text, pos, len(text) if endpos is None else endpos
         )
-        return match if match and _genuine_context(match) else None
+        return match if match and self._kept(match) else None

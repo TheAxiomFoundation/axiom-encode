@@ -34,6 +34,7 @@ from axiom_encode.harness.hebrew_negators import (
     _WITHOUT_SIGNAL,
     NegationPattern,
     build_negation_language,
+    build_source_negation_language,
     governs_infinitive,
 )
 from axiom_encode.harness.hebrew_prefixes import (
@@ -369,6 +370,26 @@ def cross_language_text(text: str) -> str | None:
 # the typographic quotes a word processor substitutes (``345י”א``). A numeral
 # read without them would lose its last letters and name another section.
 _GERESH_MARKS = "׳״'\"“”‘’"
+# What continues a section number, as English's citation reads it: a
+# decimal digit of any script (English's ``\d+`` is Unicode), and an ASCII
+# letter or one of the four that ``re.IGNORECASE`` folds to one (``İ``,
+# ``ı``, ``ſ``, ``K``). A citation never ends before either, so ``סעיף 2٣a``
+# and ``סעיף 2K`` name no section 2 (#1882). A blanket ``\w`` would refuse
+# more than English does.
+_IDENTIFIER_LETTERS = "A-Za-z\u0130\u0131\u017f\u212a"
+# English's instrument binding keeps the German letters (``a-z0-9äöüß`` after
+# lowercasing), so a source citation ``section 2ä`` binds no section 2; the
+# source reader reads ``סעיף 2ä`` the same way. A reason reads them as English
+# reads a reason, as no continuation.
+_GERMAN_LETTERS = "ÄÖÜäöüßẞ"
+# A geresh mark continues the number only before another word character or
+# mark (``345י״א``); before a space or punctuation it is a closing quotation
+# mark, as in ``חסר "סעיף 2"``, which English reads as ``Missing "section 2"``.
+_NUMBER_TERMINAL = (
+    rf"(?![\d{_IDENTIFIER_LETTERS}{HEBREW_LETTER_CLASS}])"
+    rf"(?![{_GERESH_MARKS}](?=[\w{_GERESH_MARKS}]))"
+)
+_SOURCE_NUMBER_TERMINAL = rf"(?![{_GERMAN_LETTERS}]){_NUMBER_TERMINAL}"
 _MAQAF = "־"
 _NOT_HEBREW_BEFORE = PREFIX_BOUNDARY
 # Negators, exclusions and adversatives: see hebrew_prefixes.REFUSAL_BOUNDARY.
@@ -381,6 +402,18 @@ _ADMIT_BEFORE = ADMIT_BOUNDARY
 _ADMIT_AFTER = WORD_END
 
 HEBREW_LETTER = re.compile(rf"[{_H}]")
+
+
+def holds_hebrew_letter(*texts: str) -> bool:
+    """Whether any text holds a Hebrew letter, a presentation form included.
+
+    The English-only admission routes (runtime gap, Louisiana insufficiency,
+    same act) read English words; a Hebrew qualifier or reversal inside them
+    would go unread, so they refuse a reason or scope that holds one (#1882).
+    """
+
+    return any(HEBREW_LETTER.search(fold_marks(text)) for text in texts)
+
 
 _LETTER_VALUES = {
     "א": 1,
@@ -890,7 +923,7 @@ def current_branch_citation_pattern(
     return re.compile(
         rf"{start_guard}{_NOT_HEBREW_BEFORE}{_PROCLITICS}{_SECTION_WORD}\s*"
         rf"{_native_section_pattern(section)}\s*{branch}"
-        rf"(?!\s*\()(?![A-Za-z0-9_{_H}])"
+        rf"(?!\s*\()(?![\d_{_IDENTIFIER_LETTERS}{_H}])"
         rf"{_other_instrument_qualifier(current_instrument_kind(corpus_citation_path))}"
         rf"{end_guard}"
     )
@@ -978,7 +1011,7 @@ def native_source_reference_paths(
     for match in re.finditer(
         rf"{_NOT_HEBREW_BEFORE}{_PROCLITICS}{_SECTION_WORD}\s*{_native_section_pattern(section)}"
         rf"(?P<chain>(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{1,{MAX_OUTLINE_DEPTH}}})"
-        rf"(?!\s*\()(?![A-Za-z0-9_{_H}])"
+        rf"(?!\s*\()(?![\d_{_IDENTIFIER_LETTERS}{_H}])"
         rf"{_other_instrument_qualifier(current_kind)}",
         source,
     ):
@@ -1008,7 +1041,7 @@ def cites_current_section(source: str, corpus_citation_path: str) -> bool:
         not preposed.precede(match.start())
         for match in re.finditer(
             rf"{_NOT_HEBREW_BEFORE}{_PROCLITICS}{_SECTION_WORD}\s*{_native_section_pattern(section)}"
-            rf"(?![0-9A-Za-z{_H}{_GERESH_MARKS}])(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{0,{MAX_OUTLINE_DEPTH}}}(?!\s*\()"
+            rf"(?![\d{_IDENTIFIER_LETTERS}{_H}{_GERESH_MARKS}])(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{0,{MAX_OUTLINE_DEPTH}}}(?!\s*\()"
             rf"{_other_instrument_qualifier(current_kind)}",
             source,
         )
@@ -1205,6 +1238,10 @@ _ADVERSATIVE_PHRASES = (
     "לעומת זאת",
     "עם כל זאת",
     "עם כל זה",
+    # "Except if", "unless" (``חסר מידע פרט אם סעיף 2 זמין``) and "on the
+    # other hand", "nevertheless".
+    "פרט אם",
+    "מצד שני",
 )
 # Connectives glued to the next word's first letter (``פרט לסעיף``, ``אף
 # שסעיף``), which may also follow a separator (``פרט־ל``).
@@ -1235,6 +1272,11 @@ ADVERSATIVE_LANGUAGE = (
     rf"(?!{_SEP}{_TIME_SPAN}{_NOT_HEBREW_AFTER})|"
     # ``אך`` ("but"), but not ``אך ורק`` ("only").
     rf"{_REFUSAL_BEFORE}(?:{prefix_word('ו')})?אך{_NOT_HEBREW_AFTER}(?!{_SEP}ורק{_NOT_HEBREW_AFTER})|"
+    # ``כל עוד`` ("while"), but not ``כל עוד לא`` or ``כל עוד אין`` ("as long
+    # as not", that is, until), which a negation already governs.
+    rf"{_REFUSAL_BEFORE}(?:{prefix_word('ו')})?כל{_SEP}עוד{_NOT_HEBREW_AFTER}"
+    rf"(?!{_SEP}(?:{prefix_word('ש')})?(?:לא|אין|אינו|אינה|אינם|אינן|איננו|איננה|טרם)"
+    rf"{_NOT_HEBREW_AFTER})|"
     rf"{_REFUSAL_BEFORE}(?:{prefix_word('ו')})?(?:"
     + "|".join(_connective(word) for word in _ADVERSATIVE_WORDS.split())
     + "|"
@@ -1335,21 +1377,29 @@ _NAME_CONTINUES = re.compile(
     r"|\s*\d|\s*\["
     rf"|\s*,\s*(?:ה?תש[{_H}{_GERESH_MARKS}]*|\d{{4}})"
 )
-SECTION_DEPENDENCY = re.compile(
-    # A single section, as English's grammar reads ``section`` and not
-    # ``sections``; a suffix it cannot read (``345b``) leaves it unread.
-    rf"{_ADMIT_BEFORE}(?P<proclitics>{_PROCLITICS})סעיף\s+"
-    rf"(?P<section>\d+{_SECTION_SUFFIX})(?![0-9A-Za-z{_H}{_GERESH_MARKS}])"
-    rf"(?P<fragments>(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{0,{MAX_OUTLINE_DEPTH}}})"
-    # A fragment the label grammar cannot read (``(1000)``, a glued ``(x)``),
-    # or one past the supported depth, leaves the citation unreadable rather
-    # than shortened to its section.
-    rf"(?!\s*\(\s*(?:\d+|{OUTLINE_LABEL})\s*\))(?!\()"
-    rf"(?P<instrument>\s*(?:,\s*)?{_INSTRUMENT_INTRO}"
-    rf"(?P<instrument_kind>{_INSTRUMENT_KIND})"
-    rf"{_NOT_HEBREW_AFTER}"
-    rf"(?P<instrument_name>{_INSTRUMENT_NAME}))?"
-)
+
+
+def _section_dependency(terminal: str) -> re.Pattern[str]:
+    return re.compile(
+        # A single section, as English's grammar reads ``section`` and not
+        # ``sections``; a suffix it cannot read (``345b``) leaves it unread.
+        rf"{_ADMIT_BEFORE}(?P<proclitics>{_PROCLITICS})סעיף\s+"
+        rf"(?P<section>\d+{_SECTION_SUFFIX}){terminal}"
+        rf"(?P<fragments>(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{0,{MAX_OUTLINE_DEPTH}}})"
+        # A fragment the label grammar cannot read (``(1000)``, a glued
+        # ``(x)``), or one past the supported depth, leaves the citation
+        # unreadable rather than shortened to its section.
+        rf"(?!\s*\(\s*(?:\d+|{OUTLINE_LABEL})\s*\))(?!\()"
+        rf"(?P<instrument>\s*(?:,\s*)?{_INSTRUMENT_INTRO}"
+        rf"(?P<instrument_kind>{_INSTRUMENT_KIND})"
+        rf"{_NOT_HEBREW_AFTER}"
+        rf"(?P<instrument_name>{_INSTRUMENT_NAME}))?"
+    )
+
+
+SECTION_DEPENDENCY = _section_dependency(_NUMBER_TERMINAL)
+# The source position also stops at the German letters (``_GERMAN_LETTERS``).
+SOURCE_SECTION_DEPENDENCY = _section_dependency(_SOURCE_NUMBER_TERMINAL)
 
 
 def _normalize_word(text: str) -> str:
@@ -1464,7 +1514,9 @@ def _explicit_instrument_mentions(
 
 
 def _section_citations(
-    text: str, current_kind: str = "חוק"
+    text: str,
+    current_kind: str = "חוק",
+    pattern: re.Pattern[str] = SECTION_DEPENDENCY,
 ) -> tuple[tuple[re.Match[str], Instrument | None], ...]:
     """Return each section citation with the instrument it belongs to.
 
@@ -1477,7 +1529,7 @@ def _section_citations(
     mentions = _explicit_instrument_mentions(text)
     preposed = _PreposedInstruments(text, current_kind)
     citations: list[tuple[re.Match[str], Instrument | None]] = []
-    for match in SECTION_DEPENDENCY.finditer(text):
+    for match in pattern.finditer(text):
         kind = match.group("instrument_kind")
         if not kind:
             instrument = (
@@ -1559,7 +1611,18 @@ _HEBREW_NEGATION_LANGUAGE = build_negation_language(
     except_infinitive=_EXCEPT_INFINITIVE,
 )
 _REASON_NEGATION = NegationPattern(_HEBREW_NEGATION_LANGUAGE)
-_NEGATIONS = _REASON_NEGATION
+# The source reader's negations: the reason's, and the source-only forms of
+# hebrew_negators (``נטול חישוב``, ``מונע חישוב``, ``נחסם``). In a reason
+# ``חסר סעיף 2`` stays the missing signal; in a source ``חסר חישוב בהתאם
+# לסעיף 2`` is "without calculation in accordance with section 2" (#1882).
+_NEGATIONS = NegationPattern(
+    build_source_negation_language(
+        before=_REFUSAL_BEFORE,
+        after=_NOT_HEBREW_AFTER,
+        separator=_SEP,
+        except_infinitive=_EXCEPT_INFINITIVE,
+    )
+)
 _NEGATED_SIGNAL_PREFIX = NegationPattern(
     rf"(?:{_HEBREW_NEGATION_LANGUAGE})"
     rf"(?:{_NEGATION_GAP}+(?:"
@@ -1617,7 +1680,13 @@ def _is_relative(negation: re.Match[str]) -> bool:
 
     prefix = "".join(
         negation.group(name) or ""
-        for name in ("ordinary_prefix", "bilti_prefix", "lexical_prefix")
+        for name in (
+            "ordinary_prefix",
+            "bilti_prefix",
+            "lexical_prefix",
+            "source_prefix",
+        )
+        if name in negation.re.groupindex
     )
     return bool(set(prefix) & {"ש", "ד"})
 
@@ -1637,6 +1706,63 @@ def _link_resets(text: str, negation: re.Match[str], linker: re.Match[str]) -> b
 
 
 _LINK_WINDOW = 240
+
+# A claim, with its content clause before the link, that a predicate after
+# the citation denies: ``הדיווח שהתשלום מחושב בהתאם לסעיף 2 אינו נכון``,
+# "the report that the payment is computed under section 2 is incorrect".
+# The claim nouns take a content clause (``ש``, ``כי``); ``הדוח שהוגש לפי
+# סעיף 2 אינו נכון`` ("the report filed under section 2 is incorrect") has a
+# relative clause and an operative citation, and ``דוח`` is no claim noun.
+# ``האפשרות לחשב`` ("the possibility to calculate") takes an infinitive.
+_CLAIM_SUBJECT = re.compile(
+    rf"{_REFUSAL_BEFORE}(?:{prefix_word('ו')})?(?:{prefix_word('ה')})?"
+    r"(?:(?:טענה|טענות|דיווח|דיווחים|הנחה|אמירה|גרסה)"
+    rf"{_NOT_HEBREW_AFTER}{_SEP}(?:{prefix_word('ש')}(?=[{_H}])|כי{_NOT_HEBREW_AFTER})"
+    rf"|(?:אפשרות|יכולת){_NOT_HEBREW_AFTER}{_SEP}{prefix_word('ל')}(?=[{_H}]))"
+)
+# The denying predicate, with an optional copula (``היא שקר``): incorrect,
+# false, wrong, and ``נבצר`` ("was prevented").
+_POSTPOSED_DENIAL = re.compile(
+    rf"{_REFUSAL_BEFORE}(?:(?:הוא|היא|הם|הן|הינו|הינה|הינם|הינן){_NOT_HEBREW_AFTER}{_SEP})?"
+    r"(?:(?:אינו|אינה|אינם|אינן|איננו|איננה|לא|בלתי)"
+    rf"{_SEP}(?:נכון|נכונ(?:ה|ים|ות))|שגוי(?:ה|ים|ות)?|שקר(?:י|ית|יים|יות)?|נבצר(?:ה|ו)?)"
+    rf"{_NOT_HEBREW_AFTER}"
+)
+# English refuses a clause where the cited provision ``remain[s]
+# unaffected``; ``נותר בעינו`` and ``עומד בעינו`` say so. ``נשאר בתוקפו``
+# ("remains in force") makes nothing nonoperative.
+_NONOPERATIVE_DISCLAIMER = re.compile(
+    rf"{_REFUSAL_BEFORE}(?:{prefix_word('ו')})?(?:{prefix_word('ש')})?"
+    r"(?:(?:נותר|נותרה|נותרת|נותרו|נותרים|נותרות|יוותר|תיוותר|יוותרו)"
+    r"|(?:עומד|עומדת|עומדים|עומדות|יעמוד|תעמוד|יעמדו))"
+    rf"{_SEP}בעינ(?:ו|ה|ם|ן){_NOT_HEBREW_AFTER}"
+)
+
+
+def _starts_in(starts: Sequence[int], low: int, high: int) -> bool:
+    """Whether a sorted start lies in ``[low, high)``."""
+
+    index = bisect.bisect_left(starts, low)
+    return index < len(starts) and starts[index] < high
+
+
+def denies_linked_claim(before: str, after: str) -> bool:
+    """Whether a predicate after a citation denies the claim before its link.
+
+    ``before`` is the clause up to the citation and ``after`` the clause after
+    it, read as the cross-language copy, so an English link and citation
+    (``הטענה שהתשלום is calculated in accordance with section 2 היא שקר``)
+    is denied as its Hebrew is. Text with no Hebrew script denies nothing.
+    """
+
+    view = cross_language_text(before + after)
+    if view is None:
+        return False
+    split = len(cross_language_text(before) or before)
+    return (
+        _CLAIM_SUBJECT.search(view, 0, split) is not None
+        and _POSTPOSED_DENIAL.search(view, split, split + _LINK_WINDOW) is not None
+    )
 
 
 @dataclass
@@ -1704,8 +1830,22 @@ def _linked_source_instruments(
             other_link_negations or _OTHER_LINK_NEGATION.finditer,
         ),
     )
-    for cited, cited_instrument in _section_citations(source_scope_text, current_kind):
+    claims = [match.start() for match in _CLAIM_SUBJECT.finditer(source_scope_text)]
+    denials = [match.start() for match in _POSTPOSED_DENIAL.finditer(source_scope_text)]
+    disclaimers = [
+        match.start() for match in _NONOPERATIVE_DISCLAIMER.finditer(source_scope_text)
+    ]
+    for cited, cited_instrument in _section_citations(
+        source_scope_text, current_kind, SOURCE_SECTION_DEPENDENCY
+    ):
         clause_start = _clause_start(stops, cited.start())
+        following = bisect.bisect_left(stops, cited.end())
+        clause_end = (
+            stops[following] if following < len(stops) else len(source_scope_text)
+        )
+        # A clause that leaves a provision unaffected makes none operative.
+        if _starts_in(disclaimers, clause_start, clause_end):
+            continue
         # The linkers and the displacement guard read at most ~140 characters
         # before the citation; the window keeps a long clause linear. The
         # negation index covers the whole clause.
@@ -1725,6 +1865,12 @@ def _linked_source_instruments(
                 continue
             if not _link_resets(source_scope_text, negations[last], linker):
                 continue
+        # A predicate after the citation that denies the claim holding the
+        # link: ``הטענה שהתשלום מחושב בהתאם לסעיף 2 אינה נכונה``.
+        if _starts_in(claims, clause_start, linker.start()) and _starts_in(
+            denials, cited.end(), min(clause_end, cited.end() + _LINK_WINDOW)
+        ):
+            continue
         section, fragments = _dependency_identity(cited)
         for length in range(len(fragments) + 1):
             index.setdefault((section, fragments[:length]), _LinkedInstruments()).add(
