@@ -69,7 +69,13 @@ from axiom_encode.companion_entities import (
     flat_input_entity_id,
     require_distinct_entity_ids,
 )
-from axiom_encode.companion_relations import executable_relation_directions
+from axiom_encode.companion_relations import (
+    executable_relation_directions,
+    explicit_relation_tuples,
+    explicit_tuple_relation_names,
+    pair_relation_assignment_issues,
+    uses_relation_roles,
+)
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.constants import (
     DEFAULT_OPENAI_MODEL,
@@ -115,6 +121,12 @@ from axiom_encode.form_numeric_structure import (
     mask_form_numeric_locators,
 )
 from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.formula_references import (
+    analyze_relation_predicate,
+    formula_identifiers,
+    local_reference_name,
+    relation_source_names,
+)
 from axiom_encode.harness.amendment_timing import amendment_timing_issues
 from axiom_encode.harness.coverage_exemptions import (
     CoverageDemand,
@@ -20442,11 +20454,19 @@ def find_local_dependency_temporal_coverage_issues(content: str) -> list[str]:
             rule
         ):
             formula = version.get("formula")
-            if not isinstance(formula, str):
+            if not isinstance(formula, (str, bool)):
                 continue
-            for dependency in sorted(
-                _formula_local_identifiers(formula) & coverage_by_rule.keys()
-            ):
+            dependencies = (
+                _formula_local_identifiers(
+                    formula, relation_predicate=rule.get("kind") == "derived_relation"
+                )
+                if isinstance(formula, str) else set()
+            )
+            dependencies.update(
+                local_reference_name(source)
+                for source in relation_source_names(rule.get("derived_relation"))
+            )
+            for dependency in sorted(dependencies & coverage_by_rule.keys()):
                 if _interval_is_covered(
                     effective_from,
                     effective_to,
@@ -21589,7 +21609,7 @@ def find_missing_derived_companion_output_issues(
     rules_file: Path,
     policy_repo_path: Path | None = None,
 ) -> list[str]:
-    """Require companion tests to assert every local derived output."""
+    """Cover scalar rules directly and relation views through asserted outputs."""
     try:
         payload = yaml.safe_load(content)
     except (yaml.YAMLError, ValueError):
@@ -21608,9 +21628,75 @@ def find_missing_derived_companion_output_issues(
         if isinstance(outputs, dict):
             covered_outputs.update(str(name) for name in outputs)
 
+    local_rules = {
+        _rulespec_rule_name(rule): rule
+        for rule in rules
+        if isinstance(rule, dict) and rule.get("name")
+    }
+    # Preserve the existing filtered-entity companion contract. The role
+    # capability adds views whose membership needs an asserted scalar wrapper.
+    relation_role_module = any(
+        rule.get("kind") == "derived_relation"
+        and (
+            (
+                isinstance(config := rule.get("derived_relation"), dict)
+                and (
+                    "source_path" in config
+                    or not (config.get("entity") and config.get("member_relation"))
+                )
+            )
+            or any(
+                isinstance(version, dict)
+                and isinstance(formula := version.get("formula"), str)
+                and (
+                    bool(analyze_relation_predicate(formula).atom_relations)
+                    or bool(analyze_relation_predicate(formula).bound_variables)
+                    or re.search(
+                        r"\b(?:anchor|candidate)\b",
+                        re.sub(r"#[^\n]*", " ", _QUOTED_STRING_PATTERN.sub(" ", formula)),
+                    )
+                )
+                for version in rule.get("versions") or []
+            )
+        )
+        for rule in local_rules.values()
+    )
+    filtered_aliases: dict[tuple[str, str], set[str]] = {}
+    for name, rule in local_rules.items():
+        config = rule.get("derived_relation")
+        if isinstance(config, dict) and config.get("member_relation"):
+            key = (str(config["member_relation"]), str(config.get("entity") or ""))
+            filtered_aliases.setdefault(key, set()).add(name)
+
+    dependencies: dict[str, set[str]] = {}
+    reachable: set[str] = set()
+    for name, rule in local_rules.items():
+        predicate = rule.get("kind") == "derived_relation"
+        names: set[str] = set()
+        for version in rule.get("versions") or []:
+            if isinstance(version, dict) and isinstance(version.get("formula"), str):
+                # The token walk distinguishes a built-in call from a bare
+                # relation of the same name, as in min(age, 22) versus len(min).
+                names.update(analyze_relation_predicate(version["formula"]).identifiers)
+        names.update(relation_source_names(rule.get("derived_relation")))
+        refs = {local_reference_name(reference) for reference in names}
+        for reference in tuple(refs):
+            refs.update(filtered_aliases.get((reference, str(rule.get("entity") or "")), set()))
+        dependencies[name] = refs & local_rules.keys()
+        target = _canonical_rulespec_file_target(
+            policy_repo_path=policy_repo_path, rules_file=rules_file, symbol=name
+        )
+        if not predicate and target in covered_outputs:
+            reachable.add(name)
+    pending = list(reachable)
+    while pending:
+        for dependency in dependencies[pending.pop()] - reachable:
+            reachable.add(dependency)
+            pending.append(dependency)
+
     issues: list[str] = []
     for rule in rules:
-        if not isinstance(rule, dict) or rule.get("kind") != "derived":
+        if not isinstance(rule, dict) or rule.get("kind") not in {"derived", "derived_relation"}:
             continue
         name = _rulespec_rule_name(rule)
         target = _canonical_rulespec_file_target(
@@ -21618,7 +21704,19 @@ def find_missing_derived_companion_output_issues(
             rules_file=rules_file,
             symbol=name,
         )
-        if target is None or target in covered_outputs:
+        if target is None:
+            continue
+        if rule.get("kind") == "derived_relation":
+            if not relation_role_module:
+                continue
+            if name not in reachable:
+                issues.append(
+                    "Derived relation missing companion output coverage: "
+                    f"`{target}` is not reached by an asserted scalar output "
+                    "in the companion `.test.yaml` file."
+                )
+            continue
+        if target in covered_outputs:
             continue
         issues.append(
             "Derived rule missing companion output coverage: "
@@ -23096,6 +23194,230 @@ def _rulespec_rule_formulas(payload: dict[str, Any]) -> list[tuple[str, str, str
         (name, kind, formula)
         for name, kind, formula, _source in _rulespec_rule_formula_records(payload)
     ]
+
+
+def _rulespec_input_entries(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    raw = payload.get("inputs")
+    if isinstance(raw, dict):
+        return {str(name): entry for name, entry in raw.items() if isinstance(entry, dict)}
+    if isinstance(raw, list):
+        return {
+            str(entry["name"]): entry
+            for entry in raw
+            if isinstance(entry, dict) and isinstance(entry.get("name"), str)
+        }
+    return {}
+
+
+def find_relation_role_issues(
+    content: str,
+    *,
+    rules_file: Path | None = None,
+    policy_repo_path: Path | None = None,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
+) -> list[str]:
+    """Check relation references, input defaults and explicit path declarations.
+
+    The compiler still checks the full grammar, slot kinds and cycles. Ordinary
+    inputs remain inferred, as the engine specifies: a misspelt scalar read is
+    an input need, while an undeclared relation atom is a compile refusal.
+    """
+    payload = _rulespec_payload(content)
+    if payload is None or not isinstance(payload.get("rules"), list):
+        return []
+    rules = {
+        str(rule["name"]): rule
+        for rule in payload["rules"]
+        if isinstance(rule, dict) and isinstance(rule.get("name"), str)
+    }
+    imports = payload.get("imports")
+    import_items = [
+        item for item in (imports if isinstance(imports, list) else [])
+        if isinstance(item, str)
+    ]
+    known_relations = _rulespec_relation_names(payload)
+    known_relations.update(_rulespec_import_fragment_names(imports))
+    unresolved_imports = False
+    pending_imports = [(item, rules_file) for item in import_items]
+    visited_imports: set[Path] = set()
+    while pending_imports:
+        item, importing_file = pending_imports.pop()
+        if rules_file is None or policy_repo_path is None:
+            unresolved_imports |= "#" not in item
+            continue
+        imported_file = _resolve_rulespec_import_file_static(
+            item, rules_file=importing_file, policy_repo_path=policy_repo_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+        if imported_file in visited_imports:
+            continue
+        if imported_file is not None:
+            visited_imports.add(imported_file)
+        imported_payload = (
+            _rulespec_payload_from_file(imported_file) if imported_file else None
+        )
+        if imported_payload is None:
+            unresolved_imports = True
+        else:
+            known_relations.update(_rulespec_relation_names(imported_payload))
+            imported_imports = imported_payload.get("imports")
+            known_relations.update(_rulespec_import_fragment_names(imported_imports))
+            if isinstance(imported_imports, list):
+                pending_imports.extend(
+                    (reference, imported_file)
+                    for reference in imported_imports if isinstance(reference, str)
+                )
+
+    inputs = _rulespec_input_entries(payload)
+    references: dict[str, set[str]] = {}
+    relation_rules: set[str] = set()
+    issues: list[str] = []
+    for name, rule in rules.items():
+        is_relation = rule.get("kind") == "derived_relation"
+        names: set[str] = set()
+        for formula in _rulespec_rule_formula_texts(rule):
+            names.update(
+                _formula_local_identifiers(formula, relation_predicate=is_relation)
+            )
+            if not is_relation:
+                continue
+            analyzed = analyze_relation_predicate(formula)
+            for variable in sorted(analyzed.out_of_scope_variables):
+                issues.append(
+                    "[relation-predicate-variable-scope] Derived relation "
+                    f"`{name}` reads bound variable `{variable}` outside its "
+                    "`exists` body."
+                )
+            for term in sorted(
+                analyzed.unbound_atom_terms - analyzed.out_of_scope_variables
+            ):
+                issues.append(
+                    "[relation-predicate-unbound-term] Derived relation "
+                    f"`{name}` uses unbound term `{term}` in a relation atom."
+                )
+            if not unresolved_imports:
+                for relation in sorted(analyzed.atom_relations - known_relations):
+                    issues.append(
+                        "[relation-predicate-unknown-relation] Derived relation "
+                        f"`{name}` calls undeclared relation `{relation}`. "
+                        "Declare or import the relation."
+                    )
+        references[name] = names
+        if not is_relation:
+            continue
+        relation_rules.add(name)
+        config = rule.get("derived_relation")
+        if not isinstance(config, dict) or "source_path" not in config:
+            continue
+        if "source_relation" in config:
+            issues.append(
+                f"[relation-source-path] Derived relation `{name}` declares both "
+                "`source_relation` and `source_path`; declare exactly one."
+            )
+        if "entity" in config or "member_relation" in config:
+            issues.append(
+                f"[relation-source-path] Derived relation `{name}` uses "
+                "`source_path` with `entity` or `member_relation`; path sources "
+                "cannot create a filtered-entity alias."
+            )
+        slot_kinds = config.get("slot_entities")
+        valid_slots = (
+            type(config.get("current_slot")) is int
+            and type(config.get("related_slot")) is int
+            and {config["current_slot"], config["related_slot"]} == {0, 1}
+        )
+        if not (
+            type(config.get("arity")) is int
+            and config["arity"] == 2
+            and isinstance(slot_kinds, list)
+            and len(slot_kinds) == 2
+            and all(
+                isinstance(kind, str) and re.fullmatch(r"[A-Z][A-Za-z0-9]*", kind)
+                for kind in slot_kinds
+            )
+            and valid_slots
+        ):
+            issues.append(
+                f"[relation-source-path] Derived relation `{name}` must declare "
+                "`arity: 2`, two `slot_entities`, and distinct explicit "
+                "`current_slot`/`related_slot` values 0 and 1 for `source_path`."
+            )
+        path = config["source_path"]
+        if not isinstance(path, list) or not path:
+            issues.append(
+                f"[relation-source-path] Derived relation `{name}` must declare "
+                "a nonempty `source_path` list."
+            )
+            continue
+        for index, step in enumerate(path):
+            if not (
+                isinstance(step, dict)
+                and isinstance(step.get("relation"), str)
+                and step["relation"].strip()
+                and type(step.get("from_slot")) is int
+                and type(step.get("to_slot")) is int
+                and {step["from_slot"], step["to_slot"]} == {0, 1}
+            ):
+                issues.append(
+                    f"[relation-source-path] Derived relation `{name}` step "
+                    f"{index + 1} must name a binary relation and distinct "
+                    "`from_slot`/`to_slot` values 0 and 1."
+                )
+
+    for relation_name in sorted(relation_rules):
+        pending = [relation_name]
+        visited: set[str] = set()
+        input_reads: set[str] = set()
+        while pending:
+            dependency = pending.pop()
+            if dependency in visited:
+                continue
+            visited.add(dependency)
+            for reference in references.get(dependency, set()):
+                if reference in rules:
+                    pending.append(reference)
+                else:
+                    input_reads.add(reference)
+        for input_name in sorted(input_reads & inputs.keys()):
+            if "default" in inputs[input_name]:
+                issues.append(
+                    "[relation-input-default] Input "
+                    f"`{input_name}` read by derived relation `{relation_name}` "
+                    "must not declare a default. Supply the fact explicitly."
+                )
+    all_reads = set().union(*references.values()) if references else set()
+    for name, entry in inputs.items():
+        if "election" not in entry:
+            continue
+        election = entry["election"]
+        valid_provision = False
+        if isinstance(election, dict) and isinstance(election.get("provision"), str):
+            with contextlib.suppress(InvalidCorpusCitationError):
+                require_canonical_corpus_citation_path(election["provision"])
+                valid_provision = True
+        if not (
+            isinstance(election, dict)
+            and set(election) == {"actor", "provision"}
+            and isinstance(election.get("actor"), str)
+            and re.fullmatch(r"[A-Z][A-Za-z0-9]*", election["actor"])
+            and valid_provision
+        ):
+            issues.append(
+                f"[election-declaration] Input `{name}` must declare exactly "
+                "`election.actor` as an UpperCamelCase entity kind and "
+                "`election.provision` as a canonical corpus citation path."
+            )
+        if "default" in entry:
+            issues.append(
+                f"[election-default] Election input `{name}` must not declare "
+                "a default. Supply the actor's choice explicitly."
+            )
+        if name not in all_reads:
+            issues.append(
+                f"[election-unused] Election input `{name}` must name an input "
+                "read by a rule or derived-relation predicate in this module."
+            )
+    return list(dict.fromkeys(issues))
 
 
 def find_empty_rules_module_issues(content: str) -> list[str]:
@@ -27230,6 +27552,20 @@ def _rulespec_data_relation_names(payload: dict[str, Any]) -> set[str]:
     }
 
 
+def _rulespec_relation_names(payload: dict[str, Any]) -> set[str]:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+    return {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict)
+        and str(rule.get("kind") or "").strip().lower()
+        in {"data_relation", "derived_relation"}
+        and str(rule.get("name") or "").strip()
+    }
+
+
 def _source_limitation_subject_slugs(source_text: str) -> set[str]:
     slugs: set[str] = set()
     for match in _LIMITATION_ON_SUBJECT_PATTERN.finditer(source_text):
@@ -28512,7 +28848,7 @@ def find_relation_aggregate_syntax_issues(content: str) -> list[str]:
     if payload is None:
         return []
 
-    relation_names = _rulespec_data_relation_names(payload)
+    relation_names = _rulespec_relation_names(payload)
     issues: list[str] = []
     for name, _kind, formula in _rulespec_rule_formulas(payload):
         for match in _UNSUPPORTED_RELATION_SUM_PATTERN.finditer(formula):
@@ -30965,6 +31301,7 @@ def _rulespec_executable_names_in_order_from_payload(payload: Any) -> list[str]:
         if str(rule.get("kind") or "").strip().lower() not in {
             "parameter",
             "derived",
+            "derived_relation",
         }:
             continue
         name = str(rule.get("name") or "").strip()
@@ -30980,11 +31317,18 @@ def _rulespec_terminal_executable_names_from_payload(payload: Any) -> list[str]:
         return names
 
     name_set = set(names)
-    referenced: set[str] = set()
-    for owner, _kind, formula in _rulespec_rule_formulas(payload):
+    referenced: set[str] = {
+        local_reference_name(source)
+        for rule in payload.get("rules", [])
+        if isinstance(rule, dict)
+        for source in relation_source_names(rule.get("derived_relation"))
+    } & name_set
+    for owner, kind, formula in _rulespec_rule_formulas(payload):
         referenced.update(
             identifier
-            for identifier in _formula_local_identifiers(formula)
+            for identifier in _formula_local_identifiers(
+                formula, relation_predicate=kind == "derived_relation"
+            )
             if identifier in name_set and identifier != owner
         )
     terminal = [name for name in names if name not in referenced]
@@ -31036,6 +31380,8 @@ def _rulespec_import_export_names(
             continue
         payload = _rulespec_payload_from_file(import_file)
         names.update(_rulespec_executable_names_from_payload(payload))
+        if isinstance(payload, dict):
+            names.update(_rulespec_relation_names(payload))
     return names
 
 
@@ -31046,7 +31392,7 @@ def _rulespec_import_fragment_names(imports: Any) -> set[str]:
     for raw_import in imports:
         if not isinstance(raw_import, str) or "#" not in raw_import:
             continue
-        fragment = raw_import.rsplit("#", 1)[1].strip()
+        fragment = local_reference_name(raw_import)
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", fragment):
             names.add(fragment)
     return names
@@ -31060,7 +31406,7 @@ def _rulespec_local_input_slots(
     policy_repo_path: Path,
 ) -> set[str]:
     local_symbols = _rulespec_executable_names_from_payload(payload)
-    local_symbols.update(_rulespec_data_relation_names(payload))
+    local_symbols.update(_rulespec_relation_names(payload))
     imported_symbols = _rulespec_import_export_names(
         imports,
         rules_file=rules_file,
@@ -31462,7 +31808,14 @@ def find_unused_import_issues(content: str) -> list[str]:
         if not isinstance(imports, list):
             return []
 
-        formula_text = "\n".join(_rulespec_formula_texts(payload))
+        identifiers = _rulespec_formula_identifiers(payload)
+        raw_rules = payload.get("rules")
+        source_references = {
+            local_reference_name(source)
+            for rule in (raw_rules if isinstance(raw_rules, list) else [])
+            if isinstance(rule, dict)
+            for source in relation_source_names(rule.get("derived_relation"))
+        }
         proof_import_targets = _rulespec_proof_import_targets(payload)
         issues: list[str] = []
         for raw_item in imports:
@@ -31471,10 +31824,10 @@ def find_unused_import_issues(content: str) -> list[str]:
             import_item = raw_item.strip()
             if "#" not in import_item:
                 continue
-            symbol = import_item.rsplit("#", 1)[1].strip()
+            symbol = local_reference_name(import_item)
             if not symbol:
                 continue
-            if _formula_references_symbol(formula_text, symbol):
+            if symbol in identifiers or symbol in source_references:
                 continue
             if import_item in proof_import_targets:
                 continue
@@ -31502,6 +31855,13 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                 continue
             rule_name = str(rule.get("name") or "<unknown>").strip() or "<unknown>"
             formula_text = "\n".join(_rulespec_rule_formula_texts(rule))
+            referenced = _formula_local_identifiers(
+                formula_text, relation_predicate=rule.get("kind") == "derived_relation"
+            )
+            referenced.update(
+                local_reference_name(source)
+                for source in relation_source_names(rule.get("derived_relation"))
+            )
             proof = _rule_proof_payload(rule)
             atoms = proof.get("atoms") if isinstance(proof, dict) else None
             if not isinstance(atoms, list):
@@ -31517,7 +31877,8 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                     target = str(import_payload.get("target") or "").strip()
                     if "#" in target:
                         symbol = target.rsplit("#", 1)[1].strip()
-                if not symbol or _formula_references_symbol(formula_text, symbol):
+                symbol = local_reference_name(symbol)
+                if not symbol or symbol in referenced:
                     continue
                 issues.append(
                     "Proof import not referenced: "
@@ -31976,8 +32337,12 @@ def _rulespec_import_prefix_static(import_path: str) -> str | None:
     return None
 
 
-def _formula_local_identifiers(formula: str) -> set[str]:
+def _formula_local_identifiers(
+    formula: str, *, relation_predicate: bool = False
+) -> set[str]:
     """Return non-builtin identifiers referenced by a RuleSpec formula."""
+    if relation_predicate:
+        return formula_identifiers(formula, relation_predicate=True)
     scrubbed = _QUOTED_STRING_PATTERN.sub(" ", formula)
     return set(_RULESPEC_IDENTIFIER.findall(scrubbed)) - _RULESPEC_FORMULA_BUILTINS
 
@@ -32301,7 +32666,9 @@ def find_test_input_assignment_issues(
             symbol_inputs[rule_name] = index_names - defined_symbols - imported_symbols
             symbol_dependencies[rule_name] = index_names & defined_symbols
             continue
-        if str(rule.get("kind") or "").strip().lower() != "derived":
+        if str(rule.get("kind") or "").strip().lower() not in {
+            "derived", "derived_relation"
+        }:
             continue
         versions = rule.get("versions")
         if not isinstance(versions, list):
@@ -32314,10 +32681,18 @@ def find_test_input_assignment_issues(
                 version_metadata_valid = False
                 continue
             formula = version.get("formula")
-            if not isinstance(formula, str):
+            if not isinstance(formula, (str, bool)):
                 version_metadata_valid = False
                 continue
-            identifiers = _formula_local_identifiers(formula)
+            identifiers = (
+                _formula_local_identifiers(
+                    formula, relation_predicate=rule.get("kind") == "derived_relation"
+                ) if isinstance(formula, str) else set()
+            )
+            identifiers.update(
+                local_reference_name(source)
+                for source in relation_source_names(rule.get("derived_relation"))
+            )
             formula_identifiers.update(identifiers)
             try:
                 effective_from = date.fromisoformat(str(version["effective_from"]))
@@ -32579,7 +32954,7 @@ def _assignment_keys_from_mapping(inputs: dict[Any, Any]) -> list[str]:
             keys.append(key_text)
         if isinstance(value, list):
             for item in value:
-                if isinstance(item, dict):
+                if isinstance(item, dict) and "tuple" not in item:
                     keys.extend(_assignment_keys_from_mapping(item))
     return keys
 
@@ -33204,7 +33579,12 @@ def _rulespec_content_formula_identifiers(content: str) -> set[str]:
                 continue
             formula = version.get("formula")
             if isinstance(formula, str):
-                identifiers.update(_formula_local_identifiers(formula))
+                identifiers.update(
+                    _formula_local_identifiers(
+                        formula,
+                        relation_predicate=rule.get("kind") == "derived_relation",
+                    )
+                )
     return identifiers
 
 
@@ -35201,6 +35581,7 @@ def _rulespec_formula_identifiers(payload: Any) -> set[str]:
         return set()
 
     identifiers: set[str] = set()
+    predicate_identifiers: set[str] = set()
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -35212,8 +35593,13 @@ def _rulespec_formula_identifiers(payload: Any) -> set[str]:
                 continue
             formula = version.get("formula")
             if isinstance(formula, str):
-                identifiers.update(_RULESPEC_IDENTIFIER.findall(formula))
-    return identifiers - _RULESPEC_FORMULA_BUILTINS
+                if rule.get("kind") == "derived_relation":
+                    predicate_identifiers.update(
+                        _formula_local_identifiers(formula, relation_predicate=True)
+                    )
+                else:
+                    identifiers.update(_RULESPEC_IDENTIFIER.findall(formula))
+    return (identifiers - _RULESPEC_FORMULA_BUILTINS) | predicate_identifiers
 
 
 def _rulespec_reference_summary(target_file: Path) -> _RuleSpecReferenceSummary:
@@ -35263,7 +35649,7 @@ def _rulespec_reference_summary_cached(
                 parameters.add(name)
             elif kind == "derived":
                 derived.add(name)
-            elif kind == "data_relation":
+            elif kind in {"data_relation", "derived_relation"}:
                 relations.add(name)
 
     formula_identifiers = _rulespec_formula_identifiers(payload)
@@ -37128,6 +37514,7 @@ class ValidatorPipeline:
         executable_directions: dict[str, tuple[int, str | None]] | None = None,
         input_entities: dict[str, str] | None = None,
         table_entity_ids: dict[str, list[str]] | None = None,
+        relation_role_program: bool = False,
     ) -> dict[str, Any]:
         """Build an Axiom rules engine dataset from compact RuleSpec test inputs."""
         if case_input in (None, ""):
@@ -37182,6 +37569,20 @@ class ValidatorPipeline:
                 slots = declared_relation_slots.get(
                     relation_request_name
                 ) or declared_relation_slots.get(relation_name)
+                tuples = explicit_relation_tuples(value, relation=input_key, slots=slots)
+                if tuples is not None:
+                    for relation_tuple in tuples:
+                        for current_relation_name in relation_request_names:
+                            relations.append(
+                                {
+                                    "name": current_relation_name,
+                                    "tuple": relation_tuple,
+                                    "interval": interval,
+                                }
+                            )
+                    continue
+                if not value and relation_role_program:
+                    continue
                 current_slot = None
                 if slots is not None:
                     matching_slots = [
@@ -37213,6 +37614,16 @@ class ValidatorPipeline:
                         f"conflicting executable relation aliases for {input_key}"
                     )
                 direction = next(iter(matches), None)
+                if (
+                    relation_role_program
+                    and slots is not None
+                    and slots.count(query_entity) > 1
+                    and direction is None
+                ):
+                    raise ValueError(
+                        f"relation `{input_key}` compact rows have no unambiguous "
+                        "query-anchor direction; use explicit `tuple` rows"
+                    )
                 if direction is not None:
                     current_slot, executable_entity = direction
                     if executable_entity is not None:
@@ -37774,6 +38185,7 @@ class ValidatorPipeline:
                 query_entity,
                 declared_relation_slots or {},
                 compiled_relations,
+                explicit_relations=explicit_tuple_relation_names(case.get("input")),
             )
             dataset = self._build_rulespec_dataset(
                 case.get("input", {}),
@@ -37789,6 +38201,7 @@ class ValidatorPipeline:
                 executable_directions=executable_directions,
                 input_entities=input_entities,
                 table_entity_ids=table_entity_ids,
+                relation_role_program=uses_relation_roles(compiled_relations),
             )
         except ValueError as exc:
             return None, [f"Test case `{case_name}` input invalid: {exc}"]
@@ -38043,6 +38456,14 @@ class ValidatorPipeline:
                 issues.append(f"Test case #{index} must be a mapping.")
                 continue
             case_name = str(case.get("name") or f"#{index}")
+            assignment_issues = pair_relation_assignment_issues(
+                compiled_payload.get("program", {}).get("relations", []),
+                case,
+                case_name,
+            )
+            if assignment_issues:
+                issues.extend(assignment_issues)
+                continue
             if "name" not in case:
                 issues.append(f"Test case #{index} is missing name.")
             if "period" not in case:
@@ -38501,6 +38922,14 @@ class ValidatorPipeline:
             )
         )
         issues.extend(find_relation_aggregate_syntax_issues(content))
+        issues.extend(
+            find_relation_role_issues(
+                content,
+                rules_file=rules_file,
+                policy_repo_path=self.policy_repo_path,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
+            )
+        )
         issues.extend(find_role_limited_relation_scope_issues(content))
         issues.extend(find_entity_limited_aggregation_order_issues(content))
         issues.extend(find_source_limitation_application_issues(content))
@@ -38976,7 +39405,9 @@ class ValidatorPipeline:
         seen: set[tuple[str, str]] = set()
         for block in self._extract_definition_blocks(content):
             formula = "\n".join(str(line) for line in block["body_lines"])
-            identifiers = _formula_local_identifiers(formula)
+            identifiers = _formula_local_identifiers(
+                formula, relation_predicate=block.get("kind") == "derived_relation"
+            )
             identifiers.update(_exception_formula_inputs(formula))
             for identifier in sorted(identifiers):
                 import_base = self._cross_reference_placeholder_import_base(
@@ -39139,7 +39570,9 @@ class ValidatorPipeline:
         seen: set[tuple[str, str]] = set()
         for block in local_blocks.values():
             formula = "\n".join(str(line) for line in block["body_lines"])
-            for identifier in sorted(_formula_local_identifiers(formula)):
+            for identifier in sorted(_formula_local_identifiers(
+                formula, relation_predicate=block.get("kind") == "derived_relation"
+            )):
                 import_base = self._cross_reference_placeholder_import_base(
                     identifier,
                     title=title,
@@ -39229,7 +39662,9 @@ class ValidatorPipeline:
             return False
 
         formula = "\n".join(str(line) for line in block["body_lines"])
-        formula_identifiers = _formula_local_identifiers(formula)
+        formula_identifiers = _formula_local_identifiers(
+                formula, relation_predicate=block.get("kind") == "derived_relation"
+            )
         if not formula_identifiers:
             return False
 
@@ -39315,7 +39750,9 @@ class ValidatorPipeline:
                 ):
                     continue
                 formula = "\n".join(str(line) for line in block["body_lines"])
-                for identifier in sorted(_formula_local_identifiers(formula)):
+                for identifier in sorted(_formula_local_identifiers(
+                formula, relation_predicate=block.get("kind") == "derived_relation"
+            )):
                     if not self._identifier_matches_numeric_cross_reference(
                         identifier,
                         label,
@@ -39365,7 +39802,9 @@ class ValidatorPipeline:
         issues: list[str] = []
         for block in self._extract_definition_blocks(content):
             formula = "\n".join(str(line) for line in block["body_lines"])
-            identifiers = _formula_local_identifiers(formula)
+            identifiers = _formula_local_identifiers(
+                formula, relation_predicate=block.get("kind") == "derived_relation"
+            )
             for rate_name, import_item in sorted(imported_rate_sources.items()):
                 if rate_name not in identifiers:
                     continue
@@ -39489,7 +39928,9 @@ class ValidatorPipeline:
         identifiers: set[str] = set()
         for block in self._extract_definition_blocks(content):
             formula = "\n".join(str(line) for line in block["body_lines"])
-            identifiers.update(_formula_local_identifiers(formula))
+            identifiers.update(_formula_local_identifiers(
+                formula, relation_predicate=block.get("kind") == "derived_relation"
+            ))
         return identifiers
 
     def _imported_symbols_for_same_section_term_check(
@@ -39718,7 +40159,9 @@ class ValidatorPipeline:
             if dtype != "money":
                 continue
             formula = "\n".join(str(line) for line in block["body_lines"])
-            identifiers = _formula_local_identifiers(formula)
+            identifiers = _formula_local_identifiers(
+                formula, relation_predicate=block.get("kind") == "derived_relation"
+            )
             if not _formula_uses_raw_compensation_base(identifiers):
                 continue
             for obligation in obligations:
@@ -40542,6 +40985,7 @@ class ValidatorPipeline:
                     "name": name,
                     "line": index,
                     "body_lines": formula_lines,
+                    "kind": str(rule.get("kind") or "").strip().lower(),
                     "imports": imports,
                     "dtype": rule.get("dtype"),
                     "source": rule.get("source"),

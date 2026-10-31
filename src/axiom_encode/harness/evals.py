@@ -62,6 +62,11 @@ from axiom_encode.encode_timing import (
     mark_encode_phase,
     timed_phase,
 )
+from axiom_encode.formula_references import (
+    formula_identifiers,
+    local_reference_name,
+    relation_source_names,
+)
 from axiom_encode.legacy_replacement import LegacyReplacementContract
 from axiom_encode.legacy_replacement_overlay import (
     LegacyReplacementOverlayError,
@@ -71,6 +76,11 @@ from axiom_encode.legacy_replacement_overlay import (
 )
 from axiom_encode.prompts.encoder import (
     INTERPRETATIONS_PROTOCOL,
+    RELATION_ROLES_FORMULA_PROTOCOL,
+    RELATION_ROLES_SELF_CHECK,
+    RELATION_ROLES_SHAPE,
+    RELATION_ROLES_STRUCTURE_PROTOCOL,
+    RELATION_ROLES_TESTS_PROTOCOL,
     SOURCE_SCOPE_PROTOCOL,
 )
 from axiom_encode.repair_candidate_contract import (
@@ -9452,7 +9462,13 @@ _MINIMAL_SCOPE_HINT = """Source-scope protocol (minimal):
 
 Either declare `snap_unit` inline like that (and define a real per-member eligibility predicate as its formula) or switch the executable rule's entity to `Household` and drop the SnapUnit reference. Do not leave a bare `entity: SnapUnit` rule without the matching declaration.
 
-"""
+""" + "\n".join(
+    (
+        RELATION_ROLES_FORMULA_PROTOCOL,
+        RELATION_ROLES_TESTS_PROTOCOL,
+        RELATION_ROLES_SELF_CHECK,
+    )
+)
 
 
 def _strip_source_scope_protocol(prompt: str) -> str:
@@ -11638,7 +11654,7 @@ Test file rules:
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>` key. For example, use `<jurisdiction>:<repo-path>#imported_judgment: holds` or `not_holds`, not `<jurisdiction>:<repo-path>#input.imported_judgment`.
 - Do not invent `#input` keys for imported files. Use only the bare fact names that the imported file's formulas actually reference, or mirror the imported file's companion `.test.yaml` input pattern when it is supplied in context. If that imported output is driven by an upstream structural relation, set the upstream `#relation.<name>` rows used by the companion test instead of creating a local input under the imported file.
 - A `#relation.<name>` input value must be a YAML list of row mappings. Never use a scalar row such as `- true`. Bad: `<jurisdiction>:<repo-path>#relation.member_of_household: [- true]`. Good: `<jurisdiction>:<repo-path>#relation.member_of_household:` followed by `- <jurisdiction>:<repo-path>#input.member_has_required_status: true`.
-- Put `#relation.<name>` test inputs under the test case's top-level `input:`, not inside `tables.<Entity>` rows. If a table-row entity output depends on a relation, write separate scalar cases with the row's scalar facts and relation list under `input:` instead of a row-ordered `tables` case.
+- Put `#relation.<name>` test inputs under the test case's top-level `input:`, not inside `tables.<Entity>` rows. Explicit tuple rows can connect named table rows for row-ordered outputs. For legacy synthetic relation rows, write scalar cases with relation lists under `input:`.
 - Each `.test.yaml` case may assert derived outputs for only one entity type. If a module defines outputs on multiple entities, create separate cases for each entity pair, such as `Person`/`TaxUnit`, `Person`/`Employer`, or `Employer`/`Payment`. For example: `Person` cases set person facts at the top level and assert person outputs; `TaxUnit` cases use relation rows to supply person facts and assert only tax-unit outputs. Do not assert relation-child outputs in the parent entity's case.
 - Use `holds` and `not_holds` for actual `dtype: Judgment` rule keys in test inputs and outputs; do not use YAML booleans for Judgment rule values.
 - Use YAML booleans `true` and `false` for local factual `#input.<fact>` keys referenced directly by formulas.
@@ -12080,15 +12096,17 @@ RuleSpec requirements:
   `source:` short and local to the rule; use `module.source_verification` for
   the corpus locator.
 - Use `kind: derived_relation` only when the source text explicitly defines
-  membership in a derived legal unit by filtering a source relation through a
-  stated predicate. "This source is about SNAP" is not enough. If the source
+  membership in a derived legal unit by filtering candidates from a source
+  relation or path through a stated predicate. "This source is about SNAP" is
+  not enough. If the source
   uses an existing structural entity such as `Household`, `TaxUnit`, `Employer`,
   or `Person`, and merely references a program-specific concept without defining
   who belongs to it, stay on the source-stated structural entity.
 - For source text that imposes an amount, tax, credit, or limitation on each,
   every, or any employer, use `entity: Employer`. Do not default to `TaxUnit`
   merely because the output is tax-related.
-- Keep the membership predicate as an ordinary source-backed rule, then define
+- For a single-source filtered entity, keep its per-member predicate as an
+  ordinary source-backed rule, then define
   the filtered entity under `derived_relation:` with `arity`, `source_relation`,
   `entity`, `member_relation`, `slot_entities`, and a `versions[].formula` that
   names the predicate.
@@ -12097,6 +12115,7 @@ RuleSpec requirements:
   that entity with a `kind: derived_relation` rule or import a RuleSpec file
   that declares it. Filtered entities have no structural existence without that
   dependency.
+{RELATION_ROLES_STRUCTURE_PROTOCOL}
 {SOURCE_SCOPE_PROTOCOL}{dated_parameter_instruction}
 - If `./source.txt` is a broad application, furnishing, administrative duty, or purpose clause without a computable policy condition, preserve it in `module.summary` but do not create an executable derived output just to paraphrase it. Encode only the concrete conditions, exceptions, parameters, and relations that affect computation.
 - Do not create an output for administrative clauses like "assistance shall be furnished to all eligible households who make application." Unless the source defines a calculable benefit, amount, condition, or exception, keep that text documentary in `module.summary`.
@@ -12576,7 +12595,8 @@ RuleSpec requirements:
   `min(source_amount, cap)`. The excluded excess is
   `max(0, source_amount - cap)`, but do not return `source_amount - cap` or
   `source_amount - remaining_cap` as the included amount.
-- Formula strings must use bare identifiers only. If an imported rule is listed
+- Formula strings use bare declaration names and permitted qualified role
+  reads. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
   reference `example_rule` inside formula text.
 - Axiom conditionals are expression syntax, not YAML syntax. Money/scalar formulas may use `if condition: value else: other`; do not use Python ternary syntax, `else if`, or `elif`.
@@ -12634,8 +12654,9 @@ RuleSpec requirements:
 - If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
 - For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change.
 - Every local executable `kind: derived` or `kind: derived_relation` rule must
-  appear at least once under an `output:` block in the companion `.test.yaml`;
-  do not leave helper derived rules unasserted.
+  have companion output coverage. Assert every derived rule directly under
+  `output:` and cover every derived relation through an asserted derived
+  output that reads it; do not leave helper rules or relations untested.
 - In modules with executable derived outputs, do not assert raw
   `kind: parameter` rules directly in companion test `output:` blocks; cover
   parameters through derived outputs that consume them. If a module contains
@@ -12711,6 +12732,8 @@ RuleSpec requirements:
   aggregate only when a compatible relation and numeric amount field are
   present. If neither is available, defer the numeric output instead of using
   the Judgment import as a placeholder scalar.
+{RELATION_ROLES_FORMULA_PROTOCOL}
+{RELATION_ROLES_TESTS_PROTOCOL}
 - Before finalizing, do this self-check:
   1. Numeric inventory: every source-stated legal amount, rate, threshold, cap,
      or limit has a named local numeric concept or an exact imported concept
@@ -12758,6 +12781,7 @@ RuleSpec requirements:
      request instead.
      Never drop the jurisdiction prefix from copied context imports: use
      `us:statutes/...#symbol`, not `statutes/...#symbol`.
+{RELATION_ROLES_SELF_CHECK}
 {target_hint}
 Additional encoding guidance:
 {additional_guidance}
@@ -12830,6 +12854,7 @@ rules:
         formula: snap_member_eligible
 ```
 
+{RELATION_ROLES_SHAPE}
 """
     coverage_index_section = ""
     if require_complete_source_unit and not repair_candidate_tests_only:
@@ -15280,11 +15305,17 @@ def _context_file_local_inputs(source_path: str) -> set[str]:
                 formula_text = formula
             else:
                 continue
-            for identifier in _CONTEXT_FORMULA_IDENTIFIER.findall(formula_text):
+            relation_predicate = rule.get("kind") == "derived_relation"
+            identifiers = (
+                formula_identifiers(formula_text, relation_predicate=True)
+                if relation_predicate
+                else _CONTEXT_FORMULA_IDENTIFIER.findall(formula_text)
+            )
+            for identifier in identifiers:
                 if (
                     identifier in defined
                     or identifier in imported
-                    or identifier in _CONTEXT_FORMULA_BUILTINS
+                    or (not relation_predicate and identifier in _CONTEXT_FORMULA_BUILTINS)
                 ):
                     continue
                 inputs.add(identifier)
@@ -15299,7 +15330,7 @@ def _context_file_imported_symbols(payload: dict[str, object]) -> set[str]:
     for item in imports:
         if not isinstance(item, str) or "#" not in item:
             continue
-        fragment = item.rsplit("#", 1)[1].strip()
+        fragment = local_reference_name(item)
         if fragment and "." not in fragment:
             symbols.add(fragment)
     return symbols
@@ -15363,6 +15394,7 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
         if str(rule.get("kind") or "").strip().lower() not in {
             "parameter",
             "derived",
+            "derived_relation",
         }:
             continue
         name = str(rule.get("name") or "").strip()
@@ -15384,14 +15416,32 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
         return []
 
     export_names = set(exports)
-    referenced: set[str] = set()
+    referenced: set[str] = {
+        local_reference_name(source)
+        for rule in rules if isinstance(rule, dict)
+        for source in relation_source_names(rule.get("derived_relation"))
+    } & export_names
+    rules_by_name = {
+        rule.get("name"): rule for rule in rules if isinstance(rule, dict)
+    }
     for owner, formula in formulas:
+        rule = rules_by_name[owner]
+        identifiers = formula_identifiers(
+            formula, relation_predicate=rule.get("kind") == "derived_relation"
+        )
+        identifiers.update(
+            local_reference_name(source)
+            for source in relation_source_names(rule.get("derived_relation"))
+        )
         referenced.update(
             identifier
-            for identifier in _CONTEXT_FORMULA_IDENTIFIER.findall(formula)
+            for identifier in identifiers
             if identifier in export_names
             and identifier != owner
-            and identifier not in _CONTEXT_FORMULA_BUILTINS
+            and (
+                rule.get("kind") == "derived_relation"
+                or identifier not in _CONTEXT_FORMULA_BUILTINS
+            )
         )
     terminal = [name for name in exports if name not in referenced]
     return terminal or exports
@@ -18126,7 +18176,9 @@ def _policyengine_hint_upstream_composition_issues(
                         formula
                     )
                 )
-                for identifier in _RULESPEC_FORMULA_IDENTIFIER_RE.findall(formula):
+                for identifier in formula_identifiers(
+                    formula, relation_predicate=rule.get("kind") == "derived_relation"
+                ):
                     if identifier in _RULESPEC_FORMULA_KEYWORDS:
                         continue
                     if identifier not in rules_by_name or identifier in visited:

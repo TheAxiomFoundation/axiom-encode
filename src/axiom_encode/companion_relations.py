@@ -4,6 +4,110 @@ from __future__ import annotations
 
 from typing import Any
 
+_RELATION_ROLE_KINDS = frozenset(
+    {"role_input", "role_derived", "relation_atom", "exists", "same_entity"}
+)
+
+
+def uses_relation_roles(relations: list[dict[str, Any]] | None) -> bool:
+    """Recognize the engine's relation-role IR, including path sources."""
+
+    def walk(value: Any) -> bool:
+        if isinstance(value, list):
+            return any(walk(item) for item in value)
+        if not isinstance(value, dict):
+            return False
+        return (
+            value.get("kind") in _RELATION_ROLE_KINDS
+            or "source_path" in value
+            or any(walk(item) for item in value.values())
+        )
+
+    return walk(relations)
+
+
+def pair_relation_assignment_issues(
+    relations: list[dict[str, Any]] | None,
+    case: dict[str, Any],
+    case_name: str,
+) -> list[str]:
+    """Require explicit pair facts, including empty sets, for role programs.
+
+    The current engine treats an absent tuple as false and exposes no relation
+    completeness declaration. Assigning every base pair relation makes that
+    closed-world choice explicit in each companion case.
+    """
+    if not uses_relation_roles(relations):
+        return []
+    inputs = case.get("input")
+    assigned = set(map(str, inputs)) if isinstance(inputs, dict) else set()
+    issues = []
+    for relation in relations or []:
+        if relation.get("derivation") or relation.get("arity") != 2:
+            continue
+        name = str(relation.get("name") or "")
+        if not name:
+            continue
+        aliases = {name}
+        if "#relation." not in name:
+            aliases.update(key for key in assigned if key.endswith(f"#relation.{name}"))
+        if not aliases & assigned:
+            issues.append(
+                f"Test case `{case_name}` must assign pair relation `{name}`, "
+                "including `[]` when no tuples hold."
+            )
+    return issues
+
+
+def explicit_relation_tuples(
+    rows: list[Any],
+    *,
+    relation: str,
+    slots: tuple[str, ...] | None,
+) -> list[list[str]] | None:
+    """Read tuple-only companion rows in the relation's declared slot order.
+
+    Return None for the existing compact relation-member mappings. Named table
+    rows supply facts for the ids in explicit tuples; the engine checks kinds.
+    """
+    if not any(isinstance(row, dict) and "tuple" in row for row in rows):
+        return None
+    if slots is None:
+        raise ValueError(
+            f"relation `{relation}` tuple rows require declared slot kinds"
+        )
+    result = []
+    for index, row in enumerate(rows, 1):
+        if not isinstance(row, dict) or set(row) != {"tuple"}:
+            raise ValueError(
+                f"relation `{relation}` tuple row #{index} must contain only `tuple`; "
+                "supply entity facts in named table rows"
+            )
+        value = row["tuple"]
+        if (
+            not isinstance(value, list)
+            or len(value) != len(slots)
+            or any(not isinstance(item, str) for item in value)
+        ):
+            raise ValueError(
+                f"relation `{relation}` tuple row #{index} must contain "
+                f"{len(slots)} string ids in declared slot order"
+            )
+        result.append(list(value))
+    return result
+
+
+def explicit_tuple_relation_names(case_input: Any) -> set[str]:
+    """Find supplied relations whose rows need no implicit anchor direction."""
+    if not isinstance(case_input, dict):
+        return set()
+    return {
+        str(name)
+        for name, rows in case_input.items()
+        if isinstance(rows, list)
+        and (not rows or any(isinstance(row, dict) and "tuple" in row for row in rows))
+    }
+
 
 def executable_relation_directions(
     derived: dict[str, dict[str, Any]],
@@ -12,6 +116,8 @@ def executable_relation_directions(
     query_entity: str,
     declared: dict[str, tuple[str, ...]],
     relations: list[dict[str, Any]] | None = None,
+    *,
+    explicit_relations: set[str] | None = None,
 ) -> dict[str, tuple[int, str | None]]:
     """Return current slot and related entity, rejecting ambiguous evidence.
 
@@ -30,6 +136,7 @@ def executable_relation_directions(
     visited: set[tuple[int, str, bool]] = set()
     schemas = {str(r["name"]): r for r in relations or [] if r.get("name")}
     active_relations: set[tuple[str, bool]] = set()
+    explicit_relations = explicit_relations or set()
 
     def resolve(name: str) -> dict[str, Any]:
         matches = aliases.get(name, [])
@@ -94,13 +201,38 @@ def executable_relation_directions(
                 or {current, related} != {0, 1}
             ):
                 raise ValueError("invalid executable binary relation coordinates")
-            source = derivation["source_relation"]
             slots = derivation.get("slot_entities") or []
             current_kind = slots[current] if len(slots) == 2 else None
             related_kind = slots[related] if len(slots) == 2 else None
-            if root:
-                record(source, (current, related_kind))
-            relation_derivation(source, entity, root)
+            source = derivation.get("source_relation")
+            path = derivation.get("source_path")
+            if (source is None) == (path is None):
+                raise ValueError("compiled relation needs exactly one source")
+            if source is not None:
+                if root:
+                    record(source, (current, related_kind))
+                relation_derivation(source, entity, root)
+            else:
+                if not isinstance(path, list) or not path:
+                    raise ValueError("compiled relation source path must have steps")
+                for index, step in enumerate(path):
+                    step_relation = step.get("relation")
+                    start, end = step.get("from_slot"), step.get("to_slot")
+                    if (
+                        not isinstance(step_relation, str)
+                        or type(start) is not int
+                        or type(end) is not int
+                        or {start, end} != {0, 1}
+                    ):
+                        raise ValueError(
+                            "invalid executable binary relation path coordinates"
+                        )
+                    step_slots = declared.get(step_relation) or ()
+                    step_kind = step_slots[end] if len(step_slots) == 2 else None
+                    step_root = root and index == 0
+                    if step_root:
+                        record(step_relation, (start, step_kind))
+                    relation_derivation(step_relation, entity, step_root)
             # Only derived-relation predicates install RelationEvalContext.
             context = (current_kind, root, related_kind, False)
             walk(derivation["predicate"], related_kind or entity, False, context)
@@ -110,6 +242,13 @@ def executable_relation_directions(
     def record(
         relation: str, direction: tuple[int, str | None], *, explicit: bool = True
     ) -> None:
+        if relation in explicit_relations or (
+            "#relation." not in relation
+            and any(
+                name.endswith(f"#relation.{relation}") for name in explicit_relations
+            )
+        ):
+            return
         current, hint = direction
         if relation in directions and directions[relation] != current:
             raise ValueError(f"conflicting executable directions for {relation}")
@@ -118,12 +257,79 @@ def executable_relation_directions(
             hints = explicit_hints if explicit else fallback_hints
             hints.setdefault(relation, set()).add(hint)
 
-    def walk(node: Any, entity: str, root: bool, context: tuple | None = None) -> None:
+    def term_target(
+        term: Any, context: tuple | None, variables: tuple
+    ) -> tuple[str | None, bool]:
+        if context is None:
+            raise ValueError("relation role requires derived relation context")
+        if term == "anchor":
+            return context[0], context[1]
+        if term == "candidate":
+            return context[2], context[3]
+        if isinstance(term, dict) and type(term.get("var")) is int:
+            index = term["var"]
+            if 0 <= index < len(variables):
+                return variables[-1 - index]
+        raise ValueError("invalid or unbound compiled relation term")
+
+    def walk(
+        node: Any,
+        entity: str,
+        root: bool,
+        context: tuple | None = None,
+        variables: tuple = (),
+    ) -> None:
         if isinstance(node, list):
             for child in node:
-                walk(child, entity, root, context)
+                walk(child, entity, root, context, variables)
             return
         if not isinstance(node, dict):
+            return
+        if node.get("kind") == "role_derived":
+            kind, target_root = term_target(node.get("term"), context, variables)
+            visit_rule(resolve(str(node.get("name", ""))), kind or entity, target_root)
+            return
+        if node.get("kind") in {"relation_atom", "exists"}:
+            relation = str(node.get("relation", ""))
+            schema = (
+                schemas.get(relation)
+                or schemas.get(relation.rsplit("#relation.", 1)[-1])
+                or {}
+            )
+            derivation = schema.get("derivation")
+            terms = node.get("terms") or []
+            if derivation:
+                current = derivation.get("current_slot")
+                if type(current) is not int or not 0 <= current < len(terms):
+                    raise ValueError("invalid executable relation atom coordinates")
+                kind, target_root = term_target(terms[current], context, variables)
+                relation_derivation(relation, kind or entity, target_root)
+            else:
+                slots = schema.get("slot_entities") or declared.get(relation) or ()
+                variable_slot = (
+                    node.get("variable_slot") if node.get("kind") == "exists" else None
+                )
+                if len(slots) == 2 and len(terms) == 2:
+                    for index, term in enumerate(terms):
+                        if index == variable_slot:
+                            continue
+                        _kind, target_root = term_target(term, context, variables)
+                        if target_root:
+                            record(relation, (index, slots[1 - index]))
+            if node.get("kind") == "exists":
+                variable_slot = node.get("variable_slot")
+                slots = schema.get("slot_entities") or declared.get(relation) or ()
+                if type(variable_slot) is not int or not 0 <= variable_slot < len(
+                    slots
+                ):
+                    raise ValueError("invalid executable relation variable slot")
+                walk(
+                    node.get("body"),
+                    entity,
+                    root,
+                    context,
+                    (*variables, (slots[variable_slot], False)),
+                )
             return
         if node.get("kind") == "derived":
             rule = resolve(str(node.get("name", "")))
@@ -203,7 +409,7 @@ def executable_relation_directions(
                     walk(value, other or "Entity", False)
             return
         for value in node.values():
-            walk(value, entity, root, context)
+            walk(value, entity, root, context, variables)
 
     for output in outputs:
         if output in aliases:

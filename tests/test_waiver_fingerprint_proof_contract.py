@@ -14,6 +14,9 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+import yaml
+
 from axiom_encode import validation_waivers
 from axiom_encode.harness import validator_pipeline
 from axiom_encode.harness.proof_validator import validate_rulespec_proofs
@@ -48,13 +51,60 @@ rules:
 """
 
 
-def test_unresolved_proof_source_fails_base_proof_validation():
+def _relation_predicate_proof_module(formula, *, path=False):
+    payload = yaml.safe_load(MODULE_WITH_UNRESOLVED_PROOF_SOURCE)
+    relation = payload["rules"][0]
+    relation["kind"] = "derived_relation"
+    relation["derived_relation"] = {
+        "arity": 2,
+        "slot_entities": ["Person", "Person"],
+        "current_slot": 0,
+        "related_slot": 1,
+        **(
+            {"source_path": [{"relation": "relatives", "from_slot": 0, "to_slot": 1}]}
+            if path
+            else {"source_relation": "relatives"}
+        ),
+    }
+    relation["versions"][0]["formula"] = formula
+    payload["inputs"] = {"age": {"dtype": "Integer"}}
+    payload["rules"].insert(
+        0,
+        {
+            "name": "relatives",
+            "kind": "data_relation",
+            "data_relation": {"arity": 2, "arguments": ["Person", "Person"]},
+        },
+    )
+    return yaml.safe_dump(payload, sort_keys=False)
+
+
+PROOF_MODULES = [
+    pytest.param(MODULE_WITH_UNRESOLVED_PROOF_SOURCE, id="scalar"),
+    pytest.param(
+        _relation_predicate_proof_module("candidate.age < 22"), id="qualified-read"
+    ),
+    pytest.param(
+        _relation_predicate_proof_module("relatives(anchor, candidate)"), id="atom"
+    ),
+    pytest.param(
+        _relation_predicate_proof_module("exists(relatives(anchor, p), p.age < 22)"),
+        id="exists",
+    ),
+    pytest.param(
+        _relation_predicate_proof_module("candidate == anchor", path=True), id="path"
+    ),
+]
+
+
+@pytest.mark.parametrize("content", PROOF_MODULES)
+def test_unresolved_proof_source_fails_base_proof_validation(content):
     """The same base proof check the standalone command runs reports an
     unresolved citation when the provision is absent from source_texts —
     the failure class .github#38's skip relies on the fingerprint to
     carry."""
     result = validate_rulespec_proofs(
-        MODULE_WITH_UNRESOLVED_PROOF_SOURCE,
+        content,
         require_policy_proofs=True,
         source_texts={},
     )
@@ -88,6 +138,23 @@ def test_fingerprint_is_sensitive_to_base_proof_failures():
     ) != validation_waivers.fingerprint_outcome(with_proof_failure, companion)
 
 
+@pytest.mark.parametrize("content", PROOF_MODULES)
+def test_predicate_proof_failure_changes_waiver_fingerprint(content):
+    report = validate_rulespec_proofs(
+        content, require_policy_proofs=True, source_texts={}
+    )
+    companion = {"present": True, "passed": True, "path": None, "cases": 1}
+    clean = {"passed": False, "validators": {"ci": {"issues": ["other issue"]}}}
+    with_proof_failure = {
+        "passed": False,
+        "validators": {"ci": {"issues": ["other issue", *report.issues]}},
+    }
+    assert report.issues
+    assert validation_waivers.fingerprint_outcome(
+        clean, companion
+    ) != validation_waivers.fingerprint_outcome(with_proof_failure, companion)
+
+
 def _write_provisions(corpus_root: Path) -> None:
     """One statute provision (the module's source) and no guidance class,
     so the proof atom's guidance citation cannot resolve."""
@@ -115,7 +182,8 @@ def _write_provisions(corpus_root: Path) -> None:
     provisions.write_text(json.dumps(row, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def test_pipeline_ci_reports_unresolved_proof_sources(tmp_path, monkeypatch):
+@pytest.mark.parametrize("content", PROOF_MODULES)
+def test_pipeline_ci_reports_unresolved_proof_sources(tmp_path, monkeypatch, content):
     """The audited ci pipeline (whose outcome the waiver audit fingerprints)
     itself reports unresolved proof sources. If a refactor moves this check
     out to the standalone proof-validate command only, the workflow's waiver
@@ -125,7 +193,7 @@ def test_pipeline_ci_reports_unresolved_proof_sources(tmp_path, monkeypatch):
     module_dir = policy_repo / "nz" / "statutes" / "example"
     module_dir.mkdir(parents=True)
     rules_file = module_dir / "levy.yaml"
-    rules_file.write_text(MODULE_WITH_UNRESOLVED_PROOF_SOURCE)
+    rules_file.write_text(content)
 
     corpus_root = tmp_path / "axiom-corpus"
     _write_provisions(corpus_root)

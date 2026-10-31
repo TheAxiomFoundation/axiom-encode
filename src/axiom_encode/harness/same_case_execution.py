@@ -20,6 +20,12 @@ from typing import Any, Iterator
 
 import yaml
 
+from axiom_encode.formula_references import (
+    formula_identifiers,
+    local_reference_name,
+    relation_source_names,
+)
+
 
 def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -67,9 +73,11 @@ def _payload(raw: bytes) -> dict[str, Any]:
     return value
 
 
-def _formula_names(text: str) -> set[str] | None:
+def _formula_names(text: str, *, relation_predicate: bool = False) -> set[str] | None:
     from . import source_completeness as s
 
+    if relation_predicate:
+        return formula_identifiers(text, relation_predicate=True)
     node = s._parse_first_formula_branch_node(text)
     if node is not None:
         if text[: node.start].strip() or text[node.end :].strip():
@@ -110,9 +118,16 @@ def _has_consumer(
                 version.get("formula"), str
             ):
                 continue
-            found = _formula_names(version["formula"])
+            found = _formula_names(
+                version["formula"],
+                relation_predicate=rule.get("kind") == "derived_relation",
+            )
             if found is not None:
                 names.update(found)
+        names.update(
+            local_reference_name(source)
+            for source in relation_source_names(rule.get("derived_relation"))
+        )
         edges[name] = names
 
     def reaches(name: str, seen: set[str]) -> bool:

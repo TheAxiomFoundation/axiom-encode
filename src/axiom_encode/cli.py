@@ -108,7 +108,20 @@ from axiom_encode.companion_entities import (
     flat_input_entity_id,
     require_distinct_entity_ids,
 )
-from axiom_encode.companion_relations import executable_relation_directions
+from axiom_encode.companion_relations import (
+    executable_relation_directions,
+    explicit_relation_tuples,
+    explicit_tuple_relation_names,
+    pair_relation_assignment_issues,
+    uses_relation_roles,
+)
+from axiom_encode.formula_references import (
+    formula_identifiers as _shared_formula_identifiers,
+)
+from axiom_encode.formula_references import (
+    local_reference_name,
+    relation_source_names,
+)
 from axiom_encode.yaml_serialization import (
     Yaml12SafeDumper,
     represent_yaml12_string,
@@ -5820,6 +5833,16 @@ def _execute_rulespec_test_case(
     request_only: bool = False,
 ) -> list[dict[str, str | None]] | dict:
     failures: list[dict[str, str | None]] = []
+    assignment_issues = pair_relation_assignment_issues(
+        compiled_relations, case, case_name
+    )
+    if assignment_issues:
+        if request_only:
+            raise ValueError("\n".join(assignment_issues))
+        return [
+            {"file": str(test_file), "case": case_name, "message": issue}
+            for issue in assignment_issues
+        ]
     period = _rulespec_period_spec(case.get("period", "2026-01"))
     interval = {"start": period["start"], "end": period["end"]}
     root_entity_id = "case"
@@ -5850,6 +5873,7 @@ def _execute_rulespec_test_case(
         query_entity,
         declared_relation_slots,
         compiled_relations,
+        explicit_relations=explicit_tuple_relation_names(case.get("input")),
     )
     inputs: list[dict] = []
     relations: list[dict] = []
@@ -5905,6 +5929,20 @@ def _execute_rulespec_test_case(
             ) or declared_relation_slots.get(
                 unqualified_name if "#relation." in relation_name else relation_name
             )
+            tuples = explicit_relation_tuples(value, relation=key, slots=slots)
+            if tuples is not None or (
+                not value and uses_relation_roles(compiled_relations)
+            ):
+                for relation_tuple in tuples or []:
+                    for current_relation_name in relation_names:
+                        relations.append(
+                            {
+                                "name": current_relation_name,
+                                "tuple": relation_tuple,
+                                "interval": interval,
+                            }
+                        )
+                continue
             current_slot = None
             if slots is not None:
                 matching_slots = [
@@ -5932,6 +5970,16 @@ def _execute_rulespec_test_case(
             if len(matches) > 1:
                 raise ValueError(f"conflicting executable relation aliases for {key}")
             direction = next(iter(matches), None)
+            if (
+                uses_relation_roles(compiled_relations)
+                and slots is not None
+                and slots.count(query_entity) > 1
+                and direction is None
+            ):
+                raise ValueError(
+                    f"relation `{key}` compact rows have no unambiguous query-anchor "
+                    "direction; use explicit `tuple` rows"
+                )
             if direction is not None:
                 current_slot, executable_entity = direction
                 if executable_entity is not None:
@@ -15506,7 +15554,6 @@ def _colorado_tax_subsection_2_input_replacement(match: re.Match[str]) -> str:
 
 
 def _rulespec_formula_references_symbol(content: str, symbol: str) -> bool:
-    token = re.compile(rf"\b{re.escape(symbol)}\b")
     with contextlib.suppress(yaml.YAMLError, AttributeError):
         payload = yaml.safe_load(content)
         rules = payload.get("rules") if isinstance(payload, dict) else None
@@ -15521,7 +15568,10 @@ def _rulespec_formula_references_symbol(content: str, symbol: str) -> bool:
                     if not isinstance(version, dict):
                         continue
                     formula = version.get("formula")
-                    if isinstance(formula, str) and token.search(formula):
+                    if isinstance(formula, str) and symbol in _formula_identifiers(
+                        formula,
+                        relation_predicate=rule.get("kind") == "derived_relation",
+                    ):
                         return True
     return False
 
@@ -19026,10 +19076,9 @@ def _reachable_local_formulas_for_rule(
         if not isinstance(rule, dict):
             return
         formula = _first_rule_formula(rule)
-        if not formula:
-            return
-        formulas.append(formula)
-        for identifier in sorted(_formula_identifiers(formula)):
+        if formula:
+            formulas.append(formula)
+        for identifier in sorted(_generated_rule_formula_identifiers(rule)):
             if identifier in rules_by_name:
                 visit(identifier)
 
@@ -21042,7 +21091,7 @@ def _imported_output_names_from_payload(payload: object) -> set[str]:
     for raw_import in imports:
         if not isinstance(raw_import, str) or "#" not in raw_import:
             continue
-        fragment = raw_import.rsplit("#", 1)[1].strip()
+        fragment = local_reference_name(raw_import)
         if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", fragment):
             names.add(fragment)
     return names
@@ -21426,7 +21475,8 @@ def _local_factual_input_names_from_rules_content(rules_content: str) -> set[str
     for rule in rules:
         if not isinstance(rule, dict):
             continue
-        if str(rule.get("kind") or "").strip().lower() != "derived":
+        kind = str(rule.get("kind") or "").strip().lower()
+        if kind not in {"derived", "derived_relation"}:
             continue
         versions = rule.get("versions")
         if not isinstance(versions, list):
@@ -21437,11 +21487,14 @@ def _local_factual_input_names_from_rules_content(rules_content: str) -> set[str
             formula = version.get("formula")
             if not isinstance(formula, str):
                 continue
-            scrubbed_formula = re.sub(r"'[^']*'|\"[^\"]*\"", " ", formula)
-            identifiers = set(
-                re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", scrubbed_formula)
+            identifiers = _shared_formula_identifiers(
+                formula, relation_predicate=kind == "derived_relation"
             )
-            factual_inputs.update(identifiers - defined_symbols - dsl_symbols)
+            factual_inputs.update(
+                identifiers
+                - defined_symbols
+                - (dsl_symbols if kind != "derived_relation" else set())
+            )
     return factual_inputs
 
 
@@ -48687,7 +48740,10 @@ def _expand_affected_generated_rule_dependencies(
 
 
 def _generated_rule_formula_identifiers(rule: dict[str, Any]) -> set[str]:
-    identifiers: set[str] = set()
+    identifiers = {
+        local_reference_name(name)
+        for name in relation_source_names(rule.get("derived_relation"))
+    }
     versions = rule.get("versions")
     if not isinstance(versions, list):
         return identifiers
@@ -48696,8 +48752,17 @@ def _generated_rule_formula_identifiers(rule: dict[str, Any]) -> set[str]:
             continue
         formula = version.get("formula")
         if isinstance(formula, str):
-            identifiers.update(_formula_identifiers(formula))
-    return identifiers - _RULESPEC_FORMULA_BUILTINS
+            identifiers.update(
+                _formula_identifiers(
+                    formula,
+                    relation_predicate=rule.get("kind") == "derived_relation",
+                )
+            )
+    return (
+        identifiers
+        if rule.get("kind") == "derived_relation"
+        else identifiers - _RULESPEC_FORMULA_BUILTINS
+    )
 
 
 def _generated_rule_is_imported_judgment_composition(
@@ -49929,8 +49994,7 @@ def _referenced_local_rule_names(rules: list[Any]) -> set[str]:
     for rule in rules:
         if not isinstance(rule, dict):
             continue
-        for formula in _rulespec_rule_formula_texts_for_generated_repair(rule):
-            referenced.update(_formula_identifiers(formula))
+        referenced.update(_generated_rule_formula_identifiers(rule))
         metadata = rule.get("metadata")
         proof = metadata.get("proof") if isinstance(metadata, dict) else None
         atoms = proof.get("atoms") if isinstance(proof, dict) else None
@@ -52172,15 +52236,13 @@ def _formula_without_string_literals(formula: str) -> str:
     )
 
 
-def _formula_identifiers(formula: str) -> set[str]:
-    return (
-        set(
-            _RULESPEC_IDENTIFIER_PATTERN.findall(
-                _formula_without_string_literals(formula)
-            )
-        )
-        - _RULESPEC_FORMULA_BUILTINS
+def _formula_identifiers(
+    formula: str, *, relation_predicate: bool = False
+) -> set[str]:
+    identifiers = _shared_formula_identifiers(
+        formula, relation_predicate=relation_predicate
     )
+    return identifiers if relation_predicate else identifiers - _RULESPEC_FORMULA_BUILTINS
 
 
 def _try_repair_generated_nonnegative_floors_for_apply(

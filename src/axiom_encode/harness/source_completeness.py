@@ -44,6 +44,11 @@ from axiom_encode.bare_structure import (
 )
 from axiom_encode.form_numeric_structure import form_numeric_locator_spans
 from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.formula_references import (
+    formula_identifiers,
+    local_reference_name,
+    relation_source_names,
+)
 from axiom_encode.harness.imported_export_evidence import ResolvedImportedExport
 from axiom_encode.harness.manual_locator_metadata import (
     MANUAL_CONTENTS_HEADINGS,
@@ -6279,8 +6284,9 @@ def _formula_dependency_source_excerpts(
         identifier
         for version in versions
         if isinstance(version, dict) and isinstance(version.get("formula"), str)
-        for identifier in _FORMULA_IDENTIFIER.findall(
-            _mask_formula_strings_and_comments(version["formula"])
+        for identifier in formula_identifiers(
+            _mask_formula_strings_and_comments(version["formula"]),
+            relation_predicate=rule.get("kind") == "derived_relation",
         )
     }
     for dependency_name in dependency_names:
@@ -19323,7 +19329,7 @@ def _negative_local_input_clamp_test_issues(
         if period not in selected_dependencies_by_period:
             selected_dependencies_by_period[period] = {
                 name: (
-                    set(_FORMULA_IDENTIFIER.findall(formula)) & principal_rule_names
+                    _rule_formula_identifiers(rule, formula) & principal_rule_names
                     if (formula := _rule_formula_text_for_case(rule, case)) is not None
                     else set()
                 )
@@ -19383,7 +19389,7 @@ def _negative_local_input_clamp_test_issues(
         )
 
     all_version_dependencies = {
-        name: set(_FORMULA_IDENTIFIER.findall(_rule_formula_text(rule)))
+        name: _rule_formula_identifiers(rule)
         & principal_rule_names
         for name, rule in principal_rules.items()
     }
@@ -23835,7 +23841,7 @@ def _local_rule_dependency_closure(
 ) -> set[str]:
     """Return the transitive local principal rules referenced by one rule."""
 
-    pending = set(_FORMULA_IDENTIFIER.findall(_rule_formula_text(rule)))
+    pending = _rule_formula_identifiers(rule)
     dependencies: set[str] = set()
     while pending:
         name = pending.pop()
@@ -23843,7 +23849,7 @@ def _local_rule_dependency_closure(
         if dependency_rule is None or name in dependencies:
             continue
         dependencies.add(name)
-        pending.update(_FORMULA_IDENTIFIER.findall(_rule_formula_text(dependency_rule)))
+        pending.update(_rule_formula_identifiers(dependency_rule))
     return dependencies
 
 
@@ -36033,7 +36039,7 @@ def _case_pair_stable_asserted_formula_dependencies(
     """Return reached upstream outputs asserted identically by both cases."""
 
     dependencies: dict[str, Any] = {}
-    referenced_names = set(_FORMULA_IDENTIFIER.findall(_rule_formula_text(rule)))
+    referenced_names = _rule_formula_identifiers(rule)
     candidate_names = referenced_names & set(principal_rules) - {rule_name}
     left_runtime_dependencies = _case_dependency_environment(
         principal_rules,
@@ -38180,6 +38186,21 @@ def _rule_formula_text(rule: dict[str, Any]) -> str:
         for version in versions
         if isinstance(version, dict) and version.get("formula") is not None
     )
+
+
+def _rule_formula_identifiers(
+    rule: dict[str, Any], formula: str | None = None
+) -> set[str]:
+    """Keep relation terms out of source-evidence dependency walks."""
+    text = _rule_formula_text(rule) if formula is None else formula
+    if rule.get("kind") != "derived_relation":
+        return set(_FORMULA_IDENTIFIER.findall(text))
+    names = formula_identifiers(text, relation_predicate=True)
+    names.update(
+        local_reference_name(source)
+        for source in relation_source_names(rule.get("derived_relation"))
+    )
+    return names
 
 
 def _unambiguous_rule_formula_text(rule: dict[str, Any]) -> str | None:
