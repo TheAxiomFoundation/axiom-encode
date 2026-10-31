@@ -1,8 +1,7 @@
 """Read formula references without treating relation terms as input names.
 
-The engine owns parsing and type checking. This walk only follows balanced
-formula groups and the documented ``exists(atom, body)`` binding grammar, so it
-also works inside RuleSpec's ``if`` and ``match`` expression syntax.
+The grammar port mirrors the engine; this module follows its lowering positions
+while retaining declaration names for the existing source validators.
 """
 
 from __future__ import annotations
@@ -11,12 +10,9 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from axiom_encode.formula_grammar import Expr, FormulaSyntaxError, parse_formula
+
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
-_TOKENS = re.compile(
-    r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|\#[^\n]*"
-    r"|[A-Za-z_][A-Za-z0-9_]*|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
-    r"|==|!=|<=|>=|[^\s]"
-)
 _QUOTED = re.compile(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'")
 _TERMS = frozenset({"anchor", "candidate"})
 _KEYWORDS = frozenset(
@@ -73,7 +69,7 @@ FORMULA_BUILTINS = _KEYWORDS | _FUNCTIONS
 
 @dataclass(frozen=True)
 class RelationPredicateReferences:
-    """Separate declaration references from predicate-local entity terms."""
+    """Separate declaration reads, relation reads and local entity terms."""
 
     identifiers: frozenset[str]
     atom_relations: frozenset[str]
@@ -82,189 +78,433 @@ class RelationPredicateReferences:
     unbound_atom_terms: frozenset[str]
     qualified_reads: frozenset[str]
     relation_arguments: frozenset[str]
+    parse_error: str | None = None
+    parse_error_position: tuple[int, int] | None = None
+    fallback_used: bool = False
+    analysis_errors: tuple[str, ...] = ()
+    input_reads: frozenset[str] = frozenset()
+    rule_reads: frozenset[str] = frozenset()
+    parameter_reads: frozenset[str] = frozenset()
 
 
 def analyze_relation_predicate(
-    formula: str, *, predicate_terms: bool = True
+    formula: str,
+    *,
+    predicate_terms: bool = True,
+    relation_names: frozenset[str] | None = None,
+    rule_names: frozenset[str] = frozenset(),
+    parameter_names: frozenset[str] = frozenset(),
 ) -> RelationPredicateReferences:
-    """Follow the scope of every well-shaped bounded quantifier.
+    """Walk parsed expressions in the positions that engine lowering reads.
 
-    Invalid syntax remains visible to the engine. In particular, this walk
-    never drops an unknown atom argument or an ordinary input inside a body.
-    A bound variable used outside its body stays a scope error, rather than
-    becoming a fictitious input declaration.
+    Optional declaration inventories resolve the engine's three namespaces.
+    Without them, unknown value names remain input candidates and unknown calls
+    remain visible as atoms, so source validators can diagnose declarations.
+    A predicate parse failure never invents references. Scalar callers retain
+    the historical name inventory on failure and can inspect ``fallback_used``.
     """
 
-    tokens = [
-        token for token in _TOKENS.findall(formula) if token[0] not in {"'", '"', "#"}
-    ]
-    closes: dict[int, int] = {}
-    stack: list[int] = []
-    for index, token in enumerate(tokens):
-        if token in {"(", "[", "{"}:
-            stack.append(index)
-        elif token in {")", "]", "}"} and stack:
-            opening = stack.pop()
-            if (tokens[opening], token) in {("(", ")"), ("[", "]"), ("{", "}")}:
-                closes[opening] = index
+    try:
+        tree = parse_formula(formula)
+    except FormulaSyntaxError as error:
+        empty = frozenset()
+        return RelationPredicateReferences(
+            identifiers=empty
+            if predicate_terms
+            else frozenset(formula_identifiers(formula)),
+            atom_relations=empty,
+            bound_variables=empty,
+            out_of_scope_variables=empty,
+            unbound_atom_terms=empty,
+            qualified_reads=empty,
+            relation_arguments=empty,
+            parse_error=str(error),
+            parse_error_position=(error.line, error.col),
+            fallback_used=not predicate_terms,
+        )
 
-    def arguments(start: int, end: int) -> list[tuple[int, int]]:
-        parts: list[tuple[int, int]] = []
-        first = index = start
-        while index < end:
-            if index in closes:
-                index = closes[index] + 1
-                continue
-            if tokens[index] == ",":
-                parts.append((first, index))
-                first = index + 1
-            index += 1
-        parts.append((first, end))
-        return parts
+    def descendants(expr: Expr):
+        pending = [expr]
+        while pending:
+            current = pending.pop()
+            yield current
+            pending.extend(current.children)
+            for pattern, value in current.cases:
+                pending.extend((pattern, value))
+            if current.default is not None:
+                pending.append(current.default)
 
-    def atom_arguments(start: int, end: int) -> list[tuple[int, int]] | None:
-        if (
-            end - start >= 3
-            and _IDENTIFIER.fullmatch(tokens[start])
-            and tokens[start + 1] == "("
-            and closes.get(start + 1) == end - 1
-        ):
-            return arguments(start + 2, end - 1)
-        return None
-
-    bindings: dict[int, str] = {}
-
-    def discover(start: int, end: int, scope: frozenset[str]) -> None:
-        index = start
-        while index < end:
-            if (
-                tokens[index] == "exists"
-                and index + 1 in closes
-                and tokens[index + 1] == "("
-            ):
-                closing = closes[index + 1]
-                parts = arguments(index + 2, closing)
-                if len(parts) == 2:
-                    generator, body = parts
-                    atom_parts = atom_arguments(*generator)
-                    fresh = [
-                        tokens[left]
-                        for left, right in atom_parts or []
-                        if right == left + 1
-                        and _IDENTIFIER.fullmatch(tokens[left])
-                        and tokens[left] not in scope
-                    ]
-                    if len(fresh) == 1:
-                        bindings[index] = fresh[0]
-                        local_scope = scope | {fresh[0]}
-                        discover(*generator, local_scope)
-                        discover(*body, local_scope)
-                        index = closing + 1
-                        continue
-            index += 1
-
-    terms = _TERMS if predicate_terms else frozenset()
-    if predicate_terms:
-        discover(0, len(tokens), terms)
-    bound = frozenset(bindings.values())
+    # The engine reserves every non-role spelling in an exists generator before
+    # lowering either branch. A name cannot become an input outside its body.
+    bound = {
+        arg.value
+        for expr in descendants(tree)
+        if predicate_terms
+        and expr.kind == "call"
+        and expr.value == "exists"
+        and expr.children
+        and expr.children[0].kind == "call"
+        for arg in expr.children[0].children
+        if arg.kind == "var" and arg.value not in _TERMS
+    }
     names: set[str] = set()
     atoms: set[str] = set()
     out_of_scope: set[str] = set()
     unbound_terms: set[str] = set()
     qualified_reads: set[str] = set()
     relation_arguments: set[str] = set()
+    inputs: set[str] = set()
+    rules: set[str] = set()
+    parameters: set[str] = set()
+    errors: list[str] = []
+    initial_scope = _TERMS if predicate_terms else frozenset()
 
-    def unwrap(start: int, end: int) -> tuple[int, int]:
-        while start < end and tokens[start] == "(" and closes.get(start) == end - 1:
-            start, end = start + 1, end - 1
-        return start, end
+    def error(expr: Expr, message: str) -> None:
+        errors.append(f"line {expr.line}, col {expr.col}: {message}")
 
-    def relation_argument(
-        function: str, parts: list[tuple[int, int]], scope: frozenset[str]
+    def check_name(name: str, expr: Expr, scope: frozenset[str]) -> bool:
+        if name in bound and name not in scope:
+            out_of_scope.add(name)
+            error(expr, f"bound variable `{name}` is outside its exists body")
+            return False
+        if name in scope:
+            error(expr, f"term `{name}` cannot be read as a value")
+            return False
+        return True
+
+    def read(
+        name: str, expr: Expr, scope: frozenset[str], *, related: bool = False
     ) -> None:
-        # These positions mirror formula.rs's relation reductions. Temporal
-        # reductions read scalar rules, and ordinary min/max calls read values.
-        if not parts:
+        if not check_name(name, expr, scope):
             return
-        start, end = unwrap(*parts[0])
-        field = end - start >= 3 and tokens[end - 2] == "."
-        if field:
-            start, object_end = unwrap(start, end - 2)
+        if not related and name in {"period_start", "period_end"}:
+            return
+        names.add(name)
+        if not related and name in parameter_names:
+            parameters.add(name)
+        elif name in rule_names:
+            rules.add(name)
         else:
-            object_end = end
-        if object_end != start + 1 or not _IDENTIFIER.fullmatch(tokens[start]):
+            inputs.add(name)
+
+    def relation(
+        name: str, expr: Expr, scope: frozenset[str], *, atom: bool = False
+    ) -> None:
+        if not check_name(name, expr, scope):
             return
-        relation = tokens[start]
-        valid = (
-            function == "len"
-            or (function == "sum" and field)
-            or (function in {"only", "min", "max"} and len(parts) == 1 and field)
-            or (
-                function in {"count_where", "only_related"}
-                and len(parts) == 2
-                and not field
-            )
-            or (
-                function in {"sum_where", "min_where", "max_where"}
-                and len(parts) == 3
-                and not field
-            )
+        names.add(name)
+        (atoms if atom else relation_arguments).add(name)
+        # Scalar reductions infer their relation declarations. Atoms and
+        # generators, in contrast, require the declared-relation namespace.
+        if (
+            (atom or predicate_terms)
+            and relation_names is not None
+            and name not in relation_names
+        ):
+            error(expr, f"undeclared relation `{name}`")
+
+    def field_access(expr: Expr) -> tuple[str, str] | None:
+        if expr.kind == "field" and expr.children[0].kind == "var":
+            return expr.children[0].value, expr.value
+        return None
+
+    def atom(expr: Expr, scope: frozenset[str], mode: str) -> None:
+        relation(expr.value, expr, scope, atom=True)
+        if not predicate_terms:
+            error(expr, "relation atoms require a derived relation predicate")
+        if mode != "judgment":
+            error(expr, "a relation atom cannot be read as a scalar value")
+        if expr.value in _FUNCTIONS:
+            error(expr, f"relation `{expr.value}` shadows a built-in function")
+        for arg in expr.children:
+            if arg.kind != "var":
+                error(arg, "a relation atom argument must be a term")
+            elif arg.value not in scope:
+                if arg.value in bound:
+                    out_of_scope.add(arg.value)
+                else:
+                    unbound_terms.add(arg.value)
+                error(arg, f"`{arg.value}` is not a term in scope")
+
+    def walk(expr: Expr, scope: frozenset[str], mode: str):
+        kind, value, children = expr.kind, expr.value, expr.children
+        if kind in {"int", "float", "string", "true", "false"}:
+            if mode == "judgment" and kind not in {"true", "false"}:
+                error(expr, "a scalar literal is not a judgment")
+            return
+        if kind == "var":
+            if mode == "judgment" and value in {"period_start", "period_end"}:
+                error(expr, f"`{value}` is a date and cannot be tested as a judgment")
+            if (
+                mode == "judgment"
+                and relation_names is not None
+                and value in relation_names
+                and value not in parameter_names | rule_names
+            ):
+                relation(value, expr, scope)
+            else:
+                read(value, expr, scope)
+            return
+        if kind == "field":
+            field = field_access(expr)
+            if field and field[0] in scope:
+                qualified_reads.add(field[1])
+                read(field[1], expr, scope)
+                if relation_names is not None and field[1] in relation_names:
+                    error(expr, "a term-qualified read cannot read a relation")
+                if field[1] in parameter_names | {"period_start", "period_end"}:
+                    error(expr, "a term-qualified read requires an entity")
+            else:
+                if field and field[0] in bound:
+                    out_of_scope.add(field[0])
+                error(expr, "bare field access requires a term in scope")
+            return
+        if kind == "binary":
+            if value in {"and", "or"}:
+                if mode != "judgment":
+                    error(expr, "a Boolean operator cannot be read as a scalar")
+                for child in children:
+                    yield walk(child, scope, "judgment")
+            elif value in {"<", ">", "<=", ">=", "==", "!="}:
+                if mode != "judgment":
+                    error(expr, "a comparison cannot be read as a scalar")
+                terms = [
+                    child.kind == "var" and child.value in scope for child in children
+                ]
+                if any(terms):
+                    if not all(terms) or value not in {"==", "!="}:
+                        error(
+                            expr,
+                            "entity terms support only == and != with another term",
+                        )
+                    for child, is_term in zip(children, terms, strict=True):
+                        if not is_term:
+                            yield walk(child, scope, "scalar")
+                else:
+                    for child in children:
+                        yield walk(child, scope, "scalar")
+            else:
+                if mode == "judgment":
+                    error(expr, "an arithmetic expression is not a judgment")
+                for child in children:
+                    yield walk(child, scope, "scalar")
+            return
+        if kind == "unary":
+            expected = "judgment" if value == "not" else "scalar"
+            if mode != expected:
+                error(expr, f"`{value}` is not valid in {mode} position")
+            yield walk(children[0], scope, expected)
+            return
+        if kind == "index":
+            target, index = children
+            if target.kind != "var":
+                error(target, "parameter lookup target must be a named parameter")
+            else:
+                read(target.value, target, scope)
+                if parameter_names and target.value not in parameter_names:
+                    error(target, "parameter lookup target is not a parameter")
+            yield walk(index, scope, "scalar")
+            if mode == "judgment":
+                error(expr, "parameter lookup is not a judgment")
+            return
+        if kind == "cond":
+            if mode == "judgment":
+                error(expr, "a conditional must be read as a scalar")
+            yield walk(children[0], scope, "judgment")
+            for child in children[1:]:
+                yield walk(child, scope, "scalar")
+            return
+        if kind == "match":
+            if mode == "judgment":
+                error(expr, "a match must be read as a scalar")
+            if not expr.cases and expr.default is None:
+                error(expr, "empty match")
+            # Lowering discards the subject of a wildcard-only match. It never
+            # reaches the compiled expression and therefore reads no input.
+            if expr.cases or expr.default is None:
+                yield walk(children[0], scope, "scalar")
+            else:
+                # Lowering validates the discarded subject, so an atom or
+                # unknown call cannot hide behind a wildcard-only match.
+                read_sets = (
+                    names,
+                    atoms,
+                    qualified_reads,
+                    relation_arguments,
+                    inputs,
+                    rules,
+                    parameters,
+                )
+                saved = tuple(set(read_set) for read_set in read_sets)
+                yield walk(children[0], scope, "scalar")
+                for read_set, before in zip(read_sets, saved, strict=True):
+                    read_set.clear()
+                    read_set.update(before)
+            for pattern, result in expr.cases:
+                yield walk(pattern, scope, "scalar")
+                yield walk(result, scope, "scalar")
+            if expr.default is not None:
+                yield walk(expr.default, scope, "scalar")
+            return
+        assert kind == "call"
+        if value == "exists":
+            if not predicate_terms or mode != "judgment":
+                error(
+                    expr,
+                    "exists requires judgment position in a derived relation predicate",
+                )
+            if len(children) != 2 or children[0].kind != "call":
+                error(expr, "exists requires a generator atom and a body")
+                return
+            generator, body = children
+            relation(generator.value, generator, scope, atom=True)
+            if generator.value in _FUNCTIONS:
+                error(
+                    generator, "exists generator relation shadows a built-in function"
+                )
+            fresh = [
+                arg.value
+                for arg in generator.children
+                if arg.kind == "var" and arg.value not in scope
+            ]
+            if any(arg.kind != "var" for arg in generator.children):
+                error(
+                    generator, "generator arguments must be terms or its new variable"
+                )
+            if len(fresh) != 1:
+                error(
+                    generator, "an exists generator must bind exactly one new variable"
+                )
+                yield walk(body, scope, "judgment")
+                return
+            variable = fresh[0]
+            if not re.fullmatch(r"[a-z][a-z0-9_]*", variable):
+                error(generator, "an exists variable must be a lowercase identifier")
+            if variable in parameter_names | rule_names | (
+                relation_names or frozenset()
+            ):
+                error(generator, "an exists variable conflicts with a declaration")
+            yield walk(body, scope | {variable}, "judgment")
+            return
+        is_atom = value not in _FUNCTIONS or (
+            relation_names is not None
+            and value in relation_names
+            and any(arg.kind == "var" and arg.value in scope for arg in children)
         )
-        if valid and relation not in scope:
-            relation_arguments.add(relation)
-
-    def walk(start: int, end: int, scope: frozenset[str]) -> None:
-        index = start
-        while index < end:
-            token = tokens[index]
-            if index in bindings:
-                closing = closes[index + 1]
-                for part in arguments(index + 2, closing):
-                    walk(*part, scope | {bindings[index]})
-                index = closing + 1
-                continue
-            if _IDENTIFIER.fullmatch(token):
-                is_call = index + 1 < end and tokens[index + 1] == "("
-                is_field = index > start and tokens[index - 1] == "."
-                if is_call and index + 1 in closes and token in _FUNCTIONS:
-                    relation_argument(
-                        token, arguments(index + 2, closes[index + 1]), scope
+        if is_atom:
+            atom(expr, scope, mode)
+            return
+        if value == "exactly_one":
+            if mode != "judgment" or len(children) < 2:
+                error(expr, "exactly_one requires at least two judgments")
+            for child in children:
+                yield walk(child, scope, "judgment")
+            return
+        if mode == "judgment":
+            error(expr, f"unknown function `{value}` in judgment position")
+        first = children[0] if children else None
+        field = field_access(first) if first else None
+        if value == "len":
+            # The engine ignores both a projected field and trailing args.
+            name = (
+                first.value
+                if first and first.kind == "var"
+                else field[0]
+                if field
+                else None
+            )
+            if name is None:
+                error(expr, "len requires a relation argument")
+            else:
+                relation(name, first, scope)
+            return
+        if value in {"sum", "only"} or (
+            value in {"min", "max"}
+            and len(children) == 1
+            and field
+            and field[0] not in scope
+        ):
+            if field is None or (value == "only" and len(children) != 1):
+                error(expr, f"{value} requires a relation field access")
+            else:
+                relation(field[0], first, scope)
+                read(field[1], first, scope, related=True)
+            return
+        if value in {
+            "only_related",
+            "count_where",
+            "sum_where",
+            "min_where",
+            "max_where",
+        }:
+            arity = 2 if value in {"only_related", "count_where"} else 3
+            if len(children) != arity or any(child.kind != "var" for child in children):
+                error(expr, f"{value} requires {arity} unqualified names")
+                return
+            relation(children[0].value, children[0], scope)
+            for child in children[1:]:
+                read(child.value, child, scope, related=True)
+            if value == "only_related" and children[1].value in rule_names:
+                error(children[1], "only_related requires an input, not a derived rule")
+            return
+        if value == "input_for_year":
+            if (
+                len(children) != 2
+                or children[0].kind != "var"
+                or children[1].kind != "int"
+            ):
+                error(expr, "input_for_year requires an input name and integer year")
+            else:
+                read(children[0].value, children[0], scope, related=True)
+                if children[0].value in rule_names | parameter_names:
+                    error(
+                        children[0],
+                        "input_for_year requires a declared primitive input",
                     )
-                if is_field and index >= 2 and tokens[index - 2] in scope:
-                    qualified_reads.add(token)
-                if token in bound and token not in scope:
-                    out_of_scope.add(token)
-                if (
-                    token not in terms | bound
-                    and (is_field or token not in _KEYWORDS)
-                    and not (is_call and token in _FUNCTIONS)
-                ):
-                    names.add(token)
-                if (
-                    index + 1 < end
-                    and tokens[index + 1] == "("
-                    and index + 1 in closes
-                    and token not in _FUNCTIONS | _KEYWORDS
-                ):
-                    atoms.add(token)
-                    for left, right in arguments(index + 2, closes[index + 1]):
-                        if (
-                            right == left + 1
-                            and _IDENTIFIER.fullmatch(tokens[left])
-                            and tokens[left] not in scope
-                        ):
-                            unbound_terms.add(tokens[left])
-            index += 1
+                year = children[1].value.replace("_", "").lstrip("0") or "0"
+                if not 1 <= int(year) <= 9999:
+                    error(children[1], "input_for_year year must be 1..9999")
+            return
+        arities = {
+            "ceil": 1,
+            "floor": 1,
+            "days_between": 2,
+            "date_add_days": 2,
+            "date_add_months": 2,
+            "date_add_years": 2,
+            "sum_over_periods": 1,
+            "max_over_periods": 1,
+            "count_over_periods": 1,
+            "sum_top_n_over_periods": 2,
+        }
+        if value in arities and len(children) != arities[value]:
+            error(expr, f"{value} takes {arities[value]} arguments")
+        if value in {"min", "max"} and not children:
+            error(expr, f"{value} requires at least one operand")
+        for child in children:
+            yield walk(child, scope, "scalar")
 
-    walk(0, len(tokens), terms)
+    # Suspend each child walk to an explicit stack. A valid long Boolean or
+    # arithmetic chain must not acquire Python's recursion limit as grammar.
+    pending = [walk(tree, initial_scope, "judgment" if predicate_terms else "scalar")]
+    while pending:
+        try:
+            pending.append(next(pending[-1]))
+        except StopIteration:
+            pending.pop()
+
     return RelationPredicateReferences(
         identifiers=frozenset(names),
         atom_relations=frozenset(atoms),
-        bound_variables=bound,
+        bound_variables=frozenset(bound),
         out_of_scope_variables=frozenset(out_of_scope),
         unbound_atom_terms=frozenset(unbound_terms),
         qualified_reads=frozenset(qualified_reads),
         relation_arguments=frozenset(relation_arguments),
+        analysis_errors=tuple(dict.fromkeys(errors)),
+        input_reads=frozenset(inputs),
+        rule_reads=frozenset(rules),
+        parameter_reads=frozenset(parameters),
     )
 
 
