@@ -2,11 +2,43 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 _RELATION_ROLE_KINDS = frozenset(
     {"role_input", "role_derived", "relation_atom", "exists", "same_entity"}
 )
+
+
+def relation_role_query_entity_id(case: dict[str, Any], query_entity: str) -> str:
+    """Use one root identity for relation-role companion requests."""
+    entity_key = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", query_entity)
+    entity_key = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", entity_key)
+    entity_key = f"{entity_key.replace('-', '_').lower()}_id"
+    for key in ("entity_id", "id", entity_key):
+        if key in case:
+            return str(case[key])
+    for key, value in case.items():
+        if str(key).endswith("_id") and not isinstance(value, (dict, list)):
+            return str(value)
+    return "case"
+
+
+def compact_relation_row(
+    row: dict[str, Any], *, fallback_id: str
+) -> tuple[str, bool, dict[str, Any]]:
+    """Separate a compact member's identity from its factual inputs."""
+    for key in ("id", "entity_id"):
+        if key in row:
+            entity_id, explicit = str(row[key]), True
+            break
+    else:
+        entity_id, explicit = fallback_id, False
+    return (
+        entity_id,
+        explicit,
+        {key: value for key, value in row.items() if key not in {"id", "entity_id"}},
+    )
 
 
 def uses_relation_roles(relations: list[dict[str, Any]] | None) -> bool:

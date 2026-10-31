@@ -109,10 +109,12 @@ from axiom_encode.companion_entities import (
     require_distinct_entity_ids,
 )
 from axiom_encode.companion_relations import (
+    compact_relation_row,
     executable_relation_directions,
     explicit_relation_tuples,
     explicit_tuple_relation_names,
     pair_relation_assignment_issues,
+    relation_role_query_entity_id,
     uses_relation_roles,
 )
 from axiom_encode.engine_pin_diff import effective_versions
@@ -5846,7 +5848,7 @@ def _execute_rulespec_test_case(
         ]
     period = _rulespec_period_spec(case.get("period", "2026-01"))
     interval = {"start": period["start"], "end": period["end"]}
-    root_entity_id = "case"
+    relation_role_program = uses_relation_roles(compiled_relations)
     expected = case.get("output") or {}
     expected_entities = {
         str(derived_by_id[str(output)].get("entity") or "Case")
@@ -5866,6 +5868,11 @@ def _execute_rulespec_test_case(
             if str(output) in derived_by_id
         ),
         "Case",
+    )
+    root_entity_id = (
+        relation_role_query_entity_id(case, query_entity)
+        if relation_role_program
+        else "case"
     )
     executable_directions = executable_relation_directions(
         derived_by_id,
@@ -5931,9 +5938,7 @@ def _execute_rulespec_test_case(
                 unqualified_name if "#relation." in relation_name else relation_name
             )
             tuples = explicit_relation_tuples(value, relation=key, slots=slots)
-            if tuples is not None or (
-                not value and uses_relation_roles(compiled_relations)
-            ):
+            if tuples is not None or (not value and relation_role_program):
                 for relation_tuple in tuples or []:
                     for current_relation_name in relation_names:
                         relations.append(
@@ -5972,7 +5977,7 @@ def _execute_rulespec_test_case(
                 raise ValueError(f"conflicting executable relation aliases for {key}")
             direction = next(iter(matches), None)
             if (
-                uses_relation_roles(compiled_relations)
+                relation_role_program
                 and slots is not None
                 and slots.count(query_entity) > 1
                 and direction is None
@@ -5986,7 +5991,22 @@ def _execute_rulespec_test_case(
                 if executable_entity is not None:
                     related_entity = executable_entity
             for row_index, row in enumerate(value):
-                related_id = f"related_{row_index}"
+                if not isinstance(row, dict):
+                    failures.append(
+                        {
+                            "file": str(test_file),
+                            "case": case_name,
+                            "message": f"relation row for {key} is not a mapping",
+                        }
+                    )
+                    continue
+                related_id, explicit_id, factual_inputs = compact_relation_row(
+                    row, fallback_id=f"related_{row_index}"
+                )
+                if explicit_id:
+                    occupied_entity_ids.setdefault(related_id, set()).add(
+                        related_entity
+                    )
                 relation_tuple = [related_id, root_entity_id]
                 if current_slot == 0:
                     relation_tuple.reverse()
@@ -5998,17 +6018,8 @@ def _execute_rulespec_test_case(
                             "interval": interval,
                         }
                     )
-                if not isinstance(row, dict):
-                    failures.append(
-                        {
-                            "file": str(test_file),
-                            "case": case_name,
-                            "message": f"relation row for {key} is not a mapping",
-                        }
-                    )
-                    continue
                 input_start = len(inputs)
-                for row_key, row_value in row.items():
+                for row_key, row_value in factual_inputs.items():
                     inputs.append(
                         {
                             "name": str(row_key),
@@ -6018,14 +6029,15 @@ def _execute_rulespec_test_case(
                             "value": _rulespec_scalar_value(row_value),
                         }
                     )
-                generated_relation_rows.append(
-                    (
-                        related_entity,
-                        relation_tuple,
-                        1 if current_slot == 0 else 0,
-                        inputs[input_start:],
+                if not explicit_id:
+                    generated_relation_rows.append(
+                        (
+                            related_entity,
+                            relation_tuple,
+                            1 if current_slot == 0 else 0,
+                            inputs[input_start:],
+                        )
                     )
-                )
         else:
             input_entity = input_entities.get(key, query_entity)
             record = {
@@ -6202,7 +6214,7 @@ def _execute_rulespec_test_case(
         return failures
     table_rows = table_rows_by_entity.get(query_entity, [])
     query_entity_ids = [root_entity_id]
-    if table_rows:
+    if table_rows and (list_outputs or not relation_role_program):
         query_entity_ids = [row_ids[0] for row_ids, _row in table_rows]
         for output in list_outputs:
             expected_value = derived_expected[output]

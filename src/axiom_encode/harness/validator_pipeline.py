@@ -70,10 +70,12 @@ from axiom_encode.companion_entities import (
     require_distinct_entity_ids,
 )
 from axiom_encode.companion_relations import (
+    compact_relation_row,
     executable_relation_directions,
     explicit_relation_tuples,
     explicit_tuple_relation_names,
     pair_relation_assignment_issues,
+    relation_role_query_entity_id,
     uses_relation_roles,
 )
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
@@ -37828,9 +37830,13 @@ class ValidatorPipeline:
                         raise ValueError(
                             f"relation `{name}` item #{item_index} must be a mapping"
                         )
-                    explicit_id = item.get("id") or item.get("entity_id")
-                    related_id = str(
-                        explicit_id or f"{query_entity_id}-{name}-{item_index}"
+                    related_id, explicit_id, factual_inputs = compact_relation_row(
+                        item,
+                        fallback_id=(
+                            f"related_{item_index - 1}"
+                            if relation_role_program
+                            else f"{query_entity_id}-{name}-{item_index}"
+                        ),
                     )
                     if explicit_id:
                         occupied_entity_ids.setdefault(related_id, set()).add(
@@ -37848,9 +37854,7 @@ class ValidatorPipeline:
                             }
                         )
                     input_start = len(inputs)
-                    for child_name, child_value in item.items():
-                        if child_name in {"id", "entity_id"}:
-                            continue
+                    for child_name, child_value in factual_inputs.items():
                         if isinstance(child_value, (dict, list)):
                             raise ValueError(
                                 f"relation `{name}` input `{child_name}` must be scalar"
@@ -38368,8 +38372,11 @@ class ValidatorPipeline:
     ) -> tuple[dict[str, Any] | None, list[str]]:
         """Execute one compact RuleSpec test case through `run-compiled`."""
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
-        query_entity_id = self._rulespec_case_query_entity_id(
-            case, query_entity, case_index
+        relation_role_program = uses_relation_roles(compiled_relations)
+        query_entity_id = (
+            relation_role_query_entity_id(case, query_entity)
+            if relation_role_program
+            else self._rulespec_case_query_entity_id(case, query_entity, case_index)
         )
         table_entity_ids: dict[str, list[str]] = {}
         try:
@@ -38396,7 +38403,7 @@ class ValidatorPipeline:
                 executable_directions=executable_directions,
                 input_entities=input_entities,
                 table_entity_ids=table_entity_ids,
-                relation_role_program=uses_relation_roles(compiled_relations),
+                relation_role_program=relation_role_program,
             )
         except ValueError as exc:
             return None, [f"Test case `{case_name}` input invalid: {exc}"]
