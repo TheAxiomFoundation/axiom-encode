@@ -1679,10 +1679,10 @@ Every input below has no default.
 # Synthetic encoder prompt test input; not a corpus module.
 format: rulespec/v1
 inputs:
-  meal_group: {dtype: Integer}
-  household_exception_may_apply: {dtype: Judgment}
-  snap_household_unit: {dtype: Integer}
-  ineligible_for_participation: {dtype: Judgment}
+  - {name: meal_group, dtype: Integer}
+  - {name: household_exception_may_apply, dtype: Judgment}
+  - {name: snap_household_unit, dtype: Integer}
+  - {name: ineligible_for_participation, dtype: Judgment}
 rules:
   - name: member_of_household
     kind: data_relation

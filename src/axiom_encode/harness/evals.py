@@ -18604,6 +18604,24 @@ def _normalize_repair_deferred_source_roots(
     return normalized, repairs
 
 
+def _repair_overlay_input_items(inputs: object) -> list[object]:
+    """Normalize the engine's two input declaration forms for named overlays."""
+    if isinstance(inputs, list):
+        return inputs
+    if not isinstance(inputs, dict):
+        raise ValueError("repair overlay inputs must be a list or mapping")
+    normalized: list[object] = []
+    for name, entry in inputs.items():
+        if not isinstance(name, str) or not isinstance(entry, dict):
+            raise ValueError(
+                "repair overlay input mappings need string names and mapping values"
+            )
+        if "name" in entry and entry["name"] != name:
+            raise ValueError(f"repair overlay input `{name}` has a conflicting name")
+        normalized.append({"name": name, **entry})
+    return normalized
+
+
 def _repair_overlay_candidate_base_issue(
     candidate: ValidationRetryCandidate,
 ) -> str | None:
@@ -18621,10 +18639,8 @@ def _repair_overlay_candidate_base_issue(
         not isinstance(import_target, str) for import_target in imports
     ):
         return "preserved repair overlay imports must be a list of strings"
-    preserved_inputs = preserved.get("inputs", [])
-    if not isinstance(preserved_inputs, list):
-        return "preserved repair overlay inputs must be a list"
     try:
+        preserved_inputs = _repair_overlay_input_items(preserved.get("inputs", []))
         _merge_named_yaml_items([], preserved_inputs, label="inputs")
     except ValueError as exc:
         return str(exc)
@@ -18739,10 +18755,8 @@ def _overlay_validation_retry_candidate(
     if imports:
         generated["imports"] = imports
 
-    generated_inputs = generated.get("inputs", [])
-    preserved_inputs = preserved.get("inputs", [])
-    if not isinstance(generated_inputs, list) or not isinstance(preserved_inputs, list):
-        raise ValueError("repair overlay inputs must be lists")
+    generated_inputs = _repair_overlay_input_items(generated.get("inputs", []))
+    preserved_inputs = _repair_overlay_input_items(preserved.get("inputs", []))
     inputs, restored_inputs, removed_inputs = _merge_named_yaml_items(
         generated_inputs,
         preserved_inputs,
