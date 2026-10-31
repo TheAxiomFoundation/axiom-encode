@@ -117,6 +117,13 @@ from axiom_encode.companion_relations import (
     relation_role_query_entity_id,
     uses_relation_roles,
 )
+from axiom_encode.companion_scalars import (
+    companion_input_keys,
+    companion_scalar_value,
+    compiled_input_dtypes,
+    declared_input_dtypes,
+    input_dtype,
+)
 from axiom_encode.engine_pin_diff import effective_versions
 from axiom_encode.formula_references import (
     formula_identifiers as _shared_formula_identifiers,
@@ -5916,6 +5923,35 @@ def _execute_rulespec_test_case(
             rulespec_dependency_roots=rulespec_roots,
         ),
     )
+    compiled_dtypes = (
+        compiled_input_dtypes(json.loads(compiled_path.read_text()))
+        if compiled_path.is_file()
+        else {}
+    )
+    input_dtypes = declared_input_dtypes(
+        module_file,
+        (
+            key
+            for key in companion_input_keys(case)
+            if input_dtype(compiled_dtypes, key) is None
+        ),
+        resolve_reference=lambda key: _rulespec_file_for_absolute_module_ref(
+            key,
+            policy_repo_path=policy_repo_path,
+            rulespec_dependency_roots=rulespec_roots,
+        ),
+        resolve_import=lambda target, current: _resolve_rulespec_import_file_static(
+            target,
+            rules_file=current,
+            policy_repo_path=(
+                policy_repo_path
+                if _rulespec_import_prefix_static(target)
+                else find_policy_repo_root(current) or policy_repo_path
+            ),
+            rulespec_dependency_roots=rulespec_roots,
+        ),
+    )
+    input_dtypes.update(compiled_dtypes)
 
     for key, value in (case.get("input") or {}).items():
         key = str(key)
@@ -6028,7 +6064,11 @@ def _execute_rulespec_test_case(
                             "entity": related_entity,
                             "entity_id": related_id,
                             "interval": interval,
-                            "value": _rulespec_scalar_value(row_value),
+                            "value": companion_scalar_value(
+                                row_value,
+                                dtype=input_dtype(input_dtypes, str(row_key)),
+                                relation_role_program=relation_role_program,
+                            ),
                         }
                     )
                 if not explicit_id:
@@ -6047,7 +6087,11 @@ def _execute_rulespec_test_case(
                 "entity": input_entity,
                 "entity_id": root_entity_id,
                 "interval": interval,
-                "value": _rulespec_scalar_value(value),
+                "value": companion_scalar_value(
+                    value,
+                    dtype=input_dtype(input_dtypes, key),
+                    relation_role_program=relation_role_program,
+                ),
             }
             inputs.append(record)
             flat_input_records.append(record)
@@ -6108,7 +6152,11 @@ def _execute_rulespec_test_case(
                             "entity": table_entity,
                             "entity_id": row_id,
                             "interval": interval,
-                            "value": _rulespec_scalar_value(row_value),
+                            "value": companion_scalar_value(
+                                row_value,
+                                dtype=input_dtype(input_dtypes, str(row_key)),
+                                relation_role_program=relation_role_program,
+                            ),
                         }
                     )
                 if not explicit_id:
@@ -6485,19 +6533,7 @@ def _translate_rulespec_engine_envelope_error(message: str) -> str:
 
 
 def _rulespec_scalar_value(value) -> dict:
-    if isinstance(value, bool):
-        return {"kind": "bool", "value": value}
-    if isinstance(value, int):
-        return {"kind": "integer", "value": value}
-    if isinstance(value, float):
-        return {"kind": "decimal", "value": str(value)}
-    if isinstance(value, date):
-        return {"kind": "date", "value": value.isoformat()}
-    if isinstance(value, str):
-        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
-            return {"kind": "date", "value": value}
-        return {"kind": "text", "value": value}
-    raise ValueError(f"unsupported scalar value: {value!r}")
+    return companion_scalar_value(value)
 
 
 def _rulespec_parameter_value(

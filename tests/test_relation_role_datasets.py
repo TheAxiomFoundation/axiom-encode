@@ -30,17 +30,17 @@ SCALAR_VALUES = st.one_of(
     st.integers(min_value=-100, max_value=100),
     st.booleans(),
     st.floats(min_value=-100, max_value=100, allow_nan=False, allow_infinity=False),
-    st.sampled_from(["ordinary", "2026-01-02", date(2026, 1, 2)]),
+    st.sampled_from(["ordinary", "01", "1", "-1.50", "2026-01-02", date(2026, 1, 2)]),
 )
 
 
-def _fixture(tmp_path: Path, *, predicate=True):
+def _fixture(tmp_path: Path, *, predicate=True, dtype="Integer"):
     root = tmp_path / "rulespec-us"
     module = root / "us/policies/example/dataset_roles.yaml"
     module.parent.mkdir(parents=True, exist_ok=True)
     declaration = {
         "format": "rulespec/v1",
-        "inputs": {"age": {"dtype": "Integer", "entity": "Person"}},
+        "inputs": {"age": {"entity": "Person", **({"dtype": dtype} if dtype else {})}},
         "rules": [
             {
                 "name": name,
@@ -273,6 +273,7 @@ def test_relation_role_tables_change_query_ids_only_for_row_ordered_outputs(
     explicit=st.booleans(),
     table_mode=st.sampled_from(["none", "scalar", "list"]),
     month=st.integers(min_value=1, max_value=12),
+    dtype=st.sampled_from(["Text", "Integer", "Date", None]),
 )
 def test_generated_relation_role_requests_match_exactly(
     tmp_path,
@@ -285,7 +286,9 @@ def test_generated_relation_role_requests_match_exactly(
     explicit,
     table_mode,
     month,
+    dtype,
 ):
+    _fixture(tmp_path, predicate="candidate.age < 22", dtype=dtype)
     metadata = {root_key: root_id} if root_key else {}
     root_id = relation_role_query_entity_id(metadata, "Person")
     rows = []
@@ -408,3 +411,105 @@ def test_b4_b5_both_companion_paths_execute_the_same_dataset(
     )
     cli_request, pipeline_request = _requests(tmp_path, copy.deepcopy(case), payload)
     assert cli_request == pipeline_request
+
+
+def test_b_numeric_strings_do_not_pass_after_silent_identifier_merge(
+    tmp_path, real_engine
+):
+    root, module = _fixture(
+        tmp_path, predicate="candidate.age == anchor.age", dtype="Text"
+    )
+    declaration = yaml.safe_load(module.read_text())
+    declaration["inputs"] = [{"name": "age", "dtype": "Text", "entity": "Person"}]
+    module.write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump(declaration)
+    )
+    case = {
+        "name": "numeric-string-false-pass",
+        "period": "2026-01",
+        "input": {PAIRS: [{"tuple": ["case", "bob"]}], TIES: [], AGE: "01"},
+        "tables": {"Person": [{"id": "bob", AGE: "1"}]},
+        "output": {OUTPUT: 0},
+    }
+    artifact = tmp_path / "compiled.json"
+    payload = _compile(real_engine.binary, real_engine.root, root, module, artifact)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=root / "us",
+        axiom_rules_path=real_engine.root,
+        local_corpus_release=None,
+        enable_oracles=False,
+        enforce_repository_layout=False,
+    )
+    derived, parameters = pipeline._rulespec_program_maps(payload)
+    relations = payload["program"]["relations"]
+
+    def issues(case):
+        cli = _execute_rulespec_test_case(
+            module.with_suffix(".test.yaml"),
+            case,
+            case_name=case["name"],
+            compiled_path=artifact,
+            binary=real_engine.binary,
+            axiom_rules_path=real_engine.root,
+            env=os.environ.copy(),
+            parameter_by_id=parameters,
+            derived_ids=set(derived),
+            derived_by_id=derived,
+            declared_relation_names={r["name"] for r in relations},
+            declared_relation_slots={
+                r["name"]: tuple(r["slot_entities"]) for r in relations
+            },
+            compiled_relations=relations,
+            policy_repo_path=root / "us",
+            rulespec_roots=[root],
+        )
+        other = pipeline._run_rulespec_test_cases(
+            rules_file=module,
+            compiled_path=artifact,
+            compiled_payload=payload,
+            cases=[case],
+        )
+        return cli, other
+
+    assert issues(case) == ([], [])
+    cli, other = _requests(tmp_path, copy.deepcopy(case), payload)
+    assert cli == other
+    assert cli["dataset"]["inputs"][0]["entity_id"] == "case"
+    assert [r["value"] for r in cli["dataset"]["inputs"]] == [
+        {"kind": "text", "value": "01"},
+        {"kind": "text", "value": "1"},
+    ]
+    false_green = copy.deepcopy(case)
+    false_green["output"][OUTPUT] = 1
+    cli_issues, pipeline_issues = issues(false_green)
+    assert cli_issues and pipeline_issues
+
+
+@pytest.mark.parametrize(
+    "compiled_dtype,kind,value",
+    [
+        ("integer", "integer", 1),
+        (" Integer ", "integer", 1),
+        ("unknown", "text", "01"),
+    ],
+)
+def test_companion_paths_prefer_known_compiled_dtype_and_fall_back_to_declaration(
+    tmp_path, compiled_dtype, kind, value
+):
+    _fixture(tmp_path, predicate="candidate.age < 22", dtype="Text")
+    payload = _program()
+    payload["program"]["interface"] = {
+        "inputs": [
+            {
+                "name": "age",
+                "legal_id": AGE,
+                "dtype": compiled_dtype,
+            }
+        ]
+    }
+    (tmp_path / "compiled.json").write_text(json.dumps(payload))
+    case = {"input": {PAIRS: [], TIES: [], AGE: "01"}, "output": {OUTPUT: 0}}
+    cli, pipeline = _requests(tmp_path, case, payload)
+    assert cli == pipeline
+    assert cli["dataset"]["inputs"][0]["value"] == {"kind": kind, "value": value}

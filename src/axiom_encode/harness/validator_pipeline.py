@@ -78,6 +78,13 @@ from axiom_encode.companion_relations import (
     relation_role_query_entity_id,
     uses_relation_roles,
 )
+from axiom_encode.companion_scalars import (
+    companion_input_keys,
+    companion_scalar_value,
+    compiled_input_dtypes,
+    declared_input_dtypes,
+    input_dtype,
+)
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.constants import (
     DEFAULT_OPENAI_MODEL,
@@ -37978,27 +37985,8 @@ class ValidatorPipeline:
         )
 
     def _rulespec_scalar_value(self, value: Any) -> dict[str, Any]:
-        """Coerce Python/YAML scalar values to Axiom rules engine ScalarValueSpec JSON."""
-        if isinstance(value, bool):
-            return {"kind": "bool", "value": value}
-        if isinstance(value, int):
-            return {"kind": "integer", "value": value}
-        if isinstance(value, float):
-            return {"kind": "decimal", "value": str(value)}
-        if isinstance(value, Decimal):
-            return {"kind": "decimal", "value": str(value)}
-        if isinstance(value, date):
-            return {"kind": "date", "value": value.isoformat()}
-        if isinstance(value, str):
-            stripped = value.strip()
-            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", stripped):
-                return {"kind": "date", "value": stripped}
-            if re.fullmatch(r"-?\d+", stripped):
-                return {"kind": "integer", "value": int(stripped)}
-            if re.fullmatch(r"-?(?:\d+\.\d*|\d*\.\d+)", stripped):
-                return {"kind": "decimal", "value": stripped}
-            return {"kind": "text", "value": value}
-        raise ValueError(f"unsupported scalar test value {value!r}")
+        """Convert legacy scalar inputs through the shared companion converter."""
+        return companion_scalar_value(value)
 
     def _rulespec_expected_scalar_value(self, value: Any) -> dict[str, Any]:
         """Coerce expected output YAML values without interpreting strings."""
@@ -38033,6 +38021,7 @@ class ValidatorPipeline:
         input_entities: dict[str, str] | None = None,
         table_entity_ids: dict[str, list[str]] | None = None,
         relation_role_program: bool = False,
+        input_dtypes: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Build an Axiom rules engine dataset from compact RuleSpec test inputs."""
         if case_input in (None, ""):
@@ -38057,6 +38046,7 @@ class ValidatorPipeline:
         declared_relation_slots = declared_relation_slots or {}
         executable_directions = executable_directions or {}
         input_entities = input_entities or {}
+        input_dtypes = input_dtypes or {}
 
         for name, value in case_input.items():
             input_key = str(name)
@@ -38206,7 +38196,11 @@ class ValidatorPipeline:
                                 "entity": related_entity,
                                 "entity_id": related_id,
                                 "interval": interval,
-                                "value": self._rulespec_scalar_value(child_value),
+                                "value": companion_scalar_value(
+                                    child_value,
+                                    dtype=input_dtype(input_dtypes, str(child_name)),
+                                    relation_role_program=relation_role_program,
+                                ),
                             }
                         )
                     if not explicit_id:
@@ -38246,7 +38240,11 @@ class ValidatorPipeline:
                 "entity": input_entity,
                 "entity_id": query_entity_id,
                 "interval": interval,
-                "value": self._rulespec_scalar_value(value),
+                "value": companion_scalar_value(
+                    value,
+                    dtype=input_dtype(input_dtypes, input_key),
+                    relation_role_program=relation_role_program,
+                ),
             }
             inputs.append(record)
             flat_input_records.append(record)
@@ -38312,7 +38310,11 @@ class ValidatorPipeline:
                                 "entity": table_entity,
                                 "entity_id": row_id,
                                 "interval": interval,
-                                "value": self._rulespec_scalar_value(child_value),
+                                "value": companion_scalar_value(
+                                    child_value,
+                                    dtype=input_dtype(input_dtypes, str(child_name)),
+                                    relation_role_program=relation_role_program,
+                                ),
                             }
                         )
                     if not explicit_id:
@@ -38691,6 +38693,7 @@ class ValidatorPipeline:
         declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
         compiled_relations: list[dict] | None = None,
         input_entities: dict[str, str] | None = None,
+        input_dtypes: dict[str, str] | None = None,
         execution_capture: ExecutionCapture | None = None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
         """Execute one compact RuleSpec test case through `run-compiled`."""
@@ -38703,6 +38706,26 @@ class ValidatorPipeline:
         )
         table_entity_ids: dict[str, list[str]] = {}
         try:
+            if input_dtypes is None:
+                artifact = (
+                    json.loads(compiled_path.read_text())
+                    if compiled_path.is_file()
+                    else {}
+                )
+                input_dtypes = compiled_input_dtypes(artifact)
+                target = (
+                    _parse_rulespec_target(module_target) if module_target else None
+                )
+                if target is not None:
+                    source = _resolve_rulespec_target_file(
+                        target,
+                        self.policy_repo_path,
+                        rulespec_dependency_roots=self.rulespec_dependency_roots,
+                    )
+                    if source is not None:
+                        input_dtypes = self._rulespec_companion_input_dtypes(
+                            source, case, artifact
+                        )
             executable_directions = executable_relation_directions(
                 derived_by_key,
                 output_names,
@@ -38727,6 +38750,7 @@ class ValidatorPipeline:
                 input_entities=input_entities,
                 table_entity_ids=table_entity_ids,
                 relation_role_program=relation_role_program,
+                input_dtypes=input_dtypes,
             )
         except ValueError as exc:
             return None, [f"Test case `{case_name}` input invalid: {exc}"]
@@ -39122,6 +39146,9 @@ class ValidatorPipeline:
                     input_entities = self._rulespec_companion_input_entities(
                         rules_file, case.get("input", {})
                     )
+                    input_dtypes = self._rulespec_companion_input_dtypes(
+                        rules_file, case, compiled_payload
+                    )
                 except (OSError, ValueError, yaml.YAMLError) as exc:
                     issues.append(f"Test case `{case_name}` input invalid: {exc}")
                     continue
@@ -39152,6 +39179,7 @@ class ValidatorPipeline:
                             "relations", []
                         ),
                         input_entities=input_entities,
+                        input_dtypes=input_dtypes,
                     )
                 )
                 issues.extend(execution_issues)
@@ -39248,6 +39276,55 @@ class ValidatorPipeline:
                 )
             ),
         )
+
+    def _rulespec_companion_input_dtypes(
+        self,
+        rules_file: Path,
+        case: dict[str, Any],
+        compiled_payload: dict[str, Any],
+    ) -> dict[str, str]:
+        """Prefer compiled input types, then read their source declarations."""
+        # Direct compiled-artifact callers may omit source files; production
+        # validation always supplies the original module alongside its artifact.
+        if not rules_file.exists() and not rules_file.is_symlink():
+            return compiled_input_dtypes(compiled_payload)
+        compiled_dtypes = compiled_input_dtypes(compiled_payload)
+        source_root = self._validation_source_root(rules_file)
+
+        def resolve_reference(reference: str) -> Path | None:
+            target = _parse_rulespec_target(reference)
+            if target is None:
+                return None
+            return _resolve_rulespec_target_file(
+                target,
+                source_root,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
+            )
+
+        dtypes = declared_input_dtypes(
+            rules_file,
+            (
+                key
+                for key in companion_input_keys(case)
+                if input_dtype(compiled_dtypes, key) is None
+            ),
+            resolve_reference=resolve_reference,
+            resolve_import=lambda imported, current: (
+                _resolve_rulespec_import_file_static(
+                    imported,
+                    rules_file=current,
+                    policy_repo_path=(
+                        source_root
+                        if _rulespec_import_prefix_static(imported)
+                        else find_policy_repo_root(current) or source_root
+                    ),
+                    rulespec_dependency_roots=self.rulespec_dependency_roots,
+                )
+            ),
+        )
+
+        dtypes.update(compiled_dtypes)
+        return dtypes
 
     def _run_rulespec_ci(self, rules_file: Path) -> ValidationResult:
         issues = find_rule_version_form_issues(rules_file.read_text())
