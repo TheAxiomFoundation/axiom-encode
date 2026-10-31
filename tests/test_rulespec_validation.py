@@ -154,6 +154,7 @@ from axiom_encode.harness.validator_pipeline import (
 from axiom_encode.repo_routing import find_policy_repo_root
 from tests.real_engine import ABSENT_ROOT
 from tests.release_object_fixtures import bind_test_corpus_release
+from tests.scaling import assert_grows_linearly, fastest_cpu_seconds
 
 # Every test here that executes the engine takes the real_engine fixture;
 # the rest get a checkout that never exists, here and in CI alike.
@@ -7106,7 +7107,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2262"')
+        .startswith('__version__ = "0.2.2270"')
     )
 
 
@@ -7338,13 +7339,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2262"
+    assert encoder_package["version"] == "0.2.2270"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2262"
+    assert project["project"]["version"] == "0.2.2270"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2262"')
+        .startswith('__version__ = "0.2.2270"')
     )
 
 
@@ -7606,13 +7607,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2262"
+    assert encoder_package["version"] == "0.2.2270"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2262"
+    assert project["project"]["version"] == "0.2.2270"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2262"')
+        .startswith('__version__ = "0.2.2270"')
     )
 
 
@@ -21710,10 +21711,10 @@ def test_a_conditional_long_list_shares_its_unit():
 
 
 def test_the_range_passes_scan_thousands_of_members_and_clauses_in_linear_time():
-    import time
-
     from axiom_encode.harness.validator_pipeline import (
+        _hebrew_paragraph_and_heading_index,
         _iter_hebrew_percent_range_lower_matches,
+        _tokenize_numeric_occurrences_from_text,
     )
 
     # Review round 145 on #1585: the walk back over a list learns the
@@ -21722,26 +21723,43 @@ def test_the_range_passes_scan_thousands_of_members_and_clauses_in_linear_time()
     # thousands of members and a text of hundreds of clauses cost their
     # size. Before, 1,000, 2,000 and 4,000 members took 0.38, 1.44 and 5.71
     # seconds, and 800 clauses 5.53 seconds.
-    timings = {}
-    for count in (1000, 4000):
-        for heading, unit in (
-            ("השיעורים הם", "אחוזים"),
-            ("הסכומים הם", "מיליון שקלים"),
-        ):
-            text = _hebrew_member_list(count, heading, unit)
-            started = time.perf_counter()
-            values = extract_numbers_from_text(text)
-            timings[(count, unit)] = time.perf_counter() - started
+    def members_seconds(count, heading, unit):
+        text = _hebrew_member_list(count, heading, unit)
+
+        def extract():
+            _tokenize_numeric_occurrences_from_text.cache_clear()
+            return extract_numbers_from_text(text)
+
+        def check(values):
             assert len(values) == count, (count, unit, len(values))
-    for unit in ("אחוזים", "מיליון שקלים"):
-        assert timings[(4000, unit)] < 2.0, timings
-        assert timings[(4000, unit)] < 8 * max(timings[(1000, unit)], 0.02), timings
+
+        return fastest_cpu_seconds(extract, check)
+
+    for heading, unit in (
+        ("השיעורים הם", "אחוזים"),
+        ("הסכומים הם", "מיליון שקלים"),
+    ):
+        assert_grows_linearly(
+            members_seconds(1000, heading, unit), members_seconds(4000, heading, unit)
+        )
+
     clause = "הקנס יהיה 50 או 2 אחוזים מהמחזור, לפי הגבוה.\n"
-    started = time.perf_counter()
-    matches = _iter_hebrew_percent_range_lower_matches(clause * 800)
-    elapsed = time.perf_counter() - started
-    assert len(matches) == 800
-    assert elapsed < 1.0, elapsed
+
+    def clauses_seconds(count):
+        text = clause * count
+
+        def scan():
+            _hebrew_paragraph_and_heading_index.cache_clear()
+            return _iter_hebrew_percent_range_lower_matches(text)
+
+        def check(matches):
+            assert len(matches) == count
+            # One index for the whole text, however many clauses read it.
+            assert _hebrew_paragraph_and_heading_index.cache_info().misses == 1
+
+        return fastest_cpu_seconds(scan, check)
+
+    assert_grows_linearly(clauses_seconds(200), clauses_seconds(800))
 
 
 def test_a_shared_unit_crosses_indentation_and_a_long_relative_clause():

@@ -928,6 +928,13 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   `restates`, `sets`, `amends`, `implements`, `delegates`, `defines`, or
   `cites`. It must include `source_relation.type` and
   `source_relation.target`, and it must not include executable `versions`.
+- For `source_relation.type: amends`, the RuleSpec engine also requires a
+  nonempty `source_relation.amendment.operation` (for example, `replace`) and
+  `source_relation.amendment.effective` (for example, a mapping with `start`)
+  for the amendment's effective date. Ground both in the cited source; do not
+  invent an operation or date. If the source does not establish an amendment
+  and its effective date, use only a relation the source actually supports,
+  such as `cites`, rather than emitting an incomplete `amends` record.
 - If a source incorporates another authority by reference, encode that
   provenance edge as `source_relation.type: cites`; never invent an
   `incorporates` source relation type.
