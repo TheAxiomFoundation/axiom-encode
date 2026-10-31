@@ -722,6 +722,100 @@ def test_an_exhausted_workflow_budget_blocks_without_counting():
     assert q._counted(item) == 0
 
 
+def _refused_by_pin_admission() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": q.ADMISSION_JOB,
+            "conclusion": "failure",
+            "steps": [
+                {
+                    "name": "Checkout RuleSpec workflow toolchain",
+                    "conclusion": "success",
+                },
+                {"name": q.ADMISSION_STEP, "conclusion": "failure"},
+            ],
+        },
+        {"name": q.BUDGET_JOB, "conclusion": "success", "steps": []},
+        {"name": "Queue protected signed RuleSpec re-encode", "conclusion": "skipped"},
+    ]
+
+
+def test_an_inadmissible_encoder_pin_holds_dispatch_without_counting():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1", "us-or/p/2"])
+    state["settings"]["max_in_flight"] = 1
+    item = state["items"][0]
+    _tick(state, github)
+    github.finish(_run_id(item), "failure")
+    github.jobs[_run_id(item)] = _refused_by_pin_admission()
+
+    result = _tick(state, github)
+
+    assert item["status"] == "pending"
+    assert item["attempts"][-1]["result"] == "encoder-inadmissible"
+    assert q._counted(item) == 0
+    assert len(github.dispatches) == 1  # no other item burns a run on this tip
+    assert "does not admit" in result["hold"]
+    assert any(event.startswith("held us-or/p/1") for event in result["events"])
+
+    # The same tip keeps holding within the day; a moved tip dispatches again.
+    _tick(state, github, now=NOW + timedelta(hours=2))
+    assert len(github.dispatches) == 1
+    github.tip = "b" * 40
+    _tick(state, github, now=NOW + timedelta(hours=2))
+    assert len(github.dispatches) == 2
+    assert github.dispatches[-1]["inputs"]["rulespec_ref"] == "b" * 40
+
+
+def test_admission_job_and_step_names_match_the_encode_workflow():
+    workflow = yaml.safe_load(
+        (
+            Path(__file__).resolve().parents[1]
+            / ".github/workflows/targeted-signed-reencode.yml"
+        ).read_text()
+    )
+    job = workflow["jobs"]["encoder_pin_admission"]
+    assert job["name"] == q.ADMISSION_JOB
+    assert q.ADMISSION_STEP in [step.get("name") for step in job["steps"]]
+    assert workflow["jobs"]["attempt_budget"]["name"] == q.BUDGET_JOB
+
+
+def test_a_checkout_failure_in_the_admission_job_counts_as_usual():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    github.finish(_run_id(item), "failure")
+    jobs = _refused_by_pin_admission()
+    jobs[0]["steps"] = [
+        {"name": "Checkout RuleSpec workflow toolchain", "conclusion": "failure"},
+        {"name": q.ADMISSION_STEP, "conclusion": "skipped"},
+    ]
+    github.jobs[_run_id(item)] = jobs
+
+    result = _tick(state, github)
+
+    assert item["attempts"][0]["result"] == "failure"
+    assert q._counted(item) == 1
+    assert result["hold"] is None
+
+
+def test_an_inadmissible_pin_hold_expires_after_a_day():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    github.finish(_run_id(item), "failure")
+    github.jobs[_run_id(item)] = _refused_by_pin_admission()
+    _tick(state, github)
+    assert len(github.dispatches) == 1
+
+    result = _tick(state, github, now=NOW + q.INADMISSIBLE_HOLD)
+
+    assert result["hold"] is None
+    assert len(github.dispatches) == 2
+
+
 def test_a_waiting_run_on_a_stale_main_is_cancelled_and_redispatched():
     github = FakeGitHub()
     state = _state(["us-or/p/1"])
