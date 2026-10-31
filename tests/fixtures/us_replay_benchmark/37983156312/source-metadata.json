@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2025-12-08",
+    "generation_input_sha256": "fc004185f51e5616c560538a53770fef3e966cf3191a89f0d1614d90a74bf1bb",
+    "provision_file": "data/corpus/provisions/us/statute/2026-06-20-ssi-title-xvi-title-42-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "d9c6e009b3336c17a3c309fa3e2809fc42ee3d7cef3b99fc1b94d470158b03e4",
+    "requested_corpus_citation_path": "us/statute/42/1382c/f/2",
+    "resolved_corpus_citation_path": "us/statute/42/1382c/f/2",
+    "resolved_text_sha256": "fc004185f51e5616c560538a53770fef3e966cf3191a89f0d1614d90a74bf1bb",
+    "row": {
+      "body_sha256": "fc004185f51e5616c560538a53770fef3e966cf3191a89f0d1614d90a74bf1bb",
+      "citation_path": "us/statute/42/1382c/f/2",
+      "document_class": "statute",
+      "expression_date": "2025-12-08",
+      "jurisdiction": "us",
+      "line_number": 219,
+      "provision_file": "data/corpus/provisions/us/statute/2026-06-20-ssi-title-xvi-title-42-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+      "provision_file_sha256": "d9c6e009b3336c17a3c309fa3e2809fc42ee3d7cef3b99fc1b94d470158b03e4",
+      "record_id": "beb4f979-d0a7-52d2-815a-89f129e7b402",
+      "source_as_of": "2025-12-08",
+      "source_path": "sources/us/statute/2026-06-20-ssi-title-xvi-title-42-r2026-07-15-self-contained-r2026-07-17-dedup/uslm/usc42.xml",
+      "version": "2026-06-20-ssi-title-xvi-title-42-r2026-07-15-self-contained-r2026-07-17-dedup"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us",
+    "source_as_of": "2025-12-08",
+    "source_sha256": "fc004185f51e5616c560538a53770fef3e966cf3191a89f0d1614d90a74bf1bb"
+  }
+}

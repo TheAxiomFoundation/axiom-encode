@@ -1,0 +1,546 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/42/416/l
+    source_sha256: ee15c76186b3533e280082826ffae74cdb24481ca30ae9e4fa7610410dd723f1
+  summary: “Retirement age” depends on the calendar year in which an individual attains
+    early retirement age. Paragraph (3) specifies the age-increase factor for the
+    2000–2004 and 2017–2021 transition periods.
+rules:
+- name: retirement_age_year_component
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Year
+  source: 42 USC 416(l)(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l/1
+          excerpt: 65 years of age
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l/1
+          excerpt: 66 years of age
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l/1
+          excerpt: 67 years of age
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: (A) With respect to an individual who attains early retirement
+            age in the 5-year period consisting of the calendar years 2000 through
+            2004, the age increase factor shall be equal to two-twelfths of the number
+            of months in the period beginning with January 2000 and ending with December
+            of the year in which the individual attains early retirement age.
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: (B) With respect to an individual who attains early retirement
+            age in the 5-year period consisting of the calendar years 2017 through
+            2021, the age increase factor shall be equal to two-twelfths of the number
+            of months in the period beginning with January 2017 and ending with December
+            of the year in which the individual attains early retirement age.
+  versions:
+  - effective_from: '1983-04-20'
+    formula: floor(retirement_age_total_months / months_per_retirement_age_year)
+- name: retirement_age_month_component
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Year
+  source: 42 USC 416(l)(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l/1
+          excerpt: the number of months in the age increase factor
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/416/l#months_per_retirement_age_year
+          output: months_per_retirement_age_year
+          hash: sha256:local
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: (A) With respect to an individual who attains early retirement
+            age in the 5-year period consisting of the calendar years 2000 through
+            2004, the age increase factor shall be equal to two-twelfths of the number
+            of months in the period beginning with January 2000 and ending with December
+            of the year in which the individual attains early retirement age.
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: (B) With respect to an individual who attains early retirement
+            age in the 5-year period consisting of the calendar years 2017 through
+            2021, the age increase factor shall be equal to two-twelfths of the number
+            of months in the period beginning with January 2017 and ending with December
+            of the year in which the individual attains early retirement age.
+  versions:
+  - effective_from: '1983-04-20'
+    formula: retirement_age_total_months - retirement_age_year_component * months_per_retirement_age_year
+- name: months_per_retirement_age_year
+  kind: parameter
+  dtype: Integer
+  unit: months
+  source: 42 USC 416(l)(1); SSA age-increase factor is stated in twelfths of a year
+    of months
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l/3
+          excerpt: two-twelfths of the number of months in the period beginning with
+            January 2000 and ending with December
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/ssa/cola/2026/federal-register/block-1
+          excerpt: are exactly 12 times the monthly
+  versions:
+  - effective_from: '1983-04-20'
+    formula: '12'
+- name: benefit_early_retirement_age_calendar_year
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Year
+  source: 42 USC 416(l)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: (2) The term “early retirement age” means age 62 in the case of
+            an old-age, wife’s, or husband’s insurance benefit, and age 60 in the
+            case of a widow’s or widower’s insurance benefit.
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/416/l#widow_early_retirement_age_years
+          output: widow_early_retirement_age_years
+          hash: sha256:local
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/416/l#old_age_early_retirement_age_years
+          output: old_age_early_retirement_age_years
+          hash: sha256:local
+  versions:
+  - effective_from: '1983-04-20'
+    formula: 'year_of_birth + (if is_widow_or_widower_benefit: widow_early_retirement_age_years
+      else: old_age_early_retirement_age_years)'
+- name: retirement_age_increase_factor_transition_one_months
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Year
+  source: 42 USC 416(l)(3)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: '(3) The age increase factor for any individual who attains early
+            retirement age in a calendar year within the period to which subparagraph
+            (B) or (D) of paragraph (1) applies shall be determined as follows:'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: (A) With respect to an individual who attains early retirement
+            age in the 5-year period consisting of the calendar years 2000 through
+            2004, the age increase factor shall be equal to two-twelfths of the number
+            of months in the period beginning with January 2000 and ending with December
+            of the year in which the individual attains early retirement age.
+  versions:
+  - effective_from: '1983-04-20'
+    formula: retirement_age_increase_months_per_transition_year * max(0, min(retirement_age_transition_period_years,
+      old_age_early_retirement_age_calendar_year - retirement_age_tier_two_start_year
+      + 1))
+- name: retirement_age_increase_factor_transition_two_months
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Year
+  source: 42 USC 416(l)(3)(B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: '(3) The age increase factor for any individual who attains early
+            retirement age in a calendar year within the period to which subparagraph
+            (B) or (D) of paragraph (1) applies shall be determined as follows:'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: (B) With respect to an individual who attains early retirement
+            age in the 5-year period consisting of the calendar years 2017 through
+            2021, the age increase factor shall be equal to two-twelfths of the number
+            of months in the period beginning with January 2017 and ending with December
+            of the year in which the individual attains early retirement age.
+  versions:
+  - effective_from: '1983-04-20'
+    formula: retirement_age_increase_months_per_transition_year * max(0, min(retirement_age_transition_period_years,
+      old_age_early_retirement_age_calendar_year - retirement_age_tier_four_start_year
+      + 1))
+- name: retirement_age_total_months
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Year
+  source: 42 USC 416(l)(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: (1) The term “retirement age” means—
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: (A) with respect to an individual who attains early retirement
+            age (as defined in paragraph (2)) before January 1, 2000 , 65 years of
+            age;
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: (B) with respect to an individual who attains early retirement
+            age after December 31, 1999 , and before January 1, 2005 , 65 years of
+            age plus the number of months in the age increase factor (as determined
+            under paragraph (3)) for the calendar year in which such individual attains
+            early retirement age;
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: (D) with respect to an individual who attains early retirement
+            age after December 31, 2016 , and before January 1, 2022 , 66 years of
+            age plus the number of months in the age increase factor (as determined
+            under paragraph (3)) for the calendar year in which such individual attains
+            early retirement age;
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l/3
+          excerpt: the age increase factor shall be equal to two-twelfths of the number
+            of months in the period beginning with January 2000 and ending with December
+            of the year in which the individual attains early retirement age
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l/3
+          excerpt: the age increase factor shall be equal to two-twelfths of the number
+            of months in the period beginning with January 2017 and ending with December
+            of the year in which the individual attains early retirement age
+  versions:
+  - effective_from: '1983-04-20'
+    formula: "if old_age_early_retirement_age_calendar_year < retirement_age_tier_two_start_year:\n\
+      \  retirement_age_tier_one_years * months_per_retirement_age_year\nelse:\n \
+      \ if old_age_early_retirement_age_calendar_year <= retirement_age_tier_two_end_year:\n\
+      \    retirement_age_tier_one_years * months_per_retirement_age_year + retirement_age_increase_factor_transition_one_months\n\
+      \  else:\n    if old_age_early_retirement_age_calendar_year < retirement_age_tier_four_start_year:\n\
+      \      retirement_age_tier_three_years * months_per_retirement_age_year\n  \
+      \  else:\n      if old_age_early_retirement_age_calendar_year <= retirement_age_tier_four_end_year:\n\
+      \        retirement_age_tier_three_years * months_per_retirement_age_year +\
+      \ retirement_age_increase_factor_transition_two_months\n      else:\n      \
+      \  retirement_age_tier_five_years * months_per_retirement_age_year"
+- name: retirement_age_for_insurance_benefit_total_months
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Year
+  source: 42 USC 416(l)(1)–(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: (1) The term “retirement age” means—
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: (B) with respect to an individual who attains early retirement
+            age after December 31, 1999 , and before January 1, 2005 , 65 years of
+            age plus the number of months in the age increase factor (as determined
+            under paragraph (3)) for the calendar year in which such individual attains
+            early retirement age;
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l
+          excerpt: (D) with respect to an individual who attains early retirement
+            age after December 31, 2016 , and before January 1, 2022 , 66 years of
+            age plus the number of months in the age increase factor (as determined
+            under paragraph (3)) for the calendar year in which such individual attains
+            early retirement age;
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l/3
+          excerpt: the age increase factor shall be equal to two-twelfths of the number
+            of months in the period beginning with January 2000 and ending with December
+            of the year in which the individual attains early retirement age
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/416/l/3
+          excerpt: the age increase factor shall be equal to two-twelfths of the number
+            of months in the period beginning with January 2017 and ending with December
+            of the year in which the individual attains early retirement age
+  versions:
+  - effective_from: '1983-04-20'
+    formula: "if benefit_early_retirement_age_calendar_year < retirement_age_tier_two_start_year:\n\
+      \  retirement_age_tier_one_years * months_per_retirement_age_year\nelse:\n \
+      \ if benefit_early_retirement_age_calendar_year <= retirement_age_tier_two_end_year:\n\
+      \    retirement_age_tier_one_years * months_per_retirement_age_year + retirement_age_increase_months_per_transition_year\
+      \ * min(retirement_age_transition_period_years, benefit_early_retirement_age_calendar_year\
+      \ - retirement_age_tier_two_start_year + 1)\n  else:\n    if benefit_early_retirement_age_calendar_year\
+      \ < retirement_age_tier_four_start_year:\n      retirement_age_tier_three_years\
+      \ * months_per_retirement_age_year\n    else:\n      if benefit_early_retirement_age_calendar_year\
+      \ <= retirement_age_tier_four_end_year:\n        retirement_age_tier_three_years\
+      \ * months_per_retirement_age_year + retirement_age_increase_months_per_transition_year\
+      \ * min(retirement_age_transition_period_years, benefit_early_retirement_age_calendar_year\
+      \ - retirement_age_tier_four_start_year + 1)\n      else:\n        retirement_age_tier_five_years\
+      \ * months_per_retirement_age_year"
+- name: old_age_early_retirement_age_years
+  kind: parameter
+  dtype: Integer
+  unit: years
+  source: 42 USC 416(l)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/statute/42/416/l/2
+          excerpt: age 62 in the case of an old-age
+  versions:
+  - effective_from: '1983-04-20'
+    formula: '62'
+- name: widow_early_retirement_age_years
+  kind: parameter
+  dtype: Integer
+  unit: years
+  source: 42 USC 416(l)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/statute/42/416/l/2
+          excerpt: age 60 in the case of a widow’s or widower’s insurance benefit
+  versions:
+  - effective_from: '1983-04-20'
+    formula: '60'
+- name: retirement_age_increase_months_per_transition_year
+  kind: parameter
+  dtype: Integer
+  unit: months
+  source: 42 USC 416(l)(3)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/statute/42/416/l/3
+          excerpt: two-twelfths
+  versions:
+  - effective_from: '1983-04-20'
+    formula: '2'
+- name: retirement_age_transition_period_years
+  kind: parameter
+  dtype: Integer
+  unit: years
+  source: 42 USC 416(l)(3)(A) and (B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/statute/42/416/l/3
+          excerpt: the 5-year period
+  versions:
+  - effective_from: '1983-04-20'
+    formula: '5'
+- name: retirement_age_tier_one_years
+  kind: parameter
+  dtype: Integer
+  unit: years
+  source: 42 USC 416(l)(1)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/statute/42/416/l/1
+          excerpt: before January 1, 2000 , 65 years of age
+  versions:
+  - effective_from: '1983-04-20'
+    formula: '65'
+- name: retirement_age_tier_three_years
+  kind: parameter
+  dtype: Integer
+  unit: years
+  source: 42 USC 416(l)(1)(C)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/statute/42/416/l/1
+          excerpt: before January 1, 2017 , 66 years of age
+  versions:
+  - effective_from: '1983-04-20'
+    formula: '66'
+- name: retirement_age_tier_five_years
+  kind: parameter
+  dtype: Integer
+  unit: years
+  source: 42 USC 416(l)(1)(E)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/statute/42/416/l/1
+          excerpt: after December 31, 2021 , 67 years of age
+  versions:
+  - effective_from: '1983-04-20'
+    formula: '67'
+- name: retirement_age_tier_two_start_year
+  kind: parameter
+  dtype: Integer
+  unit: calendar_year
+  source: 42 USC 416(l)(3)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/statute/42/416/l/3
+          excerpt: the calendar years 2000 through 2004
+  versions:
+  - effective_from: '1983-04-20'
+    formula: '2000'
+- name: retirement_age_tier_two_end_year
+  kind: parameter
+  dtype: Integer
+  unit: calendar_year
+  source: 42 USC 416(l)(3)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/statute/42/416/l/3
+          excerpt: the calendar years 2000 through 2004
+  versions:
+  - effective_from: '1983-04-20'
+    formula: '2004'
+- name: retirement_age_tier_four_start_year
+  kind: parameter
+  dtype: Integer
+  unit: calendar_year
+  source: 42 USC 416(l)(3)(B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/statute/42/416/l/3
+          excerpt: the calendar years 2017 through 2021
+  versions:
+  - effective_from: '1983-04-20'
+    formula: '2017'
+- name: retirement_age_tier_four_end_year
+  kind: parameter
+  dtype: Integer
+  unit: calendar_year
+  source: 42 USC 416(l)(3)(B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/statute/42/416/l/3
+          excerpt: the calendar years 2017 through 2021
+  versions:
+  - effective_from: '1983-04-20'
+    formula: '2021'
+- name: old_age_early_retirement_age_calendar_year
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Year
+  source: 42 USC 416(l)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: us/statute/42/416/l/2
+          excerpt: age 62 in the case of an old-age
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/416/l#old_age_early_retirement_age_years
+          output: old_age_early_retirement_age_years
+          hash: sha256:local
+  versions:
+  - effective_from: '1983-04-20'
+    formula: year_of_birth + old_age_early_retirement_age_years
+inputs:
+- name: year_of_birth
+  entity: Person
+  dtype: Integer
+  period: Year
+- name: is_widow_or_widower_benefit
+  entity: Person
+  dtype: Boolean
+  period: Year

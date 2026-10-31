@@ -1,0 +1,51 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "37154591758",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37154591758",
+  "bundle_citation": "us/statute/26/911/f",
+  "citation": "us/statute/26/911/f",
+  "lane": "target",
+  "runner": "openai-gpt-6-luna",
+  "module_path": "statutes/26/911/f.yaml",
+  "policy_prefix": "us",
+  "encoder_commit": "39f4e66a97673ede447d59b0e4072571bfdaf86b",
+  "encoder_version": "0.2.2086",
+  "attempt_count": 4,
+  "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "rulespec_ref": "9f38330fb43ffc693c6295b9a17c8d5d96520ad2",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "compile": 2,
+    "complete-source-unit:source-explicit-conditions": 1,
+    "complete-source-unit:tests": 4
+  },
+  "context_imports": {
+    "us:statutes/26/1/h": "context/statutes/26/1/h.yaml",
+    "us:statutes/26/911/a": "context/statutes/26/911/a.yaml",
+    "us:statutes/26/911/d/6": "context/statutes/26/911/d/6.yaml"
+  },
+  "context_origins": {
+    "us:statutes/26/1/h": "workspace",
+    "us:statutes/26/911/a": "workspace",
+    "us:statutes/26/911/d/6": "workspace"
+  },
+  "provider_git_blob_sha1": {},
+  "expected_class": "engine",
+  "class_evidence": "Section 911(f) stacking needs section 1 and 55 tax recomputed at substituted bases, which the runtime cannot call; adjudication rates it engine-limitation.",
+  "class_source": "hand",
+  "files": {
+    "candidate.test.yaml": "fb1f5cd60cfaa6c0bf00c627d77ad5ef499aa3ca5465157b7b42fcf5f365b3fb",
+    "candidate.yaml": "9e6441dc4db3713c7a3ed44b86f6420b62ec8ae90d7bced28859970d4cd7293c",
+    "context/statutes/26/1/h.yaml": "51290fac8ece62a820f0deddcbc0471467c13ee31b62b52b45c8798232b22357",
+    "context/statutes/26/911/a.yaml": "b128d251a0f74fc46a27e516e864e53c8d25442f5b419c7bb3bb4b607542d725",
+    "context/statutes/26/911/d/6.yaml": "ee94dfb18b7d04d16aefa2afbe70213feee3fcd04f4f80e7a26763e2ac841f30",
+    "issues.json": "4be1a6b177fdcea44cc18262511be7040f5d63f1e44d4606f046fa16d31aa393",
+    "source-metadata.json": "dc6cb009457d878dd2dbdcc2aea361efebcde8d4caafe015359c7b4f00633ba2",
+    "source.txt": "414dedd3d4cd3fe84f1476577a36f4a40a8f92bab7e5472276886cd6cd12654b"
+  }
+}

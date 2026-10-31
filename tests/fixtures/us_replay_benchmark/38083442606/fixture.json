@@ -1,0 +1,40 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "38083442606",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/38083442606",
+  "bundle_citation": "us-nm/statute/7-2-39",
+  "citation": "us-nm/statute/7-2-39",
+  "lane": "target",
+  "runner": "openai-gpt-6-sol",
+  "module_path": "statutes/7-2-39.yaml",
+  "policy_prefix": "us-nm",
+  "encoder_commit": "63e292c54f62cbda8258b20dbe79b1030f3f43ea",
+  "encoder_version": "0.2.2159",
+  "attempt_count": 4,
+  "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "rulespec_ref": "16a6677190194da2431a78fcaa5b6548cd0e2845",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:deferral": 1,
+    "complete-source-unit:tests": 1,
+    "tests:wrong-expected-value": 2
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "expected_class": "dependency",
+  "class_evidence": "Branch (d) needs the IRC 152 dependent definition, which is not encoded; adjudication and the deferral sample rate it upstream-dependency.",
+  "class_source": "hand",
+  "files": {
+    "candidate.test.yaml": "14d3b5b7caa395d7261d389041a87835214a8a184cf05c571dbc65e7f8561c34",
+    "candidate.yaml": "4bdd08d93f7d6ab2c6b7255f9d1b8eb50393f8410ea524bdb80579f7bdb4be17",
+    "issues.json": "a727e9ed886664737fec981fb1b772df28e4b6dfa4709ea12747865452dd17b7",
+    "source-metadata.json": "6b73950aec24bf1944eb8a08455453cbcd6cf44b44f3e76b033f88cc2ab1b2c2",
+    "source.txt": "66fe019179bda376d429963c0e0468ff6a46fbff131f3d112475dad9a1bb9a27"
+  }
+}

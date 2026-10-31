@@ -1,0 +1,62 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "34231167091",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/34231167091",
+  "bundle_citation": "us/guidance/usda/fns/snap-fy2026-cola/page-1",
+  "citation": "us/guidance/usda/fns/snap-fy2026-cola/page-1",
+  "lane": "target-preflight",
+  "runner": "openai-gpt-5.6-sol",
+  "module_path": "policies/usda/snap/state-plan-composition.yaml",
+  "policy_prefix": "us",
+  "encoder_commit": "1daadad265dc9eaa1ab737df87b453a5e5e0cb46",
+  "encoder_version": "0.2.1764",
+  "attempt_count": 4,
+  "corpus_ref": "620527d7ad55adc19e05aa71cecea1d5bd0a6b2f",
+  "rulespec_ref": "38d5c8c516f9243cedf8e07a22f96dde9ac66fe3",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "compile": 2,
+    "complete-source-unit:numeric-recall": 64,
+    "complete-source-unit:tests": 6,
+    "proof:excerpt-not-found": 8
+  },
+  "context_imports": {
+    "us:regulations/7-cfr/273/10": "context/regulations/7-cfr/273/10.yaml",
+    "us:regulations/7-cfr/273/3": "context/regulations/7-cfr/273/3.yaml",
+    "us:regulations/7-cfr/273/4": "context/regulations/7-cfr/273/4.yaml",
+    "us:regulations/7-cfr/273/5": "context/regulations/7-cfr/273/5.yaml",
+    "us:regulations/7-cfr/273/6": "context/regulations/7-cfr/273/6.yaml",
+    "us:regulations/7-cfr/273/7": "context/regulations/7-cfr/273/7.yaml"
+  },
+  "context_origins": {
+    "us:regulations/7-cfr/273/10": "workspace",
+    "us:regulations/7-cfr/273/3": "workspace",
+    "us:regulations/7-cfr/273/4": "workspace",
+    "us:regulations/7-cfr/273/5": "workspace",
+    "us:regulations/7-cfr/273/6": "workspace",
+    "us:regulations/7-cfr/273/7": "workspace"
+  },
+  "provider_git_blob_sha1": {},
+  "expected_class": "encoder",
+  "expected_subclass": "omission",
+  "class_evidence": "None of the 64 Table 1 allotment amounts are encoded; the candidate adds unrelated SNAP eligibility rules instead.",
+  "class_source": "hand",
+  "files": {
+    "candidate.test.yaml": "93ccbeab5fa4a1e45507da48dd088a138e3bffb7678050c36b90bbfc4ce5a905",
+    "candidate.yaml": "41718b51a5fceb342f83042291718b41d4ef114bbb2ab39f24908c02c7cc8028",
+    "context/regulations/7-cfr/273/10.yaml": "f9b9f00101218d1d335aa9fff400f0578ae2dc314334693bae7e0dde51202dff",
+    "context/regulations/7-cfr/273/3.yaml": "d368a84e2cc8b3ce3862899cfb9e912dfaaf9bbf7e46b100f723959ccd6d4ff4",
+    "context/regulations/7-cfr/273/4.yaml": "c404469290002f5e2e5d5dc92686b36f994d924da97d9c31c118979ef5c5c3da",
+    "context/regulations/7-cfr/273/5.yaml": "043588b5078169a574dabe70a15ff300517b4472687b3d1dda71bcefc9faa1f1",
+    "context/regulations/7-cfr/273/6.yaml": "ff1fb6a001e8289d3f26b6711501443bce6453375c731aba71cec97310c5011d",
+    "context/regulations/7-cfr/273/7.yaml": "39dc6d050ebcc8db6eb7b8c4711a082a3707e0761258e159eb516d090e72bf87",
+    "issues.json": "d3a17a92c348665a48553058f8c53a8b9ef3c56f2628dda4e8936842e34ec276",
+    "source-metadata.json": "b8c4a647e0af3a7d912fca4162e0472d30bb20959ed0a64e40d357c4a7cedc89",
+    "source.txt": "806907224a37eecb7fb5fa3f8279fcd7bd29de7bd3fc9c3111953d2cb6701566"
+  }
+}

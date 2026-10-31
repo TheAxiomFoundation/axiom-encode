@@ -1,0 +1,215 @@
+format: rulespec/v1
+module:
+  deferred_outputs:
+  - output: us:statutes/42/1382c/f/2#commissioner_determined_inequitable_resource_extent
+    reason: 42 USC 1382c(f)(2)(A) leaves the extent of inequitable resource deeming
+      to the Commissioner; the resource-limit and pension-fund mechanics in 20 CFR
+      416.1202(b) are not supplied in this corpus release.
+  source_verification:
+    corpus_citation_path: us/statute/42/1382c/f/2
+    source_sha256: fc004185f51e5616c560538a53770fef3e966cf3191a89f0d1614d90a74bf1bb
+rules:
+- name: deemed_parent_resources
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: USD
+  source: 42 USC 1382c(f)(2)(A)-(B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/1382c/f/2
+          excerpt: such individual’s income and resources shall be deemed to include
+            any income and resources of a parent
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/1382c/f/2#child_deeming_age_threshold_years
+          output: child_deeming_age_threshold_years
+          hash: sha256:local
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/1382c/f/2#child_deeming_exception_applies
+          output: child_deeming_exception_applies
+          hash: sha256:local
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: us/statute/42/1382c/f/2
+          excerpt: except to the extent determined by the Commissioner of Social Security
+            to be inequitable
+  versions:
+  - effective_from: '1974-01-01'
+    formula: 'if child_age_years < child_deeming_age_threshold_years and parent_or_parent_spouse_lives_in_same_household
+      and not child_deeming_exception_applies: max(0, parent_resources + parent_spouse_resources
+      - commissioner_determined_inequitable_resource_extent) else: 0'
+- name: child_deeming_exception_applies
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 42 USC 1382c(f)(2)(B)(i)-(iv)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: us/statute/42/1382c/f/2
+          excerpt: (B) Subparagraph (A) shall not apply in the case of any child who
+            has not attained the age of 18 years who—
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/1382c/f/2#child_deeming_age_threshold_years
+          output: child_deeming_age_threshold_years
+          hash: sha256:local
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/42/1382c/f/2
+          excerpt: is disabled
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/42/1382c/f/2
+          excerpt: received benefits under this subchapter
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/42/1382c/f/2
+          excerpt: is eligible for medical assistance under a State home care plan
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/42/1382c/f/2
+          excerpt: would not be eligible for benefits under this subchapter
+  versions:
+  - effective_from: '1974-01-01'
+    formula: 'child_age_years < child_deeming_age_threshold_years
+
+      and child_is_disabled
+
+      and child_received_benefits_while_in_referenced_institution
+
+      and child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization
+
+      and child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception'
+- name: child_deeming_age_threshold_years
+  kind: parameter
+  dtype: Count
+  source: 42 USC 1382c(f)(2)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/statute/42/1382c/f/2
+          excerpt: under age 18
+  versions:
+  - effective_from: '1974-01-01'
+    formula: '18'
+- name: deemed_parent_income
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Month
+  unit: USD
+  source: 42 USC 1382c(f)(2)(A)-(B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/42/1382c/f/2
+          excerpt: (A) For purposes of determining eligibility for and the amount
+            of benefits for any individual who is a child under age 18, such individual’s
+            income and resources shall be deemed to include any income and resources
+            of a parent of such individual (or the spouse of such a parent) who is
+            living in the same household as such individual, whether or not available
+            to such individual, except to the extent determined by the Commissioner
+            of Social Security to be inequitable under the circumstances.
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/1382c/f/2#child_deeming_age_threshold_years
+          output: child_deeming_age_threshold_years
+          hash: sha256:local
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/1382c/f/2#child_deeming_exception_applies
+          output: child_deeming_exception_applies
+          hash: sha256:local
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/42/1382c/f/2
+          excerpt: except to the extent determined by the Commissioner of Social Security
+            to be inequitable
+  versions:
+  - effective_from: '1974-01-01'
+    formula: 'if child_age_years < child_deeming_age_threshold_years and parent_or_parent_spouse_lives_in_same_household
+      and not child_deeming_exception_applies and not commissioner_determines_income_deeming_inequitable:
+      parent_income + parent_spouse_income else: 0'
+inputs:
+- name: parent_resources
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Month
+- name: parent_spouse_resources
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Month
+- name: commissioner_determined_inequitable_resource_extent
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Month
+- name: child_age_years
+  entity: Person
+  dtype: Count
+  period: Month
+- name: parent_or_parent_spouse_lives_in_same_household
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: parent_income
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Month
+- name: parent_spouse_income
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Month
+- name: commissioner_determines_income_deeming_inequitable
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: child_is_disabled
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: child_received_benefits_while_in_referenced_institution
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception
+  entity: Person
+  dtype: Boolean
+  period: Month

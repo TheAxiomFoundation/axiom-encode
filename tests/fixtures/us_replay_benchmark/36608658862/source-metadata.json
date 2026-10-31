@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2025-08-26",
+    "generation_input_sha256": "9f23ae506a89ced93943948c7093ec06cc9a3878a8a3665fd6d1559770b47550",
+    "provision_file": "data/corpus/provisions/us-ks/guidance/2026-07-21-ks-k40es-2026.jsonl",
+    "provision_file_sha256": "17d6e7c4fdfed6f3d28e173a08499d0ab75b4e7f159793e61fb494c4081a3bd0",
+    "requested_corpus_citation_path": "us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1",
+    "resolved_corpus_citation_path": "us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1",
+    "resolved_text_sha256": "9f23ae506a89ced93943948c7093ec06cc9a3878a8a3665fd6d1559770b47550",
+    "row": {
+      "body_sha256": "9f23ae506a89ced93943948c7093ec06cc9a3878a8a3665fd6d1559770b47550",
+      "citation_path": "us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1",
+      "document_class": "guidance",
+      "expression_date": "2025-08-26",
+      "jurisdiction": "us-ks",
+      "line_number": 2,
+      "provision_file": "data/corpus/provisions/us-ks/guidance/2026-07-21-ks-k40es-2026.jsonl",
+      "provision_file_sha256": "17d6e7c4fdfed6f3d28e173a08499d0ab75b4e7f159793e61fb494c4081a3bd0",
+      "record_id": "873dccfc-f0df-547c-b358-7eabe06bd2fb",
+      "source_as_of": "2026-07-21",
+      "source_path": "sources/us-ks/guidance/2026-07-21-ks-k40es-2026/official-documents/us-ks-revenue-2026-k40es.pdf",
+      "version": "2026-07-21-ks-k40es-2026"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us-ks",
+    "source_as_of": "2026-07-21",
+    "source_sha256": "9f23ae506a89ced93943948c7093ec06cc9a3878a8a3665fd6d1559770b47550"
+  }
+}

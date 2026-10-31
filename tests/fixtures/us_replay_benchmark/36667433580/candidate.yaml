@@ -1,0 +1,452 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+    source_sha256: 57cedd89b8f52cfe56c2a993f0c944b84010b55b74102d6847e5271d7f837557
+  summary: '“gross monthly income” as income before taxes less excluded income.
+
+    “We must consider countable liquid resources ... even if the client is categorically
+    eligible.”
+
+    “Households entitled to expedited services must be interviewed and receive benefits
+    within seven calendar days of filing an application.”
+
+    “When the expedited approval process and regular verification rules are in conflict,
+    the expedited approval process supersedes regular verification rules.”'
+  deferred_outputs:
+  - output: us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#expedited_criteria_under_wac_388_406_0015
+    reason: The source directs screening against WAC 388-406-0015(2), but does not
+      state that provision's expedited-service criteria.
+  - output: us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#destitute_farm_worker_determination
+    reason: The “Destitute migrant or seasonal farm workers” branch directs the determination
+      to WAC 388-406-0021 and income budgeting to WAC 388-450-0230; neither determination
+      is supplied here.
+  - output: us-wa:policies/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5#postponed_verification_reconsideration_date
+    reason: The “Postponed Verification” branch directs the reconsideration date for
+      verification received after the deadline but before the 60th day to WAC 388-406-0055(4)(c);
+      that date computation is not supplied here.
+inputs:
+- name: application_received_outside_normal_business_hours
+  entity: Household
+  dtype: Boolean
+  period: Day
+- name: day_is_next_business_day_after_receipt
+  entity: Household
+  dtype: Boolean
+  period: Day
+- name: day_is_application_receipt_day
+  entity: Household
+  dtype: Boolean
+  period: Day
+- name: applicant_identity_established
+  entity: Household
+  dtype: Boolean
+  period: Day
+- name: authorized_representative_at_interview_without_head_of_household
+  entity: Household
+  dtype: Boolean
+  period: Day
+- name: authorized_representative_identity_established
+  entity: Household
+  dtype: Boolean
+  period: Day
+- name: other_verification_unavailable_at_interview
+  entity: Household
+  dtype: Boolean
+  period: Day
+- name: household_entitled_to_expedited_services
+  entity: Household
+  dtype: Boolean
+  period: Day
+- name: day_is_within_seven_calendar_days_of_request
+  entity: Household
+  dtype: Boolean
+  period: Day
+- name: seventh_day_office_closed
+  entity: Household
+  dtype: Boolean
+  period: Day
+- name: day_is_working_day_prior_to_closure
+  entity: Household
+  dtype: Boolean
+  period: Day
+- name: day_is_seventh_calendar_day
+  entity: Household
+  dtype: Boolean
+  period: Day
+- name: expedited_issuance_found_ineligible_at_interview
+  entity: Household
+  dtype: Boolean
+  period: Day
+- name: more_information_needed_to_determine_eligibility
+  entity: Household
+  dtype: Boolean
+  period: Day
+- name: all_postponed_verification_received_timely
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: ongoing_basic_food_ineligible_from_verification
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: income_before_taxes
+  entity: Household
+  dtype: Money
+  period: Month
+- name: excluded_income
+  entity: Household
+  dtype: Money
+  period: Month
+- name: food_checked_on_application
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: application_submitted_without_program_choice
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: food_request_confirmed_during_client_contact
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: client_categorically_eligible
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: has_countable_liquid_resources
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: expedited_approval_conflicts_with_regular_verification
+  entity: Household
+  dtype: Boolean
+  period: Month
+- name: applicant_lives_in_institution
+  entity: Person
+  dtype: Boolean
+  period: Day
+- name: days_until_release_after_application
+  entity: Person
+  dtype: Count
+  period: Day
+- name: abawd_has_nonqualifying_months_available
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: disqualified_for_unmet_abawd_participation
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: abawd_has_requalified
+  entity: Person
+  dtype: Boolean
+  period: Month
+rules:
+- name: expedited_service_seven_calendar_day_limit
+  kind: parameter
+  dtype: Count
+  source: Washington EA-Z Manual, “Screening and determining eligibility for expedited
+    service”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+          excerpt: Screening and determining eligibility for expedited service Households
+            entitled to expedited services must be interviewed and receive benefits
+            within seven calendar days of filing an application.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '7'
+- name: expedited_screening_due_today
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Day
+  source: Washington EA-Z Manual, “Screening and determining eligibility for expedited
+    service,” screening day
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+          excerpt: If we receive an application outside of normal business hours,
+            we screen for expedited service on the next business day.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: "(application_received_outside_normal_business_hours\n and day_is_next_business_day_after_receipt)\n\
+      or (not application_received_outside_normal_business_hours\n    and day_is_application_receipt_day)"
+- name: expedited_identity_verification_sufficient
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Day
+  source: Washington EA-Z Manual, “Required verification”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+          excerpt: 'Required verification: Verification of identity of the applicant
+            (and authorized representative if the head of household isn''t at the
+            interview) is the only required verification to issue benefits on an expedited
+            case.'
+  versions:
+  - effective_from: '0001-01-01'
+    formula: "applicant_identity_established\nand (not authorized_representative_at_interview_without_head_of_household\n\
+      \     or authorized_representative_identity_established)"
+- name: unavailable_other_verification_may_be_postponed
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Day
+  source: Washington EA-Z Manual, “Required verification” and “Postponed Verification”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+          excerpt: Except for identification, verification that isn't available at
+            the time of the interview is postponed (see Postponed Verification and
+            Required Verification sections of this chapter for more information).
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'other_verification_unavailable_at_interview
+
+      and expedited_identity_verification_sufficient'
+- name: expedited_benefits_due_on_day
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Day
+  source: Washington EA-Z Manual, “Screening and determining eligibility for expedited
+    service,” issuance deadline
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+          excerpt: If the seventh day falls on a day when the office is closed (holiday,
+            weekend, or temporary layoff), benefits must be issued the working day
+            prior to the office closure.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: "household_entitled_to_expedited_services\nand expedited_identity_verification_sufficient\n\
+      and day_is_within_seven_calendar_days_of_request\nand ((seventh_day_office_closed\
+      \ and day_is_working_day_prior_to_closure)\n     or (not seventh_day_office_closed\
+      \ and day_is_seventh_calendar_day))"
+- name: expedited_denial_explanation_required
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Day
+  source: Washington EA-Z Manual, “Denying expedited service”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+          excerpt: 'Denying expedited service: If at the interview we determine a
+            household isn''t eligible for expedited issuance and more information
+            is needed to determine eligibility: Inform the client that they don''t
+            meet the criteria for expedited issuance with postponed verification;
+            and Explain how to get a department review of the decision (see WAC 388-406-0015
+            (10)).'
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'expedited_issuance_found_ineligible_at_interview
+
+      and more_information_needed_to_determine_eligibility'
+- name: ongoing_benefits_without_break_after_postponement
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: Washington EA-Z Manual, “Postponed Verification,” timely verification
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+          excerpt: When all postponed verification isn't received timely (within 30
+            days or by the end of the second month), the client isn't eligible for
+            ongoing benefits without a break in benefits.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'all_postponed_verification_received_timely
+
+      and not ongoing_basic_food_ineligible_from_verification'
+- name: denial_letter_required_after_postponed_verification
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Washington EA-Z Manual, “Postponed Verification,” ineligibility from verification
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+          excerpt: We must send clients a denial letter if we determine they are ineligible
+            from the verification.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: ongoing_basic_food_ineligible_from_verification
+- name: gross_monthly_income
+  kind: derived
+  entity: Household
+  dtype: Money
+  unit: USD
+  period: Month
+  source: Washington EA-Z Manual, “Gross monthly income”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+          excerpt: “gross monthly income” as income before taxes less excluded income
+  versions:
+  - effective_from: '0001-01-01'
+    formula: income_before_taxes - excluded_income
+- name: basic_food_request_confirmed
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Washington EA-Z Manual, “Request for Basic Food”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: predicate
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+  versions:
+  - effective_from: '0001-01-01'
+    formula: "food_checked_on_application\nor (application_submitted_without_program_choice\n\
+      \    and food_request_confirmed_during_client_contact)"
+- name: countable_liquid_resources_must_be_considered
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: Washington EA-Z Manual, “Resources”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: predicate
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+          excerpt: Resources We must consider countable liquid resources under WAC
+            388-470-0055 when determining eligibility for expedited services, even
+            if the client is categorically eligible under WAC 388-414-0001 .
+  versions:
+  - effective_from: '0001-01-01'
+    formula: has_countable_liquid_resources
+- name: expedited_approval_supersedes_regular_verification
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: Washington EA-Z Manual, Expedited Service for Basic Food, item 10
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: ordering
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+          excerpt: When the expedited approval process and regular verification rules
+            are in conflict, the expedited approval process supersedes regular verification
+            rules.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: expedited_approval_conflicts_with_regular_verification
+- name: institutional_release_window_days
+  kind: parameter
+  dtype: Count
+  source: Washington EA-Z Manual, “Screening an institutionalized client for expedited
+    service”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+          excerpt: 'Screening an institutionalized client for expedited service: Applications
+            from persons living in an institution are denied unless the person will
+            be released within 30 days of submitting the application.'
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '30'
+- name: institutional_application_not_denied_for_residence
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Day
+  source: Washington EA-Z Manual, “Screening an institutionalized client for expedited
+    service”
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+          excerpt: 'Screening an institutionalized client for expedited service: Applications
+            from persons living in an institution are denied unless the person will
+            be released within 30 days of submitting the application.'
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'not applicant_lives_in_institution
+
+      or days_until_release_after_application <= institutional_release_window_days'
+- name: abawd_may_be_considered_for_expedited_services
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: Washington EA-Z Manual, ABAWD expedited-service paragraphs
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+          excerpt: If an ABAWD has non-qualifying months available, they can be considered
+            for expedited services.
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5
+          excerpt: Clients who have been disqualified for Basic Food due to not meeting
+            ABAWD participation requirements aren't eligible for expedited services
+            until they have requalified.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: "abawd_has_nonqualifying_months_available\nand (not disqualified_for_unmet_abawd_participation\n\
+      \     or abawd_has_requalified)"
