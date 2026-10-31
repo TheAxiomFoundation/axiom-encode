@@ -111,8 +111,9 @@ RECOGNIZED_WORKFLOW_TOOLCHAIN_RESOLVERS: dict[str, str] = {
 }
 # Environment names the protected verification supervisor forwards into its
 # otherwise empty child environment (cmd/axiom-encode-signing-supervisor
-# parentOnlyEnvironmentNames). Other AXIOM_* values never reach a supervised
-# CI gate, so ci withholds them from the in-process equivalent.
+# parentOnlyEnvironmentNames). The worker setting below is separately validated;
+# other AXIOM_* values never reach a supervised CI gate, so ci withholds them
+# from the in-process equivalent.
 SUPERVISOR_FORWARDED_ENVIRONMENT = frozenset(
     {
         "AXIOM_ENCODE_APPLY_CHECKOUT",
@@ -127,10 +128,9 @@ SUPERVISOR_GIT_ENVIRONMENT = {
     "GIT_TERMINAL_PROMPT": "0",
 }
 WAIVER_AUDIT_WORKERS_ENV = "AXIOM_ENCODE_WAIVER_AUDIT_WORKERS"
-# 6f11be26 L1695/L1956-1968 (0effa6a5 L1342/L1510-1522): the
-# supervisor drops the step's WORKERS=1 (parentOnlyEnvironmentNames), so
-# the audit defaults to min(8, cpu_count()) on the public four-vCPU runner.
-CI_WAIVER_AUDIT_WORKERS = "4"
+# Match the supervisor's separately validated 1-2 ASCII digit setting. Its
+# 0-32 range is a subset of Python's parser; 0 still selects one worker.
+SUPERVISOR_WAIVER_AUDIT_WORKERS_MAX = 32
 
 
 @dataclass(frozen=True, slots=True)
@@ -2110,12 +2110,25 @@ def _run_cli(
     try:
         sys.argv = ["axiom-encode", *arguments]
         if supervised:
+            workers = (environment or {}).get(
+                WAIVER_AUDIT_WORKERS_ENV,
+                old_environment.get(WAIVER_AUDIT_WORKERS_ENV),
+            )
+            if workers is not None and (
+                re.fullmatch(r"[0-9]{1,2}", workers) is None
+                or int(workers) > SUPERVISOR_WAIVER_AUDIT_WORKERS_MAX
+            ):
+                return 1, (
+                    f"{WAIVER_AUDIT_WORKERS_ENV} must be 1-2 ASCII decimal "
+                    "digits with a value between 0 and 32\n"
+                )
             for name in [
                 name
                 for name in os.environ
                 if (
                     name.startswith("AXIOM_")
                     and name not in SUPERVISOR_FORWARDED_ENVIRONMENT
+                    and name != WAIVER_AUDIT_WORKERS_ENV
                 )
                 or name.startswith("GIT_")
             ]:
@@ -3481,7 +3494,7 @@ def _run_cli_batch(
     that many isolated interpreters at a time. The workers receive the
     verification keyring on stdin, never through the environment, and cap the
     waiver audit's own fan-out for legacy invocations. Embedded pins supply
-    CI's effective four-worker audit count, which takes precedence over
+    the workflow step's declared audit worker count, which takes precedence over
     this local cap so --jobs does not change a partition's inputs. A worker
     keeps ``--offline``: the calling context's remote-fetch switch, which
     neither the pool's threads nor the worker processes would inherit, is
@@ -3534,7 +3547,9 @@ def _run_cli_isolated(
         "cwd": str(invocation.cwd),
         "supervised": invocation.supervised,
         "environment": {
-            WAIVER_AUDIT_WORKERS_ENV: str(worker_cap),
+            WAIVER_AUDIT_WORKERS_ENV: str(
+                min(worker_cap, SUPERVISOR_WAIVER_AUDIT_WORKERS_MAX)
+            ),
             **(invocation.environment or {}),
         },
     }
@@ -4264,6 +4279,11 @@ def _gate_validation_waivers(run: WorkflowRun, spec: GateSpec) -> GateResult:
                     ratchet + f"validate_failures path does not exist: {path}\n",
                     command,
                 )
+    # 6f11be26 L1695 / 0effa6a5 L1342: the supervisor now preserves the
+    # step's validated worker setting, so both embedded-script pins run serially.
+    audit_workers = str(
+        run.workflow.step("validate", spec.name)["env"][WAIVER_AUDIT_WORKERS_ENV]
+    )
     invocations = [
         CliInvocation(
             (
@@ -4286,7 +4306,7 @@ def _gate_validation_waivers(run: WorkflowRun, spec: GateSpec) -> GateResult:
             ),
             cwd=repo,
             supervised=True,
-            environment={WAIVER_AUDIT_WORKERS_ENV: CI_WAIVER_AUDIT_WORKERS},
+            environment={WAIVER_AUDIT_WORKERS_ENV: audit_workers},
         )
         for shard in run.plan.matrix
     ]

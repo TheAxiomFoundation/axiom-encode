@@ -1177,6 +1177,7 @@ def test_compiled_supervisor_uses_isolated_direct_runtime_and_domain_signatures(
     launcher = _launcher(tmp_path, trusted_python_runtime)
     trust_config = _trust_config(tmp_path, apply_public, eval_public)
     sentinels = {
+        "AXIOM_ENCODE_WAIVER_AUDIT_WORKERS": "4",
         "OPENAI_API_KEY": "openai-sentinel",
         "ANTHROPIC_API_KEY": "anthropic-sentinel",
         "PATH": "/hostile/bin",
@@ -1216,6 +1217,7 @@ def test_compiled_supervisor_uses_isolated_direct_runtime_and_domain_signatures(
         for path in result["sys_path"]
     )
     parent_only = {
+        "AXIOM_ENCODE_WAIVER_AUDIT_WORKERS",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
         "AXIOM_ENCODE_SUPABASE_SECRET_KEY",

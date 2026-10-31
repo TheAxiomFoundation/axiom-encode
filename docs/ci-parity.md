@@ -162,10 +162,12 @@ Python. The scripts cover:
   note that CI skips steps on a failed leg.
 - **Waiver audit.** The supervised audit runs once per partition key, with the
   same `--partition-key` and `--partition-keys-json` the matrix passes, so the
-  partitioned isolated-recheck budget applies. Each partition uses four audit
-  workers: the supervisor drops the step's `AXIOM_ENCODE_WAIVER_AUDIT_WORKERS:
-  "1"`, so CI's audit falls back to `min(8, cpu_count)`, which is four on the
-  public runner. Before the audit, every head-ledger module path must match a
+  partitioned isolated-recheck budget applies. Each partition uses the step's
+  declared `AXIOM_ENCODE_WAIVER_AUDIT_WORKERS` value: embedded-script pins
+  `0effa6a5` and `6f11be26` declare `"1"`, which the supervisor forwards for a
+  serial audit. Legacy packaged pins `615c1df9` and `34bcfab2` export no worker
+  setting and retain Python's CPU-based default when the variable is absent.
+  Before the audit, every head-ledger module path must match a
   directory entry's exact spelling; a case alias fails as a missing path, as
   Linux lookup does.
 - **Retired-schema skips.** The first leg's freeze run decides the gate. Every
@@ -185,7 +187,10 @@ Python. The scripts cover:
   from an empty environment. For those gates, `ci` withholds every `AXIOM_*`
   variable the supervisor does not forward, except the caller's
   `AXIOM_CORPUS_NO_FETCH` opt-out, and makes Git ignore global and system
-  configuration. Unsupervised steps, such as companion tests, get the
+  configuration. The supervisor also forwards `AXIOM_ENCODE_WAIVER_AUDIT_WORKERS`
+  unchanged when it contains one or two ASCII decimal digits with a value from
+  0 through 32 (`0` selects one worker); an invalid setting fails before the
+  subcommand runs. Unsupervised steps, such as companion tests, get the
   step's own environment.
 - **Release object.** It is fetched as the caller configures CI to fetch it:
   from the Supabase registry alone when `corpus-release-registry-url` is set,
@@ -269,8 +274,8 @@ chunks and companion-test groups) in isolated worker processes:
   from the parent's package root, and refuses to run if that is not the module
   the parent verified, so a package in the working directory or on
   `PYTHONPATH` cannot stand in for it.
-- The waiver audit always uses CI's four audit workers per partition, whatever
-  `--jobs` is; other invocations cap their fan-out at `cpu_count // N`.
+- The waiver audit uses the workflow step's declared worker count per partition
+  (`1` for embedded-script pins `0effa6a5` and `6f11be26`), whatever `--jobs` is.
 - Without `--jobs`, the invocations run in-process one at a time.
 
 Retrieve the public values with:
@@ -434,7 +439,7 @@ named:
   can differ.
 - **Partition scheduling.** Locally, `--jobs` runs several waiver-audit
   partitions at once, where CI's matrix legs each audit one; every partition
-  uses CI's four audit workers either way.
+  uses the workflow step's declared audit worker count either way.
 - **Companion-test group order.** See "Companion tests" above.
 - **Rust toolchain.** CI installs the current `stable` toolchain
   (`dtolnay/rust-toolchain`, whose pinned action defaults to `stable`) on each

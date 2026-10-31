@@ -125,6 +125,15 @@ broker markers only. Ambient Python/loader paths, Git configuration, proxies,
 cloud/GitHub credentials are not forwarded. The exact Axiom Supabase and
 OpenTelemetry variables documented by the CLI are parent-only allowlist values;
 the subprocess scrub removes them before model/reviewer execution.
+`AXIOM_ENCODE_WAIVER_AUDIT_WORKERS` is separately validated and forwarded
+unchanged when present: one or two ASCII decimal digits with a value from 0
+through 32 (leading zero allowed). Zero means one worker; the audit also bounds
+workers by its module count. An absent value retains Python's CPU-based default.
+Malformed values are rejected before broker or child startup. Every supervised
+command receives the validated value, including `encode --apply` and Python
+help probes; only `validation-waivers audit` reads it, to control process
+fan-out. The subprocess scrub also excludes this setting from model/reviewer
+execution.
 Every required subprocess tool must therefore be installed at a protected
 absolute location in that runtime; ambient system or user tool lookup is not a
 deployment input.

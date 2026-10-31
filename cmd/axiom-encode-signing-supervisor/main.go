@@ -56,6 +56,12 @@ const (
 	evalPublicEnv          = "AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY"
 	corpusReleasePublicEnv = "AXIOM_CORPUS_RELEASE_PUBLIC_KEY"
 
+	waiverAuditWorkersEnv = "AXIOM_ENCODE_WAIVER_AUDIT_WORKERS"
+	// A strict subset of cli._waiver_audit_worker_count: at most two ASCII
+	// digits, 0..32 inclusive. Python interprets 0 as 1 and caps by module count.
+	waiverAuditWorkersMax       = 32
+	waiverAuditWorkersMaxDigits = 2
+
 	brokerFDEnv     = "AXIOM_ENCODE_SIGNING_BROKER_FD"
 	brokerPIDEnv    = "AXIOM_ENCODE_SIGNING_BROKER_PID"
 	brokerActiveEnv = "AXIOM_ENCODE_SIGNING_BROKER_ACTIVE"
@@ -593,6 +599,12 @@ func parseBrokerOptions(arguments []string) (brokerOptions, error) {
 }
 
 func supervise(arguments []string) error {
+	// Snapshot this one validated setting before starting any broker or child,
+	// including supervised help/probe and Codex subscription command paths.
+	waiverAuditWorkers, err := waiverAuditWorkersFromEnvironment()
+	if err != nil {
+		return err
+	}
 	if err := hardenProcess(); err != nil {
 		return fmt.Errorf("could not harden supervisor process: %w", err)
 	}
@@ -699,6 +711,7 @@ func supervise(arguments []string) error {
 		capabilityFD,
 		filepath.Dir(parsed.command[0]),
 		trustedHome,
+		waiverAuditWorkers,
 	)
 	if parsed.codexAuthPath != "" {
 		return superviseWithCodexSubscription(
@@ -1390,11 +1403,43 @@ func validateStatus(
 	return nil
 }
 
+func validateWaiverAuditWorkers(raw string) error {
+	invalid := func() error {
+		return fmt.Errorf("%s must be 1-%d ASCII decimal digits with a value from 0 through %d", waiverAuditWorkersEnv, waiverAuditWorkersMaxDigits, waiverAuditWorkersMax)
+	}
+	if len(raw) == 0 || len(raw) > waiverAuditWorkersMaxDigits {
+		return invalid()
+	}
+	value := 0
+	for index := 0; index < len(raw); index++ {
+		if raw[index] < '0' || raw[index] > '9' {
+			return invalid()
+		}
+		value = value*10 + int(raw[index]-'0')
+	}
+	if value > waiverAuditWorkersMax {
+		return invalid()
+	}
+	return nil
+}
+
+func waiverAuditWorkersFromEnvironment() (string, error) {
+	raw, present := os.LookupEnv(waiverAuditWorkersEnv)
+	if !present {
+		return "", nil
+	}
+	if err := validateWaiverAuditWorkers(raw); err != nil {
+		return "", err
+	}
+	return raw, nil
+}
+
 func cleanChildEnvironment(
 	brokerPID int,
 	capabilityFD int,
 	trustedToolDirectory string,
 	trustedHome string,
+	waiverAuditWorkers string,
 ) []string {
 	// Build from empty. No ambient PATH, Git configuration, proxy, cloud
 	// credential, Supabase, or telemetry value crosses the trust boundary.
@@ -1411,6 +1456,11 @@ func cleanChildEnvironment(
 		"PYTHONDONTWRITEBYTECODE": "1",
 		"XDG_CONFIG_HOME":         filepath.Join(trustedHome, ".empty-config"),
 		"XDG_DATA_HOME":           filepath.Join(trustedHome, ".empty-data"),
+	}
+	// The caller supplies the validated snapshot; empty means absent, since an
+	// explicitly empty ambient setting is refused before any process startup.
+	if waiverAuditWorkers != "" {
+		clean[waiverAuditWorkersEnv] = waiverAuditWorkers
 	}
 	clean[brokerActiveEnv] = "1"
 	clean[trustedRuntimeEnv] = "1"
