@@ -46,7 +46,7 @@ def test_legacy_dispatch_preserves_scalar_findings_and_keeps_role_syntax(
     assert rule_uses_relation_predicate(rule) is predicate
     if not predicate:
         assert analyze_relation_predicate(
-            formula, predicate_terms=False
+            formula, predicate_terms=False, lowering_entry="rule"
         ).identifiers == formula_identifiers(formula) - {"true", "false"}
     rule["derived_relation"]["source_path"] = []
     assert rule_uses_relation_predicate(rule)
@@ -135,13 +135,13 @@ def test_review_reference_regressions(formula, inputs, relations):
 @pytest.mark.parametrize("name", ["max", "count", "min", "exists", "len"])
 def test_c1_bare_builtin_spelling_survives_as_a_scalar_read(name):
     assert analyze_relation_predicate(
-        f"{name} + 1", predicate_terms=False
+        f"{name} + 1", predicate_terms=False, lowering_entry="rule"
     ).identifiers == {name}
     if name != "count":
         assert (
             name
             not in analyze_relation_predicate(
-                f"{name}(a, b)", predicate_terms=False
+                f"{name}(a, b)", predicate_terms=False, lowering_entry="rule"
             ).identifiers
         )
 
@@ -220,7 +220,9 @@ def test_predicate_parse_failure_closes_analysis_and_scalar_fallback_is_visible(
     assert predicate.parse_error_position == position
     assert predicate.identifiers == frozenset()
     assert not predicate.fallback_used
-    scalar = analyze_relation_predicate(formula, predicate_terms=False)
+    scalar = analyze_relation_predicate(
+        formula, predicate_terms=False, lowering_entry="rule"
+    )
     assert scalar.fallback_used
     assert scalar.parse_error_position == position
     assert scalar.identifiers == formula_identifiers(formula)
@@ -617,7 +619,7 @@ def test_generated_predicate_reads_equal_compiled_artifact(
     assert analyzed.identifiers == set().union(*expected.values())
 
 
-@settings(max_examples=12, deadline=None)
+@settings(max_examples=12, deadline=None, derandomize=True)
 @given(
     formula=st.sampled_from(
         ["view + 1", "if view: 1 else: 0", "len(view)", "if view: len(view) else: 0"]

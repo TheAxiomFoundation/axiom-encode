@@ -23347,11 +23347,7 @@ def find_relation_role_issues(
         is_relation = rule.get("kind") == "derived_relation"
         names: set[str] = set()
         for formula in _rulespec_rule_formula_texts(rule):
-            names.update(
-                _formula_local_identifiers(
-                    formula, relation_predicate=rule_uses_relation_predicate(rule)
-                )
-            )
+            names.update(_rule_formula_tree_identifiers(formula, rule))
             if not rule_uses_relation_predicate(rule):
                 continue
             analyzed = analyze_relation_predicate(formula)
@@ -32289,17 +32285,20 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                 continue
             rule_name = str(rule.get("name") or "<unknown>").strip() or "<unknown>"
             formula_texts = _rulespec_rule_formula_texts(rule)
-            referenced = (
-                {
-                    name
-                    for formula in formula_texts
-                    for name in _formula_local_identifiers(
-                        formula, relation_predicate=True
-                    )
-                }
-                if rule_uses_relation_predicate(rule)
-                else _formula_local_identifiers("\n".join(formula_texts))
-            )
+            referenced: set[str] = set()
+            unparsed_formulas: list[str] = []
+            for formula in formula_texts:
+                analyzed = analyze_relation_predicate(
+                    formula,
+                    predicate_terms=rule_uses_relation_predicate(rule),
+                    lowering_entry="derived_relation"
+                    if rule.get("kind") == "derived_relation"
+                    else "rule",
+                )
+                if analyzed.parse_error is not None:
+                    unparsed_formulas.append(formula)
+                else:
+                    referenced.update(analyzed.identifiers)
             referenced.update(
                 local_reference_name(source)
                 for source in relation_source_names(rule.get("derived_relation"))
@@ -32320,7 +32319,14 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                     if "#" in target:
                         symbol = target.rsplit("#", 1)[1].strip()
                 symbol = local_reference_name(symbol)
-                if not symbol or symbol in referenced:
+                if (
+                    not symbol
+                    or symbol in referenced
+                    or any(
+                        _formula_references_symbol(formula, symbol)
+                        for formula in unparsed_formulas
+                    )
+                ):
                     continue
                 issues.append(
                     "Proof import not referenced: "
@@ -32789,6 +32795,21 @@ def _formula_local_identifiers(
     return set(_RULESPEC_IDENTIFIER.findall(scrubbed)) - _RULESPEC_FORMULA_BUILTINS
 
 
+def _rule_formula_tree_identifiers(formula: str, rule: dict[str, Any]) -> set[str]:
+    """Read bare builtin spellings as values and preserve the legacy fallback."""
+    predicate = rule_uses_relation_predicate(rule)
+    analyzed = analyze_relation_predicate(
+        formula,
+        predicate_terms=predicate,
+        lowering_entry="derived_relation"
+        if rule.get("kind") == "derived_relation"
+        else "rule",
+    )
+    if analyzed.parse_error is not None:
+        return _formula_local_identifiers(formula, relation_predicate=predicate)
+    return set(analyzed.identifiers)
+
+
 def _normalize_identifier(value: str) -> str:
     """Normalize source phrases and symbols for loose identifier matching."""
     normalized = re.sub(r"[^a-z0-9]+", "_", value.lower())
@@ -33128,8 +33149,10 @@ def find_test_input_assignment_issues(
                 version_metadata_valid = False
                 continue
             identifiers = (
-                _formula_local_identifiers(
-                    formula, relation_predicate=rule_uses_relation_predicate(rule)
+                (
+                    _rule_formula_tree_identifiers(formula, rule)
+                    if rule.get("kind") == "derived_relation"
+                    else _formula_local_identifiers(formula)
                 )
                 if isinstance(formula, str)
                 else set()

@@ -813,7 +813,9 @@ def test_relation_arguments_follow_native_function_positions(
 ):
     assert (
         analyze_relation_predicate(
-            formula, predicate_terms=predicate
+            formula,
+            predicate_terms=predicate,
+            lowering_entry="derived_relation" if predicate else "rule",
         ).relation_arguments
         == expected
     )
@@ -822,7 +824,7 @@ def test_relation_arguments_follow_native_function_positions(
 def test_scalar_formula_scans_keep_ordinary_role_named_inputs():
     rule = {"kind": "derived", "versions": [{"formula": "anchor + candidate"}]}
     assert analyze_relation_predicate(
-        "anchor + candidate", predicate_terms=False
+        "anchor + candidate", predicate_terms=False, lowering_entry="rule"
     ).identifiers == {"anchor", "candidate"}
     assert source_completeness._rule_formula_identifiers(rule) == {
         "anchor",

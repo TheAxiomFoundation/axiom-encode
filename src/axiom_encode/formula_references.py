@@ -566,7 +566,13 @@ def analyze_relation_predicate(
 
     # Suspend each child walk to an explicit stack. A valid long Boolean or
     # arithmetic chain must not acquire Python's recursion limit as grammar.
-    pending = [walk(tree, initial_scope, "judgment" if predicate_terms else "scalar")]
+    pending = [
+        walk(
+            tree,
+            initial_scope,
+            "judgment" if lowering_entry == "derived_relation" else "scalar",
+        )
+    ]
     while pending:
         try:
             pending.append(next(pending[-1]))
