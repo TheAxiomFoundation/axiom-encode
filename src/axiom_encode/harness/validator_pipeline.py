@@ -21663,18 +21663,25 @@ def find_missing_derived_companion_output_issues(
         for rule in rules
         if isinstance(rule, dict) and rule.get("name")
     }
+    # Build each inventory once. Scalar-only modules need no relation graph.
+    rule_kinds = {name: rule.get("kind") for name, rule in local_rules.items()}
+    relation_names = frozenset(
+        name
+        for name, kind in rule_kinds.items()
+        if kind in {"data_relation", "derived_relation"}
+    )
     # Preserve the existing filtered-entity companion contract. The role
     # capability adds views whose membership needs an asserted scalar wrapper.
     relation_role_module = any(
-        rule.get("kind") == "derived_relation"
+        rule_kinds[name] == "derived_relation"
         and (
             (
                 isinstance(config := rule.get("derived_relation"), dict)
                 and ("source_path" in config or not config.get("entity"))
             )
             or any(
-                bool(analyze_relation_predicate(formula).atom_relations)
-                or bool(analyze_relation_predicate(formula).bound_variables)
+                bool((analyzed := analyze_relation_predicate(formula)).atom_relations)
+                or bool(analyzed.bound_variables)
                 or re.search(
                     r"\b(?:anchor|candidate)\b",
                     re.sub(r"#[^\n]*", " ", _QUOTED_STRING_PATTERN.sub(" ", formula)),
@@ -21682,69 +21689,65 @@ def find_missing_derived_companion_output_issues(
                 for formula in _rulespec_rule_formula_texts(rule)
             )
         )
-        for rule in local_rules.values()
+        for name, rule in local_rules.items()
     )
-    filtered_aliases: dict[tuple[str, str], set[str]] = {}
-    for name, rule in local_rules.items():
-        config = rule.get("derived_relation")
-        if isinstance(config, dict) and config.get("member_relation"):
-            key = (str(config["member_relation"]), str(config.get("entity") or ""))
-            filtered_aliases.setdefault(key, set()).add(name)
-
-    dependencies: dict[str, set[str]] = {}
     reachable: set[str] = set()
-    for name, rule in local_rules.items():
-        predicate = rule_uses_relation_predicate(rule)
-        names: set[str] = set()
-        relation_refs: set[str] = set()
-        for formula in _rulespec_rule_formula_texts(rule):
-            analyzed = analyze_relation_predicate(
-                formula,
-                predicate_terms=predicate,
-                lowering_entry="derived_relation"
-                if rule.get("kind") == "derived_relation"
-                else "rule",
-                relation_names=frozenset(
-                    key
-                    for key, dependency in local_rules.items()
-                    if dependency.get("kind") in {"data_relation", "derived_relation"}
-                ),
+    if relation_role_module:
+        filtered_aliases: dict[tuple[str, str], set[str]] = {}
+        for name, rule in local_rules.items():
+            config = rule.get("derived_relation")
+            if isinstance(config, dict) and config.get("member_relation"):
+                key = (str(config["member_relation"]), str(config.get("entity") or ""))
+                filtered_aliases.setdefault(key, set()).add(name)
+
+        dependencies: dict[str, set[str]] = {}
+        for name, rule in local_rules.items():
+            predicate = rule_uses_relation_predicate(rule)
+            names: set[str] = set()
+            relation_refs: set[str] = set()
+            for formula in _rulespec_rule_formula_texts(rule):
+                analyzed = analyze_relation_predicate(
+                    formula,
+                    predicate_terms=predicate,
+                    lowering_entry="derived_relation"
+                    if rule_kinds[name] == "derived_relation"
+                    else "rule",
+                    relation_names=relation_names,
+                )
+                names.update(analyzed.identifiers)
+                relation_refs.update(analyzed.relation_arguments)
+                if predicate:
+                    relation_refs.update(analyzed.atom_relations)
+            # Value reads of relation-spelled names remain inferred inputs.
+            names.difference_update(relation_names)
+            relation_refs.update(relation_source_names(rule.get("derived_relation")))
+            refs = {
+                local_reference_name(reference) for reference in names | relation_refs
+            }
+            for reference in relation_refs:
+                refs.update(
+                    filtered_aliases.get(
+                        (reference, str(rule.get("entity") or "")), set()
+                    )
+                )
+            dependencies[name] = refs & local_rules.keys()
+            target = _canonical_rulespec_file_target(
+                policy_repo_path=policy_repo_path, rules_file=rules_file, symbol=name
             )
-            names.update(analyzed.identifiers)
-            relation_refs.update(analyzed.relation_arguments)
-            if predicate:
-                relation_refs.update(analyzed.atom_relations)
-        # A relation's name in a scalar value position can be an inferred
-        # input. Only relation arguments, atoms and source declarations read it.
-        names.difference_update(
-            relation_name
-            for relation_name, relation in local_rules.items()
-            if relation.get("kind") in {"data_relation", "derived_relation"}
-        )
-        relation_refs.update(relation_source_names(rule.get("derived_relation")))
-        refs = {local_reference_name(reference) for reference in names | relation_refs}
-        for reference in relation_refs:
-            refs.update(
-                filtered_aliases.get((reference, str(rule.get("entity") or "")), set())
-            )
-        dependencies[name] = refs & local_rules.keys()
-        target = _canonical_rulespec_file_target(
-            policy_repo_path=policy_repo_path, rules_file=rules_file, symbol=name
-        )
-        if not predicate and target in covered_outputs:
-            reachable.add(name)
-    pending = list(reachable)
-    while pending:
-        for dependency in dependencies[pending.pop()] - reachable:
-            reachable.add(dependency)
-            pending.append(dependency)
+            if not predicate and target in covered_outputs:
+                reachable.add(name)
+        pending = list(reachable)
+        while pending:
+            for dependency in dependencies[pending.pop()] - reachable:
+                reachable.add(dependency)
+                pending.append(dependency)
 
     issues: list[str] = []
     for rule in rules:
-        if not isinstance(rule, dict) or rule.get("kind") not in {
-            "derived",
-            "derived_relation",
-        }:
+        if not isinstance(rule, dict):
+            continue
+        kind = rule.get("kind")
+        if kind not in {"derived", "derived_relation"}:
             continue
         name = _rulespec_rule_name(rule)
         target = _canonical_rulespec_file_target(
@@ -21754,7 +21757,7 @@ def find_missing_derived_companion_output_issues(
         )
         if target is None:
             continue
-        if rule.get("kind") == "derived_relation":
+        if kind == "derived_relation":
             if not relation_role_module:
                 continue
             if name not in reachable:
@@ -32207,7 +32210,7 @@ def find_unused_import_issues(content: str) -> list[str]:
         if not isinstance(payload, dict):
             return []
         imports = payload.get("imports")
-        if not isinstance(imports, list):
+        if not isinstance(imports, list) or not imports:
             return []
 
         raw_rules = payload.get("rules")
@@ -32222,14 +32225,16 @@ def find_unused_import_issues(content: str) -> list[str]:
         for rule in raw_rules if isinstance(raw_rules, list) else []:
             if not isinstance(rule, dict):
                 continue
+            predicate = rule_uses_relation_predicate(rule)
+            lowering_entry = (
+                "derived_relation" if rule.get("kind") == "derived_relation" else "rule"
+            )
             for formula in _rulespec_rule_formula_texts(rule):
                 analyzed = analyze_relation_predicate(
                     formula,
-                    predicate_terms=rule_uses_relation_predicate(rule),
+                    predicate_terms=predicate,
                     relation_names=relation_names,
-                    lowering_entry="derived_relation"
-                    if rule.get("kind") == "derived_relation"
-                    else "rule",
+                    lowering_entry=lowering_entry,
                 )
                 if analyzed.parse_error is not None:
                     # Preserve the base check for syntax outside the port.
@@ -32290,6 +32295,15 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
         for rule in rules:
             if not isinstance(rule, dict):
                 continue
+            proof = _rule_proof_payload(rule)
+            atoms = proof.get("atoms") if isinstance(proof, dict) else None
+            import_atoms = [
+                atom["import"]
+                for atom in (atoms if isinstance(atoms, list) else [])
+                if isinstance(atom, dict) and isinstance(atom.get("import"), dict)
+            ]
+            if not import_atoms:
+                continue
             rule_name = str(rule.get("name") or "<unknown>").strip() or "<unknown>"
             formula_texts = _rulespec_rule_formula_texts(rule)
             referenced: set[str] = set()
@@ -32310,16 +32324,7 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                 local_reference_name(source)
                 for source in relation_source_names(rule.get("derived_relation"))
             )
-            proof = _rule_proof_payload(rule)
-            atoms = proof.get("atoms") if isinstance(proof, dict) else None
-            if not isinstance(atoms, list):
-                continue
-            for atom in atoms:
-                if not isinstance(atom, dict):
-                    continue
-                import_payload = atom.get("import")
-                if not isinstance(import_payload, dict):
-                    continue
+            for import_payload in import_atoms:
                 symbol = str(import_payload.get("output") or "").strip()
                 if not symbol:
                     target = str(import_payload.get("target") or "").strip()

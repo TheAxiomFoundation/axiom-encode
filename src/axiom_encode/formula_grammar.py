@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from functools import lru_cache
 
 
 class FormulaSyntaxError(ValueError):
@@ -416,8 +417,9 @@ class Parser:
         )
 
 
+@lru_cache(maxsize=4096)
 def parse_formula(source: str) -> Expr:
-    """Use the same expression-and-EOF gate as RuleSpec rule formulas."""
+    """Cache immutable trees behind the RuleSpec expression-and-EOF gate."""
 
     parser = Parser(tokenise(source))
     stack = [parser.parse_expr()]
