@@ -485,6 +485,12 @@ RELATION_ROLES_FORMULA_PROTOCOL = """Relation-role formulas:
   or silently truncate a chain. Keep composition separate from participation;
   every aggregation names in its rule and proof whether it reads composition
   or participation, and reads the corresponding relation.
+- Purchases that form no single group, such as a buying with b and b with c
+  while a does not buy with c, have no true `meal_group`. Treat this as a
+  7 CFR 273.1(c) case: set the exception input and supply household ids.
+  Supply any `meal_group` value because the fixture still reads it and fails
+  when it is missing. With the exception flag set, the ids alone decide the
+  household.
 - Declare each election in top-level `inputs:` with `election: {actor,
   provision}` and exactly those two election keys. `actor` is the choosing
   entity kind in UpperCamelCase, and `provision` is the granting corpus citation
