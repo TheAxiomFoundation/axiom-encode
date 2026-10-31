@@ -1,3 +1,7 @@
+## 0.2.2272
+
+- Read Hebrew absence forms (בהיעדר, בהעדר, בחוסר) as "without" in deferral reasons, and read Hebrew governors, signals, links and citations only as complete tokens, so a Hebrew reason or source cannot pass where its canonical English refuses. Preserve English and German verdicts.
+
 ## 0.2.2271
 
 - Read Hebrew and mixed-language deferral reasons and sources in the source-completeness gate, so a Hebrew reason cannot pass where its canonical English refuses. Preserve English and German verdicts.
