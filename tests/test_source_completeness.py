@@ -31,6 +31,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_ungrounded_numeric_issues_scoped,
     numeric_value_is_grounded,
 )
+from tests.scaling import assert_grows_linearly, fastest_cpu_seconds
 
 CORPUS_CITATION_PATH = "de/statute/estg/32a"
 DE_NUMERIC_OCCURRENCE_EXTRACTOR = functools.partial(
@@ -9276,22 +9277,21 @@ rules: []
 
 
 def test_parenthesized_cfr_outline_is_recognized_with_bounded_runtime():
-    source = (
-        "(a) Start.\n"
-        + "".join(f"({index}) Item {index}.\n" for index in range(1, 20_001))
-        + "(b) End."
-    )
+    def outline_seconds(items):
+        source = (
+            "(a) Start.\n"
+            + "".join(f"({index}) Item {index}.\n" for index in range(1, items + 1))
+            + "(b) End."
+        )
 
-    started = time.perf_counter()
-    branches = recognize_source_structure(source)
-    elapsed = time.perf_counter() - started
+        def check(branches):
+            assert len(branches) == items + 2
+            assert branches[-2].path == ("a", str(items))
+            assert branches[-1].path == ("b",)
 
-    assert len(branches) == 20_002
-    assert branches[-2].path == ("a", "20000")
-    assert branches[-1].path == ("b",)
-    # Shared CI runners can add scheduling noise to this large outline.
-    # Keep the guard bounded without treating small variance as a regression.
-    assert elapsed < 3.0
+        return fastest_cpu_seconds(lambda: recognize_source_structure(source), check)
+
+    assert_grows_linearly(outline_seconds(5_000), outline_seconds(20_000))
 
 
 def test_parenthesized_nonoutline_without_root_sequence_remains_flat():
