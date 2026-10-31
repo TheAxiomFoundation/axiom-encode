@@ -130,18 +130,38 @@ def _parameter(parameter: object) -> bool:
 
 
 def compiled_program_has_strict_input_reads(payload: object) -> bool:
-    """Recognize a finite format-2 scalar subset; never an execution certificate."""
+    """Recognize strict scalar reads in formats 2 and 3, not execution outcomes.
+
+    Format 3 adds an inert interface and producer identities. The engine checks
+    them when it loads the artifact; all executable expressions still pass the
+    same structural walk below.
+    """
+    if not isinstance(payload, dict):
+        return False
+    version = payload.get("artifact_format_version")
+    if type(version) is not int or version not in {2, 3}:
+        return False
+    identities = {"engine_build", "source_closure"} if version == 3 else set()
     if not _keys(
-        payload, {"artifact_format_version", "engine_version", "program", "metadata"}
+        payload,
+        {"artifact_format_version", "engine_version", "program", "metadata"},
+        identities,
     ):
         return False
-    if (
-        type(payload["artifact_format_version"]) is not int
-        or payload["artifact_format_version"] != 2
-    ):
+    if version == 3 and not _keys(payload.get("engine_build"), {"commit", "dirty"}):
         return False
     program = payload["program"]
-    if not _keys(program, {"derived", "parameters", "relations"}, {"module", "units"}):
+    interface = {"interface"} if version == 3 else set()
+    if not _keys(
+        program,
+        {"derived", "parameters", "relations"} | interface,
+        {"module", "units"},
+    ):
+        return False
+    if version == 3 and not (
+        _keys(program["interface"], {"entities", "inputs", "relations"})
+        and all(isinstance(value, list) for value in program["interface"].values())
+    ):
         return False
     if not all(
         isinstance(program[key], list) for key in ("derived", "parameters", "relations")
