@@ -10,7 +10,8 @@ https://uhg.readthedocs.io/en/stable/particle_negative.html
 
 These references identify the grammatical class, not a license to split every
 word beginning with prefix letters. Short בל and אל take only clausal prefixes;
-כבל is a cable. Lexical בלי, מבלי, בלא, ללא and באין have their own entries.
+כבל is a cable. Lexical בלי, מבלי, בלא, ללא and באין have their own entries,
+as do בהיעדר, בהעדר and בחוסר (ABSENCE_NOUNS below).
 מעולם is negative polarity only with a following לא; מעולם העבודה is affirmative.
 The legacy prohibition/exclusion verbs remain explicit below, with their
 context restrictions. Statutory corpus controls pin both readings and exclusions.
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import itertools
 import re
+import unicodedata
 from collections.abc import Iterator
 from dataclasses import dataclass
 
@@ -27,6 +29,7 @@ from axiom_encode.harness.hebrew_prefixes import (
     HEBREW_PREFIX_LETTERS,
     HORIZONTAL_SPACES,
     NOT_ARTICLE_PREFIX,
+    OTHER_SCRIPT_LETTER,
     PREFIX_JOINT,
     prefix_chain,
     prefix_word,
@@ -103,6 +106,17 @@ _NEVER_FORM = (
 _WITHOUT_SIGNAL = (
     rf"(?:בלי|{prefix_word('ל')}לא|{prefix_word('מ')}בלי|{prefix_word('ב')}לא)"
 )
+# "Without" is also ב with an absence noun in construct, as באין is: בהיעדר
+# and its defective spelling בהעדר ("in the absence of"), and בחוסר ("for
+# want of"). In the statute snapshot, בהיעדר עדות לגרורות and בהעדר רופא.
+# Only that construct reads "without". The bare nouns and their causal uses
+# (עקב היעדר, "due to the absence of"; מחוסר, "for lack of") are nouns, as
+# English "absence" and "lack" are, and a pronoun suffix (בהעדרה, "in its
+# absence") leaves no object to negate. בחסר is no spelling of בחוסר in the
+# statutes: ביתר או בחסר is "overstated or understated", מכירה בחסר a short
+# sale. Like באין, these negate; they are no missing-dependency signal.
+ABSENCE_NOUNS = ("היעדר", "העדר", "חוסר")
+_ABSENCE_FORMS = "|".join(ABSENCE_NOUNS)
 
 
 @dataclass(frozen=True)
@@ -236,6 +250,11 @@ NEGATOR_FAMILIES = (
     NegatorFamily(("אל",), ORDINARY_PREFIX_CHAINS, "before ת/י/א/נ imperfect"),
     NegatorFamily(("בלתי",), LEXICAL_PREFIX_CHAINS),
     NegatorFamily(("בלי", "מבלי", "ללא", "בלא", "באין"), ORDINARY_PREFIX_CHAINS),
+    NegatorFamily(
+        tuple("ב" + noun for noun in ABSENCE_NOUNS),
+        ORDINARY_PREFIX_CHAINS,
+        "ב with an absence noun in construct: without",
+    ),
     NegatorFamily(("מעולם",), ORDINARY_PREFIX_CHAINS, "only before לא"),
     NegatorFamily(("אסר", "אסרה", "אסרו"), ORDINARY_PREFIX_CHAINS),
     NegatorFamily(("אי אפשר", "אי ניתן"), ORDINARY_PREFIX_CHAINS),
@@ -261,6 +280,51 @@ INFINITIVE_GOVERNORS = frozenset(
     "כדי בכדי מנת עליו עליה עליהם עליהן".split()
 )
 _LONGEST_GOVERNOR = max(map(len, INFINITIVE_GOVERNORS))
+# Geresh and gershayim stand inside a Hebrew word (ג׳וגולר, מע״מ). In the
+# statute snapshot neither ever opens a token.
+_WORD_INTERNAL_MARKS = "׳״"
+_OTHER_SCRIPT_LETTER = re.compile(OTHER_SCRIPT_LETTER)
+
+
+def _continues_word(char: str) -> bool:
+    """Whether ``char`` belongs to the word that follows it.
+
+    A letter or digit of any script, connector punctuation (``_``), a
+    combining mark, a format character (a joiner the fold has not removed)
+    or a geresh mark. A space, a line break, a dash or a quotation mark does
+    not; a dash after a full word is punctuation (hebrew_prefixes).
+    """
+
+    category = unicodedata.category(char)
+    return (
+        char.isalnum()
+        or category[0] == "M"
+        or category in ("Pc", "Cf")
+        or char in _WORD_INTERNAL_MARKS
+    )
+
+
+def starts_token(text: str, begin: int) -> bool:
+    """Whether the Hebrew word at ``begin`` starts a token as written.
+
+    Nothing to its left may continue it: ``_יש``, ``1יש`` and ``Xיש`` are one
+    token each, not the governor יש. Readers of negations read a copy with a
+    space at each script junction (hebrew_source_text._split_scripts), where
+    ``Xיש`` reads ``X יש``. After a letter of another script and one space,
+    the text as written may have held no space, so that word is not read as
+    a token start either; this is the stricter reading. Constant time.
+    """
+
+    if not begin:
+        return True
+    before = text[begin - 1]
+    if _continues_word(before):
+        return False
+    return not (
+        before == " "
+        and begin > 1
+        and _OTHER_SCRIPT_LETTER.match(text, begin - 2) is not None
+    )
 
 
 def governs_infinitive(text: str, start: int) -> bool:
@@ -268,8 +332,10 @@ def governs_infinitive(text: str, start: int) -> bool:
 
     Any run of horizontal whitespace separates a governor from its infinitive
     (יש  להוציא, יש\tלהוציא); a dash after the full word, a line break or a
-    prefix does not. Readers ask only where להוציא matched; the scan reads
-    back over that whitespace run and at most one governor's length.
+    prefix does not. The governor is a complete token (starts_token), so the
+    end of an identifier (``_יש``, ``1יש``) governs nothing. Readers ask only
+    where להוציא matched; the scan reads back over that whitespace run, at
+    most one governor's length and one character before it.
     """
 
     end = start
@@ -280,7 +346,7 @@ def governs_infinitive(text: str, start: int) -> bool:
     begin = end
     while begin and end - begin <= _LONGEST_GOVERNOR and "א" <= text[begin - 1] <= "ת":
         begin -= 1
-    return text[begin:end] in INFINITIVE_GOVERNORS
+    return text[begin:end] in INFINITIVE_GOVERNORS and starts_token(text, begin)
 
 
 def build_negation_language(
@@ -302,7 +368,7 @@ def build_negation_language(
         rf"(?:{_CLAUSAL_FORMS}|{_SHORT_FORMS}|{_NEVER_FORM}|אסר(?:ה|ו)?)"
         rf"|הלא(?={_NEGATION_GAP}+מנוצל{_NOT_HEBREW_AFTER})"
         rf"|(?P<bilti_prefix>{_BILTI_PREFIX})בלתי"
-        rf"|{_NEGATION_PREFIX}(?:{_WITHOUT_SIGNAL}|{prefix_word('ב')}אין)"
+        rf"|{_NEGATION_PREFIX}(?:{_WITHOUT_SIGNAL}|{prefix_word('ב')}(?:אין|{_ABSENCE_FORMS}))"
         rf"|(?P<lexical_prefix>{_LEXICAL_PREFIX})"
         rf"(?:אסור(?:ה|ים|ות)?|נאסר(?:ה|ו|ים|ות)?|איסור|מסרב(?:ת|ים|ות)?"
         # Prevented (``מנוע מלפעול``), not the noun "engine" (``מס על מנוע``).
@@ -361,12 +427,18 @@ _FOREIGN_HEADS = frozenset(
 
 
 def _previous_word(text: str, end: int) -> str:
+    """The Hebrew word before ``end``; empty unless it is a whole token.
+
+    A context word ends an exception only as a complete token
+    (starts_token): ``_הורשו להוציא`` and ``1מדינת חוץ מ`` keep their exclusion.
+    """
+
     while end and text[end - 1].isspace():
         end -= 1
     start = end
     while start and "א" <= text[start - 1] <= "ת":
         start -= 1
-    return text[start:end]
+    return text[start:end] if starts_token(text, start) else ""
 
 
 def _genuine_context(match: re.Match[str]) -> bool:

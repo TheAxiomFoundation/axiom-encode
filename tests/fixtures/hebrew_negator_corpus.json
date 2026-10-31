@@ -16092,6 +16092,8 @@
     "אלמלא",
     "אסר",
     "באין",
+    "בהיעדר",
+    "בהעדר",
     "בל",
     "בלא",
     "בלי",
@@ -16763,6 +16765,78 @@
       ]
     },
     {
+      "token": "בהיעדר",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/schedule-2/sign-1/item-14",
+          "text": "ונית יינתן לחולים שאינם יכולים לעבור טיפול ניתוחי או לחולים שלגביהם קיימת הוריית נגד לטיפול בקרינה, בהיעדר עדות לגרורות;\n– סוגר מלאכותי לשלפוחית השתן;\n– תותב ע״ש ניסנקורן לחולים עם ערמונית מגדלים שאינם יכולים לעמוד בהרדמה;\n4. ",
+          "start": 100,
+          "end": 106,
+          "negator": true,
+          "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "בהעדר",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/schedule-2/sign-1/item-19",
+          "text": "טומיה;\n(13) מעקב יזום אחר חולים כרונים;\n(14) מתן טיפול ראשוני במצבי חולי חריפים, על־פי הוראות הקבע, בהעדר רופא;\n(15) הדרכה פרטנית לנושאי בריאות.",
+          "start": 100,
+          "end": 105,
+          "negator": true,
+          "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "בהעדרה",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-5",
+          "text": "כאי לגמלה מכוחו, לראותו כעובד עצמאי או כמבוטח שאינו עובד ואינו עובד עצמאי למרות ההודעה האמורה או אף בהעדרה.",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "explanation": "In its absence: the pronoun suffix is the absent thing, so no later word is negated."
+        }
+      ]
+    },
+    {
+      "token": "בחסר",
+      "occurrences": 5,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-101a",
+          "text": "דווח עליה בהתאם לכללים שנקבעו;\n(7) לענין עסקה עתידית, ולענין עסקת השאלה או שאילה של נייר ערך, מכירה בחסר של נייר ערך, וכן עסקאות כאמור בין צדדים קשורים – נסיבות שבהן תיחשב העסקה כמכירה והדרך לחישוב ההכנסה ועיתויה;\n(8) פטור מ",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "explanation": "Understated or short (ביתר או בחסר, מכירה בחסר), not ב plus the absence noun חוסר."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-210",
+          "text": "נמצא שסכום הזיכוי נקבע ביתר או בחסר, בעקבות שינוי שחל בסכום המס המשתלם בישראל או בחוץ לארץ או בשל הוראות סעיף 207ד – כל הוראה שבכל חיקוק, המגבילה את הזמן ל",
+          "start": 31,
+          "end": 35,
+          "negator": false,
+          "explanation": "Understated or short (ביתר או בחסר, מכירה בחסר), not ב plus the absence noun חוסר."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-217",
+          "text": "ר ערך דו״ח לא נכון, מתוך שהשמיט הכנסה כלשהי שעליה הוא נדרש לפי הפקודה למסור דו״ח, או מתוך שרשם אותה בחסר, או אדם שמסר ידיעות לא נכונות בנוגע לכל ענין או דבר המשפיעים על חיובו במס או על חיובו של אדם אחר או של שותפות, דינו – מ",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "explanation": "Understated or short (ביתר או בחסר, מכירה בחסר), not ב plus the absence noun חוסר."
+        }
+      ]
+    },
+    {
       "token": "בטרם",
       "occurrences": 20,
       "contexts": [
@@ -17063,6 +17137,20 @@
       ]
     },
     {
+      "token": "היעדר",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/schedule-2/sign-1/item-32",
+          "text": " חשמליים נגד פצעי לחץ;\n(11) כיסאות ממונעים, ובלבד שלעניין מי שמלאו לו 15 שנים וטרם מלאו לו 18 שנים, היעדר יכולת קוגניטיבית, קואורדינטיבית או רפואית להפעלת הכיסא הממונע באופן עצמאי בבטיחות לא תגביל את זכאותו לכיסא ממונע הניתן ",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "explanation": "A bare or causal absence noun (absence of, for lack of); only ב with the noun in construct means without."
+        }
+      ]
+    },
+    {
       "token": "הלא",
       "occurrences": 2,
       "contexts": [
@@ -17205,6 +17293,20 @@
           "end": 107,
           "negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "העדר",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-65",
+          "text": "\n(1) מבוטח לפי פרק י״א, למעט עקרת בית כהגדרתה בסעיף 238;\n(2) יחיד היושב בישראל, ואינו נעדר ממנה אלא העדר ארעי שהוא סביר, לדעת עובד המוסד שהוסמך לכך, ואין בו לסתור טענת אותו יחיד כי הוא יושב בישראל, ואינו מבוטח לפי פרק י״א, ל",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "explanation": "A bare or causal absence noun (absence of, for lack of); only ב with the noun in construct means without."
         }
       ]
     },
@@ -17899,6 +18001,28 @@
       ]
     },
     {
+      "token": "חוסר",
+      "occurrences": 2,
+      "contexts": [
+        {
+          "citation": "il/statute/national-insurance-law-1995/schedule-q",
+          "text": " משלח יד\n74.\n\nתגמול לנכה איבה מחוסר פרנסה | תקנה 2 לתקנות התגמולים לנפגעי פעולות איבה (כללים להוכחת חוסר פרנסה), התשל״א–1971 | מידע על כל הכנסה\n75.\n\nתגמול לבני משפחה של נפגע איבה | סעיף 7 לחוק נפגעי פעולות איבה | –\n76.\n\nמניע",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "explanation": "A bare or causal absence noun (absence of, for lack of); only ב with the noun in construct means without."
+        },
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/schedule-2/sign-1/item-10",
+          "text": "א מספק (thoracic insufficiency syndrome) שבהם התפקוד הריאתי פגום, באופן משני למומי לידה של איחוי או חוסר צלעות ועקמת, לצורך התפתחות תקינה של עמוד השדרה;\n(12) חגורת גב (מחוך) לטיפול בעקמת של עמוד השדרה, אצל ילדים לפני סיום הג",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "explanation": "A bare or causal absence noun (absence of, for lack of); only ב with the noun in construct means without."
+        }
+      ]
+    },
+    {
       "token": "חוץ",
       "occurrences": 258,
       "contexts": [
@@ -18109,6 +18233,20 @@
           "end": 105,
           "negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "כמחוסר",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-163",
+          "text": "(א) רואים אדם כמובטל אם הוא רשום בלשכת שירות התעסוקה כמחוסר עבודה לפי תנאים שקבע השר באישור ועדת העבודה והרווחה, והוא מוכן ומסוגל לעבודה במקצועו או בכל עבודה אחרת המתאימה לו (לשני",
+          "start": 53,
+          "end": 59,
+          "negator": false,
+          "explanation": "A bare or causal absence noun (absence of, for lack of); only ב with the noun in construct means without."
         }
       ]
     },
@@ -18781,6 +18919,28 @@
           "end": 104,
           "negator": false,
           "explanation": "The nose, not negative-polarity אף."
+        }
+      ]
+    },
+    {
+      "token": "מחוסר",
+      "occurrences": 2,
+      "contexts": [
+        {
+          "citation": "il/statute/national-insurance-law-1995/schedule-q",
+          "text": "כה איבה נצרך | סעיף 4 לחוק נפגעי פעולות איבה | מידע על הכנסה מעבודה או משלח יד\n74.\n\nתגמול לנכה איבה מחוסר פרנסה | תקנה 2 לתקנות התגמולים לנפגעי פעולות איבה (כללים להוכחת חוסר פרנסה), התשל״א–1971 | מידע על כל הכנסה\n75.\n\nתגמול ",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "explanation": "A bare or causal absence noun (absence of, for lack of); only ב with the noun in construct means without."
+        },
+        {
+          "citation": "il/statute/national-health-insurance-law-1994/schedule-2/sign-1/item-6",
+          "text": "ואת שיניים בתחומי מניעה, טיפול משמר, אורתודונטיה ושיקום הפה.\n(יב4) טיפולי שיניים עד גיל 40, לסובלים מחוסר מולד מרובה של 6 שיניים ומעלה –\nהטיפול יינתן לאחר אבחון שיבצע רופא או רופא שיניים מומחה;\nהטיפול יינתן בידי רופא שיניים מ",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "explanation": "A bare or causal absence noun (absence of, for lack of); only ב with the noun in construct means without."
         }
       ]
     },

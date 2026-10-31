@@ -37,11 +37,14 @@ from axiom_encode.harness.hebrew_negators import (
     governs_infinitive,
 )
 from axiom_encode.harness.hebrew_prefixes import (
+    ADMIT_BOUNDARY,
     NOT_ARTICLE_PREFIX,
+    OTHER_SCRIPT_LETTER,
     PREFIX_BOUNDARY,
     PREFIX_JOINT,
     PREFIX_JOINT_CHARS,
     REFUSAL_BOUNDARY,
+    WORD_END,
     compact_prefix_joints,
     prefix_chain,
     prefix_joint_gaps,
@@ -307,7 +310,7 @@ class FoldedText:
 # space at each junction (#1882). The readers of signals, links and citations
 # do not, so a glued word is read only where it refuses.
 _SCRIPT_JUNCTION = re.compile(
-    rf"(?<=[{_H}])(?=[^\W\d_\u0590-\u05ff])|(?<=[^\W\d_\u0590-\u05ff])(?=[{_H}])"
+    rf"(?<=[{_H}])(?={OTHER_SCRIPT_LETTER})|(?<={OTHER_SCRIPT_LETTER})(?=[{_H}])"
 )
 
 
@@ -371,6 +374,11 @@ _NOT_HEBREW_BEFORE = PREFIX_BOUNDARY
 # Negators, exclusions and adversatives: see hebrew_prefixes.REFUSAL_BOUNDARY.
 _REFUSAL_BEFORE = REFUSAL_BOUNDARY
 _NOT_HEBREW_AFTER = rf"(?![{_H}])"
+# Signals, links and citations admit a deferral, so each reads only a complete
+# token, as English ``\b`` does (hebrew_prefixes.ADMIT_BOUNDARY): not
+# ``Яחסר``, ``חסרX``, ``٣סעיף`` or ``ßלפי``.
+_ADMIT_BEFORE = ADMIT_BOUNDARY
+_ADMIT_AFTER = WORD_END
 
 HEBREW_LETTER = re.compile(rf"[{_H}]")
 
@@ -1023,7 +1031,9 @@ _MISSING_SIGNAL = (
     rf"(?:חסר(?:ים)?|{NOT_ARTICLE_PREFIX}חסר(?:ה|ות)"
     r"|(?:טרם|עדיין\s+(?:לא|אינו|אינה|אינם|אינן))\s+"
     r"(?:קודד(?:ה|ו)?|מקודד(?:ת|ים|ות)?)"
-    r"|בלתי\s+(?:זמין|זמינ(?:ה|ים|ות)))"
+    # The compound takes a space or a joint (``בלתי־זמין``), as the words of
+    # a compound connective do (_SEP below).
+    rf"|בלתי(?:\s+|\s*{PREFIX_JOINT}\s*)(?:זמין|זמינ(?:ה|ים|ות)))"
 )
 _UNTIL_STATE = (
     r"(?:יקודד(?:ו)?|תקודד(?:נה)?|ייקבע(?:ו)?|תיקבע"
@@ -1040,24 +1050,24 @@ _UNTIL_STATE = (
 # vocabulary lists (bounded subjects, ``computed``/``encoded``) that a
 # Hebrew word does not translate into reliably, so they stay closed.
 MISSING_DEPENDENCY_LANGUAGE = (
-    rf"{_NOT_HEBREW_BEFORE}{_SIGNAL_PROCLITICS}(?:"
-    rf"{_MISSING_SIGNAL}{_NOT_HEBREW_AFTER}"
-    rf"|דורש(?:ת|ים|ות)?{_NOT_HEBREW_AFTER}"
+    rf"{_ADMIT_BEFORE}{_SIGNAL_PROCLITICS}(?:"
+    rf"{_MISSING_SIGNAL}{_ADMIT_AFTER}"
+    rf"|דורש(?:ת|ים|ות)?{_ADMIT_AFTER}"
     rf"|תלוי(?:ה|ים|ות)?\s+{prefix_word('ב')}(?=[{_H}])"
     rf"|עד\s+(?:{prefix_word('ש')}(?=[{_H}])|אשר\s)"
-    rf"|{_WITHOUT_SIGNAL}{_NOT_HEBREW_AFTER}"
-    rf"|(?:לא|אי)\s+(?:ניתן|אפשר)\s+{prefix_word('ל')}(?:חשב|קודד){_NOT_HEBREW_AFTER}"
+    rf"|{_WITHOUT_SIGNAL}{_ADMIT_AFTER}"
+    rf"|(?:לא|אי)\s+(?:ניתן|אפשר)\s+{prefix_word('ל')}(?:חשב|קודד){_ADMIT_AFTER}"
     r")"
 )
 _SIGNAL = re.compile(
-    rf"{_NOT_HEBREW_BEFORE}{_SIGNAL_PROCLITICS}(?:"
-    rf"(?P<missing>{_MISSING_SIGNAL}){_NOT_HEBREW_AFTER}"
-    rf"|(?P<requires>דורש(?:ת|ים|ות)?{_NOT_HEBREW_AFTER}|תלוי(?:ה|ים|ות)?\s+{prefix_word('ב')}(?=[{_H}]|$))"
-    rf"|(?P<until>עד\s+(?:(?:{prefix_word('ש')}|אשר\s+)(?P<until_verb>{_UNTIL_STATE}){_NOT_HEBREW_AFTER}"
+    rf"{_ADMIT_BEFORE}{_SIGNAL_PROCLITICS}(?:"
+    rf"(?P<missing>{_MISSING_SIGNAL}){_ADMIT_AFTER}"
+    rf"|(?P<requires>דורש(?:ת|ים|ות)?{_ADMIT_AFTER}|תלוי(?:ה|ים|ות)?\s+{prefix_word('ב')}(?=[{_H}]|$))"
+    rf"|(?P<until>עד\s+(?:(?:{prefix_word('ש')}|אשר\s+)(?P<until_verb>{_UNTIL_STATE}){_ADMIT_AFTER}"
     rf"|{prefix_word('ש')}(?=[{_H}]|$)|אשר\s))"
-    rf"|(?P<without>{_WITHOUT_SIGNAL}{_NOT_HEBREW_AFTER})"
+    rf"|(?P<without>{_WITHOUT_SIGNAL}{_ADMIT_AFTER})"
     rf"|(?P<cannot>(?:לא|אי)\s+(?:ניתן|אפשר)\s+{prefix_word('ל')}(?:חשב|קודד)"
-    rf"{_NOT_HEBREW_AFTER})"
+    rf"{_ADMIT_AFTER})"
     r")"
 )
 # A negation governs a signal through up to two copulas or adverbs (``לא היה
@@ -1328,7 +1338,7 @@ _NAME_CONTINUES = re.compile(
 SECTION_DEPENDENCY = re.compile(
     # A single section, as English's grammar reads ``section`` and not
     # ``sections``; a suffix it cannot read (``345b``) leaves it unread.
-    rf"{_NOT_HEBREW_BEFORE}(?P<proclitics>{_PROCLITICS})סעיף\s+"
+    rf"{_ADMIT_BEFORE}(?P<proclitics>{_PROCLITICS})סעיף\s+"
     rf"(?P<section>\d+{_SECTION_SUFFIX})(?![0-9A-Za-z{_H}{_GERESH_MARKS}])"
     rf"(?P<fragments>(?:\s*\(\s*{OUTLINE_LABEL}\s*\)){{0,{MAX_OUTLINE_DEPTH}}})"
     # A fragment the label grammar cannot read (``(1000)``, a glued ``(x)``),
@@ -1577,10 +1587,10 @@ _DISPLACEMENT = re.compile(
 )
 _SOURCE_LINKER = re.compile(
     r"(?:"
-    rf"{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')}|{prefix_word('ש')}|{prefix_word('וש')})?"
+    rf"{_ADMIT_BEFORE}(?:{prefix_word('ו')}|{prefix_word('ש')}|{prefix_word('וש')})?"
     rf"(?P<under>{prefix_word('ל')}פי|על{_SEP}פי|עפ[״\"]י)\s*"
     # ``בהתאם להוראות סעיף``, "in accordance with the provisions of section".
-    rf"|{_NOT_HEBREW_BEFORE}(?:{prefix_word('ו')})?{prefix_word('ב')}התאם\s+"
+    rf"|{_ADMIT_BEFORE}(?:{prefix_word('ו')})?{prefix_word('ב')}התאם\s+"
     rf"{prefix_word('ל')}(?:הוראו?ת\s*)?"
     r")$"
 )

@@ -132,6 +132,18 @@ def _alternation(runs: frozenset[str] | set[str]) -> str:
 
 
 _TOKEN_BOUNDARY = r"(?<![א-תA-Za-z0-9_])"
+# A letter of a script other than Hebrew. Where one meets a Hebrew letter,
+# the cross-language copy (hebrew_source_text._split_scripts) inserts a space.
+OTHER_SCRIPT_LETTER = r"[^\W\d_֐-׿]"
+# English ``\b`` reads a word only between a word character of any script and
+# none. The readers that admit a deferral (signals, links, citations) read a
+# Hebrew word the same way: glued to a letter or digit of another script
+# (``Яחסר``, ``חסרX``, ``٣סעיף``), it is part of one token, as its English
+# (``ЯMissing``, ``MissingX``) is. _TOKEN_BOUNDARY above names only the
+# Hebrew, Latin and ASCII word characters, so readers that refuse keep it:
+# they read a Hebrew negator after Cyrillic (``Яלא``), the stricter reading.
+WORD_START = r"(?<!\w)"
+WORD_END = r"(?!\w)"
 
 
 def _joining_run(length: int, chains: frozenset[str]) -> str:
@@ -169,7 +181,10 @@ PREFIX_CORPUS_ABBREVIATIONS = frozenset(
 # length+1 characters; its alternation is fixed width. No unbounded backscan
 # or variable-width lookbehind is needed.
 def _not_after_jointed_prefix(
-    *, article: bool = False, chains: frozenset[str] = PREFIX_CHAIN_RUNS
+    *,
+    article: bool = False,
+    chains: frozenset[str] = PREFIX_CHAIN_RUNS,
+    token: str = _TOKEN_BOUNDARY,
 ) -> str:
     assertions = []
     for length in range(1, 4):
@@ -180,13 +195,18 @@ def _not_after_jointed_prefix(
             chain = _joining_run(length, runs)
             if not chain:
                 continue
-        assertions.append(rf"(?<!{_TOKEN_BOUNDARY}{chain}{PREFIX_JOINT})")
+        assertions.append(rf"(?<!{token}{chain}{PREFIX_JOINT})")
     # All assertions end in a joint; without a preceding joint they are
     # trivially true. Avoid their lexical work at ordinary boundaries.
     return rf"(?:(?<!{PREFIX_JOINT})|" + "".join(assertions) + ")"
 
 
 PREFIX_BOUNDARY = _TOKEN_BOUNDARY + _not_after_jointed_prefix()
+# PREFIX_BOUNDARY for the readers that admit a deferral (signals, links,
+# citations), with token starts read as English ``\b`` reads them
+# (WORD_START): a run glued to a letter of any script is part of a word, so a
+# dash after ``Яו`` is punctuation, as after ``Xו``.
+ADMIT_BOUNDARY = WORD_START + _not_after_jointed_prefix(token=WORD_START)
 # An ambiguous run (ככ, דמ, וו) has two readings of its dash, and each reader
 # takes the stricter one: readers that admit a deferral (signals, links,
 # citations) take the joined reading above, while readers that refuse one

@@ -38,7 +38,7 @@ UNCONDITIONAL_NEGATORS = frozenset(
     שאין שאינה שאינו שאינם שאינן שאיננה שאיננו שבלי שטרם שלא שלולא
     שסירב סירב סירבה האסורה איסור הנמנעים יוחרגו נשללו שהוחרג
     נמנעה הנמנע אסר שוללת השוללת נמנע נבצר שיימנע תסרב נכשל כשל
-    נכשלו שכשלו תימנע זולת
+    נכשלו שכשלו תימנע זולת בהיעדר בהעדר
     """.split()
 )
 
@@ -73,6 +73,12 @@ EXCLUSIONS = {
     ),
     "לאף": "Negative-polarity any in לאף אחד; not an independent clause negator.",
     "שאף": "Negative-polarity any before אינו; not an independent clause negator.",
+    "בחסר": "Understated or short (ביתר או בחסר, מכירה בחסר), not ב plus the absence noun חוסר.",
+    **dict.fromkeys(
+        "היעדר העדר חוסר מחוסר כמחוסר".split(),
+        "A bare or causal absence noun (absence of, for lack of); only ב with the noun in construct means without.",
+    ),
+    "בהעדרה": "In its absence: the pronoun suffix is the absent thing, so no later word is negated.",
 }
 
 CONTEXT_DEPENDENT = frozenset(

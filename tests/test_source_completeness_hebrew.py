@@ -28,6 +28,7 @@ import yaml
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
+from axiom_encode.harness import hebrew_negators
 from axiom_encode.harness import hebrew_source_text as hebrew
 from axiom_encode.harness import source_completeness as completeness_module
 from axiom_encode.harness.source_completeness import (
@@ -6595,6 +6596,44 @@ def test_closed_negator_class_covers_every_form_and_allowed_prefix():
         phrase = f"אל {verb}"
         assert hebrew._REASON_NEGATION.search(phrase), person
         assert list(hebrew.link_negations(phrase)), person
+    # Round 18: ב with an absence noun is "without", under the prefix chains of
+    # the other "without" forms and with a joint after any letter. Pinned by
+    # name, so no edit drops a form silently.
+    assert grammar.ABSENCE_NOUNS == ("היעדר", "העדר", "חוסר")
+    absence = [
+        family for family in grammar.NEGATOR_FAMILIES if "בהיעדר" in family.forms
+    ]
+    assert [family.forms for family in absence] == [("בהיעדר", "בהעדר", "בחוסר")]
+    assert absence[0].prefixes == grammar.ORDINARY_PREFIX_CHAINS
+    for prefix, noun in itertools.product(
+        grammar.ORDINARY_PREFIX_CHAINS, grammar.ABSENCE_NOUNS
+    ):
+        for joint in ("", "־"):
+            phrase = "".join(letter + joint for letter in prefix + "ב") + noun
+            reason = list(hebrew._REASON_NEGATION.finditer(phrase + " חישוב"))
+            source = list(hebrew.link_negations(phrase + " חישוב"))
+            assert [m.span() for m in reason] == [(0, len(phrase))], phrase
+            assert [m.span() for m in source] == [(0, len(phrase))], phrase
+    # Nouns, causal uses, בחסר ("understated", "short"), a pronoun suffix and
+    # היעדרות (leave) negate nothing.
+    for phrase in (
+        "היעדר",
+        "העדר",
+        "חוסר",
+        "מחוסר",
+        "כמחוסר",
+        "עקב היעדר",
+        "בשל היעדר",
+        "בחסר",
+        "ביתר או בחסר",
+        "בהעדרה",
+        "בהיעדרו",
+        "בהיעדרות",
+        "לבהיעדר",
+        "הבהיעדר",
+    ):
+        assert not hebrew._REASON_NEGATION.search(phrase + " חישוב"), phrase
+        assert not list(hebrew.link_negations(phrase + " חישוב")), phrase
 
 
 # These conservative readings are intended, rather than unlabelled exceptions
@@ -7110,3 +7149,749 @@ def test_english_wording_rows_take_the_canonical_english_verdict(
         True,
         False,
     ), name
+
+
+# --- Review round 18 ------------------------------------------------------------
+# "Without" is also ב with an absence noun in construct
+# (hebrew_negators.ABSENCE_NOUNS): בהיעדר, its defective spelling בהעדר, and
+# בחוסר. Each takes the prefix chains of the other "without" forms
+# (ORDINARY_PREFIX_CHAINS) and their joints, in reasons and in sources. Bare
+# and causal absence nouns stay nouns, as English "absence" and "lack" do;
+# so do בחסר ("understated", "short"), a pronoun-suffixed form and היעדרות
+# (absence from work). The canonical English of a "without" source is
+# ``Without calculation ...``, which English refuses.
+#
+# A word reads only as a complete token. A governor or context word that ends
+# an identifier (``_יש``, ``1יש``, ``Xיש``) ends no exception
+# (hebrew_negators.starts_token), and signals, links and citations, which
+# admit a deferral, read a word only where English ``\b`` would.
+_ROUND_18_ABSENCE_FORMS = ("בהיעדר", "בהעדר", "בחוסר")
+_ROUND_18_CHAIN_GLOSSES = {
+    "": "",
+    "ו": "and",
+    "ש": "that",
+    "כש": "when",
+    "מש": "since",
+    "לכש": "once",
+    "בש": "when",
+    "ד": "that",
+    "וש": "and that",
+    "וכש": "and when",
+    "ומש": "and since",
+    "ולכש": "and once",
+    "ובש": "and when",
+    "וד": "and that",
+}
+_ROUND_18_WITHOUT_SOURCE = "(a) Without calculation in accordance with section 2."
+_ROUND_18_JOINTED_ABSENCE = (
+    "ב־היעדר",
+    "ב-העדר",
+    "ב־חוסר",
+    "ב–היעדר",
+    "ב－העדר",
+    "ו־בהיעדר",
+    "ו־ב־היעדר",
+    "ש־ב־העדר",
+    "ו ־ בהיעדר",
+    "ב ־ היעדר",
+    "ו־ב ־ חוסר",
+)
+# Characters glued to the left of a word: a letter or digit of another
+# script, connector punctuation, a combining mark, and a default-ignorable
+# (U+200D, U+2060, U+00AD) or Hebrew point that the fold removes.
+_ROUND_18_GLUED = (
+    "_",
+    "1",
+    "X",
+    "Я",
+    "٣",
+    "ß",
+    "á",
+    "_‍",
+    "X‍",
+    "1⁠",
+    "_­",
+    "‿",
+    "ת״",
+    "Xְ",
+)
+_ROUND_18_OTHER_SCRIPT = ("Я", "ß", "٣", "é")
+_ROUND_18_GOVERNOR_CONTROL_ENGLISH = (
+    "(a) Tax on {}: a calculation must be issued in accordance with section 2."
+)
+
+
+def _round_18_without(gloss: str) -> str:
+    return f"{gloss} without".strip().capitalize()
+
+
+ROUND_18_REPRODUCERS = (
+    # The review's table: ב with an absence noun means "without", as ללא and
+    # באין do, so the link it negates applies nothing.
+    *(
+        (
+            f"(א) {form} חישוב בהתאם לסעיף 2.",
+            _ROUND_18_WITHOUT_SOURCE,
+            "חסר סעיף 2",
+            "Missing section 2.",
+            "neither",
+        )
+        for form in (*_ROUND_18_ABSENCE_FORMS, "ללא", "באין")
+    ),
+    (
+        "(א) התשלום ישולם בהיעדר חישוב בהתאם לסעיף 2.",
+        "(a) The payment shall be paid without calculation in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    # Parity rows that bound the rule: bare and causal absence nouns.
+    *(
+        (hebrew_source, english_source, "חסר סעיף 2", "Missing section 2.", "both")
+        for hebrew_source, english_source in (
+            (
+                "(א) עקב היעדר חישוב בהתאם לסעיף 2.",
+                "(a) Due to the absence of calculation in accordance with section 2.",
+            ),
+            (
+                "(א) מחוסר חישוב בהתאם לסעיף 2.",
+                "(a) For lack of calculation in accordance with section 2.",
+            ),
+            (
+                "(א) אי תשלום בהתאם לסעיף 2.",
+                "(a) Non-payment in accordance with section 2.",
+            ),
+            (
+                "(א) באי תשלום בהתאם לסעיף 2.",
+                "(a) Upon non-payment in accordance with section 2.",
+            ),
+            (
+                "(א) היעדר חישוב בהתאם לסעיף 2.",
+                "(a) Absence of calculation in accordance with section 2.",
+            ),
+            (
+                "(א) חוסר חישוב בהתאם לסעיף 2.",
+                "(a) Lack of calculation in accordance with section 2.",
+            ),
+            (
+                "(א) בשל היעדר חישוב בהתאם לסעיף 2.",
+                "(a) Because of the absence of calculation in accordance with section 2.",
+            ),
+            # בחסר in the statutes: "in deficit" and a short sale.
+            (
+                "(א) כספים שחולקו ביתר או בחסר לפי סעיף 2.",
+                "(a) Funds distributed in excess or in deficit under section 2.",
+            ),
+            (
+                "(א) מכירה בחסר בהתאם לסעיף 2.",
+                "(a) A short sale in accordance with section 2.",
+            ),
+            # A pronoun suffix leaves no later object; היעדרות is leave.
+            (
+                "(א) בהעדרה, ישולם בהתאם לסעיף 2.",
+                "(a) In its absence, payment shall be made in accordance with section 2.",
+            ),
+            (
+                "(א) בהיעדרות העובד ישולם בהתאם לסעיף 2.",
+                "(a) During the employee's leave, payment shall be made in accordance "
+                "with section 2.",
+            ),
+            # The snapshot's own uses (national health insurance law, schedule 2,
+            # items 14 and 19) read as "without" reads in English: after the
+            # link, or in a clause of their own, they negate no link.
+            (
+                "(א) מתן טיפול ראשוני במצבי חולי חריפים, בהתאם לסעיף 2, בהעדר רופא.",
+                "(a) Primary care in acute illness, in accordance with section 2, "
+                "without a doctor.",
+            ),
+            (
+                "(א) ישולם בהתאם לסעיף 2 לחולים שלגביהם קיימת הוריית נגד לטיפול "
+                "בקרינה, בהיעדר עדות לגרורות.",
+                "(a) Payment is made in accordance with section 2 to patients for "
+                "whom radiotherapy is contraindicated, without evidence of metastases.",
+            ),
+            (
+                "(א) מתן טיפול ראשוני, בהעדר רופא; ישולם בהתאם לסעיף 2.",
+                "(a) Primary care, without a doctor; payment is made in accordance "
+                "with section 2.",
+            ),
+        )
+    ),
+    # Every prefix chain of the "without" forms: in a source before the link,
+    # and in a reason after its citation, where it negates nothing cited.
+    *(
+        (
+            f"(א) {chain}{form} חישוב בהתאם לסעיף 2.",
+            f"(a) {_round_18_without(gloss)} calculation in accordance with section 2.",
+            "חסר סעיף 2",
+            "Missing section 2.",
+            "neither",
+        )
+        for chain, gloss in _ROUND_18_CHAIN_GLOSSES.items()
+        for form in _ROUND_18_ABSENCE_FORMS
+    ),
+    *(
+        (
+            REVIEW_SOURCE,
+            REVIEW_ENGLISH_SOURCE,
+            f"חסר סעיף 2 {chain}{form} חישוב",
+            f"Missing section 2 {_round_18_without(gloss).lower()} calculation.",
+            "both",
+        )
+        for chain, gloss in _ROUND_18_CHAIN_GLOSSES.items()
+        for form in _ROUND_18_ABSENCE_FORMS
+    ),
+    # Joints inside the prefix chain, spaced or not, and after the noun.
+    *(
+        (
+            f"(א) {spelling} חישוב בהתאם לסעיף 2.",
+            _ROUND_18_WITHOUT_SOURCE,
+            "חסר סעיף 2",
+            "Missing section 2.",
+            "neither",
+        )
+        for spelling in _ROUND_18_JOINTED_ABSENCE
+    ),
+    (
+        "(א) בהיעדר־חישוב בהתאם לסעיף 2.",
+        _ROUND_18_WITHOUT_SOURCE,
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "neither",
+    ),
+    # A governor ends no exception as the end of an identifier, a default-
+    # ignorable between them notwithstanding.
+    *(
+        (
+            f"(א) מס על המוצר {glued}יש להוציא חישוב בהתאם לסעיף 2.",
+            f"(a) Tax on product {glued}יש, except calculation in accordance with "
+            "section 2.",
+            "חסר סעיף 2",
+            "Missing section 2.",
+            "neither",
+        )
+        for glued in _ROUND_18_GLUED
+    ),
+    *(
+        (
+            REVIEW_SOURCE,
+            REVIEW_ENGLISH_SOURCE,
+            f"חסר {glued}יש להוציא סעיף 2",
+            f"Missing {glued}יש except section 2.",
+            "neither",
+        )
+        for glued in ("_", "1", "X", "Я")
+    ),
+    # So do the context words that make להוציא "to issue", a foreign חוץ, a
+    # concessive על אף.
+    *(
+        (hebrew_source, english_source, "חסר סעיף 2", "Missing section 2.", "neither")
+        for hebrew_source, english_source in (
+            (
+                "(א) מס על המוצר _הורשו להוציא חישוב בהתאם לסעיף 2.",
+                "(a) Tax on product _הורשו, except calculation in accordance with "
+                "section 2.",
+            ),
+            (
+                "(א) מס על המוצר Xהורשו להוציא חישוב בהתאם לסעיף 2.",
+                "(a) Tax on product Xהורשו, except calculation in accordance with "
+                "section 2.",
+            ),
+            (
+                "(א) מס 1מדינת חוץ מחישוב בהתאם לסעיף 2.",
+                "(a) Tax 1מדינת, except calculation in accordance with section 2.",
+            ),
+            (
+                "(א) מס Xמדינת חוץ מחישוב בהתאם לסעיף 2.",
+                "(a) Tax Xמדינת, except calculation in accordance with section 2.",
+            ),
+            (
+                "(א) _רשאית קופה להוציא חישוב בהתאם לסעיף 2.",
+                "(a) _רשאית fund, except calculation in accordance with section 2.",
+            ),
+            (
+                "(א) _על אף חישוב בהתאם לסעיף 2 לא נעשה.",
+                "(a) _על not even a calculation in accordance with section 2 is made.",
+            ),
+        )
+    ),
+    # A whole governor or context word still governs: at a space, after a
+    # dash, after a mark and its space, after other punctuation, or after two
+    # spaces, which no script junction inserts.
+    *(
+        (
+            f"(א) מס על {before}יש להוציא חישוב בהתאם לסעיף 2.",
+            _ROUND_18_GOVERNOR_CONTROL_ENGLISH.format(english),
+            "חסר סעיף 2",
+            "Missing section 2.",
+            "both",
+        )
+        for before, english in (
+            ("המוצר ", "the product"),
+            ("המוצר ו־", "the product, and"),
+            ("המוצר־", "the product -"),
+            ("המוצר á ", "product á"),
+            ("המוצר X: ", "product X"),
+            ("המוצר X  ", "product X"),
+        )
+    ),
+    (
+        "(א) מס על המוצר הורשו להוציא חישוב בהתאם לסעיף 2.",
+        "(a) Tax on the product: they were permitted to issue a calculation in "
+        "accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "both",
+    ),
+    (
+        "(א) מס מדינת חוץ מחושב בהתאם לסעיף 2.",
+        "(a) Foreign-state tax is computed in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+        "both",
+    ),
+    # Signals, links and citations read only complete tokens, on either side
+    # of the word, as English reads ``ЯMissing`` and ``MissingX``.
+    *(
+        row
+        for glued in _ROUND_18_OTHER_SCRIPT
+        for row in (
+            (
+                REVIEW_SOURCE,
+                REVIEW_ENGLISH_SOURCE,
+                f"{glued}חסר סעיף 2",
+                f"{glued}Missing section 2.",
+                "neither",
+            ),
+            (
+                REVIEW_SOURCE,
+                REVIEW_ENGLISH_SOURCE,
+                f"{glued}ללא סעיף 2",
+                f"{glued}Without section 2.",
+                "neither",
+            ),
+            (
+                REVIEW_SOURCE,
+                REVIEW_ENGLISH_SOURCE,
+                f"חסר {glued}סעיף 2",
+                f"Missing {glued}section 2.",
+                "neither",
+            ),
+            (
+                f"(א) ישולם {glued}לפי סעיף 2.",
+                f"(a) Payment shall be made {glued}under section 2.",
+                "חסר סעיף 2",
+                "Missing section 2.",
+                "neither",
+            ),
+            (
+                f"(א) ישולם {glued}על פי סעיף 2.",
+                f"(a) Payment shall be made {glued}under section 2.",
+                "חסר סעיף 2",
+                "Missing section 2.",
+                "neither",
+            ),
+            (
+                f"(א) ישולם {glued}בהתאם לסעיף 2.",
+                f"(a) Payment shall be made {glued}in accordance with section 2.",
+                "חסר סעיף 2",
+                "Missing section 2.",
+                "neither",
+            ),
+        )
+    ),
+    *(
+        row
+        for glued in ("X", "Я", "1", "_", "٣")
+        for row in (
+            (
+                REVIEW_SOURCE,
+                REVIEW_ENGLISH_SOURCE,
+                f"חסר{glued} סעיף 2",
+                f"Missing{glued} section 2.",
+                "neither",
+            ),
+            (
+                REVIEW_SOURCE,
+                REVIEW_ENGLISH_SOURCE,
+                f"ללא{glued} סעיף 2",
+                f"Without{glued} section 2.",
+                "neither",
+            ),
+        )
+    ),
+    # A dash after a word of any script is punctuation (``Яו־``, as ``Xו־``),
+    # and a combining mark or a space ends no token, in either language.
+    *(
+        (
+            REVIEW_SOURCE,
+            REVIEW_ENGLISH_SOURCE,
+            hebrew_reason,
+            english_reason,
+            "both",
+        )
+        for hebrew_reason, english_reason in (
+            *(
+                (f"{glued}ו־חסר סעיף 2", f"{glued}ו-Missing section 2.")
+                for glued in ("X", *_ROUND_18_OTHER_SCRIPT)
+            ),
+            ("áחסר סעיף 2", "áMissing section 2."),
+            ("חסר́ סעיף 2", "Missinǵ section 2."),
+            ("X חסר סעיף 2", "X: Missing section 2."),
+            ("X: חסר סעיף 2", "X: Missing section 2."),
+            ("חסר סעיף 2 X", "Missing section 2 X."),
+        )
+    ),
+    # Finding 3: the compound בלתי זמין takes a joint, as English reads
+    # "unavailable".
+    *(
+        (
+            REVIEW_SOURCE,
+            REVIEW_ENGLISH_SOURCE,
+            hebrew_reason,
+            english_reason,
+            "both",
+        )
+        for hebrew_reason, english_reason in (
+            ("בלתי זמינות הוראות סעיף 2", "Unavailable provisions of section 2."),
+            ("בלתי־זמינות הוראות סעיף 2", "Unavailable provisions of section 2."),
+            ("הוראות בלתי־זמינות שבסעיף 2", "Unavailable provisions of section 2."),
+            ("בלתי-זמין סעיף 2", "Unavailable section 2."),
+            ("בלתי‐זמינה הוראת סעיף 2", "Unavailable provision of section 2."),
+            ("בלתי ־ זמינות הוראות סעיף 2", "Unavailable provisions of section 2."),
+            ("בלתי – זמינות הוראות סעיף 2", "Unavailable provisions of section 2."),
+        )
+    ),
+    *(
+        (
+            REVIEW_SOURCE,
+            REVIEW_ENGLISH_SOURCE,
+            hebrew_reason,
+            english_reason,
+            "neither",
+        )
+        for hebrew_reason, english_reason in (
+            (
+                "לא נכון שבלתי־זמינות הוראות סעיף 2",
+                "It is not true that the provisions of section 2 are unavailable.",
+            ),
+            (
+                "בלתי־זמינות הוראות סעיף 2. אולם הן זמינות",
+                "Unavailable provisions of section 2. However they are available.",
+            ),
+            ("בלתי־מקודד סעיף 2", "Unencoded section 2."),
+        )
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("hebrew_source", "english_source", "hebrew_reason", "english_reason", "verdict"),
+    ROUND_18_REPRODUCERS,
+)
+def test_round_18_reproducers_get_the_english_verdict(
+    hebrew_source, english_source, hebrew_reason, english_reason, verdict
+):
+    assert (
+        _accepted("a", hebrew_reason, hebrew_source),
+        _english_accepted("a", english_reason, english_source),
+    ) == _DIFFERENTIAL_VERDICTS[verdict]
+
+
+# Intended stricter readings. An absence form negates any object, as ללא and
+# באין do, and governs the rest of its clause; English ``without`` negates a
+# link only before a computation word, and a reason not at all, since English
+# reads "without" as a missing-dependency signal. Round 16 labels באין the
+# same way (ROUND_16_INTENDED_STRICTER_CONTEXTS).
+#
+# In round 17's reason frame, English reads "except" after the citation and
+# accepts, while Hebrew reads להוציא as the adversative wherever it stands, as
+# round 17's dash governor does (governor-dash-reason). And the copy read with
+# scripts split puts one space at each junction (``Xיש`` reads ``X יש``), so a
+# governor one space after a letter of another script may follow no written
+# space at all: no reader takes it as a governor.
+ROUND_18_INTENDED_STRICTER = (
+    (
+        "absence-object-source",
+        "(א) בהעדר רופא בהתאם לסעיף 2.",
+        "(a) Without a doctor in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+    ),
+    (
+        "absence-before-comma-source",
+        "(א) בהעדר רופא, ישולם בהתאם לסעיף 2.",
+        "(a) Without a doctor, payment is made in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+    ),
+    (
+        "in-the-absence-of-another-provision",
+        "(א) בהיעדר הוראה אחרת יחושב בהתאם לסעיף 2.",
+        "(a) In the absence of another provision it shall be calculated in "
+        "accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+    ),
+    (
+        "for-want-of-authority-source",
+        "(א) בחוסר סמכות ישולם בהתאם לסעיף 2.",
+        "(a) Without authority, payment is made in accordance with section 2.",
+        "חסר סעיף 2",
+        "Missing section 2.",
+    ),
+    (
+        "absence-reason",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "בהיעדר סעיף 2",
+        "Without section 2.",
+    ),
+    (
+        "absence-comma-reason",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "בהיעדר הוראות, חסר סעיף 2",
+        "Without provisions, missing section 2.",
+    ),
+    (
+        "incomplete-absence-of-missing-reason",
+        REVIEW_SOURCE,
+        REVIEW_ENGLISH_SOURCE,
+        "בהיעדר חסר סעיף 2",
+        "In the absence of missing section 2.",
+    ),
+    *(
+        (
+            f"absence-before-signal-{chain or 'bare'}-{form}",
+            REVIEW_SOURCE,
+            REVIEW_ENGLISH_SOURCE,
+            f"{chain}{form} הוראות חסר סעיף 2",
+            f"{_round_18_without(gloss)} provisions, missing section 2.",
+        )
+        for chain, gloss in _ROUND_18_CHAIN_GLOSSES.items()
+        for form in _ROUND_18_ABSENCE_FORMS
+    ),
+    *(
+        (
+            f"identifier-governor-reason-{ascii(glued)}",
+            REVIEW_SOURCE,
+            REVIEW_ENGLISH_SOURCE,
+            f"חסר סעיף 2, שלפיו {glued}יש להוציא את החישוב",
+            f"Missing section 2, under which {glued}יש except the computation.",
+        )
+        for glued in ("_", "1", "X", "Я")
+    ),
+    *(
+        (
+            f"junction-space-governor-{ascii(letter)}",
+            f"(א) מס על המוצר {letter} יש להוציא חישוב בהתאם לסעיף 2.",
+            _ROUND_18_GOVERNOR_CONTROL_ENGLISH.format(f"product {letter}"),
+            "חסר סעיף 2",
+            "Missing section 2.",
+        )
+        for letter in ("X", "Я", "á")
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("name", "hebrew_source", "english_source", "hebrew_reason", "english_reason"),
+    ROUND_18_INTENDED_STRICTER,
+    ids=[row[0] for row in ROUND_18_INTENDED_STRICTER],
+)
+def test_round_18_readings_are_intentionally_stricter(
+    name, hebrew_source, english_source, hebrew_reason, english_reason
+):
+    assert (
+        _accepted("a", hebrew_reason, hebrew_source),
+        _english_accepted("a", english_reason, english_source),
+    ) == _DIFFERENTIAL_VERDICTS["hebrew-stricter"], name
+
+
+@pytest.mark.parametrize("obj", ("חישוב", "רופא", "הוראה אחרת יחושב"))
+def test_absence_forms_give_exactly_the_issues_of_the_without_forms(obj):
+    """No error of a new kind: an absence form reports what ללא reports."""
+
+    content = _deferral_content("a", "חסר סעיף 2")
+    expected = _analyze(content, f"(א) ללא {obj} בהתאם לסעיף 2.")
+    assert len(expected) == 2
+    assert expected[0].startswith(DEFERRAL)
+    assert expected[1].startswith("[complete-source-unit:structure]")
+    for form in (*_ROUND_18_ABSENCE_FORMS, "באין", "בלי", "בלא"):
+        assert _analyze(content, f"(א) {form} {obj} בהתאם לסעיף 2.") == expected, form
+
+
+_ROUND_18_GOVERNOR_READERS = (
+    hebrew._NEGATIONS,
+    hebrew._REASON_NEGATION,
+    hebrew._ADVERSATIVE,
+    hebrew._ANY_ADVERSATIVE,
+    completeness_module._ADVERSATIVE_LANGUAGE,
+)
+_ROUND_18_FOLDED = hebrew.folded_marks()
+
+
+def _continues_a_word(char: str) -> bool:
+    """A word character, digit, ``_`` or combining mark the fold keeps.
+
+    Hebrew letters are left out: one before a governor spells a longer word
+    (``איש``), or another governor (``בכדי``), which the round 17 tests cover.
+    """
+
+    return (
+        ord(char) not in _ROUND_18_FOLDED
+        and not "֐" <= char <= "׿"
+        and not "יִ" <= char <= "ﭏ"
+        and (char.isalnum() or unicodedata.category(char) in ("Mn", "Mc", "Me", "Pc"))
+    )
+
+
+_ROUND_18_JOINING = st.characters(categories=("L", "M", "N", "Pc")).filter(
+    _continues_a_word
+)
+_ROUND_18_IGNORABLES = ("", "‍", "‌", "⁠", "­", "‏", "️")
+
+
+def _governed_views(text: str) -> tuple[str, ...]:
+    """The text as written, folded, and folded with scripts split."""
+
+    folded = hebrew.fold_marks(text)
+    return (text, folded, hebrew._split_scripts(folded)[0])
+
+
+def _reads_exception(reader, view: str, start: int) -> bool:
+    return any(match.start() <= start < match.end() for match in reader.finditer(view))
+
+
+@pytest.mark.parametrize("governor", sorted(hebrew_negators.INFINITIVE_GOVERNORS))
+@settings(max_examples=40, deadline=None)
+@given(
+    glued=st.text(_ROUND_18_JOINING, min_size=1, max_size=3),
+    ignorable=st.sampled_from(_ROUND_18_IGNORABLES),
+)
+def test_a_governor_glued_to_a_word_governs_nothing(governor, glued, ignorable):
+    """Every governor, every left neighbour that continues a word: except reads."""
+
+    text = f"מס על {glued}{ignorable}{governor} להוציא את החישוב"
+    for view in _governed_views(text):
+        start = view.index("להוציא")
+        assert not hebrew_negators.governs_infinitive(view, start), ascii(view)
+        for reader in _ROUND_18_GOVERNOR_READERS:
+            assert _reads_exception(reader, view, start), (ascii(view), reader)
+
+
+_ROUND_18_BOUNDARIES = (
+    " ",
+    "\t",
+    " ",
+    "　",
+    "\n",
+    " ",
+    "(",
+    "[",
+    ",",
+    ";",
+    ":",
+    ".",
+    "־",
+    "-",
+    "–",
+    '"',
+    "'",
+    "“",
+    "”",
+)
+
+
+@pytest.mark.parametrize("governor", sorted(hebrew_negators.INFINITIVE_GOVERNORS))
+@settings(max_examples=40, deadline=None)
+@given(
+    before=st.sampled_from(("", "המוצר", "מס על המוצר")),
+    boundary=st.sampled_from(_ROUND_18_BOUNDARIES),
+)
+def test_a_governor_at_a_token_boundary_still_governs(governor, before, boundary):
+    """The exception reads as before wherever the governor starts a token."""
+
+    text = f"{before}{boundary}{governor} להוציא את החישוב"
+    for view in _governed_views(text):
+        start = view.index("להוציא")
+        assert hebrew_negators.governs_infinitive(view, start), ascii(view)
+        for reader in _ROUND_18_GOVERNOR_READERS:
+            assert not _reads_exception(reader, view, start), (ascii(view), reader)
+
+
+@settings(max_examples=200, deadline=None)
+@given(
+    glued=st.text(_ROUND_18_JOINING, min_size=1, max_size=3),
+    ignorable=st.sampled_from(_ROUND_18_IGNORABLES),
+    context=st.sampled_from(
+        (
+            *(
+                (f"מס על {{}}{word} להוציא את החישוב", "להוציא")
+                for word in ("הורשו", "שהורשו", "הרשה", "להרשות", "רשאית", "שלא")
+            ),
+            ("{}רשאית קופה להוציא את החישוב", "להוציא"),
+            *(
+                (f"מס {{}}{head} חוץ מחישוב", "חוץ")
+                for head in ("מדינת", "תושב", "הכנסות", "מסי", "ומדינת")
+            ),
+            ("{}על אף טענה לא הוכחה", "אף"),
+        )
+    ),
+)
+def test_a_context_word_glued_to_a_word_ends_no_exception(glued, ignorable, context):
+    """A context word ends an exception only as a complete token."""
+
+    frame, exception = context
+    text = frame.format(glued + ignorable)
+    for view in _governed_views(text):
+        start = view.index(exception)
+        assert _reads_exception(hebrew._NEGATIONS, view, start), ascii(view)
+    # At a token boundary the context word still ends the exception.
+    for view in _governed_views(frame.format("")):
+        start = view.index(exception)
+        assert not _reads_exception(hebrew._NEGATIONS, view, start), ascii(view)
+
+
+_ROUND_18_WORD_CHARACTER = st.characters(categories=("L", "N")).filter(
+    _continues_a_word
+) | st.just("_")
+
+
+@settings(max_examples=300, deadline=None)
+@given(glued=st.text(_ROUND_18_WORD_CHARACTER, min_size=1, max_size=3))
+def test_signals_links_and_citations_read_only_complete_tokens(glued):
+    """What admits a deferral reads a word only where English ``\\b`` would."""
+
+    assert all(re.fullmatch(r"\w", char) for char in glued)
+    for text in (f"{glued}חסר סעיף 2", f"חסר{glued} סעיף 2"):
+        assert not [
+            match for match in hebrew._SIGNAL.finditer(text) if match.group("missing")
+        ], ascii(text)
+    for text in (f"{glued}ללא סעיף 2", f"ללא{glued} סעיף 2"):
+        assert not [
+            match for match in hebrew._SIGNAL.finditer(text) if match.group("without")
+        ], ascii(text)
+    assert hebrew.SECTION_DEPENDENCY.search(f"חסר {glued}סעיף 2") is None
+    for linker in ("לפי ", "על פי ", "בהתאם ל"):
+        text = f"ישולם {glued}{linker}"
+        assert hebrew._source_linker(text, 0, len(text)) is None, ascii(text)
+    # After a space, each still reads.
+    assert hebrew._SIGNAL.search(f"{glued} חסר סעיף 2").group("missing")
+    assert hebrew._SIGNAL.search(f"{glued} ללא סעיף 2").group("without")
+    assert hebrew.SECTION_DEPENDENCY.search(f"חסר {glued} סעיף 2")
+    for linker in ("לפי ", "על פי ", "בהתאם ל"):
+        text = f"ישולם {glued} {linker}"
+        assert hebrew._source_linker(text, 0, len(text)) is not None, ascii(text)
+
+
+@pytest.mark.parametrize("joint", hebrew.PREFIX_JOINT_CHARS)
+def test_unavailable_takes_every_joint(joint):
+    """בלתי זמין is a missing signal across any joint the fold keeps."""
+
+    for gap in (joint, f" {joint} "):
+        for adjective in ("זמין", "זמינה", "זמינים", "זמינות"):
+            text = f"בלתי{gap}{adjective} הוראות סעיף 2"
+            match = hebrew._SIGNAL.search(text)
+            assert match and match.group("missing") == text[: match.end()], ascii(text)
