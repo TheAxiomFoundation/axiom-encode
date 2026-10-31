@@ -96,7 +96,10 @@ def test_guarded_long_chain_without_supplied_ids_fails_in_real_engine(
     )
     for row in case["tables"]["Person"]:
         del row[f"{TARGET}#input.snap_household_unit"]
-    module.with_suffix(".test.yaml").write_text(yaml.safe_dump([case]))
+    module.with_suffix(".test.yaml").write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump([case])
+    )
     issues = _companions(
         executor,
         binary=real_engine.binary,
@@ -202,6 +205,151 @@ def test_relation_coverage_distinguishes_builtin_call_and_bare_relation(
         else [
             "Derived relation missing companion output coverage: "
             f"`{TARGET}#min` is not reached by an asserted scalar output "
+            "in the companion `.test.yaml` file."
+        ]
+    )
+
+
+@pytest.mark.parametrize("executor", ["cli", "validator"])
+@pytest.mark.parametrize("explicit_empty", [False, True])
+def test_constant_anchored_view_requires_explicit_empty_pair_facts(
+    tmp_path, real_engine, executor, explicit_empty
+):
+    root = tmp_path / "rulespec-us"
+    module = root / "us/policies/example/constant_roles.yaml"
+    module.parent.mkdir(parents=True)
+    target = "us:policies/example/constant_roles"
+    declaration = {
+        "format": "rulespec/v1",
+        "rules": [
+            {
+                "name": "pairs",
+                "kind": "data_relation",
+                "data_relation": {"arity": 2, "arguments": ["Person", "Person"]},
+            },
+            {
+                "name": "members",
+                "kind": "derived_relation",
+                "derived_relation": {
+                    "arity": 2,
+                    "slot_entities": ["Person", "Person"],
+                    "current_slot": 0,
+                    "related_slot": 1,
+                    "source_relation": "pairs",
+                },
+                "versions": [{"effective_from": "2026-01-01", "formula": True}],
+            },
+            {
+                "name": "member_count",
+                "kind": "derived",
+                "entity": "Person",
+                "dtype": "Integer",
+                "period": "Month",
+                "versions": [
+                    {"effective_from": "2026-01-01", "formula": "len(members)"}
+                ],
+            },
+        ],
+    }
+    module.write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump(declaration)
+    )
+    case = {
+        "name": "constant",
+        "period": "2026-01",
+        "input": {f"{target}#relation.pairs": []} if explicit_empty else {},
+        "output": {f"{target}#member_count": 0},
+    }
+    module.with_suffix(".test.yaml").write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump([case])
+    )
+    issues = _companions(
+        executor,
+        binary=real_engine.binary,
+        engine_root=real_engine.root,
+        root=root,
+        module=module,
+        artifact=tmp_path / "compiled.json",
+    )
+    assert issues == (
+        []
+        if explicit_empty
+        else [
+            f"Test case `constant` must assign pair relation `{target}#relation.pairs`, "
+            "including `[]` when no tuples hold."
+        ]
+    )
+
+
+@pytest.mark.parametrize("entity_declared", [False, True])
+@pytest.mark.parametrize("member_alias", [False, True])
+def test_relation_coverage_preserves_entity_only_filtered_view(
+    tmp_path, entity_declared, member_alias
+):
+    root = tmp_path / "rulespec-us"
+    module = root / "us/policies/example/legacy_coverage.yaml"
+    module.parent.mkdir(parents=True)
+    target = "us:policies/example/legacy_coverage"
+    config = {
+        "arity": 2,
+        "source_relation": "pairs",
+        "slot_entities": ["Person", "Person"],
+        "current_slot": 0,
+        "related_slot": 1,
+    }
+    if entity_declared:
+        config["entity"] = "SnapUnit"
+    if member_alias:
+        config["member_relation"] = "members"
+    payload = {
+        "format": "rulespec/v1",
+        "rules": [
+            {
+                "name": "pairs",
+                "kind": "data_relation",
+                "data_relation": {"arity": 2, "arguments": ["Person", "Person"]},
+            },
+            {
+                "name": "snap_unit",
+                "kind": "derived_relation",
+                "derived_relation": config,
+                "versions": [{"effective_from": "2026-01-01", "formula": True}],
+            },
+            {
+                "name": "claimed_output",
+                "kind": "derived",
+                "entity": "SnapUnit" if entity_declared else "Person",
+                "dtype": "Integer",
+                "period": "Month",
+                "versions": [{"effective_from": "2026-01-01", "formula": "0"}],
+            },
+        ],
+    }
+    module.write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump(payload)
+    )
+    cases = [
+        {
+            "name": "covered_scalar",
+            "period": "2026-01",
+            "input": {},
+            "output": {f"{target}#claimed_output": 0},
+        }
+    ]
+    assert find_missing_derived_companion_output_issues(
+        module.read_text(),
+        cases,
+        rules_file=module,
+        policy_repo_path=root / "us",
+    ) == (
+        []
+        if entity_declared
+        else [
+            "Derived relation missing companion output coverage: "
+            f"`{target}#snap_unit` is not reached by an asserted scalar output "
             "in the companion `.test.yaml` file."
         ]
     )

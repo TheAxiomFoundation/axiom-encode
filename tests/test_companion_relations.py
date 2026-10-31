@@ -600,9 +600,18 @@ def test_relation_roles_require_explicit_empty_pair_facts():
     )
 
 
-def test_legacy_filtered_relations_keep_pair_assignment_findings():
+@pytest.mark.parametrize("member_alias", [False, True])
+def test_legacy_filtered_relations_keep_pair_assignment_findings(member_alias):
     relations = role_relations()
-    relations[1]["derivation"]["predicate"] = {"kind": "derived", "name": "eligible"}
+    relations[1]["derivation"].update(
+        {
+            "entity": "SnapUnit",
+            "member_relation": "members",
+            "predicate": {"kind": "derived", "name": "eligible"},
+        }
+    )
+    if not member_alias:
+        relations[1]["derivation"].pop("member_relation")
     assert pair_relation_assignment_issues(relations, {"input": {}}, "empty") == []
 
 
@@ -780,3 +789,65 @@ def test_compact_same_kind_pair_rows_use_atom_direction_or_refuse(
         if row["name"] == "parents"
     ]
     assert tuples and all(pair[0] == "case" for pair in tuples)
+
+
+@pytest.mark.parametrize("value", [True, False])
+@pytest.mark.parametrize("unused_member_alias", [False, True])
+def test_anchored_constant_predicate_requires_explicit_pair_facts(
+    value, unused_member_alias
+):
+    relations = role_relations()
+    relations[1]["derivation"] = {
+        "source_relation": "parents",
+        "current_slot": 0,
+        "related_slot": 1,
+        "slot_entities": ["Person", "Person"],
+        "predicate": {
+            "kind": "comparison",
+            "left": {"kind": "literal", "value": {"kind": "bool", "value": value}},
+            "op": "eq",
+            "right": {"kind": "literal", "value": {"kind": "bool", "value": True}},
+        },
+    }
+    if unused_member_alias:
+        relations[1]["derivation"]["member_relation"] = "unused_alias"
+    assert pair_relation_assignment_issues(relations, {"input": {}}, "constant") == [
+        "Test case `constant` must assign pair relation `parents`, including `[]` when no tuples hold."
+    ]
+    assert (
+        pair_relation_assignment_issues(
+            relations, {"input": {"parents": []}}, "constant"
+        )
+        == []
+    )
+
+
+def test_mixed_constant_anchored_and_legacy_views_require_all_pair_facts():
+    relations = role_relations()
+    relations[1]["derivation"].update(
+        {
+            "entity": "SnapUnit",
+            "member_relation": "members",
+            "predicate": {"kind": "derived", "name": "eligible"},
+        }
+    )
+    relations.extend(
+        [
+            {"name": "other_pairs", "arity": 2, "slot_entities": ["Person", "Person"]},
+            {
+                "name": "anchored_members",
+                "arity": 2,
+                "derivation": {
+                    "source_relation": "other_pairs",
+                    "current_slot": 0,
+                    "related_slot": 1,
+                    "slot_entities": ["Person", "Person"],
+                    "predicate": {"kind": "comparison"},
+                },
+            },
+        ]
+    )
+    assert pair_relation_assignment_issues(relations, {"input": {}}, "mixed") == [
+        "Test case `mixed` must assign pair relation `parents`, including `[]` when no tuples hold.",
+        "Test case `mixed` must assign pair relation `other_pairs`, including `[]` when no tuples hold.",
+    ]

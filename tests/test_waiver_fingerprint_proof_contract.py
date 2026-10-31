@@ -51,7 +51,7 @@ rules:
 """
 
 
-def _relation_predicate_proof_module(formula, *, path=False):
+def _relation_predicate_proof_module(formula, *, path=False, flat=False):
     payload = yaml.safe_load(MODULE_WITH_UNRESOLVED_PROOF_SOURCE)
     relation = payload["rules"][0]
     relation["kind"] = "derived_relation"
@@ -76,6 +76,10 @@ def _relation_predicate_proof_module(formula, *, path=False):
             "data_relation": {"arity": 2, "arguments": ["Person", "Person"]},
         },
     )
+    if flat:
+        (version,) = relation.pop("versions")
+        relation.update(version)
+        relation["metadata"]["proof"]["atoms"][0]["path"] = "formula"
     return yaml.safe_dump(payload, sort_keys=False)
 
 
@@ -93,6 +97,24 @@ PROOF_MODULES = [
     ),
     pytest.param(
         _relation_predicate_proof_module("candidate == anchor", path=True), id="path"
+    ),
+    pytest.param(
+        _relation_predicate_proof_module("candidate.age < 22", flat=True),
+        id="flat-qualified-read",
+    ),
+    pytest.param(
+        _relation_predicate_proof_module("relatives(anchor, candidate)", flat=True),
+        id="flat-atom",
+    ),
+    pytest.param(
+        _relation_predicate_proof_module(
+            "exists(relatives(anchor, p), p.age < 22)", flat=True
+        ),
+        id="flat-exists",
+    ),
+    pytest.param(
+        _relation_predicate_proof_module("candidate == anchor", path=True, flat=True),
+        id="flat-path",
     ),
 ]
 

@@ -115,6 +115,7 @@ from axiom_encode.companion_relations import (
     pair_relation_assignment_issues,
     uses_relation_roles,
 )
+from axiom_encode.engine_pin_diff import effective_versions
 from axiom_encode.formula_references import (
     formula_identifiers as _shared_formula_identifiers,
 )
@@ -17480,6 +17481,7 @@ def _repair_missing_source_proof_atoms(content: str) -> tuple[str, list[str]]:
             continue
         repairs_by_rule[rule_name] = {
             "kind": _generated_proof_atom_kind(rule),
+            "path": "versions[0].formula" if rule.get("versions") else "formula",
             "corpus_citation_path": source_path,
             "span": _generated_proof_atom_span(rule),
         }
@@ -17528,7 +17530,7 @@ def _parsed_rule_requires_generated_source_proof(rule: dict[str, object]) -> boo
     kind = str(rule.get("kind") or "").strip()
     if kind not in {"parameter", "derived", "derived_relation"}:
         return False
-    versions = rule.get("versions")
+    versions = effective_versions(rule)
     if not isinstance(versions, list) or not versions:
         return False
     first_version = versions[0]
@@ -17617,6 +17619,7 @@ def _insert_missing_source_proof_atoms(
         insertion_index, inserted_lines = _source_proof_insertion(
             block,
             proof_kind=repair["kind"],
+            proof_path=repair.get("path", "versions[0].formula"),
             corpus_citation_path=repair["corpus_citation_path"],
             span=repair["span"],
         )
@@ -17672,7 +17675,7 @@ def _insert_missing_source_proof_atoms_structured(
             source["span"] = repair["span"]
         proof["atoms"] = [
             {
-                "path": "versions[0].formula",
+                "path": repair.get("path", "versions[0].formula"),
                 "kind": repair["kind"],
                 "source": source,
             }
@@ -17689,6 +17692,7 @@ def _source_proof_insertion(
     rule_block: list[str],
     *,
     proof_kind: str,
+    proof_path: str = "versions[0].formula",
     corpus_citation_path: str,
     span: str,
 ) -> tuple[int, list[str]]:
@@ -17702,6 +17706,7 @@ def _source_proof_insertion(
     )
     proof_lines = _generated_source_proof_atom_lines(
         proof_kind=proof_kind,
+        proof_path=proof_path,
         corpus_citation_path=corpus_citation_path,
         span=span,
         include_metadata=metadata_index is None,
@@ -17723,6 +17728,7 @@ def _source_proof_insertion(
 def _generated_source_proof_atom_lines(
     *,
     proof_kind: str,
+    proof_path: str = "versions[0].formula",
     corpus_citation_path: str,
     span: str,
     include_metadata: bool,
@@ -17734,7 +17740,7 @@ def _generated_source_proof_atom_lines(
         [
             "      proof:\n",
             "        atoms:\n",
-            "          - path: versions[0].formula\n",
+            f"          - path: {proof_path}\n",
             f"            kind: {proof_kind}\n",
             "            source:\n",
             f"              corpus_citation_path: {corpus_citation_path}\n",
@@ -21478,7 +21484,7 @@ def _local_factual_input_names_from_rules_content(rules_content: str) -> set[str
         kind = str(rule.get("kind") or "").strip().lower()
         if kind not in {"derived", "derived_relation"}:
             continue
-        versions = rule.get("versions")
+        versions = effective_versions(rule)
         if not isinstance(versions, list):
             continue
         for version in versions:
@@ -43786,7 +43792,7 @@ def _child_numeric_reencoding_wrapper_replacements(
 
 
 def _rulespec_rule_formula_strings(rule: dict[str, object]) -> list[str]:
-    versions = rule.get("versions")
+    versions = effective_versions(rule)
     if not isinstance(versions, list):
         return []
     formulas: list[str] = []
@@ -46731,6 +46737,10 @@ def _derived_custom_proof_atom_kind(
             (),
         )
 
+    if not rule.get("versions") and str(atom.get("path") or "").strip() == "formula":
+        kind, reason = _proof_version_output_kind(rule, rule)
+        return _CustomProofAtomKindDerivation(kind, reason, ())
+
     versions = rule.get("versions")
     if not isinstance(versions, list) or not versions:
         return _CustomProofAtomKindDerivation(
@@ -48744,7 +48754,7 @@ def _generated_rule_formula_identifiers(rule: dict[str, Any]) -> set[str]:
         local_reference_name(name)
         for name in relation_source_names(rule.get("derived_relation"))
     }
-    versions = rule.get("versions")
+    versions = effective_versions(rule)
     if not isinstance(versions, list):
         return identifiers
     for version in versions:
@@ -50020,7 +50030,7 @@ def _rulespec_rule_formula_texts_for_generated_repair(
     rule: dict[str, Any],
 ) -> list[str]:
     formulas: list[str] = []
-    versions = rule.get("versions")
+    versions = effective_versions(rule)
     if not isinstance(versions, list):
         return formulas
     for version in versions:
@@ -52217,7 +52227,7 @@ def _set_rule_entity_to_person(rule: dict[str, object]) -> bool:
 
 
 def _first_rule_formula(rule: dict[str, object]) -> str:
-    versions = rule.get("versions")
+    versions = effective_versions(rule)
     if not isinstance(versions, list):
         return ""
     for version in versions:

@@ -782,3 +782,394 @@ def test_every_existing_filtered_entity_fixture_keeps_its_name_findings(
 @given(st.sampled_from(LEGACY_FILTERED_FIXTURES))
 def test_filtered_entity_regression_property(tmp_path, fixture):
     assert_legacy_filtered_findings(*fixture, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "formula,predicate,expected",
+    [
+        ("len(candidate)", False, {"candidate"}),
+        ("len(period_start)", False, {"period_start"}),
+        ("len((members))", False, {"members"}),
+        ("sum((members).age)", False, {"members"}),
+        ("only(members.age)", False, {"members"}),
+        ("min(members.age)", False, {"members"}),
+        ("max(members.age)", False, {"members"}),
+        ("count_where(members, eligible)", False, {"members"}),
+        ("sum_where(members, amount, eligible)", False, {"members"}),
+        ("min_where(members, amount, eligible)", False, {"members"}),
+        ("max_where(members, amount, eligible)", False, {"members"}),
+        ("only_related(members, eligible)", False, {"members"}),
+        ("min(candidate.age)", True, set()),
+        ("min(age, 22)", False, set()),
+        ("members", False, set()),
+        ("candidate", False, set()),
+        ("sum_over_periods(amount, period_start, period_end)", False, set()),
+    ],
+)
+def test_relation_arguments_follow_native_function_positions(formula, predicate, expected):
+    assert analyze_relation_predicate(
+        formula, predicate_terms=predicate
+    ).relation_arguments == expected
+
+
+def test_scalar_formula_scans_keep_ordinary_role_named_inputs():
+    rule = {"kind": "derived", "versions": [{"formula": "anchor + candidate"}]}
+    assert analyze_relation_predicate(
+        "anchor + candidate", predicate_terms=False
+    ).identifiers == {"anchor", "candidate"}
+    assert source_completeness._rule_formula_identifiers(rule) == {"anchor", "candidate"}
+    assert same_case_execution._formula_names("anchor + candidate") == {"anchor", "candidate"}
+    assert formula_identifiers("anchor + candidate") == {"anchor", "candidate"}
+
+
+def _owned_default_program(tmp_path, *, provider_default, local_default):
+    """Build synthetic encoder test inputs, never corpus modules."""
+    root = tmp_path / "rulespec-us/us"
+    module = root / "policies/example/predicate.yaml"
+    module.parent.mkdir(parents=True)
+    provider = {
+        "format": "rulespec/v1",
+        "inputs": {
+            "raw_flag": {"entity": "Person", "dtype": "Judgment"},
+            "unused_fact": {"entity": "Person", "dtype": "Judgment", "default": False},
+        },
+        "rules": [{
+            "name": "eligible", "kind": "derived", "entity": "Person",
+            "dtype": "Judgment", "period": "Month",
+            "versions": [{"effective_from": "2026-01-01", "formula": "raw_flag"}],
+        }],
+    }
+    if provider_default:
+        provider["inputs"]["raw_flag"]["default"] = False
+    payload = {
+        "format": "rulespec/v1",
+        "imports": ["us:policies/example/provider#eligible"],
+        "inputs": {"raw_flag": {"entity": "Person", "dtype": "Judgment"}},
+        "rules": [
+            {"name": "people", "kind": "data_relation", "data_relation": {
+                "arity": 2, "arguments": ["Person", "Person"],
+            }},
+            {"name": "selected", "kind": "derived_relation", "derived_relation": {
+                "arity": 2, "slot_entities": ["Person", "Person"],
+                "current_slot": 0, "related_slot": 1, "source_relation": "people",
+            }, "versions": [{"effective_from": "2026-01-01", "formula": "candidate.eligible"}]},
+            {"name": "selected_count", "kind": "derived", "entity": "Person",
+             "dtype": "Integer", "period": "Month", "versions": [{
+                 "effective_from": "2026-01-01", "formula": "len(selected)",
+             }]},
+        ],
+    }
+    if local_default:
+        payload["inputs"]["raw_flag"]["default"] = False
+    for path, document in [(module, payload), (module.with_name("provider.yaml"), provider)]:
+        path.write_text("# Synthetic encoder test input; not a RuleSpec module.\n" + yaml.safe_dump(document))
+    return root, module
+
+
+@pytest.mark.parametrize("provider_default,local_default", [(True, False), (False, True), (True, True), (False, False)])
+def test_imported_predicate_helper_defaults_keep_input_ownership(tmp_path, provider_default, local_default):
+    root, module = _owned_default_program(
+        tmp_path, provider_default=provider_default, local_default=local_default
+    )
+    expected = ([
+        "[relation-input-default] Input `us:policies/example/provider#input.raw_flag` "
+        "read by derived relation `selected` must not declare a default. "
+        "Supply the fact explicitly."
+    ] if provider_default else [])
+    assert validation.find_relation_role_issues(
+        module.read_text(), rules_file=module, policy_repo_path=root
+    ) == expected
+
+
+@pytest.mark.parametrize("provider_default,local_default", [(True, False), (False, True)])
+@pytest.mark.parametrize("omit_optional", [False, True])
+def test_imported_predicate_helper_default_counterexamples_compile(tmp_path, real_engine, provider_default, local_default, omit_optional):
+    root, module = _owned_default_program(
+        tmp_path, provider_default=provider_default, local_default=local_default
+    )
+    result = subprocess.run([
+        str(real_engine.binary), "compile", "--program", str(module),
+        "--rulespec-root", str(root.parent), "--output", str(tmp_path / "artifact.json"),
+    ], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    compiled = yaml.safe_load((tmp_path / "artifact.json").read_text())
+    if omit_optional:
+        helper = next(rule for rule in compiled["program"]["derived"] if rule["name"] == "eligible")
+        helper.pop("id", None)
+        helper.pop("versions", None)
+    expected = ([
+        "[relation-input-default] Input `us:policies/example/provider#input.raw_flag` "
+        "read by derived relation `selected` must not declare a default. "
+        "Supply the fact explicitly."
+    ] if provider_default else [])
+    assert validation.find_relation_role_issues(
+        module.read_text(), rules_file=module, policy_repo_path=root,
+        compiled_payload=compiled,
+    ) == expected
+    # Unrelated scalar operators do not widen relation predicate validation.
+    compiled["program"]["derived"].append({
+        "id": "us:policies/example/predicate#unrelated",
+        "name": "unrelated", "expr": {"kind": "future_operator"},
+    })
+    assert validation.find_relation_role_issues(
+        module.read_text(), rules_file=module, policy_repo_path=root,
+        compiled_payload=compiled,
+    ) == expected
+
+
+def _mixed_alias_payload(alias, formula):
+    """Build a synthetic mixed-form encoder input, never a corpus module."""
+    payload = {'format': 'rulespec/v1',
+     'rules': [{'data_relation': {'arguments': ['Person', 'Household'], 'arity': 2},
+                'kind': 'data_relation',
+                'name': 'roster'},
+               {'dtype': 'Integer',
+                'entity': 'Person',
+                'kind': 'derived',
+                'name': 'person_marker',
+                'period': 'Month',
+                'versions': [{'effective_from': '2026-01-01', 'formula': 'age'}]},
+               {'dtype': 'Integer',
+                'entity': 'Household',
+                'kind': 'derived',
+                'name': 'household_marker',
+                'period': 'Month',
+                'versions': [{'effective_from': '2026-01-01', 'formula': 1}]},
+               {'derived_relation': {'arity': 2,
+                                     'current_slot': 1,
+                                     'entity': 'SnapUnit',
+                                     'member_relation': 'members',
+                                     'related_slot': 0,
+                                     'slot_entities': ['Person', 'Household'],
+                                     'source_relation': 'roster'},
+                'kind': 'derived_relation',
+                'name': 'legacy_unit',
+                'versions': [{'effective_from': '2026-01-01', 'formula': True}]},
+               {'dtype': 'Integer',
+                'entity': 'SnapUnit',
+                'kind': 'derived',
+                'name': 'legacy_count',
+                'period': 'Month',
+                'versions': [{'effective_from': '2026-01-01', 'formula': 'legacy_unit'}]},
+               {'derived_relation': {'arity': 2,
+                                     'current_slot': 1,
+                                     'related_slot': 0,
+                                     'slot_entities': ['Person', 'Household'],
+                                     'source_relation': 'roster'},
+                'kind': 'derived_relation',
+                'name': 'role_members',
+                'versions': [{'effective_from': '2026-01-01',
+                              'formula': 'candidate.age >= 0'}]},
+               {'dtype': 'Integer',
+                'entity': 'Household',
+                'kind': 'derived',
+                'name': 'role_count',
+                'period': 'Month',
+                'versions': [{'effective_from': '2026-01-01',
+                              'formula': 'len(role_members)'}]}]}
+    for rule in payload["rules"]:
+        if rule["name"] == "legacy_unit":
+            rule["derived_relation"]["member_relation"] = alias
+        elif rule["name"] == "legacy_count":
+            rule["versions"][0]["formula"] = formula
+    return payload
+
+
+def _write_mixed_alias_program(tmp_path, payload):
+    root = tmp_path / "rulespec-us/us"
+    module = root / "policies/example/alias.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text("# Synthetic encoder test input; not a RuleSpec module.\n" + yaml.safe_dump(payload))
+    cases = [{"output": {
+        f"us:policies/example/alias#{rule['name']}": 1
+        for rule in payload["rules"] if rule["kind"] == "derived"
+    }}]
+    return root, module, cases
+
+
+@pytest.mark.parametrize("alias", ["members", "anchor", "candidate", "period_start", "min"])
+@pytest.mark.parametrize("aggregate", [False, True])
+def test_relation_coverage_requires_actual_aggregate_alias_arguments(tmp_path, alias, aggregate):
+    formula = f"len({alias})" if aggregate else alias
+    root, module, cases = _write_mixed_alias_program(tmp_path, _mixed_alias_payload(alias, formula))
+    expected = [] if aggregate else [
+        "Derived relation missing companion output coverage: "
+        "`us:policies/example/alias#legacy_unit` is not reached by an asserted "
+        "scalar output in the companion `.test.yaml` file."
+    ]
+    assert validation.find_missing_derived_companion_output_issues(
+        module.read_text(), cases, rules_file=module, policy_repo_path=root
+    ) == expected
+
+
+@pytest.mark.parametrize("judgment", [False, True])
+def test_scalar_bare_relation_name_does_not_cover_membership(tmp_path, judgment):
+    payload = _mixed_alias_payload("members", "legacy_unit")
+    if judgment:
+        next(rule for rule in payload["rules"] if rule["name"] == "legacy_count")["dtype"] = "Judgment"
+    root, module, cases = _write_mixed_alias_program(tmp_path, payload)
+    assert validation.find_missing_derived_companion_output_issues(
+        module.read_text(), cases, rules_file=module, policy_repo_path=root
+    ) == [
+        "Derived relation missing companion output coverage: "
+        "`us:policies/example/alias#legacy_unit` is not reached by an asserted "
+        "scalar output in the companion `.test.yaml` file."
+    ]
+
+
+def test_bare_relation_judgment_in_predicate_keeps_membership_dependency(tmp_path):
+    payload = _mixed_alias_payload("members", "len(members)")
+    next(rule for rule in payload["rules"] if rule["name"] == "role_members")["versions"][0]["formula"] = "legacy_unit"
+    root, module, cases = _write_mixed_alias_program(tmp_path, payload)
+    # Assert the wrapper for role_members only: its predicate reads legacy_unit.
+    cases[0]["output"].pop("us:policies/example/alias#legacy_count")
+    findings = validation.find_missing_derived_companion_output_issues(
+        module.read_text(), cases, rules_file=module, policy_repo_path=root
+    )
+    assert not any("#legacy_unit`" in finding for finding in findings)
+
+
+@pytest.mark.parametrize("alias,formula,kind", [
+    ("candidate", "candidate", "input"),
+    ("candidate", "len(candidate)", "count_related"),
+    ("period_start", "len(period_start)", "count_related"),
+    ("min", "min", "input"),
+    ("min", "len(min)", "count_related"),
+    ("members", "members", "input"),
+    ("members", "len(members)", "count_related"),
+    ("members", "legacy_unit", "input"),
+])
+def test_native_alias_counterexamples_keep_scalar_and_relation_positions_distinct(tmp_path, real_engine, alias, formula, kind):
+    root, module, _cases = _write_mixed_alias_program(tmp_path, _mixed_alias_payload(alias, formula))
+    artifact = tmp_path / "artifact.json"
+    result = subprocess.run([
+        str(real_engine.binary), "compile", "--program", str(module),
+        "--rulespec-root", str(root.parent), "--output", str(artifact),
+    ], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    compiled = yaml.safe_load(artifact.read_text())
+    rule = next(rule for rule in compiled["program"]["derived"] if rule["name"] == "legacy_count")
+    assert rule["expr"]["kind"] == kind
+
+
+def test_native_predicate_bare_membership_counterexample_compiles(tmp_path, real_engine):
+    payload = _mixed_alias_payload("members", "len(members)")
+    next(rule for rule in payload["rules"] if rule["name"] == "role_members")["versions"][0]["formula"] = "legacy_unit"
+    root, module, _cases = _write_mixed_alias_program(tmp_path, payload)
+    artifact = tmp_path / "artifact.json"
+    result = subprocess.run([
+        str(real_engine.binary), "compile", "--program", str(module),
+        "--rulespec-root", str(root.parent), "--output", str(artifact),
+    ], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    compiled = yaml.safe_load(artifact.read_text())
+    relation = next(relation for relation in compiled["program"]["relations"] if relation["name"].endswith("#relation.role_members"))
+    assert relation["derivation"]["predicate"]["kind"] == "relation_member"
+
+
+@pytest.mark.parametrize("collision", ["scalar_pair_input", "aggregate_alias_metadata"])
+def test_native_default_inventory_distinguishes_value_reads_and_alias_arguments(tmp_path, real_engine, collision):
+    payload = _mixed_alias_payload("members", "len(members)")
+    relation = next(rule for rule in payload["rules"] if rule["name"] == "role_members")
+    if collision == "scalar_pair_input":
+        payload["inputs"] = {"roster": {"entity": "Person", "dtype": "Judgment", "default": False}}
+        relation["versions"][0]["formula"] = "roster == true"
+    else:
+        payload["inputs"] = {"members": {"entity": "SnapUnit", "dtype": "Integer", "default": 0}}
+        payload["rules"].append({"name": "groups", "kind": "data_relation", "data_relation": {"arity": 2, "arguments": ["Household", "Household"]}})
+        relation["derived_relation"]["slot_entities"] = ["Household", "Household"]
+        relation["derived_relation"]["source_relation"] = "groups"
+        relation["versions"][0]["formula"] = "candidate.legacy_count >= 0"
+    root, module, _cases = _write_mixed_alias_program(tmp_path, payload)
+    artifact = tmp_path / "artifact.json"
+    result = subprocess.run([
+        str(real_engine.binary), "compile", "--program", str(module),
+        "--rulespec-root", str(root.parent), "--output", str(artifact),
+    ], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    compiled = yaml.safe_load(artifact.read_text())
+    expected = ([
+        "[relation-input-default] Input `roster` read by derived relation `role_members` "
+        "must not declare a default. Supply the fact explicitly."
+    ] if collision == "scalar_pair_input" else [])
+    assert validation.find_relation_role_issues(
+        module.read_text(), rules_file=module, policy_repo_path=root, compiled_payload=compiled
+    ) == expected
+    # An unknown native node must fail the inventory rather than erase checks.
+    next(relation for relation in compiled["program"]["relations"] if relation.get("derivation"))["derivation"]["predicate"] = {"kind": "future_operator"}
+    assert any(finding.startswith("[relation-input-analysis]") for finding in validation.find_relation_role_issues(
+        module.read_text(), rules_file=module, policy_repo_path=root, compiled_payload=compiled
+    ))
+
+
+def terminal_relation_payload(formula, *, relation_name="selected", member_alias=None):
+    payload = declaration("true")
+    relation = payload["rules"][-1]
+    relation["name"] = relation_name
+    entity = "Person"
+    if member_alias is not None:
+        entity = "SnapUnit"
+        relation["derived_relation"].update(entity=entity, member_relation=member_alias)
+    payload["rules"].append(
+        {
+            "name": "relation_count",
+            "kind": "derived",
+            "entity": entity,
+            "dtype": "Integer",
+            "period": "Month",
+            "versions": [{"effective_from": "2026-01-01", "formula": formula}],
+        }
+    )
+    return payload
+
+
+def assert_terminal_relation_use(tmp_path, payload, *, relation_name, consumed):
+    module = tmp_path / "terminal.yaml"
+    module.write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump(payload)
+    )
+    assert (
+        relation_name in evals._context_file_terminal_exports(str(module))
+    ) is not consumed
+    assert (
+        relation_name
+        in validation._rulespec_terminal_executable_names_from_payload(payload)
+    ) is not consumed
+
+
+@pytest.mark.parametrize(
+    "relation_name,formula,consumed",
+    [
+        ("min", "len(min)", True),
+        ("min", "min(age, 22)", False),
+        ("min", "min", False),
+        ("members", "len(members)", True),
+        ("members", "members", False),
+    ],
+)
+def test_terminal_relation_exports_distinguish_aggregate_call_and_input(
+    tmp_path, relation_name, formula, consumed
+):
+    assert_terminal_relation_use(
+        tmp_path,
+        terminal_relation_payload(formula, relation_name=relation_name),
+        relation_name=relation_name,
+        consumed=consumed,
+    )
+
+
+@pytest.mark.parametrize("member_alias", ["members", "anchor", "candidate"])
+@pytest.mark.parametrize("aggregate", [False, True])
+def test_terminal_relation_exports_follow_only_aggregated_filtered_aliases(
+    tmp_path, member_alias, aggregate
+):
+    formula = f"len({member_alias})" if aggregate else member_alias
+    assert_terminal_relation_use(
+        tmp_path,
+        terminal_relation_payload(
+            formula, relation_name="legal_unit", member_alias=member_alias
+        ),
+        relation_name="legal_unit",
+        consumed=aggregate,
+    )

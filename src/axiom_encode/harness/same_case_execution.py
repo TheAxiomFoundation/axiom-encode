@@ -20,6 +20,7 @@ from typing import Any, Iterator
 
 import yaml
 
+from axiom_encode.engine_pin_diff import effective_versions
 from axiom_encode.formula_references import (
     formula_identifiers,
     local_reference_name,
@@ -110,7 +111,7 @@ def _has_consumer(
     edges: dict[str, set[str]] = {}
     for name, rule in rules.items():
         names: set[str] = set()
-        versions = rule.get("versions", [])
+        versions = effective_versions(rule)
         if not isinstance(versions, list):
             return False
         for version in versions:

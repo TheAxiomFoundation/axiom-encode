@@ -42,6 +42,7 @@ from axiom_encode.bare_structure import (
     bare_outline,
     mask_bare_labels,
 )
+from axiom_encode.engine_pin_diff import effective_versions
 from axiom_encode.form_numeric_structure import form_numeric_locator_spans
 from axiom_encode.form_source_structure import mask_form_display
 from axiom_encode.formula_references import (
@@ -6056,10 +6057,12 @@ def _formula_proof_version_index(path: str) -> int | None:
 def _rule_formula_source_excerpts(
     rule: dict[str, Any],
 ) -> Iterable[tuple[str, str]]:
+    versions = effective_versions(rule)
+    flat = isinstance(versions, list) and len(versions) == 1 and versions[0] is rule
     return tuple(
         (citation_path, excerpt)
         for path, citation_path, excerpt in _rule_source_excerpt_atoms(rule)
-        if _formula_proof_version_index(path) is not None
+        if _formula_proof_version_index(path) is not None or (flat and path == "formula")
     )
 
 
@@ -6277,7 +6280,7 @@ def _formula_dependency_source_excerpts(
     """Include direct parameter evidence consumed by a principal formula."""
 
     excerpts = list(_rule_formula_source_excerpts(rule))
-    versions = rule.get("versions")
+    versions = effective_versions(rule)
     if not isinstance(versions, list):
         return tuple(excerpts)
     dependency_names = {
@@ -38178,7 +38181,7 @@ def _non_boolean_inputs(case: dict[str, Any]) -> dict[str, Any]:
 
 
 def _rule_formula_text(rule: dict[str, Any]) -> str:
-    versions = rule.get("versions")
+    versions = effective_versions(rule)
     if not isinstance(versions, list):
         return ""
     return "\n".join(

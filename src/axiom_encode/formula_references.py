@@ -81,9 +81,12 @@ class RelationPredicateReferences:
     out_of_scope_variables: frozenset[str]
     unbound_atom_terms: frozenset[str]
     qualified_reads: frozenset[str]
+    relation_arguments: frozenset[str]
 
 
-def analyze_relation_predicate(formula: str) -> RelationPredicateReferences:
+def analyze_relation_predicate(
+    formula: str, *, predicate_terms: bool = True
+) -> RelationPredicateReferences:
     """Follow the scope of every well-shaped bounded quantifier.
 
     Invalid syntax remains visible to the engine. In particular, this walk
@@ -160,13 +163,47 @@ def analyze_relation_predicate(formula: str) -> RelationPredicateReferences:
                         continue
             index += 1
 
-    discover(0, len(tokens), _TERMS)
+    terms = _TERMS if predicate_terms else frozenset()
+    if predicate_terms:
+        discover(0, len(tokens), terms)
     bound = frozenset(bindings.values())
     names: set[str] = set()
     atoms: set[str] = set()
     out_of_scope: set[str] = set()
     unbound_terms: set[str] = set()
     qualified_reads: set[str] = set()
+    relation_arguments: set[str] = set()
+
+    def unwrap(start: int, end: int) -> tuple[int, int]:
+        while start < end and tokens[start] == "(" and closes.get(start) == end - 1:
+            start, end = start + 1, end - 1
+        return start, end
+
+    def relation_argument(
+        function: str, parts: list[tuple[int, int]], scope: frozenset[str]
+    ) -> None:
+        # These positions mirror formula.rs's relation reductions. Temporal
+        # reductions read scalar rules, and ordinary min/max calls read values.
+        if not parts:
+            return
+        start, end = unwrap(*parts[0])
+        field = end - start >= 3 and tokens[end - 2] == "."
+        if field:
+            start, object_end = unwrap(start, end - 2)
+        else:
+            object_end = end
+        if object_end != start + 1 or not _IDENTIFIER.fullmatch(tokens[start]):
+            return
+        relation = tokens[start]
+        valid = (
+            function == "len"
+            or (function == "sum" and field)
+            or (function in {"only", "min", "max"} and len(parts) == 1 and field)
+            or (function in {"count_where", "only_related"} and len(parts) == 2 and not field)
+            or (function in {"sum_where", "min_where", "max_where"} and len(parts) == 3 and not field)
+        )
+        if valid and relation not in scope:
+            relation_arguments.add(relation)
 
     def walk(start: int, end: int, scope: frozenset[str]) -> None:
         index = start
@@ -181,12 +218,16 @@ def analyze_relation_predicate(formula: str) -> RelationPredicateReferences:
             if _IDENTIFIER.fullmatch(token):
                 is_call = index + 1 < end and tokens[index + 1] == "("
                 is_field = index > start and tokens[index - 1] == "."
+                if is_call and index + 1 in closes and token in _FUNCTIONS:
+                    relation_argument(
+                        token, arguments(index + 2, closes[index + 1]), scope
+                    )
                 if is_field and index >= 2 and tokens[index - 2] in scope:
                     qualified_reads.add(token)
                 if token in bound and token not in scope:
                     out_of_scope.add(token)
                 if (
-                    token not in _TERMS | bound
+                    token not in terms | bound
                     and (is_field or token not in _KEYWORDS)
                     and not (is_call and token in _FUNCTIONS)
                 ):
@@ -207,7 +248,7 @@ def analyze_relation_predicate(formula: str) -> RelationPredicateReferences:
                             unbound_terms.add(tokens[left])
             index += 1
 
-    walk(0, len(tokens), _TERMS)
+    walk(0, len(tokens), terms)
     return RelationPredicateReferences(
         identifiers=frozenset(names),
         atom_relations=frozenset(atoms),
@@ -215,6 +256,7 @@ def analyze_relation_predicate(formula: str) -> RelationPredicateReferences:
         out_of_scope_variables=frozenset(out_of_scope),
         unbound_atom_terms=frozenset(unbound_terms),
         qualified_reads=frozenset(qualified_reads),
+        relation_arguments=frozenset(relation_arguments),
     )
 
 

@@ -62,7 +62,9 @@ from axiom_encode.encode_timing import (
     mark_encode_phase,
     timed_phase,
 )
+from axiom_encode.engine_pin_diff import effective_versions
 from axiom_encode.formula_references import (
+    analyze_relation_predicate,
     formula_identifiers,
     local_reference_name,
     relation_source_names,
@@ -496,7 +498,7 @@ def _numeric_concept_name_occurrences(content: str) -> Counter[float]:
             name = str(rule.get("name") or "").strip()
             if name:
                 occurrences.update(_numeric_occurrences_from_concept_text(name))
-            versions = rule.get("versions")
+            versions = effective_versions(rule)
             if not isinstance(versions, list):
                 continue
             for version in versions:
@@ -9160,7 +9162,7 @@ def _inline_table_formula_numeric_occurrences(content: str) -> Counter[float]:
         for rule in payload["rules"]:
             if not isinstance(rule, dict):
                 continue
-            versions = rule.get("versions")
+            versions = effective_versions(rule)
             if not isinstance(versions, list):
                 continue
             for version in versions:
@@ -15116,13 +15118,15 @@ def _context_file_executable_surfaces(source_path: str) -> dict[str, dict[str, o
         name = str(rule.get("name") or "").strip()
         if not name:
             continue
-        versions = rule.get("versions")
+        versions = effective_versions(rule)
         effective_dates: list[str] = []
         if isinstance(versions, list):
             for version in versions:
-                if isinstance(version, dict) and "effective_from" in version:
+                if isinstance(version, dict) and (
+                    "effective_from" in version or "from" in version
+                ):
                     effective_dates.append(
-                        str(version.get("effective_from") or "").strip()
+                        str(version.get("effective_from", version.get("from")) or "").strip()
                     )
         derived_relation = rule.get("derived_relation")
         relation_entity = ""
@@ -15292,7 +15296,7 @@ def _context_file_local_inputs(source_path: str) -> set[str]:
     for rule in rules:
         if not isinstance(rule, dict):
             continue
-        versions = rule.get("versions")
+        versions = effective_versions(rule)
         if not isinstance(versions, list):
             continue
         for version in versions:
@@ -15401,7 +15405,7 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
         if not name:
             continue
         exports.append(name)
-        versions = rule.get("versions")
+        versions = effective_versions(rule)
         if not isinstance(versions, list):
             continue
         for version in versions:
@@ -15424,6 +15428,16 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
     rules_by_name = {
         rule.get("name"): rule for rule in rules if isinstance(rule, dict)
     }
+    relation_names = {
+        name for name, rule in rules_by_name.items()
+        if rule.get("kind") == "derived_relation"
+    }
+    filtered_aliases: dict[tuple[str, str], set[str]] = {}
+    for name in relation_names:
+        config = rules_by_name[name].get("derived_relation")
+        if isinstance(config, dict) and config.get("member_relation"):
+            key = (str(config["member_relation"]), str(config.get("entity") or ""))
+            filtered_aliases.setdefault(key, set()).add(name)
     for owner, formula in formulas:
         rule = rules_by_name[owner]
         identifiers = formula_identifiers(
@@ -15433,6 +15447,20 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
             local_reference_name(source)
             for source in relation_source_names(rule.get("derived_relation"))
         )
+        if rule.get("kind") != "derived_relation":
+            # Scalar bare names are inputs, including names shared with a
+            # relation or filtered member alias. Aggregates supply relation
+            # dependencies without changing the existing scalar export walk.
+            relation_arguments = analyze_relation_predicate(
+                formula, predicate_terms=False
+            ).relation_arguments
+            relation_dependencies = set(relation_arguments) & relation_names
+            for alias in relation_arguments:
+                relation_dependencies.update(
+                    filtered_aliases.get((alias, str(rule.get("entity") or "")), set())
+                )
+            identifiers.difference_update(relation_names)
+            referenced.update(relation_dependencies & export_names)
         referenced.update(
             identifier
             for identifier in identifiers
@@ -18051,7 +18079,7 @@ def _extract_simple_rulespec_constant(
             for rule in payload["rules"]:
                 if not isinstance(rule, dict) or rule.get("name") != var_name:
                     continue
-                versions = rule.get("versions")
+                versions = effective_versions(rule)
                 if not isinstance(versions, list):
                     continue
                 for version in versions:
@@ -18161,7 +18189,7 @@ def _policyengine_hint_upstream_composition_issues(
             rule = rules_by_name.get(rule_name)
             if not isinstance(rule, dict):
                 continue
-            versions = rule.get("versions")
+            versions = effective_versions(rule)
             if not isinstance(versions, list):
                 continue
             for version in versions:

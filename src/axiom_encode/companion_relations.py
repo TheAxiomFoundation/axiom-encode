@@ -17,8 +17,14 @@ def uses_relation_roles(relations: list[dict[str, Any]] | None) -> bool:
             return any(walk(item) for item in value)
         if not isinstance(value, dict):
             return False
+        derivation = value.get("derivation")
+        # Constant anchored views need the same pair-fact contract even when
+        # their predicates lower to ordinary IR. The native artifact retains
+        # an entity field for a legacy filtered entity, with or without an alias.
+        anchored = isinstance(derivation, dict) and not derivation.get("entity")
         return (
-            value.get("kind") in _RELATION_ROLE_KINDS
+            anchored
+            or value.get("kind") in _RELATION_ROLE_KINDS
             or "source_path" in value
             or any(walk(item) for item in value.values())
         )
