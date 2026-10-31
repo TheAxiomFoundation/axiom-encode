@@ -36110,6 +36110,13 @@ def _rulespec_reference_summary(target_file: Path) -> _RuleSpecReferenceSummary:
     rules = payload.get("rules")
     if not isinstance(rules, list):
         return summary
+    # Ordinary scalar reads need imported kinds only for a local name collision.
+    # Relation predicates also need them for imported relation-spelled inputs.
+    if not any(
+        isinstance(rule, dict) and rule.get("kind") == "derived_relation"
+        for rule in rules
+    ) and not _rulespec_relation_value_input_names(payload):
+        return summary
     # Imported declaration kinds can change without changing this file's cache
     # key. Classify the predicate overlay outside the target-only cache.
     imports = payload.get("imports")

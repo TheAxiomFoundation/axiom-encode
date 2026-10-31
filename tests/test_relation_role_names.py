@@ -705,15 +705,25 @@ def test_role_reads_reach_context_and_source_dependency_walks(tmp_path):
     ) == {"pair", "imported_rule"}
 
 
-def legacy_filtered_fixtures():
-    """Read every tracked constant fixture instead of copying selected examples."""
-    root = Path(__file__).parents[1]
+BASELINE = yaml.safe_load((FIXTURES / "legacy_filtered_findings.yaml").read_text())
+
+
+def legacy_filtered_fixtures(*, root=None, baseline_commit=None):
+    """Read current fixtures from every test file present at the pinned base."""
+    root = root or Path(__file__).parents[1]
+    baseline_commit = baseline_commit or BASELINE["baseline_commit"]
     filenames = subprocess.check_output(
-        ["git", "ls-files", "tests/test_*.py"], cwd=root, text=True
+        ["git", "ls-tree", "-r", "--name-only", baseline_commit, "tests"],
+        cwd=root,
+        text=True,
     ).splitlines()
     fixtures = []
     for filename in filenames:
-        if filename == "tests/test_relation_role_names.py":
+        if (
+            not filename.startswith("tests/test_")
+            or not filename.endswith(".py")
+            or filename == "tests/test_relation_role_names.py"
+        ):
             continue
         source = (root / filename).read_text()
         if "member_relation" not in source:
@@ -737,7 +747,54 @@ def legacy_filtered_fixtures():
 
 
 LEGACY_FILTERED_FIXTURES = legacy_filtered_fixtures()
-BASELINE = yaml.safe_load((FIXTURES / "legacy_filtered_findings.yaml").read_text())
+
+
+def test_legacy_fixture_inventory_ignores_files_added_after_base(tmp_path):
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    content = (
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        "format: rulespec/v1\nrules:\n- name: old\n  kind: derived_relation\n"
+        "  derived_relation: {entity: SnapUnit, member_relation: selected}\n"
+    )
+    original = tests / "test_old.py"
+    original.write_text("FIXTURE = " + repr(content) + "\n")
+
+    def git(*args):
+        return subprocess.check_output(
+            [
+                "git",
+                "-c",
+                "user.name=Synthetic test",
+                "-c",
+                "user.email=synthetic@example.com",
+                *args,
+            ],
+            cwd=tmp_path,
+            text=True,
+        ).strip()
+
+    git("init", "--quiet")
+    git("add", "tests/test_old.py")
+    git("commit", "--quiet", "-m", "Record the fixture base")
+    base = git("rev-parse", "HEAD")
+    added = tests / "test_added.py"
+    added.write_text("FIXTURE = " + repr(content.replace("name: old", "name: new")))
+    git("add", "tests/test_added.py")
+    # Keep reading current content in files that existed at the base.
+    original.write_text(
+        original.read_text()
+        + "CURRENT = "
+        + repr(content.replace("name: old", "name: current"))
+        + "\n"
+    )
+    fixtures = legacy_filtered_fixtures(root=tmp_path, baseline_commit=base)
+    assert len(fixtures) == 2
+    assert {label.rsplit(":", 1)[0] for label, _ in fixtures} == {"tests/test_old.py"}
+    assert {yaml.safe_load(text)["rules"][0]["name"] for _, text in fixtures} == {
+        "old",
+        "current",
+    }
 
 
 def fixture_identity(label, content):

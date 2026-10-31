@@ -194,6 +194,20 @@ def test_import_namespace_uses_the_canonical_jurisdiction_owner(tmp_path):
     assert local_slots(root, module, payload) == {"provided"}
 
 
+def test_scalar_collision_summary_reads_changed_import_kinds(tmp_path):
+    root, module, payload = material(tmp_path, provider_kind="derived")
+    scalar = payload["rules"][-1]
+    scalar["versions"][0]["formula"] = "provided + 1"
+    payload["rules"] = [relation("provided"), scalar]
+    write_input(module, payload)
+    assert validation._rulespec_reference_summary(module).input_slots == set()
+    write_input(
+        root / "us/statutes/provider.yaml",
+        {"format": "rulespec/v1", "rules": [relation("provided")]},
+    )
+    assert validation._rulespec_reference_summary(module).input_slots == {"provided"}
+
+
 def test_real_imported_relation_value_read_matches_compiled_input_owner(
     tmp_path, real_engine
 ):
