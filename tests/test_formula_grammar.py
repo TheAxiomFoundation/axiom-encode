@@ -658,3 +658,10 @@ def test_generated_ordinary_collision_reads_equal_compiled_artifact(
         assert (
             actual.relation_arguments | actual.atom_relations == expected["relations"]
         )
+
+
+def test_leading_tab_is_engine_whitespace():
+    tokens = tokenise("\ttrue")
+    assert [(token.kind, token.col) for token in tokens] == [("true", 2), ("eof", 6)]
+    assert parse_formula("\ttrue").kind == "true"
+    assert analyze_relation_predicate("\ttrue").parse_error is None

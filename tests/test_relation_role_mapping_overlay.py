@@ -51,6 +51,8 @@ def test_a2_paths_repair_mapping_normalizes_both_overlay_sides(
         )
         == ()
     )
+    module.write_text(LABEL + module.read_text())
+    assert module.read_text().startswith(LABEL)
     merged = yaml.safe_load(module.read_text())
     assert merged["inputs"] == [
         {"name": "amount", "dtype": "Integer", "entity": "Person"}
@@ -81,6 +83,8 @@ def test_a2_mapping_candidate_repair_compiles(tmp_path, real_engine):
     evals._overlay_validation_retry_candidate(
         module, artifact_root=root, candidate=candidate
     )
+    module.write_text(LABEL + module.read_text())
+    assert module.read_text().startswith(LABEL)
     compiled = subprocess.run(
         [
             str(real_engine.binary),

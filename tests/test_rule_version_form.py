@@ -22,7 +22,9 @@ def module_content(*, kind="derived", key="formula", versions=None):
     rule = {"name": "result", "kind": kind, key: "income + 100"}
     if versions is not None:
         rule["versions"] = versions
-    return yaml.safe_dump({"format": "rulespec/v1", "rules": [rule]})
+    return "# Synthetic encoder test input; not a RuleSpec module.\n" + yaml.safe_dump(
+        {"format": "rulespec/v1", "rules": [rule]}
+    )
 
 
 ISSUE = (
@@ -146,8 +148,18 @@ def test_generated_supplemental_repair_cannot_admit_flat_module():
 @pytest.mark.parametrize("restored", [False, True])
 def test_validation_retry_refuses_generated_and_restored_flat_rules(tmp_path, restored):
     module = tmp_path / "test.yaml"
-    preserved = module_content() if restored else yaml.safe_dump({"rules": []})
-    generated = yaml.safe_dump({"rules": []}) if restored else module_content()
+    preserved = (
+        module_content()
+        if restored
+        else "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump({"rules": []})
+    )
+    generated = (
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump({"rules": []})
+        if restored
+        else module_content()
+    )
     module.write_text(generated)
     with pytest.raises(ValueError, match="rule-version-form"):
         evals._overlay_validation_retry_candidate(
@@ -580,7 +592,8 @@ def test_generated_day_repair_reads_from_date(tmp_path, native_dates):
         )
     )
     case_file.write_text(
-        yaml.safe_dump(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump(
             [
                 {
                     "name": "example",

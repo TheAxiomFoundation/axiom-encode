@@ -559,7 +559,10 @@ def test_relation_predicate_consumes_a_helper_named_after_a_builtin(tmp_path):
     payload = declaration("candidate.min < limit")
     payload["rules"][2]["name"] = "min"
     module = tmp_path / "context.yaml"
-    module.write_text(yaml.safe_dump(payload))
+    module.write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump(payload)
+    )
     assert "min" not in evals._context_file_terminal_exports(str(module))
     assert "min" not in validation._rulespec_terminal_executable_names_from_payload(
         payload
@@ -586,7 +589,8 @@ def test_relation_atom_analysis_follows_the_import_closure(tmp_path):
     directory = root / "policies/example"
     directory.mkdir(parents=True)
     (directory / "base.yaml").write_text(
-        yaml.safe_dump(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump(
             {
                 "format": "rulespec/v1",
                 "rules": [
@@ -603,7 +607,8 @@ def test_relation_atom_analysis_follows_the_import_closure(tmp_path):
         )
     )
     (directory / "pair_export.yaml").write_text(
-        yaml.safe_dump(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump(
             {
                 "format": "rulespec/v1",
                 "rules": [],
@@ -615,7 +620,9 @@ def test_relation_atom_analysis_follows_the_import_closure(tmp_path):
     payload["imports"] = ["us:policies/example/pair_export"]
     content = yaml.safe_dump(payload)
     module = directory / "predicate.yaml"
-    module.write_text(content)
+    module.write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n" + content
+    )
     assert (
         validation.find_relation_role_issues(
             content, rules_file=module, policy_repo_path=root
@@ -684,7 +691,10 @@ def test_role_reads_reach_context_and_source_dependency_walks(tmp_path):
         "exists(pair(anchor, p), p.age < limit and candidate.income > 0)"
     )
     module = tmp_path / "context.yaml"
-    module.write_text(yaml.safe_dump(payload))
+    module.write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump(payload)
+    )
     assert evals._context_file_local_inputs(str(module)) == {"age", "income"}
     selected = payload["rules"][-1]
     assert source_completeness._rule_formula_identifiers(

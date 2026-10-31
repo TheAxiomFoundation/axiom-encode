@@ -75,7 +75,14 @@ def pair_relation_assignment_issues(
     completeness declaration. Assigning every base pair relation makes that
     closed-world choice explicit in each companion case.
     """
-    if not uses_relation_roles(relations):
+    try:
+        relation_role_program = uses_relation_roles(relations)
+    except RecursionError:
+        return [
+            "[relation-input-analysis] Cannot inventory native relation roles: "
+            "expression nesting exceeds Python analysis capacity."
+        ]
+    if not relation_role_program:
         return []
     inputs = case.get("input")
     assigned = set(map(str, inputs)) if isinstance(inputs, dict) else set()
