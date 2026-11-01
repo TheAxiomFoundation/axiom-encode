@@ -5673,6 +5673,7 @@ def _analyze_rulespec_payload(
         source_text=source_text,
         branches=branches,
         corpus_citation_path=corpus_citation_path,
+        hebrew_script=_candidate_holds_hebrew_script(payload, source_text),
     )
     named_rules = {
         str(rule.get("name") or "").strip(): rule
@@ -6154,18 +6155,50 @@ def _analyze_rulespec_payload(
     )
 
 
+def _candidate_holds_hebrew_script(
+    payload: Mapping[str, Any], source_text: str
+) -> bool:
+    """The wall's gate for a whole candidate (#1882).
+
+    True when the authoritative source or any deferral reason holds a
+    Hebrew-block code point, by the test `_deferred_coverage` applies to each
+    deferral.
+    """
+
+    module = payload.get("module")
+    records = module.get("deferred_outputs") if isinstance(module, Mapping) else None
+    reasons = (
+        [
+            str(record.get("reason") or "")
+            for record in records
+            if isinstance(record, Mapping)
+        ]
+        if isinstance(records, list)
+        else []
+    )
+    return hebrew_source_text.holds_hebrew_script(source_text, *reasons)
+
+
 def _rule_coverage(
     payload: dict[str, Any],
     *,
     source_text: str,
     branches: Sequence[SourceStructureBranch],
     corpus_citation_path: str,
+    hebrew_script: bool = False,
 ) -> tuple[
     set[tuple[str, ...]],
     set[tuple[str, ...]],
     dict[str, dict[str, Any]],
     dict[str, set[tuple[str, ...]]],
 ]:
+    """Collect the source paths each rule's ``source:`` and excerpts cover.
+
+    ``hebrew_script`` is the wall's gate (#1882): the candidate's source or a
+    deferral reason holds a Hebrew-block code point. Without it a rule's
+    ``source:`` is read as main reads it, whatever script it holds.
+    """
+
     all_paths: set[tuple[str, ...]] = set()
     principal_paths: set[tuple[str, ...]] = set()
     principal_rules: dict[str, dict[str, Any]] = {}
@@ -6182,6 +6215,7 @@ def _rule_coverage(
         paths = _paths_from_source_reference(
             str(rule.get("source") or ""),
             corpus_citation_path=corpus_citation_path,
+            hebrew_script=hebrew_script,
         )
         for excerpt_citation_path, excerpt in _rule_source_excerpts(rule):
             if (
@@ -6576,11 +6610,13 @@ def _paths_from_source_reference(
     source: str,
     *,
     corpus_citation_path: str,
+    hebrew_script: bool = False,
 ) -> set[tuple[str, ...]]:
     value = source.strip()
     if not value or not _source_reference_targets_authoritative_unit(
         value,
         corpus_citation_path=corpus_citation_path,
+        hebrew_script=hebrew_script,
     ):
         return set()
     paths: set[tuple[str, ...]] = set()
@@ -6635,9 +6671,15 @@ def _paths_from_source_reference(
             paths.add(
                 (*base_components, *_keyword_path_components(trailing, base_components))
             )
-    paths.update(
-        hebrew_source_text.native_source_reference_paths(value, corpus_citation_path)
-    )
+    # Native citations are read only behind the wall's gate (#1882): a
+    # Hebrew `source:` over an English source and reason is read as main
+    # reads it.
+    if hebrew_script:
+        paths.update(
+            hebrew_source_text.native_source_reference_paths(
+                value, corpus_citation_path
+            )
+        )
     if not paths:
         paths.add(())
     return paths
@@ -6683,8 +6725,13 @@ def _source_reference_targets_authoritative_unit(
     source: str,
     *,
     corpus_citation_path: str,
+    hebrew_script: bool = False,
 ) -> bool:
-    """Require branch claims to identify this unit, not merely a branch label."""
+    """Require branch claims to identify this unit, not merely a branch label.
+
+    ``hebrew_script`` gates the native citation as `_paths_from_source_reference`
+    does.
+    """
 
     candidates = _authoritative_source_unit_aliases(corpus_citation_path)
     if any(
@@ -6705,7 +6752,10 @@ def _source_reference_targets_authoritative_unit(
             source,
             flags=re.IGNORECASE,
         )
-    ) or hebrew_source_text.cites_current_section(source, corpus_citation_path)
+    ) or (
+        hebrew_script
+        and hebrew_source_text.cites_current_section(source, corpus_citation_path)
+    )
 
 
 def _authoritative_source_unit_aliases(
@@ -13783,7 +13833,10 @@ def _reason_cites_exact_current_statute_branch(
         return True
     # Israeli sources: the native citation `סעיף 14(ב)(2)` of the current
     # section, read through the same gematria transliteration as its path.
-    if hebrew_source_text.cites_current_branch(
+    # It reads only `reason`, and only when that holds Hebrew script (#1882).
+    if hebrew_source_text.holds_hebrew_script(
+        reason
+    ) and hebrew_source_text.cites_current_branch(
         reason,
         corpus_citation_path,
         path,
@@ -17583,11 +17636,13 @@ def _rule_cited_source_paths(
     *,
     branches: Sequence[SourceStructureBranch],
     corpus_citation_path: str,
+    hebrew_script: bool = False,
 ) -> set[tuple[str, ...]]:
     source = str(rule.get("source") or "").strip()
     paths = _paths_from_source_reference(
         source,
         corpus_citation_path=corpus_citation_path,
+        hebrew_script=hebrew_script,
     )
     if paths:
         return paths
@@ -18001,8 +18056,14 @@ def _source_condition_clauses_owned_by_excerpt(
     branches: Sequence[SourceStructureBranch],
     corpus_citation_path: str,
     narrow_conjunctive_excerpt: bool = True,
+    hebrew_script: bool | None = None,
 ) -> tuple[tuple[_SourceConditionClause, ...], bool]:
-    """Resolve exact proof text to rule-cited propositions, reporting ambiguity."""
+    """Resolve exact proof text to rule-cited propositions, reporting ambiguity.
+
+    ``hebrew_script`` is the wall's gate for native citations in the rule's
+    ``source:`` (#1882); a caller without the deferral reasons leaves it
+    ``None``, and the source text alone decides.
+    """
 
     excerpt_text = _collapse_text(excerpt)
     if not excerpt_text:
@@ -18068,6 +18129,11 @@ def _source_condition_clauses_owned_by_excerpt(
         rule,
         branches=ownership_branches,
         corpus_citation_path=corpus_citation_path,
+        hebrew_script=(
+            hebrew_source_text.holds_hebrew_script(source_text)
+            if hebrew_script is None
+            else hebrew_script
+        ),
     )
 
     def containing_branch(start: int, end: int) -> SourceStructureBranch | None:
@@ -19192,6 +19258,7 @@ def _opaque_same_source_condition_input_issues(
         }
 
     condition_row_ends = _corroborated_unless_row_ends(source_text)
+    hebrew_script = _candidate_holds_hebrew_script(payload, source_text)
     findings: list[tuple[str, int, int, frozenset[str]]] = []
     for rule_name, rule in sorted(principal_rules.items()):
         if (
@@ -19216,6 +19283,7 @@ def _opaque_same_source_condition_input_issues(
                     branches=branches,
                     corpus_citation_path=corpus_citation_path,
                     narrow_conjunctive_excerpt=len(excerpts) == 1,
+                    hebrew_script=hebrew_script,
                 )
                 factual_parent = _source_owned_residence_parent_clause(
                     excerpt,

@@ -74,6 +74,7 @@ def _format_coverage_index(
                 source_text=source_text,
                 branches=branches,
                 corpus_citation_path=citation,
+                hebrew_script=sc._candidate_holds_hebrew_script(payload, source_text),
             )
             bindings = sc._principal_formula_clause_rules(
                 formulas,

@@ -648,3 +648,56 @@ def test_review_finding_6_keeps_mains_source_unit_diagnostic():
     )
     assert "cites exact source branch" not in issue
     assert "gematria" not in issue
+
+
+# --- A rule's Hebrew `source:` annotation (round 22) ------------------------------
+#
+# The native citation helpers read a third input, a rule's own `source:`. They run
+# only behind the wall's gate: the candidate's source or a deferral reason holds
+# Hebrew. A Hebrew annotation over an English reason and source takes main's array.
+
+
+def _annotation_cases() -> list[dict]:
+    pinned = json.loads(MAIN_ISSUES.read_text())
+    assert pinned["main"] == MAIN
+    return pinned["annotation_cases"]
+
+
+def _annotation_controls() -> list[dict]:
+    pinned = json.loads(MAIN_ISSUES.read_text())["annotation_controls"]
+    assert pinned["pinned_at"] == "5dcf2bc13132673056dbd9f52a2b8794f0e6fe7b"
+    return pinned["cases"]
+
+
+@pytest.mark.parametrize("case", _annotation_cases(), ids=lambda case: case["id"])
+def test_a_hebrew_annotation_beside_english_text_keeps_mains_issue_array(case):
+    assert not hebrew_source_text.holds_hebrew_script(case["reason"], case["source"])
+    assert list(_case_issues(case)) == case["issues"]
+
+
+def test_the_annotation_cases_cover_the_review_frames():
+    by_id = {case["id"]: case for case in _annotation_cases()}
+    # Sol's minimized case and its `Nie`/`Lee` variants refuse on main; the
+    # canonical annotation accepts. A word and `Lee` agreeing is not enough.
+    for who in ("", ":Nie", ":Lee"):
+        assert (
+            'source: "סעיף 1(א)"' in by_id[f"en-source:hebrew-branch{who}"]["content"]
+        )
+        assert not _verdict(tuple(by_id[f"en-source:hebrew-branch{who}"]["issues"]))
+        assert _verdict(tuple(by_id[f"en-source:canonical{who}"]["issues"]))
+        assert not _verdict(tuple(by_id[f"en-source:unrecognized{who}"]["issues"]))
+
+
+@pytest.mark.parametrize("case", _annotation_controls(), ids=lambda case: case["id"])
+def test_a_hebrew_annotation_behind_the_gate_keeps_its_reading(case):
+    assert hebrew_source_text.holds_hebrew_script(case["reason"], case["source"])
+    assert list(_case_issues(case)) == case["issues"]
+
+
+def test_a_hebrew_annotation_over_a_hebrew_source_still_covers_its_branch():
+    (case,) = [
+        case
+        for case in _annotation_controls()
+        if case["id"] == "he-source:hebrew-branch"
+    ]
+    assert case["issues"] == []
