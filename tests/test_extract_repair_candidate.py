@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from axiom_encode.prepare_signed_backfill import immutable_atomic_source_contract
 from scripts.extract_repair_candidate import (
     MAX_ARCHIVE_MEMBERS,
     MAX_CANDIDATE_BYTES,
@@ -437,6 +438,75 @@ def test_extracts_bound_legacy_primary_after_dependent_failure(
     assert result["lane"] == "target"
     assert result["runner"] == "openai-gpt-5.6-sol"
     assert (Path(result["root"]) / "statutes/42/1437c-1.yaml").is_file()
+
+
+@pytest.mark.parametrize(
+    ("changed_field", "changed_value"),
+    [
+        ("corpus_artifact_run_id", "124"),
+        ("provision_export_run_ids", ["456", "790"]),
+    ],
+)
+def test_legacy_primary_replay_binds_corpus_transport_export_ids(
+    tmp_path, changed_field, changed_value
+):
+    archive, metadata = _archive(tmp_path)
+    primary_citation = "us/guidance/primary/source"
+    primary_path = "us/statutes/42/1437c-1.yaml"
+    dependent_citation = "us/statute/42/dependent"
+    transaction = {
+        "schema": "axiom-encode/atomic-source-transaction/v3",
+        "source_bundle": [],
+        "canonical_refresh_bundle": [],
+        "require_complete_source_unit": True,
+        "primary_required_test_cases": [{"name": "March boundary"}],
+    }
+    transport = {
+        "schema": "axiom-encode/corpus-artifact-transport/v1",
+        "transaction": transaction,
+        "corpus_artifact_run_id": "123",
+        "provision_export_run_ids": ["456", "789"],
+    }
+    prior_source = json.dumps(transport)
+    metadata.pop("source_bundle_input")
+    metadata["atomic_source_input"] = prior_source
+    metadata["citation"] = primary_citation
+    metadata["dependent_citation"] = dependent_citation
+    metadata["replace_legacy_rulespec_path"] = primary_path
+    metadata["generated_lanes"] = ["dependent", "target"]
+    metadata["files"] = [
+        entry
+        for entry in metadata["files"]
+        if not entry["path"].endswith(".repair.json")
+    ]
+    prior = _rewrite_metadata(archive, tmp_path / "transport-dependent.tar", metadata)
+    replay_args = {
+        "citation": primary_citation,
+        "dependent_citation": dependent_citation,
+        "replace_legacy_rulespec_path": primary_path,
+        "transaction_citation": primary_citation,
+        "transaction_rulespec_path": primary_path,
+    }
+
+    exact = extract_candidate(
+        _args(tmp_path, prior, atomic_source_json=prior_source, **replay_args)
+    )
+    assert exact["lane"] == "target"
+
+    changed_source = json.dumps({**transport, changed_field: changed_value})
+    assert immutable_atomic_source_contract(
+        changed_source
+    ) == immutable_atomic_source_contract(prior_source)
+    with pytest.raises(ValueError, match="exact prior source transport"):
+        extract_candidate(
+            _args(
+                tmp_path,
+                prior,
+                destination=tmp_path / "changed-export-ids",
+                atomic_source_json=changed_source,
+                **replay_args,
+            )
+        )
 
 
 def test_rejects_legacy_primary_when_required_test_contract_changes(tmp_path):
