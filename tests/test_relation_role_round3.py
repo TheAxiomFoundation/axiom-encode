@@ -284,3 +284,134 @@ def test_bare_relation_read_compiles_as_a_predicate(tmp_path, real_engine):
         tmp_path / "compiled.json",
     )
     assert compiled["program"]
+
+
+def scalar_module(root, name, payload):
+    module = root / f"us/policies/example/{name}.yaml"
+    module.parent.mkdir(parents=True, exist_ok=True)
+    module.write_text(LABEL + yaml.safe_dump({"format": "rulespec/v1", **payload}))
+    return module
+
+
+def scalar_rule(formula, *, dtype="Integer", name="result"):
+    return {
+        "name": name,
+        "kind": "derived",
+        "entity": "Person",
+        "dtype": dtype,
+        "versions": [{"effective_from": "2026-01-01", "formula": formula}],
+    }
+
+
+def parameter_rule(name):
+    return {
+        "name": name,
+        "kind": "parameter",
+        "dtype": "Integer",
+        "versions": [{"effective_from": "2026-01-01", "formula": 1}],
+    }
+
+
+def scalar_case(module, inputs, output):
+    target = "us:policies/example/" + module.stem
+    case = {
+        "name": "scalar",
+        "period": "2026-01",
+        "input": {f"{target}#input.{name}": value for name, value in inputs.items()},
+        "output": {f"{target}#result": output},
+    }
+    module.with_suffix(".test.yaml").write_text(LABEL + yaml.safe_dump([case]))
+
+
+def run_companions(tmp_path, real_engine, root, module, executor):
+    return _companions(
+        executor,
+        binary=real_engine.binary,
+        engine_root=real_engine.root,
+        root=root,
+        module=module,
+        artifact=tmp_path / "compiled.json",
+    )
+
+
+@pytest.mark.parametrize(
+    "executor,expected", [("cli", 0), ("validator", 1)], ids=["cli", "validator"]
+)
+def test_an_untyped_quoted_number_keeps_each_runners_own_meaning(
+    tmp_path, real_engine, executor, expected
+):
+    root = tmp_path / "rulespec-us"
+    module = scalar_module(
+        root, "codes", {"rules": [scalar_rule("if code == other: 1 else: 0")]}
+    )
+    scalar_case(module, {"code": "001", "other": "1"}, expected)
+    assert run_companions(tmp_path, real_engine, root, module, executor) == []
+
+
+@pytest.mark.parametrize("executor", ["cli", "validator"])
+@pytest.mark.parametrize(
+    "first,second", [("Text", "Integer"), ("Text", "Text")], ids=["clash", "same"]
+)
+def test_unread_imported_declarations_leave_a_consumer_input_alone(
+    tmp_path, real_engine, executor, first, second
+):
+    root = tmp_path / "rulespec-us"
+    for name, dtype in (("one", first), ("two", second)):
+        scalar_module(
+            root,
+            name,
+            {
+                "inputs": [{"name": "amount", "dtype": dtype}],
+                "rules": [parameter_rule(f"threshold_{name}")],
+            },
+        )
+    consumer = scalar_module(
+        root,
+        "consumer",
+        {
+            "imports": [
+                "us:policies/example/one#threshold_one",
+                "us:policies/example/two#threshold_two",
+            ],
+            "rules": [
+                scalar_rule(
+                    "amount == other and threshold_one == threshold_two",
+                    dtype="Judgment",
+                )
+            ],
+        },
+    )
+    scalar_case(consumer, {"amount": 1, "other": 1}, "holds")
+    assert run_companions(tmp_path, real_engine, root, consumer, executor) == []
+
+
+@pytest.mark.parametrize(
+    "executor,dtype,output",
+    [("validator", "Text", "not_holds"), ("cli", "Integer", "holds")],
+    ids=["text-stays-text", "number-converts"],
+)
+def test_a_co_reader_declaration_types_the_shared_slot(
+    tmp_path, real_engine, executor, dtype, output
+):
+    root = tmp_path / "rulespec-us"
+    scalar_module(
+        root,
+        "provider",
+        {
+            "inputs": [
+                {"name": "code", "dtype": dtype},
+                {"name": "other", "dtype": dtype},
+            ],
+            "rules": [scalar_rule("code == other", dtype="Judgment", name="matches")],
+        },
+    )
+    consumer = scalar_module(
+        root,
+        "consumer",
+        {
+            "imports": ["us:policies/example/provider#matches"],
+            "rules": [scalar_rule("code == other and matches", dtype="Judgment")],
+        },
+    )
+    scalar_case(consumer, {"code": "01", "other": "1"}, output)
+    assert run_companions(tmp_path, real_engine, root, consumer, executor) == []

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -26,6 +26,9 @@ _INPUT_DTYPES = frozenset(
         "date",
     }
 )
+_NUMERIC_DTYPES = frozenset(
+    {"integer", "int", "decimal", "float", "money", "rate", "number"}
+)
 
 
 def _normalized_dtype(dtype: Any) -> str | None:
@@ -39,9 +42,15 @@ def companion_scalar_value(
     value: Any,
     *,
     dtype: str | None = None,
-    relation_role_program: bool = False,
+    infer_numeric_text: bool,
 ) -> dict[str, Any]:
-    """Keep typed text distinct and preserve legacy scalar inference."""
+    """Convert one supplied scalar, keeping text that no type makes a number.
+
+    A numeric dtype converts quoted numbers in both runners. Without one,
+    `infer_numeric_text` keeps each runner's own handling: the pipeline reads
+    legacy quoted numbers as numbers, and the CLI and relation-role programs
+    keep them as text.
+    """
     if isinstance(value, bool):
         return {"kind": "bool", "value": value}
     if isinstance(value, int):
@@ -57,7 +66,7 @@ def companion_scalar_value(
         stripped = value.strip()
         if declared == "date":
             return {"kind": "date", "value": stripped}
-        if relation_role_program and not declared:
+        if declared not in _NUMERIC_DTYPES and not infer_numeric_text:
             if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
                 return {"kind": "date", "value": value}
             return {"kind": "text", "value": value}
@@ -133,27 +142,50 @@ def compiled_input_dtypes(payload: dict[str, Any]) -> dict[str, str]:
     return dtypes
 
 
-def input_dtype(dtypes: dict[str, str], key: str) -> str | None:
-    """Look up an input key, including rule-qualified input references."""
-    dtype = _normalized_dtype(dtypes.get(key))
-    if dtype is not None:
-        return dtype
+def compiled_input_readers(payload: dict[str, Any]) -> dict[str, tuple[str, ...]]:
+    """Map each slot and request name to the request names of the slot's readers."""
+    metadata = payload.get("metadata") or {}
+    readers: dict[str, tuple[str, ...]] = {}
+    for item in metadata.get("input_catalog") or []:
+        if not isinstance(item, dict):
+            continue
+        names = tuple(str(name) for name in item.get("request_names") or [])
+        for key in (item.get("slot"), *names):
+            if key:
+                readers[str(key)] = names
+    return readers
+
+
+def _input_reference(key: str) -> str:
+    """Drop a rule qualifier from an absolute input reference."""
     module, separator, fragment = key.partition("#")
     if separator and ".input." in fragment:
-        return _normalized_dtype(
-            dtypes.get(f"{module}#input.{fragment.rsplit('.input.', 1)[1]}")
-        )
-    return None
+        return f"{module}#input.{fragment.rsplit('.input.', 1)[1]}"
+    return key
+
+
+def input_dtype(dtypes: dict[str, str], key: str) -> str | None:
+    """Look up an input key, including rule-qualified input references."""
+    return _normalized_dtype(dtypes.get(key)) or _normalized_dtype(
+        dtypes.get(_input_reference(key))
+    )
 
 
 def declared_input_dtypes(
     module_file: Path,
     input_keys: Iterable[str],
     *,
+    input_readers: Mapping[str, Sequence[str]],
     resolve_reference: Callable[[str], Path | None],
-    resolve_import: Callable[[str, Path], Path | None],
 ) -> dict[str, str]:
-    """Resolve input dtypes from local declarations and the import closure."""
+    """Resolve input dtypes from the modules that read each input.
+
+    A module's `inputs:` block describes what its own rules read, so a
+    same-named declaration in a module that never reads this input says nothing
+    about it. `input_readers` holds the compiled catalog's reader names, one
+    `<module>#input.<slot>` per reader. Readers that disagree leave the input
+    untyped, and the engine still decides whether the value runs.
+    """
     import yaml
 
     if not module_file.is_file():
@@ -166,63 +198,38 @@ def declared_input_dtypes(
             payloads[path] = data if isinstance(data, dict) else {}
         return payloads[path]
 
-    def declarations(path):
-        values = payload(path).get("inputs") or []
+    def declaration(reference):
+        """Return the reference's declared dtype, or None without a declaration."""
+        if ":" in reference and "#" in reference:
+            target = resolve_reference(reference)
+            if target is None:
+                return None
+            name = reference.split("#", 1)[1].rsplit(".input.", 1)[-1]
+            name = name.removeprefix("input.")
+        else:
+            target, name = module_file, reference
+        values = payload(target).get("inputs") or []
         if isinstance(values, dict):
             values = [
                 {**item, "name": name}
                 for name, item in values.items()
                 if isinstance(item, dict)
             ]
-        return {
-            str(item["name"]): str(item.get("dtype") or "")
-            for item in values
-            if isinstance(item, dict) and item.get("name")
-        }
+        for item in values:
+            if isinstance(item, dict) and item.get("name") == name:
+                return str(item.get("dtype") or "")
+        return None
 
     dtypes = {}
-    unresolved = {}
     for key in input_keys:
         key = str(key)
-        if ":" in key and "#" in key:
-            target = resolve_reference(key)
-            if target is None:
-                continue
-            name = key.split("#", 1)[1].rsplit(".input.", 1)[-1]
-            name = name.removeprefix("input.")
-        else:
-            target, name = module_file, key
-        local = declarations(target)
-        if name in local:
-            if local[name]:
-                dtypes[key] = local[name]
-            continue
-        unresolved.setdefault(target, {}).setdefault(name, []).append(key)
-    for scope, keys_by_name in unresolved.items():
-        candidates = {name: {} for name in keys_by_name}
-        visited = {scope}
-        pending = [scope]
-        while pending:
-            current = pending.pop()
-            for imported in payload(current).get("imports") or []:
-                if not isinstance(imported, str):
-                    continue
-                target = resolve_import(imported, current)
-                if target is None or target in visited:
-                    continue
-                visited.add(target)
-                pending.append(target)
-                for name, dtype in declarations(target).items():
-                    if name in candidates and _normalized_dtype(dtype) is not None:
-                        candidates[name][target] = dtype
-        for name, matches in candidates.items():
-            if len(matches) > 1:
-                raise ValueError(
-                    f"input `{keys_by_name[name][0]}` has ambiguous imported "
-                    "declarations; use its declaring module's absolute `#input` "
-                    "reference"
-                )
-            if matches:
-                dtype = next(iter(matches.values()))
-                dtypes.update({key: dtype for key in keys_by_name[name]})
+        dtype = declaration(key)
+        if dtype is None:
+            found = {
+                _normalized_dtype(declaration(reader))
+                for reader in input_readers.get(_input_reference(key), ())
+            } - {None}
+            dtype = found.pop() if len(found) == 1 else None
+        if dtype:
+            dtypes[key] = dtype
     return dtypes

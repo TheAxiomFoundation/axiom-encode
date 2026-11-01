@@ -76,7 +76,9 @@ def _relation_predicate_proof_module(formula, *, path=False):
             "data_relation": {"arity": 2, "arguments": ["Person", "Person"]},
         },
     )
-    return yaml.safe_dump(payload, sort_keys=False)
+    return "# Synthetic encoder test input; not a RuleSpec module.\n" + yaml.safe_dump(
+        payload, sort_keys=False
+    )
 
 
 PROOF_MODULES = [

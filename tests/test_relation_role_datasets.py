@@ -516,3 +516,33 @@ def test_companion_paths_prefer_known_compiled_dtype_and_fall_back_to_declaratio
     cli, pipeline = _requests(tmp_path, case, payload)
     assert cli == pipeline
     assert cli["dataset"]["inputs"][0]["value"] == {"kind": kind, "value": value}
+
+
+@pytest.mark.parametrize("location", ["flat", "compact-row", "table"])
+def test_each_fact_location_keeps_each_runners_text_rule(tmp_path, location):
+    _fixture(tmp_path, predicate="candidate.age < 22", dtype=None)
+    row = {"id": "bob", AGE: "01"}
+    case = {"entity_id": "case", "input": {TIES: []}, "output": {OUTPUT: 0}}
+    if location == "flat":
+        case["input"].update({AGE: "01", PAIRS: []})
+    elif location == "compact-row":
+        case["input"][PAIRS] = [row]
+    else:
+        case["input"][PAIRS] = []
+        case["tables"] = {"Person": [row]}
+
+    def supplied(request):
+        return [
+            record["value"]
+            for record in request["dataset"]["inputs"]
+            if record["name"] == AGE
+        ]
+
+    text = [{"kind": "text", "value": "01"}]
+    legacy = _program()
+    del legacy["program"]["relations"][-1]["derivation"]
+    roles_cli, roles_pipeline = _requests(tmp_path, copy.deepcopy(case), _program())
+    assert supplied(roles_cli) == supplied(roles_pipeline) == text
+    legacy_cli, legacy_pipeline = _requests(tmp_path, copy.deepcopy(case), legacy)
+    assert supplied(legacy_cli) == text
+    assert supplied(legacy_pipeline) == [{"kind": "integer", "value": 1}]

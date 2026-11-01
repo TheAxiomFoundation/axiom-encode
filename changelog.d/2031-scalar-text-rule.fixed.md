@@ -1,0 +1,1 @@
+Keep each runner's own meaning for an untyped quoted scalar in a legacy program: the CLI keeps text and the pipeline keeps its numeric inference. Relation-role programs convert alike in both runners, and a declared numeric type converts in both.

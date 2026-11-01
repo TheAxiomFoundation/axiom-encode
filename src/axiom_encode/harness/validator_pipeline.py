@@ -83,6 +83,7 @@ from axiom_encode.companion_scalars import (
     companion_input_keys,
     companion_scalar_value,
     compiled_input_dtypes,
+    compiled_input_readers,
     declared_input_dtypes,
     input_dtype,
 )
@@ -38005,10 +38006,6 @@ class ValidatorPipeline:
             "".join(part.capitalize() for part in head.split("_") if part) or "Related"
         )
 
-    def _rulespec_scalar_value(self, value: Any) -> dict[str, Any]:
-        """Convert legacy scalar inputs through the shared companion converter."""
-        return companion_scalar_value(value)
-
     def _rulespec_expected_scalar_value(self, value: Any) -> dict[str, Any]:
         """Coerce expected output YAML values without interpreting strings."""
         if isinstance(value, bool):
@@ -38222,7 +38219,7 @@ class ValidatorPipeline:
                                 "value": companion_scalar_value(
                                     child_value,
                                     dtype=input_dtype(input_dtypes, str(child_name)),
-                                    relation_role_program=relation_role_program,
+                                    infer_numeric_text=not relation_role_program,
                                 ),
                             }
                         )
@@ -38266,7 +38263,7 @@ class ValidatorPipeline:
                 "value": companion_scalar_value(
                     value,
                     dtype=input_dtype(input_dtypes, input_key),
-                    relation_role_program=relation_role_program,
+                    infer_numeric_text=not relation_role_program,
                 ),
             }
             inputs.append(record)
@@ -38336,7 +38333,7 @@ class ValidatorPipeline:
                                 "value": companion_scalar_value(
                                     child_value,
                                     dtype=input_dtype(input_dtypes, str(child_name)),
-                                    relation_role_program=relation_role_program,
+                                    infer_numeric_text=not relation_role_program,
                                 ),
                             }
                         )
@@ -39337,21 +39334,9 @@ class ValidatorPipeline:
                 for key in companion_input_keys(case)
                 if input_dtype(compiled_dtypes, key) is None
             ),
+            input_readers=compiled_input_readers(compiled_payload),
             resolve_reference=resolve_reference,
-            resolve_import=lambda imported, current: (
-                _resolve_rulespec_import_file_static(
-                    imported,
-                    rules_file=current,
-                    policy_repo_path=(
-                        source_root
-                        if _rulespec_import_prefix_static(imported)
-                        else find_policy_repo_root(current) or source_root
-                    ),
-                    rulespec_dependency_roots=self.rulespec_dependency_roots,
-                )
-            ),
         )
-
         dtypes.update(compiled_dtypes)
         return dtypes
 

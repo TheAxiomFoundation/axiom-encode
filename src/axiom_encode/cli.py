@@ -122,6 +122,7 @@ from axiom_encode.companion_scalars import (
     companion_input_keys,
     companion_scalar_value,
     compiled_input_dtypes,
+    compiled_input_readers,
     declared_input_dtypes,
     input_dtype,
 )
@@ -5925,11 +5926,8 @@ def _execute_rulespec_test_case(
             rulespec_dependency_roots=rulespec_roots,
         ),
     )
-    compiled_dtypes = (
-        compiled_input_dtypes(json.loads(compiled_path.read_text()))
-        if compiled_path.is_file()
-        else {}
-    )
+    artifact = json.loads(compiled_path.read_text()) if compiled_path.is_file() else {}
+    compiled_dtypes = compiled_input_dtypes(artifact)
     input_dtypes = declared_input_dtypes(
         module_file,
         (
@@ -5937,19 +5935,10 @@ def _execute_rulespec_test_case(
             for key in companion_input_keys(case)
             if input_dtype(compiled_dtypes, key) is None
         ),
+        input_readers=compiled_input_readers(artifact),
         resolve_reference=lambda key: _rulespec_file_for_absolute_module_ref(
             key,
             policy_repo_path=policy_repo_path,
-            rulespec_dependency_roots=rulespec_roots,
-        ),
-        resolve_import=lambda target, current: _resolve_rulespec_import_file_static(
-            target,
-            rules_file=current,
-            policy_repo_path=(
-                policy_repo_path
-                if _rulespec_import_prefix_static(target)
-                else find_policy_repo_root(current) or policy_repo_path
-            ),
             rulespec_dependency_roots=rulespec_roots,
         ),
     )
@@ -6069,7 +6058,7 @@ def _execute_rulespec_test_case(
                             "value": companion_scalar_value(
                                 row_value,
                                 dtype=input_dtype(input_dtypes, str(row_key)),
-                                relation_role_program=relation_role_program,
+                                infer_numeric_text=False,
                             ),
                         }
                     )
@@ -6092,7 +6081,7 @@ def _execute_rulespec_test_case(
                 "value": companion_scalar_value(
                     value,
                     dtype=input_dtype(input_dtypes, key),
-                    relation_role_program=relation_role_program,
+                    infer_numeric_text=False,
                 ),
             }
             inputs.append(record)
@@ -6157,7 +6146,7 @@ def _execute_rulespec_test_case(
                             "value": companion_scalar_value(
                                 row_value,
                                 dtype=input_dtype(input_dtypes, str(row_key)),
-                                relation_role_program=relation_role_program,
+                                infer_numeric_text=False,
                             ),
                         }
                     )
@@ -6537,10 +6526,6 @@ def _translate_rulespec_engine_envelope_error(message: str) -> str:
         f"{cleaned} (the engine envelope is generated; check the companion "
         "fixture fields)"
     )
-
-
-def _rulespec_scalar_value(value) -> dict:
-    return companion_scalar_value(value)
 
 
 def _rulespec_parameter_value(

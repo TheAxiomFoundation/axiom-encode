@@ -1,0 +1,1 @@
+Find a companion input's declared type through the modules that read that input, from the compiled input catalog, instead of through same-named declarations anywhere in the import graph, so an unread imported declaration no longer refuses a consumer's own input.
