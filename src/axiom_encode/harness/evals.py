@@ -67,7 +67,8 @@ from axiom_encode.formula_references import (
     analyze_relation_predicate,
     formula_identifiers,
     local_reference_name,
-    relation_source_names,
+    local_relation_sources,
+    member_alias_entity,
     rule_lowering_entry,
     rule_uses_relation_predicate,
 )
@@ -15432,10 +15433,9 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
 
     export_names = set(exports)
     referenced: set[str] = {
-        local_reference_name(source)
+        source
         for rule in rules
-        if isinstance(rule, dict)
-        for source in relation_source_names(rule.get("derived_relation"))
+        for source in local_relation_sources(rule, payload.get("imports"))
     } & export_names
     rules_by_name = {rule.get("name"): rule for rule in rules if isinstance(rule, dict)}
     relation_names = {
@@ -15454,10 +15454,7 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
         identifiers = formula_identifiers(
             formula, relation_predicate=rule_uses_relation_predicate(rule)
         )
-        identifiers.update(
-            local_reference_name(source)
-            for source in relation_source_names(rule.get("derived_relation"))
-        )
+        identifiers.update(local_relation_sources(rule, payload.get("imports")))
         # A relation name in a value position reads an input in predicates too.
         # Only atoms, relation arguments and source declarations read relations.
         analyzed = analyze_relation_predicate(
@@ -15470,7 +15467,7 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
         relation_dependencies = set(relation_arguments) & relation_names
         for alias in relation_arguments:
             relation_dependencies.update(
-                filtered_aliases.get((alias, str(rule.get("entity") or "")), set())
+                filtered_aliases.get((alias, member_alias_entity(rule)), set())
             )
         identifiers.difference_update(relation_names)
         referenced.update(relation_dependencies & export_names)

@@ -639,6 +639,54 @@ def relation_source_names(config: object) -> set[str]:
     return names
 
 
+def rule_relation_sources(rule: object) -> set[str]:
+    """Read an executable derived relation's sources.
+
+    The engine ignores a `derived_relation` block on any other kind of rule.
+    """
+    if not isinstance(rule, Mapping) or rule.get("kind") != "derived_relation":
+        return set()
+    return relation_source_names(rule.get("derived_relation"))
+
+
+def local_relation_sources(
+    rule: object, imports: object = (), *, module: str | None = None
+) -> set[str]:
+    """Name the rules of this module that a derived relation reads as sources.
+
+    A bare source reads this module, and a full target reads the module it
+    names. `module` names this module when the caller knows it. Otherwise a
+    full target counts as local unless the module imports its owner, because
+    the engine also accepts a module's own target.
+    """
+    imported = {
+        item.partition("#")[0].strip()
+        for item in (imports if isinstance(imports, list) else ())
+        if isinstance(item, str)
+    }
+    names: set[str] = set()
+    for source in rule_relation_sources(rule):
+        owner, separator, _ = source.partition("#")
+        if (
+            not separator
+            or owner == module
+            or (module is None and owner not in imported)
+        ):
+            names.add(local_reference_name(source))
+    return names
+
+
+def member_alias_entity(rule: object) -> str | None:
+    """Name the entity whose member aliases a rule's relation reads resolve to.
+
+    The engine rewrites aliases in compiled rules of that entity, and never in
+    a derived relation's predicate.
+    """
+    if not isinstance(rule, Mapping) or rule.get("kind") == "derived_relation":
+        return None
+    return str(rule.get("entity") or "")
+
+
 def local_reference_name(reference: str) -> str:
     """Resolve the local symbol of an executable or relation import reference."""
     if "#" not in reference:

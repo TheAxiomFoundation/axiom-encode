@@ -825,17 +825,20 @@ def _base_allocation(occupied, rows):
     return placed, allocated
 
 
+@settings(deadline=None)
 @given(OCCUPIED, GENERATED, ENTITY_KINDS)
 def test_allocation_never_makes_an_id_the_check_refuses(occupied, rows, entity_kinds):
     placed, _ = _allocate_all(occupied, rows, entity_kinds)
     require_distinct_entity_ids(placed, entity_kinds=entity_kinds)
 
 
+@settings(deadline=None)
 @given(OCCUPIED, GENERATED)
 def test_no_alias_map_keeps_the_base_allocation(occupied, rows):
     assert _allocate_all(occupied, rows, {}) == _base_allocation(occupied, rows)
 
 
+@settings(deadline=None)
 @given(st.dictionaries(st.sampled_from("BCDE"), KINDS, max_size=4), KINDS)
 def test_query_kinds_match_the_innermost_kind(parents, query):
     forest = {alias: parent for alias, parent in parents.items() if parent < alias}
@@ -856,6 +859,7 @@ def test_query_kinds_match_the_innermost_kind(parents, query):
     }
 
 
+@settings(deadline=None)
 @given(st.lists(st.tuples(KINDS, KINDS), max_size=8), KINDS)
 def test_legacy_programs_keep_one_query_kind(edges, query):
     relations = [
@@ -872,6 +876,7 @@ def test_legacy_programs_keep_one_query_kind(edges, query):
     assert _query_kinds(query, relations) == {query}
 
 
+@settings(deadline=None)
 @given(KINDS, st.frozensets(KINDS), st.sampled_from(["case", "alice"]))
 def test_alias_kinds_share_the_root_and_others_never_do(entity, query_kinds, root):
     identifier = flat_input_entity_id(

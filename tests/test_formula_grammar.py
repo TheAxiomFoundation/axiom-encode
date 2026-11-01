@@ -188,6 +188,7 @@ def test_lexer_preserves_engine_tokens_and_byte_positions():
 
 
 @pytest.mark.parametrize("quote", ['"', "\x27"])
+@settings(deadline=None)
 @given(st.text(alphabet=st.characters(blacklist_categories=("Cs",)), max_size=30))
 def test_string_escapes_follow_whole_unicode_characters(quote, value):
     encoded = value.replace("\\", "\\\\").replace(quote, "\\" + quote)

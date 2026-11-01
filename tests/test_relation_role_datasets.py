@@ -225,9 +225,7 @@ def test_b5_compact_row_identity_never_becomes_a_factual_input(tmp_path, id_key)
     assert cli["dataset"]["relations"][0]["tuple"] == ["case", "alice"]
 
 
-@pytest.mark.parametrize("id_key", ["id", "entity_id"])
-@pytest.mark.parametrize("member_id", ["alice", 0, ""])
-def test_compact_row_metadata_applies_to_legacy_programs(tmp_path, id_key, member_id):
+def _legacy_requests(tmp_path, id_key, member_id):
     payload = _program()
     derivation = payload["program"]["relations"][-1]["derivation"]
     derivation["entity"] = "Person"
@@ -240,10 +238,28 @@ def test_compact_row_metadata_applies_to_legacy_programs(tmp_path, id_key, membe
         "input": {PAIRS: [{id_key: member_id, AGE: 20}], TIES: []},
         "output": {OUTPUT: 1},
     }
-    cli, pipeline = _requests(tmp_path, case, payload)
+    return _requests(tmp_path, case, payload)
+
+
+@pytest.mark.parametrize("id_key", ["id", "entity_id"])
+def test_compact_row_metadata_applies_to_legacy_programs(tmp_path, id_key):
+    cli, pipeline = _legacy_requests(tmp_path, id_key, "alice")
     assert cli == pipeline
-    assert cli["dataset"]["relations"][0]["tuple"] == ["case", str(member_id)]
+    assert cli["dataset"]["relations"][0]["tuple"] == ["case", "alice"]
     assert {record["name"] for record in cli["dataset"]["inputs"]} == {AGE}
+
+
+@pytest.mark.parametrize("id_key", ["id", "entity_id"])
+@pytest.mark.parametrize("member_id", [0, ""])
+def test_a_falsey_compact_id_takes_each_runners_fallback(tmp_path, id_key, member_id):
+    cli, pipeline = _legacy_requests(tmp_path, id_key, member_id)
+    assert cli["dataset"]["relations"][0]["tuple"] == ["case", "related_0"]
+    assert pipeline["dataset"]["relations"][0]["tuple"] == [
+        "case",
+        f"case-{PAIRS}-1",
+    ]
+    for request in (cli, pipeline):
+        assert {record["name"] for record in request["dataset"]["inputs"]} == {AGE}
 
 
 @pytest.mark.parametrize("row_ordered", [False, True])

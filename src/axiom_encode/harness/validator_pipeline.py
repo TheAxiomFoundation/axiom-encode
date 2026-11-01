@@ -67,6 +67,7 @@ from axiom_encode.companion_entities import (
     cross_entity_input_findings,
     declared_input_entities,
     flat_input_entity_id,
+    foreign_entity_ids,
     require_distinct_entity_ids,
     reserve_explicit_tuple_ids,
 )
@@ -139,8 +140,10 @@ from axiom_encode.formula_references import (
     analyze_relation_predicate,
     formula_identifiers,
     local_reference_name,
-    relation_source_names,
+    local_relation_sources,
+    member_alias_entity,
     rule_lowering_entry,
+    rule_relation_sources,
     rule_uses_relation_predicate,
 )
 from axiom_encode.harness.amendment_timing import amendment_timing_issues
@@ -20495,10 +20498,7 @@ def find_local_dependency_temporal_coverage_issues(content: str) -> list[str]:
                 if isinstance(formula, str)
                 else set()
             )
-            dependencies.update(
-                local_reference_name(source)
-                for source in relation_source_names(rule.get("derived_relation"))
-            )
+            dependencies.update(local_relation_sources(rule, payload.get("imports")))
             for dependency in sorted(dependencies & coverage_by_rule.keys()):
                 if _interval_is_covered(
                     effective_from,
@@ -21698,6 +21698,10 @@ def find_missing_derived_companion_output_issues(
     )
     reachable: set[str] = set()
     if relation_role_module:
+        own_target = _canonical_rulespec_file_target(
+            policy_repo_path=policy_repo_path, rules_file=rules_file, symbol=""
+        )
+        module = own_target.partition("#")[0] if own_target else None
         filtered_aliases: dict[tuple[str, str], set[str]] = {}
         for name, rule in local_rules.items():
             config = rule.get("derived_relation")
@@ -21723,15 +21727,14 @@ def find_missing_derived_companion_output_issues(
                     relation_refs.update(analyzed.atom_relations)
             # Value reads of relation-spelled names remain inferred inputs.
             names.difference_update(relation_names)
-            relation_refs.update(relation_source_names(rule.get("derived_relation")))
-            refs = {
-                local_reference_name(reference) for reference in names | relation_refs
-            }
+            refs = (
+                names
+                | relation_refs
+                | local_relation_sources(rule, payload.get("imports"), module=module)
+            )
             for reference in relation_refs:
                 refs.update(
-                    filtered_aliases.get(
-                        (reference, str(rule.get("entity") or "")), set()
-                    )
+                    filtered_aliases.get((reference, member_alias_entity(rule)), set())
                 )
             dependencies[name] = refs & local_rules.keys()
             target = _canonical_rulespec_file_target(
@@ -23553,16 +23556,14 @@ def find_relation_role_issues(
                 relation_arguments.update(analyzed.atom_relations)
             relation_arguments.update(
                 local_reference_name(reference)
-                for reference in relation_source_names(
-                    dependency.get("derived_relation")
-                )
+                for reference in rule_relation_sources(dependency)
             )
             # Aggregate relation arguments are not scalar input reads. Follow
             # filtered aliases to their predicates in the helper's entity.
             names.difference_update(relation_arguments)
             for alias in relation_arguments:
                 aliases = filtered_sources.get(
-                    (alias, str(dependency.get("entity") or "")), []
+                    (alias, member_alias_entity(dependency)), []
                 )
                 if len(aliases) == 1:
                     pending.extend(aliases)
@@ -31621,10 +31622,9 @@ def _rulespec_terminal_executable_names_from_payload(payload: Any) -> list[str]:
             key = (str(config["member_relation"]), str(config.get("entity") or ""))
             filtered_aliases.setdefault(key, set()).add(name)
     referenced: set[str] = {
-        local_reference_name(source)
+        source
         for rule in payload.get("rules", [])
-        if isinstance(rule, dict)
-        for source in relation_source_names(rule.get("derived_relation"))
+        for source in local_relation_sources(rule, payload.get("imports"))
     } & name_set
     for owner, kind, formula in _rulespec_rule_formulas(payload):
         identifiers = _formula_local_identifiers(
@@ -31642,7 +31642,7 @@ def _rulespec_terminal_executable_names_from_payload(payload: Any) -> list[str]:
         rule = rules_by_name[owner]
         for alias in relation_arguments:
             relation_dependencies.update(
-                filtered_aliases.get((alias, str(rule.get("entity") or "")), set())
+                filtered_aliases.get((alias, member_alias_entity(rule)), set())
             )
         identifiers.difference_update(relation_names)
         referenced.update(relation_dependencies & name_set)
@@ -32239,6 +32239,7 @@ def _rulespec_relation_import_reads(payload: dict[str, Any]) -> set[str]:
             and isinstance(config.get("member_relation"), str)
         ):
             aliases.setdefault(config["entity"], set()).add(config["member_relation"])
+    imported_names = frozenset(map(local_reference_name, imported))
     reads: set[str] = set()
     for rule in rules:
         predicate = rule_uses_relation_predicate(rule)
@@ -32246,14 +32247,14 @@ def _rulespec_relation_import_reads(payload: dict[str, Any]) -> set[str]:
             analyzed = analyze_relation_predicate(
                 formula,
                 predicate_terms=predicate,
-                relation_names=frozenset(map(local_reference_name, imported)),
+                relation_names=imported_names,
                 lowering_entry=rule_lowering_entry(rule),
             )
             reads |= (
                 set(analyzed.atom_relations) | set(analyzed.relation_arguments)
-            ) - aliases.get(str(rule.get("entity")), set())
+            ) - aliases.get(member_alias_entity(rule), set())
     for rule in derived_relations:
-        reads |= relation_source_names(rule.get("derived_relation"))
+        reads |= rule_relation_sources(rule)
     reads -= local_relations
     return {item for item in imported if {item, local_reference_name(item)} & reads}
 
@@ -32333,9 +32334,7 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                     unparsed_formulas.append(formula)
                 else:
                     referenced.update(analyzed.identifiers)
-            referenced |= (
-                relation_source_names(rule.get("derived_relation")) - local_relations
-            )
+            referenced |= rule_relation_sources(rule) - local_relations
             for import_payload in import_atoms:
                 target = str(import_payload.get("target") or "").strip()
                 symbol = str(import_payload.get("output") or "").strip()
@@ -33178,10 +33177,7 @@ def find_test_input_assignment_issues(
                 if isinstance(formula, str)
                 else set()
             )
-            identifiers.update(
-                local_reference_name(source)
-                for source in relation_source_names(rule.get("derived_relation"))
-            )
+            identifiers.update(local_relation_sources(rule, payload.get("imports")))
             formula_identifiers.update(identifiers)
             try:
                 effective_from = date.fromisoformat(
@@ -36023,6 +36019,8 @@ class _RuleSpecReferenceSummary:
     parameters: frozenset[str]
     relations: frozenset[str]
     input_slots: frozenset[str]
+    # Imported declarations decide how this module's relation reads count.
+    import_sensitive: bool = False
 
 
 def _rulespec_program_has_legal_ids(compiled_payload: dict[str, Any]) -> bool:
@@ -36111,20 +36109,10 @@ def _rulespec_reference_summary(target_file: Path) -> _RuleSpecReferenceSummary:
         stat.st_mtime_ns,
         stat.st_size,
     )
-    if not summary.relations:
+    if not summary.import_sensitive:
         return summary
-    payload = _rulespec_payload_from_file(cache_path)
+    payload = _rulespec_reference_payload(cache_path, stat.st_mtime_ns, stat.st_size)
     if payload is None:
-        return summary
-    rules = payload.get("rules")
-    if not isinstance(rules, list):
-        return summary
-    # Ordinary scalar reads need imported kinds only for a local name collision.
-    # Relation predicates also need them for imported relation-spelled inputs.
-    if not any(
-        isinstance(rule, dict) and rule.get("kind") == "derived_relation"
-        for rule in rules
-    ) and not _rulespec_relation_value_input_names(payload):
         return summary
     # Imported declaration kinds can change without changing this file's cache
     # key. Classify the predicate overlay outside the target-only cache.
@@ -36155,6 +36143,16 @@ def _rulespec_reference_summary(target_file: Path) -> _RuleSpecReferenceSummary:
         relations=summary.relations,
         input_slots=input_slots,
     )
+
+
+@functools.lru_cache(maxsize=256)
+def _rulespec_reference_payload(
+    target_file: Path,
+    _mtime_ns: int,
+    _size: int,
+) -> dict[str, Any] | None:
+    """Keep one parsed module for its reference summaries, which only read it."""
+    return _rulespec_payload_from_file(target_file)
 
 
 @functools.lru_cache(maxsize=8192)
@@ -36200,11 +36198,21 @@ def _rulespec_reference_summary_cached(
                     _indexed_by_input_names(rule.get("indexed_by"))
                 )
     input_slots = formula_identifiers - derived - parameters - relations
+    # Ordinary scalar reads need imported kinds only for a local name collision.
+    # Relation predicates also need them for imported relation-spelled inputs.
+    import_sensitive = bool(relations) and (
+        any(
+            isinstance(rule, dict) and rule.get("kind") == "derived_relation"
+            for rule in rules
+        )
+        or bool(_rulespec_relation_value_input_names(payload))
+    )
     return _RuleSpecReferenceSummary(
         derived=frozenset(derived),
         parameters=frozenset(parameters),
         relations=frozenset(relations),
         input_slots=frozenset(input_slots),
+        import_sensitive=import_sensitive,
     )
 
 
@@ -36401,7 +36409,7 @@ def _rulespec_declared_relation_slots(
         slot_entities = relation.get("slot_entities")
         if (
             isinstance(slot_entities, list)
-            and len(slot_entities) == 2
+            and slot_entities
             and all(isinstance(entity, str) and entity for entity in slot_entities)
         ):
             slots_by_name[str(relation["name"])] = tuple(slot_entities)
@@ -38115,6 +38123,9 @@ class ValidatorPipeline:
                     continue
                 if not value and relation_role_program:
                     continue
+                # Compact rows join a member to the query entity, so only a
+                # binary relation has their direction.
+                slots = slots if slots is None or len(slots) == 2 else None
                 current_slot = None
                 if slots is not None:
                     matching_slots = [
@@ -38367,10 +38378,8 @@ class ValidatorPipeline:
                     input_entity,
                     query_entity,
                     query_entity_id,
-                    reserved_entity_ids=(
-                        entity_id
-                        for entity_id, entities in occupied_entity_ids.items()
-                        if entities - {input_entity}
+                    reserved_entity_ids=foreign_entity_ids(
+                        occupied_entity_ids, input_entity, entity_kinds=entity_kinds
                     ),
                     query_kinds=query_kinds,
                 )

@@ -28,16 +28,15 @@ def relation_role_query_entity_id(case: dict[str, Any], query_entity: str) -> st
 def compact_relation_row(
     row: dict[str, Any], *, fallback_id: str
 ) -> tuple[str, bool, dict[str, Any]]:
-    """Separate a compact member's identity from its factual inputs."""
-    for key in ("id", "entity_id"):
-        if key in row:
-            entity_id, explicit = str(row[key]), True
-            break
-    else:
-        entity_id, explicit = fallback_id, False
+    """Separate a compact member's identity from its factual inputs.
+
+    The first truthy ID names the member, and a row without one takes
+    `fallback_id`, as main's pipeline runner read compact rows.
+    """
+    entity_id = row.get("id") or row.get("entity_id")
     return (
-        entity_id,
-        explicit,
+        str(entity_id or fallback_id),
+        bool(entity_id),
         {key: value for key, value in row.items() if key not in {"id", "entity_id"}},
     )
 

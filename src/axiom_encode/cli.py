@@ -106,6 +106,7 @@ from axiom_encode.companion_entities import (
     cross_entity_input_findings,
     declared_input_entities,
     flat_input_entity_id,
+    foreign_entity_ids,
     require_distinct_entity_ids,
     reserve_explicit_tuple_ids,
 )
@@ -134,7 +135,7 @@ from axiom_encode.formula_references import (
 )
 from axiom_encode.formula_references import (
     local_reference_name,
-    relation_source_names,
+    rule_relation_sources,
     rule_uses_relation_predicate,
 )
 from axiom_encode.rule_version_form import find_rule_version_form_issues
@@ -5987,6 +5988,9 @@ def _execute_rulespec_test_case(
                             }
                         )
                 continue
+            # Compact rows join a member to the query entity, so only a binary
+            # relation has their direction.
+            slots = slots if slots is None or len(slots) == 2 else None
             current_slot = None
             if slots is not None:
                 matching_slots = [
@@ -6181,10 +6185,8 @@ def _execute_rulespec_test_case(
                 input_entity,
                 query_entity,
                 root_entity_id,
-                reserved_entity_ids=(
-                    entity_id
-                    for entity_id, entities in occupied_entity_ids.items()
-                    if entities - {input_entity}
+                reserved_entity_ids=foreign_entity_ids(
+                    occupied_entity_ids, input_entity, entity_kinds=entity_kinds
                 ),
                 query_kinds=query_kinds,
             )
@@ -48892,10 +48894,7 @@ def _expand_affected_generated_rule_dependencies(
 
 
 def _generated_rule_formula_identifiers(rule: dict[str, Any]) -> set[str]:
-    identifiers = {
-        local_reference_name(name)
-        for name in relation_source_names(rule.get("derived_relation"))
-    }
+    identifiers = {local_reference_name(name) for name in rule_relation_sources(rule)}
     versions = effective_versions(rule)
     if not isinstance(versions, list):
         return identifiers

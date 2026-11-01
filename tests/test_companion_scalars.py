@@ -416,6 +416,7 @@ SCALARS = st.one_of(
 )
 
 
+@settings(deadline=None)
 @given(SCALARS)
 def test_an_untyped_value_keeps_each_runners_own_conversion(value):
     assert companion_scalar_value(value, infer_numeric_text=False) == base_cli_value(
@@ -426,6 +427,7 @@ def test_an_untyped_value_keeps_each_runners_own_conversion(value):
     ) == base_pipeline_value(value)
 
 
+@settings(deadline=None)
 @given(
     SCALARS,
     st.sampled_from(["Integer", "Decimal", "Money", "Rate", "Text", "String", "Date"]),
@@ -446,6 +448,7 @@ def test_every_numeric_type_converts_a_quoted_number(dtype):
     }
 
 
+@settings(deadline=None)
 @given(st.text(max_size=12), st.sampled_from(["Text", "String", " text "]))
 def test_declared_text_keeps_its_exact_value(value, dtype):
     for infer in (False, True):

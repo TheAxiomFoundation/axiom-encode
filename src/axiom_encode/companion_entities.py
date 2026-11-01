@@ -119,6 +119,22 @@ def _distinct_kinds(entities: set[str], entity_kinds: Mapping[str, str]) -> int:
     return len({entity_kinds.get(entity, entity) for entity in entities})
 
 
+def foreign_entity_ids(
+    occupied_entity_ids: Mapping[str, set[str]],
+    entity: str,
+    *,
+    entity_kinds: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Name the IDs another kind holds; a filtered entity is its IDs' kind."""
+    entity_kinds = entity_kinds or {}
+    kind = entity_kinds.get(entity, entity)
+    return [
+        entity_id
+        for entity_id, entities in occupied_entity_ids.items()
+        if {entity_kinds.get(item, item) for item in entities} - {kind}
+    ]
+
+
 def require_distinct_entity_ids(
     occupied_entity_ids: dict[str, set[str]],
     *,
@@ -227,7 +243,7 @@ def cross_entity_input_findings(
             if input_entity == output_entity:
                 continue
             if any(
-                input_entity in slots and output_entity in slots
+                len(slots) == 2 and input_entity in slots and output_entity in slots
                 for slots in declared_relation_slots.values()
             ):
                 continue

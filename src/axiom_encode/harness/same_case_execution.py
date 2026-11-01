@@ -24,7 +24,7 @@ from axiom_encode.engine_pin_diff import effective_versions
 from axiom_encode.formula_references import (
     formula_identifiers,
     local_reference_name,
-    relation_source_names,
+    rule_relation_sources,
     rule_uses_relation_predicate,
 )
 
@@ -127,8 +127,7 @@ def _has_consumer(
             if found is not None:
                 names.update(found)
         names.update(
-            local_reference_name(source)
-            for source in relation_source_names(rule.get("derived_relation"))
+            local_reference_name(source) for source in rule_relation_sources(rule)
         )
         edges[name] = names
 
