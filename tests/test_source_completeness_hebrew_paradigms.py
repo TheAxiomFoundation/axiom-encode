@@ -448,11 +448,13 @@ _INFINITIVES = {
 
 def _forms(row):
     family = _REGISTRIES[row["registry"]][row["family"]]
-    return tuple(
-        form
-        for form in getattr(family, row["slot"])
-        if form not in row.get("excluded_forms", {})
+    # A verb slot holds its second accepted spellings too (round 21).
+    slot = (
+        family.spellings(row["slot"])
+        if hasattr(family, "spellings") and row["slot"] != "forms"
+        else getattr(family, row["slot"])
     )
+    return tuple(form for form in slot if form not in row.get("excluded_forms", {}))
 
 
 def _prefixed(prefix: str, word: str, joint: str) -> str:

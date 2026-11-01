@@ -611,10 +611,58 @@ class VerbParadigm:
     future: tuple[str, str, str, str]
     infinitive: tuple[str, ...]
     missing_slots: dict[str, str]
+    # Second accepted spellings, by slot: a plene stem (``חוייב`` beside
+    # ``חויב``) or a holam written or left out (``תקומנה`` beside ``תקמנה``).
+    # The slot tuples keep one spelling per agreement slot.
+    variants: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+    def spellings(self, slot: str) -> tuple[str, ...]:
+        """Every accepted spelling of one slot: its own, then its variants."""
+
+        return _unique((*getattr(self, slot), *self.variants.get(slot, ())))
 
     @property
     def forms(self) -> tuple[str, ...]:
-        return _unique((*self.past, *self.present, *self.future, *self.infinitive))
+        return _unique(
+            (
+                *self.spellings("past"),
+                *self.spellings("present"),
+                *self.spellings("future"),
+                *self.infinitive,
+            )
+        )
+
+
+def with_spellings(
+    paradigm: VerbParadigm,
+    *,
+    plene: VerbParadigm | None = None,
+    **slots: tuple[str, ...],
+) -> VerbParadigm:
+    """``paradigm`` with second spellings: a whole plene paradigm, or listed forms."""
+
+    variants = {slot: tuple(forms) for slot, forms in slots.items()}
+    if plene is not None:
+        for slot in ("past", "present", "future"):
+            variants[slot] = _unique(
+                (
+                    *variants.get(slot, ()),
+                    *(
+                        form
+                        for form in getattr(plene, slot)
+                        if form not in getattr(paradigm, slot)
+                    ),
+                )
+            )
+    return VerbParadigm(
+        paradigm.name,
+        paradigm.past,
+        paradigm.present,
+        paradigm.future,
+        paradigm.infinitive,
+        paradigm.missing_slots,
+        {slot: forms for slot, forms in variants.items() if forms},
+    )
 
 
 def verb_paradigm(
@@ -681,7 +729,11 @@ def verb_paradigm(
 
 
 def compact_alternation(words: Iterable[str]) -> str:
-    """A factored trie: shared stems and endings, rather than flat literals."""
+    """A factored trie: shared stems and endings, rather than flat literals.
+
+    An empty list has no pattern: ``""`` would match the empty string rather
+    than nothing, so it raises.
+    """
 
     tree: dict = {}
     for word in sorted(set(words)):
@@ -689,6 +741,8 @@ def compact_alternation(words: Iterable[str]) -> str:
         for char in word:
             node = node.setdefault(char, {})
         node[""] = {}
+    if not tree or "" in tree:
+        raise ValueError("compact_alternation needs nonempty words")
 
     def emit(node: dict) -> str:
         optional = "" in node
@@ -816,11 +870,22 @@ VERB_PARADIGMS = {
             future_feminine_stem="תבדל",
             infinitive="להבדיל",
         ),
-        verb_paradigm("כפר", "כופר", "יכפור", future_plural="יכפר"),
-        verb_paradigm(
-            "נותר", "נותר", "יוותר", future_feminine="תיוותר", infinitive="להיוותר"
+        with_spellings(
+            verb_paradigm("כפר", "כופר", "יכפור", future_plural="יכפר"),
+            future=("יכפורו", "תכפרנה"),
         ),
-        verb_paradigm("עמד", "עומד", "יעמוד", future_plural="יעמד", infinitive="לעמוד"),
+        with_spellings(
+            verb_paradigm(
+                "נותר", "נותר", "יוותר", future_feminine="תיוותר", infinitive="להיוותר"
+            ),
+            future=("ייוותר", "ייוותרו"),
+        ),
+        with_spellings(
+            verb_paradigm(
+                "עמד", "עומד", "יעמוד", future_plural="יעמד", infinitive="לעמוד"
+            ),
+            future=("יעמודו", "תעמדנה"),
+        ),
         verb_paradigm("נשאר", "נשאר", "יישאר", infinitive="להישאר"),
         verb_paradigm(
             "המשיך",
@@ -837,21 +902,27 @@ VERB_PARADIGMS = {
         verb_paradigm("הוחל", "מוחל", "יוחל", infinitive="להחיל"),
         verb_paradigm("יושם", "מיושם", "ייושם", infinitive="ליישם"),
         verb_paradigm("הוטל", "מוטל", "יוטל", infinitive="להטיל"),
-        verb_paradigm("חויב", "מחויב", "יחויב", infinitive="לחייב"),
+        with_spellings(
+            verb_paradigm("חויב", "מחויב", "יחויב", infinitive="לחייב"),
+            plene=verb_paradigm("חוייב", "מחוייב", "יחוייב", infinitive="לחייב"),
+        ),
         verb_paradigm("נוצר", "נוצר", "ייווצר", infinitive="להיווצר"),
         verb_paradigm("צמח", "צומח", "יצמח", infinitive="לצמוח"),
         verb_paradigm(
             "חל", "חל", "יחול", feminine="he", future_plural="יחול", infinitive="לחול"
         ),
         verb_paradigm("הושת", "מושת", "יושת", infinitive="להשית"),
-        verb_paradigm(
-            "קם",
-            "קם",
-            "יקום",
-            feminine="he",
-            future_plural="יקומ",
-            future_feminine_stem="תקמ",
-            infinitive="לקום",
+        with_spellings(
+            verb_paradigm(
+                "קם",
+                "קם",
+                "יקום",
+                feminine="he",
+                future_plural="יקומ",
+                future_feminine_stem="תקמ",
+                infinitive="לקום",
+            ),
+            future=("תקומנה",),
         ),
     )
 }
@@ -1085,12 +1156,8 @@ def claim_content(
 DISCLAIMER_VERBS = _unique(
     form
     for name in ("נותר", "עמד", "נשאר")
-    for slot in (
-        VERB_PARADIGMS[name].past,
-        VERB_PARADIGMS[name].present,
-        VERB_PARADIGMS[name].future,
-    )
-    for form in slot
+    for slot in ("past", "present", "future")
+    for form in VERB_PARADIGMS[name].spellings(slot)
 )
 DISCLAIMER_INFINITIVES = _unique(
     form for name in ("נותר", "עמד", "נשאר") for form in VERB_PARADIGMS[name].infinitive
@@ -1152,7 +1219,7 @@ COMPUTATION_INFINITIVES = _unique(
 COMPUTATION_RELATIVE_FUTURES = _unique(
     form
     for name in _COMPUTATION_VERB_FAMILIES
-    for form in VERB_PARADIGMS[name].future
+    for form in VERB_PARADIGMS[name].spellings("future")
     if not (name == "קם" and form.startswith("י"))
 )
 _COMPUTATION_VERBS = (

@@ -5313,6 +5313,30 @@
         ]
       ],
       [
+        "חוייב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חוייבה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חוייבו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
         "חושב",
         [
           true,
@@ -6185,6 +6209,22 @@
         ]
       ],
       [
+        "יחוייב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יחוייבו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
         "יחול",
         [
           true,
@@ -6258,6 +6298,22 @@
       ],
       [
         "ייווצרו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ייוותר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ייוותרו",
         [
           true,
           true,
@@ -6521,6 +6577,14 @@
         ]
       ],
       [
+        "יכפורו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
         "יכפרו",
         [
           true,
@@ -6618,6 +6682,14 @@
       ],
       [
         "יעמוד",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יעמודו",
         [
           true,
           true,
@@ -7306,6 +7378,38 @@
       ],
       [
         "מחויבת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחוייב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחוייבות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחוייבים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחוייבת",
         [
           true,
           true,
@@ -9345,6 +9449,22 @@
         ]
       ],
       [
+        "תחוייב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחוייבנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
         "תחול",
         [
           true,
@@ -9721,6 +9841,14 @@
         ]
       ],
       [
+        "תכפרנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
         "תמאן",
         [
           true,
@@ -9801,6 +9929,14 @@
         ]
       ],
       [
+        "תעמדנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
         "תעמוד",
         [
           true,
@@ -9834,6 +9970,14 @@
       ],
       [
         "תקום",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תקומנה",
         [
           true,
           true,
@@ -9880,6 +10024,2263 @@
           true
         ]
       ]
+    ]
+  },
+  "round21": {
+    "snapshot_sha256": "fd5f1e4d6fb941c32cfbf2ef4f248146c29baf41906d1cdb3d6c7437b86d0ac1",
+    "neighbours": [
+      {
+        "word": "יחולו",
+        "count": 461,
+        "near": [
+          "יחול"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "שנת",
+        "count": 450,
+        "near": [
+          "שונת"
+        ],
+        "class": "other lexeme",
+        "reason": "year of"
+      },
+      {
+        "word": "שנים",
+        "count": 374,
+        "near": [
+          "שונים"
+        ],
+        "class": "other lexeme",
+        "reason": "years"
+      },
+      {
+        "word": "עבודה",
+        "count": 303,
+        "near": [
+          "עיבודה"
+        ],
+        "class": "other lexeme",
+        "reason": "work"
+      },
+      {
+        "word": "חייב",
+        "count": 290,
+        "near": [
+          "חוייב"
+        ],
+        "class": "homograph",
+        "reason": "obliged, owes (חַיָּב)"
+      },
+      {
+        "word": "חולים",
+        "count": 289,
+        "near": [
+          "חלים"
+        ],
+        "class": "other lexeme",
+        "reason": "the sick"
+      },
+      {
+        "word": "שנה",
+        "count": 282,
+        "near": [
+          "שונה"
+        ],
+        "class": "other lexeme",
+        "reason": "year"
+      },
+      {
+        "word": "החל",
+        "count": 275,
+        "near": [
+          "הוחל"
+        ],
+        "class": "homograph",
+        "reason": "began; starting from (הֵחֵל)"
+      },
+      {
+        "word": "יותר",
+        "count": 273,
+        "near": [
+          "יוותר"
+        ],
+        "class": "other lexeme",
+        "reason": "more (יוֹתֵר)"
+      },
+      {
+        "word": "יקבע",
+        "count": 194,
+        "near": [
+          "ייקבע"
+        ],
+        "class": "defective active",
+        "reason": "will determine (יִקְבַּע)"
+      },
+      {
+        "word": "נקבע",
+        "count": 183,
+        "near": [
+          "נקבעו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "שומה",
+        "count": 163,
+        "near": [
+          "ישומה"
+        ],
+        "class": "other lexeme",
+        "reason": "assessment"
+      },
+      {
+        "word": "חישוב",
+        "count": 159,
+        "near": [
+          "חישובו",
+          "חישובי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "פטור",
+        "count": 131,
+        "near": [
+          "פטורי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חוב",
+        "count": 130,
+        "near": [
+          "חויב",
+          "חיוב"
+        ],
+        "class": "other lexeme",
+        "reason": "debt"
+      },
+      {
+        "word": "נקבעו",
+        "count": 122,
+        "near": [
+          "נקבע"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "קביעת",
+        "count": 116,
+        "near": [
+          "קביעות",
+          "קביעתו",
+          "קביעתי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "שני",
+        "count": 115,
+        "near": [
+          "שוני"
+        ],
+        "class": "other lexeme",
+        "reason": "second; two of"
+      },
+      {
+        "word": "חל",
+        "count": 109,
+        "near": [
+          "חלו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יחול",
+        "count": 94,
+        "near": [
+          "יחולו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "שנות",
+        "count": 93,
+        "near": [
+          "שונות"
+        ],
+        "class": "other lexeme",
+        "reason": "years of"
+      },
+      {
+        "word": "דיווח",
+        "count": 73,
+        "near": [
+          "דיווחו",
+          "דיווחי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חיוב",
+        "count": 49,
+        "near": [
+          "חיובו",
+          "חיובי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יישום",
+        "count": 45,
+        "near": [
+          "ישום"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "ייקבעו",
+        "count": 43,
+        "near": [
+          "ייקבע"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "הוציא",
+        "count": 41,
+        "near": [
+          "הוצא"
+        ],
+        "class": "homograph",
+        "reason": "spent, took out (active)"
+      },
+      {
+        "word": "שונות",
+        "count": 40,
+        "near": [
+          "שונת"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חובה",
+        "count": 34,
+        "near": [
+          "חויבה",
+          "חיובה"
+        ],
+        "class": "other lexeme",
+        "reason": "duty"
+      },
+      {
+        "word": "יחושב",
+        "count": 32,
+        "near": [
+          "חושב",
+          "יחושבו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "ייקבע",
+        "count": 32,
+        "near": [
+          "ייקבעו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יותרו",
+        "count": 31,
+        "near": [
+          "יוותרו"
+        ],
+        "class": "homograph",
+        "reason": "will be allowed (יוּתְּרוּ)"
+      },
+      {
+        "word": "יחויב",
+        "count": 29,
+        "near": [
+          "חויב",
+          "יחויבו",
+          "יחוייב"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "נעדר",
+        "count": 29,
+        "near": [
+          "נעדרי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חלו",
+        "count": 27,
+        "near": [
+          "חל"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "תחויב",
+        "count": 27,
+        "near": [
+          "תחוייב"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יוטל",
+        "count": 25,
+        "near": [
+          "יוטלו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "הוצאו",
+        "count": 22,
+        "near": [
+          "הוצא"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "החלה",
+        "count": 21,
+        "near": [
+          "הוחלה"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "מחלות",
+        "count": 21,
+        "near": [
+          "מוחלות"
+        ],
+        "class": "other lexeme",
+        "reason": "diseases"
+      },
+      {
+        "word": "נוצר",
+        "count": 21,
+        "near": [
+          "נוצרו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "הוטל",
+        "count": 19,
+        "near": [
+          "הוטלו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חשב",
+        "count": 19,
+        "near": [
+          "חושב"
+        ],
+        "class": "defective active",
+        "reason": "calculated (חִשֵּׁב); accountant"
+      },
+      {
+        "word": "הוחל",
+        "count": 18,
+        "near": [
+          "הוחלו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חולה",
+        "count": 18,
+        "near": [
+          "חלה"
+        ],
+        "class": "other lexeme",
+        "reason": "ill; patient"
+      },
+      {
+        "word": "יחושבו",
+        "count": 17,
+        "near": [
+          "חושבו",
+          "יחושב"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יקבעו",
+        "count": 17,
+        "near": [
+          "ייקבעו"
+        ],
+        "class": "defective active",
+        "reason": "will determine"
+      },
+      {
+        "word": "לחולי",
+        "count": 17,
+        "near": [
+          "לחול"
+        ],
+        "class": "other lexeme",
+        "reason": "for the sick of"
+      },
+      {
+        "word": "מחלת",
+        "count": 17,
+        "near": [
+          "מוחלת"
+        ],
+        "class": "other lexeme",
+        "reason": "disease of"
+      },
+      {
+        "word": "פיטורים",
+        "count": 16,
+        "near": [
+          "פטורים"
+        ],
+        "class": "other lexeme",
+        "reason": "dismissal"
+      },
+      {
+        "word": "חויבו",
+        "count": 15,
+        "near": [
+          "חויב",
+          "חוייבו",
+          "יחויבו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "טענותיו",
+        "count": 15,
+        "near": [
+          "טענותי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "הוצא",
+        "count": 14,
+        "near": [
+          "הוצאו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "החלות",
+        "count": 14,
+        "near": [
+          "החלותי",
+          "החלת"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "מצא",
+        "count": 13,
+        "near": [
+          "מוצא"
+        ],
+        "class": "other lexeme",
+        "reason": "found"
+      },
+      {
+        "word": "המשך",
+        "count": 12,
+        "near": [
+          "המשיך"
+        ],
+        "class": "other lexeme",
+        "reason": "continuation"
+      },
+      {
+        "word": "חושב",
+        "count": 12,
+        "near": [
+          "חושבו",
+          "יחושב"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "נותרו",
+        "count": 12,
+        "near": [
+          "נותר"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "מחובת",
+        "count": 11,
+        "near": [
+          "מחויבת"
+        ],
+        "class": "other lexeme",
+        "reason": "from the duty of"
+      },
+      {
+        "word": "הנחות",
+        "count": 10,
+        "near": [
+          "הנחותי",
+          "הנחת"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "מניעה",
+        "count": 10,
+        "near": [
+          "מנעה"
+        ],
+        "class": "other lexeme",
+        "reason": "impediment (noun); the listed head is construct מניעת"
+      },
+      {
+        "word": "נוצרו",
+        "count": 10,
+        "near": [
+          "נוצר"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "עומדת",
+        "count": 10,
+        "near": [
+          "עומדות"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "שום",
+        "count": 10,
+        "near": [
+          "ישום"
+        ],
+        "class": "other lexeme",
+        "reason": "any (a listed quantifier)"
+      },
+      {
+        "word": "תקבע",
+        "count": 10,
+        "near": [
+          "תיקבע"
+        ],
+        "class": "defective active",
+        "reason": "will determine (feminine)"
+      },
+      {
+        "word": "החולה",
+        "count": 9,
+        "near": [
+          "החלה"
+        ],
+        "class": "other lexeme",
+        "reason": "the patient"
+      },
+      {
+        "word": "יחוייב",
+        "count": 9,
+        "near": [
+          "חוייב",
+          "יחויב",
+          "יחוייבו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "הוטלו",
+        "count": 8,
+        "near": [
+          "הוטל"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חויב",
+        "count": 8,
+        "near": [
+          "חויבו",
+          "חוייב",
+          "יחויב"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חויבה",
+        "count": 8,
+        "near": [
+          "חוייבה"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חושבו",
+        "count": 8,
+        "near": [
+          "חושב",
+          "יחושבו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יחויבו",
+        "count": 8,
+        "near": [
+          "חויבו",
+          "יחויב",
+          "יחוייבו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יעמוד",
+        "count": 8,
+        "near": [
+          "יעמודו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "עומד",
+        "count": 8,
+        "near": [
+          "עמד"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "קבעה",
+        "count": 8,
+        "near": [
+          "קביעה"
+        ],
+        "class": "homograph",
+        "reason": "she determined (active)"
+      },
+      {
+        "word": "החלו",
+        "count": 7,
+        "near": [
+          "הוחלו"
+        ],
+        "class": "homograph",
+        "reason": "began (הֵחֵלּוּ)"
+      },
+      {
+        "word": "הטלת",
+        "count": 7,
+        "near": [
+          "הטלות",
+          "הטלתו",
+          "הטלתי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "עיבוד",
+        "count": 7,
+        "near": [
+          "עיבודו",
+          "עיבודי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "עמוד",
+        "count": 7,
+        "near": [
+          "יעמוד",
+          "עמד"
+        ],
+        "class": "other lexeme",
+        "reason": "column; page; spine"
+      },
+      {
+        "word": "חיובו",
+        "count": 6,
+        "near": [
+          "חיוב",
+          "חיוביו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "טעונה",
+        "count": 6,
+        "near": [
+          "טענה"
+        ],
+        "class": "other lexeme",
+        "reason": "requires"
+      },
+      {
+        "word": "טענות",
+        "count": 6,
+        "near": [
+          "טענותי",
+          "טענת"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יחוייבו",
+        "count": 6,
+        "near": [
+          "חוייבו",
+          "יחויבו",
+          "יחוייב"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יידחה",
+        "count": 6,
+        "near": [
+          "ידחה"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "כופר",
+        "count": 6,
+        "near": [
+          "כפר"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "ליישום",
+        "count": 6,
+        "near": [
+          "ליישם"
+        ],
+        "class": "other lexeme",
+        "reason": "for implementation: ל with the noun"
+      },
+      {
+        "word": "מונע",
+        "count": 6,
+        "near": [
+          "מנע"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "עבוד",
+        "count": 6,
+        "near": [
+          "עיבוד"
+        ],
+        "class": "other lexeme",
+        "reason": "שעבוד, a lien: ש is part of the word"
+      },
+      {
+        "word": "פטורות",
+        "count": 6,
+        "near": [
+          "פטורת"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "דחה",
+        "count": 5,
+        "near": [
+          "דוחה",
+          "ידחה"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חוייב",
+        "count": 5,
+        "near": [
+          "חויב",
+          "חוייבו",
+          "יחוייב"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חייבה",
+        "count": 5,
+        "near": [
+          "חוייבה"
+        ],
+        "class": "homograph",
+        "reason": "charged (active)"
+      },
+      {
+        "word": "טענת",
+        "count": 5,
+        "near": [
+          "טענות",
+          "טענתו",
+          "טענתי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יוטלו",
+        "count": 5,
+        "near": [
+          "יוטל"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יצא",
+        "count": 5,
+        "near": [
+          "יוצא"
+        ],
+        "class": "other lexeme",
+        "reason": "went out"
+      },
+      {
+        "word": "עמידה",
+        "count": 5,
+        "near": [
+          "עמדה"
+        ],
+        "class": "other lexeme",
+        "reason": "compliance; standing"
+      },
+      {
+        "word": "קביעתו",
+        "count": 5,
+        "near": [
+          "קביעת"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "תחל",
+        "count": 5,
+        "near": [
+          "תוחל",
+          "תחול"
+        ],
+        "class": "homograph",
+        "reason": "will begin (תָּחֵל)"
+      },
+      {
+        "word": "דווחו",
+        "count": 4,
+        "near": [
+          "דיווחו"
+        ],
+        "class": "homograph",
+        "reason": "were reported (verb)"
+      },
+      {
+        "word": "דיווחים",
+        "count": 4,
+        "near": [
+          "דיווחם"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "החלת",
+        "count": 4,
+        "near": [
+          "החלות",
+          "החלתו",
+          "החלתי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חובו",
+        "count": 4,
+        "near": [
+          "חויבו",
+          "חיובו"
+        ],
+        "class": "other lexeme",
+        "reason": "his debt"
+      },
+      {
+        "word": "חול",
+        "count": 4,
+        "near": [
+          "חל",
+          "יחול"
+        ],
+        "class": "other lexeme",
+        "reason": "weekday; sand"
+      },
+      {
+        "word": "חישובה",
+        "count": 4,
+        "near": [
+          "חישוביה"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "טעונות",
+        "count": 4,
+        "near": [
+          "טענות"
+        ],
+        "class": "other lexeme",
+        "reason": "require"
+      },
+      {
+        "word": "מונעת",
+        "count": 4,
+        "near": [
+          "מונעות"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "מחויבת",
+        "count": 4,
+        "near": [
+          "מחויבות",
+          "מחוייבת"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "מחושבת",
+        "count": 4,
+        "near": [
+          "מחושבות"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "מחייבת",
+        "count": 4,
+        "near": [
+          "מחוייבת"
+        ],
+        "class": "homograph",
+        "reason": "requires (active)"
+      },
+      {
+        "word": "נותר",
+        "count": 4,
+        "near": [
+          "נותרו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "נכונות",
+        "count": 4,
+        "near": [
+          "נכונת"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "נשאר",
+        "count": 4,
+        "near": [
+          "נשארו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "עמד",
+        "count": 4,
+        "near": [
+          "עומד",
+          "עמדו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "אמרה",
+        "count": 3,
+        "near": [
+          "אמירה"
+        ],
+        "class": "homograph",
+        "reason": "she said; saying (אִמְרָה)"
+      },
+      {
+        "word": "הוציאה",
+        "count": 3,
+        "near": [
+          "הוצאה"
+        ],
+        "class": "homograph",
+        "reason": "spent (active)"
+      },
+      {
+        "word": "חיובי",
+        "count": 3,
+        "near": [
+          "חיוב",
+          "חיוביו",
+          "חיוביי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חישובו",
+        "count": 3,
+        "near": [
+          "חישוב",
+          "חישוביו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יוצא",
+        "count": 3,
+        "near": [
+          "יוצאו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "ייווצר",
+        "count": 3,
+        "near": [
+          "ייווצרו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יישארו",
+        "count": 3,
+        "near": [
+          "יישאר"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "משת",
+        "count": 3,
+        "near": [
+          "מושת"
+        ],
+        "class": "other lexeme",
+        "reason": "משמשת, serves: מש is part of the word"
+      },
+      {
+        "word": "נטלי",
+        "count": 3,
+        "near": [
+          "נטולי"
+        ],
+        "class": "other lexeme",
+        "reason": "דנטלי, dental: ד is part of the word"
+      },
+      {
+        "word": "קביעות",
+        "count": 3,
+        "near": [
+          "קביעותי",
+          "קביעת"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "תחולת",
+        "count": 3,
+        "near": [
+          "תחולות",
+          "תחולתו",
+          "תחולתי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "תחולתו",
+        "count": 3,
+        "near": [
+          "תחולת"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "דוחו",
+        "count": 2,
+        "near": [
+          "דחו"
+        ],
+        "class": "other lexeme",
+        "reason": "דו״חות, reports, cut at the gershayim"
+      },
+      {
+        "word": "הוחלה",
+        "count": 2,
+        "near": [
+          "החלה"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "הניחה",
+        "count": 2,
+        "near": [
+          "הנחה"
+        ],
+        "class": "other lexeme",
+        "reason": "left behind"
+      },
+      {
+        "word": "חוייבו",
+        "count": 2,
+        "near": [
+          "חויבו",
+          "חוייב",
+          "יחוייבו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חולות",
+        "count": 2,
+        "near": [
+          "חלות"
+        ],
+        "class": "other lexeme",
+        "reason": "sick (feminine plural)"
+      },
+      {
+        "word": "חוסר",
+        "count": 2,
+        "near": [
+          "חסר"
+        ],
+        "class": "other lexeme",
+        "reason": "lack (noun), read only as בחוסרו של"
+      },
+      {
+        "word": "חיובה",
+        "count": 2,
+        "near": [
+          "חיוביה"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חישובם",
+        "count": 2,
+        "near": [
+          "חישובים"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חסומות",
+        "count": 2,
+        "near": [
+          "חסומת"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "טעונת",
+        "count": 2,
+        "near": [
+          "טענת"
+        ],
+        "class": "other lexeme",
+        "reason": "requiring"
+      },
+      {
+        "word": "יחל",
+        "count": 2,
+        "near": [
+          "חל",
+          "יוחל",
+          "יחול"
+        ],
+        "class": "homograph",
+        "reason": "will begin"
+      },
+      {
+        "word": "ייוותר",
+        "count": 2,
+        "near": [
+          "יוותר",
+          "ייוותרו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יישאר",
+        "count": 2,
+        "near": [
+          "יישארו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יישומו",
+        "count": 2,
+        "near": [
+          "יישומיו",
+          "ישומו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יפטור",
+        "count": 2,
+        "near": [
+          "פטור"
+        ],
+        "class": "homograph",
+        "reason": "will exempt (active)"
+      },
+      {
+        "word": "ישונה",
+        "count": 2,
+        "near": [
+          "שונה"
+        ],
+        "class": "homograph",
+        "reason": "will be amended"
+      },
+      {
+        "word": "לקיום",
+        "count": 2,
+        "near": [
+          "לקום"
+        ],
+        "class": "other lexeme",
+        "reason": "for fulfilment"
+      },
+      {
+        "word": "מחוב",
+        "count": 2,
+        "near": [
+          "מחויב"
+        ],
+        "class": "other lexeme",
+        "reason": "than the debt"
+      },
+      {
+        "word": "מחויבות",
+        "count": 2,
+        "near": [
+          "מחויבת",
+          "מחוייבות"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "מחוסר",
+        "count": 2,
+        "near": [
+          "מחוסרי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "מחייבות",
+        "count": 2,
+        "near": [
+          "מחוייבות"
+        ],
+        "class": "homograph",
+        "reason": "require (active)"
+      },
+      {
+        "word": "מחייבים",
+        "count": 2,
+        "near": [
+          "מחוייבים"
+        ],
+        "class": "homograph",
+        "reason": "require (active)"
+      },
+      {
+        "word": "מחשב",
+        "count": 2,
+        "near": [
+          "מחושב"
+        ],
+        "class": "defective active",
+        "reason": "calculates; computer"
+      },
+      {
+        "word": "מחשבים",
+        "count": 2,
+        "near": [
+          "מחושבים"
+        ],
+        "class": "defective active",
+        "reason": "calculate; computers"
+      },
+      {
+        "word": "מחשבת",
+        "count": 2,
+        "near": [
+          "מחושבת"
+        ],
+        "class": "defective active",
+        "reason": "calculates (feminine)"
+      },
+      {
+        "word": "נבצר",
+        "count": 2,
+        "near": [
+          "נבצרו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "נטל",
+        "count": 2,
+        "near": [
+          "נטול"
+        ],
+        "class": "other lexeme",
+        "reason": "burden"
+      },
+      {
+        "word": "נטלה",
+        "count": 2,
+        "near": [
+          "נטולה"
+        ],
+        "class": "homograph",
+        "reason": "she took"
+      },
+      {
+        "word": "נכיון",
+        "count": 2,
+        "near": [
+          "נכון"
+        ],
+        "class": "other lexeme",
+        "reason": "discount"
+      },
+      {
+        "word": "נקבעת",
+        "count": 2,
+        "near": [
+          "נקבעות"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "עמדות",
+        "count": 2,
+        "near": [
+          "עומדות"
+        ],
+        "class": "other lexeme",
+        "reason": "positions"
+      },
+      {
+        "word": "עמדת",
+        "count": 2,
+        "near": [
+          "עומדת"
+        ],
+        "class": "other lexeme",
+        "reason": "position of"
+      },
+      {
+        "word": "שגוי",
+        "count": 2,
+        "near": [
+          "שגויי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "תחוייב",
+        "count": 2,
+        "near": [
+          "תחויב"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "תשתנה",
+        "count": 2,
+        "near": [
+          "תושתנה"
+        ],
+        "class": "homograph",
+        "reason": "will change"
+      },
+      {
+        "word": "דווח",
+        "count": 1,
+        "near": [
+          "דיווח"
+        ],
+        "class": "homograph",
+        "reason": "was reported"
+      },
+      {
+        "word": "דווחה",
+        "count": 1,
+        "near": [
+          "דוחה",
+          "דיווחה"
+        ],
+        "class": "homograph",
+        "reason": "was reported (feminine)"
+      },
+      {
+        "word": "דחיה",
+        "count": 1,
+        "near": [
+          "דחה"
+        ],
+        "class": "other lexeme",
+        "reason": "deferral (noun)"
+      },
+      {
+        "word": "דיווחה",
+        "count": 1,
+        "near": [
+          "דיווחיה"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "הוטלה",
+        "count": 1,
+        "near": [
+          "הטלה"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "הונחה",
+        "count": 1,
+        "near": [
+          "הנחה"
+        ],
+        "class": "homograph",
+        "reason": "was tabled"
+      },
+      {
+        "word": "הוציאו",
+        "count": 1,
+        "near": [
+          "הוצאו"
+        ],
+        "class": "homograph",
+        "reason": "spent (active plural)"
+      },
+      {
+        "word": "המשויך",
+        "count": 1,
+        "near": [
+          "המשיך"
+        ],
+        "class": "other lexeme",
+        "reason": "associated"
+      },
+      {
+        "word": "הנחיות",
+        "count": 1,
+        "near": [
+          "הנחות"
+        ],
+        "class": "other lexeme",
+        "reason": "guidelines"
+      },
+      {
+        "word": "הנחת",
+        "count": 1,
+        "near": [
+          "הנחות",
+          "הנחתו",
+          "הנחתי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "ושמה",
+        "count": 1,
+        "near": [
+          "יושמה"
+        ],
+        "class": "other lexeme",
+        "reason": "and places (וְשָׂמָה)"
+      },
+      {
+        "word": "חיוביים",
+        "count": 1,
+        "near": [
+          "חיובים"
+        ],
+        "class": "other lexeme",
+        "reason": "positive"
+      },
+      {
+        "word": "חישב",
+        "count": 1,
+        "near": [
+          "חישוב"
+        ],
+        "class": "homograph",
+        "reason": "calculated (active)"
+      },
+      {
+        "word": "חישובי",
+        "count": 1,
+        "near": [
+          "חישוב",
+          "חישוביו",
+          "חישוביי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "חסם",
+        "count": 1,
+        "near": [
+          "חסום"
+        ],
+        "class": "homograph",
+        "reason": "blocked (active); block"
+      },
+      {
+        "word": "חסר",
+        "count": 1,
+        "near": [
+          "חסרי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "טענתו",
+        "count": 1,
+        "near": [
+          "טענת"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יוותר",
+        "count": 1,
+        "near": [
+          "יוותרו",
+          "ייוותר"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יוציא",
+        "count": 1,
+        "near": [
+          "יוצא"
+        ],
+        "class": "homograph",
+        "reason": "will spend (active)"
+      },
+      {
+        "word": "יחוב",
+        "count": 1,
+        "near": [
+          "יחויב"
+        ],
+        "class": "homograph",
+        "reason": "will owe"
+      },
+      {
+        "word": "יחייב",
+        "count": 1,
+        "near": [
+          "יחוייב"
+        ],
+        "class": "homograph",
+        "reason": "will oblige (active)"
+      },
+      {
+        "word": "יחסם",
+        "count": 1,
+        "near": [
+          "ייחסם"
+        ],
+        "class": "other lexeme",
+        "reason": "שיחסם, whose ratio"
+      },
+      {
+        "word": "יחשב",
+        "count": 1,
+        "near": [
+          "יחושב"
+        ],
+        "class": "defective active",
+        "reason": "will calculate"
+      },
+      {
+        "word": "יימנע",
+        "count": 1,
+        "near": [
+          "יימנעו",
+          "ימנע"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יישומן",
+        "count": 1,
+        "near": [
+          "ישומן"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יעמדו",
+        "count": 1,
+        "near": [
+          "יעמודו",
+          "עמדו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "יצאו",
+        "count": 1,
+        "near": [
+          "יוצאו"
+        ],
+        "class": "other lexeme",
+        "reason": "went out (plural)"
+      },
+      {
+        "word": "ישום",
+        "count": 1,
+        "near": [
+          "יישום"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "לחייבו",
+        "count": 1,
+        "near": [
+          "לחייב"
+        ],
+        "class": "other lexeme",
+        "reason": "to charge him: an infinitive with an object suffix"
+      },
+      {
+        "word": "מוטלת",
+        "count": 1,
+        "near": [
+          "מוטלות"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "מושתת",
+        "count": 1,
+        "near": [
+          "מושתות"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "מחויב",
+        "count": 1,
+        "near": [
+          "מחוייב"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "מחוייב",
+        "count": 1,
+        "near": [
+          "מחויב"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "מחושבות",
+        "count": 1,
+        "near": [
+          "מחושבת"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "מחייב",
+        "count": 1,
+        "near": [
+          "מחוייב"
+        ],
+        "class": "homograph",
+        "reason": "requires (active)"
+      },
+      {
+        "word": "מנוע",
+        "count": 1,
+        "near": [
+          "מנע"
+        ],
+        "class": "other lexeme",
+        "reason": "barred: the passive participle, outside active מנע"
+      },
+      {
+        "word": "מנועה",
+        "count": 1,
+        "near": [
+          "מנעה"
+        ],
+        "class": "other lexeme",
+        "reason": "barred (feminine): the passive participle"
+      },
+      {
+        "word": "מניע",
+        "count": 1,
+        "near": [
+          "מנע"
+        ],
+        "class": "other lexeme",
+        "reason": "motive"
+      },
+      {
+        "word": "נטולי",
+        "count": 1,
+        "near": [
+          "נטול"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "נמנע",
+        "count": 1,
+        "near": [
+          "נמנעו"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "נעדרו",
+        "count": 1,
+        "near": [
+          "נעדר"
+        ],
+        "class": "homograph",
+        "reason": "were absent (verb)"
+      },
+      {
+        "word": "נפקד",
+        "count": 1,
+        "near": [
+          "נפקדי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "עומדות",
+        "count": 1,
+        "near": [
+          "עומדת"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "עמדו",
+        "count": 1,
+        "near": [
+          "יעמדו",
+          "עמד"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "עמיד",
+        "count": 1,
+        "near": [
+          "עמד"
+        ],
+        "class": "other lexeme",
+        "reason": "resistant"
+      },
+      {
+        "word": "פיטורי",
+        "count": 1,
+        "near": [
+          "פטורי"
+        ],
+        "class": "other lexeme",
+        "reason": "dismissal of"
+      },
+      {
+        "word": "צמיחתו",
+        "count": 1,
+        "near": [
+          "צמיחת"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "קביעותיו",
+        "count": 1,
+        "near": [
+          "קביעותי"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "קים",
+        "count": 1,
+        "near": [
+          "קם"
+        ],
+        "class": "other lexeme",
+        "reason": "שקים, cheques: ש is part of the word"
+      },
+      {
+        "word": "תחייב",
+        "count": 1,
+        "near": [
+          "תחוייב"
+        ],
+        "class": "homograph",
+        "reason": "will bind (active)"
+      },
+      {
+        "word": "תחשב",
+        "count": 1,
+        "near": [
+          "תחושב"
+        ],
+        "class": "homograph",
+        "reason": "will be deemed (Nif'al); will calculate"
+      },
+      {
+        "word": "תימנע",
+        "count": 1,
+        "near": [
+          "תמנע"
+        ],
+        "class": "generated",
+        "reason": ""
+      },
+      {
+        "word": "תמנע",
+        "count": 1,
+        "near": [
+          "תימנע"
+        ],
+        "class": "generated",
+        "reason": ""
+      }
+    ],
+    "holam_alternates": [
+      {
+        "family": "כפר",
+        "slot": "future",
+        "form": "יכפורו",
+        "decision": "added",
+        "reason": "plene plural beside יכפרו"
+      },
+      {
+        "family": "כפר",
+        "slot": "future",
+        "form": "תכפרנה",
+        "decision": "added",
+        "reason": "defective feminine plural beside תכפורנה"
+      },
+      {
+        "family": "כפר",
+        "slot": "future",
+        "form": "יכפר",
+        "decision": "refused",
+        "reason": "homograph: will atone (Pi'el)"
+      },
+      {
+        "family": "כפר",
+        "slot": "future",
+        "form": "תכפר",
+        "decision": "refused",
+        "reason": "homograph: will atone (Pi'el)"
+      },
+      {
+        "family": "כפר",
+        "slot": "present",
+        "form": "כפרת",
+        "decision": "refused",
+        "reason": "homograph: atonement of"
+      },
+      {
+        "family": "כפר",
+        "slot": "present",
+        "form": "כפרים",
+        "decision": "refused",
+        "reason": "homograph: villages"
+      },
+      {
+        "family": "כפר",
+        "slot": "present",
+        "form": "כפרות",
+        "decision": "refused",
+        "reason": "homograph: atonements"
+      },
+      {
+        "family": "עמד",
+        "slot": "future",
+        "form": "יעמודו",
+        "decision": "added",
+        "reason": "plene plural beside יעמדו"
+      },
+      {
+        "family": "עמד",
+        "slot": "future",
+        "form": "תעמדנה",
+        "decision": "added",
+        "reason": "defective feminine plural beside תעמודנה"
+      },
+      {
+        "family": "עמד",
+        "slot": "future",
+        "form": "יעמד",
+        "decision": "refused",
+        "reason": "homograph: will set up (Hif'il)"
+      },
+      {
+        "family": "עמד",
+        "slot": "future",
+        "form": "תעמד",
+        "decision": "refused",
+        "reason": "homograph: will set up (Hif'il)"
+      },
+      {
+        "family": "עמד",
+        "slot": "present",
+        "form": "עמדת",
+        "decision": "refused",
+        "reason": "homograph: position of"
+      },
+      {
+        "family": "עמד",
+        "slot": "present",
+        "form": "עמדים",
+        "decision": "refused",
+        "reason": "not an accepted spelling: the participle writes its holam"
+      },
+      {
+        "family": "עמד",
+        "slot": "present",
+        "form": "עמדות",
+        "decision": "refused",
+        "reason": "homograph: positions"
+      },
+      {
+        "family": "צמח",
+        "slot": "present",
+        "form": "צמחת",
+        "decision": "refused",
+        "reason": "homograph: you grew"
+      },
+      {
+        "family": "צמח",
+        "slot": "present",
+        "form": "צמחים",
+        "decision": "refused",
+        "reason": "homograph: plants"
+      },
+      {
+        "family": "צמח",
+        "slot": "present",
+        "form": "צמחות",
+        "decision": "refused",
+        "reason": "not an accepted spelling: the participle writes its holam"
+      },
+      {
+        "family": "דחה",
+        "slot": "present",
+        "form": "דחים",
+        "decision": "refused",
+        "reason": "not an accepted spelling: the participle writes its holam"
+      },
+      {
+        "family": "דחה",
+        "slot": "present",
+        "form": "דחות",
+        "decision": "refused",
+        "reason": "homograph: postponements"
+      },
+      {
+        "family": "מנע",
+        "slot": "present",
+        "form": "מנעת",
+        "decision": "refused",
+        "reason": "homograph: you prevented"
+      },
+      {
+        "family": "מנע",
+        "slot": "present",
+        "form": "מנעים",
+        "decision": "refused",
+        "reason": "not an accepted spelling: the participle writes its holam"
+      },
+      {
+        "family": "מנע",
+        "slot": "present",
+        "form": "מנעות",
+        "decision": "refused",
+        "reason": "not an accepted spelling: the participle writes its holam"
+      },
+      {
+        "family": "חל",
+        "slot": "future",
+        "form": "יחל",
+        "decision": "refused",
+        "reason": "homograph: will begin"
+      },
+      {
+        "family": "חל",
+        "slot": "future",
+        "form": "תחל",
+        "decision": "refused",
+        "reason": "homograph: will begin"
+      },
+      {
+        "family": "חל",
+        "slot": "future",
+        "form": "יחלו",
+        "decision": "refused",
+        "reason": "homograph: will begin (plural)"
+      },
+      {
+        "family": "חל",
+        "slot": "future",
+        "form": "תחלנה",
+        "decision": "refused",
+        "reason": "homograph: will begin (feminine plural)"
+      },
+      {
+        "family": "קם",
+        "slot": "future",
+        "form": "תקומנה",
+        "decision": "added",
+        "reason": "plene feminine plural beside תקמנה"
+      },
+      {
+        "family": "קם",
+        "slot": "future",
+        "form": "יקם",
+        "decision": "refused",
+        "reason": "homograph: will establish (Hif'il)"
+      },
+      {
+        "family": "קם",
+        "slot": "future",
+        "form": "תקם",
+        "decision": "refused",
+        "reason": "homograph: will establish (Hif'il)"
+      },
+      {
+        "family": "קם",
+        "slot": "future",
+        "form": "יקמו",
+        "decision": "refused",
+        "reason": "homograph: will establish (plural)"
+      },
+      {
+        "family": "נותר",
+        "slot": "past",
+        "form": "נתר",
+        "decision": "refused",
+        "reason": "homograph: jumped"
+      },
+      {
+        "family": "נותר",
+        "slot": "future",
+        "form": "ייוותר",
+        "decision": "added",
+        "reason": "full spelling beside יוותר"
+      },
+      {
+        "family": "נותר",
+        "slot": "future",
+        "form": "ייוותרו",
+        "decision": "added",
+        "reason": "full spelling beside יוותרו"
+      },
+      {
+        "family": "נותר",
+        "slot": "future",
+        "form": "יותר",
+        "decision": "refused",
+        "reason": "homograph: more"
+      },
+      {
+        "family": "נותר",
+        "slot": "future",
+        "form": "יותרו",
+        "decision": "refused",
+        "reason": "homograph: will be allowed"
+      },
+      {
+        "family": "נוצר",
+        "slot": "past",
+        "form": "נצר",
+        "decision": "refused",
+        "reason": "homograph: guarded; scion"
+      },
+      {
+        "family": "נוצר",
+        "slot": "future",
+        "form": "ייצר",
+        "decision": "refused",
+        "reason": "homograph: will produce"
+      }
+    ],
+    "defective_exclusions": [
+      "יקבע",
+      "יקבעו",
+      "תקבע",
+      "יחשב",
+      "תחשב",
+      "מחשב",
+      "מחשבת",
+      "מחשבים",
+      "חשב",
+      "עמדת",
+      "עמדות",
+      "דווח",
+      "דווחו",
+      "אמרה",
+      "עבוד",
+      "יחוב"
     ]
   }
 }
