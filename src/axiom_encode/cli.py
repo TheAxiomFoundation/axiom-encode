@@ -515,6 +515,7 @@ from .rulespec_path_migration import (
     rewrite_exact_references,
     rulespec_identity,
 )
+from .rulespec_periods import rulespec_engine_date, rulespec_parameter_version_at
 from .signing_broker import (
     _SIGNATURE_DOMAIN_PREFIX,
     SigningBroker,
@@ -6387,6 +6388,15 @@ def _validate_rulespec_period_spec(period: dict[str, str]) -> dict[str, str]:
         raise ValueError(
             f"period.period_kind: {period_kind!r} is not one of {accepted}"
         )
+    for key in ("start", "end"):
+        try:
+            rulespec_engine_date(period[key])
+        except ValueError as error:
+            raise ValueError(
+                f"period.{key}: {period[key]!r} is not an ISO date"
+            ) from error
+    if period_kind == "custom" and "name" not in period:
+        raise ValueError("period.name: custom period mappings must include name")
     return period
 
 
@@ -6440,18 +6450,7 @@ def _rulespec_scalar_value(value) -> dict:
 def _rulespec_parameter_value(
     parameter: dict, case_inputs: dict[str, object], period_start: str
 ) -> dict:
-    versions = sorted(
-        parameter.get("versions") or [], key=lambda item: str(item["effective_from"])
-    )
-    chosen = None
-    for version in versions:
-        if str(version["effective_from"]) <= period_start:
-            chosen = version
-    if chosen is None:
-        if not versions:
-            raise KeyError("no parameter versions")
-        chosen = versions[0]
-    values = chosen.get("values") or {}
+    values = rulespec_parameter_version_at(parameter, period_start).get("values") or {}
     key = "0"
     indexed_by = parameter.get("indexed_by")
     if indexed_by:

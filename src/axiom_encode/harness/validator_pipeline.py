@@ -140,6 +140,10 @@ from axiom_encode.repo_routing import (
     monorepo_checkout_name,
 )
 from axiom_encode.rules_engine_compat import run_rulespec_compile
+from axiom_encode.rulespec_periods import (
+    rulespec_engine_date,
+    rulespec_parameter_version_at,
+)
 from axiom_encode.statute import (
     citation_to_citation_path,
     normalize_rulespec_path_segment,
@@ -36958,7 +36962,7 @@ class ValidatorPipeline:
                 )
             for key in ("start", "end"):
                 try:
-                    date.fromisoformat(str(period[key]))
+                    rulespec_engine_date(period[key])
                 except ValueError as exc:
                     raise ValueError(
                         f"period {key} must be an ISO date, got {period[key]!r}"
@@ -37473,23 +37477,10 @@ class ValidatorPipeline:
         inputs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Return the live scalar value for a compiled scalar or table parameter."""
-        period_start = date.fromisoformat(str(period["start"]))
-        versions = parameter.get("versions") or []
-        live_versions = [
-            version
-            for version in versions
-            if isinstance(version, dict)
-            and date.fromisoformat(str(version["effective_from"])) <= period_start
-        ]
-        if not live_versions:
-            raise ValueError(
-                f"parameter `{parameter.get('name')}` has no version at {period['start']}"
-            )
-        version = max(
-            live_versions,
-            key=lambda item: date.fromisoformat(str(item["effective_from"])),
+        values = (
+            rulespec_parameter_version_at(parameter, period["start"]).get("values")
+            or {}
         )
-        values = version.get("values") or {}
         value = values.get("0", values.get(0))
         indexed_by = parameter.get("indexed_by")
         if indexed_by:
