@@ -192,6 +192,20 @@ ROUND_20_SOURCE_REPRODUCERS = (
         "(א) יש לכלול את החישוב בהתאם לסעיף 2.",
         "(a) The calculation must be included in the payment in accordance with section 2.",
     ),
+    (
+        "privative-fixed-prefix-joint",
+        "(א) התשלום יהיה ב־אפס חישוב בהתאם לסעיף 2.",
+        _WITHOUT,
+        "(א) התשלום יהיה עם חישוב בהתאם לסעיף 2.",
+        _WITH,
+    ),
+    (
+        "instead-fixed-prefix-joint",
+        "(א) התשלום נקבע ב־מקום לחשב בהתאם לסעיף 2.",
+        "(a) The payment is fixed rather than being calculated in accordance with section 2.",
+        "(א) התשלום נקבע ולחשב בהתאם לסעיף 2.",
+        "(a) The payment is fixed and calculated in accordance with section 2.",
+    ),
 )
 
 
@@ -642,6 +656,25 @@ def test_a_governed_explicit_exclusion_preserves_every_internal_joint():
         )
     # The source-only override leaves the old issuing governor in reasons.
     assert not hebrew._REASON_NEGATION.search("יש להוציא מכלל חישוב חסר סעיף 2")
+
+
+@pytest.mark.parametrize("head", ("באפס", "במקום", "בשונה"))
+def test_fixed_head_prefixes_preserve_every_internal_joint(head):
+    """A grammatical prefix inside an existing head takes the same joints."""
+
+    for prefix, joint in itertools.product(negators.ORDINARY_PREFIX_CHAINS, _JOINTS):
+        word = head[0] + joint + head[1:]
+        negative_head = _prefixed(prefix, word, joint)
+        neutral = _prefixed(prefix, "מדויק", joint)
+        complement = {
+            "באפס": "חישוב",
+            "במקום": f"ל{joint}חשב",
+            "בשונה": f"מ{joint}חישוב",
+        }[head]
+        negative = f"(א) התשלום {negative_head} {complement} בהתאם לסעיף 2."
+        positive = f"(א) התשלום {neutral} {complement} בהתאם לסעיף 2."
+        assert not hebrew._linked_source_instruments(negative), negative
+        assert hebrew._linked_source_instruments(positive), positive
 
 
 @pytest.mark.parametrize(

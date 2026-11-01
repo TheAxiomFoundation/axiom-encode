@@ -707,20 +707,43 @@ def compact_alternation(words: Iterable[str]) -> str:
     return emit(tree)
 
 
+# These already-listed prepositions contain a productive ב prefix. The
+# remainder stays the same head; this introduces no lexical family.
+_PREFIXED_SOURCE_HEADS = {
+    "באפס": ("ב", "אפס"),
+    "במקום": ("ב", "מקום"),
+    "בשונה": ("ב", "שונה"),
+}
+
+
 def source_head_language(words: Iterable[str]) -> str:
-    """Factor finite heads; an infinitive's ל takes the shared prefix joint."""
+    """Factor finite heads and put every listed productive prefix through joints."""
 
     words = tuple(words)
     infinitives = {
         form for family in VERB_PARADIGMS.values() for form in family.infinitive
     }
-    plain = [word for word in words if word not in infinitives]
+    plain = [
+        word
+        for word in words
+        if word not in infinitives and word not in _PREFIXED_SOURCE_HEADS
+    ]
     infinitive_stems = [word[1:] for word in words if word in infinitives]
     alternatives = [compact_alternation(plain)] if plain else []
     if infinitive_stems:
         alternatives.append(
             rf"{prefix_word('ל')}(?:{compact_alternation(infinitive_stems)})"
         )
+    for prefix in {entry[0] for entry in _PREFIXED_SOURCE_HEADS.values()}:
+        stems = [
+            entry[1]
+            for word in words
+            if (entry := _PREFIXED_SOURCE_HEADS.get(word)) and entry[0] == prefix
+        ]
+        if stems:
+            alternatives.append(
+                rf"{prefix_word(prefix)}(?:{compact_alternation(stems)})"
+            )
     return "|".join(alternatives)
 
 
@@ -1048,7 +1071,7 @@ def build_source_negation_language(
         rf"(?:{source_head_language(phrase.split()[0] for phrase in SOURCE_CLAUSE_PHRASES if phrase.split()[1] == tail)}){after}{gap}{pattern}"
         for tail, pattern in tails.items()
     )
-    privative = _alternation_of(
+    privative = source_head_language(
         head for head in SOURCE_PRIVATIVE_HEADS if head != "מחוסר"
     )
     claim = (
@@ -1063,7 +1086,7 @@ def build_source_negation_language(
         rf"(?:{privative}){after}(?={gap}{computation()})"
         rf"|(?P<lack>מחוסר){after}(?={gap}{computation(rf'(?P<lack_article>{article})')})"
         rf"|(?:{compact_alternation(ADJECTIVE_PARADIGMS[name].absolute[2] for name in ('נעדר', 'חסר'))}){after}(?={gap}{prefix_word('ב')}{article}{noun})"
-        rf"|(?:{source_head_language(head for head in SOURCE_FROM_HEADS if head != 'בשונה')}|{prefix_word('ב')}שונה){after}(?={gap}?(?:{from_complement}))"
+        rf"|(?:{source_head_language(SOURCE_FROM_HEADS)}){after}(?={gap}?(?:{from_complement}))"
         rf"|(?:{compact_alternation(SOURCE_CONSTRUCT_HEADS)}){after}(?={gap}{computation()})"
         rf"|{prefix_word('ב')}(?:היעדר|העדר|חוסר)(?:{'|'.join(ABSENCE_SUFFIXES)}){after}"
         rf"(?={gap}(?:{prefix_word('ה')}מוחלט{after}{gap})?של{after}{gap}{computation()})"
