@@ -1,12 +1,15 @@
-"""A companion assertion never answers a period the engine would refuse."""
+"""A companion assertion never answers what the engine would refuse."""
 
 from __future__ import annotations
 
+import copy
 import json
 import os
+import re
 import subprocess
 import tempfile
 from datetime import date, timedelta
+from itertools import product
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -16,18 +19,20 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import cli
-from axiom_encode.harness.validator_pipeline import ValidatorPipeline
-from axiom_encode.rules_engine_compat import run_rulespec_compile
-from axiom_encode.rulespec_periods import (
+from axiom_encode.companion_parameters import (
     rulespec_engine_date,
+    rulespec_engine_index,
+    rulespec_index_input,
     rulespec_parameter_version_at,
 )
+from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+from axiom_encode.rules_engine_compat import run_rulespec_compile
 
 MODULE = "us:statutes/example"
 # Consecutive days, so generated bounds and queried periods collide.
 DAYS = [date(2020, 1, 1) + timedelta(days=offset) for offset in range(6)]
-# Literal values lower to `program.parameters`, which only the runners answer;
-# computed ones lower to `program.derived`, which the engine answers.
+# Literal values lower to `program.parameters`, which the runners answer without
+# the engine; computed ones lower to `program.derived`, which only the engine reads.
 SHAPES = {
     "literal_integer": ("Integer", "6", 6, "parameters"),
     "literal_rate": ("Rate", "0.5", 0.5, "parameters"),
@@ -48,10 +53,53 @@ ENGINE_REFUSED_PERIODS = [
         id="unreadable-end",
     ),
     pytest.param(
+        {"period_kind": "year", "start": "2020-01-01", "end": "2020-12-31"},
+        id="unknown-kind",
+    ),
+    pytest.param(
         {"period_kind": "custom", "start": "2020-01-01", "end": "2020-12-31"},
         id="custom-without-name",
     ),
+    pytest.param(
+        {
+            "period_kind": "custom",
+            "name": 2020,
+            "start": "2020-01-01",
+            "end": "2020-12-31",
+        },
+        id="custom-with-a-number-for-a-name",
+    ),
 ]
+ABSENT = object()
+# Crossed in full; the first date in each list and the text names are readable.
+PERIOD_KINDS = ["month", "benefit_week", "tax_year", "custom", "year", "day"]
+PERIOD_DATES = [
+    "2020-01-01",
+    date(2020, 12, 31),
+    "20200101",
+    "2020-W01-3",
+    "2021-02-29",
+    "never",
+    None,
+    20200101,
+]
+PERIOD_NAMES = [ABSENT, None, "day", "2020", "", 2020, True, 1.5, ["day"], {"day": 1}]
+TABLE = {0: 10, 1: 7, 2: 9}
+# Each index with the cell it reads, or None when the engine refuses it. The
+# refused ones assert cell 1, which the truncating reader used to answer.
+INDEXES = {
+    "zero": (0, 10),
+    "one": (1, 7),
+    "two": (2, 9),
+    "whole_decimal": (1.0, 7),
+    "fraction": (1.5, None),
+    "high_fraction": (1.9, None),
+    "missing_key": (99, None),
+    "negative": (-1, None),
+    "flag": (True, None),
+    "text": ("1", None),
+    "word": ("one", None),
+}
 
 
 @st.composite
@@ -122,7 +170,7 @@ def _outcome(answer) -> object:
     try:
         return answer()
     except ValueError as error:
-        assert "has no version at" in str(error)
+        assert "has no version at" in str(error) or "has no value for key" in str(error)
         return "refused"
 
 
@@ -215,8 +263,76 @@ def test_indexed_parameter_keeps_the_period_rule(validator, start, indexed_value
 def test_runners_refuse_periods_the_engine_cannot_read(validator, period):
     with pytest.raises(ValueError, match="period"):
         cli._rulespec_period_spec(period)
-    with pytest.raises(ValueError, match="period|custom"):
+    with pytest.raises(ValueError, match="period"):
         validator._coerce_rulespec_period(period)
+
+
+@pytest.mark.parametrize("name", [ABSENT, None, "", 2020, True, 1.5, ["day"]])
+def test_runners_agree_a_custom_period_needs_a_text_name(validator, name):
+    period = {"period_kind": "custom", "start": "2020-01-01", "end": "2020-12-31"}
+    if name is not ABSENT:
+        period["name"] = name
+    with pytest.raises(ValueError, match="text name"):
+        cli._rulespec_period_spec(period)
+    with pytest.raises(ValueError, match="text name"):
+        validator._coerce_rulespec_period(period)
+
+
+@given(number=st.integers(-(2**63), 2**63 - 1))
+def test_a_whole_number_reads_as_its_index(number):
+    assert rulespec_engine_index(number) == number
+    if abs(number) < 2**53:
+        assert rulespec_engine_index(float(number)) == number
+
+
+@given(value=st.floats(allow_nan=True, allow_infinity=True))
+def test_a_float_reads_as_an_index_only_when_whole(value):
+    index = rulespec_engine_index(value)
+    if value == value and abs(value) != float("inf") and value == int(value):
+        assert index == int(value)
+    else:
+        assert index is None
+
+
+@pytest.mark.parametrize("value", [True, False, "1", "one", None, [1], {"1": 1}])
+def test_anything_else_has_no_index(value):
+    assert rulespec_engine_index(value) is None
+
+
+@pytest.mark.parametrize("keys", [("a", "b"), ("b", "a")])
+def test_two_matching_inputs_name_no_index_in_either_order(validator, keys):
+    inputs = {f"{key}#input.band": cell for cell, key in enumerate(keys, 1)}
+    parameter = {
+        "name": "rate",
+        "indexed_by": "band",
+        "versions": [
+            {
+                "effective_from": "2020-01-01",
+                "values": {
+                    str(cell): {"kind": "integer", "value": cell} for cell in (1, 2)
+                },
+            }
+        ],
+    }
+    with pytest.raises(ValueError, match="needs input `band`"):
+        cli._rulespec_parameter_value(parameter, inputs, "2020-01-01")
+    with pytest.raises(ValueError, match="needs input `band`"):
+        validator._rulespec_compiled_parameter_value(
+            parameter, {"start": "2020-01-01"}, inputs
+        )
+
+
+@pytest.mark.parametrize(
+    "key", ["band", "m#input.band", "m#band", "m.band", "dummy#input.band"]
+)
+@pytest.mark.parametrize("reference", ["band", "input.band", "other#input.band"])
+def test_an_index_input_matches_its_reference_by_name(key, reference):
+    assert rulespec_index_input({key: 3, "m#input.other": 4}, reference) == 3
+
+
+def test_an_exact_reference_wins_over_a_suffix_match():
+    inputs = {"a#input.band": 1, "b#input.band": 2}
+    assert rulespec_index_input(inputs, "b#input.band") == 2
 
 
 @pytest.mark.parametrize("text", ["20200101", "2020-W01-3", "2020-1-1", " 2020-01-01"])
@@ -350,7 +466,10 @@ def _companion_failures(
             policy_repo_path=root / "us",
         )
         assert result["cases"] == len(cases)
-        return [failure["message"] for failure in result["failures"]]
+        return [
+            f"Test case `{failure['case']}` {failure['message']}"
+            for failure in result["failures"]
+        ]
     return _pipeline(root / "us", engine_root)._run_rulespec_test_cases(
         rules_file=module,
         compiled_path=artifact,
@@ -522,13 +641,105 @@ def test_runners_answer_an_indexed_parameter_when_its_engine_lookup_does(
     assert answers == [False, True, True, True, False, False]
 
 
-@pytest.mark.parametrize("period", ENGINE_REFUSED_PERIODS)
-def test_the_engine_refuses_the_periods_the_runners_refuse(
-    tmp_path, period_engine, period
+@pytest.mark.parametrize("executor", ["cli", "validator"])
+def test_a_direct_read_answers_only_the_index_the_engine_reads(
+    tmp_path, period_engine, executor
 ):
+    """The engine refuses to query a table, so its derived lookup is the witness."""
+    root = tmp_path / "rulespec-us"
+    table = _rule(
+        "rate_table", "Integer", [{"effective_from": "2020-01-01", "values": TABLE}]
+    )
+    lookup = {
+        "name": "rate",
+        "kind": "derived",
+        "entity": "Person",
+        "dtype": "Integer",
+        "versions": [{"effective_from": "2000-01-01", "formula": "rate_table[band]"}],
+    }
+    cases = [
+        {
+            "name": f"{route}_{label}",
+            "period": _tax_year(2020),
+            "input": {f"{MODULE}#input.band": index},
+            "output": {f"{MODULE}#{output}": 7 if cell is None else cell},
+        }
+        for label, (index, cell) in INDEXES.items()
+        for route, output in (("direct", "rate_table"), ("lookup", "rate"))
+    ]
+    module = _write_module(root, [{**table, "indexed_by": "band"}, lookup], cases)
+    failures = _companion_failures(
+        executor,
+        period_engine,
+        root=root,
+        module=module,
+        artifact=tmp_path / "compiled.json",
+    )
+    failed = set(re.findall(r"Test case `([^`]+)`", "\n".join(failures)))
+    readable = {label for label, (_, cell) in INDEXES.items() if cell is not None}
+    answered = {label for label in INDEXES if f"direct_{label}" not in failed}
+    looked_up = {label for label in INDEXES if f"lookup_{label}" not in failed}
+    assert answered == readable
+    assert answered <= looked_up
+    if executor == "cli":
+        assert looked_up == readable
+
+
+def test_tied_versions_read_what_the_engine_reads(tmp_path, period_engine):
+    """The compiler refuses a tie, so this edits the compiled artifact by hand."""
     root = tmp_path / "rulespec-us"
     versions = [{"effective_from": "2005-01-01", "formula": "6"}]
     module = _write_module(root, [_rule("months", "Integer", versions)], [])
     artifact = tmp_path / "compiled.json"
-    _compile(period_engine, root, module, artifact)
+    payload = _compile(period_engine, root, module, artifact)
+    parameter = payload["program"]["parameters"][0]
+    tied = copy.deepcopy(parameter["versions"][0])
+    tied["values"]["0"]["value"] = 7
+    parameter["versions"].append(tied)
+    artifact.write_text(json.dumps(payload))
+    result = _engine_query(period_engine, artifact, [parameter["id"]], _tax_year(2020))
+    assert result.returncode == 0, result.stderr
+    outputs = json.loads(result.stdout)["results"][0]["outputs"]
+    answer = cli._rulespec_parameter_value(parameter, {}, "2020-01-01")
+    assert answer == outputs[parameter["id"]]["value"] == tied["values"]["0"]
+
+
+def _months_artifact(root: Path, engine: tuple[Path, Path]) -> Path:
+    versions = [{"effective_from": "2005-01-01", "formula": "6"}]
+    module = _write_module(root, [_rule("months", "Integer", versions)], [])
+    artifact = root / "compiled.json"
+    _compile(engine, root, module, artifact)
+    return artifact
+
+
+@pytest.mark.parametrize("period", ENGINE_REFUSED_PERIODS)
+def test_the_engine_refuses_the_periods_the_runners_refuse(
+    tmp_path, period_engine, period
+):
+    artifact = _months_artifact(tmp_path / "rulespec-us", period_engine)
+    assert _engine_query(period_engine, artifact, [], _tax_year(2020)).returncode == 0
     assert _engine_query(period_engine, artifact, [], period).returncode != 0
+
+
+def test_the_engine_reads_every_period_a_runner_accepts(
+    tmp_path, period_engine, validator
+):
+    """Crosses every period form; only accepted ones reach the engine."""
+    artifact = _months_artifact(tmp_path / "rulespec-us", period_engine)
+    accepted = set()
+    for kind, start, end, name in product(
+        PERIOD_KINDS, PERIOD_DATES, PERIOD_DATES, PERIOD_NAMES
+    ):
+        period = {"period_kind": kind, "start": start, "end": end}
+        if name is not ABSENT:
+            period["name"] = name
+        for coerce in (cli._rulespec_period_spec, validator._coerce_rulespec_period):
+            try:
+                accepted.add(json.dumps(coerce(period), sort_keys=True))
+            except ValueError:
+                continue
+    kinds = {json.loads(text)["period_kind"] for text in accepted}
+    assert kinds == {"month", "benefit_week", "tax_year", "custom"}
+    for text in sorted(accepted):
+        result = _engine_query(period_engine, artifact, [], json.loads(text))
+        assert result.returncode == 0, (text, result.stderr)

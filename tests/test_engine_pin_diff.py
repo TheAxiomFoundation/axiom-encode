@@ -534,6 +534,17 @@ def test_preexisting_parameter_errors_are_not_new_companion_failures():
     assert not diff.companion_needs_repair("companion", rows, old)
 
 
+def test_a_companion_older_than_a_parameter_still_needs_repair():
+    parameters = dict(rate={"error": "parameter `rate` has no version at 2025-05-11"})
+    old, new = (
+        dict(VALUE, companion_parameters=parameters),
+        dict(REFUSAL, companion_parameters=parameters),
+    )
+    outcomes = dict(old=dict(explain=old, fast=old), new=dict(explain=new, fast=new))
+    rows = diff.comparisons(outcomes, [RULE], "2025-05-11")
+    assert diff.companion_needs_repair("companion", rows, old)
+
+
 def test_refusal_with_another_error_is_not_expected():
     mixed = {"error": REFUSAL["error"] + "\nmissing input"}
     assert diff.classify(VALUE, mixed, [RULE], "2025-05-11") == "DIFF"
@@ -788,6 +799,90 @@ def test_end_to_end_same_engine(real_engine, tmp_path):
     assert set(
         row["classification"] for case in report["cases"] for row in case["comparisons"]
     ) == {"PASS"}
+
+
+def _period_module(path, name, period):
+    path.write_text(
+        yaml.safe_dump(
+            dict(
+                format="rulespec/v1",
+                rules=[
+                    dict(
+                        name="doubled",
+                        kind="derived",
+                        entity="Person",
+                        dtype="Integer",
+                        period="Year",
+                        versions=[dict(effective_from="2005-01-01", formula="6 * 2")],
+                    )
+                ],
+            )
+        )
+    )
+    output = {f"us:statutes/{name}#doubled": 12}
+    path.with_suffix(".test.yaml").write_text(
+        yaml.safe_dump([dict(name=f"{name}_case", period=period, output=output)])
+    )
+
+
+@pytest.mark.parametrize(
+    "period",
+    [
+        dict(period_kind="custom", start="2026-01-01", end="2026-12-31"),
+        dict(period_kind="tax_year", start="20260101", end="2026-12-31"),
+        dict(period_kind="tax_year", start="2026-W01-1", end="2026-12-31"),
+        dict(period_kind="tax_year", start="2026-1-1", end="2026-12-31"),
+        dict(period_kind="year", start="2026-01-01", end="2026-12-31"),
+    ],
+    ids=["nameless", "basic-date", "week-date", "unpadded-date", "unknown-kind"],
+)
+def test_a_refused_period_leaves_the_run_going(real_engine, tmp_path, period):
+    checkout = tmp_path / "rulespec-us"
+    root = checkout / "us"
+    (root / "statutes").mkdir(parents=True)
+    good = dict(period_kind="tax_year", start="2026-01-01", end="2026-12-31")
+    _period_module(root / "statutes" / "a.yaml", "a", good)
+    _period_module(root / "statutes" / "b.yaml", "b", period)
+    _period_module(root / "statutes" / "c.yaml", "c", good)
+    subprocess.run(["git", "init", str(checkout)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(checkout), "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(checkout),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-m",
+            "Fixture",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    ref = diff._git(real_engine.root, "rev-parse", "HEAD")
+    args = SimpleNamespace(
+        root=root,
+        paths=[],
+        old_engine=real_engine.root,
+        new_engine=real_engine.root,
+        old_engine_ref=ref,
+        new_engine_ref=ref,
+        as_of=date(2026, 10, 27),
+        out_dir=tmp_path / "report",
+        rulespec_dependency_root=[],
+    )
+    assert diff.run(args) == 1
+    report = json.loads((args.out_dir / "report.json").read_text())
+    assert [module["path"][-6:] for module in report["modules"]] == [
+        "a.yaml",
+        "b.yaml",
+        "c.yaml",
+    ]
+    assert "b_case" in {record.get("case") for record in report["incomplete"]}
+    assert any("c.yaml" in case["module"] for case in report["cases"])
 
 
 @given(
