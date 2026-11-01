@@ -704,13 +704,13 @@ def build_source_negation_language(
 
     def computation(definite: str = article) -> str:
         return (
-            rf"(?:{quantifier}{definite}(?:{noun}|(?:{_COMPUTATION_VERBS}){after})"
+            rf"{quantifier}(?:{definite}(?:{noun}|(?:{_COMPUTATION_VERBS}){after})"
             rf"|{_ENGLISH_COMPUTATION})"
         )
 
     from_complement = (
         rf"(?:{prefix_word('מ')}|מן{after}{gap}){quantifier}{article}{noun}"
-        rf"|מן{after}{gap}{_ENGLISH_COMPUTATION}"
+        rf"|מן{after}{gap}{quantifier}{_ENGLISH_COMPUTATION}"
     )
     clause_phrases = "|".join(
         re.escape(head)
@@ -736,7 +736,7 @@ def build_source_negation_language(
         rf"(?:{privative}){after}(?={gap}{computation()})"
         rf"|(?P<lack>מחוסר){after}(?={gap}{computation(rf'(?P<lack_article>{article})')})"
         rf"|(?:נעדרים|חסרים){after}(?={gap}{prefix_word('ב')}{article}{noun})"
-        rf"|(?:{_alternation_of(SOURCE_FROM_HEADS)}){after}(?={gap}?{from_complement})"
+        rf"|(?:{_alternation_of(SOURCE_FROM_HEADS)}){after}(?={gap}?(?:{from_complement}))"
         rf"|(?:{_alternation_of(SOURCE_CONSTRUCT_HEADS)}){after}(?={gap}{computation()})"
         rf"|{prefix_word('ב')}(?:היעדר|העדר|חוסר)(?:{'|'.join(ABSENCE_SUFFIXES)}){after}"
         rf"(?={gap}(?:המוחלט{after}{gap})?של{after}{gap}{computation()})"

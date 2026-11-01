@@ -7598,6 +7598,137 @@ def test_round_18_reproducers_get_the_english_verdict(
     ) == _DIFFERENTIAL_VERDICTS[verdict]
 
 
+# Round 19: the r7 review's reproducers (#1882). A pronominal absence noun
+# with ``של`` and the privative adjective ``נטול`` are "without" over their
+# computation complement; a citation does not end before ``K``, ``İ``, ``ı``
+# or ``ſ``; and a closing quote after the number is no geresh.
+_ROUND_19_WITHOUT_SOURCE = "(a) Without calculation in accordance with section 2."
+_ROUND_19_BASE_SOURCE = "(א) ישולם לפי סעיף 2."
+_ROUND_19_BASE_ENGLISH = "(a) Payment shall be made under section 2."
+ROUND_19_REPRODUCERS = (
+    *(
+        (
+            f"(א) {form} בהתאם לסעיף 2.",
+            english,
+            "חסר סעיף 2",
+            "Missing section 2.",
+            "neither",
+        )
+        for form, english in (
+            ("בהיעדרו של חישוב", _ROUND_19_WITHOUT_SOURCE),
+            ("בהעדרו של חישוב", _ROUND_19_WITHOUT_SOURCE),
+            (
+                "ובהיעדרו של חישוב",
+                "(a) And without calculation in accordance with section 2.",
+            ),
+            (
+                "בהיעדרם של חישובים",
+                "(a) Without calculations in accordance with section 2.",
+            ),
+            (
+                "בהעדרן של קביעות",
+                "(a) Without determinations in accordance with section 2.",
+            ),
+            (
+                "בהיעדרה של קביעה",
+                "(a) Without determination in accordance with section 2.",
+            ),
+        )
+    ),
+    *(
+        (hebrew_source, english_source, "חסר סעיף 2", "Missing section 2.", "both")
+        for hebrew_source, english_source in (
+            (
+                "(א) בהיעדרו, יחושב התשלום בהתאם לסעיף 2.",
+                "(a) In its absence, the payment shall be calculated in accordance with section 2.",
+            ),
+            (
+                "(א) בהעדרן, יחושב התשלום בהתאם לסעיף 2.",
+                "(a) In their absence, the payment shall be calculated in accordance with section 2.",
+            ),
+        )
+    ),
+    *(
+        (
+            f"(א) {subject} {form}{joint}{noun} בהתאם לסעיף 2.",
+            f"(a) The {english} shall be without {plural} in accordance with section 2.",
+            "חסר סעיף 2",
+            "Missing section 2.",
+            "neither",
+        )
+        for subject, form, joint, noun, english, plural in (
+            ("התשלום יהיה", "נטול", " ", "חישוב", "payment", "calculation"),
+            ("הגמלה תהיה", "נטולת", " ", "קביעה", "benefit", "determination"),
+            ("התשלומים יהיו", "נטולי", " ", "חישובים", "payments", "calculations"),
+            ("הגמלאות יהיו", "נטולות", " ", "קביעות", "benefits", "determinations"),
+            ("התשלום יהיה", "נטול", "־", "חישוב", "payment", "calculation"),
+            ("התשלום יבוצע", "באפס", " ", "חישוב", "payment", "calculation"),
+        )
+    ),
+    *(
+        row
+        for letter in ("K", "İ", "ı", "ſ")
+        for row in (
+            (
+                _ROUND_19_BASE_SOURCE,
+                _ROUND_19_BASE_ENGLISH,
+                f"חסר סעיף 2{letter}",
+                f"Missing section 2{letter}.",
+                "neither",
+            ),
+            (
+                f"(א) ישולם לפי סעיף 2{letter}.",
+                f"(a) Payment shall be made under section 2{letter}.",
+                "חסר סעיף 2",
+                "Missing section 2.",
+                "neither",
+            ),
+            # Both sides suffixed: English reads section 2K; a Hebrew citation
+            # reads only Hebrew suffix letters, so 2K is unread, as 2a was
+            # before this round. Stricter, and labelled.
+            (
+                f"(א) ישולם לפי סעיף 2{letter}.",
+                f"(a) Payment shall be made under section 2{letter}.",
+                f"חסר סעיף 2{letter}",
+                f"Missing section 2{letter}.",
+                "hebrew-stricter",
+            ),
+        )
+    ),
+    # The non-blocking finding, fixed: a quoted citation, in six spellings.
+    *(
+        (
+            _ROUND_19_BASE_SOURCE,
+            _ROUND_19_BASE_ENGLISH,
+            f"חסר {opening}סעיף 2{closing}",
+            f"Missing {opening}section 2{closing}.",
+            "both",
+        )
+        for opening, closing in (
+            ('"', '"'),
+            ("״", "״"),
+            ("'", "'"),
+            ("׳", "׳"),
+            ("“", "”"),
+            ("‘", "’"),
+        )
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("hebrew_source", "english_source", "hebrew_reason", "english_reason", "verdict"),
+    ROUND_19_REPRODUCERS,
+)
+def test_round_19_reproducers_get_the_english_verdict(
+    hebrew_source, english_source, hebrew_reason, english_reason, verdict
+):
+    assert (
+        _accepted("a", hebrew_reason, hebrew_source),
+        _english_accepted("a", english_reason, english_source),
+    ) == _DIFFERENTIAL_VERDICTS[verdict]
+
+
 # Intended stricter readings. An absence form negates any object, as ללא and
 # באין do, and governs the rest of its clause; English ``without`` negates a
 # link only before a computation word, and a reason not at all, since English
