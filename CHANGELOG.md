@@ -1,3 +1,7 @@
+## 0.2.2273
+
+- Read more Hebrew negations of a source link, as English's source guard reads `without calculation`, `prevented` and `denied`, while the reason reader stays as it was: forms with no statutory homograph negate their clause, and forms with one (`נטול`, `נעדר`, `חסר`, `במקום`, `פטור מ`, `כופר בטענה ש`) negate only over a computation complement. Read reason adversatives `פרט אם`, `מצד שני` and `כל עוד`, a predicate after the citation that denies its claim, and `נותר בעינו`. Refuse Hebrew script in the English-only runtime-gap, Louisiana and same-act routes, and end no Hebrew citation before a Unicode digit or a letter English reads. Preserve English and German verdicts.
+
 ## 0.2.2272
 
 - Read Hebrew absence forms (בהיעדר, בהעדר, בחוסר) as "without" in deferral reasons, and read Hebrew governors, signals, links and citations only as complete tokens, so a Hebrew reason or source cannot pass where its canonical English refuses. Preserve English and German verdicts.
