@@ -1,0 +1,27 @@
+{
+  "head": "7d4487c4bf14ab27afce29dff3b882ab4378f7e5",
+  "parent": "bcd7ad40af654fd0d8ae8db2ab57d8894bfc0099",
+  "tree": "ef34ab8902981ed9fd509317f4ce8bab9d3c59c7",
+  "tracked_status": "",
+  "exact_reviewed18blobs": {
+    "CHANGELOG.md": "27768d78127b6914d9d3a5d5d1980aa1c9fad0042fbd6e539ff8788f53a2de39",
+    "pyproject.toml": "735c97929918776b4f7476b4953764863e9e8c63dd4f7bde61c0ca6b58939c24",
+    "src/axiom_encode/__init__.py": "a68808cc3c46c2858eef9bb636517cea3ad59bedadb9299eeccba327062d630f",
+    "src/axiom_encode/cli.py": "c9def567adcedfb53b9d637ec48972b563df27f1a8a840a082a61834bfad8101",
+    "src/axiom_encode/harness/evals.py": "90d52e1cadcf9d7e9dc86b6de935ceaaff722ad163d43909367a1b872f9cb382",
+    "src/axiom_encode/harness/same_case_execution.py": "feef6def69098b216313beea21647715c3008e8cc795143f8dafb3cc5b112829",
+    "src/axiom_encode/harness/validator_pipeline.py": "dfa533e7306d4f653d40fd128b50f537f89531dd60261b5008aa1e5b3d9a3830",
+    "tests/test_ar_2026_oracle_registry.py": "9a9af8703b521df761c753f2d9be10a04c7bd628a2f95873878c047cb9462080",
+    "tests/test_execution_overlay_origin.py": "13663b3d2c7c5e7974f308c58b2f8973bf0316f9ba6afd453e3b2cec30ba2a26",
+    "tests/test_il_2026_oracle_registry.py": "0d0500c70d8bff8ca2ec13cdfec4ce55c3e54e0cc03e28a238feb72cefe26eef",
+    "tests/test_in_2026_oracle_registry.py": "88224c701ae56ecb0f47763de83ae11e9bf76a21cf7cfc5149a7d4725573e0cc",
+    "tests/test_mn_2026_oracle_registry.py": "f7d056855e35b69a5cc48c34b39e9dbcc1dace578102c59286375d72e940ab2f",
+    "tests/test_mt_2026_oracle_registry.py": "a3bd4218ef5deffa30ed18332e031fcc99691c74fd966df72d6fc0efd072d18c",
+    "tests/test_ok_2026_oracle_registry.py": "3babe762f24d094c190e08d652d0157bf6cbd6e31a613cdc1d101e0f4d4f9b00",
+    "tests/test_pa_2026_oracle_registry.py": "5851fbb1694f0c417120ddb8273a2cc65234dbe87e31529dcaa538336a205c5c",
+    "tests/test_rulespec_validation.py": "fa7fd19a257b1e9de94757103744172fa924337cd48d22a647272ad0050ee86d",
+    "tests/test_sc_2026_oracle_registry.py": "7d4a1e891aa025bfa3aa25c2ea6ac08cae9d0a017dcb88fe5a66ecb7c6f452a3",
+    "uv.lock": "238d6225e327ba82dfb5292895b30f08e53c0694b878f9c966d0fd98bfc329fc"
+  },
+  "package_review_sha256": "43413403a5d5a8bb3b27fb33eff428143162d96328153f815037f4d6a8f5d10d"
+}

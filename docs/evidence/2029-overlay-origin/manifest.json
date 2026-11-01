@@ -1,0 +1,119 @@
+{
+  "engine_commit": "89571cc2a938707fd60a5489b951135345697296",
+  "scope": "Historical local deterministic diagnostic evidence; not native generation, signing, publication, or a rerun of the integration commit. Author-produced records, independently checked as described in the reports; not a hosted attestation.",
+  "files": {
+    "eval.log": {
+      "sha256": "fea55a3cfcee178e3f998d3b78608d50ae7502af398b061141aa1673645f522a",
+      "bytes": 947
+    },
+    "apply.log": {
+      "sha256": "96318c51da1eb78d6d93404b8b7b1fa41824bd4034255be60876c34e5d24755d",
+      "bytes": 35765
+    },
+    "apply-result.json": {
+      "sha256": "357c06a4402811185c3b49cfb1be717ea6df00cdb2280da0ed5b5254479df67d",
+      "bytes": 38660
+    },
+    "comparison.json": {
+      "sha256": "eb472a11de73a3a688aa5e8898463ea966865c762a41cdfa884a9742d206c5a2",
+      "bytes": 2923
+    },
+    "clean-apply-review.json": {
+      "sha256": "4b17a4e0ffd87502510f71626f63b9621a38347405d93bd1ce34cc649ca564f7",
+      "bytes": 3715
+    },
+    "engine-preparation.json": {
+      "sha256": "90263f0512ea5fa1be174ee7e6f4eb1d88e7e6b32503227408016d25dbf3f4a7",
+      "bytes": 673
+    },
+    "engine-receipt.json": {
+      "sha256": "98c5e9bcef3a4e1f1efa7a256794902cc7f29c5ba8c621de10458bc259e9fe98",
+      "bytes": 274
+    },
+    "eval-harness.py.txt": {
+      "sha256": "e2cb68004ab3c99dad861aace6ce0c7b3154d3536b90119cf272e08b3e09b736",
+      "bytes": 5305
+    },
+    "apply-harness.py.txt": {
+      "sha256": "c34d1bec9200373c58304473d227488877e164edf9a6c9c208d399fbeb21e4c3",
+      "bytes": 5630
+    },
+    "ordinary-harness.py.txt": {
+      "sha256": "df305584d07fb626c9f0e1b4f3b6d7cb98d1fb40b1f94de41e49e278c33ef276",
+      "bytes": 3243
+    },
+    "ordinary-result.json": {
+      "sha256": "e394ca724ecd5245c9c4ed8c4ea98c9548392525ce7d6814399b91c4f063f25c",
+      "bytes": 221
+    },
+    "ordinary-output-verification.json": {
+      "sha256": "8a6c0610d4b8dfb336d716a6ad8eff8e432177f04b92dd7897e2d2afbb05161b",
+      "bytes": 369
+    },
+    "shared-tests.log": {
+      "sha256": "8e548def9fbdea9cc6755552cc475a81cf29da6bb3d0924bf0d2045b0843229c",
+      "bytes": 261
+    },
+    "caller-tests.log": {
+      "sha256": "8525206186fbf589ea87d6c42e086149c95214ddaeb0ff649dcefd5db78f3702",
+      "bytes": 340
+    },
+    "version-tests.log": {
+      "sha256": "49680ccb956a4035038d0558513a624692efbb97c19d08cfd553d4db4fb05514",
+      "bytes": 100
+    },
+    "postcommit-version-tests.log": {
+      "sha256": "53b1f24d20a4face85a209ba01ccd9a4a6a1fd2e68f64151d76bd64b50c543d7",
+      "bytes": 64447
+    },
+    "mutation-result.json": {
+      "sha256": "2f5f349ee1515fd172c54ec4777d012d83ae731f27ab3eb10a78f5d93c186fb8",
+      "bytes": 2393
+    },
+    "committed-review.json": {
+      "sha256": "56d5f18519335cf6cd706c769c8d2e1b0c82675607081711ba9e8a4a4fa9011d",
+      "bytes": 2264
+    },
+    "apply-capture.json.gz": {
+      "sha256": "fb1e4827c9975b5ba76ef791029d32305d8b335c8c05e1f96e80ead533e17f88",
+      "bytes": 48598,
+      "uncompressed_sha256": "6bfd79bd242d4330bf164be879aae9c98b05c9f4030d1283637c670a489dcb85"
+    },
+    "eval-capture.json.gz": {
+      "sha256": "fb1e4827c9975b5ba76ef791029d32305d8b335c8c05e1f96e80ead533e17f88",
+      "bytes": 48598,
+      "uncompressed_sha256": "6bfd79bd242d4330bf164be879aae9c98b05c9f4030d1283637c670a489dcb85"
+    },
+    "ordinary-capture.json.gz": {
+      "sha256": "1d5ae6741a74857466c46a63819311ccfafbc08a8e092d781af17385b863c75c",
+      "bytes": 49722,
+      "uncompressed_sha256": "b44e48a7b082c2e3b8c90615de830d927a01803d98130d3d9c4dce2fac64cb61"
+    },
+    "apply-before.json.gz": {
+      "sha256": "16179614a33bda27a2012043ae12e5464dced963dabe3ab31bac239de4372884",
+      "bytes": 25824,
+      "uncompressed_sha256": "4d35ba130ad0c8cb7bfdf3eb1712296f1ade895e73900ad668521b90dbc12a12"
+    },
+    "apply-after.json.gz": {
+      "sha256": "2c00a3acae746f19d6e7ed7aee14a85b79106d134de402c973c2a85ab9f484bb",
+      "bytes": 25824,
+      "uncompressed_sha256": "5dd2815d4d599c9e764d7f55b5ce718ad684b711a4d8692746d96b9c1c3418f9"
+    },
+    "step-3.yaml.gz": {
+      "sha256": "c1d9accedf4fc707a9b7c828e474db9d197f328ffbaf4829ae529cf9c78b0f24",
+      "bytes": 2535,
+      "uncompressed_sha256": "0e99d25967b55dfb34163888121749359c7820f395f0da345e615f59f1bf2847"
+    },
+    "step-3.test.yaml.gz": {
+      "sha256": "b54f3cb2a781180826db5c0d013871012e822f0cfc20441a0c9248e07d488367",
+      "bytes": 2779,
+      "uncompressed_sha256": "c7b70ce5f7ac47d26a235a086f29b8b94ee00c2f91d207e0a7443b9f5f72f237"
+    }
+  },
+  "execution_contexts": {
+    "ordinary_reference": "unchanged bcd7ad40af654fd0d8ae8db2ab57d8894bfc0099/v2270",
+    "eval": "frozen uncommitted semantic files subsequently committed7d448; not cleancommit provenance",
+    "final_apply": "clean7d4487c4bf14ab27afce29dff3b882ab4378f7e5/v2271"
+  },
+  "final_apply_encoder_commit": "7d4487c4bf14ab27afce29dff3b882ab4378f7e5"
+}
