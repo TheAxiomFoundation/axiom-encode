@@ -35,9 +35,16 @@ def declared_input_entities(
 
     def declarations(path: Path) -> dict[str, str]:
         entries = payload(path).get("inputs", []) or []
-        # The engine ignores `inputs:` metadata, whatever its shape.
-        if relation_roles and not isinstance(entries, list):
-            entries = []
+        # The engine ignores `inputs:` metadata, whatever its shape, so only
+        # a name and an entity spelled as text can route a fact.
+        if relation_roles:
+            entries = [
+                item
+                for item in (entries if isinstance(entries, list) else ())
+                if isinstance(item, dict)
+                and isinstance(item.get("name"), str)
+                and isinstance(item.get("entity"), str)
+            ]
         return {
             str(item["name"]): str(item["entity"])
             for item in entries

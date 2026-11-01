@@ -79,6 +79,7 @@ from axiom_encode.companion_relations import (
     filtered_entity_kinds,
     pair_relation_assignment_issues,
     query_entity_kinds,
+    reached_relation_names,
     related_entity_from_relation,
     relation_role_query_entity_id,
     uses_relation_roles,
@@ -23539,6 +23540,16 @@ def find_relation_role_issues(
             alias_key = member_alias_key(rule)
             if alias_key is not None:
                 filtered_sources.setdefault(alias_key, []).append((owner, rule))
+    # The engine reads one relation through a shared alias, and that relation
+    # can sit in an import, where this module's own readers cannot see it.
+    for (alias, entity), candidates in sorted(filtered_sources.items()):
+        if len(candidates) > 1:
+            shared = ", ".join(sorted(f"`{rule['name']}`" for _, rule in candidates))
+            issues.append(
+                f"[relation-member-alias] Derived relations {shared} share member "
+                f"alias `{alias}` on `{entity}`. The engine reads only one of them "
+                "through it, so give each relation its own alias."
+            )
     owned_relations = {
         owner: _rulespec_relation_names(document)
         for owner, document in module_payloads.items()
@@ -32209,6 +32220,40 @@ def find_formula_absolute_reference_issues(content: str) -> list[str]:
     return []
 
 
+def _rulespec_entity_member_aliases(payload: dict[str, Any]) -> dict[str, set[str]]:
+    """Group a module's member alias spellings by the entity they bind."""
+    aliases: dict[str, set[str]] = {}
+    rules = payload.get("rules")
+    for rule in rules if isinstance(rules, list) else ():
+        key = member_alias_key(rule)
+        if key is not None:
+            aliases.setdefault(key[1], set()).add(key[0])
+    return aliases
+
+
+def _rulespec_relation_reads(
+    rule: dict[str, Any],
+    relation_names: frozenset[str],
+    aliases: dict[str, set[str]],
+) -> set[str]:
+    """Name the relations a rule's lowered formulas read past its member aliases.
+
+    A read counts as `len(name)`, as an atom or as a bare member of a relation
+    predicate. The engine resolves a member alias first on rules of its entity.
+    """
+    predicate = rule_uses_relation_predicate(rule)
+    reads: set[str] = set()
+    for formula in _rulespec_executed_formula_texts(rule):
+        analyzed = analyze_relation_predicate(
+            formula,
+            predicate_terms=predicate,
+            relation_names=relation_names,
+            lowering_entry=rule_lowering_entry(rule),
+        )
+        reads |= set(analyzed.atom_relations) | set(analyzed.relation_arguments)
+    return reads - aliases.get(member_alias_entity(rule), set())
+
+
 def _rulespec_relation_import_reads(payload: dict[str, Any]) -> set[str]:
     """Name the explicit relation imports that a rule reads.
 
@@ -32234,35 +32279,11 @@ def _rulespec_relation_import_reads(payload: dict[str, Any]) -> set[str]:
         if isinstance(rule, dict)
     ]
     local_relations = _rulespec_relation_names(payload)
-    derived_relations = [
-        rule
-        for rule in rules
-        if str(rule.get("kind") or "").strip().lower() == "derived_relation"
-    ]
-    aliases: dict[str, set[str]] = {}
-    for rule in derived_relations:
-        config = rule.get("derived_relation")
-        if (
-            isinstance(config, dict)
-            and isinstance(config.get("entity"), str)
-            and isinstance(config.get("member_relation"), str)
-        ):
-            aliases.setdefault(config["entity"], set()).add(config["member_relation"])
+    aliases = _rulespec_entity_member_aliases(payload)
     imported_names = frozenset(map(local_reference_name, imported))
     reads: set[str] = set()
     for rule in rules:
-        predicate = rule_uses_relation_predicate(rule)
-        for formula in _rulespec_executed_formula_texts(rule):
-            analyzed = analyze_relation_predicate(
-                formula,
-                predicate_terms=predicate,
-                relation_names=imported_names,
-                lowering_entry=rule_lowering_entry(rule),
-            )
-            reads |= (
-                set(analyzed.atom_relations) | set(analyzed.relation_arguments)
-            ) - aliases.get(member_alias_entity(rule), set())
-    for rule in derived_relations:
+        reads |= _rulespec_relation_reads(rule, imported_names, aliases)
         reads |= rule_relation_sources(rule)
     reads -= local_relations
     return {item for item in imported if {item, local_reference_name(item)} & reads}
@@ -32316,6 +32337,13 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
             return []
 
         local_relations = _rulespec_relation_names(payload)
+        aliases = _rulespec_entity_member_aliases(payload)
+        imports = payload.get("imports")
+        imported = {
+            item.strip()
+            for item in (imports if isinstance(imports, list) else ())
+            if isinstance(item, str)
+        }
         issues: list[str] = []
         for rule in rules:
             if not isinstance(rule, dict):
@@ -32343,7 +32371,6 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
             )
             sources = rule_relation_sources(rule) - local_relations
             referenced = set(sources)
-            relation_reads = set(sources)
             unparsed_formulas: list[str] = []
             for formula in formula_texts:
                 analyzed = analyze_relation_predicate(
@@ -32356,20 +32383,28 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                     unparsed_formulas.append(formula)
                 else:
                     referenced.update(analyzed.identifiers)
-                    relation_reads.update(analyzed.relation_arguments)
-                    relation_reads.update(analyzed.atom_relations)
+            relation_reads = sources | (
+                _rulespec_relation_reads(rule, selected_names, aliases)
+                - local_relations
+            )
             for target, symbol in selectors:
-                # A qualified selector names an import, so a scalar of its
-                # local spelling reads nothing it could certify.
                 local_symbol = local_reference_name(symbol)
-                reads = referenced if local_symbol == symbol else relation_reads
-                if (
-                    not symbol
-                    or {local_symbol, target} & reads
-                    or any(
-                        _formula_references_symbol(formula, symbol)
-                        for formula in unparsed_formulas
+                if local_symbol == symbol:
+                    certified = not symbol or {local_symbol, target} & referenced
+                else:
+                    # A qualified selector names one import, so only a read
+                    # that reaches that import certifies it. A scalar, a local
+                    # relation or another import of its spelling reads nothing
+                    # it could certify, and a full-target source reads it alone.
+                    certified = (
+                        symbol == target or symbol.startswith(f"{target}#")
+                    ) and (
+                        symbol in sources
+                        or (local_symbol in relation_reads and symbol in imported)
                     )
+                if certified or any(
+                    _formula_references_symbol(formula, symbol)
+                    for formula in unparsed_formulas
                 ):
                     continue
                 issues.append(
@@ -33470,7 +33505,7 @@ def _assignment_keys_from_mapping(inputs: dict[Any, Any]) -> list[str]:
             keys.append(key_text)
         if isinstance(value, list):
             for item in value:
-                if isinstance(item, dict) and "tuple" not in item:
+                if isinstance(item, dict) and not isinstance(item.get("tuple"), list):
                     keys.extend(_assignment_keys_from_mapping(item))
     return keys
 
@@ -38127,8 +38162,17 @@ class ValidatorPipeline:
                     relation_request_name
                 ) or declared_relation_slots.get(relation_name)
                 tuples = explicit_relation_tuples(
-                    value, relation=input_key, slots=slots
+                    value,
+                    relation=input_key,
+                    slots=slots,
+                    relation_roles=relation_role_program,
                 )
+                if relation_role_program or tuples is not None:
+                    relation_request_names = reached_relation_names(
+                        relation_request_names,
+                        declared=declared_relation_names,
+                        typed=declared_relation_slots,
+                    )
                 if tuples is not None:
                     for relation_tuple in tuples:
                         explicit_tuples.append((relation_tuple, slots))
@@ -38791,7 +38835,9 @@ class ValidatorPipeline:
                 query_entity,
                 declared_relation_slots or {},
                 compiled_relations,
-                explicit_relations=explicit_tuple_relation_names(case.get("input")),
+                explicit_relations=explicit_tuple_relation_names(
+                    case.get("input"), relation_roles=relation_role_program
+                ),
             )
             dataset = self._build_rulespec_dataset(
                 case.get("input", {}),

@@ -338,7 +338,7 @@ def test_only_a_derived_relation_defines_a_member_alias(candidate, key):
 
 
 def test_an_alias_read_needs_the_rules_own_entity():
-    aliases = {("members", "Person"): {"selected"}}
+    aliases = {("members", "Person"): "selected"}
     person = {"kind": "derived", "entity": "Person"}
     household = {"kind": "derived", "entity": "Household"}
     assert member_alias_reads({"members"}, aliases, person, ()) == {"selected"}

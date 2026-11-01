@@ -698,19 +698,23 @@ def member_alias_key(rule: object) -> tuple[str, str] | None:
     return (str(alias), str(entity)) if alias and entity else None
 
 
-def member_aliases(rules: Mapping[str, object]) -> dict[tuple[str, str], set[str]]:
-    """Map each member alias and entity to the filtered relations they reach."""
-    aliases: dict[tuple[str, str], set[str]] = {}
+def member_aliases(rules: Mapping[str, object]) -> dict[tuple[str, str], str]:
+    """Map each member alias and entity to the filtered relation they reach.
+
+    The engine rewrites a read to the first relation that declares both, so a
+    later relation takes no read through them.
+    """
+    aliases: dict[tuple[str, str], str] = {}
     for name, rule in rules.items():
         key = member_alias_key(rule)
         if key is not None:
-            aliases.setdefault(key, set()).add(name)
+            aliases.setdefault(key, name)
     return aliases
 
 
 def member_alias_reads(
     reads: Iterable[str],
-    aliases: Mapping[tuple[str, str], set[str]],
+    aliases: Mapping[tuple[str, str], str],
     rule: object,
     local_relations: Collection[str],
 ) -> set[str]:
@@ -720,10 +724,9 @@ def member_alias_reads(
     """
     entity = member_alias_entity(rule)
     return {
-        relation
+        aliases[read, entity]
         for read in reads
-        if read not in local_relations
-        for relation in aliases.get((read, entity), ())
+        if read not in local_relations and (read, entity) in aliases
     }
 
 

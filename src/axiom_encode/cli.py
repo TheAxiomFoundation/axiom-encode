@@ -118,6 +118,7 @@ from axiom_encode.companion_relations import (
     filtered_entity_kinds,
     pair_relation_assignment_issues,
     query_entity_kinds,
+    reached_relation_names,
     related_entity_from_relation,
     relation_role_query_entity_id,
     uses_relation_roles,
@@ -5898,7 +5899,9 @@ def _execute_rulespec_test_case(
         query_entity,
         declared_relation_slots,
         compiled_relations,
-        explicit_relations=explicit_tuple_relation_names(case.get("input")),
+        explicit_relations=explicit_tuple_relation_names(
+            case.get("input"), relation_roles=relation_role_program
+        ),
     )
     inputs: list[dict] = []
     relations: list[dict] = []
@@ -5977,7 +5980,18 @@ def _execute_rulespec_test_case(
             ) or declared_relation_slots.get(
                 unqualified_name if "#relation." in relation_name else relation_name
             )
-            tuples = explicit_relation_tuples(value, relation=key, slots=slots)
+            tuples = explicit_relation_tuples(
+                value,
+                relation=key,
+                slots=slots,
+                relation_roles=relation_role_program,
+            )
+            if relation_role_program or tuples is not None:
+                relation_names = reached_relation_names(
+                    relation_names,
+                    declared=declared_relation_names,
+                    typed=declared_relation_slots,
+                )
             if tuples is not None or (not value and relation_role_program):
                 for relation_tuple in tuples or []:
                     explicit_tuples.append((relation_tuple, slots))

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any
 
 _RELATION_ROLE_KINDS = frozenset(
@@ -150,15 +150,21 @@ def _relations_read_by(
     """Name each relation that a case's outputs can read.
 
     Every string in a reached rule or relation counts as a reference, so this
-    can over-read a relation but never misses one. A filtered entity's rules
-    reach its relation by the entity's name. Return None for a case with no
-    outputs, or with an output that has no compiled rule.
+    can over-read a relation but never misses one. A full compiled relation
+    name reads that relation alone. A filtered entity's rules reach its
+    relation by the entity's name. Return None for a case with no outputs, or
+    with an output that has no compiled rule.
     """
     pending: list[Any] = [derived.get(str(output)) for output in outputs]
     if not pending or any(rule is None for rule in pending):
         return None
 
     targets: dict[str, list[dict[str, Any]]] = {}
+    qualified = {
+        str(relation.get("name")): relation
+        for relation in relations
+        if "#relation." in str(relation.get("name"))
+    }
 
     def add(alias: Any, target: dict[str, Any]) -> None:
         if alias:
@@ -178,7 +184,10 @@ def _relations_read_by(
     while pending:
         value = pending.pop()
         if isinstance(value, str):
-            pending.extend(targets.get(_relation_local_name(value), ()))
+            if value in qualified:
+                pending.append(qualified[value])
+            else:
+                pending.extend(targets.get(_relation_local_name(value), ()))
         elif isinstance(value, list):
             pending.extend(value)
         elif isinstance(value, dict) and id(value) not in seen:
@@ -219,6 +228,12 @@ def pair_relation_assignment_issues(
         if derived is not None and isinstance(outputs, dict)
         else None
     )
+    declared = {str(relation.get("name")) for relation in relations or []}
+    typed = {
+        str(relation.get("name"))
+        for relation in relations or []
+        if relation.get("slot_entities")
+    }
     issues = []
     for relation in relations or []:
         if relation.get("derivation") or relation.get("arity") != 2:
@@ -228,7 +243,12 @@ def pair_relation_assignment_issues(
             continue
         aliases = {name}
         if "#relation." not in name:
-            aliases.update(key for key in assigned if key.endswith(f"#relation.{name}"))
+            aliases.update(
+                key
+                for key in assigned
+                if key.endswith(f"#relation.{name}")
+                and reaches_short_relation(key, name, declared=declared, typed=typed)
+            )
         if not aliases & assigned:
             issues.append(
                 f"Test case `{case_name}` must assign pair relation `{name}`, "
@@ -237,18 +257,64 @@ def pair_relation_assignment_issues(
     return issues
 
 
+def reaches_short_relation(
+    key: str,
+    short_name: str,
+    *,
+    declared: Collection[str],
+    typed: Collection[str],
+) -> bool:
+    """Tell whether a qualified relation key also feeds its short name.
+
+    An untyped short name stands for the key's own relation. A typed one is a
+    different relation whenever the key names a compiled relation itself.
+    """
+    return key not in declared or short_name not in typed
+
+
+def reached_relation_names(
+    names: list[str],
+    *,
+    declared: Collection[str],
+    typed: Collection[str],
+) -> list[str]:
+    """Keep the compiled relations that one supplied key feeds."""
+    key, *short_names = names
+    return [
+        key,
+        *(
+            short_name
+            for short_name in short_names
+            if reaches_short_relation(key, short_name, declared=declared, typed=typed)
+        ),
+    ]
+
+
+def is_tuple_row(row: Any, *, relation_roles: bool) -> bool:
+    """Tell whether a companion row takes the explicit tuple form.
+
+    A legacy compact row may name a scalar fact `tuple`.
+    """
+    return (
+        isinstance(row, dict)
+        and "tuple" in row
+        and (relation_roles or isinstance(row["tuple"], list))
+    )
+
+
 def explicit_relation_tuples(
     rows: list[Any],
     *,
     relation: str,
     slots: tuple[str, ...] | None,
+    relation_roles: bool,
 ) -> list[list[str]] | None:
     """Read tuple-only companion rows in the relation's declared slot order.
 
     Return None for the existing compact relation-member mappings. Named table
     rows supply facts for the ids in explicit tuples; the engine checks kinds.
     """
-    if not any(isinstance(row, dict) and "tuple" in row for row in rows):
+    if not any(is_tuple_row(row, relation_roles=relation_roles) for row in rows):
         return None
     if slots is None:
         raise ValueError(
@@ -275,7 +341,7 @@ def explicit_relation_tuples(
     return result
 
 
-def explicit_tuple_relation_names(case_input: Any) -> set[str]:
+def explicit_tuple_relation_names(case_input: Any, *, relation_roles: bool) -> set[str]:
     """Find supplied relations whose rows need no implicit anchor direction."""
     if not isinstance(case_input, dict):
         return set()
@@ -283,7 +349,10 @@ def explicit_tuple_relation_names(case_input: Any) -> set[str]:
         str(name)
         for name, rows in case_input.items()
         if isinstance(rows, list)
-        and (not rows or any(isinstance(row, dict) and "tuple" in row for row in rows))
+        and (
+            (relation_roles and not rows)
+            or any(is_tuple_row(row, relation_roles=relation_roles) for row in rows)
+        )
     }
 
 
@@ -422,6 +491,7 @@ def executable_relation_directions(
     ) -> None:
         if relation in explicit_relations or (
             "#relation." not in relation
+            and relation not in declared
             and any(
                 name.endswith(f"#relation.{relation}") for name in explicit_relations
             )

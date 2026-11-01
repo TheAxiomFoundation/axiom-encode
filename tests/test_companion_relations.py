@@ -823,10 +823,16 @@ def test_legacy_filtered_relations_keep_pair_assignment_findings(member_alias):
 
 def test_tuple_rows_preserve_declared_order_and_shared_ids():
     assert explicit_relation_tuples(
-        [{"tuple": ["child", "parent"]}], relation="parents", slots=("Person", "Person")
+        [{"tuple": ["child", "parent"]}],
+        relation="parents",
+        slots=("Person", "Person"),
+        relation_roles=True,
     ) == [["child", "parent"]]
     assert (
-        explicit_relation_tuples([{"age": 10}], relation="parents", slots=None) is None
+        explicit_relation_tuples(
+            [{"age": 10}], relation="parents", slots=None, relation_roles=True
+        )
+        is None
     )
 
 
@@ -842,7 +848,12 @@ def test_tuple_rows_preserve_declared_order_and_shared_ids():
 )
 def test_malformed_tuple_rows_fail_closed(rows):
     with pytest.raises(ValueError, match="tuple row"):
-        explicit_relation_tuples(rows, relation="parents", slots=("Person", "Person"))
+        explicit_relation_tuples(
+            rows,
+            relation="parents",
+            slots=("Person", "Person"),
+            relation_roles=True,
+        )
 
 
 @pytest.mark.parametrize("kind", ["relation_atom", "exists"])
