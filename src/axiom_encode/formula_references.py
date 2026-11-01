@@ -7,7 +7,7 @@ while retaining declaration names for the existing source validators.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Literal
 
@@ -674,6 +674,57 @@ def local_relation_sources(
         ):
             names.add(local_reference_name(source))
     return names
+
+
+def rule_lowers_formulas(rule: object) -> bool:
+    """Tell whether the engine lowers a rule's formulas.
+
+    The engine reads no `versions[].formula` on a data relation.
+    """
+    return isinstance(rule, Mapping) and rule.get("kind") != "data_relation"
+
+
+def member_alias_key(rule: object) -> tuple[str, str] | None:
+    """Key a filtered relation by the member alias and entity that reach it.
+
+    The engine aliases only a derived relation that names both.
+    """
+    if not isinstance(rule, Mapping) or rule.get("kind") != "derived_relation":
+        return None
+    config = rule.get("derived_relation")
+    if not isinstance(config, Mapping):
+        return None
+    alias, entity = config.get("member_relation"), config.get("entity")
+    return (str(alias), str(entity)) if alias and entity else None
+
+
+def member_aliases(rules: Mapping[str, object]) -> dict[tuple[str, str], set[str]]:
+    """Map each member alias and entity to the filtered relations they reach."""
+    aliases: dict[tuple[str, str], set[str]] = {}
+    for name, rule in rules.items():
+        key = member_alias_key(rule)
+        if key is not None:
+            aliases.setdefault(key, set()).add(name)
+    return aliases
+
+
+def member_alias_reads(
+    reads: Iterable[str],
+    aliases: Mapping[tuple[str, str], set[str]],
+    rule: object,
+    local_relations: Collection[str],
+) -> set[str]:
+    """Name the filtered relations a rule reaches through member aliases.
+
+    A local relation of an alias's spelling takes a read first.
+    """
+    entity = member_alias_entity(rule)
+    return {
+        relation
+        for read in reads
+        if read not in local_relations
+        for relation in aliases.get((read, entity), ())
+    }
 
 
 def member_alias_entity(rule: object) -> str | None:

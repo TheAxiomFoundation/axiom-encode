@@ -25,6 +25,12 @@ def relation_role_query_entity_id(case: dict[str, Any], query_entity: str) -> st
     return "case"
 
 
+def related_entity_from_relation(relation_name: str) -> str:
+    """Infer a readable related-entity label for relation test inputs."""
+    head = relation_name.split("_of_", 1)[0]
+    return "".join(part.capitalize() for part in head.split("_") if part) or "Related"
+
+
 def compact_relation_row(
     row: dict[str, Any], *, fallback_id: str
 ) -> tuple[str, bool, dict[str, Any]]:

@@ -112,7 +112,7 @@ def _program(current_slot=0):
     return {"program": {"derived": [derived], "relations": relations}}
 
 
-def _requests(tmp_path, case, payload=None):
+def _requests(tmp_path, case, payload=None, *, cli_only=False):
     root = tmp_path / "rulespec-us"
     module = root / "us/policies/example/dataset_roles.yaml"
     if not module.exists():
@@ -150,6 +150,8 @@ def _requests(tmp_path, case, payload=None):
         request_only=True,
     )
     assert cli.pop("_companion_parameters") == {}
+    if cli_only:
+        return cli
     captured = {}
 
     class Captured(Exception):
@@ -225,7 +227,7 @@ def test_b5_compact_row_identity_never_becomes_a_factual_input(tmp_path, id_key)
     assert cli["dataset"]["relations"][0]["tuple"] == ["case", "alice"]
 
 
-def _legacy_requests(tmp_path, id_key, member_id):
+def _legacy_program():
     payload = _program()
     derivation = payload["program"]["relations"][-1]["derivation"]
     derivation["entity"] = "Person"
@@ -233,33 +235,72 @@ def _legacy_requests(tmp_path, id_key, member_id):
         "kind": "literal",
         "value": {"kind": "bool", "value": True},
     }
+    return payload
+
+
+def _legacy_requests(tmp_path, id_key, member_id):
     case = {
         "entity_id": "case",
         "input": {PAIRS: [{id_key: member_id, AGE: 20}], TIES: []},
         "output": {OUTPUT: 1},
     }
-    return _requests(tmp_path, case, payload)
+    return _requests(tmp_path, case, _legacy_program())
 
 
 @pytest.mark.parametrize("id_key", ["id", "entity_id"])
-def test_compact_row_metadata_applies_to_legacy_programs(tmp_path, id_key):
-    cli, pipeline = _legacy_requests(tmp_path, id_key, "alice")
+@pytest.mark.parametrize("member_id", ["alice", 0, ""])
+def test_a_legacy_cli_row_keeps_its_id_as_a_fact(tmp_path, id_key, member_id):
+    cli, _pipeline = _legacy_requests(tmp_path, id_key, member_id)
+    assert cli["dataset"]["relations"][0]["tuple"] == ["case", "related_0"]
+    assert {record["name"] for record in cli["dataset"]["inputs"]} == {AGE, id_key}
+
+
+@pytest.mark.parametrize("id_key", ["id", "entity_id"])
+def test_a_legacy_pipeline_row_names_its_member(tmp_path, id_key):
+    _cli, pipeline = _legacy_requests(tmp_path, id_key, "alice")
+    assert pipeline["dataset"]["relations"][0]["tuple"] == ["case", "alice"]
+    assert {record["name"] for record in pipeline["dataset"]["inputs"]} == {AGE}
+
+
+@pytest.mark.parametrize("id_key", ["id", "entity_id"])
+@pytest.mark.parametrize("member_id", [0, ""])
+def test_a_falsey_legacy_pipeline_id_takes_its_fallback(tmp_path, id_key, member_id):
+    _cli, pipeline = _legacy_requests(tmp_path, id_key, member_id)
+    assert pipeline["dataset"]["relations"][0]["tuple"] == [
+        "case",
+        f"case-{PAIRS}-1",
+    ]
+    assert {record["name"] for record in pipeline["dataset"]["inputs"]} == {AGE}
+
+
+@pytest.mark.parametrize("id_key", ["id", "entity_id"])
+def test_a_role_compact_row_names_its_member_in_both_runners(tmp_path, id_key):
+    case = {
+        "entity_id": "case",
+        "input": {PAIRS: [{id_key: "alice", AGE: 20}], TIES: []},
+        "output": {OUTPUT: 1},
+    }
+    cli, pipeline = _requests(tmp_path, case)
     assert cli == pipeline
     assert cli["dataset"]["relations"][0]["tuple"] == ["case", "alice"]
     assert {record["name"] for record in cli["dataset"]["inputs"]} == {AGE}
 
 
-@pytest.mark.parametrize("id_key", ["id", "entity_id"])
-@pytest.mark.parametrize("member_id", [0, ""])
-def test_a_falsey_compact_id_takes_each_runners_fallback(tmp_path, id_key, member_id):
-    cli, pipeline = _legacy_requests(tmp_path, id_key, member_id)
-    assert cli["dataset"]["relations"][0]["tuple"] == ["case", "related_0"]
-    assert pipeline["dataset"]["relations"][0]["tuple"] == [
-        "case",
-        f"case-{PAIRS}-1",
-    ]
-    for request in (cli, pipeline):
-        assert {record["name"] for record in request["dataset"]["inputs"]} == {AGE}
+@pytest.mark.parametrize(
+    "payload,kind", [(_program(), "Person"), (_legacy_program(), "Entity")]
+)
+def test_only_a_legacy_cli_row_leaves_an_untyped_kind_open(tmp_path, payload, kind):
+    case = {
+        "entity_id": "case",
+        "input": {
+            PAIRS: [],
+            TIES: [],
+            f"{TARGET}#relation.person_of_extra": [{"id": "bob", AGE: 20}],
+        },
+        "output": {OUTPUT: 1},
+    }
+    cli = _requests(tmp_path, case, payload, cli_only=True)
+    assert {record["entity"] for record in cli["dataset"]["inputs"]} == {kind}
 
 
 @pytest.mark.parametrize("row_ordered", [False, True])

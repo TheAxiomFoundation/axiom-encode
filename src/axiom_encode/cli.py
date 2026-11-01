@@ -118,6 +118,7 @@ from axiom_encode.companion_relations import (
     filtered_entity_kinds,
     pair_relation_assignment_issues,
     query_entity_kinds,
+    related_entity_from_relation,
     relation_role_query_entity_id,
     uses_relation_roles,
 )
@@ -5915,6 +5916,7 @@ def _execute_rulespec_test_case(
             for key, value in (case.get("input") or {}).items()
             if not isinstance(value, (dict, list))
         ),
+        relation_roles=relation_role_program,
         resolve_reference=lambda key: _rulespec_file_for_absolute_module_ref(
             key,
             policy_repo_path=policy_repo_path,
@@ -6008,6 +6010,8 @@ def _execute_rulespec_test_case(
                 if slots is not None and current_slot is not None
                 else query_entity
                 if slots is not None
+                else related_entity_from_relation(local_reference_name(key))
+                if relation_role_program
                 else "Entity"
             )
             matches = {
@@ -6042,8 +6046,11 @@ def _execute_rulespec_test_case(
                         }
                     )
                     continue
-                related_id, explicit_id, factual_inputs = compact_relation_row(
-                    row, fallback_id=f"related_{row_index}"
+                # A legacy row's `id` stays a fact of its generated member.
+                related_id, explicit_id, factual_inputs = (
+                    compact_relation_row(row, fallback_id=f"related_{row_index}")
+                    if relation_role_program
+                    else (f"related_{row_index}", False, row)
                 )
                 if explicit_id:
                     occupied_entity_ids.setdefault(related_id, set()).add(

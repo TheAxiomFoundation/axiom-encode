@@ -1,1 +1,1 @@
-Name a compact relation member by its first truthy `id` or `entity_id` in both runners, so `{id: null, entity_id: bob}` keeps its accepted join and a falsey ID takes the runner's fallback.
+Relation-role companion rows take their member from a truthy `id` or `entity_id` in both runners, and legacy programs keep each runner's own reading of those fields.

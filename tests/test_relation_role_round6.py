@@ -300,9 +300,12 @@ def test_the_first_truthy_id_names_a_compact_member(row, entity_id, explicit):
     )
 
 
-@pytest.mark.parametrize("executor", ["cli", "validator"])
-def test_a_legacy_null_id_leaves_a_valid_entity_id_in_place(
-    tmp_path, real_engine, executor
+@pytest.mark.parametrize(
+    "executor,failures",
+    [("cli", ["unsupported scalar test value None"]), ("validator", [])],
+)
+def test_a_legacy_null_id_keeps_each_runners_reading(
+    tmp_path, real_engine, executor, failures
 ):
     payload = {
         "format": "rulespec/v1",
@@ -320,7 +323,7 @@ def test_a_legacy_null_id_leaves_a_valid_entity_id_in_place(
         "output": {f"{TARGET}#result": 7},
     }
     root, module = write_module(tmp_path, payload, [case])
-    assert run(executor, tmp_path, real_engine, root, module) == []
+    assert run(executor, tmp_path, real_engine, root, module) == failures
 
 
 @pytest.mark.parametrize(

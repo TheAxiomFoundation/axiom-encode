@@ -15,6 +15,7 @@ def declared_input_entities(
     *,
     resolve_reference: Callable[[str], Path | None],
     resolve_import: Callable[[str, Path], Path | None],
+    relation_roles: bool = False,
 ) -> dict[str, str]:
     """Resolve facts from their source declarations, including imported facts.
 
@@ -33,9 +34,13 @@ def declared_input_entities(
         return payloads[path]
 
     def declarations(path: Path) -> dict[str, str]:
+        entries = payload(path).get("inputs", []) or []
+        # The engine ignores `inputs:` metadata, whatever its shape.
+        if relation_roles and not isinstance(entries, list):
+            entries = []
         return {
             str(item["name"]): str(item["entity"])
-            for item in payload(path).get("inputs", []) or []
+            for item in entries
             if isinstance(item, dict) and item.get("name") and item.get("entity")
         }
 

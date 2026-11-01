@@ -68,7 +68,8 @@ from axiom_encode.formula_references import (
     formula_identifiers,
     local_reference_name,
     local_relation_sources,
-    member_alias_entity,
+    member_alias_reads,
+    member_aliases,
     rule_lowering_entry,
     rule_uses_relation_predicate,
 )
@@ -15443,12 +15444,12 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
         for name, rule in rules_by_name.items()
         if rule.get("kind") == "derived_relation"
     }
-    filtered_aliases: dict[tuple[str, str], set[str]] = {}
-    for name in relation_names:
-        config = rules_by_name[name].get("derived_relation")
-        if isinstance(config, dict) and config.get("member_relation"):
-            key = (str(config["member_relation"]), str(config.get("entity") or ""))
-            filtered_aliases.setdefault(key, set()).add(name)
+    filtered_aliases = member_aliases(rules_by_name)
+    local_relations = relation_names | {
+        name
+        for name, rule in rules_by_name.items()
+        if rule.get("kind") == "data_relation"
+    }
     for owner, formula in formulas:
         rule = rules_by_name[owner]
         identifiers = formula_identifiers(
@@ -15464,11 +15465,11 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
             relation_names=frozenset(relation_names),
         )
         relation_arguments = analyzed.relation_arguments | analyzed.atom_relations
-        relation_dependencies = set(relation_arguments) & relation_names
-        for alias in relation_arguments:
-            relation_dependencies.update(
-                filtered_aliases.get((alias, member_alias_entity(rule)), set())
-            )
+        relation_dependencies = (
+            set(relation_arguments) & relation_names
+        ) | member_alias_reads(
+            relation_arguments, filtered_aliases, rule, local_relations
+        )
         identifiers.difference_update(relation_names)
         referenced.update(relation_dependencies & export_names)
         referenced.update(
