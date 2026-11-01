@@ -484,15 +484,24 @@ def _genuine_context(match: re.Match[str]) -> bool:
 SOURCE_PREFIX_LANGUAGE = _NEGATION_PREFIX
 #
 # These are grammatical stems, not a dictionary. All endings live in this
-# generator; callers select a family or a grammatical slot. The ten possessive
-# slots include the two second-person singular slots, identical without niqqud.
+# generator; callers select a family or a grammatical slot. There are ten
+# possessive slots. Singular-noun second-person slots coincide without
+# niqqud; full plural spelling distinguishes them.
 # Source-only expansion leaves build_negation_language (the reason reader)
 # unchanged. No third-party dictionary data is used.
 _FINAL_TO_MEDIAL = str.maketrans("םןךףץ", "מנכפצ")
 _MEDIAL_TO_FINAL = str.maketrans("מנכפצ", "םןךףץ")
 _POSSESSIVE_ENDINGS = (
     ("י", "ך", "ך", "ו", "ה", "נו", "כם", "כן", "ם", "ן"),
-    ("י", "יך", "יך", "יו", "יה", "ינו", "יכם", "יכן", "יהם", "יהן"),
+    ("יי", "יך", "ייך", "יו", "יה", "ינו", "יכם", "יכן", "יהם", "יהן"),
+)
+# Full unpointed writing distinguishes plural 1s (-ay) and 2fs (-ayikh)
+# from the construct/2ms endings. Pointed spelling writes one י in those
+# slots; after fold_marks removes niqqud those grammatical spellings remain
+# valid (טַעֲנוֹתַי -> טענותי). These are suffix orthographies, not new stems.
+_VOCALIZED_PLURAL_ENDINGS = tuple(
+    ending[1:] if slot in (0, 2) else ending
+    for slot, ending in enumerate(_POSSESSIVE_ENDINGS[1])
 )
 _THIRD_PERSON_POSSESSIVE_SLOTS = (3, 4, 8, 9)
 
@@ -520,6 +529,7 @@ class NounParadigm:
     construct: tuple[str, str]
     singular_possessive: tuple[str, ...]
     plural_possessive: tuple[str, ...]
+    plural_possessive_variants: tuple[str, ...]
 
     @property
     def forms(self) -> tuple[str, ...]:
@@ -529,6 +539,7 @@ class NounParadigm:
                 *self.construct,
                 *self.singular_possessive,
                 *self.plural_possessive,
+                *self.plural_possessive_variants,
             )
         )
 
@@ -545,6 +556,7 @@ def noun_paradigm(singular: str, plural: str) -> NounParadigm:
         (singular_construct, plural_construct),
         tuple(_joined(singular_construct, suffix) for suffix in _POSSESSIVE_ENDINGS[0]),
         tuple(_joined(plural_stem, suffix) for suffix in _POSSESSIVE_ENDINGS[1]),
+        tuple(_joined(plural_stem, suffix) for suffix in _VOCALIZED_PLURAL_ENDINGS),
     )
 
 

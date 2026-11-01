@@ -61,6 +61,8 @@ ROUND_20_SOURCE_REPRODUCERS = (
             "יישומם",
             "חישוב",
             "חישוביו",
+            "חישוביי",
+            "חישובייך",
             "ישום",
             "ישומים",
             "קביעות",
@@ -99,6 +101,8 @@ ROUND_20_SOURCE_REPRODUCERS = (
             ("כופר", "טענת הנישום"),
             ("כופר", "טענת John Smith"),
             ("כופר", "טענותיו"),
+            ("כופר", "טענותיי"),
+            ("כופר", "טענותייך"),
             ("כופר", "הנחות"),
             ("כופר", "גרסאות"),
             ("כופר", "גירסה"),
@@ -118,6 +122,8 @@ ROUND_20_SOURCE_REPRODUCERS = (
             ("הטענה", "אינה נכונה", "נכונה"),
             ("טענתו", "אינה נכונה", "נכונה"),
             ("טענותיו", "אינן נכונות", "נכונות"),
+            ("טענותיי", "אינן נכונות", "נכונות"),
+            ("טענותייך", "אינן נכונות", "נכונות"),
             ("הטענות", "אינן נכונות", "נכונות"),
             ("הנחתו", "שגויה", "נכונה"),
             ("הגירסה", "שגויה", "נכונה"),
@@ -332,10 +338,14 @@ def test_every_listed_paradigm_fills_each_slot_or_explains_its_absence():
         assert len(family.construct) == 2, family
         assert len(family.singular_possessive) == 10, family
         assert len(family.plural_possessive) == 10, family
+        assert len(set(family.plural_possessive)) == 10, family
+        assert all(family.forms), family
     for family in negators.VERB_PARADIGMS.values():
         for slot, count in (("past", 3), ("present", 4), ("future", 4)):
             forms = getattr(family, slot)
-            assert len(forms) == count or family.missing_slots.get(slot), (family, slot)
+            assert (len(forms) == count and all(forms)) or family.missing_slots.get(
+                slot
+            ), (family, slot)
         assert family.infinitive or family.missing_slots.get("infinitive"), family
     for family in negators.ADJECTIVE_PARADIGMS.values():
         assert len(family.absolute) == 4, family
@@ -362,6 +372,38 @@ def test_hifil_present_feminine_uses_its_agreement_ending():
         "מבדילים",
         "מבדילות",
     )
+
+
+def test_plural_nouns_have_all_ten_full_possessives_and_keep_pointed_variants():
+    computation = negators.NOUN_PARADIGMS["חישוב"]
+    claim = negators.NOUN_PARADIGMS["טענה"]
+    assert computation.plural_possessive == (
+        "חישוביי",
+        "חישוביך",
+        "חישובייך",
+        "חישוביו",
+        "חישוביה",
+        "חישובינו",
+        "חישוביכם",
+        "חישוביכן",
+        "חישוביהם",
+        "חישוביהן",
+    )
+    assert claim.plural_possessive == (
+        "טענותיי",
+        "טענותיך",
+        "טענותייך",
+        "טענותיו",
+        "טענותיה",
+        "טענותינו",
+        "טענותיכם",
+        "טענותיכן",
+        "טענותיהם",
+        "טענותיהן",
+    )
+    assert "חישובי" in computation.plural_possessive_variants
+    assert "טענותי" in claim.plural_possessive_variants
+    assert "קביעותי" in negators.NOUN_PARADIGMS["קביעה"].forms
 
 
 _FIXTURE = json.loads(
