@@ -13,6 +13,9 @@ English with the negative word removed or turned positive, which accepts.
 
 from __future__ import annotations
 
+import json
+import re
+
 import pytest
 
 from axiom_encode.harness import hebrew_negators as negators
@@ -215,3 +218,319 @@ def test_the_claim_reader_with_relatives_is_bounded():
         started = time.process_time()
         list(hebrew._CLAIM_SUBJECT.finditer(text))
         assert time.process_time() - started < 1.5
+
+
+# --- Review r9's executed rows, with matched positive controls ------------------
+
+# (id, Hebrew source, English source, verdict, Hebrew positive, English
+# positive). Both languages take ``verdict``; both positives accept. Built by
+# hand from the targets: r9_replay.py (main session), findings-repro.py,
+# extra-spelling-root.py and disclaimer-repro.py (review r9).
+UNAFFECTED = (
+    "(a) Section 2 remains unaffected and the payment is calculated in "
+    "accordance with section 2."
+)
+EFFECTIVE = UNAFFECTED.replace("unaffected", "effective")
+RATHER_IMPOSED = (
+    "(a) The amount is determined rather than being imposed in accordance "
+    "with section 2."
+)
+AND_IMPOSED = "(a) The amount is determined and imposed in accordance with section 2."
+RATHER_ARISING = (
+    "(a) The rights are calculated rather than arising in accordance with section 2."
+)
+AND_ARISING = "(a) The rights are calculated and arise in accordance with section 2."
+ROUND_21_REPRODUCERS = (
+    (
+        "f1-full-spelling",
+        "(א) סעיף 2 ייוותר בעינו והתשלום מחושב בהתאם לסעיף 2.",
+        UNAFFECTED,
+        False,
+        "(א) סעיף 2 ייוותר בתוקפו והתשלום מחושב בהתאם לסעיף 2.",
+        EFFECTIVE,
+    ),
+    (
+        "f1-full-spelling-plural",
+        "(א) סעיפים 2 ו־3 ייוותרו בעינם והתשלום מחושב בהתאם לסעיף 2.",
+        "(a) Sections 2 and 3 remain unaffected and the payment is calculated "
+        "in accordance with section 2.",
+        False,
+        "(א) סעיפים 2 ו־3 ייוותרו בתוקפם והתשלום מחושב בהתאם לסעיף 2.",
+        "(a) Sections 2 and 3 remain effective and the payment is calculated "
+        "in accordance with section 2.",
+    ),
+    (
+        "f1-generated-spelling",
+        "(א) סעיף 2 יוותר בעינו והתשלום מחושב בהתאם לסעיף 2.",
+        UNAFFECTED,
+        False,
+        "(א) סעיף 2 יוותר בתוקפו והתשלום מחושב בהתאם לסעיף 2.",
+        EFFECTIVE,
+    ),
+    (
+        "f1-one-citation",
+        "(א) התשלום מחושב בהתאם לסעיף 2 אשר ייוותר בעינו.",
+        "(a) The payment is calculated in accordance with section 2, which "
+        "remains unaffected.",
+        False,
+        "(א) התשלום מחושב בהתאם לסעיף 2 אשר ייוותר בתוקפו.",
+        "(a) The payment is calculated in accordance with section 2, which "
+        "remains effective.",
+    ),
+    (
+        "f2-plene-feminine-plural",
+        "(א) הזכויות יחושבו במקום שתקומנה בהתאם לסעיף 2.",
+        RATHER_ARISING,
+        False,
+        "(א) הזכויות יחושבו ותקומנה בהתאם לסעיף 2.",
+        AND_ARISING,
+    ),
+    (
+        "f2-generated-spelling",
+        "(א) הזכויות יחושבו במקום שתקמנה בהתאם לסעיף 2.",
+        RATHER_ARISING,
+        False,
+        "(א) הזכויות יחושבו ותקמנה בהתאם לסעיף 2.",
+        AND_ARISING,
+    ),
+    (
+        "f3-plene-future",
+        "(א) הסכום ייקבע במקום שיחוייב בהתאם לסעיף 2.",
+        RATHER_IMPOSED,
+        False,
+        "(א) הסכום ייקבע ויחוייב בהתאם לסעיף 2.",
+        AND_IMPOSED,
+    ),
+    (
+        "f3-generated-future",
+        "(א) הסכום ייקבע במקום שיחויב בהתאם לסעיף 2.",
+        RATHER_IMPOSED,
+        False,
+        "(א) הסכום ייקבע ויחויב בהתאם לסעיף 2.",
+        AND_IMPOSED,
+    ),
+    (
+        "f3-plene-feminine",
+        "(א) המס ייקבע במקום שתחוייב בהתאם לסעיף 2.",
+        "(a) The tax is determined rather than being imposed in accordance "
+        "with section 2.",
+        False,
+        "(א) המס ייקבע ותחוייב בהתאם לסעיף 2.",
+        "(a) The tax is determined and imposed in accordance with section 2.",
+    ),
+    (
+        "f3-plene-plural",
+        "(א) הסכומים ייקבעו במקום שיחוייבו בהתאם לסעיף 2.",
+        "(a) The amounts are determined rather than being imposed in "
+        "accordance with section 2.",
+        False,
+        "(א) הסכומים ייקבעו ויחוייבו בהתאם לסעיף 2.",
+        "(a) The amounts are determined and imposed in accordance with section 2.",
+    ),
+    *(
+        (
+            f"f4-{index}",
+            hebrew_source,
+            english_source,
+            verdict,
+            hebrew_source.replace(" אינה נכונה", " נכונה")
+            .replace(" אינם נכונים", " נכונים")
+            .replace(" אינן נכונות", " נכונות")
+            .replace(" אינו נכון", " נכון"),
+            english_source.replace("false", "true").replace("incorrect", "correct"),
+        )
+        for index, (hebrew_source, english_source, verdict) in enumerate(RELATIVE_TABLE)
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    (
+        "hebrew_source",
+        "english_source",
+        "verdict",
+        "hebrew_positive",
+        "english_positive",
+    ),
+    [row[1:] for row in ROUND_21_REPRODUCERS],
+    ids=[row[0] for row in ROUND_21_REPRODUCERS],
+)
+def test_round_21_reproducers_and_their_matched_positive_controls(
+    hebrew_source, english_source, verdict, hebrew_positive, english_positive
+):
+    assert _pair(hebrew_source, english_source) == (verdict, verdict)
+    assert _pair(hebrew_positive, english_positive) == (True, True)
+
+
+# Finding 5 (review r9 and the main session): English surnames that are German
+# negators keep main's verdict, as the neutral ``Lee`` does.
+@pytest.mark.parametrize(
+    "name",
+    (
+        "Nie",
+        "Ms Nie",
+        "Kein",
+        "Ms Kein",
+        "Keine",
+        "Keiner",
+        "Weder",
+        "Statt",
+        "Anstatt",
+        "Ausser",
+        "Nicht",
+        "Niemals",
+        "Ohne",
+        "Lee",
+        "Ms Lee",
+    ),
+)
+def test_round_21_english_surnames_keep_mains_verdict(name):
+    for frame in (
+        "(a) Tax is computed for {} in accordance with section 2.",
+        "(a) The amount is calculated for {} in accordance with section 2.",
+    ):
+        assert _english_accepted("a", ENGLISH_REASON, frame.format(name))
+
+
+# --- Findings 1–3: the spellings, closed from the snapshot ----------------------
+
+
+def test_full_spelling_disclaimers_are_generated_and_the_homographs_are_not():
+    assert {"ייוותר", "ייוותרו"} <= set(negators.DISCLAIMER_VERBS)
+    assert not {"יותר", "יותרו"} & set(negators.DISCLAIMER_VERBS)
+
+
+PLENE_CHARGE = (
+    "חוייב",
+    "חוייבה",
+    "חוייבו",
+    "מחוייב",
+    "מחוייבת",
+    "מחוייבים",
+    "מחוייבות",
+    "יחוייב",
+    "תחוייב",
+    "יחוייבו",
+    "תחוייבנה",
+)
+
+
+def test_every_charge_slot_has_its_plene_spelling():
+    family = negators.VERB_PARADIGMS["חויב"]
+    assert set(PLENE_CHARGE) <= set(family.forms)
+    for form in ("יחוייב", "תחוייב", "יחוייבו", "תחוייבנה"):
+        assert form in negators.COMPUTATION_RELATIVE_FUTURES
+    for relative in ("שיחוייב", "שתחוייב", "שיחוייבו", "שתחוייבנה"):
+        source = f"(א) הסכום ייקבע במקום {relative} בהתאם לסעיף 2."
+        assert not _accepted("a", HEBREW_REASON, source), relative
+
+
+def _closure() -> dict:
+    from scripts import generate_hebrew_paradigm_audit as audit
+
+    fixture = json.loads(audit.FIXTURE.read_text())
+    return fixture["round21"]
+
+
+def _generated_forms() -> set[str]:
+    return {
+        form
+        for registry in (
+            negators.NOUN_PARADIGMS,
+            negators.ADJECTIVE_PARADIGMS,
+            negators.VERB_PARADIGMS,
+        )
+        for family in registry.values()
+        for form in family.forms
+    }
+
+
+def test_every_holam_alternate_is_added_or_refused_as_recorded():
+    forms = _generated_forms()
+    rows = _closure()["holam_alternates"]
+    assert rows
+    for row in rows:
+        family = negators.VERB_PARADIGMS[row["family"]]
+        if row["decision"] == "added":
+            assert row["form"] in family.spellings(row["slot"]), row
+        else:
+            assert row["decision"] == "refused" and row["reason"], row
+            assert row["form"] not in forms, row
+    added = {row["form"] for row in rows if row["decision"] == "added"}
+    assert {"תקומנה", "יעמודו", "תעמדנה", "יכפורו", "תכפרנה", "ייוותר"} <= added
+
+
+def test_listed_defective_spellings_stay_out():
+    forms = _generated_forms()
+    defective = _closure()["defective_exclusions"]
+    assert set(defective) == {
+        "יקבע",
+        "יקבעו",
+        "תקבע",
+        "יחשב",
+        "תחשב",
+        "מחשב",
+        "מחשבת",
+        "מחשבים",
+        "חשב",
+        "עמדת",
+        "עמדות",
+        "דווח",
+        "דווחו",
+        "אמרה",
+        "עבוד",
+        "יחוב",
+    }
+    assert not forms & set(defective)
+
+
+def test_every_snapshot_neighbour_is_generated_or_named():
+    """The pinned inventory: snapshot words one ``ו`` or ``י`` from a generated form."""
+
+    forms = _generated_forms()
+    rows = _closure()["neighbours"]
+    assert len(rows) >= 200
+    named = set()
+    for row in rows:
+        if row["class"] == "generated":
+            assert row["word"] in forms, row
+        else:
+            assert row["class"] in {"homograph", "other lexeme", "defective active"}
+            assert row["reason"], row
+            assert row["word"] not in forms, row
+            named.add(row["word"])
+        assert row["near"] and all(near in forms for near in row["near"]), row
+    # No generated form holds a name in any exclusion table.
+    closure = _closure()
+    refused = {
+        row["form"]
+        for row in closure["holam_alternates"]
+        if row["decision"] == "refused"
+    }
+    assert not forms & (named | refused | set(closure["defective_exclusions"]))
+
+
+def test_a_new_neighbour_without_a_class_fails_the_check():
+    from scripts import generate_hebrew_paradigm_audit as audit
+
+    rows = audit.classify_neighbours(
+        [
+            {"word": "קקקק", "count": 1, "near": ["חויב"]},
+            {"word": "יחוייב", "count": 9, "near": ["יחויב"]},
+            {"word": "יקבע", "count": 1, "near": ["ייקבע"]},
+        ]
+    )
+    assert [row["class"] for row in rows] == [
+        "unclassified",
+        "generated",
+        "defective active",
+    ]
+    assert audit.spelling_closure(None, _closure()) == _closure()
+
+
+def test_compact_alternation_refuses_an_empty_language():
+    with pytest.raises(ValueError):
+        negators.compact_alternation([])
+    with pytest.raises(ValueError):
+        negators.compact_alternation([""])
+    assert re.fullmatch(negators.compact_alternation(["אב", "אג"]), "אג")
