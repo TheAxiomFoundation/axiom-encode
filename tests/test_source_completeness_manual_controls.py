@@ -243,11 +243,17 @@ def test_stated_numeric_limit_stays_linear_on_long_space_runs():
     def work(spaces):
         source = "1" + " " * spaces
 
-        def check(match):
-            assert not match
+        def check(matches):
+            assert not any(matches)
 
+        # One batch size for both lengths lifts the short sample above the
+        # CPU floor without changing the ratio.
         return lowest_work(
-            lambda: completeness_module._STATED_NUMERIC_LIMIT.search(source), check
+            lambda: [
+                completeness_module._STATED_NUMERIC_LIMIT.search(source)
+                for _ in range(8)
+            ],
+            check,
         )
 
     assert_linear_growth(work(256), work(4_096), input_ratio=16)

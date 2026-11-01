@@ -11230,63 +11230,37 @@ def test_formula_interval_uses_controlled_comparison_as_stronger_lower_bound(
     assert interval.upper is None
 
 
-def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtime(
-    monkeypatch,
-):
-    source = "income greater than 1" + (" " * 10_000) + "x 2"
-    comparison_calls = 0
-    comparison_characters = 0
-    original_re = completeness_module.re
+def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtime():
+    def interval_for(width):
+        return completeness_module._formula_interval_from_text(
+            "income greater than 1" + " " * width + "x 2",
+            extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        )
 
-    def count_comparison(pattern, text):
-        nonlocal comparison_calls, comparison_characters
-        pattern = getattr(pattern, "pattern", pattern)
-        if "(?:and|but|und|aber)" in pattern and "(?P<body>" in pattern:
-            comparison_calls += 1
-            comparison_characters += len(text)
-            # Count C scan input before matching, including compiled patterns.
-            # A raw space run can backtrack quadratically inside the regex.
-            assert comparison_calls <= 2, comparison_calls
-            assert comparison_characters <= 1, comparison_characters
+    def check(interval):
+        assert interval is not None
+        assert interval.lower is not None
+        assert interval.lower.value == 1
+        assert interval.upper is None
 
-    class CountedPattern:
-        def __init__(self, pattern):
-            self._pattern = pattern
+    def work(width):
+        def check_batch(intervals):
+            for interval in intervals:
+                check(interval)
 
-        def fullmatch(self, text, *args, **kwargs):
-            count_comparison(self._pattern, text)
-            return self._pattern.fullmatch(text, *args, **kwargs)
+        # One batch size for both widths keeps the narrow sample above the
+        # CPU floor without changing the ratio.
+        return lowest_work(lambda: [interval_for(width) for _ in range(8)], check_batch)
 
-        def __getattr__(self, name):
-            return getattr(self._pattern, name)
-
-    class CountedRegex:
-        def compile(self, pattern, *args, **kwargs):
-            if isinstance(pattern, CountedPattern):
-                pattern = pattern._pattern
-            return CountedPattern(original_re.compile(pattern, *args, **kwargs))
-
-        def fullmatch(self, pattern, text, *args, **kwargs):
-            if isinstance(pattern, CountedPattern):
-                pattern = pattern._pattern
-            count_comparison(pattern, text)
-            return original_re.fullmatch(pattern, text, *args, **kwargs)
-
-        def __getattr__(self, name):
-            return getattr(original_re, name)
-
-    monkeypatch.setattr(completeness_module, "re", CountedRegex())
-    interval = completeness_module._formula_interval_from_text(
-        source,
-        extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
-    )
-
-    assert interval is not None
-    assert interval.lower is not None
-    assert interval.lower.value == 1
-    assert interval.upper is None
-    assert comparison_calls <= 2
-    assert comparison_characters <= 1
+    # A regex scanning the raw space run from every position is quadratic in
+    # the gap. Correct code is not linear beyond a few hundred spaces either:
+    # an existing optional-currency pattern backtracks across the run, so the
+    # pairs stay narrow. The first step stops a cubic scan before it reaches
+    # widths where it runs for minutes; the second catches a quadratic one.
+    assert_linear_growth(work(32), work(256), input_ratio=8)
+    assert_linear_growth(work(64), work(1_024), input_ratio=16)
+    # Keep the original 10,000-space rejection, once and untimed.
+    check(interval_for(10_000))
 
 
 def test_formula_interval_skips_arithmetic_from_before_real_comparator():

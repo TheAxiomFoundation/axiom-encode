@@ -16384,16 +16384,16 @@ def test_hebrew_compound_scanning_is_linear_on_long_prose(monkeypatch):
             for result in results:
                 (check_values if whole else check_matches)(result)
 
-        # Batch uncached direct scans so the smaller sample takes measurable
-        # CPU work without inflating the quadratic regression's input size.
-        batch = 1 if whole else 32
         return lowest_work(
-            lambda: [call(text) for _ in range(batch)],
+            lambda: [call(text)],
             check,
             setup=_clear_numeric_extraction_caches,
         )
 
-    assert_linear_growth(work(8), work(128), input_ratio=16)
+    # A native copy of the remaining words at each start costs ~1/600 of a
+    # word's scan, so the direct pair needs thousands of words before that
+    # quadratic term shows: 2,400 and 38,400 words here.
+    assert_linear_growth(work(400), work(6_400), input_ratio=16)
     assert_linear_growth(work(32, whole=True), work(512, whole=True), input_ratio=16)
 
     # Keep the original large fixtures and their outputs outside measurement.
@@ -16467,14 +16467,14 @@ def test_hebrew_compound_scanning_is_linear_on_teen_only_words(monkeypatch):
             for result in results:
                 (check_values if whole else check_matches)(result)
 
-        batch = 1 if whole else 25
         return lowest_work(
-            lambda: [call(text) for _ in range(batch)],
+            lambda: [call(text)],
             check,
             setup=_clear_numeric_extraction_caches,
         )
 
-    assert_linear_growth(work(20), work(320), input_ratio=16)
+    # As above: 2,500 and 40,000 words let a per-start native word copy show.
+    assert_linear_growth(work(1_250), work(20_000), input_ratio=16)
     assert_linear_growth(work(128, whole=True), work(2_048, whole=True), input_ratio=16)
 
     for repeats in (20_000, 40_000):
@@ -21917,10 +21917,13 @@ def test_the_range_passes_scan_thousands_of_members_and_clauses_in_linear_time()
         ("השיעורים הם", "אחוזים"),
         ("הסכומים הם", "מיליון שקלים"),
     ):
+        # A scan of every taken span costs ~1% of a member at 250 members;
+        # 32x more members lets that quadratic term clear the bound on CPU
+        # seconds without coverage, where 16x left it at the bound.
         assert_linear_growth(
             members_work(250, heading, unit),
-            members_work(4000, heading, unit),
-            input_ratio=16,
+            members_work(8000, heading, unit),
+            input_ratio=32,
         )
         # Keep both original large output fixtures, once and untimed.
         for count in (1000, 4000):
@@ -24126,7 +24129,8 @@ def test_evidence_whitespace_collapses_in_linear_time():
             ("A" + " \n" * width + "B", "A\n\nB"),
             ("A" + (" " * 100 + "\n") * (width // 100) + "B", "A\n\nB"),
         )[variant]
-        repeats = 1 if variant < 2 else 16
+        # Batch every form so its small sample clears the CPU floor.
+        repeats = 64 if variant < 2 else 16
 
         def call():
             return [proof.collapse_evidence_whitespace(text) for _ in range(repeats)]
@@ -24142,8 +24146,8 @@ def test_evidence_whitespace_collapses_in_linear_time():
     for variant in range(4):
         # The real old no-gap regex is quadratic on the first two forms:
         # repeating 64000-space failures could hang the suite. Catch it on
-        # the finite pair first. The other forms need batching for CPU
-        # resolution and retain their existing larger measured fixtures.
+        # the finite pair first. The other forms retain their existing
+        # larger measured fixtures.
         small, large = (640, 10_240) if variant < 2 else (4000, 64000)
         assert_linear_growth(work(small, variant), work(large, variant), input_ratio=16)
         # Preserve every original output fixture once, outside measurements.
@@ -27405,13 +27409,22 @@ def test_rulespec_proof_parent_resolution_is_bounded_for_repeated_lists(monkeypa
 
 
 def _reference_chain_source(count):
-    source_text = "paragraph " + "".join(f"({index})" for index in range(1, count + 1))
-    return source_text, source_text.rfind(f"({count})")
+    # A reference chain ends in "(c)(k)": after a letter marker, (k) would be
+    # a numeric paragraph and claim the following "(a)" as its child, unless
+    # the walk back over the whole chain finds "paragraph". The target's
+    # parent, ("a", "parenthesized"), depends on that walk: treating every
+    # marker as a reference returns None, and none as one returns ("b", ...).
+    source_text = (
+        "b. Rules: see paragraph "
+        + "".join(f"({index})" for index in range(1, count + 1))
+        + f"(c)({count + 1}): (a) First. ({count + 2}) Target."
+    )
+    return source_text, source_text.rfind(f"({count + 2})")
 
 
 def test_rulespec_proof_reference_chain_resolution_is_bounded():
     def check(result):
-        assert result is None
+        assert result == ("a", "parenthesized")
 
     def work(count):
         source_text, numeric_start = _reference_chain_source(count)
@@ -27440,10 +27453,9 @@ def test_rulespec_proof_reference_chain_resolution_is_bounded():
 @settings(max_examples=20, deadline=None)
 @given(count=st.integers(min_value=1, max_value=64))
 def test_reference_chain_resolution_for_generated_lengths(count):
-    assert (
-        _source_top_level_marker_for_numeric_parent(*_reference_chain_source(count))
-        is None
-    )
+    assert _source_top_level_marker_for_numeric_parent(
+        *_reference_chain_source(count)
+    ) == ("a", "parenthesized")
 
 
 def test_rulespec_proof_parent_resolution_supports_multi_digit_paragraphs():
