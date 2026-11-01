@@ -1107,13 +1107,20 @@ def claim_content(
     whose subject is the noun (``הדיווחים שהוגשו לפי סעיף 2``, "the reports
     filed under section 2"). With ``exclude_relatives``, ``ש`` counts only
     where it opens a content clause: not before an attributive verb that
-    agrees with the noun, unless ``כי`` follows within three words (``הטענה
-    שהועלתה אתמול כי ...`` still claims), and not before a single word, other
-    than a computation verb, that reaches an ``under`` linker. Each check
-    reads at most four atomic tokens, so it adds no backtracking across the
-    clause. The postposed-denial reader excludes relatives; ``כופר בטענה``
-    ("denies the claim") keeps both readings, since English refuses
-    ``denies the claim raised in accordance with section 2`` as well.
+    agrees with the noun and reaches an ``under`` linker within four more
+    tokens, unless ``כי`` follows within three words (``הטענה שהועלתה אתמול
+    כי ...`` still claims), and not before a single word, other than a
+    computation verb, that reaches an ``under`` linker. Before any other
+    linker, ``בהתאם ל`` included, ``ש`` opens a content clause: ``הטענה
+    שהוגשה בקשה בהתאם לסעיף 2 אינה נכונה`` says "it is false that an
+    application was filed in accordance with section 2" (round 22). English
+    reads no negation before an ``under`` link, so the relative reading never
+    accepts what English refuses, whatever the agreement guess. The run to
+    the linker is possessive over atomic tokens, so each check reads at most
+    five tokens and adds no backtracking across the clause. The
+    postposed-denial reader excludes relatives; ``כופר בטענה`` ("denies the
+    claim") keeps both readings, since English refuses ``denies the claim
+    raised in accordance with section 2`` as well.
     """
 
     # Intersect the caller's separator with horizontal spaces and joints.
@@ -1133,14 +1140,16 @@ def claim_content(
     computation_verbs = compact_alternation(
         form for paradigm in COMPUTATION_VERB_PARADIGMS for form in paradigm.forms
     )
-    single_word_relative = (
-        rf"(?!(?:{computation_verbs}){after}){token}{gap}{_under_linker(after, gap)}"
-    )
+    under = _under_linker(after, gap)
+    single_word_relative = rf"(?!(?:{computation_verbs}){after}){token}{gap}{under}"
+    # At most four tokens, none an ``under`` linker, then the linker; a longer
+    # run, or another linker, reads as content.
+    reaches_under = rf"(?:{gap}(?!{under}){token}){{0,4}}+{gap}{under}"
     alternatives = []
     for agreement in _AGREEMENT_SLOTS:
         relative = (
             rf"(?:{compact_alternation(attributive_forms(agreement))}){after}"
-            rf"(?!(?:{gap}{token}){{0,3}}{gap}כי{after})"
+            rf"(?!(?:{gap}{token}){{0,3}}{gap}כי{after}){reaches_under}"
             rf"|{single_word_relative}"
         )
         connective = rf"(?:{prefix_word('ש')}(?=[{_H}])(?!{relative})|כי{after})"

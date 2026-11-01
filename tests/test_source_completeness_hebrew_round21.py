@@ -135,9 +135,12 @@ RELATIVE_CONTROLS = (
     ("(א) הפקיד כופר בטענה שהתשלום מחושב בהתאם לסעיף 2.", False),
     ("(א) ההנחות שיינתנו לפי סעיף 2 אינן נכונות.", True),
     ("(א) הטענה שיחושב בהתאם לסעיף 2 אינה נכונה.", False),
-    ("(א) הטענה שהוגשה בהתאם לסעיף 2 אינה נכונה.", True),
+    # Round 22: before ``בהתאם ל``, a linker other than ``under``, ``ש`` opens
+    # a content clause, so these two refuse; intended stricter, their English
+    # accepts (tests/test_source_completeness_hebrew_round22.py).
+    ("(א) הטענה שהוגשה בהתאם לסעיף 2 אינה נכונה.", False),
     ("(א) הטענה שנמסרה לפי סעיף 2 אינה נכונה.", True),
-    ("(א) הדיווחים שהוגשו בהתאם לסעיף 2 אינם נכונים.", True),
+    ("(א) הדיווחים שהוגשו בהתאם לסעיף 2 אינם נכונים.", False),
     # Agreement: a feminine singular verb is no relative of a plural noun.
     ("(א) הדיווחים שהוגשה בהתאם לסעיף 2 אינם נכונים.", False),
     # A computation verb keeps the content reading, even one word from the link.
