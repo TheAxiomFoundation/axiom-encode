@@ -133,6 +133,16 @@ def test_a_spelling_certifies_only_a_bare_selector(formula):
     assert not certified(selector_proof(formula, imports=[VIEW], atom=atom))
 
 
+@pytest.mark.parametrize(
+    "formula,expected", [(f"{VIEW} + @", True), ("view + @", False)]
+)
+def test_an_unparsed_formula_certifies_a_qualified_selector_by_its_spelling(
+    formula, expected
+):
+    atom = {"target": VIEW, "output": VIEW}
+    assert certified(selector_proof(formula, imports=[VIEW], atom=atom)) is expected
+
+
 def sourced_proof(atom):
     relation = view("selected", VIEW, "true", slots=EVERYONE)
     relation["metadata"] = {"proof": {"atoms": [{"import": atom}]}}
