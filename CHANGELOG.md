@@ -1,3 +1,7 @@
+## 0.2.2277
+
+- Read every recognized prefix joint before guarded absent-computation predicates (`נעדר`, `נפקד`, `חסר`), while retaining relative-clause resets and unchanged reason grammar.
+
 ## 0.2.2276
 
 - Generate the full-spelling first-person singular and second-person feminine singular plural possessives in every listed Hebrew noun family, while preserving compact spellings obtained by folding pointed Hebrew. Share the same suffix generator across computation and claim readers, and read prefix joints in the existing `באפס`, `במקום` and `בשונה` guarded heads, without adding stems or changing the reason grammar.
