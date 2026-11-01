@@ -791,6 +791,7 @@ VERB_PARADIGMS = {
             "המשיך",
             "ממשיך",
             "ימשיך",
+            feminine="he",
             past_stem="המשיכ",
             future_plural="ימשיכ",
             future_feminine_stem="תמשכ",

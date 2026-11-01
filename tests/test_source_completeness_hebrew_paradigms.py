@@ -155,6 +155,13 @@ ROUND_20_REPRODUCERS = (
         )
         for phrase in ("מתנער מ־חישוב", "מתנער מחישוב")
     ),
+    (
+        "disclaimer-continuative-present-feminine",
+        "(א) הוראת סעיף 2 ממשיכה לעמוד בעינה והתשלום מחושב בהתאם לסעיף 2.",
+        "(a) The provision of section 2 remains unaffected and the payment is calculated in accordance with section 2.",
+        "(א) הוראת סעיף 2 ממשיכה לעמוד בתוקפה והתשלום מחושב בהתאם לסעיף 2.",
+        "(a) The provision of section 2 remains effective and the payment is calculated in accordance with section 2.",
+    ),
     *(
         (
             f"false-{phrase}",
@@ -289,6 +296,21 @@ def test_every_listed_paradigm_fills_each_slot_or_explains_its_absence():
 def test_final_nun_assimilates_before_the_feminine_plural_future_ending():
     assert negators.VERB_PARADIGMS["מיאן"].future[-1] == "תמאנה"
     assert negators.VERB_PARADIGMS["הבדיל"].future[-1] == "תבדלנה"
+
+
+def test_hifil_present_feminine_uses_its_agreement_ending():
+    assert negators.VERB_PARADIGMS["המשיך"].present == (
+        "ממשיך",
+        "ממשיכה",
+        "ממשיכים",
+        "ממשיכות",
+    )
+    assert negators.VERB_PARADIGMS["הבדיל"].present == (
+        "מבדיל",
+        "מבדילה",
+        "מבדילים",
+        "מבדילות",
+    )
 
 
 _FIXTURE = json.loads(
