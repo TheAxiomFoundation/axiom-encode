@@ -288,6 +288,7 @@ def test_every_listed_paradigm_fills_each_slot_or_explains_its_absence():
 
 def test_final_nun_assimilates_before_the_feminine_plural_future_ending():
     assert negators.VERB_PARADIGMS["מיאן"].future[-1] == "תמאנה"
+    assert negators.VERB_PARADIGMS["הבדיל"].future[-1] == "תבדלנה"
 
 
 _FIXTURE = json.loads(
