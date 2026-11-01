@@ -1,3 +1,7 @@
+## 0.2.2274
+
+- Close the listed Hebrew source paradigms with one grammar generator for noun possessives, final-letter rules, third-person verbs and adjective agreement. Share bounded claim complements, read prefix joints inside generated phrases and disclaimers, use forward cursors for the three new source indexes, and refuse raw/folded Hebrew blocks in English-only routes before marks can be erased. Preserve reason-negation grammar and English/German verdicts.
+
 ## 0.2.2273
 
 - Read more Hebrew negations of a source link, as English's source guard reads `without calculation`, `prevented` and `denied`, while the reason reader stays as it was: forms with no statutory homograph negate their clause, and forms with one (`נטול`, `נעדר`, `חסר`, `במקום`, `פטור מ`, `כופר בטענה ש`) negate only over a computation complement. Read reason adversatives `פרט אם`, `מצד שני` and `כל עוד`, a predicate after the citation that denies its claim, and `נותר בעינו`. Refuse Hebrew script in the English-only runtime-gap, Louisiana and same-act routes, and end no Hebrew citation before a Unicode digit or a letter English reads. Preserve English and German verdicts.
