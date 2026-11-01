@@ -5,9 +5,10 @@ Usage: python scripts/generate_hebrew_negator_corpus.py SNAPSHOT [--check]
 
 The public-law JSONL stays outside Git. The fixture contains its complete word
 vocabulary, and short statutory contexts for the finite, manually audited list
-below. Expected readings come from the statutory contexts and their meanings,
-never from importing or running the production negator grammar. This deliberately
-keeps cable, imprisonment, and other homographs among the negative controls.
+below. Expected contextual readings come from the statutory contexts and their
+meanings. The source computation vocabulary uses the shared grammatical
+generator; the audited reason readings and semantic exclusions below keep cable,
+imprisonment, and other homographs among the negative controls.
 """
 
 from __future__ import annotations
@@ -19,6 +20,9 @@ import re
 import unicodedata
 from collections import Counter, defaultdict
 from pathlib import Path
+
+from axiom_encode.harness import hebrew_negators as grammar
+from axiom_encode.harness.hebrew_prefixes import prefix_word
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests/fixtures/hebrew_negator_corpus.json"
@@ -94,13 +98,8 @@ CONTEXT_DEPENDENT = frozenset(
 # contexts. Bare מחוסר before an indefinite complement is causal ("for lack
 # of"), so it reads only in a relative clause there.
 SOURCE_GUARDED_HEADS = frozenset(
-    """
-    נטול נטולת נטולי נטולות נעדר נעדרת נעדרי נעדרות חסר חסרה חסרת חסרי חסרות
-    מחוסרת מחוסרי מחוסרות משוללי בלעדי באפס חסום חסומה חסומים חסומות מונע
-    מונעת מונעים מונעות מניעת נדחה נדחתה נדחו דוחות אי במקום חלף תחת פטורי
-    פטורת פטורות
-    """.split()
-)
+    (*grammar.SOURCE_PRIVATIVE_HEADS, *grammar.SOURCE_CONSTRUCT_HEADS)
+) - {"מחוסר"}
 ORDINARY_PREFIXES = tuple(
     conjunction + subordinator
     for conjunction in ("", "ו")
@@ -109,13 +108,9 @@ ORDINARY_PREFIXES = tuple(
 # The Hebrew of English's determin*, comput*/calculat*, appl*, impos* and
 # aris*, as nouns with their suffixes and as infinitives.
 SOURCE_COMPUTATION_WORD = re.compile(
-    r"\s+(?:(?:כל|שום|אותו|אותה|אותם|אותן)\s+)?ה?(?:"
-    r"קביע(?:ה|ת|ות|ותי|תו|תה|תם|תן)|היקבעות|חישוב(?:ים|י|ו|ה|ם|ן)?"
-    r"|החל(?:ה|ת|ות|תו|תה|תם|תן)|יישום(?:ים|י|ו|ה|ם|ן)?|תחול(?:ה|ת|תו|תה|תם|תן)"
-    r"|הטל(?:ה|ת|ות|תו|תה|תם|תן)|השת(?:ה|ת|תו|תה|תם|תן)|חיוב(?:ים|י|ו|ה|ם|ן)?"
-    r"|היווצרות(?:ו|ה|ם|ן)?|התהוות(?:ו|ה|ם|ן)?|צמיח(?:ה|ת|תו|תה|תם|תן)"
-    r"|להיקבע|לחשב|להחיל|ליישם|להטיל|לחייב|להיווצר|לצמוח|לחול|להשית|לקום"
-    r")(?![א-ת])"
+    r"\s+(?:(?:כל|שום|אותו|אותה|אותם|אותן)\s+)?"
+    rf"(?:{prefix_word('ה')})?(?:{grammar._COMPUTATION_NOUNS}"
+    rf"|{grammar._COMPUTATION_VERBS})(?![א-ת])"
 )
 
 

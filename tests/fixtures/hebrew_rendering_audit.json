@@ -1607,5 +1607,7951 @@
     ["תתכחשנה חישוב חסר סעיף 2", true],
     ["חסר תתכחשנה סעיף 2", true],
     ["חסר סעיף 2 תתכחשנה חישוב", true]
-  ]
+  ],
+  "round20": {
+    "generator": "scripts/generate_hebrew_paradigm_audit.py",
+    "reason_baseline": "0acff35515e7bdb7d2a97fd6b048f9e131ba53e9",
+    "frames": [
+      {
+        "id": "r20-computation-קביעה",
+        "cls": "computation-קביעה",
+        "registry": "noun",
+        "family": "קביעה",
+        "slot": "forms",
+        "role": "computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without determination in accordance with section 2.",
+          "(a) The payment shall be with determination in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-computation-היקבעות",
+        "cls": "computation-היקבעות",
+        "registry": "noun",
+        "family": "היקבעות",
+        "slot": "forms",
+        "role": "computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without determination in accordance with section 2.",
+          "(a) The payment shall be with determination in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-computation-חישוב",
+        "cls": "computation-חישוב",
+        "registry": "noun",
+        "family": "חישוב",
+        "slot": "forms",
+        "role": "computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-computation-החלה",
+        "cls": "computation-החלה",
+        "registry": "noun",
+        "family": "החלה",
+        "slot": "forms",
+        "role": "computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without application in accordance with section 2.",
+          "(a) The payment shall be with application in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-computation-יישום",
+        "cls": "computation-יישום",
+        "registry": "noun",
+        "family": "יישום",
+        "slot": "forms",
+        "role": "computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without application in accordance with section 2.",
+          "(a) The payment shall be with application in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-computation-ישום",
+        "cls": "computation-ישום",
+        "registry": "noun",
+        "family": "ישום",
+        "slot": "forms",
+        "role": "computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without application in accordance with section 2.",
+          "(a) The payment shall be with application in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-computation-תחולה",
+        "cls": "computation-תחולה",
+        "registry": "noun",
+        "family": "תחולה",
+        "slot": "forms",
+        "role": "computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without application in accordance with section 2.",
+          "(a) The payment shall be with application in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-computation-הטלה",
+        "cls": "computation-הטלה",
+        "registry": "noun",
+        "family": "הטלה",
+        "slot": "forms",
+        "role": "computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without imposition in accordance with section 2.",
+          "(a) The payment shall be with imposition in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-computation-השתה",
+        "cls": "computation-השתה",
+        "registry": "noun",
+        "family": "השתה",
+        "slot": "forms",
+        "role": "computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without imposition in accordance with section 2.",
+          "(a) The payment shall be with imposition in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-computation-חיוב",
+        "cls": "computation-חיוב",
+        "registry": "noun",
+        "family": "חיוב",
+        "slot": "forms",
+        "role": "computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without imposition of liability in accordance with section 2.",
+          "(a) The payment shall be with imposition of liability in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-computation-היווצרות",
+        "cls": "computation-היווצרות",
+        "registry": "noun",
+        "family": "היווצרות",
+        "slot": "forms",
+        "role": "computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without arising in accordance with section 2.",
+          "(a) The payment shall be with arising in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-computation-הווצרות",
+        "cls": "computation-הווצרות",
+        "registry": "noun",
+        "family": "הווצרות",
+        "slot": "forms",
+        "role": "computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without arising in accordance with section 2.",
+          "(a) The payment shall be with arising in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-computation-התהוות",
+        "cls": "computation-התהוות",
+        "registry": "noun",
+        "family": "התהוות",
+        "slot": "forms",
+        "role": "computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without arising in accordance with section 2.",
+          "(a) The payment shall be with arising in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-computation-צמיחה",
+        "cls": "computation-צמיחה",
+        "registry": "noun",
+        "family": "צמיחה",
+        "slot": "forms",
+        "role": "computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without arising in accordance with section 2.",
+          "(a) The payment shall be with arising in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-computational-processing-עיבוד",
+        "cls": "computational-processing-עיבוד",
+        "registry": "noun",
+        "family": "עיבוד",
+        "slot": "forms",
+        "role": "computational-processing",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without computational processing in accordance with section 2.",
+          "(a) The payment shall be with computational processing in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-computational-adjective-חישובי",
+        "cls": "computational-adjective-חישובי",
+        "registry": "adjective",
+        "family": "חישובי",
+        "slot": "forms",
+        "role": "computational-adjective",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-passive-computation-מוחל",
+        "cls": "passive-computation-מוחל",
+        "registry": "adjective",
+        "family": "מוחל",
+        "slot": "absolute",
+        "role": "passive-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-relative-computation-נקבע",
+        "cls": "relative-computation-נקבע",
+        "registry": "verb",
+        "family": "נקבע",
+        "slot": "future",
+        "role": "relative-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-infinitive-computation-נקבע",
+        "cls": "infinitive-computation-נקבע",
+        "registry": "verb",
+        "family": "נקבע",
+        "slot": "infinitive",
+        "role": "infinitive-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-relative-computation-חושב",
+        "cls": "relative-computation-חושב",
+        "registry": "verb",
+        "family": "חושב",
+        "slot": "future",
+        "role": "relative-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-infinitive-computation-חושב",
+        "cls": "infinitive-computation-חושב",
+        "registry": "verb",
+        "family": "חושב",
+        "slot": "infinitive",
+        "role": "infinitive-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-relative-computation-הוחל",
+        "cls": "relative-computation-הוחל",
+        "registry": "verb",
+        "family": "הוחל",
+        "slot": "future",
+        "role": "relative-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-infinitive-computation-הוחל",
+        "cls": "infinitive-computation-הוחל",
+        "registry": "verb",
+        "family": "הוחל",
+        "slot": "infinitive",
+        "role": "infinitive-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-relative-computation-יושם",
+        "cls": "relative-computation-יושם",
+        "registry": "verb",
+        "family": "יושם",
+        "slot": "future",
+        "role": "relative-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-infinitive-computation-יושם",
+        "cls": "infinitive-computation-יושם",
+        "registry": "verb",
+        "family": "יושם",
+        "slot": "infinitive",
+        "role": "infinitive-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-relative-computation-הוטל",
+        "cls": "relative-computation-הוטל",
+        "registry": "verb",
+        "family": "הוטל",
+        "slot": "future",
+        "role": "relative-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-infinitive-computation-הוטל",
+        "cls": "infinitive-computation-הוטל",
+        "registry": "verb",
+        "family": "הוטל",
+        "slot": "infinitive",
+        "role": "infinitive-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-relative-computation-חויב",
+        "cls": "relative-computation-חויב",
+        "registry": "verb",
+        "family": "חויב",
+        "slot": "future",
+        "role": "relative-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-infinitive-computation-חויב",
+        "cls": "infinitive-computation-חויב",
+        "registry": "verb",
+        "family": "חויב",
+        "slot": "infinitive",
+        "role": "infinitive-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-relative-computation-נוצר",
+        "cls": "relative-computation-נוצר",
+        "registry": "verb",
+        "family": "נוצר",
+        "slot": "future",
+        "role": "relative-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-infinitive-computation-נוצר",
+        "cls": "infinitive-computation-נוצר",
+        "registry": "verb",
+        "family": "נוצר",
+        "slot": "infinitive",
+        "role": "infinitive-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-relative-computation-צמח",
+        "cls": "relative-computation-צמח",
+        "registry": "verb",
+        "family": "צמח",
+        "slot": "future",
+        "role": "relative-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-infinitive-computation-צמח",
+        "cls": "infinitive-computation-צמח",
+        "registry": "verb",
+        "family": "צמח",
+        "slot": "infinitive",
+        "role": "infinitive-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-relative-computation-חל",
+        "cls": "relative-computation-חל",
+        "registry": "verb",
+        "family": "חל",
+        "slot": "future",
+        "role": "relative-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-infinitive-computation-חל",
+        "cls": "infinitive-computation-חל",
+        "registry": "verb",
+        "family": "חל",
+        "slot": "infinitive",
+        "role": "infinitive-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-relative-computation-הושת",
+        "cls": "relative-computation-הושת",
+        "registry": "verb",
+        "family": "הושת",
+        "slot": "future",
+        "role": "relative-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-infinitive-computation-הושת",
+        "cls": "infinitive-computation-הושת",
+        "registry": "verb",
+        "family": "הושת",
+        "slot": "infinitive",
+        "role": "infinitive-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-relative-computation-קם",
+        "cls": "relative-computation-קם",
+        "registry": "verb",
+        "family": "קם",
+        "slot": "future",
+        "role": "relative-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ],
+        "excluded_forms": {
+          "יקום": "With relative ש, the statutory noun rehabilitation.",
+          "יקומו": "With relative ש, the statutory noun rehabilitation."
+        }
+      },
+      {
+        "id": "r20-infinitive-computation-קם",
+        "cls": "infinitive-computation-קם",
+        "registry": "verb",
+        "family": "קם",
+        "slot": "infinitive",
+        "role": "infinitive-computation",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is fixed rather than calculated in accordance with section 2.",
+          "(a) The payment is fixed and calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-claim-טענה",
+        "cls": "claim-טענה",
+        "registry": "noun",
+        "family": "טענה",
+        "slot": "forms",
+        "role": "claim",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The official denies the claim that the payment is calculated in accordance with section 2.",
+          "(a) The official affirms the claim that the payment is calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-postposed-claim-טענה",
+        "cls": "postposed-claim-טענה",
+        "registry": "noun",
+        "family": "טענה",
+        "slot": "forms",
+        "role": "postposed-claim",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) It is false that the payment is computed in accordance with section 2.",
+          "(a) It is true that the payment is computed in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-claim-דיווח",
+        "cls": "claim-דיווח",
+        "registry": "noun",
+        "family": "דיווח",
+        "slot": "forms",
+        "role": "claim",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The official denies the claim that the payment is calculated in accordance with section 2.",
+          "(a) The official affirms the claim that the payment is calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-postposed-claim-דיווח",
+        "cls": "postposed-claim-דיווח",
+        "registry": "noun",
+        "family": "דיווח",
+        "slot": "forms",
+        "role": "postposed-claim",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) It is false that the payment is computed in accordance with section 2.",
+          "(a) It is true that the payment is computed in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-claim-הנחה",
+        "cls": "claim-הנחה",
+        "registry": "noun",
+        "family": "הנחה",
+        "slot": "forms",
+        "role": "claim",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The official denies the claim that the payment is calculated in accordance with section 2.",
+          "(a) The official affirms the claim that the payment is calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-postposed-claim-הנחה",
+        "cls": "postposed-claim-הנחה",
+        "registry": "noun",
+        "family": "הנחה",
+        "slot": "forms",
+        "role": "postposed-claim",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) It is false that the payment is computed in accordance with section 2.",
+          "(a) It is true that the payment is computed in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-claim-אמירה",
+        "cls": "claim-אמירה",
+        "registry": "noun",
+        "family": "אמירה",
+        "slot": "forms",
+        "role": "claim",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The official denies the claim that the payment is calculated in accordance with section 2.",
+          "(a) The official affirms the claim that the payment is calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-postposed-claim-אמירה",
+        "cls": "postposed-claim-אמירה",
+        "registry": "noun",
+        "family": "אמירה",
+        "slot": "forms",
+        "role": "postposed-claim",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) It is false that the payment is computed in accordance with section 2.",
+          "(a) It is true that the payment is computed in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-claim-גרסה",
+        "cls": "claim-גרסה",
+        "registry": "noun",
+        "family": "גרסה",
+        "slot": "forms",
+        "role": "claim",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The official denies the claim that the payment is calculated in accordance with section 2.",
+          "(a) The official affirms the claim that the payment is calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-postposed-claim-גרסה",
+        "cls": "postposed-claim-גרסה",
+        "registry": "noun",
+        "family": "גרסה",
+        "slot": "forms",
+        "role": "postposed-claim",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) It is false that the payment is computed in accordance with section 2.",
+          "(a) It is true that the payment is computed in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-claim-גירסה",
+        "cls": "claim-גירסה",
+        "registry": "noun",
+        "family": "גירסה",
+        "slot": "forms",
+        "role": "claim",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The official denies the claim that the payment is calculated in accordance with section 2.",
+          "(a) The official affirms the claim that the payment is calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-postposed-claim-גירסה",
+        "cls": "postposed-claim-גירסה",
+        "registry": "noun",
+        "family": "גירסה",
+        "slot": "forms",
+        "role": "postposed-claim",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) It is false that the payment is computed in accordance with section 2.",
+          "(a) It is true that the payment is computed in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-clause-negator-נחסם",
+        "cls": "clause-negator-נחסם",
+        "registry": "verb",
+        "family": "נחסם",
+        "slot": "forms",
+        "role": "clause-negator",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is prevented from being calculated in accordance with section 2.",
+          "(a) The payment is capable of being calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-clause-negator-סוכל",
+        "cls": "clause-negator-סוכל",
+        "registry": "verb",
+        "family": "סוכל",
+        "slot": "forms",
+        "role": "clause-negator",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is prevented from being calculated in accordance with section 2.",
+          "(a) The payment is capable of being calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-clause-negator-סיכל",
+        "cls": "clause-negator-סיכל",
+        "registry": "verb",
+        "family": "סיכל",
+        "slot": "forms",
+        "role": "clause-negator",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is prevented from being calculated in accordance with section 2.",
+          "(a) The payment is capable of being calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-clause-negator-נמנע",
+        "cls": "clause-negator-נמנע",
+        "registry": "verb",
+        "family": "נמנע",
+        "slot": "forms",
+        "role": "clause-negator",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is prevented from being calculated in accordance with section 2.",
+          "(a) The payment is capable of being calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-clause-negator-הוכחש",
+        "cls": "clause-negator-הוכחש",
+        "registry": "verb",
+        "family": "הוכחש",
+        "slot": "forms",
+        "role": "clause-negator",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is prevented from being calculated in accordance with section 2.",
+          "(a) The payment is capable of being calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-clause-negator-מיאן",
+        "cls": "clause-negator-מיאן",
+        "registry": "verb",
+        "family": "מיאן",
+        "slot": "forms",
+        "role": "clause-negator",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is prevented from being calculated in accordance with section 2.",
+          "(a) The payment is capable of being calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-clause-negator-התכחש",
+        "cls": "clause-negator-התכחש",
+        "registry": "verb",
+        "family": "התכחש",
+        "slot": "forms",
+        "role": "clause-negator",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is prevented from being calculated in accordance with section 2.",
+          "(a) The payment is capable of being calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-privative-מנע",
+        "cls": "privative-מנע",
+        "registry": "verb",
+        "family": "מנע",
+        "slot": "forms",
+        "role": "privative",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-privative-נדחה",
+        "cls": "privative-נדחה",
+        "registry": "verb",
+        "family": "נדחה",
+        "slot": "forms",
+        "role": "privative",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-privative-דחה",
+        "cls": "privative-דחה",
+        "registry": "verb",
+        "family": "דחה",
+        "slot": "forms",
+        "role": "privative",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-clause-negator-שלול",
+        "cls": "clause-negator-שלול",
+        "registry": "adjective",
+        "family": "שלול",
+        "slot": "forms",
+        "role": "clause-negator",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is prevented from being calculated in accordance with section 2.",
+          "(a) The payment is capable of being calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-clause-negator-משולל",
+        "cls": "clause-negator-משולל",
+        "registry": "adjective",
+        "family": "משולל",
+        "slot": "forms",
+        "role": "clause-negator",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment is prevented from being calculated in accordance with section 2.",
+          "(a) The payment is capable of being calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-privative-משולל",
+        "cls": "privative-משולל",
+        "registry": "adjective",
+        "family": "משולל",
+        "slot": "forms",
+        "role": "privative",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-privative-נטול",
+        "cls": "privative-נטול",
+        "registry": "adjective",
+        "family": "נטול",
+        "slot": "forms",
+        "role": "privative",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-privative-נעדר",
+        "cls": "privative-נעדר",
+        "registry": "adjective",
+        "family": "נעדר",
+        "slot": "forms",
+        "role": "privative",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-privative-חסר",
+        "cls": "privative-חסר",
+        "registry": "adjective",
+        "family": "חסר",
+        "slot": "forms",
+        "role": "privative",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-privative-מחוסר",
+        "cls": "privative-מחוסר",
+        "registry": "adjective",
+        "family": "מחוסר",
+        "slot": "forms",
+        "role": "privative",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-privative-חסום",
+        "cls": "privative-חסום",
+        "registry": "adjective",
+        "family": "חסום",
+        "slot": "forms",
+        "role": "privative",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-phrase-התנער",
+        "cls": "phrase-התנער",
+        "registry": "verb",
+        "family": "התנער",
+        "slot": "forms",
+        "role": "phrase",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The official disclaims calculation in accordance with section 2.",
+          "(a) The official affirms calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-phrase-הוצא",
+        "cls": "phrase-הוצא",
+        "registry": "verb",
+        "family": "הוצא",
+        "slot": "forms",
+        "role": "phrase",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The calculation was excluded from the payment in accordance with section 2.",
+          "(a) The calculation was included in the payment in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-false-phrase-שקרי",
+        "cls": "false-phrase-שקרי",
+        "registry": "adjective",
+        "family": "שקרי",
+        "slot": "forms",
+        "role": "false-phrase",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) It is false that the payment is computed in accordance with section 2.",
+          "(a) It is true that the payment is computed in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-false-phrase-שגוי",
+        "cls": "false-phrase-שגוי",
+        "registry": "adjective",
+        "family": "שגוי",
+        "slot": "forms",
+        "role": "false-phrase",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) It is false that the payment is computed in accordance with section 2.",
+          "(a) It is true that the payment is computed in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-claim-denial-כפר",
+        "cls": "claim-denial-כפר",
+        "registry": "verb",
+        "family": "כפר",
+        "slot": "forms",
+        "role": "claim-denial",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The official denies the claim that the payment is calculated in accordance with section 2.",
+          "(a) The official affirms the claim that the payment is calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-disclaimer-נותר",
+        "cls": "disclaimer-נותר",
+        "registry": "verb",
+        "family": "נותר",
+        "slot": "forms",
+        "role": "disclaimer",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The provisions of section 2 remain unaffected and the payment is calculated in accordance with section 2.",
+          "(a) The provisions of section 2 remain effective and the payment is calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-disclaimer-עמד",
+        "cls": "disclaimer-עמד",
+        "registry": "verb",
+        "family": "עמד",
+        "slot": "forms",
+        "role": "disclaimer",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The provisions of section 2 remain unaffected and the payment is calculated in accordance with section 2.",
+          "(a) The provisions of section 2 remain effective and the payment is calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-disclaimer-נשאר",
+        "cls": "disclaimer-נשאר",
+        "registry": "verb",
+        "family": "נשאר",
+        "slot": "forms",
+        "role": "disclaimer",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The provisions of section 2 remain unaffected and the payment is calculated in accordance with section 2.",
+          "(a) The provisions of section 2 remain effective and the payment is calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-continued-disclaimer-המשיך",
+        "cls": "continued-disclaimer-המשיך",
+        "registry": "verb",
+        "family": "המשיך",
+        "slot": "forms",
+        "role": "continued-disclaimer",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The provisions of section 2 remain unaffected and the payment is calculated in accordance with section 2.",
+          "(a) The provisions of section 2 remain effective and the payment is calculated in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-absent-predicate-נפקד",
+        "cls": "absent-predicate-נפקד",
+        "registry": "adjective",
+        "family": "נפקד",
+        "slot": "forms",
+        "role": "absent-predicate",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-absent-predicate-נעדר",
+        "cls": "absent-predicate-נעדר",
+        "registry": "adjective",
+        "family": "נעדר",
+        "slot": "forms",
+        "role": "absent-predicate",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-absent-predicate-חסר",
+        "cls": "absent-predicate-חסר",
+        "registry": "adjective",
+        "family": "חסר",
+        "slot": "forms",
+        "role": "absent-predicate",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-from-complement-פטור",
+        "cls": "from-complement-פטור",
+        "registry": "adjective",
+        "family": "פטור",
+        "slot": "absolute",
+        "role": "from-complement",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-construct-complement-פטור",
+        "cls": "construct-complement-פטור",
+        "registry": "adjective",
+        "family": "פטור",
+        "slot": "construct",
+        "role": "construct-complement",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-from-complement-שונה",
+        "cls": "from-complement-שונה",
+        "registry": "adjective",
+        "family": "שונה",
+        "slot": "forms",
+        "role": "from-complement",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-from-complement-הבדיל",
+        "cls": "from-complement-הבדיל",
+        "registry": "verb",
+        "family": "הבדיל",
+        "slot": "forms",
+        "role": "from-complement",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) The payment shall be without calculation in accordance with section 2.",
+          "(a) The payment shall be with calculation in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-postposed-correct-נכון",
+        "cls": "postposed-correct-נכון",
+        "registry": "adjective",
+        "family": "נכון",
+        "slot": "forms",
+        "role": "postposed-correct",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) It is false that the payment is computed in accordance with section 2.",
+          "(a) It is true that the payment is computed in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-postposed-false-שקרי",
+        "cls": "postposed-false-שקרי",
+        "registry": "adjective",
+        "family": "שקרי",
+        "slot": "forms",
+        "role": "postposed-false",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) It is false that the payment is computed in accordance with section 2.",
+          "(a) It is true that the payment is computed in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-postposed-false-שגוי",
+        "cls": "postposed-false-שגוי",
+        "registry": "adjective",
+        "family": "שגוי",
+        "slot": "forms",
+        "role": "postposed-false",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) It is false that the payment is computed in accordance with section 2.",
+          "(a) It is true that the payment is computed in accordance with section 2."
+        ]
+      },
+      {
+        "id": "r20-postposed-false-נבצר",
+        "cls": "postposed-false-נבצר",
+        "registry": "verb",
+        "family": "נבצר",
+        "slot": "forms",
+        "role": "postposed-false",
+        "source_verdict": false,
+        "positive_verdict": true,
+        "english": [
+          "(a) It is false that the payment is computed in accordance with section 2.",
+          "(a) It is true that the payment is computed in accordance with section 2."
+        ]
+      }
+    ],
+    "reason_verdicts": [
+      [
+        "אמירה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירותיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירותיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירותיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירותיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירותיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירותיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירותיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירותינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירתה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירתו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירתי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירתך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירתכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירתכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירתם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירתן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "אמירתנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסאות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסאותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסאותיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסאותיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסאותיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסאותיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסאותיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסאותיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסאותיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסאותינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסתה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסתו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסתי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסתך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסתכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסתכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסתם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסתן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גירסתנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסאות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסאותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסאותיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסאותיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסאותיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסאותיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסאותיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסאותיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסאותיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסאותינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסתה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסתו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסתי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסתך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסתכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסתכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסתם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסתן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "גרסתנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דוחה",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "דוחות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דוחים",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "דחה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דחו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דחתה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווח",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "דיווחנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הבדיל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הבדילה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הבדילו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרויות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרויותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרויותיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרויותיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרויותיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרויותיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרויותיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרויותיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרויותיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרויותינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרותה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרותו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרותך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרותכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרותכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרותם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרותן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הווצרותנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הוחל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הוחלה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הוחלו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הוטל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הוטלה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הוטלו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הוכחש",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הוכחשה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הוכחשו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הוצא",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הוצאה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הוצאו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הושת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הושתה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הושתו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלותיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלותיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלותיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלותיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלותיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלותיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלותיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלותינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלתה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלתו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלתי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלתך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלתכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלתכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלתם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלתן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "החלתנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלותיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלותיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלותיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלותיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלותיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלותיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלותיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלותינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלתה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלתו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלתי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלתך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלתכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלתכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלתם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלתן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הטלתנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרויות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרויותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרויותיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרויותיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרויותיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרויותיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרויותיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרויותיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרויותיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרויותינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרותה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרותו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרותך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרותכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרותכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרותם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרותן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היווצרותנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעויות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעויותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעויותיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעויותיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעויותיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעויותיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעויותיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעויותיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעויותיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעויותינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעותה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעותו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעותך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעותכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעותכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעותם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעותן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "היקבעותנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "המשיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "המשיכה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "המשיכו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחותיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחותיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחותיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחותיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחותיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחותיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחותיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחותינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחתה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחתו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחתי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחתך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחתכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחתכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחתם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחתן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "הנחתנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתותיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתותיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתותיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתותיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתותיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתותיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתותיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתותינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתתה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתתו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתתי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתתך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתתכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתתכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתתם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתתן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "השתתנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוויות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוויותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוויותיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוויותיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוויותיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוויותיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוויותיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוויותיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוויותיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוויותינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוותה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוותו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוותך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוותכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוותכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוותם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוותן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התהוותנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התכחש",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התכחשה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התכחשו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התנער",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התנערה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "התנערו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חויב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חויבה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חויבו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חושב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חושבה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חושבו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיוב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיובה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיובו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיובי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיוביה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיוביהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיוביהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיוביו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיוביך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיוביכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיוביכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיובים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיובינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיובך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיובכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיובכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיובם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיובן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חיובנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישוב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישובה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישובו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישובי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישוביה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישוביהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישוביהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישוביו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישוביות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישוביי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישוביים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישוביך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישוביכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישוביכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישובים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישובינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישובית",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישובך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישובכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישובכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישובם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישובן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חישובנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חלה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חלו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חלות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חלים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חסום",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חסומה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חסומות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חסומי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חסומים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חסומת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חסר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חסרה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חסרות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חסרי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חסרים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "חסרת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענותיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענותיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענותיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענותיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענותיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענותיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענותיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענותינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענתה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענתו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענתי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענתך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענתכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענתכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענתם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענתן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "טענתנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יבדיל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יבדילו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ידחה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ידחו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יוותר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יוותרו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יוחל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יוחלו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יוטל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יוטלו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יוכחש",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יוכחשו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יוצא",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יוצאו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יושם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יושמה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יושמו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יושת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יושתו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יחויב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יחויבו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יחול",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יחולו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יחושב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יחושבו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ייבצר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ייבצרו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יידחה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יידחו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ייווצר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ייווצרו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ייושם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ייושמו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ייחסם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ייחסמו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יימנע",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "יימנעו",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "ייקבע",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ייקבעו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישאר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישארו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישום",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יישומנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יכפור",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יכפרו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ימאן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ימאנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ימנע",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ימנעו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ימשיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ימשיכו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יסוכל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יסוכלו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יסכל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יסכלו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יעמדו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יעמוד",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יצמח",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יצמחו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יקום",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יקומו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישום",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ישומנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יתכחש",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יתכחשו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יתנער",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "יתנערו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "כופר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "כופרות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "כופרים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "כופרת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "כפר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "כפרה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "כפרו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "להבדיל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "להוציא",
+        [
+          false,
+          false,
+          false
+        ]
+      ],
+      [
+        "להחיל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "להטיל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "להיווצר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "להיוותר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "להיקבע",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "להישאר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "להשית",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "להתנער",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "לחול",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "לחייב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "לחשב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ליישם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "לעמוד",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "לצמוח",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "לקום",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מבדיל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מבדילה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מבדילות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מבדילים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוחל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוחלות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוחלי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוחלים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוחלת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוטל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוטלות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוטלים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוטלת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוכחש",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוכחשות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוכחשים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוכחשת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מונע",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מונעות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מונעים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מונעת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוצא",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוצאות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוצאים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מוצאת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מושת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מושתות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מושתים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מושתת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחויב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחויבות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחויבים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחויבת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחוסר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחוסרות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחוסרי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחוסרים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחוסרת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחושב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחושבות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחושבים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מחושבת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מיאן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מיאנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מיאנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מיושם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מיושמות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מיושמים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מיושמת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ממאן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ממאנות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ממאנים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ממאנת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ממשיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ממשיכות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ממשיכים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "ממשיכת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מנע",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מנעה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מנעו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מסוכל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מסוכלות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מסוכלים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מסוכלת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מסכל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מסכלות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מסכלים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מסכלת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "משולל",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "משוללות",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "משוללי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "משוללים",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "משוללת",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "מתכחש",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מתכחשות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מתכחשים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מתכחשת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מתנער",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מתנערות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מתנערים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "מתנערת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נבצר",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "נבצרה",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "נבצרו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נבצרות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נבצרים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נבצרת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נדחה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נדחו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נדחות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נדחים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נדחית",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נדחתה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נוצר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נוצרה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נוצרו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נוצרות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נוצרים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נוצרת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נותר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נותרה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נותרו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נותרות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נותרים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נותרת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נחסם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נחסמה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נחסמו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נחסמות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נחסמים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נחסמת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נטול",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נטולה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נטולות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נטולי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נטולים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נטולת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נכון",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נכונה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נכונות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נכוני",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נכונים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נכונת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נמנע",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "נמנעה",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "נמנעו",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "נמנעות",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "נמנעים",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "נמנעת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נעדר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נעדרות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נעדרי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נעדרים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נעדרת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נפקד",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נפקדות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נפקדי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נפקדים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נפקדת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נקבע",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נקבעה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נקבעו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נקבעות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נקבעים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נקבעת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נשאר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נשארה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נשארו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נשארות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נשארים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "נשארת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "סוכל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "סוכלה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "סוכלו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "סיכל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "סיכלה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "סיכלו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עומד",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עומדות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עומדים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עומדת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבוד",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עיבודנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עמד",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עמדה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "עמדו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "פטור",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "פטורה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "פטורות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "פטורי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "פטורים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "פטורת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צומח",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צומחות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צומחים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צומחת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמח",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמחה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמחו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחותיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחותיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחותיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחותיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחותיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחותיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחותיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחותינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחתה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחתו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחתי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחתך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחתכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחתכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחתם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחתן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "צמיחתנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעותיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעותיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעותיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעותיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעותיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעותיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעותיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעותינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעתה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעתו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעתי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעתך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעתכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעתכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעתם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעתן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קביעתנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קמה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קמו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קמות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "קמים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שגוי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שגויה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שגויות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שגויי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שגויים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שגוית",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שונה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שונות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שוני",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שונים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שונת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שלול",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שלולה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שלולות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שלולי",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "שלולים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שלולת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שקרי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שקריות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שקריי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שקריים",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "שקרית",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תבדיל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תבדילנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תדחה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תדחינה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תוחל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תוחלנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תוטל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תוטלנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תוכחש",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תוכחשנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תוצא",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תוצאנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תושת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תושתנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחויב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחויבנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחול",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולות",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולותי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולותיה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולותיהם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולותיהן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולותיו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולותיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולותיכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולותיכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולותינו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולת",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולתה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולתו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולתי",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולתך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולתכם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולתכן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולתם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולתן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחולתנו",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחושב",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תחושבנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תיבצר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תיבצרנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תידחה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תידחינה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תיווצר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תיווצרנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תיוותר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תיוותרנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תיושם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תיושמנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תיחסם",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תיחסמנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תימנע",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "תימנענה",
+        [
+          false,
+          false,
+          true
+        ]
+      ],
+      [
+        "תיקבע",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תיקבענה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תישאר",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תישארנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תכפור",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תכפורנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תמאן",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תמאנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תמנע",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תמנענה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תמשיך",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תמשכנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תסוכל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תסוכלנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תסכל",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תסכלנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תעמוד",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תעמודנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תצמח",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תצמחנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תקום",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תקמנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תתכחש",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תתכחשנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תתנער",
+        [
+          true,
+          true,
+          true
+        ]
+      ],
+      [
+        "תתנערנה",
+        [
+          true,
+          true,
+          true
+        ]
+      ]
+    ]
+  }
 }

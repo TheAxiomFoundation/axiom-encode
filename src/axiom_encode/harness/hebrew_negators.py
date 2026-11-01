@@ -773,7 +773,14 @@ VERB_PARADIGMS = {
         verb_paradigm("מנע", "מונע", "ימנע"),
         verb_paradigm("נדחה", "נדחה", "יידחה", present_feminine_stem="נדחי"),
         verb_paradigm("דחה", "דוחה", "ידחה"),
-        verb_paradigm("הבדיל", "מבדיל", "יבדיל", feminine="he", infinitive="להבדיל"),
+        verb_paradigm(
+            "הבדיל",
+            "מבדיל",
+            "יבדיל",
+            feminine="he",
+            future_feminine_stem="תבדל",
+            infinitive="להבדיל",
+        ),
         verb_paradigm("כפר", "כופר", "יכפור", future_plural="יכפר"),
         verb_paradigm(
             "נותר", "נותר", "יוותר", future_feminine="תיוותר", infinitive="להיוותר"
@@ -1099,6 +1106,24 @@ def _lack_is_causal(match: re.Match[str]) -> bool:
     return True
 
 
+# The explicit complement disambiguates "exclude from" even after a modal
+# which normally makes להוציא mean "issue". Only the source reader widens
+# this reading: its newly closed הוצא מכלל paradigm includes the infinitive.
+_EXPLICIT_SOURCE_EXCLUSION = re.compile(
+    rf"{_NEGATION_GAP}+{prefix_word('מ')}כלל(?![{_H}])"
+)
+
+
+def _explicit_source_exclusion(match: re.Match[str]) -> bool:
+    infinitive = match.group("exceptional_infinitive")
+    return bool(
+        infinitive
+        and _EXPLICIT_SOURCE_EXCLUSION.match(
+            match.string, match.end("exceptional_infinitive")
+        )
+    )
+
+
 class NegationPattern:
     """A shared regex with statutory homograph exclusions in every reader."""
 
@@ -1108,7 +1133,10 @@ class NegationPattern:
         self._source = "lack" in self._regex.groupindex
 
     def _kept(self, match: re.Match[str]) -> bool:
-        return _genuine_context(match) and not (
+        genuine = _genuine_context(match) or (
+            self._source and _explicit_source_exclusion(match)
+        )
+        return genuine and not (
             self._source and (_lack_is_causal(match) or _concedes(match))
         )
 

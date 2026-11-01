@@ -16190,6 +16190,7 @@
     "בלתי",
     "במקום",
     "דוחות",
+    "דחה",
     "דלא",
     "האסורה",
     "הבלתי",
@@ -16215,6 +16216,8 @@
     "ולמעט",
     "ומונעים",
     "ונדחה",
+    "ונעדרים",
+    "ופטור",
     "ושאינה",
     "ושאינו",
     "ושאינם",
@@ -16227,6 +16230,7 @@
     "חסר",
     "טרם",
     "יוחרגו",
+    "יידחה",
     "כבלתי",
     "כשטרם",
     "כשל",
@@ -16253,9 +16257,11 @@
     "נמנע",
     "נמנעה",
     "נעדר",
+    "נעדרים",
     "נשללו",
     "סירב",
     "סירבה",
+    "פטור",
     "פטורות",
     "שאי",
     "שאילולא",
@@ -16276,12 +16282,15 @@
     "שכשלו",
     "שלא",
     "שלולא",
+    "שמנעה",
     "שנדחה",
     "שנדחתה",
     "שנעדר",
     "שסירב",
+    "שפטור",
     "תחת",
     "תימנע",
+    "תמנע",
     "תסרב"
   ],
   "audited_tokens": [
@@ -17381,6 +17390,39 @@
       ]
     },
     {
+      "token": "דחה",
+      "occurrences": 5,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-130",
+          "text": "ום פרסומן.\n(2) המנהל רשאי, לפי בקשת נישום, לאשר לו שינוי מההוראות החלות עליו, בתנאים ולתקופה שיקבע; דחה המנהל את בקשת הנישום, רשאי הוא לערור, תוך שלושה חדשים, לפני ועדה שהוקמה לפי סעיף 146 (להלן – ועדה לקבילות פנקסים).\n(3) ",
+          "start": 100,
+          "end": 103,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-130",
+          "text": "שניתנה לפי פסקה (1), רשאי לבקש מפקיד השומה, בתוך 30 ימים מיום קבלת ההחלטה, לחזור ולעיין בה ולשנותה; דחה פקיד השומה את הבקשה לשנות את ההחלטה, כולה או חלקה, ניתן לערער על החלטתו כאילו היתה צו לפי סעיף 152(ב), ובלבד שהמועד להג",
+          "start": 100,
+          "end": 103,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-135e1",
+          "text": "ת“ – כהגדרתה בסעיף 25א לחוק הפיקוח על שירותים פיננסיים (שירותים פיננסיים מוסדרים), התשע״ו–2016.\n(ב) דחה שר האוצר את תחילתו של חוק מוסדות לגמילות חסדים בהתאם לסעיף 109(ג) לאותו חוק, תוארך התקופה האמורה בסעיף קטן (א) בהתאמה.",
+          "start": 100,
+          "end": 103,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
       "token": "דלא",
       "occurrences": 1,
       "contexts": [
@@ -18317,6 +18359,54 @@
       ]
     },
     {
+      "token": "ונעדרים",
+      "occurrences": 4,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-9",
+          "text": "י חוק משפחות חיילים שנספו במערכה (תגמולים ושיקום), התש״י–1950, לפי חוק תגמולים לבני משפחה של חטופים ונעדרים בפעולת איבה, התשפ״ד–2023, ולפי סעיף 2א לחוק מימון הוצאות למשפחות שבויים, חטופים ונעדרים, התשס״ח–2008, בתקופת תוקפו של א",
+          "start": 100,
+          "end": 107,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-9",
+          "text": "ה של חטופים ונעדרים בפעולת איבה, התשפ״ד–2023, ולפי סעיף 2א לחוק מימון הוצאות למשפחות שבויים, חטופים ונעדרים, התשס״ח–2008, בתקופת תוקפו של אותו סעיף; לענין זה –\n”פצעי מלחמה“ – מחלה, החמרת מחלה או חבלה שאירעו ליחיד בתקופת שירותו ",
+          "start": 100,
+          "end": 107,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-295d",
+          "text": "רי התשפ״ד (7 באוקטובר 2023);\n”חטוף או נעדר“ – מי שנקבע לפי סעיף 3 לחוק תגמולים לבני משפחה של חטופים ונעדרים בפעולת איבה, התשפ״ד–2023, כי הוא חטוף או נעדר כתוצאה מפעולות האיבה או פעולות המלחמה, וכל עוד הוא לא שוחרר או אותר ולא נ",
+          "start": 100,
+          "end": 107,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
+      "token": "ופטור",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-125f",
+          "text": "ניכויים לפי סעיף 125ד ופטור ממס לפי סעיף 125ה, יינתנו לאחד מבני הזוג בלבד.",
+          "start": 22,
+          "end": 27,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
       "token": "ושאינה",
       "occurrences": 3,
       "contexts": [
@@ -18811,6 +18901,39 @@
           "negator": true,
           "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "יידחה",
+      "occurrences": 6,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-173b",
+          "text": "המועד האחרון להגשת דין וחשבון לפי פרק זה יידחה אם בחמשת הימים שקדמו למועד האמור היו לפחות שלושה ימי מנוחה, והוא יהיה ביום החול הרביעי שמתום ימי המנוחה הבאים ברצף; לענ",
+          "start": 41,
+          "end": 46,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-175",
+          "text": "4א1 לשלם לראשונה לאחר קבלתו, סכום בשיעור של 25% מסכום הדיבידנד.\n(ו) המועד האחרון לתשלום לפי סעיף זה יידחה אם בחמשת הימים שקדמו למועד האמור היו לפחות שלושה ימי מנוחה, והוא יהיה ביום החול הרביעי שמתום ימי המנוחה הבאים ברצף; לענ",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-1",
+          "text": "(ב) אם שיעור עליית השכר הממוצע, המעודכן באותו יום, לעומת השכר הממוצע לשנת 2020 אינו עולה על 2.45% – יידחה העדכון לשנה שלאחר מכן ויחול לגביו האמור בפסקת משנה (א);\n”עגונה“ – אשה נשואה שזה שנתיים נעלמו עקבות בן זוגה, לרבות אשה ש",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -20228,6 +20351,30 @@
       ]
     },
     {
+      "token": "נעדרים",
+      "occurrences": 2,
+      "contexts": [
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-324a1",
+          "text": "ים מהמועד שבו נקבע כי הוא נעדר, וכל עוד לא אותר; בסעיף זה, ”נעדר“ – כהגדרתו בחוק סיוע לבני משפחה של נעדרים, התשפ״ו–2026.",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-351",
+          "text": "ה תקופה.\n(ז1) לא ישולמו דמי ביטוח בעד הזמן שבו נקבע כי אדם הוא נעדר כהגדרתו בחוק סיוע לבני משפחה של נעדרים, התשפ״ו–2026, אם אין לנעדר הכנסה אחרת באותה תקופה, וכל עוד לא אותר.\n(ח) מבוטחת לפי פרק ו׳ שהיא עקרת בית או אלמנה בת קצב",
+          "start": 100,
+          "end": 106,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
       "token": "נשללו",
       "occurrences": 3,
       "contexts": [
@@ -20305,6 +20452,39 @@
           "negator": true,
           "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "פטור",
+      "occurrences": 107,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-1",
+          "text": "או לסכום תביעה – עקב הצמדה לשער המטבע, למדד המחירים לצרכן או למדד אחר, לרבות הפרשי שער, ואולם לענין פטור ממס יראו כהפרשי הצמדה כל סכום שנוסף לחוב או לסכום תביעה עקב הצמדה לשער המטבע או למדד המחירים לצרכן, לרבות הפרשי שער;\n”ה",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-2",
+          "text": "0) השתכרות או ריווח מכל מקור אחר שאינו כלול בפסקאות (1) עד (9), אך לא הוצא מהם בפירוש ולא ניתן עליו פטור בפקודה זו או בכל דין אחר.",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        },
+        {
+          "citation": "il/statute/income-tax-ordinance/section-3",
+          "text": "תים כמשמעותם בסעיף 3(ט), יהיה חייב במס בשיעור של 35% על חלק מסכום ההכנסה שעד למועד הקובע, גם אם הוא פטור ממס או ששיעור המס שהוא חייב בו נמוך מ־35%, ועל יתרת סכום ההכנסה – בשיעור הקבוע בסעיף 126(א), ואם הוא יחיד – בשיעור של 2",
+          "start": 100,
+          "end": 104,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
@@ -20990,6 +21170,21 @@
       ]
     },
     {
+      "token": "שמנעה",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-157",
+          "text": "ום התאונה; ואולם המוסד יהיה רשאי, לפי שיקול דעתו, ליתן את הגמלה אם נתבעה אחרי המועד האמור בגלל סיבה שמנעה מהמבוטח הגשת התביעה במועד, ובלבד שהתביעה הוגשה תוך 90 ימים מהיום שחדלה להתקיים הסיבה האמורה.",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
       "token": "שנדחה",
       "occurrences": 1,
       "contexts": [
@@ -21086,6 +21281,21 @@
       ]
     },
     {
+      "token": "שפטור",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/national-insurance-law-1995/section-350a",
+          "text": "יטוח שניתן לגביהם פטור וכן על סך ההכנסה החייבת במס הכנסה לפי סעיף 2(1) או (2) לפקודת מס הכנסה של מי שפטור מתשלום דמי ביטוח לפי הוראות סעיף קטן (א), לפי נתונים שיקבל המוסד מרשות המיסים בישראל.",
+          "start": 100,
+          "end": 105,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
+        }
+      ]
+    },
+    {
       "token": "תחת",
       "occurrences": 1,
       "contexts": [
@@ -21112,6 +21322,21 @@
           "negator": true,
           "source_negator": true,
           "explanation": "Negative/prohibitive/exclusion reading in the cited statutory context."
+        }
+      ]
+    },
+    {
+      "token": "תמנע",
+      "occurrences": 1,
+      "contexts": [
+        {
+          "citation": "il/statute/income-tax-ordinance/section-197",
+          "text": "משניתן תוקף להסכם כאמור בסעיף 196 לא תמנע חובת הסודיות לפי סעיף 234 מלגלות לפקיד מורשה של המדינה הגומלת כל ידיעה שיש לגלותה לפי ההסכם, בכפוף להוראות פרק רביעי.",
+          "start": 37,
+          "end": 41,
+          "negator": false,
+          "source_negator": false,
+          "explanation": "A source-only head with no computation complement: its statutory sense."
         }
       ]
     },
