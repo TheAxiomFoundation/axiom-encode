@@ -1,3 +1,7 @@
+## 0.2.2278
+
+- Correct the generated Hebrew source audit assumption for pre-existing reason negators such as `משולל`; preserve harness behavior and the independent pinned reason differential.
+
 ## 0.2.2277
 
 - Read every recognized prefix joint before guarded absent-computation predicates (`נעדר`, `נפקד`, `חסר`), while retaining relative-clause resets and unchanged reason grammar.
