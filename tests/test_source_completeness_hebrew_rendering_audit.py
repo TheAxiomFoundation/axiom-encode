@@ -33,6 +33,7 @@ from hypothesis import strategies as st
 from axiom_encode.harness import hebrew_negators as negators
 from axiom_encode.harness import hebrew_source_text as hebrew
 from axiom_encode.harness import source_completeness as completeness
+from axiom_encode.harness.hebrew_prefixes import PREFIX_JOINT
 from axiom_encode.harness.validator_pipeline import (
     extract_named_scalar_occurrences,
     extract_typed_numeric_inventory_occurrences_from_text,
@@ -164,19 +165,23 @@ def test_route_and_computation_rows_get_their_round_19_verdicts(cls):
 # --- The reason reader is unchanged ------------------------------------------
 
 # sha256 of ``_REASON_NEGATION.pattern`` and ``_NEGATED_SIGNAL_PREFIX.pattern``
-# at 8cb27cfd7, the commit before round 19. The same pattern reads every input
-# the same way, so the split leaves the reason reader's negation unchanged.
+# at 8cb27cfd7, the commit before round 19, with the prefix-joint class
+# (Unicode category Pd, which grows with the interpreter's Unicode version)
+# written as one placeholder. The digests are the same under Unicode 15.1 and
+# 16.0. The same pattern reads every input the same way, so the split leaves
+# the reason reader's negation unchanged.
 _REASON_PATTERN_AT_8CB27 = (
-    "4623cd66ac5e78e301c703cf0894f348d0a4d594e6d84bfda058fd6d510be109"
+    "89373af0990ff6dd0f341ab065359a283953ee3667ac9201052f40aee2d77507"
 )
 _SIGNAL_PREFIX_PATTERN_AT_8CB27 = (
-    "96297b982678a1c457d339904d219f23d52fcbc016b30dcf78c2fa822de25ea0"
+    "78d6d4aaf83c37d5b8d00cfc9531410da1346211311605ca7c7c6e8cb84628d3"
 )
 
 
 def test_the_reason_negation_is_the_pattern_it_was():
     def digest(pattern: str) -> str:
-        return hashlib.sha256(pattern.encode()).hexdigest()
+        normalized = pattern.replace(PREFIX_JOINT, "<PREFIX_JOINT>")
+        return hashlib.sha256(normalized.encode()).hexdigest()
 
     assert digest(hebrew._REASON_NEGATION.pattern) == _REASON_PATTERN_AT_8CB27
     assert digest(hebrew._NEGATED_SIGNAL_PREFIX.pattern) == (
@@ -388,7 +393,8 @@ def test_every_unicode_digit_continues_a_citation():
         for code in range(sys.maxunicode + 1)
         if unicodedata.category(chr(code)) == "Nd"
     ]
-    assert len(digits) > 700
+    # 760 under Unicode 16.0 (Python 3.14), 680 under 15.1 (Python 3.13).
+    assert len(digits) >= 680
     for digit in digits:
         for tail in ("", "a", "אבג", "'", '"', "”"):
             text = f"חסר סעיף 2{digit}{tail}"
