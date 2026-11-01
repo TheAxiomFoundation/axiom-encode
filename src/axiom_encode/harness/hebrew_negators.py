@@ -481,6 +481,7 @@ def _genuine_context(match: re.Match[str]) -> bool:
 
 
 # --- Source-only grammatical paradigms (#1882, round 20) -------------------
+SOURCE_PREFIX_LANGUAGE = _NEGATION_PREFIX
 #
 # These are grammatical stems, not a dictionary. All endings live in this
 # generator; callers select a family or a grammatical slot. The ten possessive
@@ -649,7 +650,14 @@ def verb_paradigm(
     elif future.endswith("ה"):
         feminine_plural = _joined(feminine_future[:-1], "ינה")
     else:
-        feminine_plural = _joined(feminine_future, "נה")
+        # A root-final נ merges with the נ of the feminine plural ending
+        # (תמאנה), rather than spelling the same consonant twice.
+        feminine_plural = _joined(
+            feminine_future[:-1]
+            if feminine_future.endswith(("ן", "נ"))
+            else feminine_future,
+            "נה",
+        )
     return VerbParadigm(
         past,
         past_forms,
@@ -876,12 +884,17 @@ CLAIM_CONSTRUCT_LANGUAGE = compact_alternation(CLAIM_CONSTRUCT_NOUNS)
 def claim_content(*, after: str, separator: str) -> str:
     """A shared claim noun/content clause, with at most three owner tokens.
 
-    Only construct nouns take owners. Atomic Hebrew-only tokens cannot cross
+    Only construct nouns take owners. Atomic Unicode-letter tokens cannot cross
     punctuation, clause boundaries or backtrack through a long word.
     """
 
+    # Intersect the caller's separator with horizontal spaces and joints.
+    # A \s+ separator must not carry a claim owner across a clause break.
+    horizontal = "[" + re.escape("".join(sorted(HORIZONTAL_SPACES))) + "]"
+    gap = rf"(?:{horizontal}+|{horizontal}*{PREFIX_JOINT}{horizontal}*)"
+    separator = rf"(?={separator}){gap}"
     connective = rf"(?:{prefix_word('ש')}(?=[{_H}])|כי{after})"
-    owner = rf"(?>[{_H}]+){after}{separator}"
+    owner = rf"(?>[^\W\d_]+){after}{separator}"
     return (
         rf"(?:{prefix_word('ה')})?(?:"
         rf"(?:{CLAIM_NOUN_LANGUAGE}){after}{separator}{connective}"

@@ -6040,7 +6040,7 @@ def _analyze_rulespec_payload(
 
     # Hebrew points and direction marks change no number: a marked outline
     # label (``(1\u2063)``) or citation is read as its unmarked form, while
-    # a source with no Hebrew script is read as is.
+    # a source outside the Hebrew folding gate is read as is.
     numeric_recall_text = authoritative_numeric_recall_text(
         hebrew_source_text.fold_marks(source_text),
         corpus_citation_path=corpus_citation_path,
@@ -6806,8 +6806,14 @@ def _deferred_coverage(
                 )
             continue
         # Hebrew points and direction marks hide no negation or adversative
-        # from the guards; a reason with no Hebrew script is unchanged.
-        reason = hebrew_source_text.fold_marks(str(record.get("reason") or "").strip())
+        # from the guards; a reason outside the Hebrew folding gate is unchanged.
+        raw_reason = str(record.get("reason") or "").strip()
+        reason = hebrew_source_text.fold_marks(raw_reason)
+        # The English-only routes also inspect raw Hebrew marks: folding can
+        # erase them before these routes receive their normal reading copy.
+        allow_english_only_routes = not hebrew_source_text.holds_hebrew_script(
+            raw_reason
+        )
         blocked_by = record.get("blocked_by")
         normalized_anchors = tuple(anchor.lower() for anchor in deferral_anchors)
         blocker_targets = (
@@ -6843,8 +6849,8 @@ def _deferred_coverage(
         # A reason that mixes in Hebrew must also be precise as
         # `english_reading_view` reads it: a Hebrew negation blanks the rest of
         # its clause there, so `לא missing section 2` cites nothing, as the
-        # Hebrew reader refuses `not חסר סעיף 2` (#1882). With no Hebrew script
-        # there is no view, so no English or German verdict changes.
+        # Hebrew reader refuses `not חסר סעיף 2` (#1882). Outside the Hebrew
+        # folding gate there is no view, so no English or German verdict changes.
         english_view = hebrew_source_text.english_reading_view(
             reason, masked_citations=_clause_masked_dependencies
         )
@@ -6900,12 +6906,16 @@ def _deferred_coverage(
                     corpus_citation_path=corpus_citation_path,
                     path=candidate_path,
                     authenticated_same_act_aliases=authenticated_same_act_aliases,
+                    allow_english_only_routes=allow_english_only_routes,
                 )
-                or _reason_names_source_bound_runtime_gap(
-                    reason,
-                    candidate_scope_text,
-                    path=candidate_path,
-                    corpus_citation_path=corpus_citation_path,
+                or (
+                    allow_english_only_routes
+                    and _reason_names_source_bound_runtime_gap(
+                        reason,
+                        candidate_scope_text,
+                        path=candidate_path,
+                        corpus_citation_path=corpus_citation_path,
+                    )
                 )
                 or _reason_covers_source_authenticated_repeal(
                     reason,
@@ -6969,6 +6979,7 @@ def _deferred_coverage(
                     corpus_citation_path=corpus_citation_path,
                     path=candidate,
                     authenticated_same_act_aliases=authenticated_same_act_aliases,
+                    allow_english_only_routes=allow_english_only_routes,
                 )
                 for candidate, candidate_scope_text in most_specific_source_scopes.items()
             )
@@ -7526,7 +7537,7 @@ def _source_clause_links_dependency(
     # A Hebrew predicate after the citation can deny the claim that holds the
     # link (``הטענה שהתשלום is calculated in accordance with section 2 היא
     # שקר``), as ``It is false that ...`` does before it (#1882). A clause
-    # with no Hebrew script denies nothing here.
+    # outside the Hebrew folding gate denies nothing here.
     if hebrew_source_text.denies_linked_claim(before, after):
         return False
     dependency_link = re.search(
@@ -9061,8 +9072,8 @@ def _source_link_scope_has_unreset_negation(governing_scope: str) -> bool:
     shows it, with the Hebrew link negations (``לא``, ``אינו``, ``בלי``,
     ``למעט``) among the markers, so ``(a) לא computed in accordance with
     section 2`` is negated as its translation is (#1882). Either reading's
-    negation counts, so the second reading only refuses; a scope with no
-    Hebrew script has no second reading.
+    negation counts, so the second reading only refuses; a scope outside the
+    Hebrew folding gate has no second reading.
     """
 
     if _scope_has_unreset_link_negation(
@@ -9523,10 +9534,11 @@ def _reason_dependency_is_source_bound(
     corpus_citation_path: str,
     path: tuple[str, ...] | None = None,
     authenticated_same_act_aliases: Sequence[str] = (),
+    allow_english_only_routes: bool = True,
 ) -> bool:
     """Require one external dependency citation to bind to the deferred source."""
 
-    if _reason_names_missing_same_act_dependency(
+    if allow_english_only_routes and _reason_names_missing_same_act_dependency(
         reason,
         source_scope_text,
         corpus_citation_path=corpus_citation_path,
@@ -9539,7 +9551,8 @@ def _reason_dependency_is_source_bound(
     # scope with Hebrew script takes no R.S. admission (#1882).
     louisiana_dependencies = (
         ()
-        if hebrew_source_text.holds_hebrew_letter(reason, source_scope_text)
+        if not allow_english_only_routes
+        or hebrew_source_text.holds_hebrew_script(reason, source_scope_text)
         else _qualified_louisiana_rs_dependencies(reason)
     )
     if not _MISSING_DEPENDENCY_LANGUAGE.search(reason) and not any(
@@ -9687,7 +9700,7 @@ def _reason_names_missing_same_act_dependency(
     """Recognize an exact missing session-law section named by one source branch."""
 
     # English-only, like the runtime-gap route: Hebrew script refuses (#1882).
-    if not path or hebrew_source_text.holds_hebrew_letter(reason, source_scope_text):
+    if not path or hebrew_source_text.holds_hebrew_script(reason, source_scope_text):
         return False
     exact_current_branch = _reason_cites_exact_current_statute_branch(
         reason,
@@ -9845,7 +9858,7 @@ def _same_act_clause_names_missing_dependency(
     authenticated_same_act_aliases: Sequence[str] = (),
 ) -> bool:
     # English-only, as `_reason_names_missing_same_act_dependency` (#1882).
-    if hebrew_source_text.holds_hebrew_letter(clause_text):
+    if hebrew_source_text.holds_hebrew_script(clause_text):
         return False
     act_identity = _same_act_identity_pattern(
         authenticated_same_act_aliases,
@@ -10218,7 +10231,7 @@ def _reason_match_has_bounded_insufficiency(
     """Recognize one citation-local statement that a supplied dependency is incomplete."""
 
     # English-only: a Hebrew qualifier or reversal would go unread (#1882).
-    if hebrew_source_text.holds_hebrew_letter(reason, source_scope_text):
+    if hebrew_source_text.holds_hebrew_script(reason, source_scope_text):
         return False
     _clause_start, clause_end = _reason_clause_bounds(reason, match)
     if clause_end < len(reason) and clause_end - match.end() <= 240:
@@ -13254,7 +13267,7 @@ def _reason_names_source_bound_runtime_gap(
     # An English-only route: its vocabulary, word counts and computation veto
     # read English, so a Hebrew reason or scope is refused rather than read
     # past (#1882). `_EXPLICIT_COMPUTATION` stays as it is.
-    if hebrew_source_text.holds_hebrew_letter(reason, source_scope_text):
+    if hebrew_source_text.holds_hebrew_script(reason, source_scope_text):
         return False
 
     if (

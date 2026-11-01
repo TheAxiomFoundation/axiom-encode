@@ -32,10 +32,20 @@ from dataclasses import dataclass, field
 from axiom_encode.harness._unicode_default_ignorables import DEFAULT_IGNORABLE_RANGES
 from axiom_encode.harness.hebrew_negators import (
     _WITHOUT_SIGNAL,
+    DISCLAIMER_CONTINUATIVES,
+    DISCLAIMER_INFINITIVES,
+    DISCLAIMER_STATE_FORMS,
+    DISCLAIMER_VERBS,
+    POSTPOSED_CORRECT_FORMS,
+    POSTPOSED_FALSE_FORMS,
+    SOURCE_PREFIX_LANGUAGE,
     NegationPattern,
     build_negation_language,
     build_source_negation_language,
+    claim_content,
+    compact_alternation,
     governs_infinitive,
+    source_head_language,
 )
 from axiom_encode.harness.hebrew_prefixes import (
     ADMIT_BOUNDARY,
@@ -184,7 +194,8 @@ def _fold_characters(
     return text.translate(table)
 
 
-# The Hebrew block from its first mark, and the presentation forms.
+# The folding gate: U+0591–05F4 and Hebrew presentation forms U+FB1D–FB4F.
+# This predates the wider, raw-and-NFKC English-route gate below.
 _HEBREW_SCRIPT = re.compile("[\u0591-\u05f4\ufb1d-\ufb4f]")
 
 
@@ -193,8 +204,8 @@ def fold_marks(text: str) -> str:
 
     Every negation, adversative, signal, citation and outline guard reads the
     folded copy, so a pointed or direction-marked word is the word itself.
-    Text with no Hebrew script is returned as is, the same object, so no
-    English or German reading changes. A reader that reports offsets reads a
+    Text outside the U+0591–05F4 / U+FB1D–FB4F folding gate is returned
+    as is, the same object, so no English or German reading changes. A reader that reports offsets reads a
     :class:`FoldedText`, which maps each folded offset back to the original.
     """
 
@@ -230,7 +241,7 @@ class FoldedText:
     )
 
     def __init__(self, original: str, *, force: bool = False) -> None:
-        """Fold ``original``; ``force`` folds it even with no Hebrew script.
+        """Fold ``original``; ``force`` also folds text outside the Hebrew gate.
 
         A forced fold is for a window cut from a longer text, whose Hebrew
         letters may lie past the window: a reader that needs a Hebrew letter
@@ -354,8 +365,8 @@ def _split_starts(
 def cross_language_text(text: str) -> str | None:
     """``text`` as the shared checker's English guards read it with Hebrew in it.
 
-    ``None`` for text with no Hebrew script, which keeps its English or German
-    reading. Otherwise the marks are folded and a space stands at each
+    ``None`` for text outside the U+0591–05F4 / U+FB1D–FB4F folding gate,
+    which keeps its English or German reading. Otherwise the marks are folded and a space stands at each
     junction of scripts, so ``לא`` with U+200F inside it, ``וnot`` and
     ``notמחושב`` show their words. A guard that reads this copy as well as
     the text, and refuses when either refuses, reads no text more loosely.
@@ -373,7 +384,7 @@ _GERESH_MARKS = "׳״'\"“”‘’"
 # What continues a section number, as English's citation reads it: a
 # decimal digit of any script (English's ``\d+`` is Unicode), and an ASCII
 # letter or one of the four that ``re.IGNORECASE`` folds to one (``İ``,
-# ``ı``, ``ſ``, ``K``). A citation never ends before either, so ``סעיף 2٣a``
+# ``ı``, ``ſ``, ``K`` U+212A). A citation never ends before either, so ``סעיף 2٣a``
 # and ``סעיף 2K`` name no section 2 (#1882). A blanket ``\w`` would refuse
 # more than English does.
 _IDENTIFIER_LETTERS = "A-Za-z\u0130\u0131\u017f\u212a"
@@ -404,15 +415,25 @@ _ADMIT_AFTER = WORD_END
 HEBREW_LETTER = re.compile(rf"[{_H}]")
 
 
-def holds_hebrew_letter(*texts: str) -> bool:
-    """Whether any text holds a Hebrew letter, a presentation form included.
+_HEBREW_BLOCKS = re.compile("[\u0590-\u05ff\ufb1d-\ufb4f]")
+
+
+def holds_hebrew_script(*texts: str) -> bool:
+    """Whether raw or folded text holds a code point in either Hebrew block.
 
     The English-only admission routes (runtime gap, Louisiana insufficiency,
     same act) read English words; a Hebrew qualifier or reversal inside them
-    would go unread, so they refuse a reason or scope that holds one (#1882).
+    would go unread, so they refuse the entire U+0590–05FF and U+FB1D–FB4F
+    blocks, including marks and punctuation. NFKC also exposes Hebrew in
+    letterlike symbols such as ``ℵ`` when ``fold_marks``' Hebrew gate has
+    returned the original text. Raw text keeps marks that folding removes.
     """
 
-    return any(HEBREW_LETTER.search(fold_marks(text)) for text in texts)
+    return any(
+        _HEBREW_BLOCKS.search(text)
+        or _HEBREW_BLOCKS.search(unicodedata.normalize("NFKC", fold_marks(text)))
+        for text in texts
+    )
 
 
 _LETTER_VALUES = {
@@ -1715,35 +1736,72 @@ _LINK_WINDOW = 240
 # relative clause and an operative citation, and ``דוח`` is no claim noun.
 # ``האפשרות לחשב`` ("the possibility to calculate") takes an infinitive.
 _CLAIM_SUBJECT = re.compile(
-    rf"{_REFUSAL_BEFORE}(?:{prefix_word('ו')})?(?:{prefix_word('ה')})?"
-    r"(?:(?:טענה|טענות|דיווח|דיווחים|הנחה|אמירה|גרסה)"
-    rf"{_NOT_HEBREW_AFTER}{_SEP}(?:{prefix_word('ש')}(?=[{_H}])|כי{_NOT_HEBREW_AFTER})"
-    rf"|(?:אפשרות|יכולת){_NOT_HEBREW_AFTER}{_SEP}{prefix_word('ל')}(?=[{_H}]))"
+    rf"{_REFUSAL_BEFORE}{SOURCE_PREFIX_LANGUAGE}(?:{prefix_word('ב')})?(?:"
+    rf"{claim_content(after=_NOT_HEBREW_AFTER, separator=_SEP)}"
+    rf"|(?:{prefix_word('ה')})?(?:אפשרות|יכולת)"
+    rf"{_NOT_HEBREW_AFTER}{_SEP}{prefix_word('ל')}(?=[{_H}]))"
 )
 # The denying predicate, with an optional copula (``היא שקר``): incorrect,
 # false, wrong, and ``נבצר`` ("was prevented").
 _POSTPOSED_DENIAL = re.compile(
-    rf"{_REFUSAL_BEFORE}(?:(?:הוא|היא|הם|הן|הינו|הינה|הינם|הינן){_NOT_HEBREW_AFTER}{_SEP})?"
+    rf"{_REFUSAL_BEFORE}{SOURCE_PREFIX_LANGUAGE}"
+    rf"(?:(?:הוא|היא|הם|הן|הינו|הינה|הינם|הינן){_NOT_HEBREW_AFTER}{_SEP})?"
     r"(?:(?:אינו|אינה|אינם|אינן|איננו|איננה|לא|בלתי)"
-    rf"{_SEP}(?:נכון|נכונ(?:ה|ים|ות))|שגוי(?:ה|ים|ות)?|שקר(?:י|ית|יים|יות)?|נבצר(?:ה|ו)?)"
+    rf"{_SEP}(?:{compact_alternation(POSTPOSED_CORRECT_FORMS)})"
+    rf"|(?:{source_head_language(POSTPOSED_FALSE_FORMS)}))"
     rf"{_NOT_HEBREW_AFTER}"
 )
 # English refuses a clause where the cited provision ``remain[s]
 # unaffected``; ``נותר בעינו`` and ``עומד בעינו`` say so. ``נשאר בתוקפו``
 # ("remains in force") makes nothing nonoperative.
 _NONOPERATIVE_DISCLAIMER = re.compile(
-    rf"{_REFUSAL_BEFORE}(?:{prefix_word('ו')})?(?:{prefix_word('ש')})?"
-    r"(?:(?:נותר|נותרה|נותרת|נותרו|נותרים|נותרות|יוותר|תיוותר|יוותרו)"
-    r"|(?:עומד|עומדת|עומדים|עומדות|יעמוד|תעמוד|יעמדו))"
-    rf"{_SEP}בעינ(?:ו|ה|ם|ן){_NOT_HEBREW_AFTER}"
+    rf"{_REFUSAL_BEFORE}{SOURCE_PREFIX_LANGUAGE}"
+    rf"(?:(?:{compact_alternation(DISCLAIMER_VERBS)})"
+    rf"|(?:(?:{compact_alternation(DISCLAIMER_CONTINUATIVES)}){_NOT_HEBREW_AFTER}{_SEP})?"
+    rf"(?:{source_head_language(DISCLAIMER_INFINITIVES)}))"
+    rf"{_NOT_HEBREW_AFTER}{_SEP}{prefix_word('ב')}"
+    rf"(?:{compact_alternation(form.removeprefix('ב') for form in DISCLAIMER_STATE_FORMS)})"
+    rf"{_NOT_HEBREW_AFTER}"
 )
 
 
-def _starts_in(starts: Sequence[int], low: int, high: int) -> bool:
-    """Whether a sorted start lies in ``[low, high)``."""
+class _StartCursor:
+    """Query sorted starts over non-decreasing ``[low, high)`` bounds.
 
-    index = bisect.bisect_left(starts, low)
-    return index < len(starts) and starts[index] < high
+    Citations arrive in source order. Their clause starts and ends cannot
+    move backward, nor can a citation's end or its immediately preceding
+    linker. A cursor therefore discards each start at most once rather than
+    bisecting the same growing arrays for every citation.
+    """
+
+    __slots__ = ("_starts", "_index", "_low", "_high")
+
+    def __init__(self, starts: Sequence[int]) -> None:
+        self._starts = starts
+        self._index = 0
+        self._low: int | None = None
+        self._high: int | None = None
+
+    def contains(self, low: int, high: int) -> bool:
+        """Whether a start lies in this window, asserting forward bounds."""
+
+        assert (
+            low <= high
+            and (self._low is None or self._low <= low)
+            and (self._high is None or self._high <= high)
+        ), (
+            self._low,
+            self._high,
+            low,
+            high,
+        )
+        self._low, self._high = low, high
+        while self._index < len(self._starts):
+            start = self._starts[self._index]
+            if start >= low:
+                return start < high
+            self._index += 1
+        return False
 
 
 def denies_linked_claim(before: str, after: str) -> bool:
@@ -1752,7 +1810,8 @@ def denies_linked_claim(before: str, after: str) -> bool:
     ``before`` is the clause up to the citation and ``after`` the clause after
     it, read as the cross-language copy, so an English link and citation
     (``הטענה שהתשלום is calculated in accordance with section 2 היא שקר``)
-    is denied as its Hebrew is. Text with no Hebrew script denies nothing.
+    is denied as its Hebrew is. Text outside the Hebrew folding gate denies
+    nothing.
     """
 
     view = cross_language_text(before + after)
@@ -1830,11 +1889,18 @@ def _linked_source_instruments(
             other_link_negations or _OTHER_LINK_NEGATION.finditer,
         ),
     )
-    claims = [match.start() for match in _CLAIM_SUBJECT.finditer(source_scope_text)]
-    denials = [match.start() for match in _POSTPOSED_DENIAL.finditer(source_scope_text)]
-    disclaimers = [
-        match.start() for match in _NONOPERATIVE_DISCLAIMER.finditer(source_scope_text)
-    ]
+    claims = _StartCursor(
+        [match.start() for match in _CLAIM_SUBJECT.finditer(source_scope_text)]
+    )
+    denials = _StartCursor(
+        [match.start() for match in _POSTPOSED_DENIAL.finditer(source_scope_text)]
+    )
+    disclaimers = _StartCursor(
+        [
+            match.start()
+            for match in _NONOPERATIVE_DISCLAIMER.finditer(source_scope_text)
+        ]
+    )
     for cited, cited_instrument in _section_citations(
         source_scope_text, current_kind, SOURCE_SECTION_DEPENDENCY
     ):
@@ -1844,7 +1910,7 @@ def _linked_source_instruments(
             stops[following] if following < len(stops) else len(source_scope_text)
         )
         # A clause that leaves a provision unaffected makes none operative.
-        if _starts_in(disclaimers, clause_start, clause_end):
+        if disclaimers.contains(clause_start, clause_end):
             continue
         # The linkers and the displacement guard read at most ~140 characters
         # before the citation; the window keeps a long clause linear. The
@@ -1867,8 +1933,8 @@ def _linked_source_instruments(
                 continue
         # A predicate after the citation that denies the claim holding the
         # link: ``הטענה שהתשלום מחושב בהתאם לסעיף 2 אינה נכונה``.
-        if _starts_in(claims, clause_start, linker.start()) and _starts_in(
-            denials, cited.end(), min(clause_end, cited.end() + _LINK_WINDOW)
+        if claims.contains(clause_start, linker.start()) and denials.contains(
+            cited.end(), min(clause_end, cited.end() + _LINK_WINDOW)
         ):
             continue
         section, fragments = _dependency_identity(cited)
@@ -2226,8 +2292,8 @@ def reason_names_source_bound_dependency(
 # link (``not חסר סעיף 2``). The converse holds too: a Hebrew negation before
 # an English signal or link (``לא missing section 2``, ``(a) לא computed in
 # accordance with section 2``) is read as its translation's negation, by the
-# shared checker's English routes (#1882). Text with no Hebrew script reads
-# nothing here, so no English or German verdict changes.
+# shared checker's English routes (#1882). Text outside the Hebrew folding
+# gate reads nothing here, so no English or German verdict changes.
 
 
 def english_reading_view(
@@ -2236,7 +2302,7 @@ def english_reading_view(
 ) -> str | None:
     """The copy of a mixed-language reason the English routes must also accept.
 
-    ``None`` when the reason has no Hebrew script. Otherwise it is
+    ``None`` when the reason is outside the Hebrew folding gate. Otherwise it is
     ``cross_language_text(reason)`` with every clause blanked from each Hebrew
     negation (``_REASON_NEGATION``, outside the Hebrew signals that hold one,
     such as ``טרם קודד``) to the clause's end. That is the Hebrew reader's
