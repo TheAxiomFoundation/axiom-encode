@@ -683,6 +683,7 @@ def test_proof_import_atom_can_name_a_relation_used_by_a_path():
     assert validation.find_proof_import_reference_issues(yaml.safe_dump(payload)) == []
     selected["versions"][0]["formula"] = True
     selected["derived_relation"]["source_relation"] = "pair"
+    payload["rules"] = [rule for rule in payload["rules"] if rule["name"] != "pair"]
     assert validation.find_proof_import_reference_issues(yaml.safe_dump(payload)) == []
 
 
