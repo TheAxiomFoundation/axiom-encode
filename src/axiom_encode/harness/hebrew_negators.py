@@ -23,7 +23,7 @@ import itertools
 import re
 import unicodedata
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from axiom_encode.harness.hebrew_prefixes import (
     HEBREW_PREFIX_LETTERS,
@@ -480,174 +480,438 @@ def _genuine_context(match: re.Match[str]) -> bool:
     return True
 
 
-# --- Source-only negators (#1882, round 19) ---------------------------------
+# --- Source-only grammatical paradigms (#1882, round 20) -------------------
 #
-# The reason reader keeps the shared language above: there ``חסר סעיף 2`` is
-# the missing-dependency signal. A source reads more words as negating its
-# link, as English's source guard reads ``without calculation``, ``prevented``
-# and ``denied`` (``_SOURCE_LINK_NEGATION_LANGUAGE``). Two rules add them, and
-# only to the source reader (hebrew_source_text._NEGATIONS).
-#
-# 1. A form the statute snapshot holds in no other sense reads clause-wide, as
-#    לא does, with the same prefix chains. Each form below is 0/0 in the
-#    snapshot's bodies and headings under every ordinary prefix chain, except
-#    ``הוצאו מכלל``, whose one use (National Insurance Law section 75, "classes
-#    of persons excluded from the self-employed") is the same exclusion.
-SOURCE_CLAUSE_NEGATORS = (
-    # Blocked, frustrated (prevented).
-    "נחסם",
-    "נחסמה",
-    "נחסמו",
-    "סוכל",
-    "סוכלה",
-    "סוכלו",
-    "מסוכל",
-    "מסוכלת",
-    "מסוכלים",
-    "מסוכלות",
-    "מסכל",
-    "מסכלת",
-    "מסכלים",
-    "מסכלות",
-    # Prevented, the form the legacy נמנע family lacks.
-    "נמנעת",
-    # Negated, denied, refuses, disowns.
-    "שלול",
-    "שלולה",
-    "שלולים",
-    "שלולות",
-    "הוכחש",
-    "הוכחשה",
-    "הוכחשו",
-    "ממאן",
-    "ממאנת",
-    "ממאנים",
-    "ממאנות",
-    "מתכחש",
-    "מתכחשת",
-    "מתכחשים",
-    "מתכחשות",
-    "התכחש",
-    "התכחשה",
-    "התכחשו",
-    "יתכחש",
-    "תתכחש",
-    "יתכחשו",
-    "תתכחשנה",
-    # Deprived of: without (משולל also reads as מ + the legacy שולל).
-    "משולל",
-    "משוללת",
-    "משוללות",
+# These are grammatical stems, not a dictionary. All endings live in this
+# generator; callers select a family or a grammatical slot. The ten possessive
+# slots include the two second-person singular slots, identical without niqqud.
+# Source-only expansion leaves build_negation_language (the reason reader)
+# unchanged. No third-party dictionary data is used.
+_FINAL_TO_MEDIAL = str.maketrans("םןךףץ", "מנכפצ")
+_MEDIAL_TO_FINAL = str.maketrans("מנכפצ", "םןךףץ")
+_POSSESSIVE_ENDINGS = (
+    ("י", "ך", "ך", "ו", "ה", "נו", "כם", "כן", "ם", "ן"),
+    ("י", "יך", "יך", "יו", "יה", "ינו", "יכם", "יכן", "יהם", "יהן"),
 )
-# Clause-wide forms that take their complement: disclaims (מתנער מ),
-# excluded from (מוצא מכלל), and the denied proposition (שקר ש, "false that").
-SOURCE_CLAUSE_PHRASES = (
-    *(f"{form} מ" for form in ("מתנער", "מתנערת", "מתנערים", "מתנערות")),
-    *(
-        f"{form} מכלל"
-        for form in ("מוצא", "מוצאת", "מוצאים", "מוצאות", "הוצא", "הוצאה", "הוצאו")
-    ),
-    *(f"{form} ש" for form in ("שקר", "שקרי", "שגוי")),
-)
+_THIRD_PERSON_POSSESSIVE_SLOTS = (3, 4, 8, 9)
 
-# 2. A form with a statutory homograph (נעדר, a missing person; פטור, exempt
-#    from tax; במקום, at a place; כופר, a monetary settlement) reads only over
-#    a computation complement, as English ``without`` reads only before
-#    ``determin*``, ``comput*``, ``calculat*``, ``appl*``, ``impos*`` and
-#    ``aris*``: head, optional quantifier, optional article, computation head.
-#    The computation heads are the Hebrew of those six English stems, and the
-#    stems themselves for a mixed clause (``נטול calculation``). ``תשלום`` is
-#    no computation head: ``אי תשלום בהתאם לסעיף 2`` is "non-payment under".
-SOURCE_PRIVATIVE_HEADS = (
-    # Without, lacking: the construct adjectives, agreeing in gender and
-    # number. The absolute plurals take ב: ``נעדרים בחישוב``.
-    "נטול",
-    "נטולת",
-    "נטולי",
-    "נטולות",
-    "נעדר",
-    "נעדרת",
-    "נעדרי",
-    "נעדרות",
-    "חסר",
-    "חסרה",
-    "חסרת",
-    "חסרי",
-    "חסרות",
-    # מחוסר alone is also causal ("for lack of"): see _LACK_CONTEXT.
-    "מחוסר",
-    "מחוסרת",
-    "מחוסרי",
-    "מחוסרות",
-    "משוללי",
-    # Literary "without": בלעדי, באפס.
-    "בלעדי",
-    "באפס",
-    # Blocked, prevents, prevention of, rejected, reject.
-    "חסום",
-    "חסומה",
-    "חסומים",
-    "חסומות",
-    "מונע",
-    "מונעת",
-    "מונעים",
-    "מונעות",
-    "מניעת",
-    "נדחה",
-    "נדחתה",
-    "נדחו",
-    "דוחות",
-    # Non- over an action noun (בלתי already negates clause-wide).
-    "אי",
-    # Instead of: "rather than".
-    "במקום",
-    "חלף",
-    "תחת",
+
+def _joined(stem: str, ending: str = "") -> str:
+    """Use a medial letter before an ending, a final letter at word end."""
+
+    if not stem:
+        return ending
+    return (
+        stem[:-1]
+        + stem[-1].translate(_FINAL_TO_MEDIAL if ending else _MEDIAL_TO_FINAL)
+        + ending
+    )
+
+
+def _unique(words: Iterable[str]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(words))
+
+
+@dataclass(frozen=True)
+class NounParadigm:
+    name: str
+    absolute: tuple[str, str]
+    construct: tuple[str, str]
+    singular_possessive: tuple[str, ...]
+    plural_possessive: tuple[str, ...]
+
+    @property
+    def forms(self) -> tuple[str, ...]:
+        return _unique(
+            (
+                *self.absolute,
+                *self.construct,
+                *self.singular_possessive,
+                *self.plural_possessive,
+            )
+        )
+
+
+def noun_paradigm(singular: str, plural: str) -> NounParadigm:
+    """Absolute/construct singular/plural and all ten possessive slots."""
+
+    singular_construct = singular[:-1] + "ת" if singular.endswith("ה") else singular
+    plural_construct = plural[:-2] + "י" if plural.endswith("ים") else plural
+    plural_stem = plural[:-2] if plural.endswith("ים") else plural
+    return NounParadigm(
+        singular,
+        (singular, plural),
+        (singular_construct, plural_construct),
+        tuple(_joined(singular_construct, suffix) for suffix in _POSSESSIVE_ENDINGS[0]),
+        tuple(_joined(plural_stem, suffix) for suffix in _POSSESSIVE_ENDINGS[1]),
+    )
+
+
+@dataclass(frozen=True)
+class AdjectiveParadigm:
+    name: str
+    absolute: tuple[str, str, str, str]
+    construct: tuple[str, str, str, str]
+    # An adjective has no tense or infinitive: those belong to a verb family.
+    missing_slots: dict[str, str] = field(
+        default_factory=lambda: {
+            "past": "adjective, not a finite verb",
+            "future": "adjective, not a finite verb",
+            "infinitive": "adjective, not a finite verb",
+        }
+    )
+
+    @property
+    def forms(self) -> tuple[str, ...]:
+        return _unique((*self.absolute, *self.construct))
+
+
+def adjective_paradigm(base: str, *, feminine: str = "he") -> AdjectiveParadigm:
+    """Four agreement slots, and their construct forms."""
+
+    # י adjectives retain their stem י before feminine and plural endings.
+    feminine_ending = "ת" if feminine == "tav" else "ה"
+    if base.endswith("ה"):
+        stem = base[:-1]
+        return AdjectiveParadigm(
+            base,
+            (base, base, _joined(stem, "ים"), _joined(stem, "ות")),
+            (base, _joined(stem, "ת"), _joined(stem, "י"), _joined(stem, "ות")),
+        )
+    return AdjectiveParadigm(
+        base,
+        (
+            base,
+            _joined(base, feminine_ending),
+            _joined(base, "ים"),
+            _joined(base, "ות"),
+        ),
+        (base, _joined(base, "ת"), _joined(base, "י"), _joined(base, "ות")),
+    )
+
+
+@dataclass(frozen=True)
+class VerbParadigm:
+    name: str
+    past: tuple[str, str, str]
+    present: tuple[str, str, str, str]
+    future: tuple[str, str, str, str]
+    infinitive: tuple[str, ...]
+    missing_slots: dict[str, str]
+
+    @property
+    def forms(self) -> tuple[str, ...]:
+        return _unique((*self.past, *self.present, *self.future, *self.infinitive))
+
+
+def verb_paradigm(
+    past: str,
+    present: str,
+    future: str,
+    *,
+    feminine: str = "tav",
+    past_stem: str | None = None,
+    future_plural: str | None = None,
+    future_feminine: str | None = None,
+    present_feminine_stem: str | None = None,
+    future_feminine_stem: str | None = None,
+    infinitive: str | None = None,
+) -> VerbParadigm:
+    """Third-person past, participle and future; no first/second persons.
+
+    Weak roots supply their grammatical stems, rather than an exception list
+    of inflected words. For final-ה verbs the feminine past takes תה, plural
+    past/future drops ה, and feminine plural future takes ינה.
+    """
+
+    past_stem = past_stem or past
+    if past.endswith("ה"):
+        past_forms = (past, _joined(past[:-1], "תה"), _joined(past[:-1], "ו"))
+    else:
+        past_forms = (past, _joined(past_stem, "ה"), _joined(past_stem, "ו"))
+    adjective = adjective_paradigm(present, feminine=feminine)
+    if present.endswith("ה"):
+        stem = present[:-1]
+        present_forms = (
+            present,
+            _joined(present_feminine_stem, "ת")
+            if present_feminine_stem
+            else _joined(stem, "ה"),
+            _joined(stem, "ים"),
+            _joined(stem, "ות"),
+        )
+    else:
+        present_forms = adjective.absolute
+    feminine_future = future_feminine or "ת" + future[1:]
+    future_plural = future_plural or (future[:-1] if future.endswith("ה") else future)
+    if future_feminine_stem is not None:
+        feminine_plural = _joined(future_feminine_stem, "נה")
+    elif future.endswith("ה"):
+        feminine_plural = _joined(feminine_future[:-1], "ינה")
+    else:
+        feminine_plural = _joined(feminine_future, "נה")
+    return VerbParadigm(
+        past,
+        past_forms,
+        present_forms,
+        (future, feminine_future, _joined(future_plural, "ו"), feminine_plural),
+        (infinitive,) if infinitive else (),
+        {} if infinitive else {"infinitive": "finite predicate construction"},
+    )
+
+
+def compact_alternation(words: Iterable[str]) -> str:
+    """A factored trie: shared stems and endings, rather than flat literals."""
+
+    tree: dict = {}
+    for word in sorted(set(words)):
+        node = tree
+        for char in word:
+            node = node.setdefault(char, {})
+        node[""] = {}
+
+    def emit(node: dict) -> str:
+        optional = "" in node
+        alternatives = [
+            re.escape(char) + emit(child) for char, child in node.items() if char
+        ]
+        if not alternatives:
+            return ""
+        joined = (
+            alternatives[0]
+            if len(alternatives) == 1
+            else "(?:" + "|".join(alternatives) + ")"
+        )
+        return "(?:" + joined + ")?" if optional else joined
+
+    return emit(tree)
+
+
+def source_head_language(words: Iterable[str]) -> str:
+    """Factor finite heads; an infinitive's ל takes the shared prefix joint."""
+
+    words = tuple(words)
+    infinitives = {
+        form for family in VERB_PARADIGMS.values() for form in family.infinitive
+    }
+    plain = [word for word in words if word not in infinitives]
+    infinitive_stems = [word[1:] for word in words if word in infinitives]
+    alternatives = [compact_alternation(plain)] if plain else []
+    if infinitive_stems:
+        alternatives.append(
+            rf"{prefix_word('ל')}(?:{compact_alternation(infinitive_stems)})"
+        )
+    return "|".join(alternatives)
+
+
+NOUN_PARADIGMS = {
+    singular: noun_paradigm(singular, plural)
+    for singular, plural in (
+        ("קביעה", "קביעות"),
+        ("היקבעות", "היקבעויות"),
+        ("חישוב", "חישובים"),
+        ("עיבוד", "עיבודים"),
+        ("החלה", "החלות"),
+        ("יישום", "יישומים"),
+        ("ישום", "ישומים"),
+        ("תחולה", "תחולות"),
+        ("הטלה", "הטלות"),
+        ("השתה", "השתות"),
+        ("חיוב", "חיובים"),
+        ("היווצרות", "היווצרויות"),
+        ("הווצרות", "הווצרויות"),
+        ("התהוות", "התהוויות"),
+        ("צמיחה", "צמיחות"),
+        ("טענה", "טענות"),
+        ("דיווח", "דיווחים"),
+        ("הנחה", "הנחות"),
+        ("אמירה", "אמירות"),
+        ("גרסה", "גרסאות"),
+        ("גירסה", "גירסאות"),
+    )
+}
+ADJECTIVE_PARADIGMS = {
+    name: adjective_paradigm(name, feminine=feminine)
+    for name, feminine in (
+        ("שלול", "he"),
+        ("משולל", "tav"),
+        ("נטול", "he"),
+        ("נעדר", "tav"),
+        ("חסר", "he"),
+        ("מחוסר", "tav"),
+        ("חסום", "he"),
+        ("פטור", "he"),
+        ("נפקד", "tav"),
+        ("נכון", "he"),
+        ("שקרי", "tav"),
+        ("שגוי", "he"),
+        ("חישובי", "tav"),
+        ("מוחל", "tav"),
+        ("שונה", "he"),
+    )
+}
+VERB_PARADIGMS = {
+    v.name: v
+    for v in (
+        verb_paradigm("נחסם", "נחסם", "ייחסם"),
+        verb_paradigm("סוכל", "מסוכל", "יסוכל"),
+        verb_paradigm("סיכל", "מסכל", "יסכל"),
+        verb_paradigm("נמנע", "נמנע", "יימנע"),
+        verb_paradigm("הוכחש", "מוכחש", "יוכחש"),
+        verb_paradigm("מיאן", "ממאן", "ימאן"),
+        verb_paradigm("התכחש", "מתכחש", "יתכחש"),
+        verb_paradigm("התנער", "מתנער", "יתנער", infinitive="להתנער"),
+        verb_paradigm("הוצא", "מוצא", "יוצא", infinitive="להוציא"),
+        verb_paradigm("מנע", "מונע", "ימנע"),
+        verb_paradigm("נדחה", "נדחה", "יידחה", present_feminine_stem="נדחי"),
+        verb_paradigm("דחה", "דוחה", "ידחה"),
+        verb_paradigm("הבדיל", "מבדיל", "יבדיל", feminine="he", infinitive="להבדיל"),
+        verb_paradigm("כפר", "כופר", "יכפור", future_plural="יכפר"),
+        verb_paradigm(
+            "נותר", "נותר", "יוותר", future_feminine="תיוותר", infinitive="להיוותר"
+        ),
+        verb_paradigm("עמד", "עומד", "יעמוד", future_plural="יעמד", infinitive="לעמוד"),
+        verb_paradigm("נשאר", "נשאר", "יישאר", infinitive="להישאר"),
+        verb_paradigm(
+            "המשיך",
+            "ממשיך",
+            "ימשיך",
+            past_stem="המשיכ",
+            future_plural="ימשיכ",
+            future_feminine_stem="תמשכ",
+        ),
+        verb_paradigm("נבצר", "נבצר", "ייבצר"),
+        verb_paradigm("נקבע", "נקבע", "ייקבע", infinitive="להיקבע"),
+        verb_paradigm("חושב", "מחושב", "יחושב", infinitive="לחשב"),
+        verb_paradigm("הוחל", "מוחל", "יוחל", infinitive="להחיל"),
+        verb_paradigm("יושם", "מיושם", "ייושם", infinitive="ליישם"),
+        verb_paradigm("הוטל", "מוטל", "יוטל", infinitive="להטיל"),
+        verb_paradigm("חויב", "מחויב", "יחויב", infinitive="לחייב"),
+        verb_paradigm("נוצר", "נוצר", "ייווצר", infinitive="להיווצר"),
+        verb_paradigm("צמח", "צומח", "יצמח", infinitive="לצמוח"),
+        verb_paradigm(
+            "חל", "חל", "יחול", feminine="he", future_plural="יחול", infinitive="לחול"
+        ),
+        verb_paradigm("הושת", "מושת", "יושת", infinitive="להשית"),
+        verb_paradigm(
+            "קם",
+            "קם",
+            "יקום",
+            feminine="he",
+            future_plural="יקומ",
+            future_feminine_stem="תקמ",
+            infinitive="לקום",
+        ),
+    )
+}
+
+
+def _family_forms(names: Iterable[str], *, verbs: bool = True) -> tuple[str, ...]:
+    registry = VERB_PARADIGMS if verbs else ADJECTIVE_PARADIGMS
+    return _unique(form for name in names for form in registry[name].forms)
+
+
+# A statutory homograph stays guarded; exclusions are recorded per form after
+# counting the pinned 1,633-record snapshot under every ordinary prefix.
+SOURCE_CLAUSE_NEGATORS = _unique(
+    (
+        *_family_forms(("נחסם", "סוכל", "סיכל", "נמנע", "הוכחש", "מיאן", "התכחש")),
+        *_family_forms(("שלול", "משולל"), verbs=False),
+    )
 )
-# Heads whose computation complement follows ``מ`` or ``מן``: exempt from,
-# other than, except.
-SOURCE_FROM_HEADS = (
-    "פטור",
-    "פטורה",
-    "פטורים",
-    "פטורות",
-    "שונה",
-    "שונים",
-    "שונות",
-    "בשונה",
-    "להבדיל",
-    "לבד",
+SOURCE_CLAUSE_PHRASES = (
+    *(f"{form} מ" for form in VERB_PARADIGMS["התנער"].forms),
+    *(f"{form} מכלל" for form in VERB_PARADIGMS["הוצא"].forms),
+    *(
+        f"{form} {complement}"
+        for form in (
+            "שקר",
+            *ADJECTIVE_PARADIGMS["שקרי"].forms,
+            *ADJECTIVE_PARADIGMS["שגוי"].forms,
+        )
+        for complement in ("ש", "כי")
+    ),
 )
-# The exemption's construct forms take the complement directly: ``פטורי חישוב``.
-SOURCE_CONSTRUCT_HEADS = ("פטורי", "פטורת", "פטורות")
-# A predicate after its computation subject, with its ``מן`` complement:
-# ``החישוב נפקד מן התשלום``, "the calculation is absent from the payment".
-SOURCE_ABSENT_FROM_PREDICATES = (
-    "נפקד",
-    "נפקדת",
-    "נפקדים",
-    "נפקדות",
-    "נעדר",
-    "נעדרת",
-    "נעדרים",
-    "נעדרות",
-    "חסר",
-    "חסרה",
-    "חסרים",
-    "חסרות",
+SOURCE_PRIVATIVE_HEADS = _unique(
+    (
+        *_family_forms(("נטול", "נעדר", "חסר", "מחוסר", "משולל", "חסום"), verbs=False),
+        *_family_forms(("מנע", "נדחה", "דחה")),
+        "מניעת",
+        "בלעדי",
+        "באפס",
+        "אי",
+        "במקום",
+        "חלף",
+        "תחת",
+    )
 )
+SOURCE_FROM_HEADS = _unique(
+    (
+        *ADJECTIVE_PARADIGMS["פטור"].absolute,
+        *ADJECTIVE_PARADIGMS["שונה"].forms,
+        *VERB_PARADIGMS["הבדיל"].forms,
+        "בשונה",
+        "להבדיל",
+        "לבד",
+    )
+)
+SOURCE_CONSTRUCT_HEADS = ADJECTIVE_PARADIGMS["פטור"].construct
+SOURCE_ABSENT_FROM_PREDICATES = _family_forms(("נפקד", "נעדר", "חסר"), verbs=False)
 SOURCE_QUANTIFIERS = ("כל", "שום", "אותו", "אותה", "אותם", "אותן")
-ABSENCE_SUFFIXES = ("ו", "ה", "ם", "ן")
-# Denies a claim: ``כופר בטענה ש``, ``כופר בכך ש``; ``כופר כסף`` is money.
-DENIAL_HEADS = ("כופר", "כופרת", "כופרים", "כופרות")
-CLAIM_NOUNS = (
-    "טענה",
-    "טענות",
-    "דיווח",
-    "דיווחים",
-    "הנחה",
-    "אמירה",
-    "גרסה",
+ABSENCE_SUFFIXES = tuple(
+    _POSSESSIVE_ENDINGS[0][slot] for slot in _THIRD_PERSON_POSSESSIVE_SLOTS
+)
+DENIAL_HEADS = VERB_PARADIGMS["כפר"].forms
+_CLAIM_FAMILIES = ("טענה", "דיווח", "הנחה", "אמירה", "גרסה", "גירסה")
+CLAIM_NOUNS = _unique(
+    form for name in _CLAIM_FAMILIES for form in NOUN_PARADIGMS[name].forms
+)
+CLAIM_CONSTRUCT_NOUNS = _unique(
+    form for name in _CLAIM_FAMILIES for form in NOUN_PARADIGMS[name].construct
+)
+CLAIM_NOUN_LANGUAGE = compact_alternation(CLAIM_NOUNS)
+CLAIM_CONSTRUCT_LANGUAGE = compact_alternation(CLAIM_CONSTRUCT_NOUNS)
+
+
+def claim_content(*, after: str, separator: str) -> str:
+    """A shared claim noun/content clause, with at most three owner tokens.
+
+    Only construct nouns take owners. Atomic Hebrew-only tokens cannot cross
+    punctuation, clause boundaries or backtrack through a long word.
+    """
+
+    connective = rf"(?:{prefix_word('ש')}(?=[{_H}])|כי{after})"
+    owner = rf"(?>[{_H}]+){after}{separator}"
+    return (
+        rf"(?:{prefix_word('ה')})?(?:"
+        rf"(?:{CLAIM_NOUN_LANGUAGE}){after}{separator}{connective}"
+        rf"|(?:{CLAIM_CONSTRUCT_LANGUAGE}){after}{separator}(?:{owner}){{1,3}}{connective})"
+    )
+
+
+DISCLAIMER_VERBS = _unique(
+    form
+    for name in ("נותר", "עמד", "נשאר")
+    for slot in (
+        VERB_PARADIGMS[name].past,
+        VERB_PARADIGMS[name].present,
+        VERB_PARADIGMS[name].future,
+    )
+    for form in slot
+)
+DISCLAIMER_INFINITIVES = _unique(
+    form for name in ("נותר", "עמד", "נשאר") for form in VERB_PARADIGMS[name].infinitive
+)
+DISCLAIMER_CONTINUATIVES = VERB_PARADIGMS["המשיך"].forms
+# בעינו/בעינה/בעינם/בעינן are the four third-person agreement slots.
+DISCLAIMER_STATE_FORMS = tuple(_joined("בעינ", suffix) for suffix in ABSENCE_SUFFIXES)
+POSTPOSED_CORRECT_FORMS = ADJECTIVE_PARADIGMS["נכון"].forms
+POSTPOSED_FALSE_FORMS = _unique(
+    (
+        "שקר",
+        *_family_forms(("שקרי", "שגוי"), verbs=False),
+        *VERB_PARADIGMS["נבצר"].forms,
+    )
 )
 # Copulas before the privative adjective (``יהיה מחוסר חישוב``).
 COPULAS = frozenset(
@@ -655,24 +919,53 @@ COPULAS = frozenset(
     "הינם הינן הנו הנה הנם הנן".split()
 )
 
-# The computation heads, by family. Nouns take their construct and pronoun
-# suffixes; infinitives and the relative future read after verbs of refusal
-# and after ``במקום``. ``שיקום`` and ``שיקומו`` are left out: in the statutes
-# they are "rehabilitation", never ש with ``יקום`` ("that it arise").
+_COMPUTATION_FAMILIES = tuple(
+    name for name in NOUN_PARADIGMS if name not in _CLAIM_FAMILIES and name != "עיבוד"
+)
+COMPUTATION_NOUN_PARADIGMS = tuple(
+    NOUN_PARADIGMS[name] for name in _COMPUTATION_FAMILIES
+)
+COMPUTATION_NOUN_FORMS = _unique(
+    form for name in _COMPUTATION_FAMILIES for form in NOUN_PARADIGMS[name].forms
+)
 _COMPUTATION_NOUNS = (
-    r"קביע(?:ה|ת|ות|ותי|תו|תה|תם|תן)|היקבעות"
-    r"|חישוב(?:ים|י|ו|ה|ם|ן)?|עיבוד(?:ו)?\s+(?:ה)?חישובי"
-    r"|החל(?:ה|ת|ות|תו|תה|תם|תן)|יישום(?:ים|י|ו|ה|ם|ן)?"
-    r"|תחול(?:ה|ת|תו|תה|תם|תן)"
-    r"|הטל(?:ה|ת|ות|תו|תה|תם|תן)|השת(?:ה|ת|תו|תה|תם|תן)|חיוב(?:ים|י|ו|ה|ם|ן)?"
-    r"|היווצרות(?:ו|ה|ם|ן)?|התהוות(?:ו|ה|ם|ן)?|צמיח(?:ה|ת|תו|תה|תם|תן)"
+    compact_alternation(COMPUTATION_NOUN_FORMS)
+    + rf"|(?:{compact_alternation(NOUN_PARADIGMS['עיבוד'].forms)})\s+"
+    + rf"(?:{prefix_word('ה')})?(?:{compact_alternation(ADJECTIVE_PARADIGMS['חישובי'].forms)})"
+)
+_COMPUTATION_VERB_FAMILIES = (
+    "נקבע",
+    "חושב",
+    "הוחל",
+    "יושם",
+    "הוטל",
+    "חויב",
+    "נוצר",
+    "צמח",
+    "חל",
+    "הושת",
+    "קם",
+)
+COMPUTATION_VERB_PARADIGMS = tuple(
+    VERB_PARADIGMS[name] for name in _COMPUTATION_VERB_FAMILIES
+)
+COMPUTATION_INFINITIVES = _unique(
+    form
+    for name in _COMPUTATION_VERB_FAMILIES
+    for form in VERB_PARADIGMS[name].infinitive
+)
+# שיקום/שיקומו are statutory rehabilitation, not relative computational
+# clauses. The feminine relative slots are unambiguous and stay admitted.
+COMPUTATION_RELATIVE_FUTURES = _unique(
+    form
+    for name in _COMPUTATION_VERB_FAMILIES
+    for form in VERB_PARADIGMS[name].future
+    if not (name == "קם" and form.startswith("י"))
 )
 _COMPUTATION_VERBS = (
-    r"להיקבע|לחשב|להחיל|ליישם|להטיל|לחייב|להיווצר|לצמוח|לחול|להשית|לקום"
-    r"|להיות\s+מוחל(?:ת|ים|ות)?"
-    r"|ש(?:ייקבע(?:ו)?|תיקבע|יחושב(?:ו)?|תחושב|יוחל(?:ו)?|תוחל|ייושם(?:ו)?"
-    r"|תייושם|יוטל(?:ו)?|תוטל|יחויב(?:ו)?|תחויב|ייווצר(?:ו)?|תיווצר|יצמח(?:ו)?"
-    r"|תצמח|יחול(?:ו)?|תחול|יושת(?:ו)?|תושת|תקום)"
+    source_head_language(COMPUTATION_INFINITIVES)
+    + rf"|{prefix_word('ל')}היות\s+(?:{compact_alternation(ADJECTIVE_PARADIGMS['מוחל'].absolute)})"
+    + rf"|{prefix_word('ש')}(?:{compact_alternation(COMPUTATION_RELATIVE_FUTURES)})"
 )
 # English's six stems, for a mixed clause; English reads them with \b.
 _ENGLISH_COMPUTATION = r"(?i:(?:determin|comput|calculat|appl|impos|aris)[a-z]*\b)"
@@ -712,37 +1005,38 @@ def build_source_negation_language(
         rf"(?:{prefix_word('מ')}|מן{after}{gap}){quantifier}{article}{noun}"
         rf"|מן{after}{gap}{quantifier}{_ENGLISH_COMPUTATION}"
     )
+    tails = {
+        "מ": rf"{prefix_word('מ')}(?=[{_H}])",
+        "מכלל": rf"{prefix_word('מ')}כלל{after}",
+        "ש": rf"{prefix_word('ש')}(?=[{_H}])",
+        "כי": rf"כי{after}",
+    }
     clause_phrases = "|".join(
-        re.escape(head)
-        + after
-        + gap
-        + re.escape(tail)
-        + (after if len(tail) > 1 else rf"(?=[{_H}])")
-        for head, tail in (phrase.split() for phrase in SOURCE_CLAUSE_PHRASES)
+        rf"(?:{source_head_language(phrase.split()[0] for phrase in SOURCE_CLAUSE_PHRASES if phrase.split()[1] == tail)}){after}{gap}{pattern}"
+        for tail, pattern in tails.items()
     )
     privative = _alternation_of(
         head for head in SOURCE_PRIVATIVE_HEADS if head != "מחוסר"
     )
     claim = (
-        rf"{prefix_word('ב')}(?:{prefix_word('ה')})?(?:{_alternation_of(CLAIM_NOUNS)})"
-        rf"{after}{gap}(?:{prefix_word('ש')}(?=[{_H}])|כי{after})"
-        rf"|בכך{after}{gap}(?:{prefix_word('ש')}(?=[{_H}])|כי{after})"
+        rf"{prefix_word('ב')}{claim_content(after=after, separator=gap)}"
+        rf"|{prefix_word('ב')}כך{after}{gap}(?:{prefix_word('ש')}(?=[{_H}])|כי{after})"
     )
     source_only = (
         rf"{before}(?P<source_prefix>{_NEGATION_PREFIX})(?:"
-        rf"(?:{_alternation_of(SOURCE_CLAUSE_NEGATORS)}){after}"
+        rf"(?:{compact_alternation(SOURCE_CLAUSE_NEGATORS)}){after}"
         rf"|{clause_phrases}"
         rf"|(?P<guarded>)(?:"
         rf"(?:{privative}){after}(?={gap}{computation()})"
         rf"|(?P<lack>מחוסר){after}(?={gap}{computation(rf'(?P<lack_article>{article})')})"
-        rf"|(?:נעדרים|חסרים){after}(?={gap}{prefix_word('ב')}{article}{noun})"
-        rf"|(?:{_alternation_of(SOURCE_FROM_HEADS)}){after}(?={gap}?(?:{from_complement}))"
-        rf"|(?:{_alternation_of(SOURCE_CONSTRUCT_HEADS)}){after}(?={gap}{computation()})"
+        rf"|(?:{compact_alternation(ADJECTIVE_PARADIGMS[name].absolute[2] for name in ('נעדר', 'חסר'))}){after}(?={gap}{prefix_word('ב')}{article}{noun})"
+        rf"|(?:{source_head_language(head for head in SOURCE_FROM_HEADS if head != 'בשונה')}|{prefix_word('ב')}שונה){after}(?={gap}?(?:{from_complement}))"
+        rf"|(?:{compact_alternation(SOURCE_CONSTRUCT_HEADS)}){after}(?={gap}{computation()})"
         rf"|{prefix_word('ב')}(?:היעדר|העדר|חוסר)(?:{'|'.join(ABSENCE_SUFFIXES)}){after}"
-        rf"(?={gap}(?:המוחלט{after}{gap})?של{after}{gap}{computation()})"
-        rf"|(?:{_alternation_of(DENIAL_HEADS)}){after}(?={gap}(?:{claim}))"
+        rf"(?={gap}(?:{prefix_word('ה')}מוחלט{after}{gap})?של{after}{gap}{computation()})"
+        rf"|(?:{compact_alternation(DENIAL_HEADS)}){after}(?={gap}(?:{claim}))"
         rf"|{article}(?:{_COMPUTATION_NOUNS}|{_ENGLISH_COMPUTATION}){after}{gap}"
-        rf"(?:{_alternation_of(SOURCE_ABSENT_FROM_PREDICATES)}){after}"
+        rf"(?:{compact_alternation(SOURCE_ABSENT_FROM_PREDICATES)}){after}"
         rf"(?={gap}?(?:{prefix_word('מ')}(?=[{_H}])|מן{after}))"
         r"))"
     )
