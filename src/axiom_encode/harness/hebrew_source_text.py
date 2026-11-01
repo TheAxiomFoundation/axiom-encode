@@ -1807,6 +1807,52 @@ class _StartCursor:
         return False
 
 
+class _BisectCursor:
+    """``bisect_left``, or ``bisect_right``, over one sorted array.
+
+    ``_linked_source_instruments`` asks its clause starts and linker starts in
+    source order, so a query mostly moves forward. A forward query gallops
+    from the last answer: queries that never move back read each element a
+    bounded number of times in all, where a bisect per citation reads
+    O(log n) each (review r10, round 22). A wrong order here would give a
+    wrong verdict, not a slow one, so nothing asserts it: a query that moves
+    back is answered by a bisect below the last answer. Any order of queries
+    gets the bisect's answer.
+    """
+
+    __slots__ = ("_items", "_right", "_query", "_answer")
+
+    def __init__(self, items: Sequence[int], *, right: bool = False) -> None:
+        self._items = items
+        self._right = right
+        self._query: int | None = None
+        self._answer = 0
+
+    def index(self, query: int) -> int:
+        """The bisect's insertion point for ``query``."""
+
+        items, right = self._items, self._right
+        if self._query is not None and query <= self._query:
+            if query < self._query:
+                search = bisect.bisect_right if right else bisect.bisect_left
+                self._answer = search(items, query, 0, self._answer)
+            self._query = query
+            return self._answer
+        # Every item below ``low`` lies before the answer. Probe at offsets
+        # 0, 1, 3, 7, ... until an item does not, then bisect the bracket.
+        low = high = self._answer
+        size = len(items)
+        step = 0
+        while high < size and (items[high] <= query if right else items[high] < query):
+            low = high + 1
+            high = low + step
+            step = 2 * step + 1
+        search = bisect.bisect_right if right else bisect.bisect_left
+        self._answer = search(items, query, low, min(high, size))
+        self._query = query
+        return self._answer
+
+
 def denies_linked_claim(before: str, after: str) -> bool:
     """Whether a predicate after a citation denies the claim before its link.
 
@@ -1904,6 +1950,11 @@ def _linked_source_instruments(
             for match in _NONOPERATIVE_DISCLAIMER.finditer(source_scope_text)
         ]
     )
+    # Clause starts and linker starts move forward with the citations, so
+    # these three searches take cursors rather than a bisect per citation.
+    others_from = _BisectCursor(other_starts)
+    negations_from = _BisectCursor(negation_starts)
+    negations_to = _BisectCursor(negation_ends, right=True)
     for cited, cited_instrument in _section_citations(
         source_scope_text, current_kind, SOURCE_SECTION_DEPENDENCY
     ):
@@ -1924,11 +1975,11 @@ def _linked_source_instruments(
         )
         if linker is None:
             continue
-        other = bisect.bisect_left(other_starts, clause_start)
+        other = others_from.index(clause_start)
         if other < len(other_starts) and other_starts[other] < linker.start():
             continue
-        first = bisect.bisect_left(negation_starts, clause_start)
-        last = bisect.bisect_right(negation_ends, linker.start()) - 1
+        first = negations_from.index(clause_start)
+        last = negations_to.index(linker.start()) - 1
         if last >= first:
             if main_before[last + 1] - main_before[first]:
                 continue
