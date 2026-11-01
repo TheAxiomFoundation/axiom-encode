@@ -683,6 +683,10 @@ def test_a_direct_read_answers_only_the_index_the_engine_reads(
     assert answered <= looked_up
     if executor == "cli":
         assert looked_up == readable
+    # A wrong cell would fail too, so each failure must be the refusal itself.
+    for label in set(INDEXES) - readable:
+        refusal = "\n".join(item for item in failures if f"`direct_{label}`" in item)
+        assert "must be an integer" in refusal or "has no value for key" in refusal
 
 
 def test_tied_versions_read_what_the_engine_reads(tmp_path, period_engine):
