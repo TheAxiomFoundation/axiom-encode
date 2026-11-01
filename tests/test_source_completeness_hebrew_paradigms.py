@@ -514,9 +514,12 @@ def _source_pair(row, form, prefix="", joint=""):
             f"(א) {neutral} התשלום מחושב{end}",
         )
     if role in {"privative", "construct-complement"}:
+        # ``דוחות`` reads "reject" only after an overt feminine plural subject;
+        # after ``יהיה`` it is the noun "reports" (round 22).
+        subject = "הרשויות" if form == "דוחות" else "התשלום יהיה"
         return (
-            f"(א) התשלום יהיה {head} חישוב{end}",
-            f"(א) התשלום יהיה {neutral} חישוב{end}",
+            f"(א) {subject} {head} חישוב{end}",
+            f"(א) {subject} {neutral} חישוב{end}",
         )
     if role == "phrase":
         tail = "חישוב" if row["family"] == "התנער" else "כלל התשלום"

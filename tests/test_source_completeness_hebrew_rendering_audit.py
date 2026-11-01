@@ -234,7 +234,10 @@ def _direct_frame(
     prefix: str, head: str, joint: str, quantifier: str, noun: str
 ) -> str:
     complement = f"{quantifier} {noun}" if quantifier else noun
-    return f"(א) התשלום יבוצע {prefix}{head}{joint}{complement} בהתאם לסעיף 2."
+    # ``דוחות`` reads "reject" only after an overt feminine plural subject;
+    # after ``יבוצע`` it is the noun "reports" (round 22).
+    subject = "הרשויות" if head == "דוחות" else "התשלום יבוצע"
+    return f"(א) {subject} {prefix}{head}{joint}{complement} בהתאם לסעיף 2."
 
 
 def _from_frame(prefix: str, head: str, joint: str, quantifier: str, noun: str) -> str:
