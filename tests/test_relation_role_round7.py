@@ -401,6 +401,16 @@ def test_a_qualified_proof_selector_needs_a_relation_read(
     assert (issues == []) is certified
 
 
+def test_a_qualified_proof_selector_counts_a_relation_source():
+    reader = relation("result", "true")
+    reader["derived_relation"]["source_relation"] = VIEW
+    reader["metadata"] = {
+        "proof": {"atoms": [{"import": {"target": VIEW, "output": VIEW}}]}
+    }
+    payload = program(PAIRS, reader, imports=[VIEW])
+    assert validation.find_proof_import_reference_issues(yaml.safe_dump(payload)) == []
+
+
 def untyped_compact():
     fact = "fact"
     selected = view(
