@@ -9,11 +9,9 @@ import shutil
 import subprocess
 import sys
 import textwrap
-from collections import Counter
-from collections.abc import Sequence
 from decimal import Decimal
 from pathlib import Path
-from types import FunctionType, ModuleType, SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -14454,122 +14452,46 @@ def test_da_constructed_pipe_tables_without_adjacent_markers_fail_closed(
     )
 
 
-class _CountedStructuralIndex(Sequence):
-    def __init__(self, values, charge):
-        self.values = values
-        self.charge = charge
-
-    def __len__(self):
-        return len(self.values)
-
-    def __getitem__(self, index):
-        if isinstance(index, slice):
-            self.charge(len(range(*index.indices(len(self)))))
-            return type(self)(self.values[index], self.charge)
-        self.charge(1)
-        return self.values[index]
-
-    def copy(self):
-        return self[:]
-
-
-@settings(deadline=None)
-@given(
-    values=st.lists(st.integers(), max_size=64),
-    first=st.slices(128),
-    second=st.slices(128),
-)
-def test_counted_structural_index_slices_preserve_metering(values, first, second):
-    values = tuple(values)
-    charges = []
-
-    class ObservedValues:
-        def __len__(self):
-            return len(values)
-
-        def __getitem__(self, index):
-            # The backing sequence must see its copy charged already.
-            assert charges == [len(range(*index.indices(len(values))))]
-            return values[index]
-
-    counted = _CountedStructuralIndex(ObservedValues(), charges.append)
-    sliced = counted[first]
-    assert isinstance(sliced, _CountedStructuralIndex)
-    assert sliced.values == values[first]
-    nested = sliced[second]
-    assert isinstance(nested, _CountedStructuralIndex)
-    assert nested.values == values[first][second]
-    assert charges == [len(values[first]), len(values[first][second])]
-    if nested:
-        assert nested[0] == values[first][second][0]
-        assert charges[-1] == 1
-
-    charges.clear()
-    copied = counted.copy()
-    assert copied.values == values
-    assert charges == [len(values)]
-    missing = object()
-    for operation in (
-        lambda: missing in copied,
-        lambda: copied.count(missing),
-    ):
-        before = sum(charges)
-        assert not operation()
-        assert sum(charges) - before >= len(values)
-    before = sum(charges)
-    with pytest.raises(ValueError):
-        copied.index(missing)
-    assert sum(charges) - before >= len(values)
-
-    class BudgetExceeded(Exception):
-        pass
-
-    def reject_copy(width):
-        assert width == len(values[first])
-        raise BudgetExceeded
-
-    class UnreadValues:
-        def __len__(self):
-            return len(values)
-
-        def __getitem__(self, _index):
-            pytest.fail("a rejected slice reached the backing sequence")
-
-    with pytest.raises(BudgetExceeded):
-        _CountedStructuralIndex(UnreadValues(), reject_copy)[first]
-
-
 def test_da_structural_span_lookup_scales_near_linearly(monkeypatch):
     unit = "nr. 2 "
     operation_count = 0
     original_predicate = validator_pipeline._span_is_contained_in_index
 
-    def counted_predicate(span, starts, prefix_max_ends):
+    def counted_predicate(*args, **kwargs):
         nonlocal operation_count
         operation_count += 1
-        reads = 0
-        # Bisect reads at most log2(n)+1 starts and one prefix maximum.
-        # Count indexed reads as well as calls: a whole-span scan inside one
-        # predicate must fail even though its Python call count is unchanged.
-        # A slice charges every copied entry and keeps that metering afterward.
-        budget = math.ceil(math.log2(len(starts) + 1)) + 2
-
-        def charge(width):
-            nonlocal reads
-            reads += width
-            assert reads <= budget, (reads, budget, len(starts))
-
-        return original_predicate(
-            span,
-            _CountedStructuralIndex(starts, charge),
-            _CountedStructuralIndex(prefix_max_ends, charge),
-        )
+        return original_predicate(*args, **kwargs)
 
     monkeypatch.setattr(
         validator_pipeline,
         "_span_is_contained_in_index",
         counted_predicate,
     )
+
+    def check(source_text, repetitions, occurrences):
+        assert len(occurrences) == repetitions + 1
+        assert all(
+            occurrence.value == 2.0
+            and occurrence.raw == "2"
+            and occurrence.span == (6 * index + 4, 6 * index + 5)
+            and occurrence.has_structural_context
+            and not occurrence.has_rate_context
+            for index, occurrence in enumerate(occurrences[:-1])
+        )
+        terminal = occurrences[-1]
+        assert (
+            terminal.value,
+            terminal.raw,
+            terminal.span,
+            terminal.has_structural_context,
+            terminal.has_rate_context,
+        ) == (
+            20.0,
+            "20",
+            (len(source_text) - 7, len(source_text) - 5),
+            False,
+            True,
+        )
 
     def counted_extract(target):
         nonlocal operation_count
@@ -14578,52 +14500,35 @@ def test_da_structural_span_lookup_scales_near_linearly(monkeypatch):
         source_text = unit * repetitions + "20 pct."
         _clear_numeric_extraction_caches()
         occurrences = extract_typed_numeric_occurrences_from_text(
-            source_text,
-            profile="da-DK",
+            source_text, profile="da-DK"
         )
-        return (
-            source_text,
-            repetitions,
-            occurrences,
-            operation_count,
+        check(source_text, repetitions, occurrences)
+        return source_text, occurrences, operation_count
+
+    def work(repetitions):
+        source_text = unit * repetitions + "20 pct."
+        return lowest_work(
+            lambda: extract_typed_numeric_occurrences_from_text(
+                source_text, profile="da-DK"
+            ),
+            lambda occurrences: check(source_text, repetitions, occurrences),
+            setup=_clear_numeric_extraction_caches,
         )
+
+    # Meter the whole extraction, including native index copies or scans.
+    assert_linear_growth(work(500), work(8_000), input_ratio=16)
 
     extract_typed_numeric_occurrences_from_text(unit * 1_000, profile="da-DK")
-    source_100k, repetitions_100k, occurrences_100k, ops_100k = counted_extract(100_000)
-    _, _, _, ops_200k = counted_extract(200_000)
-
+    source_100k, occurrences_100k, ops_100k = counted_extract(100_000)
+    _, _, ops_200k = counted_extract(200_000)
     assert ops_100k > 0
     assert ops_200k <= 2.5 * ops_100k
 
-    assert len(occurrences_100k) == repetitions_100k + 1
-    assert all(
-        occurrence.value == 2.0
-        and occurrence.raw == "2"
-        and occurrence.span == (6 * index + 4, 6 * index + 5)
-        and occurrence.has_structural_context
-        and not occurrence.has_rate_context
-        for index, occurrence in enumerate(occurrences_100k[:-1])
-    )
-    terminal = occurrences_100k[-1]
-    assert (
-        terminal.value,
-        terminal.raw,
-        terminal.span,
-        terminal.has_structural_context,
-        terminal.has_rate_context,
-    ) == (
-        20.0,
-        "20",
-        (len(source_100k) - 7, len(source_100k) - 5),
-        False,
-        True,
-    )
     inventory = extract_typed_numeric_inventory_occurrences_from_text(
-        source_100k,
-        profile="da-DK",
+        source_100k, profile="da-DK"
     )
     assert [(item.value, item.raw, item.span) for item in inventory] == [
-        (20.0, "20", terminal.span)
+        (20.0, "20", occurrences_100k[-1].span)
     ]
 
 
@@ -16416,111 +16321,32 @@ def test_an_ascii_fraction_before_a_percent_word_is_one_rate():
         assert _hebrew_recall(text) == {0.0025}, (text, _hebrew_recall(text))
 
 
-def _compound_scan_with_bounded_work(monkeypatch, text, *, whole=False):
-    original = validator_pipeline._iter_hebrew_compound_number_matches
+def _assert_compound_scanning_skips_parser(monkeypatch):
+    compound = validator_pipeline._iter_hebrew_compound_number_matches
     parse = validator_pipeline._parse_hebrew_number_run
-    paragraph_gap = validator_pipeline._PARAGRAPH_GAP_PATTERN
-    active = None
-    scans = []
-
-    class CountedText(str):
-        def __getitem__(self, index):
-            if isinstance(index, slice):
-                # Charge the actual C copy before allocating it. The current
-                # adjacency pass copies only the gaps between adjacent words.
-                active["copied_characters"] += len(range(*index.indices(len(self))))
-                assert active["copied_characters"] <= active["text_characters"], (
-                    "copied characters",
-                    active["copied_characters"],
-                    active["text_characters"],
-                )
-                return type(self)(super().__getitem__(index))
-            return super().__getitem__(index)
-
-        def rfind(self, needle, start=0, end=None):
-            result = super().rfind(needle, start, len(self) if end is None else end)
-            begin, stop, _ = slice(start, end).indices(len(self))
-            # A miss examines the requested prefix; a hit only its suffix.
-            # One native search is bounded by the fixture before charging it.
-            active["backwards_characters"] += max(
-                0, stop - (begin if result < 0 else result)
-            )
-            assert active["backwards_characters"] <= active["text_characters"], (
-                "backwards search characters",
-                active["backwards_characters"],
-                active["text_characters"],
-            )
-            return result
-
-    class CountedParagraphGap:
-        def search(self, source, pos=0, endpos=None):
-            stop = len(source) if endpos is None else min(len(source), endpos)
-            if active is not None:
-                # Regex reads its C subject directly, bypassing str indexing.
-                active["searched_characters"] += max(0, stop - max(0, pos))
-                assert active["searched_characters"] <= active["text_characters"], (
-                    "paragraph search characters",
-                    active["searched_characters"],
-                    active["text_characters"],
-                )
-            return paragraph_gap.search(source, pos, stop)
-
-        def __getattr__(self, name):
-            return getattr(paragraph_gap, name)
+    compound_depth = 0
+    parser_calls = 0
 
     def counted_parse(*args, **kwargs):
-        if active is not None:
-            active["parser_calls"] += 1
-            # None of these prose/standalone-teen heads can start a number.
-            # Reject the old repeated parsing before a deep run can explode.
-            assert active["parser_calls"] == 0, (
-                "compound parser calls",
-                active["parser_calls"],
-            )
+        nonlocal parser_calls
+        if compound_depth:
+            parser_calls += 1
+            # These prose and standalone-teen heads cannot begin a number.
+            assert parser_calls == 0, ("compound parser calls", parser_calls)
         return parse(*args, **kwargs)
 
-    def counted_compound(source):
-        nonlocal active
-        assert active is None
-        active = {
-            "text_characters": len(source),
-            "copied_characters": 0,
-            "backwards_characters": 0,
-            "searched_characters": 0,
-            "parser_calls": 0,
-        }
-        scans.append(active)
+    def counted_compound(text):
+        nonlocal compound_depth
+        compound_depth += 1
         try:
-            return original(CountedText(source))
+            return compound(text)
         finally:
-            active = None
+            compound_depth -= 1
 
-    with monkeypatch.context() as scan_patch:
-        scan_patch.setattr(
-            validator_pipeline, "_parse_hebrew_number_run", counted_parse
-        )
-        scan_patch.setattr(
-            validator_pipeline, "_iter_hebrew_compound_number_matches", counted_compound
-        )
-        scan_patch.setattr(
-            validator_pipeline, "_PARAGRAPH_GAP_PATTERN", CountedParagraphGap()
-        )
-        _clear_numeric_extraction_caches()
-        result = (
-            extract_numbers_from_text(text)
-            if whole
-            else validator_pipeline._iter_hebrew_compound_number_matches(text)
-        )
-    assert 0 < len(scans) <= (2 if whole else 1), (
-        "compound entries",
-        whole,
-        len(scans),
+    monkeypatch.setattr(validator_pipeline, "_parse_hebrew_number_run", counted_parse)
+    monkeypatch.setattr(
+        validator_pipeline, "_iter_hebrew_compound_number_matches", counted_compound
     )
-    assert all(
-        0 < scan["copied_characters"] <= scan["text_characters"] for scan in scans
-    )
-    assert all(scan["parser_calls"] == 0 for scan in scans)
-    return result, scans
 
 
 @settings(max_examples=20, deadline=None)
@@ -16529,29 +16355,54 @@ def _compound_scan_with_bounded_work(monkeypatch, text, *, whole=False):
     separator=st.sampled_from((" ", "  ", "\t")),
     repeats=st.integers(min_value=1, max_value=128),
 )
-def test_compound_prose_work_is_bounded_for_generated_text(unit, separator, repeats):
+def test_compound_prose_skips_parser_for_generated_text(unit, separator, repeats):
     text = (unit + separator) * repeats
     with pytest.MonkeyPatch.context() as monkeypatch:
-        matches, scans = _compound_scan_with_bounded_work(monkeypatch, text)
-    assert matches == []
-    assert all(
-        scan["copied_characters"] <= len(text)
-        and scan["backwards_characters"] <= len(text)
-        and scan["searched_characters"] <= len(text)
-        for scan in scans
-    )
+        _assert_compound_scanning_skips_parser(monkeypatch)
+        assert validator_pipeline._iter_hebrew_compound_number_matches(text) == []
 
 
 def test_hebrew_compound_scanning_is_linear_on_long_prose(monkeypatch):
-    # The old adjacency search copied whole gaps repeatedly and tried to parse
-    # every nonnumeric start. Count both mechanisms on the original fixtures.
-    for repeats in (1000, 2000):
-        text = "הוראות חוק זה יחולו על העובד " * repeats
-        matches, _scans = _compound_scan_with_bounded_work(monkeypatch, text)
+    _assert_compound_scanning_skips_parser(monkeypatch)
+    unit = "הוראות חוק זה יחולו על העובד "
+
+    def check_matches(matches):
         assert matches == []
-    _compound_scan_with_bounded_work(
-        monkeypatch, "הוראות חוק זה יחולו על העובד " * 2000, whole=True
-    )
+
+    def check_values(values):
+        assert values == set()
+
+    def work(repeats, *, whole=False):
+        text = unit * repeats
+        call = (
+            extract_numbers_from_text
+            if whole
+            else validator_pipeline._iter_hebrew_compound_number_matches
+        )
+
+        def check(results):
+            for result in results:
+                (check_values if whole else check_matches)(result)
+
+        # Batch uncached direct scans so the smaller sample takes measurable
+        # CPU work without inflating the quadratic regression's input size.
+        batch = 1 if whole else 32
+        return lowest_work(
+            lambda: [call(text) for _ in range(batch)],
+            check,
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    assert_linear_growth(work(8), work(128), input_ratio=16)
+    assert_linear_growth(work(32, whole=True), work(512, whole=True), input_ratio=16)
+
+    # Keep the original large fixtures and their outputs outside measurement.
+    for repeats in (1_000, 2_000):
+        check_matches(
+            validator_pipeline._iter_hebrew_compound_number_matches(unit * repeats)
+        )
+    _clear_numeric_extraction_caches()
+    check_values(extract_numbers_from_text(unit * 2_000))
 
 
 def test_an_ascii_mixed_percentage_is_one_rate():
@@ -16594,21 +16445,45 @@ def test_a_structural_reference_takes_the_whole_number_grammar():
 
 
 def test_hebrew_compound_scanning_is_linear_on_teen_only_words(monkeypatch):
-    # "שנים" means two only inside a teen; by itself it means years. Repeated
-    # standalone teen heads must skip parsing and copy only adjacent gaps.
-    grounded, _scans = _compound_scan_with_bounded_work(
-        monkeypatch, "שנים רבות " * 2000, whole=True
-    )
-    assert 2.0 not in grounded
-    for repeats in (20_000, 40_000):
-        matches, _scans = _compound_scan_with_bounded_work(
-            monkeypatch, "שנים רבות " * repeats
-        )
+    # "שנים" means two only inside a teen; by itself it means years.
+    _assert_compound_scanning_skips_parser(monkeypatch)
+    unit = "שנים רבות "
+
+    def check_matches(matches):
         assert matches == []
-    grounded, _scans = _compound_scan_with_bounded_work(
-        monkeypatch, "שנים רבות " * 20_000, whole=True
-    )
-    assert 2.0 not in grounded
+
+    def check_values(grounded):
+        assert 2.0 not in grounded
+
+    def work(repeats, *, whole=False):
+        text = unit * repeats
+        call = (
+            extract_numbers_from_text
+            if whole
+            else validator_pipeline._iter_hebrew_compound_number_matches
+        )
+
+        def check(results):
+            for result in results:
+                (check_values if whole else check_matches)(result)
+
+        batch = 1 if whole else 25
+        return lowest_work(
+            lambda: [call(text) for _ in range(batch)],
+            check,
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    assert_linear_growth(work(20), work(320), input_ratio=16)
+    assert_linear_growth(work(128, whole=True), work(2_048, whole=True), input_ratio=16)
+
+    for repeats in (20_000, 40_000):
+        check_matches(
+            validator_pipeline._iter_hebrew_compound_number_matches(unit * repeats)
+        )
+    for repeats in (2_000, 20_000):
+        _clear_numeric_extraction_caches()
+        check_values(extract_numbers_from_text(unit * repeats))
 
 
 def test_a_counted_fraction_after_tens_or_hundreds_is_a_fractional_tail():
@@ -19237,89 +19112,48 @@ def test_spelled_components_follow_a_printed_remainder():
         assert not ({3_100.0, 20.0} & extract_numbers_from_text(text)), text
 
 
-def _printed_scale_with_bounded_work(repeats):
-    text = "הסכום הוא 3 מיליון; הסכום הוא 3 אלפים; " * repeats
-    parts = 2 * repeats
-    queries = 0
-    span_items_read = 0
-    index_items_materialized = 0
-    indexes = {}
-    original = validator_pipeline._iter_hebrew_printed_scale_matches
-    original_bisect = validator_pipeline.bisect
-    overlaps = validator_pipeline._span_overlaps
-
-    class CountedBisect:
-        def bisect_right(self, values, target, *args, **kwargs):
-            nonlocal queries, index_items_materialized
-            queries += 1
-            assert queries <= 8 * parts, queries
-            # Keep the objects alive so allocator reuse cannot hide a copied
-            # whole index passed to every bisection before this wrapper runs.
-            if id(values) not in indexes:
-                index_items_materialized += len(values)
-                assert index_items_materialized <= 8 * parts, (
-                    "materialized index entries",
-                    index_items_materialized,
-                    8 * parts,
-                )
-                indexes[id(values)] = values
-            reads = 0
-            budget = math.ceil(math.log2(len(values) + 1)) + 2
-
-            def charge(width):
-                nonlocal reads
-                reads += width
-                # Account for native bisection reads and any copied slice.
-                assert reads <= budget, (reads, budget)
-
-            return original_bisect.bisect_right(
-                _CountedStructuralIndex(values, charge), target, *args, **kwargs
-            )
-
-        def __getattr__(self, name):
-            return getattr(original_bisect, name)
-
-    def counted_overlaps(span, occupied):
-        class CountedSpans:
-            def __iter__(self):
-                nonlocal span_items_read
-                for item in occupied:
-                    span_items_read += 1
-                    assert span_items_read <= 8 * parts, span_items_read
-                    yield item
-
-        return overlaps(span, CountedSpans())
-
-    # Keep the actual algorithm/code, with local globals for its C index and
-    # old span-scan seams. Half the candidates are millions, half thousands:
-    # an all-candidates walk must query overlap for the millions at each
-    # thousand part, so query counts expose that separate quadratic loop.
-    namespace = dict(
-        original.__globals__, bisect=CountedBisect(), _span_overlaps=counted_overlaps
-    )
-    counted = FunctionType(
-        original.__code__,
-        namespace,
-        original.__name__,
-        original.__defaults__,
-        original.__closure__,
-    )
-    counted.__kwdefaults__ = original.__kwdefaults__
-    _clear_numeric_extraction_caches()
-    matches = counted(text)
-    assert len(matches) == parts
-    assert 0 < queries <= 8 * parts, queries
-    assert span_items_read <= 8 * parts, span_items_read
+def _mixed_printed_scale_fixture(repeats):
+    unit = "הסכום הוא 3 מיליון; הסכום הוא 3 אלפים; "
+    expected = []
+    for index in range(repeats):
+        offset = index * len(unit)
+        for phrase, value in (("3 מיליון", 3_000_000.0), ("3 אלפים", 3_000.0)):
+            start = offset + unit.index(phrase)
+            expected.append(((start, start + len(phrase)), value, False))
+    return unit * repeats, expected
 
 
 def test_the_printed_scale_pass_scans_mixed_scales_in_linear_time():
-    _printed_scale_with_bounded_work(1600)
+    # Every printed part once scanned every spelled candidate and part span.
+    # Measure the whole pass, including native scans and index construction.
+    def printed_work(repeats, *, sample=True):
+        text, expected = _mixed_printed_scale_fixture(repeats)
+
+        def check(matches):
+            assert len(matches) == 2 * repeats
+            assert matches == expected
+
+        if not sample:
+            _clear_numeric_extraction_caches()
+            check(validator_pipeline._iter_hebrew_printed_scale_matches(text))
+            return None
+        return lowest_work(
+            lambda: validator_pipeline._iter_hebrew_printed_scale_matches(text),
+            check,
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    assert_linear_growth(printed_work(200), printed_work(3_200), input_ratio=16)
+    # Retain the original 3,200-result fixture once, outside the samples.
+    printed_work(1600, sample=False)
 
 
 @settings(max_examples=20, deadline=None)
 @given(repeats=st.integers(min_value=1, max_value=64))
-def test_printed_scale_work_is_bounded_for_generated_lengths(repeats):
-    _printed_scale_with_bounded_work(repeats)
+def test_printed_scale_pass_preserves_amounts_for_generated_lengths(repeats):
+    text, expected = _mixed_printed_scale_fixture(repeats)
+    _clear_numeric_extraction_caches()
+    assert validator_pipeline._iter_hebrew_printed_scale_matches(text) == expected
 
 
 def test_a_shared_scale_lower_endpoint_with_a_remainder_is_complete():
@@ -22031,113 +21865,66 @@ def test_a_conditional_long_list_shares_its_unit():
     assert len(group.members) == 69
 
 
-def test_the_range_passes_scan_thousands_of_members_and_clauses_in_linear_time(
-    monkeypatch,
-):
-    from axiom_encode.harness import validator_pipeline as pipeline
+@settings(max_examples=20, deadline=None)
+@given(
+    count=st.integers(min_value=2, max_value=128),
+    unit=st.sampled_from(("אחוזים", "מיליון שקלים")),
+)
+def test_range_member_lists_preserve_values_for_generated_lengths(count, unit):
+    heading = "השיעורים הם" if unit == "אחוזים" else "הסכומים הם"
+    expected = {
+        float(10 + index) / 100 if unit == "אחוזים" else float(10 + index) * 1_000_000.0
+        for index in range(count)
+    }
+    _clear_numeric_extraction_caches()
+    assert (
+        extract_numbers_from_text(_hebrew_member_list(count, heading, unit)) == expected
+    )
+
+
+def test_the_range_passes_scan_thousands_of_members_and_clauses_in_linear_time():
     from axiom_encode.harness.validator_pipeline import (
         _hebrew_paragraph_and_heading_index,
         _iter_hebrew_percent_range_lower_matches,
     )
 
-    # Review round 145 on #1585: the heading is learned once per list,
-    # whitespace is trimmed without copying the source prefix, and taken
-    # spans use their coverage mask instead of a scan of previous members.
-    # Count the actual prefixes and span entries read: Python call counts
-    # alone would miss a repeated whole-prefix scan inside C.
-    heading_prefix_characters = 0
-    trim_copied_characters = 0
-    span_items_read = 0
-    text_characters = 0
-    original_heading = pipeline._hebrew_list_heading_end
-    original_trim = pipeline._end_before_space
-    original_spans = pipeline._SpanList
+    # The whole extraction must scale with list size, including native prefix
+    # copies and any traversal of spans reserved by previous members.
+    def members_work(count, heading, unit, *, sample=True):
+        text = _hebrew_member_list(count, heading, unit)
+        expected = {
+            float(10 + index) / 100
+            if unit == "אחוזים"
+            else float(10 + index) * 1_000_000.0
+            for index in range(count)
+        }
 
-    def counted_heading(text, start, rate):
-        nonlocal heading_prefix_characters
-        # The backward walk and its C regexes can read this entire prefix.
-        heading_prefix_characters += start
-        assert heading_prefix_characters <= 16 * text_characters, (
-            heading_prefix_characters,
-            16 * text_characters,
-        )
-        return original_heading(text, start, rate)
+        def check(values):
+            assert len(values) == count, (count, unit, len(values))
+            assert values == expected
 
-    class TrimInput:
-        # The real helper needs only indexing. A proxy is constant work;
-        # constructing a str subclass here could copy the complete source
-        # once per trim and introduce the regression into the test itself.
-        __slots__ = ("text",)
-
-        def __init__(self, text):
-            self.text = text
-
-        def __len__(self):
-            return len(self.text)
-
-        def __getitem__(self, index):
-            nonlocal trim_copied_characters
-            if isinstance(index, slice):
-                trim_copied_characters += len(range(*index.indices(len(self.text))))
-                # Reject the old prefix copy before allocating or scanning it.
-                assert trim_copied_characters == 0, trim_copied_characters
-            return self.text[index]
-
-    def counted_trim(text, end):
-        return original_trim(TrimInput(text), end)
-
-    def charge_span_items(width):
-        nonlocal span_items_read
-        span_items_read += width
-        assert span_items_read <= 8 * text_characters, (
-            span_items_read,
-            8 * text_characters,
+        if not sample:
+            _clear_numeric_extraction_caches()
+            check(extract_numbers_from_text(text))
+            return None
+        return lowest_work(
+            lambda: extract_numbers_from_text(text),
+            check,
+            setup=_clear_numeric_extraction_caches,
         )
 
-    class CountedSpans(original_spans):
-        # Native list scans bypass __iter__; use the counted sequence APIs.
-        __contains__ = Sequence.__contains__
-        count = Sequence.count
-        index = Sequence.index
-
-        def __iter__(self):
-            for span in super().__iter__():
-                charge_span_items(1)
-                yield span
-
-        def __getitem__(self, index):
-            if isinstance(index, slice):
-                charge_span_items(len(range(*index.indices(len(self)))))
-                # Preserve counted sequence reads without rebuilding a coverage
-                # mask up to the sliced spans' original source offsets.
-                return _CountedStructuralIndex(
-                    super().__getitem__(index), charge_span_items
-                )
-            charge_span_items(1)
-            return super().__getitem__(index)
-
-        def copy(self):
-            return self[:]
-
-    # These wrappers preserve the actual extraction pipeline and its outputs.
-    # Restore them before clauses, whose independent guard measures index use.
-    with monkeypatch.context() as members_patch:
-        members_patch.setattr(pipeline, "_hebrew_list_heading_end", counted_heading)
-        members_patch.setattr(pipeline, "_end_before_space", counted_trim)
-        members_patch.setattr(pipeline, "_SpanList", CountedSpans)
-        for heading, unit in (
-            ("השיעורים הם", "אחוזים"),
-            ("הסכומים הם", "מיליון שקלים"),
-        ):
-            for count in (1000, 4000):
-                text = _hebrew_member_list(count, heading, unit)
-                text_characters = len(text)
-                heading_prefix_characters = 0
-                trim_copied_characters = 0
-                span_items_read = 0
-                _clear_numeric_extraction_caches()
-                values = extract_numbers_from_text(text)
-                assert len(values) == count, (count, unit, len(values))
+    for heading, unit in (
+        ("השיעורים הם", "אחוזים"),
+        ("הסכומים הם", "מיליון שקלים"),
+    ):
+        assert_linear_growth(
+            members_work(250, heading, unit),
+            members_work(4000, heading, unit),
+            input_ratio=16,
+        )
+        # Keep both original large output fixtures, once and untimed.
+        for count in (1000, 4000):
+            members_work(count, heading, unit, sample=False)
 
     clause = "הקנס יהיה 50 או 2 אחוזים מהמחזור, לפי הגבוה.\n"
 
@@ -27617,125 +27404,46 @@ def test_rulespec_proof_parent_resolution_is_bounded_for_repeated_lists(monkeypa
     resolve_repeated_lists(768)
 
 
-def _reference_chain_with_bounded_cache_work(monkeypatch, count):
-    """Bound actual shared-cache work on contiguous numeric references.
-
-    An admitted adjacent predecessor also bounds the backwards C search on
-    this fixture. This makes no claim about other parent-resolution inputs.
-    """
-    from axiom_encode.harness import proof_validator as proof
-
+def _reference_chain_source(count):
     source_text = "paragraph " + "".join(f"({index})" for index in range(1, count + 1))
-    numeric_start = source_text.rfind(f"({count})")
-    original = proof._source_position_follows_reference_word
-    shared_cache = None
-    totals = Counter()
-
-    def counted_reference(text, start, *, cache=None):
-        nonlocal shared_cache
-        assert cache is not None, "reference context cache is required"
-        if shared_cache is None:
-            shared_cache = cache
-        assert cache is shared_cache, "reference markers must share one cache"
-        before = len(cache)
-        record = {
-            "start": start,
-            "contains": 0,
-            "getitem": 0,
-            "get": 0,
-            "writes": 0,
-            "newkeys": 0,
-        }
-        keys = {"contains": [], "reads": [], "writes": []}
-
-        class CountedCache:
-            def __contains__(self, key):
-                record["contains"] += 1
-                keys["contains"].append(key)
-                assert record["contains"] <= 2, ("cache probes", keys["contains"])
-                return key in cache
-
-            def __getitem__(self, key):
-                record["getitem"] += 1
-                keys["reads"].append(key)
-                assert record["getitem"] + record["get"] <= 1, (
-                    "cache reads",
-                    keys["reads"],
-                )
-                return cache[key]
-
-            def get(self, key, default=None):
-                record["get"] += 1
-                keys["reads"].append(key)
-                assert record["getitem"] + record["get"] <= 1, (
-                    "cache reads",
-                    keys["reads"],
-                )
-                return cache.get(key, default)
-
-            def __setitem__(self, key, value):
-                record["writes"] += 1
-                keys["writes"].append(key)
-                assert record["writes"] <= 1, ("cache writes", keys["writes"])
-                # These bookkeeping reads use the backing dict directly; they
-                # must not consume production's bounded cache-read budget.
-                record["newkeys"] += key not in cache
-                assert record["newkeys"] <= 1, ("new cache keys", record["newkeys"])
-                cache[key] = value
-
-            def update(self, values):
-                # Reject a reconstructed chain before forwarding or copying
-                # that update. The production argument is an actual dict.
-                assert len(values) <= 1, ("cache update size", len(values))
-                for key, value in values.items():
-                    self[key] = value
-
-        value = original(text, start, cache=CountedCache())
-        # Inspect the raw backing dict, outside the charged production reads.
-        assert start in cache, ("current marker not cached", start, record)
-        assert len(cache) == before + 1, ("cache growth", before, len(cache))
-        assert record["writes"] <= 1
-        assert record["newkeys"] == 1
-        assert cache[start] is value is True
-        totals["calls"] += 1
-        totals.update({key: record[key] for key in record if key != "start"})
-        return value
-
-    gc.collect()
-    with monkeypatch.context() as context:
-        context.setattr(
-            proof, "_source_position_follows_reference_word", counted_reference
-        )
-        result = proof._source_top_level_marker_for_numeric_parent(
-            source_text, numeric_start
-        )
-
-    assert result is None
-    assert totals["calls"] == count
-    assert shared_cache is not None and len(shared_cache) == count
-    return result, dict(totals)
+    return source_text, source_text.rfind(f"({count})")
 
 
-def test_rulespec_proof_reference_chain_resolution_is_bounded(monkeypatch):
-    for count in (800, 3200):
-        result, totals = _reference_chain_with_bounded_cache_work(monkeypatch, count)
+def test_rulespec_proof_reference_chain_resolution_is_bounded():
+    def check(result):
         assert result is None
-        assert totals["contains"] <= 2 * count
-        assert totals["getitem"] + totals["get"] <= count
-        assert totals["writes"] <= count
-        assert totals["newkeys"] == count
+
+    def work(count):
+        source_text, numeric_start = _reference_chain_source(count)
+
+        def check_batch(results):
+            for result in results:
+                check(result)
+
+        # Each resolver call builds a fresh local reference cache.
+        return lowest_work(
+            lambda: [
+                _source_top_level_marker_for_numeric_parent(source_text, numeric_start)
+                for _ in range(64)
+            ],
+            check_batch,
+            setup=gc.collect,
+        )
+
+    assert_linear_growth(work(20), work(320), input_ratio=16)
+    for count in (800, 3_200):
+        check(
+            _source_top_level_marker_for_numeric_parent(*_reference_chain_source(count))
+        )
 
 
 @settings(max_examples=20, deadline=None)
 @given(count=st.integers(min_value=1, max_value=64))
-def test_reference_chain_cache_work_is_bounded_for_generated_lengths(count):
-    with pytest.MonkeyPatch.context() as monkeypatch:
-        result, totals = _reference_chain_with_bounded_cache_work(monkeypatch, count)
-    assert result is None
-    assert totals["contains"] <= 2 * count
-    assert totals["getitem"] + totals["get"] <= count
-    assert totals["writes"] <= count
-    assert totals["newkeys"] == count
+def test_reference_chain_resolution_for_generated_lengths(count):
+    assert (
+        _source_top_level_marker_for_numeric_parent(*_reference_chain_source(count))
+        is None
+    )
 
 
 def test_rulespec_proof_parent_resolution_supports_multi_digit_paragraphs():

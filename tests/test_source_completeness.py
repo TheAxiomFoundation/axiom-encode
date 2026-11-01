@@ -6,7 +6,6 @@ import hashlib
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from types import FunctionType
 
 import pytest
 import yaml
@@ -8837,160 +8836,74 @@ def test_ordered_dotted_labels_are_structural_without_semantic_guessing():
     ]
 
 
-def _counted_tuple_index(sequence, value, start=0, stop=None):
-    for position in range(*slice(start, stop).indices(len(sequence))):
-        candidate = sequence[position]
-        if candidate is value or candidate == value:
-            return position
-    raise ValueError("tuple.index(x): x not in tuple")
-
-
-@given(
-    values=st.lists(st.integers(-3, 3), max_size=20),
-    value=st.integers(-4, 4),
-    start=st.integers(-50, 50),
-    stop=st.one_of(st.none(), st.integers(-50, 50)),
-)
+@given(rows=st.integers(min_value=1, max_value=40))
 @settings(deadline=None)
-def test_counted_tuple_index_preserves_result_and_charges_examined_prefix(
-    values, value, start, stop
-):
-    reads = []
-
-    class CountedSequence:
-        def __len__(self):
-            return len(values)
-
-        def __getitem__(self, index):
-            reads.append(index)
-            return values[index]
-
-    positions = list(range(*slice(start, stop).indices(len(values))))
-    bounds = (start,) if stop is None else (start, stop)
-    try:
-        expected = tuple(values).index(value, *bounds)
-    except ValueError:
-        with pytest.raises(ValueError):
-            _counted_tuple_index(CountedSequence(), value, start, stop)
-        assert reads == positions
-    else:
-        assert _counted_tuple_index(CountedSequence(), value, start, stop) == expected
-        assert reads == positions[: positions.index(expected) + 1]
-
-
-def test_rejected_dotted_candidates_are_scanned_with_bounded_runtime(monkeypatch):
-    # Copying the remaining candidate tuple for each A was quadratic. Keep
-    # the original large case and count copies and native candidate scans.
-    source = "A. prose\nQ. prose\n" * 40_000
-    constructed_candidates = 0
-    copied_candidates = 0
-    scanned_candidates = 0
-
-    def scan(count=1):
-        nonlocal scanned_candidates
-        scanned_candidates += count
-        assert copied_candidates + scanned_candidates <= 4 * 80_000, (
-            copied_candidates,
-            scanned_candidates,
-        )
-
-    class CountedTuple(tuple):
-        def __new__(cls, values):
-            nonlocal constructed_candidates
-            result = super().__new__(cls, values)
-            constructed_candidates += len(result)
-            return result
-
-        def __getitem__(self, index):
-            nonlocal copied_candidates
-            if isinstance(index, slice):
-                copied_candidates += len(range(*index.indices(len(self))))
-                # Charge before allocation and preserve the counter on slices.
-                assert copied_candidates + scanned_candidates <= 4 * 80_000, (
-                    copied_candidates,
-                    scanned_candidates,
-                )
-                return type(self)(super().__getitem__(index))
-            scan()
-            return super().__getitem__(index)
-
-        def __iter__(self):
-            for candidate in super().__iter__():
-                scan()
-                yield candidate
-
-        def index(self, value, start=0, stop=None):
-            # Native tuple.index bypasses Python iteration. Charge each item
-            # actually examined, preserving constant-cost first-item lookups.
-            return _counted_tuple_index(self, value, start, stop)
-
-    original = completeness_module._qualified_dotted_subsection_matches
-    # This local builtin seam keeps the production algorithm/code unchanged.
-    # Its only tuple() uses build candidate/return buffers; overriding tuple
-    # across the module would also change unrelated isinstance checks.
-    namespace = dict(original.__globals__, tuple=CountedTuple)
-    counted = FunctionType(
-        original.__code__,
-        namespace,
-        original.__name__,
-        original.__defaults__,
-        original.__closure__,
-    )
-    counted.__kwdefaults__ = original.__kwdefaults__
-    monkeypatch.setattr(
-        completeness_module, "_qualified_dotted_subsection_matches", counted
-    )
-    branches = recognize_source_structure(source)
-
-    assert branches == ()
-    assert 0 < constructed_candidates <= 4 * 80_000
-    assert copied_candidates + scanned_candidates <= 4 * 80_000
-
-
-def test_accepted_nested_markers_are_closed_with_bounded_runtime(monkeypatch):
-    # The old marker closing searched all following markers for each row.
+def test_structure_growth_fixtures_preserve_rejected_and_nested_outputs(rows):
+    assert recognize_source_structure("A. prose\nQ. prose\n" * rows) == ()
     source = (
         "A. Start.\n"
-        + "".join(f"({index}) Row {index}.\n" for index in range(1, 20_001))
+        + "".join(f"({index}) Row {index}.\n" for index in range(1, rows + 1))
         + "B. End."
     )
-    visits = 0
+    assert [branch.path for branch in recognize_source_structure(source)] == [
+        ("a",),
+        *(("a", str(index)) for index in range(1, rows + 1)),
+        ("b",),
+    ]
 
-    def visit(count=1):
-        nonlocal visits
-        visits += count
-        assert visits <= 4 * 20_000, visits
 
-    class CountedMarkers(tuple):
-        def __getitem__(self, index):
-            if isinstance(index, slice):
-                # Native tuple slices copy before iteration. Charge before
-                # allocation and retain instrumentation on the returned suffix.
-                visit(len(range(*index.indices(len(self)))))
-                return type(self)(super().__getitem__(index))
-            visit()
-            return super().__getitem__(index)
+def test_rejected_dotted_candidates_are_scanned_with_bounded_runtime():
+    def recognition_work(repeats, *, sample=True):
+        source = "A. prose\nQ. prose\n" * repeats
 
-        def __iter__(self):
-            for marker in super().__iter__():
-                # Include candidates rejected by a repeated following-marker
-                # search, stopping once superlinear work is proved.
-                visit()
-                yield marker
+        def check(branches):
+            assert branches == ()
 
-        def index(self, value, start=0, stop=None):
-            return _counted_tuple_index(self, value, start, stop)
+        if not sample:
+            check(recognize_source_structure(source))
+            return None
+        return lowest_work(
+            lambda: recognize_source_structure(source),
+            check,
+            setup=completeness_module.re.purge,
+        )
 
-    recognize = completeness_module._nested_parenthesized_outline_markers
-    monkeypatch.setattr(
-        completeness_module,
-        "_nested_parenthesized_outline_markers",
-        lambda *args, **kwargs: CountedMarkers(recognize(*args, **kwargs)),
+    # Native suffix copies need this pair to outgrow the recognizer's scans.
+    assert_linear_growth(
+        recognition_work(2_000), recognition_work(32_000), input_ratio=16
     )
-    branches = recognize_source_structure(source)
+    recognition_work(40_000, sample=False)
 
-    assert len(branches) == 20_002
-    assert 0 < visits <= 4 * 20_000
+
+def test_accepted_nested_markers_are_closed_with_bounded_runtime():
+    def recognition_work(rows, *, sample=True):
+        source = (
+            "A. Start.\n"
+            + "".join(f"({index}) Row {index}.\n" for index in range(1, rows + 1))
+            + "B. End."
+        )
+
+        def check(branches):
+            assert len(branches) == rows + 2
+            assert [branch.path for branch in branches] == [
+                ("a",),
+                *(("a", str(index)) for index in range(1, rows + 1)),
+                ("b",),
+            ]
+
+        if not sample:
+            check(recognize_source_structure(source))
+            return None
+        return lowest_work(
+            lambda: recognize_source_structure(source),
+            check,
+            setup=completeness_module.re.purge,
+        )
+
+    # The old closer searched all following markers for every row. Check a
+    # finite pair before retaining the original large output fixture.
+    assert_linear_growth(recognition_work(500), recognition_work(8_000), input_ratio=16)
+    recognition_work(20_000, sample=False)
 
 
 @pytest.mark.parametrize(

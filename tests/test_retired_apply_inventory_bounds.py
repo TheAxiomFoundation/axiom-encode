@@ -13,6 +13,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode import cli, retired_apply
 from axiom_encode.retired_apply import (
@@ -22,6 +24,7 @@ from axiom_encode.retired_apply import (
 )
 from tests import test_retired_apply as _frozen_fixtures
 from tests import test_retired_apply_paths as _reader_fixtures
+from tests.scaling import assert_linear_growth, lowest_work
 from tests.test_retired_apply import _git
 from tests.test_signing_broker import _base_protocol_status, _client_for_status
 
@@ -624,7 +627,47 @@ def _synthetic_admission_work(frozen, monkeypatch, counts=(1000, 5000)):
     return measurements
 
 
+def _frozen_lookup_work(count):
+    values = {str(index): index for index in range(count)}
+    mapping = tuple.__new__(
+        retired_apply._FrozenMapping, retired_apply._frozen_mapping_data(values)
+    )
+    keys = tuple(values)
+    expected = list(range(count))
+
+    def check(batches):
+        for result in batches:
+            assert result == expected
+
+    # Each fresh batch performs N lookups in an N-entry mapping. Fixed batching
+    # makes the small sample measurable without a large quadratic fixture.
+    # Native reconstruction on each access is included in the whole operation.
+    return lowest_work(
+        lambda: [[mapping[key] for key in keys] for _ in range(384)], check
+    )
+
+
+@settings(max_examples=30, deadline=None)
+@given(values=st.dictionaries(st.text(max_size=24), st.integers(), max_size=50))
+def test_frozen_mapping_lookups_preserve_scalar_values(values):
+    mapping = tuple.__new__(
+        retired_apply._FrozenMapping, retired_apply._frozen_mapping_data(values)
+    )
+    assert len(mapping) == len(values)
+    assert tuple(mapping) == tuple(values)
+    for key, value in values.items():
+        assert mapping[key] == value
+    missing = "missing"
+    while missing in values:
+        missing += "!"
+    with pytest.raises(KeyError):
+        mapping[missing]
+
+
 def test_per_admission_work_does_not_scale_with_inventory(frozen, monkeypatch):
+    assert_linear_growth(
+        _frozen_lookup_work(16), _frozen_lookup_work(256), input_ratio=16
+    )
     work = _synthetic_admission_work(frozen, monkeypatch)
     # Five times the inventory must not change the number of values read or
     # keys iterated. Hash collisions may add a few comparisons; allow 3x while

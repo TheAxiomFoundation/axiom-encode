@@ -36,6 +36,7 @@ from axiom_encode.harness.validator_pipeline import (
     extract_typed_numeric_occurrences_from_text,
     numeric_value_is_grounded,
 )
+from tests.scaling import assert_linear_growth, lowest_work
 
 FIXTURES = Path(__file__).parent / "fixtures/source_completeness"
 FORMULA_CLAUSE = re.compile(r"source unit formula clause (\d+) in ")
@@ -214,39 +215,38 @@ def test_masking_keeps_offsets():
     assert completeness_module._TYPOGRAPHY_MASK in masked
 
 
-def test_bullet_check_stays_linear_on_long_bodies(monkeypatch):
-    # 8,000 bullets in one body took seconds when every bullet re-scanned
-    # the whole prefix.
-    source = "Item one • Item two is here. " * 8000
+def test_bullet_check_stays_linear_on_long_bodies():
+    def masking_work(repeats, *, sample=True):
+        source = "Item one • Item two is here. " * repeats
+        expected = source.replace("•", completeness_module._TYPOGRAPHY_MASK)
 
-    sliced_characters = 0
+        def check(masked):
+            assert masked == expected
+            assert "•" not in masked
 
-    class CountedText(str):
-        def __str__(self):
-            # A normal str() conversion must retain the work counter.
-            return self
+        if not sample:
+            check(completeness_module._without_manual_typography_operators(source))
+            return None
 
-        def __getitem__(self, index):
-            nonlocal sliced_characters
-            if isinstance(index, slice):
-                sliced_characters += len(range(*index.indices(len(self))))
-                # Charge copies before allocating. Keep returned windows counted
-                # so later whole-prefix scans cannot lose the instrumentation.
-                assert sliced_characters <= 128 * 8000, sliced_characters
-                return type(self)(super().__getitem__(index))
-            return super().__getitem__(index)
+        def check_batch(results):
+            assert len(results) == 8
+            for masked in results:
+                check(masked)
 
-    counted_source = CountedText(source)
-    original = completeness_module._is_list_bullet
-    monkeypatch.setattr(
-        completeness_module,
-        "_is_list_bullet",
-        lambda text, start, end: original(counted_source, start, end),
-    )
-    masked = completeness_module._without_manual_typography_operators(source)
+        # Fresh short operations keep the small CPU sample measurable while
+        # the historical whole-prefix scans still finish at the large size.
+        return lowest_work(
+            lambda: tuple(
+                completeness_module._without_manual_typography_operators(source)
+                for _ in range(8)
+            ),
+            check_batch,
+            setup=re.purge,
+        )
 
-    assert 0 < sliced_characters <= 128 * 8000
-    assert "•" not in masked
+    # Re-scanning each bullet's whole prefix makes this operation quadratic.
+    assert_linear_growth(masking_work(32), masking_work(512), input_ratio=16)
+    masking_work(8_000, sample=False)
 
 
 @pytest.mark.parametrize(

@@ -1,3 +1,1 @@
-Make test complexity guards count work or compare instruction/CPU growth instead
-of elapsed time, and tolerate shared-runner scheduling delays in deadline and
-subprocess hang checks while preserving regression coverage.
+Test complexity guards compare instruction or CPU growth across input sizes in place of elapsed-time limits, and deadline and subprocess hang checks tolerate scheduling delays on shared runners.
