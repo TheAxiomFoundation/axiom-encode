@@ -20,7 +20,6 @@ import functools
 import hashlib
 import json
 import re
-import time
 from pathlib import Path
 
 import pytest
@@ -215,15 +214,34 @@ def test_masking_keeps_offsets():
     assert completeness_module._TYPOGRAPHY_MASK in masked
 
 
-def test_bullet_check_stays_linear_on_long_bodies():
+def test_bullet_check_stays_linear_on_long_bodies(monkeypatch):
     # 8,000 bullets in one body took seconds when every bullet re-scanned
     # the whole prefix.
     source = "Item one • Item two is here. " * 8000
 
-    started = time.perf_counter()
+    sliced_characters = 0
+
+    class CountedText(str):
+        def __getitem__(self, index):
+            nonlocal sliced_characters
+            result = super().__getitem__(index)
+            if isinstance(index, slice):
+                sliced_characters += len(result)
+                # Count copied/scanned characters, not just Python calls: a
+                # whole-prefix regex search does its quadratic work inside C.
+                assert sliced_characters <= 128 * 8000
+            return result
+
+    counted_source = CountedText(source)
+    original = completeness_module._is_list_bullet
+    monkeypatch.setattr(
+        completeness_module,
+        "_is_list_bullet",
+        lambda text, start, end: original(counted_source, start, end),
+    )
     masked = completeness_module._without_manual_typography_operators(source)
 
-    assert time.perf_counter() - started < 2
+    assert 0 < sliced_characters <= 128 * 8000
     assert "•" not in masked
 
 

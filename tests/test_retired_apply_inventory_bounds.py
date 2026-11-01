@@ -10,8 +10,6 @@ from base64 import b64encode
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
-from statistics import median
-from time import perf_counter
 from unittest.mock import patch
 
 import pytest
@@ -542,8 +540,8 @@ def test_inventory_cannot_be_subclassed():
             pass
 
 
-def _synthetic_admission_times(frozen, monkeypatch, counts=(1000, 5000)):
-    """Measure the hot admission path, with deterministic constant-cost Git IO.
+def _synthetic_admission_work(frozen, monkeypatch, counts=(1000, 5000)):
+    """Count hot mapping work, with deterministic constant-cost Git IO.
 
     Keep production inventory indexing, path binding and admission logic. Setup
     is O(N) once at attach; the last artifact exercises accidental linear scans.
@@ -560,6 +558,41 @@ def _synthetic_admission_times(frozen, monkeypatch, counts=(1000, 5000)):
         return actual_git(repo, *arguments, **kwargs)
 
     monkeypatch.setattr(retired_apply, "_git", synthetic_git)
+    operations = Counter()
+    measuring = False
+    original_getitem = retired_apply._FrozenMapping.__getitem__
+    original_iter = retired_apply._FrozenMapping.__iter__
+    original_view = retired_apply._frozen_value_view
+
+    class CountedKey(str):
+        __hash__ = str.__hash__
+
+        def __eq__(self, other):
+            operations["key comparisons"] += 1
+            if measuring:
+                # Reject a restored linear lookup before millions of hot
+                # comparisons, with the same budget checked below.
+                assert operations["key comparisons"] < 200 * 100, operations
+            return str.__eq__(self, other)
+
+    def getitem(mapping, key):
+        return original_getitem(mapping, CountedKey(key))
+
+    def iterate(mapping):
+        for key in original_iter(mapping):
+            operations["keys iterated"] += 1
+            yield key
+
+    def view(value):
+        operations["values viewed"] += 1
+        return original_view(value)
+
+    # Count keys examined, including comparisons inside a native tuple scan,
+    # and values materialized by iteration/copying. A call count of __getitem__
+    # alone would miss a linear scan implemented inside that method.
+    monkeypatch.setattr(retired_apply._FrozenMapping, "__getitem__", getitem)
+    monkeypatch.setattr(retired_apply._FrozenMapping, "__iter__", iterate)
+    monkeypatch.setattr(retired_apply, "_frozen_value_view", view)
     measurements = {}
     for count in counts:
         inventory, payload = _synthetic_inventory(count, frozen.cutoff)
@@ -571,24 +604,29 @@ def _synthetic_admission_times(frozen, monkeypatch, counts=(1000, 5000)):
         )
         with retired_apply_operation():
             assert retired_apply_admission_issue(index, context) is None
-            samples = []
             # Remove filesystem scheduling noise after real canonical preflight,
             # just as blob/live/Git IO above is synthetic. Keep inventory and
-            # admission work intact so linear scans cannot hide behind IO.
+            # admission work intact so scans cannot hide behind IO.
             with monkeypatch.context() as hot_io:
                 hot_io.setattr(Path, "resolve", lambda self, **kwargs: self)
-                for _ in range(5):
-                    start = perf_counter()
+                operations.clear()
+                measuring = True
+                try:
                     for _ in range(200):
                         assert retired_apply_admission_issue(index, context) is None
-                    samples.append((perf_counter() - start) / 200)
-        measurements[count] = median(samples)
+                    measurements[count] = dict(operations)
+                finally:
+                    measuring = False
     return measurements
 
 
-def test_per_admission_timing_does_not_scale_with_inventory(frozen, monkeypatch):
-    times = _synthetic_admission_times(frozen, monkeypatch)
-    # Median batches tolerate scheduler noise. A 5x scan/validation/copy is
-    # rejected; the small absolute allowance covers microsecond timer noise.
-    assert times[5000] <= times[1000] * 2 + 0.00002, times
-    print("indexed hot admission seconds:", json.dumps(times, sort_keys=True))
+def test_per_admission_work_does_not_scale_with_inventory(frozen, monkeypatch):
+    work = _synthetic_admission_work(frozen, monkeypatch)
+    # Five times the inventory must not change the number of values read or
+    # keys iterated. Hash collisions may add a few comparisons; allow 3x while
+    # rejecting a full 1,000/5,000-key scan for each admission.
+    for operation in ("values viewed", "keys iterated"):
+        assert work[5000].get(operation, 0) == work[1000].get(operation, 0), work
+    assert work[5000]["key comparisons"] <= 3 * work[1000]["key comparisons"], work
+    assert work[5000]["key comparisons"] < 200 * 100, work
+    print("indexed hot admission work:", json.dumps(work, sort_keys=True))

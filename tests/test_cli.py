@@ -25411,43 +25411,92 @@ rules:
         )
         assert target.read_text(encoding="utf-8") == original
 
-    def test_generated_yaml_unescape_compares_alias_graphs_in_linear_time(self):
+    @staticmethod
+    def _alias_rewrite_with_bounded_work(monkeypatch, text, depth):
+        import axiom_encode.cli as cli_module
+
+        calls = 0
+        compare = cli_module._yaml_documents_equivalent
+
+        def counted_compare(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            # Stop as soon as the work bound is crossed, so a missing memo
+            # cannot turn the deep case into an exponential suite hang.
+            assert calls <= 8 * (depth + 1)
+            return compare(*args, **kwargs)
+
+        class TraversalTuple(tuple):
+            def __eq__(self, other):
+                # Native tuple equality follows shared alias paths inside C,
+                # beyond the recursive Python call counter. Tuples must be
+                # traversed explicitly through the comparator's memo instead.
+                raise AssertionError("alias tuples compared by native equality")
+
+        load = yaml.safe_load
+
+        def load_with_traversal_tuples(source):
+            memo = {}
+
+            def instrument(node):
+                key = id(node)
+                if key in memo:
+                    return memo[key]
+                if isinstance(node, dict):
+                    result = {key: instrument(value) for key, value in node.items()}
+                elif isinstance(node, list):
+                    result = [instrument(value) for value in node]
+                elif isinstance(node, tuple):
+                    result = TraversalTuple(instrument(value) for value in node)
+                else:
+                    return node
+                memo[key] = result
+                return result
+
+            return instrument(load(source))
+
+        monkeypatch.setattr(cli_module, "_yaml_documents_equivalent", counted_compare)
+        monkeypatch.setattr(yaml, "safe_load", load_with_traversal_tuples)
+        rewritten = _unescape_non_ascii_yaml_escapes(text)
+        assert 0 < calls <= 8 * (depth + 1)
+        return rewritten
+
+    @pytest.mark.parametrize("depth", [12, 32])
+    def test_generated_yaml_unescape_compares_alias_graphs_in_linear_time(
+        self, monkeypatch, depth
+    ):
         # Each level aliases the previous one twice: a path-by-path comparison
-        # is exponential in the depth, a node-pair comparison is linear.
-        import time
+        # is exponential in depth. Depth 12 is a finite regression case; the
+        # original depth 32 stays cheap with the memo and the work ceiling
+        # above aborts a regression before it can hang.
 
         lines = ["a0: &a0 [0]"]
-        for level in range(1, 33):
+        for level in range(1, depth + 1):
             lines.append(f"a{level}: &a{level} [*a{level - 1}, *a{level - 1}]")
         lines.append('summary: "\\u05d0"')
         text = "\n".join(lines) + "\n"
-        started = time.perf_counter()
-        rewritten = _unescape_non_ascii_yaml_escapes(text)
-        assert time.perf_counter() - started < 2.0
+        rewritten = self._alias_rewrite_with_bounded_work(monkeypatch, text, depth)
         assert rewritten is not None
         assert "א" in rewritten
 
     @pytest.mark.parametrize("tag", ["!!omap", "!!pairs"])
+    @pytest.mark.parametrize("depth", [12, 32])
     def test_generated_yaml_unescape_compares_tuple_alias_graphs_in_linear_time(
-        self, tag
+        self, monkeypatch, tag, depth
     ):
         # The safe loader builds !!omap and !!pairs as lists of tuples. A
         # tuple compared by Python's own equality walks every alias path
         # again -- depths 22, 24 and 26 took 0.16, 0.67 and 2.68 seconds --
         # so it is a node of the memoized comparison like a list.
-        import time
-
         lines = ["a0: &a0 [0]"]
-        for level in range(1, 33):
+        for level in range(1, depth + 1):
             lines.append(
                 f"a{level}: &a{level} {tag} "
                 f"[{{x: *a{level - 1}}}, {{y: *a{level - 1}}}]"
             )
         lines.append('summary: "\\u05d0"')
         text = "\n".join(lines) + "\n"
-        started = time.perf_counter()
-        rewritten = _unescape_non_ascii_yaml_escapes(text)
-        assert time.perf_counter() - started < 2.0
+        rewritten = self._alias_rewrite_with_bounded_work(monkeypatch, text, depth)
         assert rewritten is not None
         assert "א" in rewritten
 

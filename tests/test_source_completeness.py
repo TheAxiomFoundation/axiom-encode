@@ -3,10 +3,10 @@ from __future__ import annotations
 import dataclasses
 import functools
 import hashlib
-import time
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+from types import FunctionType
 
 import pytest
 import yaml
@@ -31,7 +31,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_ungrounded_numeric_issues_scoped,
     numeric_value_is_grounded,
 )
-from tests.scaling import assert_grows_linearly, fastest_cpu_seconds
+from tests.scaling import assert_linear_growth, lowest_work
 
 CORPUS_CITATION_PATH = "de/statute/estg/32a"
 DE_NUMERIC_OCCURRENCE_EXTRACTOR = functools.partial(
@@ -8835,30 +8835,82 @@ def test_ordered_dotted_labels_are_structural_without_semantic_guessing():
     ]
 
 
-def test_rejected_dotted_candidates_are_scanned_with_bounded_runtime():
+def test_rejected_dotted_candidates_are_scanned_with_bounded_runtime(monkeypatch):
+    # Copying the remaining candidate tuple for each A was quadratic. Keep
+    # the original large case and count candidates copied inside C slices.
     source = "A. prose\nQ. prose\n" * 40_000
+    constructed_candidates = 0
+    copied_candidates = 0
 
-    started = time.perf_counter()
+    class CountedTuple(tuple):
+        def __new__(cls, values):
+            nonlocal constructed_candidates
+            result = super().__new__(cls, values)
+            constructed_candidates += len(result)
+            return result
+
+        def __getitem__(self, index):
+            nonlocal copied_candidates
+            if isinstance(index, slice):
+                copied_candidates += len(range(*index.indices(len(self))))
+                # Abort before allocation once repeated suffix copies are
+                # proved, rather than finish billions of copied references.
+                assert copied_candidates <= 4 * 80_000
+            return super().__getitem__(index)
+
+    original = completeness_module._qualified_dotted_subsection_matches
+    # This local builtin seam keeps the production algorithm/code unchanged.
+    # Its only tuple() uses build candidate/return buffers; overriding tuple
+    # across the module would also change unrelated isinstance checks.
+    namespace = dict(original.__globals__, tuple=CountedTuple)
+    counted = FunctionType(
+        original.__code__,
+        namespace,
+        original.__name__,
+        original.__defaults__,
+        original.__closure__,
+    )
+    counted.__kwdefaults__ = original.__kwdefaults__
+    monkeypatch.setattr(
+        completeness_module, "_qualified_dotted_subsection_matches", counted
+    )
     branches = recognize_source_structure(source)
-    elapsed = time.perf_counter() - started
 
     assert branches == ()
-    assert elapsed < 1.5
+    assert constructed_candidates == 80_000
+    assert copied_candidates <= 4 * constructed_candidates
 
 
-def test_accepted_nested_markers_are_closed_with_bounded_runtime():
+def test_accepted_nested_markers_are_closed_with_bounded_runtime(monkeypatch):
+    # The old marker closing searched all following markers for each row.
     source = (
         "A. Start.\n"
         + "".join(f"({index}) Row {index}.\n" for index in range(1, 20_001))
         + "B. End."
     )
+    visits = 0
 
-    started = time.perf_counter()
+    class CountedMarkers(tuple):
+        def __iter__(self):
+            nonlocal visits
+            for marker in super().__iter__():
+                visits += 1
+                # Count candidates inspected, including those rejected by a
+                # repeated following-marker search. Abort a quadratic walk
+                # once proved, rather than finish all 200 million visits.
+                assert visits <= 4 * 20_000
+                yield marker
+
+    recognize = completeness_module._nested_parenthesized_outline_markers
+    monkeypatch.setattr(
+        completeness_module,
+        "_nested_parenthesized_outline_markers",
+        lambda *args, **kwargs: CountedMarkers(recognize(*args, **kwargs)),
+    )
     branches = recognize_source_structure(source)
-    elapsed = time.perf_counter() - started
 
     assert len(branches) == 20_002
-    assert elapsed < 1.5
+    assert 0 < visits <= 4 * 20_000
 
 
 @pytest.mark.parametrize(
@@ -9277,7 +9329,7 @@ rules: []
 
 
 def test_parenthesized_cfr_outline_is_recognized_with_bounded_runtime():
-    def outline_seconds(items):
+    def outline_work(items, *, sample=True):
         source = (
             "(a) Start.\n"
             + "".join(f"({index}) Item {index}.\n" for index in range(1, items + 1))
@@ -9289,9 +9341,16 @@ def test_parenthesized_cfr_outline_is_recognized_with_bounded_runtime():
             assert branches[-2].path == ("a", str(items))
             assert branches[-1].path == ("b",)
 
-        return fastest_cpu_seconds(lambda: recognize_source_structure(source), check)
+        if not sample:
+            check(recognize_source_structure(source))
+            return None
+        return lowest_work(lambda: recognize_source_structure(source), check)
 
-    assert_grows_linearly(outline_seconds(5_000), outline_seconds(20_000))
+    # These samples remain measurable on both counters. Check growth before
+    # the original outlines, so quadratic failure cases stay finite.
+    assert_linear_growth(outline_work(125), outline_work(2_000), input_ratio=16)
+    outline_work(5_000, sample=False)
+    outline_work(20_000, sample=False)
 
 
 def test_parenthesized_nonoutline_without_root_sequence_remains_flat():
@@ -11178,21 +11237,40 @@ def test_formula_interval_uses_controlled_comparison_as_stronger_lower_bound(
     assert interval.upper is None
 
 
-def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtime():
+def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtime(
+    monkeypatch,
+):
     source = "income greater than 1" + (" " * 10_000) + "x 2"
+    comparison_calls = 0
+    comparison_characters = 0
+    original_re = completeness_module.re
 
-    started = time.perf_counter()
+    class CountedRegex:
+        def fullmatch(self, pattern, text, *args, **kwargs):
+            nonlocal comparison_calls, comparison_characters
+            if "(?:and|but|und|aber)" in pattern and "(?P<body>" in pattern:
+                comparison_calls += 1
+                comparison_characters += len(text)
+                # The gap must be normalized before the comparison regex.
+                # Count its C scan input, rather than calls alone: matching
+                # the raw space run can backtrack quadratically inside C.
+                assert comparison_characters <= 1
+            return original_re.fullmatch(pattern, text, *args, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(original_re, name)
+
+    monkeypatch.setattr(completeness_module, "re", CountedRegex())
     interval = completeness_module._formula_interval_from_text(
         source,
         extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
     )
-    elapsed = time.perf_counter() - started
 
     assert interval is not None
     assert interval.lower is not None
     assert interval.lower.value == 1
     assert interval.upper is None
-    assert elapsed < 0.5
+    assert comparison_calls == comparison_characters == 1
 
 
 def test_formula_interval_skips_arithmetic_from_before_real_comparator():
