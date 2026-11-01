@@ -1,3 +1,7 @@
+## 0.2.2275
+
+- Correct the generated feminine-present continuation slot to `ממשיכה`, so a provision that continues to remain unaffected cannot make a cited computation operative. Keep ordinary continuing-company wording operative and preserve reason-reader behavior.
+
 ## 0.2.2274
 
 - Close the listed Hebrew source paradigms with one grammar generator for noun possessives, final-letter rules, third-person verbs and adjective agreement. Share bounded claim complements, read prefix joints inside generated phrases and disclaimers, use forward cursors for the three new source indexes, and refuse raw/folded Hebrew blocks in English-only routes before marks can be erased. Preserve reason-negation grammar and English/German verdicts.
