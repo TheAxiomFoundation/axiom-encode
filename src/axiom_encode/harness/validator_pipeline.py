@@ -151,6 +151,7 @@ from axiom_encode.formula_references import (
     rule_lowers_formulas,
     rule_relation_sources,
     rule_uses_relation_predicate,
+    spelled_names,
 )
 from axiom_encode.harness.amendment_timing import amendment_timing_issues
 from axiom_encode.harness.coverage_exemptions import (
@@ -23550,6 +23551,13 @@ def find_relation_role_issues(
                 f"alias `{alias}` on `{entity}`. The engine reads only one of them "
                 "through it, so give each relation its own alias."
             )
+        if "#" in alias:
+            shared = ", ".join(sorted(f"`{rule['name']}`" for _, rule in candidates))
+            issues.append(
+                f"[relation-member-alias] Derived relation {shared} spells member "
+                f"alias `{alias}` as a relation ID. The engine would send that "
+                "relation's own reads through the alias, so use a bare name."
+            )
     owned_relations = {
         owner: _rulespec_relation_names(document)
         for owner, document in module_payloads.items()
@@ -32359,15 +32367,16 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                 continue
             rule_name = str(rule.get("name") or "<unknown>").strip() or "<unknown>"
             formula_texts = _rulespec_rule_formula_texts(rule)
-            selectors: list[tuple[str, str]] = []
+            selectors: list[tuple[str, str, bool]] = []
             for import_payload in import_atoms:
                 target = str(import_payload.get("target") or "").strip()
-                symbol = str(import_payload.get("output") or "").strip()
+                output = str(import_payload.get("output") or "").strip()
+                symbol = output
                 if not symbol and "#" in target:
                     symbol = target.rsplit("#", 1)[1].strip()
-                selectors.append((target, symbol))
+                selectors.append((target, symbol, bool(output)))
             selected_names = frozenset(
-                local_reference_name(symbol) for _target, symbol in selectors
+                local_reference_name(symbol) for _target, symbol, _output in selectors
             )
             sources = rule_relation_sources(rule) - local_relations
             referenced = set(sources)
@@ -32382,14 +32391,19 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                     unparsed_formulas.append(formula)
                 else:
                     referenced.update(analyzed.identifiers)
+                    referenced.update(spelled_names(formula))
             relation_reads = sources | (
                 _rulespec_relation_reads(rule, selected_names, aliases)
                 - local_relations
             )
-            for target, symbol in selectors:
+            for target, symbol, named in selectors:
                 local_symbol = local_reference_name(symbol)
                 if local_symbol == symbol:
-                    certified = not symbol or {local_symbol, target} & referenced
+                    certified = (
+                        not symbol
+                        or local_symbol in referenced
+                        or (named and target in referenced)
+                    )
                 else:
                     # A qualified selector names one import, so only a read
                     # that reaches that import certifies it. A scalar, a local

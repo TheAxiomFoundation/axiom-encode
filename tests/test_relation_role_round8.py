@@ -662,13 +662,17 @@ def test_a_qualified_key_assigns_only_an_untyped_short_relation(slots, missing):
 
 
 @pytest.mark.parametrize(
-    "declared,expected",
+    "compiled,declared,expected",
     [
-        ({"people": ("Person", "TaxUnit")}, {"people": (0, "TaxUnit")}),
-        ({}, {}),
+        ([PEOPLE], {"people": ("Person", "TaxUnit")}, {"people": (0, "TaxUnit")}),
+        ([], {"people": ("Person", "TaxUnit")}, {}),
+        ([PEOPLE], {}, {}),
+        ([], {}, {}),
     ],
 )
-def test_an_explicit_key_settles_only_an_untyped_short_relation(declared, expected):
+def test_a_key_settles_a_short_relation_only_while_it_feeds_it(
+    compiled, declared, expected
+):
     derived = {
         "result": {
             "name": "result",
@@ -688,6 +692,7 @@ def test_an_explicit_key_settles_only_an_untyped_short_relation(declared, expect
         {"start": "2026-01-01"},
         "Person",
         declared,
+        [{"name": name} for name in compiled],
         explicit_relations={PEOPLE},
     )
     assert found == expected

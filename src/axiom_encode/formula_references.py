@@ -178,6 +178,29 @@ def rule_lowering_entry(rule: object) -> LoweringEntry:
     return "rule"
 
 
+def _descendants(expr: Expr):
+    pending = [expr]
+    while pending:
+        current = pending.pop()
+        yield current
+        pending.extend(current.children)
+        for pattern, value in current.cases:
+            pending.extend((pattern, value))
+        if current.default is not None:
+            pending.append(current.default)
+
+
+def spelled_names(formula: str) -> frozenset[str]:
+    """Name each variable and field a formula spells, whatever lowering keeps."""
+    try:
+        tree = parse_formula(formula)
+    except FormulaSyntaxError:
+        return frozenset()
+    return frozenset(
+        expr.value for expr in _descendants(tree) if expr.kind in {"var", "field"}
+    )
+
+
 def analyze_relation_predicate(
     formula: str,
     *,
@@ -218,22 +241,11 @@ def analyze_relation_predicate(
             fallback_used=not predicate_terms,
         )
 
-    def descendants(expr: Expr):
-        pending = [expr]
-        while pending:
-            current = pending.pop()
-            yield current
-            pending.extend(current.children)
-            for pattern, value in current.cases:
-                pending.extend((pattern, value))
-            if current.default is not None:
-                pending.append(current.default)
-
     # The engine reserves every non-role spelling in an exists generator before
     # lowering either branch. A name cannot become an input outside its body.
     bound = {
         arg.value
-        for expr in descendants(tree)
+        for expr in _descendants(tree)
         if predicate_terms
         and expr.kind == "call"
         and expr.value == "exists"

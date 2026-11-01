@@ -491,9 +491,12 @@ def executable_relation_directions(
     ) -> None:
         if relation in explicit_relations or (
             "#relation." not in relation
-            and relation not in declared
             and any(
-                name.endswith(f"#relation.{relation}") for name in explicit_relations
+                name.endswith(f"#relation.{relation}")
+                and reaches_short_relation(
+                    name, relation, declared=schemas, typed=declared
+                )
+                for name in explicit_relations
             )
         ):
             return
