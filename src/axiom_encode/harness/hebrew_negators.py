@@ -665,6 +665,18 @@ def with_spellings(
     )
 
 
+# The object suffixes a transitive infinitive takes (``לחשבו``, "to calculate
+# it"): me, you, him, her, us, you (masculine and feminine plural), them
+# (masculine and feminine). Unpointed, ``ך`` is both masculine and feminine.
+OBJECT_SUFFIXES = ("ני", "ך", "ו", "ה", "נו", "כם", "כן", "ם", "ן")
+
+
+def object_suffixed(infinitive: str) -> tuple[str, ...]:
+    """``לחשב`` -> ``לחשבני`` ... ``לחשבן``; a final stem letter turns medial."""
+
+    return tuple(_joined(infinitive, suffix) for suffix in OBJECT_SUFFIXES)
+
+
 def verb_paradigm(
     past: str,
     present: str,
@@ -677,12 +689,14 @@ def verb_paradigm(
     present_feminine_stem: str | None = None,
     future_feminine_stem: str | None = None,
     infinitive: str | None = None,
+    transitive: bool = False,
 ) -> VerbParadigm:
     """Third-person past, participle and future; no first/second persons.
 
     Weak roots supply their grammatical stems, rather than an exception list
     of inflected words. For final-ה verbs the feminine past takes תה, plural
-    past/future drops ה, and feminine plural future takes ינה.
+    past/future drops ה, and feminine plural future takes ינה. A
+    ``transitive`` infinitive also takes every object suffix.
     """
 
     past_stem = past_stem or past
@@ -723,7 +737,11 @@ def verb_paradigm(
         past_forms,
         present_forms,
         (future, feminine_future, _joined(future_plural, "ו"), feminine_plural),
-        (infinitive,) if infinitive else (),
+        (
+            (infinitive, *(object_suffixed(infinitive) if transitive else ()))
+            if infinitive
+            else ()
+        ),
         {} if infinitive else {"infinitive": "finite predicate construction"},
     )
 
@@ -897,13 +915,18 @@ VERB_PARADIGMS = {
             future_feminine_stem="תמשכ",
         ),
         verb_paradigm("נבצר", "נבצר", "ייבצר"),
+        # The six transitive infinitives take object suffixes (``לחייבו``,
+        # "to charge him"); the five intransitive ones (``להיקבע``,
+        # ``להיווצר``, ``לצמוח``, ``לחול``, ``לקום``) take none (round 22).
         verb_paradigm("נקבע", "נקבע", "ייקבע", infinitive="להיקבע"),
-        verb_paradigm("חושב", "מחושב", "יחושב", infinitive="לחשב"),
-        verb_paradigm("הוחל", "מוחל", "יוחל", infinitive="להחיל"),
-        verb_paradigm("יושם", "מיושם", "ייושם", infinitive="ליישם"),
-        verb_paradigm("הוטל", "מוטל", "יוטל", infinitive="להטיל"),
+        verb_paradigm("חושב", "מחושב", "יחושב", infinitive="לחשב", transitive=True),
+        verb_paradigm("הוחל", "מוחל", "יוחל", infinitive="להחיל", transitive=True),
+        verb_paradigm("יושם", "מיושם", "ייושם", infinitive="ליישם", transitive=True),
+        verb_paradigm("הוטל", "מוטל", "יוטל", infinitive="להטיל", transitive=True),
         with_spellings(
-            verb_paradigm("חויב", "מחויב", "יחויב", infinitive="לחייב"),
+            verb_paradigm(
+                "חויב", "מחויב", "יחויב", infinitive="לחייב", transitive=True
+            ),
             plene=verb_paradigm("חוייב", "מחוייב", "יחוייב", infinitive="לחייב"),
         ),
         verb_paradigm("נוצר", "נוצר", "ייווצר", infinitive="להיווצר"),
@@ -911,7 +934,7 @@ VERB_PARADIGMS = {
         verb_paradigm(
             "חל", "חל", "יחול", feminine="he", future_plural="יחול", infinitive="לחול"
         ),
-        verb_paradigm("הושת", "מושת", "יושת", infinitive="להשית"),
+        verb_paradigm("הושת", "מושת", "יושת", infinitive="להשית", transitive=True),
         with_spellings(
             verb_paradigm(
                 "קם",
