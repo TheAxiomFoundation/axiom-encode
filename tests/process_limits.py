@@ -54,9 +54,14 @@ def run_with_progress_timeout(
                     else:
                         ready.unregister(key.fileobj)
         child.wait(timeout=max(0, deadline - time.monotonic()))
-    except BaseException:
+    except BaseException as error:
         child.kill()
-        child.communicate()
+        # Match subprocess.run on POSIX: a descendant can hold these pipes
+        # open after the direct child dies, so never drain them on timeout.
+        child.wait()
+        if isinstance(error, subprocess.TimeoutExpired):
+            error.output = b"".join(output["stdout"]) if output["stdout"] else None
+            error.stderr = b"".join(output["stderr"]) if output["stderr"] else None
         raise
     finally:
         child.stdout.close()

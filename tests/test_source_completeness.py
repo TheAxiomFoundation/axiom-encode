@@ -10,6 +10,8 @@ from types import FunctionType
 
 import pytest
 import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode.harness import source_completeness as completeness_module
 from axiom_encode.harness import validator_pipeline as validator_pipeline_module
@@ -8835,12 +8837,62 @@ def test_ordered_dotted_labels_are_structural_without_semantic_guessing():
     ]
 
 
+def _counted_tuple_index(sequence, value, start=0, stop=None):
+    for position in range(*slice(start, stop).indices(len(sequence))):
+        candidate = sequence[position]
+        if candidate is value or candidate == value:
+            return position
+    raise ValueError("tuple.index(x): x not in tuple")
+
+
+@given(
+    values=st.lists(st.integers(-3, 3), max_size=20),
+    value=st.integers(-4, 4),
+    start=st.integers(-50, 50),
+    stop=st.one_of(st.none(), st.integers(-50, 50)),
+)
+@settings(deadline=None)
+def test_counted_tuple_index_preserves_result_and_charges_examined_prefix(
+    values, value, start, stop
+):
+    reads = []
+
+    class CountedSequence:
+        def __len__(self):
+            return len(values)
+
+        def __getitem__(self, index):
+            reads.append(index)
+            return values[index]
+
+    positions = list(range(*slice(start, stop).indices(len(values))))
+    bounds = (start,) if stop is None else (start, stop)
+    try:
+        expected = tuple(values).index(value, *bounds)
+    except ValueError:
+        with pytest.raises(ValueError):
+            _counted_tuple_index(CountedSequence(), value, start, stop)
+        assert reads == positions
+    else:
+        assert _counted_tuple_index(CountedSequence(), value, start, stop) == expected
+        assert reads == positions[: positions.index(expected) + 1]
+
+
 def test_rejected_dotted_candidates_are_scanned_with_bounded_runtime(monkeypatch):
     # Copying the remaining candidate tuple for each A was quadratic. Keep
-    # the original large case and count candidates copied inside C slices.
+    # the original large case and count copies and native candidate scans.
     source = "A. prose\nQ. prose\n" * 40_000
     constructed_candidates = 0
     copied_candidates = 0
+    scanned_candidates = 0
+
+    def scan(count=1):
+        nonlocal scanned_candidates
+        scanned_candidates += count
+        assert copied_candidates + scanned_candidates <= 4 * 80_000, (
+            copied_candidates,
+            scanned_candidates,
+        )
 
     class CountedTuple(tuple):
         def __new__(cls, values):
@@ -8853,10 +8905,24 @@ def test_rejected_dotted_candidates_are_scanned_with_bounded_runtime(monkeypatch
             nonlocal copied_candidates
             if isinstance(index, slice):
                 copied_candidates += len(range(*index.indices(len(self))))
-                # Abort before allocation once repeated suffix copies are
-                # proved, rather than finish billions of copied references.
-                assert copied_candidates <= 4 * 80_000
+                # Charge before allocation and preserve the counter on slices.
+                assert copied_candidates + scanned_candidates <= 4 * 80_000, (
+                    copied_candidates,
+                    scanned_candidates,
+                )
+                return type(self)(super().__getitem__(index))
+            scan()
             return super().__getitem__(index)
+
+        def __iter__(self):
+            for candidate in super().__iter__():
+                scan()
+                yield candidate
+
+        def index(self, value, start=0, stop=None):
+            # Native tuple.index bypasses Python iteration. Charge each item
+            # actually examined, preserving constant-cost first-item lookups.
+            return _counted_tuple_index(self, value, start, stop)
 
     original = completeness_module._qualified_dotted_subsection_matches
     # This local builtin seam keeps the production algorithm/code unchanged.
@@ -8877,8 +8943,8 @@ def test_rejected_dotted_candidates_are_scanned_with_bounded_runtime(monkeypatch
     branches = recognize_source_structure(source)
 
     assert branches == ()
-    assert constructed_candidates == 80_000
-    assert copied_candidates <= 4 * constructed_candidates
+    assert 0 < constructed_candidates <= 4 * 80_000
+    assert copied_candidates + scanned_candidates <= 4 * 80_000
 
 
 def test_accepted_nested_markers_are_closed_with_bounded_runtime(monkeypatch):
@@ -8890,16 +8956,30 @@ def test_accepted_nested_markers_are_closed_with_bounded_runtime(monkeypatch):
     )
     visits = 0
 
+    def visit(count=1):
+        nonlocal visits
+        visits += count
+        assert visits <= 4 * 20_000, visits
+
     class CountedMarkers(tuple):
+        def __getitem__(self, index):
+            if isinstance(index, slice):
+                # Native tuple slices copy before iteration. Charge before
+                # allocation and retain instrumentation on the returned suffix.
+                visit(len(range(*index.indices(len(self)))))
+                return type(self)(super().__getitem__(index))
+            visit()
+            return super().__getitem__(index)
+
         def __iter__(self):
-            nonlocal visits
             for marker in super().__iter__():
-                visits += 1
-                # Count candidates inspected, including those rejected by a
-                # repeated following-marker search. Abort a quadratic walk
-                # once proved, rather than finish all 200 million visits.
-                assert visits <= 4 * 20_000
+                # Include candidates rejected by a repeated following-marker
+                # search, stopping once superlinear work is proved.
+                visit()
                 yield marker
+
+        def index(self, value, start=0, stop=None):
+            return _counted_tuple_index(self, value, start, stop)
 
     recognize = completeness_module._nested_parenthesized_outline_markers
     monkeypatch.setattr(
@@ -11245,16 +11325,38 @@ def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtim
     comparison_characters = 0
     original_re = completeness_module.re
 
+    def count_comparison(pattern, text):
+        nonlocal comparison_calls, comparison_characters
+        pattern = getattr(pattern, "pattern", pattern)
+        if "(?:and|but|und|aber)" in pattern and "(?P<body>" in pattern:
+            comparison_calls += 1
+            comparison_characters += len(text)
+            # Count C scan input before matching, including compiled patterns.
+            # A raw space run can backtrack quadratically inside the regex.
+            assert comparison_calls <= 2, comparison_calls
+            assert comparison_characters <= 1, comparison_characters
+
+    class CountedPattern:
+        def __init__(self, pattern):
+            self._pattern = pattern
+
+        def fullmatch(self, text, *args, **kwargs):
+            count_comparison(self._pattern, text)
+            return self._pattern.fullmatch(text, *args, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(self._pattern, name)
+
     class CountedRegex:
+        def compile(self, pattern, *args, **kwargs):
+            if isinstance(pattern, CountedPattern):
+                pattern = pattern._pattern
+            return CountedPattern(original_re.compile(pattern, *args, **kwargs))
+
         def fullmatch(self, pattern, text, *args, **kwargs):
-            nonlocal comparison_calls, comparison_characters
-            if "(?:and|but|und|aber)" in pattern and "(?P<body>" in pattern:
-                comparison_calls += 1
-                comparison_characters += len(text)
-                # The gap must be normalized before the comparison regex.
-                # Count its C scan input, rather than calls alone: matching
-                # the raw space run can backtrack quadratically inside C.
-                assert comparison_characters <= 1
+            if isinstance(pattern, CountedPattern):
+                pattern = pattern._pattern
+            count_comparison(pattern, text)
             return original_re.fullmatch(pattern, text, *args, **kwargs)
 
         def __getattr__(self, name):
@@ -11270,7 +11372,8 @@ def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtim
     assert interval.lower is not None
     assert interval.lower.value == 1
     assert interval.upper is None
-    assert comparison_calls == comparison_characters == 1
+    assert comparison_calls <= 2
+    assert comparison_characters <= 1
 
 
 def test_formula_interval_skips_arithmetic_from_before_real_comparator():

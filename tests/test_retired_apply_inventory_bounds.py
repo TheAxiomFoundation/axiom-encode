@@ -567,6 +567,10 @@ def _synthetic_admission_work(frozen, monkeypatch, counts=(1000, 5000)):
     class CountedKey(str):
         __hash__ = str.__hash__
 
+        def __str__(self):
+            # Keep native scans counted after an ordinary str(key) conversion.
+            return self
+
         def __eq__(self, other):
             operations["key comparisons"] += 1
             if measuring:

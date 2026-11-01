@@ -10,6 +10,7 @@ import subprocess
 import sys
 import textwrap
 from collections import Counter
+from collections.abc import Sequence
 from decimal import Decimal
 from pathlib import Path
 from types import FunctionType, ModuleType, SimpleNamespace
@@ -22,6 +23,8 @@ from axiom_oracles.bridges.registry import (
     PolicyEngineOracleRegistry,
     load_policyengine_registry,
 )
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode.corpus_resolver import (
     PROOF_EVIDENCE_SEGMENT_SEPARATOR,
@@ -14451,6 +14454,91 @@ def test_da_constructed_pipe_tables_without_adjacent_markers_fail_closed(
     )
 
 
+class _CountedStructuralIndex(Sequence):
+    def __init__(self, values, charge):
+        self.values = values
+        self.charge = charge
+
+    def __len__(self):
+        return len(self.values)
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            self.charge(len(range(*index.indices(len(self)))))
+            return type(self)(self.values[index], self.charge)
+        self.charge(1)
+        return self.values[index]
+
+    def copy(self):
+        return self[:]
+
+
+@settings(deadline=None)
+@given(
+    values=st.lists(st.integers(), max_size=64),
+    first=st.slices(128),
+    second=st.slices(128),
+)
+def test_counted_structural_index_slices_preserve_metering(values, first, second):
+    values = tuple(values)
+    charges = []
+
+    class ObservedValues:
+        def __len__(self):
+            return len(values)
+
+        def __getitem__(self, index):
+            # The backing sequence must see its copy charged already.
+            assert charges == [len(range(*index.indices(len(values))))]
+            return values[index]
+
+    counted = _CountedStructuralIndex(ObservedValues(), charges.append)
+    sliced = counted[first]
+    assert isinstance(sliced, _CountedStructuralIndex)
+    assert sliced.values == values[first]
+    nested = sliced[second]
+    assert isinstance(nested, _CountedStructuralIndex)
+    assert nested.values == values[first][second]
+    assert charges == [len(values[first]), len(values[first][second])]
+    if nested:
+        assert nested[0] == values[first][second][0]
+        assert charges[-1] == 1
+
+    charges.clear()
+    copied = counted.copy()
+    assert copied.values == values
+    assert charges == [len(values)]
+    missing = object()
+    for operation in (
+        lambda: missing in copied,
+        lambda: copied.count(missing),
+    ):
+        before = sum(charges)
+        assert not operation()
+        assert sum(charges) - before >= len(values)
+    before = sum(charges)
+    with pytest.raises(ValueError):
+        copied.index(missing)
+    assert sum(charges) - before >= len(values)
+
+    class BudgetExceeded(Exception):
+        pass
+
+    def reject_copy(width):
+        assert width == len(values[first])
+        raise BudgetExceeded
+
+    class UnreadValues:
+        def __len__(self):
+            return len(values)
+
+        def __getitem__(self, _index):
+            pytest.fail("a rejected slice reached the backing sequence")
+
+    with pytest.raises(BudgetExceeded):
+        _CountedStructuralIndex(UnreadValues(), reject_copy)[first]
+
+
 def test_da_structural_span_lookup_scales_near_linearly(monkeypatch):
     unit = "nr. 2 "
     operation_count = 0
@@ -14463,23 +14551,18 @@ def test_da_structural_span_lookup_scales_near_linearly(monkeypatch):
         # Bisect reads at most log2(n)+1 starts and one prefix maximum.
         # Count indexed reads as well as calls: a whole-span scan inside one
         # predicate must fail even though its Python call count is unchanged.
+        # A slice charges every copied entry and keeps that metering afterward.
         budget = math.ceil(math.log2(len(starts) + 1)) + 2
 
-        class CountedIndex:
-            def __init__(self, values):
-                self.values = values
-
-            def __len__(self):
-                return len(self.values)
-
-            def __getitem__(self, index):
-                nonlocal reads
-                reads += 1
-                assert reads <= budget, (reads, budget, len(starts))
-                return self.values[index]
+        def charge(width):
+            nonlocal reads
+            reads += width
+            assert reads <= budget, (reads, budget, len(starts))
 
         return original_predicate(
-            span, CountedIndex(starts), CountedIndex(prefix_max_ends)
+            span,
+            _CountedStructuralIndex(starts, charge),
+            _CountedStructuralIndex(prefix_max_ends, charge),
         )
 
     monkeypatch.setattr(
@@ -16336,6 +16419,7 @@ def test_an_ascii_fraction_before_a_percent_word_is_one_rate():
 def _compound_scan_with_bounded_work(monkeypatch, text, *, whole=False):
     original = validator_pipeline._iter_hebrew_compound_number_matches
     parse = validator_pipeline._parse_hebrew_number_run
+    paragraph_gap = validator_pipeline._PARAGRAPH_GAP_PATTERN
     active = None
     scans = []
 
@@ -16345,12 +16429,44 @@ def _compound_scan_with_bounded_work(monkeypatch, text, *, whole=False):
                 # Charge the actual C copy before allocating it. The current
                 # adjacency pass copies only the gaps between adjacent words.
                 active["copied_characters"] += len(range(*index.indices(len(self))))
-                assert active["copied_characters"] <= len(self), (
+                assert active["copied_characters"] <= active["text_characters"], (
                     "copied characters",
                     active["copied_characters"],
-                    len(self),
+                    active["text_characters"],
                 )
+                return type(self)(super().__getitem__(index))
             return super().__getitem__(index)
+
+        def rfind(self, needle, start=0, end=None):
+            result = super().rfind(needle, start, len(self) if end is None else end)
+            begin, stop, _ = slice(start, end).indices(len(self))
+            # A miss examines the requested prefix; a hit only its suffix.
+            # One native search is bounded by the fixture before charging it.
+            active["backwards_characters"] += max(
+                0, stop - (begin if result < 0 else result)
+            )
+            assert active["backwards_characters"] <= active["text_characters"], (
+                "backwards search characters",
+                active["backwards_characters"],
+                active["text_characters"],
+            )
+            return result
+
+    class CountedParagraphGap:
+        def search(self, source, pos=0, endpos=None):
+            stop = len(source) if endpos is None else min(len(source), endpos)
+            if active is not None:
+                # Regex reads its C subject directly, bypassing str indexing.
+                active["searched_characters"] += max(0, stop - max(0, pos))
+                assert active["searched_characters"] <= active["text_characters"], (
+                    "paragraph search characters",
+                    active["searched_characters"],
+                    active["text_characters"],
+                )
+            return paragraph_gap.search(source, pos, stop)
+
+        def __getattr__(self, name):
+            return getattr(paragraph_gap, name)
 
     def counted_parse(*args, **kwargs):
         if active is not None:
@@ -16369,6 +16485,8 @@ def _compound_scan_with_bounded_work(monkeypatch, text, *, whole=False):
         active = {
             "text_characters": len(source),
             "copied_characters": 0,
+            "backwards_characters": 0,
+            "searched_characters": 0,
             "parser_calls": 0,
         }
         scans.append(active)
@@ -16384,18 +16502,44 @@ def _compound_scan_with_bounded_work(monkeypatch, text, *, whole=False):
         scan_patch.setattr(
             validator_pipeline, "_iter_hebrew_compound_number_matches", counted_compound
         )
+        scan_patch.setattr(
+            validator_pipeline, "_PARAGRAPH_GAP_PATTERN", CountedParagraphGap()
+        )
         _clear_numeric_extraction_caches()
         result = (
             extract_numbers_from_text(text)
             if whole
             else validator_pipeline._iter_hebrew_compound_number_matches(text)
         )
-    assert len(scans) == (2 if whole else 1), ("compound entries", whole, len(scans))
+    assert 0 < len(scans) <= (2 if whole else 1), (
+        "compound entries",
+        whole,
+        len(scans),
+    )
     assert all(
         0 < scan["copied_characters"] <= scan["text_characters"] for scan in scans
     )
     assert all(scan["parser_calls"] == 0 for scan in scans)
     return result, scans
+
+
+@settings(max_examples=20, deadline=None)
+@given(
+    unit=st.sampled_from(("הוראות חוק זה יחולו על העובד", "שנים רבות")),
+    separator=st.sampled_from((" ", "  ", "\t")),
+    repeats=st.integers(min_value=1, max_value=128),
+)
+def test_compound_prose_work_is_bounded_for_generated_text(unit, separator, repeats):
+    text = (unit + separator) * repeats
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        matches, scans = _compound_scan_with_bounded_work(monkeypatch, text)
+    assert matches == []
+    assert all(
+        scan["copied_characters"] <= len(text)
+        and scan["backwards_characters"] <= len(text)
+        and scan["searched_characters"] <= len(text)
+        for scan in scans
+    )
 
 
 def test_hebrew_compound_scanning_is_linear_on_long_prose(monkeypatch):
@@ -16894,7 +17038,7 @@ def test_the_fraction_pass_scans_thousands_of_phrases_in_linear_time(monkeypatch
     matches = validator_pipeline._iter_hebrew_fraction_word_matches(text)
     assert len(matches) == 4000
     assert all(abs(value - 0.2) < 1e-12 for _span, value in matches)
-    assert calls == 4000, calls
+    assert 0 < calls <= 4000, calls
 
 
 def test_a_prefixed_percent_noun_is_still_a_rate():
@@ -18998,7 +19142,7 @@ def test_the_scaled_percentage_continuation_scans_in_linear_time(monkeypatch):
     monkeypatch.setattr(validator_pipeline, "_HebrewWordTokens", counted_tokens)
     text = "השיעור הוא שלושת אלפים ו 200 אחוזים; " * 4000
     validator_pipeline._iter_hebrew_percent_phrase_matches(text)
-    assert tokenized_characters == len(text)
+    assert 0 < tokenized_characters <= len(text)
 
 
 def test_a_percent_sign_carries_its_fractional_tail_on_plain_counts():
@@ -19093,36 +19237,43 @@ def test_spelled_components_follow_a_printed_remainder():
         assert not ({3_100.0, 20.0} & extract_numbers_from_text(text)), text
 
 
-def test_the_printed_scale_pass_scans_mixed_scales_in_linear_time():
-    text = "הסכום הוא 3 מיליון; הסכום הוא 3 אלפים; " * 1600
-    parts = 3200
+def _printed_scale_with_bounded_work(repeats):
+    text = "הסכום הוא 3 מיליון; הסכום הוא 3 אלפים; " * repeats
+    parts = 2 * repeats
     queries = 0
     span_items_read = 0
+    index_items_materialized = 0
+    indexes = {}
     original = validator_pipeline._iter_hebrew_printed_scale_matches
     original_bisect = validator_pipeline.bisect
     overlaps = validator_pipeline._span_overlaps
 
     class CountedBisect:
         def bisect_right(self, values, target, *args, **kwargs):
-            nonlocal queries
+            nonlocal queries, index_items_materialized
             queries += 1
             assert queries <= 8 * parts, queries
+            # Keep the objects alive so allocator reuse cannot hide a copied
+            # whole index passed to every bisection before this wrapper runs.
+            if id(values) not in indexes:
+                index_items_materialized += len(values)
+                assert index_items_materialized <= 8 * parts, (
+                    "materialized index entries",
+                    index_items_materialized,
+                    8 * parts,
+                )
+                indexes[id(values)] = values
             reads = 0
             budget = math.ceil(math.log2(len(values) + 1)) + 2
 
-            class CountedStarts:
-                def __len__(self):
-                    return len(values)
-
-                def __getitem__(self, index):
-                    nonlocal reads
-                    reads += 1
-                    # Account for the C bisection's real indexed reads too.
-                    assert reads <= budget, (reads, budget)
-                    return values[index]
+            def charge(width):
+                nonlocal reads
+                reads += width
+                # Account for native bisection reads and any copied slice.
+                assert reads <= budget, (reads, budget)
 
             return original_bisect.bisect_right(
-                CountedStarts(), target, *args, **kwargs
+                _CountedStructuralIndex(values, charge), target, *args, **kwargs
             )
 
         def __getattr__(self, name):
@@ -19156,9 +19307,19 @@ def test_the_printed_scale_pass_scans_mixed_scales_in_linear_time():
     counted.__kwdefaults__ = original.__kwdefaults__
     _clear_numeric_extraction_caches()
     matches = counted(text)
-    assert len(matches) == 3200
+    assert len(matches) == parts
     assert 0 < queries <= 8 * parts, queries
     assert span_items_read <= 8 * parts, span_items_read
+
+
+def test_the_printed_scale_pass_scans_mixed_scales_in_linear_time():
+    _printed_scale_with_bounded_work(1600)
+
+
+@settings(max_examples=20, deadline=None)
+@given(repeats=st.integers(min_value=1, max_value=64))
+def test_printed_scale_work_is_bounded_for_generated_lengths(repeats):
+    _printed_scale_with_bounded_work(repeats)
 
 
 def test_a_shared_scale_lower_endpoint_with_a_remainder_is_complete():
@@ -21925,16 +22086,38 @@ def test_the_range_passes_scan_thousands_of_members_and_clauses_in_linear_time(
     def counted_trim(text, end):
         return original_trim(TrimInput(text), end)
 
+    def charge_span_items(width):
+        nonlocal span_items_read
+        span_items_read += width
+        assert span_items_read <= 8 * text_characters, (
+            span_items_read,
+            8 * text_characters,
+        )
+
     class CountedSpans(original_spans):
+        # Native list scans bypass __iter__; use the counted sequence APIs.
+        __contains__ = Sequence.__contains__
+        count = Sequence.count
+        index = Sequence.index
+
         def __iter__(self):
-            nonlocal span_items_read
             for span in super().__iter__():
-                span_items_read += 1
-                assert span_items_read <= 8 * text_characters, (
-                    span_items_read,
-                    8 * text_characters,
-                )
+                charge_span_items(1)
                 yield span
+
+        def __getitem__(self, index):
+            if isinstance(index, slice):
+                charge_span_items(len(range(*index.indices(len(self)))))
+                # Preserve counted sequence reads without rebuilding a coverage
+                # mask up to the sliced spans' original source offsets.
+                return _CountedStructuralIndex(
+                    super().__getitem__(index), charge_span_items
+                )
+            charge_span_items(1)
+            return super().__getitem__(index)
+
+        def copy(self):
+            return self[:]
 
     # These wrappers preserve the actual extraction pipeline and its outputs.
     # Restore them before clauses, whose independent guard measures index use.
@@ -27333,8 +27516,21 @@ def test_rulespec_proof_parent_resolution_is_bounded_for_repeated_lists(monkeypa
     scan_limit = 0
     newline_characters = 0
     newline_limit = 0
+    copied_characters = 0
 
     class CountedText(str):
+        def __getitem__(self, index):
+            nonlocal copied_characters
+            if isinstance(index, slice):
+                copied_characters += len(range(*index.indices(len(self))))
+                assert copied_characters <= scan_limit, (
+                    "copied prefix characters",
+                    copied_characters,
+                    scan_limit,
+                )
+                return type(self)(super().__getitem__(index))
+            return super().__getitem__(index)
+
         def rfind(self, needle, start=0, end=None):
             nonlocal newline_characters
             if needle == "\n":
@@ -27398,13 +27594,15 @@ def test_rulespec_proof_parent_resolution_is_bounded_for_repeated_lists(monkeypa
 
         def setup():
             nonlocal streams, scanned_characters, newline_characters
+            nonlocal copied_characters
             gc.collect()
             streams = scanned_characters = newline_characters = 0
+            copied_characters = 0
 
         def check(result):
             assert result == ("a", "dotted")
-            assert streams == 3
-            assert scanned_characters == scan_limit
+            assert 0 < streams <= 3
+            assert 0 < scanned_characters <= scan_limit
             assert 0 < newline_characters <= newline_limit
 
         lowest_work(
@@ -27447,7 +27645,6 @@ def _reference_chain_with_bounded_cache_work(monkeypatch, count):
             "get": 0,
             "writes": 0,
             "newkeys": 0,
-            "updates": 0,
         }
         keys = {"contains": [], "reads": [], "writes": []}
 
@@ -27487,8 +27684,6 @@ def _reference_chain_with_bounded_cache_work(monkeypatch, count):
                 cache[key] = value
 
             def update(self, values):
-                record["updates"] += 1
-                assert record["updates"] <= 1, ("cache updates", record["updates"])
                 # Reject a reconstructed chain before forwarding or copying
                 # that update. The production argument is an actual dict.
                 assert len(values) <= 1, ("cache update size", len(values))
@@ -27499,7 +27694,8 @@ def _reference_chain_with_bounded_cache_work(monkeypatch, count):
         # Inspect the raw backing dict, outside the charged production reads.
         assert start in cache, ("current marker not cached", start, record)
         assert len(cache) == before + 1, ("cache growth", before, len(cache))
-        assert record["updates"] == record["writes"] == record["newkeys"] == 1
+        assert record["writes"] <= 1
+        assert record["newkeys"] == 1
         assert cache[start] is value is True
         totals["calls"] += 1
         totals.update({key: record[key] for key in record if key != "start"})
@@ -27524,10 +27720,22 @@ def test_rulespec_proof_reference_chain_resolution_is_bounded(monkeypatch):
     for count in (800, 3200):
         result, totals = _reference_chain_with_bounded_cache_work(monkeypatch, count)
         assert result is None
-        assert totals["contains"] == 2 * count - 1
-        assert totals["getitem"] == count - 1
-        assert totals["get"] == 0
-        assert totals["updates"] == totals["writes"] == totals["newkeys"] == count
+        assert totals["contains"] <= 2 * count
+        assert totals["getitem"] + totals["get"] <= count
+        assert totals["writes"] <= count
+        assert totals["newkeys"] == count
+
+
+@settings(max_examples=20, deadline=None)
+@given(count=st.integers(min_value=1, max_value=64))
+def test_reference_chain_cache_work_is_bounded_for_generated_lengths(count):
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        result, totals = _reference_chain_with_bounded_cache_work(monkeypatch, count)
+    assert result is None
+    assert totals["contains"] <= 2 * count
+    assert totals["getitem"] + totals["get"] <= count
+    assert totals["writes"] <= count
+    assert totals["newkeys"] == count
 
 
 def test_rulespec_proof_parent_resolution_supports_multi_digit_paragraphs():

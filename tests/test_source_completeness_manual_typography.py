@@ -222,15 +222,19 @@ def test_bullet_check_stays_linear_on_long_bodies(monkeypatch):
     sliced_characters = 0
 
     class CountedText(str):
+        def __str__(self):
+            # A normal str() conversion must retain the work counter.
+            return self
+
         def __getitem__(self, index):
             nonlocal sliced_characters
-            result = super().__getitem__(index)
             if isinstance(index, slice):
-                sliced_characters += len(result)
-                # Count copied/scanned characters, not just Python calls: a
-                # whole-prefix regex search does its quadratic work inside C.
-                assert sliced_characters <= 128 * 8000
-            return result
+                sliced_characters += len(range(*index.indices(len(self))))
+                # Charge copies before allocating. Keep returned windows counted
+                # so later whole-prefix scans cannot lose the instrumentation.
+                assert sliced_characters <= 128 * 8000, sliced_characters
+                return type(self)(super().__getitem__(index))
+            return super().__getitem__(index)
 
     counted_source = CountedText(source)
     original = completeness_module._is_list_bullet

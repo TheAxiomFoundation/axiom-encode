@@ -852,8 +852,9 @@ def _invoke(
         signer_arguments.extend(("--apply-signer-fd", str(descriptors[0])))
     if len(descriptors) > 1:
         signer_arguments.extend(("--eval-signer-fd", str(descriptors[1])))
-    # The trusted runtime has unbuffered stdout/stderr, so each captured
-    # chunk is progress even when total validation exceeds the hang ceiling.
+    # The trusted entrypoint line-buffers stdout: progress lines flush on
+    # newline, while partial lines can stay buffered. Captured bytes renew
+    # the hang ceiling even when total validation takes longer.
     return run_with_progress_timeout(
         [
             str(supervisor),
