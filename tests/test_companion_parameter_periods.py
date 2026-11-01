@@ -469,6 +469,59 @@ def test_runners_answer_exactly_the_periods_the_engine_answers(
             )
 
 
+def test_runners_answer_an_indexed_parameter_when_its_engine_lookup_does(
+    tmp_path, period_engine
+):
+    """The engine refuses to query a table directly, so a derived rule reads it."""
+    root = tmp_path / "rulespec-us"
+    table = _rule(
+        "rate_table",
+        "Integer",
+        [
+            {
+                "effective_from": DAYS[1].isoformat(),
+                "effective_to": DAYS[3].isoformat(),
+                "values": {1: 7},
+            }
+        ],
+    )
+    reader = {
+        "name": "rate",
+        "kind": "derived",
+        "entity": "Person",
+        "dtype": "Integer",
+        "versions": [{"effective_from": "2000-01-01", "formula": "rate_table[1]"}],
+    }
+    module = _write_module(root, [{**table, "indexed_by": "band"}, reader], [])
+    artifact = tmp_path / "compiled.json"
+    program = _compile(period_engine, root, module, artifact)["program"]
+    parameter = program["parameters"][0]
+    output = program["derived"][0]["id"]
+    validator = _pipeline(root / "us", period_engine[1])
+    inputs = {f"{MODULE}#input.band": 1}
+    answers = []
+    for day in DAYS:
+        period = _day_period(day)
+        result = _engine_query(period_engine, artifact, [output], period)
+        if result.returncode == 0:
+            engine_answer = json.loads(result.stdout)["results"][0]["outputs"][output][
+                "value"
+            ]
+        else:
+            assert "has no value for key" in result.stderr
+            engine_answer = "refused"
+        assert engine_answer == _outcome(
+            lambda: cli._rulespec_parameter_value(parameter, inputs, period["start"])
+        )
+        assert engine_answer == _outcome(
+            lambda: validator._rulespec_compiled_parameter_value(
+                parameter, period, inputs
+            )
+        )
+        answers.append(engine_answer != "refused")
+    assert answers == [False, True, True, True, False, False]
+
+
 @pytest.mark.parametrize("period", ENGINE_REFUSED_PERIODS)
 def test_the_engine_refuses_the_periods_the_runners_refuse(
     tmp_path, period_engine, period
