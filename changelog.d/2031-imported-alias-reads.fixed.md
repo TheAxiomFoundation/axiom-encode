@@ -1,1 +1,1 @@
-Count an explicit relation import as used when a formula or a derived relation source reads it by its local name. Every other unused-import outcome and message matches main, proof import targets included.
+Count an explicit relation import as used when a formula or a derived relation source reads it by its local name and no local relation or same-entity member alias takes that read. Keep main's scan and messages otherwise, and scan a rule-level shorthand formula as a formula.

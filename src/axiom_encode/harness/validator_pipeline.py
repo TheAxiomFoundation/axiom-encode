@@ -68,6 +68,7 @@ from axiom_encode.companion_entities import (
     declared_input_entities,
     flat_input_entity_id,
     require_distinct_entity_ids,
+    reserve_explicit_tuple_ids,
 )
 from axiom_encode.companion_relations import (
     compact_relation_row,
@@ -32199,6 +32200,64 @@ def find_formula_absolute_reference_issues(content: str) -> list[str]:
     return []
 
 
+def _rulespec_relation_import_reads(payload: dict[str, Any]) -> set[str]:
+    """Name the explicit relation imports read by local name.
+
+    A formula reads a relation import as `len(name)`, as an atom or as a bare
+    member of a relation predicate, and a derived relation names one as a
+    source. The engine resolves a local relation of that name first, and a
+    member alias first on rules of its entity, so those leave the import unread.
+    """
+    imports = payload.get("imports")
+    imported = {
+        local_reference_name(item)
+        for item in imports
+        if isinstance(item, str) and "#relation." in item
+    }
+    if not imported:
+        return set()
+    raw_rules = payload.get("rules")
+    rules = [
+        rule
+        for rule in (raw_rules if isinstance(raw_rules, list) else [])
+        if isinstance(rule, dict)
+    ]
+    local_relations = _rulespec_relation_names(payload)
+    derived_relations = [
+        rule
+        for rule in rules
+        if str(rule.get("kind") or "").strip().lower() == "derived_relation"
+    ]
+    aliases: dict[str, set[str]] = {}
+    for rule in derived_relations:
+        config = rule.get("derived_relation")
+        if (
+            isinstance(config, dict)
+            and isinstance(config.get("entity"), str)
+            and isinstance(config.get("member_relation"), str)
+        ):
+            aliases.setdefault(config["entity"], set()).add(config["member_relation"])
+    reads: set[str] = set()
+    for rule in rules:
+        predicate = rule_uses_relation_predicate(rule)
+        for formula in _rulespec_rule_formula_texts(rule):
+            analyzed = analyze_relation_predicate(
+                formula,
+                predicate_terms=predicate,
+                relation_names=frozenset(imported),
+                lowering_entry=rule_lowering_entry(rule),
+            )
+            reads |= (
+                set(analyzed.atom_relations) | set(analyzed.relation_arguments)
+            ) - aliases.get(str(rule.get("entity")), set())
+    for rule in derived_relations:
+        reads.update(
+            local_reference_name(source)
+            for source in relation_source_names(rule.get("derived_relation"))
+        )
+    return reads - local_relations
+
+
 def find_unused_import_issues(content: str) -> list[str]:
     """Reject imported executable symbols that are not consumed by the module."""
     with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
@@ -32206,45 +32265,12 @@ def find_unused_import_issues(content: str) -> list[str]:
         if not isinstance(payload, dict):
             return []
         imports = payload.get("imports")
-        if not isinstance(imports, list) or not imports:
+        if not isinstance(imports, list):
             return []
 
-        raw_rules = payload.get("rules")
-        identifiers: set[str] = set()
-        relation_reads: set[str] = set()
-        relation_names = frozenset(_rulespec_relation_names(payload)) | frozenset(
-            local_reference_name(item)
-            for item in imports
-            if isinstance(item, str) and "#relation." in item
-        )
-        unparsed_formulas: list[str] = []
-        for rule in raw_rules if isinstance(raw_rules, list) else []:
-            if not isinstance(rule, dict):
-                continue
-            predicate = rule_uses_relation_predicate(rule)
-            for formula in _rulespec_rule_formula_texts(rule):
-                analyzed = analyze_relation_predicate(
-                    formula,
-                    predicate_terms=predicate,
-                    relation_names=relation_names,
-                    lowering_entry=rule_lowering_entry(rule),
-                )
-                if analyzed.parse_error is not None:
-                    # Preserve the base check for syntax outside the port.
-                    unparsed_formulas.append(formula)
-                else:
-                    identifiers.update(analyzed.identifiers)
-                    identifiers.update(analyzed.atom_relations)
-                    identifiers.update(analyzed.relation_arguments)
-                    relation_reads.update(analyzed.atom_relations)
-                    relation_reads.update(analyzed.relation_arguments)
-        source_references = {
-            local_reference_name(source)
-            for rule in (raw_rules if isinstance(raw_rules, list) else [])
-            if isinstance(rule, dict)
-            for source in relation_source_names(rule.get("derived_relation"))
-        }
+        formula_text = "\n".join(_rulespec_formula_texts(payload))
         proof_import_targets = _rulespec_proof_import_targets(payload)
+        relation_reads = _rulespec_relation_import_reads(payload)
         issues: list[str] = []
         for raw_item in imports:
             if not isinstance(raw_item, str):
@@ -32252,23 +32278,20 @@ def find_unused_import_issues(content: str) -> list[str]:
             import_item = raw_item.strip()
             if "#" not in import_item:
                 continue
-            symbol = local_reference_name(import_item)
+            symbol = import_item.rsplit("#", 1)[1].strip()
             if not symbol:
                 continue
-            imported = import_item.rsplit("#", 1)[1].strip()
-            explicit_relation = imported.startswith("relation.")
-            reads = relation_reads if explicit_relation else identifiers
-            if symbol in reads or symbol in source_references:
-                continue
-            if any(
-                _formula_references_symbol(formula, imported)
-                for formula in unparsed_formulas
-            ):
+            if _formula_references_symbol(formula_text, symbol):
                 continue
             if import_item in proof_import_targets:
                 continue
+            if (
+                symbol.startswith("relation.")
+                and symbol.removeprefix("relation.") in relation_reads
+            ):
+                continue
             issues.append(
-                f"Unused import `{import_item}`: imported symbol `{imported}` is "
+                f"Unused import `{import_item}`: imported symbol `{symbol}` is "
                 "not referenced by any formula or proof import."
             )
         return issues
@@ -38042,6 +38065,7 @@ class ValidatorPipeline:
         ] = []
         table_id_containers: dict[str, list[list[str]]] = {}
         occupied_entity_ids = {query_entity_id: {query_entity}}
+        explicit_tuples: list[tuple[list[str], tuple[str, ...]]] = []
         legal_ids_by_friendly_name = legal_ids_by_friendly_name or {}
         declared_relation_names = declared_relation_names or set()
         declared_relation_slots = declared_relation_slots or {}
@@ -38083,6 +38107,7 @@ class ValidatorPipeline:
                 )
                 if tuples is not None:
                     for relation_tuple in tuples:
+                        explicit_tuples.append((relation_tuple, slots))
                         for current_relation_name in relation_request_names:
                             relations.append(
                                 {
@@ -38324,6 +38349,7 @@ class ValidatorPipeline:
                         )
 
         require_distinct_entity_ids(occupied_entity_ids, entity_kinds=entity_kinds)
+        reserve_explicit_tuple_ids(occupied_entity_ids, explicit_tuples)
         assign_generated_fixture_ids(
             generated_table_rows, occupied_entity_ids, entity_kinds=entity_kinds
         )

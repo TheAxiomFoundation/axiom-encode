@@ -107,6 +107,7 @@ from axiom_encode.companion_entities import (
     declared_input_entities,
     flat_input_entity_id,
     require_distinct_entity_ids,
+    reserve_explicit_tuple_ids,
 )
 from axiom_encode.companion_relations import (
     compact_relation_row,
@@ -5904,6 +5905,7 @@ def _execute_rulespec_test_case(
     generated_relation_rows: list[tuple[str, list[str], int, list[dict]]] = []
     generated_table_rows: list[tuple[str, list[str], int, list[dict]]] = []
     occupied_entity_ids = {root_entity_id: {query_entity}}
+    explicit_tuples: list[tuple[list[str], tuple[str, ...]]] = []
     module_file = _rulespec_program_for_test_file(test_file)
     input_entities = declared_input_entities(
         module_file,
@@ -5975,6 +5977,7 @@ def _execute_rulespec_test_case(
             tuples = explicit_relation_tuples(value, relation=key, slots=slots)
             if tuples is not None or (not value and relation_role_program):
                 for relation_tuple in tuples or []:
+                    explicit_tuples.append((relation_tuple, slots))
                     for current_relation_name in relation_names:
                         relations.append(
                             {
@@ -6163,6 +6166,7 @@ def _execute_rulespec_test_case(
             table_rows_by_entity[table_entity] = resolved_rows
 
     require_distinct_entity_ids(occupied_entity_ids, entity_kinds=entity_kinds)
+    reserve_explicit_tuple_ids(occupied_entity_ids, explicit_tuples)
     assign_generated_fixture_ids(
         generated_table_rows, occupied_entity_ids, entity_kinds=entity_kinds
     )

@@ -143,6 +143,45 @@ def test_the_first_declaration_of_a_name_decides_its_dtype(tmp_path):
     ) == {"fact": "Text"}
 
 
+@pytest.mark.parametrize(
+    "inputs",
+    [
+        "[{name: []}, {name: fact, dtype: Text}]",
+        "[{name: {other: 1}}, {name: fact, dtype: Text}]",
+        "[{name: 1}, {name: fact, dtype: Text}]",
+        "{1: {dtype: Integer}, fact: {dtype: Text}}",
+    ],
+)
+def test_an_entry_without_a_usable_name_describes_no_input(tmp_path, inputs):
+    module = tmp_path / "module.yaml"
+    module.write_text(
+        f"# Synthetic encoder test input; not a RuleSpec module.\ninputs: {inputs}\n"
+    )
+    assert declared_input_dtypes(
+        module,
+        ["fact", "1"],
+        input_readers={},
+        resolve_reference=lambda _: None,
+    ) == {"fact": "Text"}
+
+
+@pytest.mark.parametrize("inputs", ["5", "text", "null", "true"])
+def test_a_scalar_inputs_block_declares_nothing(tmp_path, inputs):
+    module = tmp_path / "module.yaml"
+    module.write_text(
+        f"# Synthetic encoder test input; not a RuleSpec module.\ninputs: {inputs}\n"
+    )
+    assert (
+        declared_input_dtypes(
+            module,
+            ["fact"],
+            input_readers={},
+            resolve_reference=lambda _: None,
+        )
+        == {}
+    )
+
+
 def _reader_modules(tmp_path, **declared):
     label = "# Synthetic encoder test input; not a RuleSpec module.\n"
     modules = {}

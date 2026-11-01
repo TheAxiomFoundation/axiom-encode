@@ -18,7 +18,7 @@ from axiom_encode.cli import _execute_rulespec_test_case
 from axiom_encode.companion_relations import relation_role_query_entity_id
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 from axiom_encode.validation_waivers import fingerprint_outcome
-from tests.test_companion_declared_entities import _compile
+from tests.test_companion_declared_entities import _companions, _compile
 
 TARGET = "us:policies/example/dataset_roles"
 OUTPUT = f"{TARGET}#member_count"
@@ -563,3 +563,39 @@ def test_each_fact_location_keeps_each_runners_text_rule(tmp_path, location):
     legacy_cli, legacy_pipeline = _requests(tmp_path, copy.deepcopy(case), legacy)
     assert supplied(legacy_cli) == text
     assert supplied(legacy_pipeline) == [{"kind": "integer", "value": 1}]
+
+
+@pytest.mark.parametrize("executor", ["cli", "validator"])
+@pytest.mark.parametrize("name", [[], {"other": 1}], ids=["list", "mapping"])
+def test_inert_input_metadata_leaves_a_role_companion_alone(
+    tmp_path, real_engine, executor, name
+):
+    root, module = _fixture(tmp_path, predicate="candidate.age == candidate.age")
+    declaration = yaml.safe_load(module.read_text())
+    declaration["inputs"] = [{"name": name}]
+    module.write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump(declaration)
+    )
+    case = {
+        "name": "inert",
+        "entity_id": "case",
+        "period": "2026-01",
+        "input": {PAIRS: [{AGE: 1}], TIES: []},
+        "output": {OUTPUT: 1},
+    }
+    module.with_suffix(".test.yaml").write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump([case])
+    )
+    assert (
+        _companions(
+            executor,
+            binary=real_engine.binary,
+            engine_root=real_engine.root,
+            root=root,
+            module=module,
+            artifact=tmp_path / "compiled.json",
+        )
+        == []
+    )

@@ -234,9 +234,10 @@ def test_a_local_alias_with_the_same_name_leaves_a_proven_import_alone():
     "source",
     [
         {"source_relation": "unused_view"},
+        {"source_relation": PROVIDER},
         {"source_path": [{"relation": "unused_view"}]},
     ],
-    ids=["relation", "path"],
+    ids=["relation", "full-target", "path"],
 )
 def test_a_derived_relation_source_keeps_its_import(source):
     payload = consumer("len(selected)", PROVIDER)
@@ -251,6 +252,136 @@ def test_a_formula_outside_the_port_keeps_the_base_scan():
     payload = consumer("$ relation.unused_view", PROVIDER)
     assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
     payload = consumer("$ unused_view", PROVIDER)
+    assert len(validation.find_unused_import_issues(yaml.safe_dump(payload))) == 1
+
+
+def test_a_scalar_import_named_only_as_a_source_stays_unused():
+    payload = consumer(
+        "len(selected)",
+        "us:policies/example/provider#unused_view",
+        "us:policies/example/provider#relation.read_view",
+    )
+    view = relation("selected", "len(read_view) == 0")
+    view["derived_relation"]["source_relation"] = "unused_view"
+    payload["rules"].insert(0, view)
+    issues = validation.find_unused_import_issues(yaml.safe_dump(payload))
+    assert len(issues) == 1
+    assert "#unused_view`" in issues[0]
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    ["unused_view(anchor, candidate)", "unused_view"],
+    ids=["atom", "bare-member"],
+)
+def test_a_relation_predicate_reads_its_import(predicate):
+    payload = consumer("len(selected)", PROVIDER)
+    payload["rules"].insert(0, relation("selected", predicate))
+    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+
+
+def test_a_source_on_another_rule_kind_leaves_the_import_unused():
+    payload = consumer("1", PROVIDER)
+    payload["rules"][0]["derived_relation"] = {"source_relation": "unused_view"}
+    assert len(validation.find_unused_import_issues(yaml.safe_dump(payload))) == 1
+
+
+@pytest.mark.parametrize(
+    "formula,reference",
+    [
+        ('"view"', "#view"),
+        ("1 # view", "#view"),
+        ('"relation.unused_view"', "#relation.unused_view"),
+    ],
+)
+def test_a_lexical_mention_keeps_the_base_scan(formula, reference):
+    """The base scan counts text the parser sees as a literal or a comment."""
+    payload = consumer(formula, f"us:policies/example/provider{reference}")
+    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+
+
+def test_a_shorthand_formula_counts_as_a_formula():
+    payload = consumer("view + 1", "us:policies/example/provider#view")
+    rule = payload["rules"][0]
+    rule.update(rule.pop("versions")[0])
+    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+
+
+def test_an_empty_relation_selector_stays_unused():
+    payload = consumer("1", "us:policies/example/provider#relation.")
+    issues = validation.find_unused_import_issues(yaml.safe_dump(payload))
+    assert len(issues) == 1
+    assert "imported symbol `relation.`" in issues[0]
+
+
+def test_a_local_relation_takes_a_formula_read_from_an_import_of_its_name():
+    """The engine compiles `len(view)` against the local relation."""
+    payload = consumer("len(unused_view)", PROVIDER)
+    payload["rules"][:0] = [PAIRS, relation("unused_view", "true")]
+    assert len(validation.find_unused_import_issues(yaml.safe_dump(payload))) == 1
+
+
+def test_a_local_relation_takes_a_source_read_from_an_import_of_its_name():
+    payload = consumer("len(selected)", PROVIDER)
+    view = relation("selected", "true")
+    view["derived_relation"]["source_relation"] = "unused_view"
+    payload["rules"][:0] = [PAIRS, relation("unused_view", "true"), view]
+    assert len(validation.find_unused_import_issues(yaml.safe_dump(payload))) == 1
+
+
+@pytest.mark.parametrize("entity,unused", [("Person", 1), ("LocalUnit", 0)])
+def test_a_member_alias_takes_a_read_only_on_its_own_entity(entity, unused):
+    payload = consumer("len(unused_view)", PROVIDER)
+    view = relation("local_view", "true")
+    view["derived_relation"].update(entity=entity, member_relation="unused_view")
+    payload["rules"][:0] = [PAIRS, view]
+    issues = validation.find_unused_import_issues(yaml.safe_dump(payload))
+    assert len(issues) == unused
+
+
+def test_a_bound_variable_named_like_an_import_reads_nothing():
+    predicate = "exists(pairs(anchor, unused_view), unused_view(anchor, candidate))"
+    payload = consumer("len(selected)", PROVIDER)
+    payload["rules"].insert(0, relation("selected", predicate))
+    assert len(validation.find_unused_import_issues(yaml.safe_dump(payload))) == 1
+
+
+def test_a_member_alias_without_an_entity_takes_no_read():
+    payload = consumer("len(unused_view)", PROVIDER)
+    del payload["rules"][0]["entity"]
+    view = relation("local_view", "true")
+    view["derived_relation"]["member_relation"] = "unused_view"
+    payload["rules"][:0] = [PAIRS, view]
+    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+
+
+def test_a_member_alias_on_another_rule_kind_takes_no_read():
+    payload = consumer("len(unused_view)", PROVIDER)
+    payload["rules"].insert(
+        0,
+        {
+            "name": "other",
+            "kind": "derived",
+            "derived_relation": {"entity": "Person", "member_relation": "unused_view"},
+        },
+    )
+    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+
+
+@pytest.mark.parametrize("rules", [5, "text", None])
+def test_a_rules_value_that_is_no_list_keeps_the_base_refusal(rules):
+    content = yaml.safe_dump({"imports": [PROVIDER], "rules": rules})
+    assert len(validation.find_unused_import_issues(content)) == 1
+
+
+@pytest.mark.parametrize(
+    "config", [5, {"entity": "Person", "member_relation": ["unused_view"]}]
+)
+def test_malformed_relation_metadata_keeps_the_base_refusal(config):
+    payload = consumer("1", PROVIDER)
+    payload["rules"].insert(
+        0, {"name": "other", "kind": "derived_relation", "derived_relation": config}
+    )
     assert len(validation.find_unused_import_issues(yaml.safe_dump(payload))) == 1
 
 

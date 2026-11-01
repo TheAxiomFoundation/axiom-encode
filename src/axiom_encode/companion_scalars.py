@@ -186,13 +186,17 @@ def declared_input_dtypes(
 
     if not module_file.is_file():
         return {}
-    modules: dict[Path, dict[Any, str]] = {}
+    modules: dict[Path, dict[str, str]] = {}
 
-    def module_declarations(path: Path) -> dict[Any, str]:
-        """Map each declared input to its dtype, "" for an untyped declaration."""
+    def module_declarations(path: Path) -> dict[str, str]:
+        """Map each declared input to its dtype, "" for an untyped declaration.
+
+        The engine ignores ordinary `inputs:` metadata, so an entry without a
+        usable name describes no input.
+        """
         if path not in modules:
             data = yaml.safe_load(path.read_text()) if path.is_file() else {}
-            values = (data.get("inputs") if isinstance(data, dict) else None) or []
+            values = data.get("inputs") if isinstance(data, dict) else None
             if isinstance(values, dict):
                 values = [
                     {**item, "name": name}
@@ -200,11 +204,9 @@ def declared_input_dtypes(
                     if isinstance(item, dict)
                 ]
             modules[path] = {}
-            for item in values:
-                if isinstance(item, dict):
-                    modules[path].setdefault(
-                        item.get("name"), str(item.get("dtype") or "")
-                    )
+            for item in values if isinstance(values, list) else []:
+                if isinstance(item, dict) and isinstance(item.get("name"), str):
+                    modules[path].setdefault(item["name"], str(item.get("dtype") or ""))
         return modules[path]
 
     def declaration(reference: str) -> str | None:

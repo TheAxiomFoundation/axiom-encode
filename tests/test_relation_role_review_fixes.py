@@ -35,13 +35,10 @@ def test_c1_bare_builtin_import_is_used(symbol):
 @pytest.mark.parametrize(
     "formula", ["max(a, b)", "1 # max", '""" max """ 1', '"max"', "'max'"]
 )
-def test_c1_nonreads_do_not_use_builtin_import(formula):
+def test_c1_a_lexical_mention_keeps_the_base_import_scan(formula):
     payload = scalar_payload(formula)
     payload["imports"] = ["us:statutes/example#max"]
-    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == [
-        "Unused import `us:statutes/example#max`: imported symbol `max` is "
-        "not referenced by any formula or proof import."
-    ]
+    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
 
 
 def test_c1_unparsed_formula_preserves_base_import_usage():

@@ -138,6 +138,20 @@ def require_distinct_entity_ids(
             )
 
 
+def reserve_explicit_tuple_ids(
+    occupied_entity_ids: dict[str, set[str]],
+    tuples: Iterable[tuple[list[str], tuple[str, ...]]],
+) -> None:
+    """Keep generated IDs off the IDs in explicit relation tuples.
+
+    Each item pairs a tuple with its relation's slot kinds. The engine checks
+    explicit tuples, so reserve them after `require_distinct_entity_ids`.
+    """
+    for relation_tuple, slots in tuples:
+        for entity_id, entity in zip(relation_tuple, slots, strict=True):
+            occupied_entity_ids.setdefault(entity_id, set()).add(entity)
+
+
 def assign_generated_fixture_ids(
     rows: Iterable[tuple[str, list[str], int, list[dict[str, Any]]]],
     occupied_entity_ids: dict[str, set[str]],

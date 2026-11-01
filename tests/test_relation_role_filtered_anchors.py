@@ -22,8 +22,13 @@ from axiom_encode.companion_entities import (
     assign_generated_fixture_ids,
     flat_input_entity_id,
     require_distinct_entity_ids,
+    reserve_explicit_tuple_ids,
 )
-from axiom_encode.companion_relations import filtered_entity_kinds, query_entity_kinds
+from axiom_encode.companion_relations import (
+    _slot_kinds,
+    filtered_entity_kinds,
+    query_entity_kinds,
+)
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 from tests.test_companion_declared_entities import _compile
 from tests.test_relation_role_datasets import (
@@ -480,6 +485,24 @@ def _relation(alias, slots, current=0, **extra):
     }
 
 
+class _BoundedSources(dict):
+    """Stop a walk that misses a cycle, which would otherwise never end."""
+
+    reads = 0
+
+    def get(self, key, default=None):
+        self.reads += 1
+        assert self.reads <= 6, "the slot-kind walk did not stop at its cycle"
+        return super().get(key, default)
+
+
+def test_a_source_cycle_settles_no_slot_kinds():
+    first, second = _inheriting("One", "two"), _inheriting("Two", "one")
+    first["name"], second["name"] = "one", "two"
+    assert _slot_kinds(first, _BoundedSources(one=first, two=second)) == []
+    assert filtered_entity_kinds([first, second]) == {}
+
+
 @pytest.mark.parametrize(
     "relation",
     [
@@ -552,12 +575,6 @@ def test_a_path_source_never_inherits_slot_kinds():
     alias = _inheriting("SnapUnit", "pairs")
     alias["derivation"]["source_path"] = [{"relation": "pairs"}]
     assert filtered_entity_kinds([base, alias]) == {}
-
-
-def test_a_source_cycle_settles_no_slot_kinds():
-    first, second = _inheriting("One", "two"), _inheriting("Two", "one")
-    first["name"], second["name"] = "one", "two"
-    assert filtered_entity_kinds([first, second]) == {}
 
 
 def test_a_filter_chain_ends_at_its_innermost_kind():
@@ -896,3 +913,84 @@ def test_both_runners_place_each_kind_alike(tmp_path_factory, root_id, facts):
         assert placed[name] == root_id
     if OTHER in facts:
         assert placed[OTHER] == f"{root_id}:entity:Household"
+
+
+def _household_people(tmp_path):
+    """Give a household two relations, one to households and one to people."""
+    root, module = _fixture(tmp_path, predicate=CANDIDATE_PREDICATE)
+    declaration = yaml.safe_load(module.read_text())
+    declaration["rules"][0]["data_relation"]["arguments"] = ["Household", "Person"]
+    declaration["rules"][1]["data_relation"]["arguments"] = ["Household", "Household"]
+    declaration["rules"][2]["derived_relation"]["slot_entities"] = [
+        "Household",
+        "Person",
+    ]
+    declaration["rules"][3]["entity"] = "Household"
+    module.write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump(declaration)
+    )
+    return root, module
+
+
+def test_an_explicit_tuple_reserves_its_ids_by_slot_kind():
+    occupied = {"case": {"Household"}}
+    reserve_explicit_tuple_ids(
+        occupied, [(["case", "related_0"], ("Household", "Household"))]
+    )
+    assert occupied == {"case": {"Household"}, "related_0": {"Household"}}
+    row, records = ["related_0"], [{"entity_id": "related_0"}]
+    assign_generated_fixture_ids([("Person", row, 0, records)], occupied)
+    assert row == ["related_0:entity:Person"]
+    assert records == [{"entity_id": "related_0:entity:Person"}]
+
+
+@pytest.mark.parametrize("surface", ["compact", "table"])
+def test_a_generated_id_avoids_a_foreign_explicit_tuple(tmp_path, real_engine, surface):
+    root, module = _household_people(tmp_path)
+    person = "related_0" if surface == "compact" else "person-1"
+    case = {
+        "name": "reserved",
+        "period": "2026-01",
+        "input": {
+            TIES: [{"tuple": ["case", person]}],
+            PAIRS: [{AGE: 7}] if surface == "compact" else [],
+        },
+        "output": {OUTPUT: 1 if surface == "compact" else 0},
+    }
+    if surface == "table":
+        case["tables"] = {"Person": [{AGE: 7}]}
+    cli, other, payload = _run_both(tmp_path, root, module, case, real_engine)
+    assert (cli, other) == ([], [])
+    requests = _requests(tmp_path, copy.deepcopy(case), payload)
+    assert requests[0] == requests[1]
+    assert _ids_by_name(requests[0]) == {(AGE, f"{person}:entity:Person")}
+
+
+def test_a_generated_id_joins_a_same_kind_explicit_tuple(tmp_path, real_engine):
+    root, module = _household_people(tmp_path)
+    case = {
+        "name": "joined",
+        "period": "2026-01",
+        "input": {PAIRS: [{"tuple": ["case", "person-1"]}], TIES: []},
+        "tables": {"Person": [{AGE: 7}]},
+        "output": {OUTPUT: 1},
+    }
+    assert _run_both(tmp_path, root, module, case, real_engine)[:2] == ([], [])
+
+
+def test_an_id_two_explicit_tuples_share_stays_the_engines_call(tmp_path, real_engine):
+    root, module = _household_people(tmp_path)
+    case = {
+        "name": "shared",
+        "period": "2026-01",
+        "input": {
+            PAIRS: [{"tuple": ["case", "shared"]}],
+            TIES: [{"tuple": ["case", "shared"]}],
+        },
+        "tables": {"Person": [{"id": "shared", AGE: 7}]},
+        "output": {OUTPUT: 1},
+    }
+    cli, other, _ = _run_both(tmp_path, root, module, case, real_engine)
+    assert "strict dataset relation entity validation failed" in cli[0]["message"]
+    assert "strict dataset relation entity validation failed" in other[0]
