@@ -1706,6 +1706,7 @@ def _is_relative(negation: re.Match[str]) -> bool:
             "bilti_prefix",
             "lexical_prefix",
             "source_prefix",
+            "source_predicate_prefix",
         )
         if name in negation.re.groupindex
     )

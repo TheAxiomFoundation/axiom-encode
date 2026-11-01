@@ -206,6 +206,16 @@ ROUND_20_SOURCE_REPRODUCERS = (
         "(א) התשלום נקבע ולחשב בהתאם לסעיף 2.",
         "(a) The payment is fixed and calculated in accordance with section 2.",
     ),
+    *(
+        (
+            f"absent-predicate-prefix-joint-{head}",
+            f"(א) החישוב ו-{head} מ-התשלום המחושב בהתאם לסעיף 2.",
+            _WITHOUT,
+            "(א) החישוב נכלל בתשלום המחושב בהתאם לסעיף 2.",
+            _WITH,
+        )
+        for head in ("נעדר", "נפקד", "חסר")
+    ),
 )
 
 
@@ -675,6 +685,17 @@ def test_fixed_head_prefixes_preserve_every_internal_joint(head):
         positive = f"(א) התשלום {neutral} {complement} בהתאם לסעיף 2."
         assert not hebrew._linked_source_instruments(negative), negative
         assert hebrew._linked_source_instruments(positive), positive
+
+
+def test_an_absent_predicate_preserves_the_outer_relative_prefix():
+    for head, (prefix, relative) in itertools.product(
+        ("נעדר", "נפקד", "חסר"), (("ו", False), ("ש", True))
+    ):
+        source = f"החישוב {prefix}-{head} מ-התשלום ש-נקבע לפי סעיף 2."
+        match = hebrew._NEGATIONS.search(source)
+        assert match is not None, source
+        assert hebrew._is_relative(match) is relative, source
+        assert bool(hebrew._linked_source_instruments(source)) is relative, source
 
 
 @pytest.mark.parametrize(

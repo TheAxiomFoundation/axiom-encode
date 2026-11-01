@@ -1092,6 +1092,7 @@ def build_source_negation_language(
         rf"(?={gap}(?:{prefix_word('ה')}מוחלט{after}{gap})?של{after}{gap}{computation()})"
         rf"|(?:{compact_alternation(DENIAL_HEADS)}){after}(?={gap}(?:{claim}))"
         rf"|{article}(?:{_COMPUTATION_NOUNS}|{_ENGLISH_COMPUTATION}){after}{gap}"
+        rf"(?P<source_predicate_prefix>{_NEGATION_PREFIX})"
         rf"(?:{compact_alternation(SOURCE_ABSENT_FROM_PREDICATES)}){after}"
         rf"(?={gap}?(?:{prefix_word('מ')}(?=[{_H}])|מן{after}))"
         r"))"
