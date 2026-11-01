@@ -32377,7 +32377,6 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                     formula,
                     predicate_terms=rule_uses_relation_predicate(rule),
                     lowering_entry=rule_lowering_entry(rule),
-                    relation_names=selected_names,
                 )
                 if analyzed.parse_error is not None:
                     unparsed_formulas.append(formula)

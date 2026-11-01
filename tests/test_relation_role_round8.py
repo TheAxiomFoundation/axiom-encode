@@ -707,11 +707,71 @@ def test_a_legacy_compact_row_keeps_mains_short_name_copy(tmp_path):
         "input": {DATASET_PAIRS: [{AGE: 20}]},
         "output": {OUTPUT: 1},
     }
-    cli = _requests(tmp_path, case, payload, cli_only=True)
-    assert {record["name"] for record in cli["dataset"]["relations"]} == {
-        DATASET_PAIRS,
-        short["name"],
+    for request in _requests(tmp_path, case, payload):
+        assert {record["name"] for record in request["dataset"]["relations"]} == {
+            DATASET_PAIRS,
+            short["name"],
+        }
+
+
+def test_a_legacy_tuple_stays_out_of_a_typed_short_relation(tmp_path):
+    payload = _legacy_program()
+    pairs = next(
+        relation
+        for relation in payload["program"]["relations"]
+        if relation["name"] == DATASET_PAIRS
+    )
+    payload["program"]["relations"].append(
+        {**copy.deepcopy(pairs), "name": DATASET_PAIRS.rsplit("#relation.", 1)[1]}
+    )
+    case = {
+        "entity_id": "case",
+        "input": {DATASET_PAIRS: [{"tuple": ["case", "bob"]}]},
+        "output": {OUTPUT: 1},
     }
+    for request in _requests(tmp_path, case, payload):
+        assert [record["name"] for record in request["dataset"]["relations"]] == [
+            DATASET_PAIRS
+        ]
+
+
+@pytest.mark.parametrize("executor", EXECUTORS)
+@pytest.mark.parametrize("relation", ["pairs", f"{TARGET}#relation.pairs"])
+def test_a_legacy_empty_relation_keeps_mains_direction_check(
+    tmp_path, real_engine, executor, relation
+):
+    forward, flipped = (
+        view(
+            name,
+            "pairs",
+            "true",
+            slots=EVERYONE,
+            entity="Person",
+            member_relation=f"{name}_members",
+            current_slot=current,
+            related_slot=1 - current,
+        )
+        for name, current in (("forward", 0), ("flipped", 1))
+    )
+    case = {
+        "name": "probe",
+        "entity_id": "a",
+        "period": "2026-01",
+        "input": {relation: []},
+        "output": {f"{TARGET}#result": 0},
+    }
+    root, module = write_module(
+        tmp_path,
+        program(
+            PAIRS,
+            forward,
+            flipped,
+            rule("result", "Person", "len(forward) + len(flipped)"),
+        ),
+        [case],
+    )
+    failures = run(executor, tmp_path, real_engine, root, module)
+    assert any("conflicting executable directions" in item for item in failures)
 
 
 def test_a_role_compact_row_stays_in_its_compiled_relation(tmp_path):
