@@ -1037,7 +1037,9 @@ rules: []
         numeric_value_is_grounded=numeric_value_is_grounded,
     ).issues
     pinned = json.loads(
-        (Path(__file__).parent / "fixtures/non_hebrew_wall_main_issues.json").read_text()
+        (
+            Path(__file__).parent / "fixtures/non_hebrew_wall_main_issues.json"
+        ).read_text()
     )
     (main_case,) = [case for case in pinned["cases"] if case["id"] == "f6"]
     assert main_case["content"] == content and main_case["source"] == source

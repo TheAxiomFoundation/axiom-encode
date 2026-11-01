@@ -2320,9 +2320,7 @@ def _imprecise_deferral_retry_shape(
                 "source-stated input); a reason naming an exact external missing "
                 "dependency need not cite it."
             )
-    if hebrew_script and hebrew_source_text.is_hebrew_corpus_path(
-        corpus_citation_path
-    ):
+    if hebrew_script and hebrew_source_text.is_hebrew_corpus_path(corpus_citation_path):
         branch_hint += (
             "\nHebrew branch letters map to output-path segments by gematria "
             "value, not sound: (א)→a, (ב)→b, (ג)→c, (ד)→d, (ה)→e, (ו)→f, (ז)→g, "
