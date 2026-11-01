@@ -626,6 +626,27 @@ COUNT_PARENTS = {
     "relation": "us:statutes/example#relation.parents",
 }
 INNER = {"id": "us:m#inner", "name": "inner", "entity": "Person", "expr": COUNT_PARENTS}
+
+
+class WalkedOnce(dict):
+    """Stop a repeat walk of a cyclic expression with an assertion."""
+
+    walks = 0
+
+    def values(self):
+        self.walks += 1
+        assert self.walks == 1
+        return super().values()
+
+
+def test_reach_walks_a_cyclic_rule_once():
+    rule = {"id": "us:m#inner", "name": "inner", "entity": "Person"}
+    rule["expr"] = WalkedOnce(kind="derived", name="inner")
+    schemas, derived = role_reach({"kind": "derived", "name": "inner"}, rule)
+    case = {"input": {}, "output": {"us:m#output": 1}}
+    assert pair_relation_assignment_issues(schemas, case, "reach", derived) == []
+
+
 VERSIONED = {
     "id": "us:m#inner",
     "name": "inner",
@@ -733,25 +754,6 @@ def test_a_qualified_schema_matches_a_local_reference():
 def test_a_case_of_unknown_reach_assigns_every_pair_relation(case):
     schemas, derived = role_reach({"kind": "literal", "value": 1})
     assert len(pair_relation_assignment_issues(schemas, case, "reach", derived)) == 2
-
-
-class WalkedOnce(dict):
-    """Stop a repeat walk of a cyclic expression with an assertion."""
-
-    walks = 0
-
-    def values(self):
-        self.walks += 1
-        assert self.walks == 1
-        return super().values()
-
-
-def test_reach_walks_a_cyclic_rule_once():
-    rule = {"id": "us:m#inner", "name": "inner", "entity": "Person"}
-    rule["expr"] = WalkedOnce(kind="derived", name="inner")
-    schemas, derived = role_reach({"kind": "derived", "name": "inner"}, rule)
-    case = {"input": {}, "output": {"us:m#output": 1}}
-    assert pair_relation_assignment_issues(schemas, case, "reach", derived) == []
 
 
 @settings(max_examples=200, deadline=None, derandomize=True)

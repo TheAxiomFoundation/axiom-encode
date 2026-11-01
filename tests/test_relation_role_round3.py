@@ -244,6 +244,12 @@ def test_a_local_relation_takes_a_proof_source_from_its_import():
     assert len(issues) == 1
 
 
+def test_a_proof_import_without_a_selector_names_nothing():
+    payload = proven(consumer("1", PROVIDER), "us:policies/example/provider")
+    payload["rules"][0]["metadata"]["proof"]["atoms"][0]["import"].pop("output")
+    assert validation.find_proof_import_reference_issues(yaml.safe_dump(payload)) == []
+
+
 def test_a_proof_keeps_only_the_import_it_names():
     extra = "us:policies/example/provider#relation.unused_extra"
     payload = consumer("if unused_view: len(members) else: 0", PROVIDER, extra)
