@@ -924,11 +924,125 @@ CLAIM_NOUN_LANGUAGE = compact_alternation(CLAIM_NOUNS)
 CLAIM_CONSTRUCT_LANGUAGE = compact_alternation(CLAIM_CONSTRUCT_NOUNS)
 
 
-def claim_content(*, after: str, separator: str) -> str:
+# Attributive verbs: the third-person past and present of every verb that
+# follows ``ש`` after a claim noun or a ``דוח`` noun in the pinned 1,633-record
+# snapshot, and of the verbs review r9's rows need (``הוגש``, ``ניתן``,
+# ``הועלה``). ``הדיווחים שהוגשו לפי סעיף 2 אינם נכונים`` ("the reports filed
+# under section 2 are incorrect") opens a relative clause whose subject is
+# the noun itself, so the citation stays operative (#1882, round 21). The
+# snapshot's other verbs there are computation verbs (``נקבעו``), which keep
+# the content reading, a copula (``יהיו``) or ``חייב``, which open content
+# clauses as often, and futures, which the one-word rule below reads.
+ATTRIBUTIVE_VERB_PARADIGMS = {
+    v.name: v
+    for v in (
+        verb_paradigm("הוגש", "מוגש", "יוגש"),
+        verb_paradigm("ניתן", "ניתן", "יינתן"),
+        verb_paradigm("הועלה", "מועלה", "יועלה", present_feminine_stem="מועלי"),
+        verb_paradigm("נטען", "נטען", "ייטען"),
+        verb_paradigm("הגיש", "מגיש", "יגיש", feminine="he"),
+        verb_paradigm("מסר", "מוסר", "ימסור"),
+        verb_paradigm("נערך", "נערך", "ייערך"),
+        verb_paradigm("צוין", "מצוין", "יצוין"),
+        verb_paradigm("צויין", "מצויין", "יצויין"),
+        verb_paradigm("התקבל", "מתקבל", "יתקבל"),
+        verb_paradigm("הוסכם", "מוסכם", "יוסכם"),
+    )
+}
+# Forms left out, each with its reason: a masculine singular that also opens an
+# impersonal content clause (``נטען ש``, "it was claimed that"; ``הוסכם ש``;
+# ``ניתן ל``, "it is possible to"), and homographs (``מוסר``, "morality";
+# ``מצוין``, ``מצויין``, "excellent").
+ATTRIBUTIVE_EXCLUSIONS = {
+    "ניתן": "impersonal: ניתן ל, it is possible to",
+    "נטען": "impersonal: נטען ש, it was claimed that",
+    "הוסכם": "impersonal: הוסכם ש, it was agreed that",
+    "מוסכם": "impersonal: מוסכם ש, it is agreed that",
+    "מוסר": "homograph: morality",
+    **{
+        form: "homograph: excellent"
+        for name in ("צוין", "צויין")
+        for form in ATTRIBUTIVE_VERB_PARADIGMS[name].present
+    },
+}
+_AGREEMENT_SLOTS = (
+    "masculine singular",
+    "feminine singular",
+    "masculine plural",
+    "feminine plural",
+)
+_FEMININE_CLAIM_FAMILIES = frozenset(("טענה", "הנחה", "אמירה", "גרסה", "גירסה"))
+
+
+def attributive_forms(agreement: str) -> tuple[str, ...]:
+    """The attributive verbs that agree with a noun of ``agreement``."""
+
+    slot = _AGREEMENT_SLOTS.index(agreement)
+    past_slot = min(slot, 2)
+    return _unique(
+        form
+        for paradigm in ATTRIBUTIVE_VERB_PARADIGMS.values()
+        for form in (paradigm.past[past_slot], paradigm.present[slot])
+        if form not in ATTRIBUTIVE_EXCLUSIONS
+    )
+
+
+def claim_noun_forms(agreement: str, *, construct: bool) -> tuple[str, ...]:
+    """The claim nouns of one agreement slot: absolute and possessive, or construct."""
+
+    plural = agreement.endswith("plural")
+    feminine = agreement.startswith("feminine")
+    forms = []
+    for name in _CLAIM_FAMILIES:
+        if (name in _FEMININE_CLAIM_FAMILIES) is not feminine:
+            continue
+        paradigm = NOUN_PARADIGMS[name]
+        if construct:
+            forms.append(paradigm.construct[plural])
+        elif plural:
+            forms.extend(
+                (
+                    paradigm.absolute[1],
+                    *paradigm.plural_possessive,
+                    *paradigm.plural_possessive_variants,
+                )
+            )
+        else:
+            forms.extend((paradigm.absolute[0], *paradigm.singular_possessive))
+    return _unique(forms)
+
+
+# The linkers English binds no negation to: ``under``, ``according to`` and
+# ``pursuant to``, and Hebrew ``לפי``, ``על פי``. English accepts ``It is
+# false that the payment is computed under section 2``, so reading one word
+# there as a relative clause admits nothing English refuses.
+def _under_linker(after: str, separator: str) -> str:
+    return (
+        rf"(?:(?:{prefix_word('ו')}|{prefix_word('וש')}|{prefix_word('ש')})?"
+        rf"(?:{prefix_word('ל')}פי|על{separator}פי|עפ[״\"]י){after}"
+        r"|(?i:under|according\s+to|pursuant\s+to)\b)"
+    )
+
+
+def claim_content(
+    *, after: str, separator: str, exclude_relatives: bool = False
+) -> str:
     """A shared claim noun/content clause, with at most three owner tokens.
 
     Only construct nouns take owners. Atomic Unicode-letter tokens cannot cross
     punctuation, clause boundaries or backtrack through a long word.
+
+    ``כי`` always opens a content clause. ``ש`` also opens a relative clause
+    whose subject is the noun (``הדיווחים שהוגשו לפי סעיף 2``, "the reports
+    filed under section 2"). With ``exclude_relatives``, ``ש`` counts only
+    where it opens a content clause: not before an attributive verb that
+    agrees with the noun, unless ``כי`` follows within three words (``הטענה
+    שהועלתה אתמול כי ...`` still claims), and not before a single word, other
+    than a computation verb, that reaches an ``under`` linker. Each check
+    reads at most four atomic tokens, so it adds no backtracking across the
+    clause. The postposed-denial reader excludes relatives; ``כופר בטענה``
+    ("denies the claim") keeps both readings, since English refuses
+    ``denies the claim raised in accordance with section 2`` as well.
     """
 
     # Intersect the caller's separator with horizontal spaces and joints.
@@ -936,13 +1050,36 @@ def claim_content(*, after: str, separator: str) -> str:
     horizontal = "[" + re.escape("".join(sorted(HORIZONTAL_SPACES))) + "]"
     gap = rf"(?:{horizontal}+|{horizontal}*{PREFIX_JOINT}{horizontal}*)"
     separator = rf"(?={separator}){gap}"
-    connective = rf"(?:{prefix_word('ש')}(?=[{_H}])|כי{after})"
-    owner = rf"(?>[^\W\d_]+){after}{separator}"
-    return (
-        rf"(?:{prefix_word('ה')})?(?:"
-        rf"(?:{CLAIM_NOUN_LANGUAGE}){after}{separator}{connective}"
-        rf"|(?:{CLAIM_CONSTRUCT_LANGUAGE}){after}{separator}(?:{owner}){{1,3}}{connective})"
+    token = rf"(?>[^\W\d_]+){after}"
+    owner = rf"{token}{separator}"
+    if not exclude_relatives:
+        connective = rf"(?:{prefix_word('ש')}(?=[{_H}])|כי{after})"
+        return (
+            rf"(?:{prefix_word('ה')})?(?:"
+            rf"(?:{CLAIM_NOUN_LANGUAGE}){after}{separator}{connective}"
+            rf"|(?:{CLAIM_CONSTRUCT_LANGUAGE}){after}{separator}(?:{owner}){{1,3}}{connective})"
+        )
+    computation_verbs = compact_alternation(
+        form for paradigm in COMPUTATION_VERB_PARADIGMS for form in paradigm.forms
     )
+    single_word_relative = (
+        rf"(?!(?:{computation_verbs}){after}){token}{gap}{_under_linker(after, gap)}"
+    )
+    alternatives = []
+    for agreement in _AGREEMENT_SLOTS:
+        relative = (
+            rf"(?:{compact_alternation(attributive_forms(agreement))}){after}"
+            rf"(?!(?:{gap}{token}){{0,3}}{gap}כי{after})"
+            rf"|{single_word_relative}"
+        )
+        connective = rf"(?:{prefix_word('ש')}(?=[{_H}])(?!{relative})|כי{after})"
+        nouns = compact_alternation(claim_noun_forms(agreement, construct=False))
+        constructs = compact_alternation(claim_noun_forms(agreement, construct=True))
+        alternatives.append(rf"(?:{nouns}){after}{separator}{connective}")
+        alternatives.append(
+            rf"(?:{constructs}){after}{separator}(?:{owner}){{1,3}}{connective}"
+        )
+    return rf"(?:{prefix_word('ה')})?(?:" + "|".join(alternatives) + ")"
 
 
 DISCLAIMER_VERBS = _unique(

@@ -1734,11 +1734,13 @@ _LINK_WINDOW = 240
 # "the report that the payment is computed under section 2 is incorrect".
 # The claim nouns take a content clause (``ש``, ``כי``); ``הדוח שהוגש לפי
 # סעיף 2 אינו נכון`` ("the report filed under section 2 is incorrect") has a
-# relative clause and an operative citation, and ``דוח`` is no claim noun.
+# relative clause and an operative citation, and ``דוח`` is no claim noun. A
+# claim noun's own relative clause is no claim either (``הדיווחים שהוגשו
+# לפי סעיף 2 אינם נכונים``): ``claim_content(exclude_relatives=True)``.
 # ``האפשרות לחשב`` ("the possibility to calculate") takes an infinitive.
 _CLAIM_SUBJECT = re.compile(
     rf"{_REFUSAL_BEFORE}{SOURCE_PREFIX_LANGUAGE}(?:{prefix_word('ב')})?(?:"
-    rf"{claim_content(after=_NOT_HEBREW_AFTER, separator=_SEP)}"
+    rf"{claim_content(after=_NOT_HEBREW_AFTER, separator=_SEP, exclude_relatives=True)}"
     rf"|(?:{prefix_word('ה')})?(?:אפשרות|יכולת)"
     rf"{_NOT_HEBREW_AFTER}{_SEP}{prefix_word('ל')}(?=[{_H}]))"
 )
