@@ -44,7 +44,7 @@ _AFFIRMS = _DISCLAIMS.replace("disclaims", "affirms")
 # refusing siblings used in those replays. Each negative has its own matched
 # positive in both languages; no English acceptance is used to excuse a miss.
 # (id, negative Hebrew, negative English, positive Hebrew, positive English)
-ROUND_20_REPRODUCERS = (
+ROUND_20_SOURCE_REPRODUCERS = (
     *(
         (
             f"computation-{noun}",
@@ -189,10 +189,61 @@ ROUND_20_REPRODUCERS = (
 )
 
 
+# The complete r8 inventory is a structured union: findings 1–4 have paired
+# semantic source vectors above; findings 5–6 have their own indexed-growth
+# and route tables because they use different inputs and citation paths.
+ROUND_20_REPRODUCERS = {
+    "source_findings_1_to_4": ROUND_20_SOURCE_REPRODUCERS,
+    "growth_finding_5": {
+        "module": "tests/test_source_completeness_hebrew_round20_cursor_unicode.py",
+        "test": "test_disclaimer_source_queries_read_the_three_arrays_linearly",
+        "cursor_reference_test": "test_forward_start_cursor_agrees_with_bisect",
+        "frame": "סעיף 2 נותר בעינו ו",
+        "terminal": "סוף.",
+        "repetitions": (8_000, 16_000, 32_000),
+        "settled_preexisting_bisects": {
+            "head_frame": "נטול חישוב בהתאם לסעיף 2 ",
+            "base_reference_frame": "לא חישוב בהתאם לסעיף 2 ",
+            "repetitions": (128, 256, 512),
+            "receipt": ".review-scratch/round20/settled-reads-round20.json",
+        },
+    },
+    "route_finding_6": {
+        "module": "tests/test_source_completeness_hebrew_round20_cursor_unicode.py",
+        "table": "_ROUTE_CASES",
+        "glyph_table": "HEBREW_ROUTE_CODEPOINTS",
+        "direct_test": "test_every_hebrew_block_or_nfkc_preimage_refuses_each_english_route",
+        "public_test": "test_public_route_gate_keeps_raw_marks_before_folding",
+        "review_glyphs": ("ײַ", "װ", "ױ", "ײ", "ׯ", "יִ", "שׁ", "א", "ﬞ", "﬩"),
+        "review_tails": ("ײַ", "װ", "א", "יִ"),
+        "nfkc_preimages": ("ℵ", "ℶ", "ℷ", "ℸ"),
+        "positions": ("reason", "source"),
+        "matched_positive": "Each route's unmarked reason and source in _ROUTE_CASES.",
+    },
+    "citation_letters_finding_6": {
+        "suffixes": ("K", "K"),
+        "positions": ("reason", "source", "both"),
+        "reason": ("חסר סעיף 2{suffix}", "Missing section 2{suffix}."),
+        "source": (
+            "(א) ישולם לפי סעיף 2{suffix}.",
+            "(a) Payment shall be made under section 2{suffix}.",
+        ),
+        "matched_positive_suffix": "",
+        "head_verdicts": {
+            "reason": (False, False),
+            "source": (False, False),
+            "both": (False, True),
+        },
+        "receipt": ".review-scratch/round20/kelvin-0acff.json",
+        "ascii_prior_test": "tests/test_source_completeness_hebrew.py::test_round_19_reproducers_get_the_english_verdict",
+    },
+}
+
+
 @pytest.mark.parametrize(
     ("row_id", "source", "english", "positive", "english_positive"),
-    ROUND_20_REPRODUCERS,
-    ids=[row[0] for row in ROUND_20_REPRODUCERS],
+    ROUND_20_SOURCE_REPRODUCERS,
+    ids=[row[0] for row in ROUND_20_SOURCE_REPRODUCERS],
 )
 def test_round_20_reproducers_and_their_matched_positive_controls(
     row_id, source, english, positive, english_positive
