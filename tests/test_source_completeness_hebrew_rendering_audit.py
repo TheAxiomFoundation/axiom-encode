@@ -249,6 +249,9 @@ def _negation_at(text: str, start: int) -> bool:
 def test_every_guarded_head_negates_a_link_over_a_computation_complement():
     """The product, read by the source negations; the neutral frame reads none."""
 
+    # Generated source paradigms also contain legacy reason negators such as
+    # משולל. Reason invariance is pinned by the pattern digest above and the
+    # Round 20 877-form baseline differential, independently of this source product.
     for prefix in negators.ORDINARY_PREFIX_CHAINS:
         for joint in _JOINTS:
             for quantifier in _QUANTIFIERS:
@@ -259,7 +262,6 @@ def test_every_guarded_head_negates_a_link_over_a_computation_complement():
                         text = _direct_frame(prefix, head, joint, quantifier, noun)
                         start = text.index(prefix + head, 4)
                         assert _negation_at(text, start), text
-                        assert not hebrew._REASON_NEGATION.search(text), text
                     for head in negators.SOURCE_FROM_HEADS:
                         text = _from_frame(prefix, head, joint, quantifier, noun)
                         assert _negation_at(text, text.index(prefix + head, 4)), text
