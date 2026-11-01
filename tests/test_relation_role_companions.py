@@ -283,6 +283,149 @@ def test_constant_anchored_view_requires_explicit_empty_pair_facts(
     )
 
 
+def reach_fixture(tmp_path, output, expected):
+    """Write a constant view beside relations only some outputs read."""
+    root = tmp_path / "rulespec-us"
+    module = root / "us/policies/example/reach.yaml"
+    module.parent.mkdir(parents=True)
+    target = "us:policies/example/reach"
+    provider = "us:policies/example/reach_provider"
+
+    def pairs(name):
+        return {
+            "name": name,
+            "kind": "data_relation",
+            "data_relation": {"arity": 2, "arguments": ["Person", "Household"]},
+        }
+
+    def count(name, formula):
+        return {
+            "name": name,
+            "kind": "derived",
+            "entity": "Household",
+            "dtype": "Integer",
+            "period": "Month",
+            "versions": [{"effective_from": "2026-01-01", "formula": formula}],
+        }
+
+    (module.parent / "reach_provider.yaml").write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "rules": [
+                    pairs("provider_pairs"),
+                    count("provider_size", "len(provider_pairs)"),
+                    count("provider_value", "2"),
+                ],
+            }
+        )
+    )
+    module.write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "imports": [
+                    f"{provider}#provider_size",
+                    f"{provider}#provider_value",
+                ],
+                "rules": [
+                    pairs("pairs"),
+                    pairs("other_pairs"),
+                    {
+                        "name": "members",
+                        "kind": "derived_relation",
+                        "derived_relation": {
+                            "arity": 2,
+                            "slot_entities": ["Person", "Household"],
+                            "current_slot": 1,
+                            "related_slot": 0,
+                            "source_relation": "pairs",
+                        },
+                        "versions": [{"effective_from": "2026-01-01", "formula": True}],
+                    },
+                    count("total", "len(members) + provider_value"),
+                    count("reads_other", "len(other_pairs)"),
+                    count("reads_import", "provider_size + 0"),
+                ],
+            }
+        )
+    )
+    case = {
+        "name": "reach",
+        "period": "2026-01",
+        "input": {f"{target}#relation.pairs": []},
+        "output": {f"{target}#{output}": expected},
+    }
+    module.with_suffix(".test.yaml").write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump([case])
+    )
+    return root, module
+
+
+@pytest.mark.parametrize("executor", ["cli", "validator"])
+@pytest.mark.parametrize(
+    "output,expected,missing",
+    [
+        ("total", 2, None),
+        ("reads_other", 0, "us:policies/example/reach#relation.other_pairs"),
+        (
+            "reads_import",
+            0,
+            "us:policies/example/reach_provider#relation.provider_pairs",
+        ),
+    ],
+    ids=["unread", "local-read", "imported-read"],
+)
+def test_a_case_assigns_the_pair_relations_its_outputs_read(
+    tmp_path, real_engine, executor, output, expected, missing
+):
+    root, module = reach_fixture(tmp_path, output, expected)
+    issues = _companions(
+        executor,
+        binary=real_engine.binary,
+        engine_root=real_engine.root,
+        root=root,
+        module=module,
+        artifact=tmp_path / "compiled.json",
+    )
+    assert issues == (
+        [
+            f"Test case `reach` must assign pair relation `{missing}`, "
+            "including `[]` when no tuples hold."
+        ]
+        if missing
+        else []
+    )
+
+
+@pytest.mark.parametrize("executor", ["cli", "validator"])
+def test_tuples_on_a_relation_no_output_reads_leave_the_case_unchanged(
+    tmp_path, real_engine, executor
+):
+    root, module = reach_fixture(tmp_path, "total", 2)
+    test_file = module.with_suffix(".test.yaml")
+    cases = yaml.safe_load(test_file.read_text())
+    cases[0]["input"]["us:policies/example/reach#relation.other_pairs"] = [{}, {}]
+    test_file.write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump(cases)
+    )
+    assert (
+        _companions(
+            executor,
+            binary=real_engine.binary,
+            engine_root=real_engine.root,
+            root=root,
+            module=module,
+            artifact=tmp_path / "compiled.json",
+        )
+        == []
+    )
+
+
 @pytest.mark.parametrize("entity_declared", [False, True])
 @pytest.mark.parametrize("member_alias", [False, True])
 def test_relation_coverage_preserves_entity_only_filtered_view(

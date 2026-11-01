@@ -5850,7 +5850,7 @@ def _execute_rulespec_test_case(
 ) -> list[dict[str, str | None]] | dict:
     failures: list[dict[str, str | None]] = []
     assignment_issues = pair_relation_assignment_issues(
-        compiled_relations, case, case_name
+        compiled_relations, case, case_name, derived_by_id
     )
     if assignment_issues:
         if request_only:

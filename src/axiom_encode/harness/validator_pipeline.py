@@ -32201,18 +32201,20 @@ def find_formula_absolute_reference_issues(content: str) -> list[str]:
 
 
 def _rulespec_relation_import_reads(payload: dict[str, Any]) -> set[str]:
-    """Name the explicit relation imports read by local name.
+    """Name the explicit relation imports that a rule reads.
 
     A formula reads a relation import as `len(name)`, as an atom or as a bare
     member of a relation predicate, and a derived relation names one as a
-    source. The engine resolves a local relation of that name first, and a
-    member alias first on rules of its entity, so those leave the import unread.
+    source, by local name or by full target. The engine resolves a local
+    relation of that name first, and a member alias first on rules of its
+    entity, so a read by local name then leaves the import unread. A full
+    target reaches its own import past both, and no other import of that name.
     """
     imports = payload.get("imports")
     imported = {
-        local_reference_name(item)
+        item.strip()
         for item in imports
-        if isinstance(item, str) and "#relation." in item
+        if isinstance(item, str) and "#relation." in item and local_reference_name(item)
     }
     if not imported:
         return set()
@@ -32244,18 +32246,16 @@ def _rulespec_relation_import_reads(payload: dict[str, Any]) -> set[str]:
             analyzed = analyze_relation_predicate(
                 formula,
                 predicate_terms=predicate,
-                relation_names=frozenset(imported),
+                relation_names=frozenset(map(local_reference_name, imported)),
                 lowering_entry=rule_lowering_entry(rule),
             )
             reads |= (
                 set(analyzed.atom_relations) | set(analyzed.relation_arguments)
             ) - aliases.get(str(rule.get("entity")), set())
     for rule in derived_relations:
-        reads.update(
-            local_reference_name(source)
-            for source in relation_source_names(rule.get("derived_relation"))
-        )
-    return reads - local_relations
+        reads |= relation_source_names(rule.get("derived_relation"))
+    reads -= local_relations
+    return {item for item in imported if {item, local_reference_name(item)} & reads}
 
 
 def find_unused_import_issues(content: str) -> list[str]:
@@ -32285,10 +32285,7 @@ def find_unused_import_issues(content: str) -> list[str]:
                 continue
             if import_item in proof_import_targets:
                 continue
-            if (
-                symbol.startswith("relation.")
-                and symbol.removeprefix("relation.") in relation_reads
-            ):
+            if import_item in relation_reads:
                 continue
             issues.append(
                 f"Unused import `{import_item}`: imported symbol `{symbol}` is "
@@ -32308,6 +32305,7 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
         if not isinstance(rules, list):
             return []
 
+        local_relations = _rulespec_relation_names(payload)
         issues: list[str] = []
         for rule in rules:
             if not isinstance(rule, dict):
@@ -32335,20 +32333,18 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                     unparsed_formulas.append(formula)
                 else:
                     referenced.update(analyzed.identifiers)
-            referenced.update(
-                local_reference_name(source)
-                for source in relation_source_names(rule.get("derived_relation"))
+            referenced |= (
+                relation_source_names(rule.get("derived_relation")) - local_relations
             )
             for import_payload in import_atoms:
+                target = str(import_payload.get("target") or "").strip()
                 symbol = str(import_payload.get("output") or "").strip()
-                if not symbol:
-                    target = str(import_payload.get("target") or "").strip()
-                    if "#" in target:
-                        symbol = target.rsplit("#", 1)[1].strip()
+                if not symbol and "#" in target:
+                    symbol = target.rsplit("#", 1)[1].strip()
                 symbol = local_reference_name(symbol)
                 if (
                     not symbol
-                    or symbol in referenced
+                    or {symbol, target} & referenced
                     or any(
                         _formula_references_symbol(formula, symbol)
                         for formula in unparsed_formulas
@@ -39044,6 +39040,7 @@ class ValidatorPipeline:
                 compiled_payload.get("program", {}).get("relations", []),
                 case,
                 case_name,
+                derived_by_key,
             )
             if assignment_issues:
                 issues.extend(assignment_issues)

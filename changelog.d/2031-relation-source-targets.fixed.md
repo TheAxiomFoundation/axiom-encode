@@ -1,0 +1,1 @@
+Match a derived relation's full-target source to its own import in the unused-import and proof-import checks, so an import of another module with the same local name stays unused, and let a local relation take a bare source in the proof-import check too.

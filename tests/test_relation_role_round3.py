@@ -212,6 +212,38 @@ def proven(payload, target):
     return payload
 
 
+def proven_source(source):
+    view = relation("selected", "true")
+    view["derived_relation"]["source_relation"] = source
+    return proven({"rules": [view]}, PROVIDER)["rules"][0]
+
+
+@pytest.mark.parametrize(
+    "source,read",
+    [
+        ("unused_view", True),
+        (PROVIDER, True),
+        ("us:policies/example/other#relation.unused_view", False),
+    ],
+    ids=["local-name", "own-target", "other-module"],
+)
+def test_a_proof_import_reads_only_its_own_source(source, read):
+    payload = consumer("1", PROVIDER)
+    payload["rules"].insert(0, proven_source(source))
+    issues = validation.find_proof_import_reference_issues(yaml.safe_dump(payload))
+    assert len(issues) == (0 if read else 1)
+
+
+def test_a_local_relation_takes_a_proof_source_from_its_import():
+    payload = consumer("1", PROVIDER)
+    payload["rules"][:0] = [
+        {**PAIRS, "name": "unused_view"},
+        proven_source("unused_view"),
+    ]
+    issues = validation.find_proof_import_reference_issues(yaml.safe_dump(payload))
+    assert len(issues) == 1
+
+
 def test_a_proof_keeps_only_the_import_it_names():
     extra = "us:policies/example/provider#relation.unused_extra"
     payload = consumer("if unused_view: len(members) else: 0", PROVIDER, extra)
@@ -308,10 +340,77 @@ def test_a_shorthand_formula_counts_as_a_formula():
 
 
 def test_an_empty_relation_selector_stays_unused():
-    payload = consumer("1", "us:policies/example/provider#relation.")
+    selector = "us:policies/example/provider#relation."
+    payload = consumer("1", selector)
+    view = relation("selected", "true")
+    view["derived_relation"]["source_relation"] = selector
+    payload["rules"].insert(0, view)
     issues = validation.find_unused_import_issues(yaml.safe_dump(payload))
     assert len(issues) == 1
     assert "imported symbol `relation.`" in issues[0]
+
+
+def test_an_import_read_keeps_padded_spelling():
+    payload = consumer("len(unused_view)", f" {PROVIDER} ")
+    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+
+
+def test_a_full_target_source_reads_only_its_own_import():
+    other = "us:policies/example/other#relation.unused_view"
+    payload = consumer("len(selected)", PROVIDER, other)
+    view = relation("selected", "true")
+    view["derived_relation"]["source_relation"] = other
+    payload["rules"].insert(0, view)
+    issues = validation.find_unused_import_issues(yaml.safe_dump(payload))
+    assert len(issues) == 1
+    assert f"Unused import `{PROVIDER}`" in issues[0]
+
+
+def full_target_past_local_relation():
+    payload = consumer("len(selected)", PROVIDER)
+    view = relation("selected", "true")
+    view["derived_relation"]["source_relation"] = PROVIDER
+    payload["rules"][:0] = [{**PAIRS, "name": "unused_view"}, view]
+    return payload
+
+
+def test_a_full_target_source_reads_past_a_local_relation_of_its_name():
+    payload = full_target_past_local_relation()
+    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+
+
+def test_the_engine_needs_a_full_target_source_past_a_local_relation(
+    tmp_path, real_engine
+):
+    root = tmp_path / "rulespec-us"
+    module = root / "us/policies/example/judgment.yaml"
+    module.parent.mkdir(parents=True)
+    provider = {
+        "format": "rulespec/v1",
+        "rules": [{**PAIRS, "name": "unused_view"}],
+    }
+    (module.parent / "provider.yaml").write_text(LABEL + yaml.safe_dump(provider))
+    payload = full_target_past_local_relation()
+    module.write_text(LABEL + yaml.safe_dump(payload))
+    compiled = _compile(
+        real_engine.binary, real_engine.root, root, module, tmp_path / "compiled.json"
+    )
+    view = next(
+        item
+        for item in compiled["program"]["relations"]
+        if item["name"] == f"{TARGET}#relation.selected"
+    )
+    assert view["derivation"]["source_relation"] == PROVIDER
+    del payload["imports"]
+    module.write_text(LABEL + yaml.safe_dump(payload))
+    with pytest.raises(AssertionError, match="unknown relation dependency"):
+        _compile(
+            real_engine.binary,
+            real_engine.root,
+            root,
+            module,
+            tmp_path / "unimported.json",
+        )
 
 
 def test_a_local_relation_takes_a_formula_read_from_an_import_of_its_name():

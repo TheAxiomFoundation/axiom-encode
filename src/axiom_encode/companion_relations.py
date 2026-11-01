@@ -133,16 +133,69 @@ def query_entity_kinds(
     )
 
 
+def _relation_local_name(name: str) -> str:
+    return name.rsplit("#relation.", 1)[-1]
+
+
+def _relations_read_by(
+    outputs: dict[Any, Any],
+    derived: Mapping[str, dict[str, Any]],
+    relations: list[dict[str, Any]],
+) -> set[str] | None:
+    """Name each relation that a case's outputs can read.
+
+    Every string in a reached rule or relation counts as a reference, so this
+    can over-read a relation but never misses one. A filtered entity's rules
+    reach its relation by the entity's name. Return None for a case with no
+    outputs, or with an output that has no compiled rule.
+    """
+    pending: list[Any] = [derived.get(str(output)) for output in outputs]
+    if not pending or any(rule is None for rule in pending):
+        return None
+
+    targets: dict[str, list[dict[str, Any]]] = {}
+
+    def add(alias: Any, target: dict[str, Any]) -> None:
+        if alias:
+            targets.setdefault(_relation_local_name(str(alias)), []).append(target)
+
+    for rule in derived.values():
+        add(rule.get("id"), rule)
+        add(rule.get("name"), rule)
+    for relation in relations:
+        add(relation.get("name"), relation)
+        derivation = relation.get("derivation")
+        if isinstance(derivation, dict):
+            add(derivation.get("entity"), relation)
+            add(derivation.get("member_relation"), relation)
+
+    seen: set[int] = set()
+    while pending:
+        value = pending.pop()
+        if isinstance(value, str):
+            pending.extend(targets.get(_relation_local_name(value), ()))
+        elif isinstance(value, list):
+            pending.extend(value)
+        elif isinstance(value, dict) and id(value) not in seen:
+            seen.add(id(value))
+            pending.extend(value.values())
+    return {str(relation.get("name")) for relation in relations if id(relation) in seen}
+
+
 def pair_relation_assignment_issues(
     relations: list[dict[str, Any]] | None,
     case: dict[str, Any],
     case_name: str,
+    derived: Mapping[str, dict[str, Any]] | None = None,
 ) -> list[str]:
     """Require explicit pair facts, including empty sets, for role programs.
 
     The current engine treats an absent tuple as false and exposes no relation
-    completeness declaration. Assigning every base pair relation makes that
-    closed-world choice explicit in each companion case.
+    completeness declaration. Assigning every base pair relation that a case's
+    outputs can read makes that closed-world choice explicit in each companion
+    case. A relation no output reaches cannot change the case, so it needs no
+    assignment. Without `derived`, or without a rule for every output, each
+    base pair relation counts.
     """
     try:
         relation_role_program = uses_relation_roles(relations)
@@ -155,12 +208,18 @@ def pair_relation_assignment_issues(
         return []
     inputs = case.get("input")
     assigned = set(map(str, inputs)) if isinstance(inputs, dict) else set()
+    outputs = case.get("output")
+    reachable = (
+        _relations_read_by(outputs, derived, relations or [])
+        if derived is not None and isinstance(outputs, dict)
+        else None
+    )
     issues = []
     for relation in relations or []:
         if relation.get("derivation") or relation.get("arity") != 2:
             continue
         name = str(relation.get("name") or "")
-        if not name:
+        if not name or (reachable is not None and name not in reachable):
             continue
         aliases = {name}
         if "#relation." not in name:

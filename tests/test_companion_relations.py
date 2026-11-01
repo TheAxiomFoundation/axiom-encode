@@ -1,4 +1,6 @@
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode.companion_relations import (
     executable_relation_directions,
@@ -598,6 +600,199 @@ def test_relation_roles_require_explicit_empty_pair_facts():
         )
         == []
     )
+
+
+def role_reach(expr, *extra_rules, relations=()):
+    """Build a role program with an `output` rule and an unread `unread` relation."""
+    derived = {
+        "us:m#output": {
+            "id": "us:m#output",
+            "name": "output",
+            "entity": "Person",
+            "expr": expr,
+        },
+        **{rule["id"]: rule for rule in extra_rules},
+    }
+    schemas = [
+        *role_relations(),
+        {"name": "unread", "arity": 2, "slot_entities": ["Person", "Person"]},
+        *relations,
+    ]
+    return schemas, derived
+
+
+COUNT_PARENTS = {
+    "kind": "count_related",
+    "relation": "us:statutes/example#relation.parents",
+}
+INNER = {"id": "us:m#inner", "name": "inner", "entity": "Person", "expr": COUNT_PARENTS}
+VERSIONED = {
+    "id": "us:m#inner",
+    "name": "inner",
+    "versions": [{"effective_from": "2026-01-01", "expr": COUNT_PARENTS}],
+}
+
+
+def view_of(name, **derivation):
+    return {"name": name, "arity": 2, "derivation": derivation}
+
+
+@pytest.mark.parametrize(
+    "expr,extra_rules,relations",
+    [
+        (COUNT_PARENTS, [], []),
+        ({"kind": "add", "items": [{"kind": "derived", "name": "inner"}]}, [INNER], []),
+        ({"kind": "derived", "name": "us:m#inner"}, [VERSIONED], []),
+        ({"kind": "count_related", "relation": "members"}, [], []),
+        (
+            {"kind": "count_related", "relation": "through"},
+            [],
+            [view_of("through", source_relation="parents")],
+        ),
+        (
+            {"kind": "count_related", "relation": "through"},
+            [],
+            [view_of("through", source_path=[{"relation": "parents"}])],
+        ),
+        (
+            {"kind": "count_related", "relation": "through"},
+            [INNER],
+            [
+                view_of(
+                    "through",
+                    predicate={"kind": "role_derived", "name": "inner"},
+                )
+            ],
+        ),
+        (
+            {"kind": "literal", "value": 1},
+            [],
+            [view_of("filter", entity="Person", source_relation="parents")],
+        ),
+        (
+            {"kind": "count_related", "relation": "alias"},
+            [],
+            [view_of("filter", member_relation="alias", source_relation="parents")],
+        ),
+    ],
+    ids=[
+        "direct",
+        "rule",
+        "versioned-rule",
+        "predicate-atom",
+        "source",
+        "source-path",
+        "role-derived",
+        "filtered-entity",
+        "member-alias",
+    ],
+)
+def test_pair_facts_follow_each_read_an_output_reaches(expr, extra_rules, relations):
+    schemas, derived = role_reach(expr, *extra_rules, relations=relations)
+    case = {"input": {}, "output": {"us:m#output": 1}}
+    assert pair_relation_assignment_issues(schemas, case, "reach", derived) == [
+        "Test case `reach` must assign pair relation `parents`, including `[]` when no tuples hold."
+    ]
+
+
+def test_a_pair_relation_no_output_reaches_needs_no_assignment():
+    schemas, derived = role_reach({"kind": "literal", "value": 1})
+    case = {"input": {}, "output": {"us:m#output": 1}}
+    assert pair_relation_assignment_issues(schemas, case, "reach", derived) == []
+
+
+def test_a_qualified_schema_matches_a_local_reference():
+    schemas, derived = role_reach({"kind": "count_related", "relation": "parents"})
+    schemas[0]["name"] = "us:statutes/example#relation.parents"
+    case = {"input": {}, "output": {"us:m#output": 1}}
+    assert pair_relation_assignment_issues(schemas, case, "reach", derived) == [
+        "Test case `reach` must assign pair relation `us:statutes/example#relation.parents`, including `[]` when no tuples hold."
+    ]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        {"input": {}},
+        {"input": {}, "output": {}},
+        {"input": {}, "output": ["us:m#output"]},
+        {"input": {}, "output": {"us:m#unknown": 1}},
+        {"input": {}, "output": {"us:m#output": 1, "us:m#unknown": 1}},
+    ],
+    ids=["none", "empty", "list", "unknown", "one-unknown"],
+)
+def test_a_case_of_unknown_reach_assigns_every_pair_relation(case):
+    schemas, derived = role_reach({"kind": "literal", "value": 1})
+    assert len(pair_relation_assignment_issues(schemas, case, "reach", derived)) == 2
+
+
+class WalkedOnce(dict):
+    """Stop a repeat walk of a cyclic expression with an assertion."""
+
+    walks = 0
+
+    def values(self):
+        self.walks += 1
+        assert self.walks == 1
+        return super().values()
+
+
+def test_reach_walks_a_cyclic_rule_once():
+    rule = {"id": "us:m#inner", "name": "inner", "entity": "Person"}
+    rule["expr"] = WalkedOnce(kind="derived", name="inner")
+    schemas, derived = role_reach({"kind": "derived", "name": "inner"}, rule)
+    case = {"input": {}, "output": {"us:m#output": 1}}
+    assert pair_relation_assignment_issues(schemas, case, "reach", derived) == []
+
+
+@settings(max_examples=200, deadline=None, derandomize=True)
+@given(
+    st.lists(
+        st.lists(st.integers(0, 5), max_size=3),
+        min_size=6,
+        max_size=6,
+    ),
+    st.integers(0, 2),
+)
+def test_reach_equals_the_reference_graph(edges, start):
+    """Nodes 0-2 are rules, 3-4 derived relations and 5 a base pair relation."""
+
+    def reference(node):
+        if node < 3:
+            return {"kind": "derived", "name": f"rule_{node}"}
+        name = "pairs" if node == 5 else f"view_{node}"
+        return {"kind": "count_related", "relation": f"us:m#relation.{name}"}
+
+    def body(node):
+        return {"kind": "add", "items": [reference(item) for item in edges[node]]}
+
+    derived = {
+        f"us:m#rule_{node}": {
+            "id": f"us:m#rule_{node}",
+            "name": f"rule_{node}",
+            "expr": body(node),
+        }
+        for node in range(3)
+    }
+    relations = [
+        {"name": f"us:m#relation.view_{node}", "derivation": {"predicate": body(node)}}
+        for node in (3, 4)
+    ]
+    relations.append({"name": "us:m#relation.pairs", "arity": 2, "extra": body(5)})
+    reached, frontier = set(), [start]
+    while frontier:
+        node = frontier.pop()
+        if node not in reached:
+            reached.add(node)
+            frontier.extend(edges[node])
+    case = {"input": {}, "output": {f"us:m#rule_{start}": 1}}
+    issues = pair_relation_assignment_issues(relations, case, "reach", derived)
+    assert bool(issues) == (5 in reached)
+
+
+def test_a_case_without_derived_rules_assigns_every_pair_relation():
+    schemas, _ = role_reach({"kind": "literal", "value": 1})
+    assert len(pair_relation_assignment_issues(schemas, {"input": {}}, "reach")) == 2
 
 
 @pytest.mark.parametrize("member_alias", [False, True])
