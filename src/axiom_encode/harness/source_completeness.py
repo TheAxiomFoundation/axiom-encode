@@ -1571,11 +1571,40 @@ _NEGATION_LANGUAGE = re.compile(
     r")\b|n['’]t\b",
     flags=re.IGNORECASE,
 )
-# The negations, prohibitions and exclusions that negate an ``in accordance
-# with`` link when they precede it in its clause
-# (``_source_link_scope_has_unreset_negation``). The Hebrew reader takes them,
-# with ``_NEGATION_LANGUAGE``, as negating a Hebrew source link
-# (``(א) prohibited מחושב בהתאם לסעיף 2``), as the translation is read.
+# The English negations, prohibitions and exclusions that negate an ``in
+# accordance with`` link when they precede it in its clause: the English link
+# guard reads a raw scope with this pattern alone, byte for byte main's
+# (``test_english_link_negations_are_mains``), so every text outside the
+# Hebrew blocks keeps main's verdict.
+_ENGLISH_LINK_NEGATION_LANGUAGE = re.compile(
+    r"\b(?:not|never|neither|nor|cannot|nowhere|prohibit\w*|barred|"
+    r"forbidden|precluded|prevented|excluded|denied|except)\b|"
+    r"\b(?:denies?|rejects?|disclaims?)\b|"
+    r"\b(?:false|untrue|impossible)\s+that\b|"
+    r"(?:^|[,;:]\s*|\b(?:and|but|or|that|while|whereas)\s+)"
+    r"no\s+(?:amount|tax|liability|computation|calculation|"
+    r"determination|rate|base|statute|rule|provision|requirement)\b"
+    r"(?:\s+[A-Za-z-]+){0,3}\s+(?:is|are|was|were|shall|may|must|will|"
+    r"would|can|could|does|do|did|states?|provides?|requires?|"
+    r"determines?|calculates?|computes?|applies?|arises?)\b|"
+    r"\b(?:ca|do|does|did|is|are|was|were|"
+    r"shall|will|would|could|should|must|need)n['’]t\b|"
+    r"\b(?:fails?|refuses?|unable)\s+to\b|"
+    r"\bwithout\s+(?:being\s+)?(?:determin\w*|comput\w*|calculat\w*|"
+    r"appl\w*|impos\w*|aris\w*)\b|"
+    r"\b(?:in\s+no\s+(?:case|event)|under\s+no\s+circumstances|"
+    r"at\s+no\s+time|by\s+no\s+means|in\s+no\s+way|"
+    r"on\s+no\s+account|under\s+no\s+conditions?|"
+    r"in\s+no\s+(?:manner|respect))\b|"
+    r"\b(?:rather|other)\s+than\b",
+    flags=re.IGNORECASE,
+)
+# The negations, prohibitions and exclusions that negate a link in text that
+# holds Hebrew: the English link guard reads them only in the cross-language
+# copy (``hebrew_source_text.cross_language_text``), which exists only for a
+# scope inside the Hebrew folding gate, and the Hebrew reader takes them, with
+# ``_NEGATION_LANGUAGE``, as negating a Hebrew source link (``(א) prohibited
+# מחושב בהתאם לסעיף 2``), as the translation is read.
 #
 # The vocabulary is symmetric across English, German and Hebrew (#1882). The
 # English lines come first, unchanged. Then come the German words for each of
@@ -1584,10 +1613,15 @@ _NEGATION_LANGUAGE = re.compile(
 # ``without`` and ``ohne`` exclude a computation word of English or German.
 # Before a Hebrew word they exclude whatever follows, as Hebrew ``בלי`` does
 # (``משולם without חישוב בהתאם לסעיף 2``, "paid without calculation in
-# accordance with section 2"). Every added alternative needs a German word,
-# ``zu`` or a Hebrew letter, so no English text reads differently. German
-# links (``nach``, ``gemäß``) take no negation reading, so no German text
-# reads this vocabulary.
+# accordance with section 2").
+#
+# The wall: a German word is also an English surname (``Tax is computed for
+# Nie in accordance with section 2``), so no text without a Hebrew-block code
+# point in its reason or source reaches this pattern. A raw scope is read
+# with ``_ENGLISH_LINK_NEGATION_LANGUAGE`` alone, and the reason reader takes
+# this pattern only once it has a Hebrew citation, so every English and German
+# verdict and issue string stays main's
+# (tests/test_source_completeness_non_hebrew_wall.py).
 _SOURCE_LINK_NEGATION_LANGUAGE = re.compile(
     r"\b(?:not|never|neither|nor|cannot|nowhere|prohibit\w*|barred|"
     r"forbidden|precluded|prevented|excluded|denied|except)\b|"
@@ -2215,8 +2249,15 @@ def _imprecise_deferral_retry_shape(
     corpus_citation_path: str,
     path: tuple[str, ...],
     reason: str = "",
+    hebrew_script: bool = False,
 ) -> str:
-    """Render branch-specific retry guidance without inventing source facts."""
+    """Render branch-specific retry guidance without inventing source facts.
+
+    ``hebrew_script`` says the deferral's reason or source holds a Hebrew-block
+    code point. Only then does the guidance add a native citation or the
+    Hebrew branch-letter scheme, so a text outside the Hebrew blocks reads
+    main's guidance byte for byte, whatever its corpus path (#1882).
+    """
 
     branch_hint = ""
     if path and corpus_citation_path.startswith("us/statute/"):
@@ -2258,8 +2299,12 @@ def _imprecise_deferral_retry_shape(
             fragments = "".join(
                 f"({normalize_rulespec_path_segment(part)})" for part in path
             )
-            native_citation = hebrew_source_text.native_branch_citation(
-                corpus_citation_path, tuple(path)
+            native_citation = (
+                hebrew_source_text.native_branch_citation(
+                    corpus_citation_path, tuple(path)
+                )
+                if hebrew_script
+                else None
             )
             native_alternative = (
                 f" or the native citation `{native_citation}`"
@@ -2275,7 +2320,9 @@ def _imprecise_deferral_retry_shape(
                 "source-stated input); a reason naming an exact external missing "
                 "dependency need not cite it."
             )
-    if hebrew_source_text.is_hebrew_corpus_path(corpus_citation_path):
+    if hebrew_script and hebrew_source_text.is_hebrew_corpus_path(
+        corpus_citation_path
+    ):
         branch_hint += (
             "\nHebrew branch letters map to output-path segments by gematria "
             "value, not sound: (א)→a, (ב)→b, (ג)→c, (ד)→d, (ה)→e, (ו)→f, (ז)→g, "
@@ -6738,6 +6785,9 @@ def _deferred_coverage(
     preferred_anchor = deferral_anchors[-1]
     covered: set[tuple[str, ...]] = set()
     issues: list[str] = []
+    # The wall (#1882): a deferral whose reason and source hold no Hebrew-block
+    # code point takes main's diagnostics, byte for byte.
+    source_holds_hebrew = hebrew_source_text.holds_hebrew_script(source_text)
     for index, record in enumerate(records):
         if not isinstance(record, dict):
             continue
@@ -6814,6 +6864,7 @@ def _deferred_coverage(
         allow_english_only_routes = not hebrew_source_text.holds_hebrew_script(
             raw_reason
         )
+        hebrew_script = source_holds_hebrew or not allow_english_only_routes
         blocked_by = record.get("blocked_by")
         normalized_anchors = tuple(anchor.lower() for anchor in deferral_anchors)
         blocker_targets = (
@@ -7034,6 +7085,7 @@ def _deferred_coverage(
                         corpus_citation_path=corpus_citation_path,
                         path=display_cited_branch,
                         reason=reason,
+                        hebrew_script=hebrew_script,
                     )
                     issues.append(
                         "[complete-source-unit:deferral] "
@@ -7044,7 +7096,10 @@ def _deferred_coverage(
                         f"`{corrected_output}`.\n{retry_shape}"
                     )
                     continue
-                imprecise_cited_branch = display_cited_branch
+                if hebrew_script:
+                    # English keeps main's source-unit diagnostic; the
+                    # branch-naming one waits for its own change.
+                    imprecise_cited_branch = display_cited_branch
         precise = reason_is_precise_for(source_scope_text, path)
         if precise:
             covered.add(path)
@@ -7059,6 +7114,7 @@ def _deferred_coverage(
                 corpus_citation_path=corpus_citation_path,
                 path=imprecise_cited_branch,
                 reason=reason,
+                hebrew_script=hebrew_script,
             )
             issues.append(
                 "[complete-source-unit:deferral] "
@@ -7076,6 +7132,7 @@ def _deferred_coverage(
                 corpus_citation_path=corpus_citation_path,
                 path=display_path or path,
                 reason=reason,
+                hebrew_script=hebrew_script,
             )
             issues.append(
                 "[complete-source-unit:deferral] "
@@ -9068,17 +9125,20 @@ def _louisiana_predicate_is_in_negative_complement(
 def _source_link_scope_has_unreset_negation(governing_scope: str) -> bool:
     """Bind negation to a linker unless a later finite predicate resets it.
 
-    A scope that mixes in Hebrew is also read as ``cross_language_text``
-    shows it, with the Hebrew link negations (``לא``, ``אינו``, ``בלי``,
-    ``למעט``) among the markers, so ``(a) לא computed in accordance with
-    section 2`` is negated as its translation is (#1882). Either reading's
-    negation counts, so the second reading only refuses; a scope outside the
-    Hebrew folding gate has no second reading.
+    The raw scope is read with main's English markers alone
+    (``_ENGLISH_LINK_NEGATION_LANGUAGE``). A scope that mixes in Hebrew is
+    also read as ``cross_language_text`` shows it, with the German markers of
+    ``_SOURCE_LINK_NEGATION_LANGUAGE`` and the Hebrew link negations
+    (``לא``, ``אינו``, ``בלי``, ``למעט``) among them, so ``(a) לא computed in
+    accordance with section 2`` is negated as its translation is (#1882).
+    Either reading's negation counts, so the second reading only refuses; a
+    scope outside the Hebrew folding gate has no second reading and keeps
+    main's verdict.
     """
 
     if _scope_has_unreset_link_negation(
         governing_scope,
-        tuple(_SOURCE_LINK_NEGATION_LANGUAGE.finditer(governing_scope)),
+        tuple(_ENGLISH_LINK_NEGATION_LANGUAGE.finditer(governing_scope)),
     ):
         return True
     cross_language_scope = hebrew_source_text.cross_language_text(governing_scope)

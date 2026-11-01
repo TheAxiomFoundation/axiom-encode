@@ -1001,7 +1001,14 @@ def test_root_imprecise_deferral_names_the_branch_its_reason_cites():
     assert "(source unit) (`<source-unit>`)" not in issue
 
 
-def test_root_imprecise_english_deferral_names_its_cited_branch_too():
+def test_root_imprecise_english_deferral_keeps_mains_source_unit_diagnostic():
+    """The branch-naming diagnostic is Hebrew-only: English keeps main's string.
+
+    Round 21 (review r9 finding 6): naming the cited branch would help an
+    English retry too, but this change leaves non-Hebrew text alone, so the
+    English diagnostic stays main's, byte for byte, until its own change.
+    """
+
     content = """\
 format: rulespec/v1
 module:
@@ -1029,11 +1036,16 @@ rules: []
         extract_named_scalars=extract_named_scalar_occurrences,
         numeric_value_is_grounded=numeric_value_is_grounded,
     ).issues
+    pinned = json.loads(
+        (Path(__file__).parent / "fixtures/non_hebrew_wall_main_issues.json").read_text()
+    )
+    (main_case,) = [case for case in pinned["cases"] if case["id"] == "f6"]
+    assert main_case["content"] == content and main_case["source"] == source
+    assert list(issues) == main_case["issues"]
     issue = _deferral_issue(issues, 0)
-
     assert issue is not None
-    assert "its reason cites exact source branch (`c`)" in issue
-    assert "`us-la:statutes/47/295/c#federal_return_copy`" in issue
+    assert "identifies source branch (source unit) (`<source-unit>`)" in issue
+    assert "cites exact source branch" not in issue
     assert "gematria" not in issue
 
 
