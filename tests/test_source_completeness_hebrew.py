@@ -4286,6 +4286,7 @@ def test_every_cross_language_exclusion_gets_its_translations_verdict(negator):
     """
 
     compared = 0
+    main_verdicts = _main_cross_language_verdicts()
     for obj, link in itertools.product(_CROSS_OBJECTS, _CROSS_LINKS):
         if len({negator.language, obj.language, link.language}) == 1:
             continue
@@ -4295,11 +4296,31 @@ def test_every_cross_language_exclusion_gets_its_translations_verdict(negator):
         english = _english_link_verdict(translation)
         reason = _intended_stricter(negator, obj, link)
         expected = (False, True) if reason else (english, english)
-        for mixed in _mixed_link_verdicts(negator.text, obj.text, link):
+        verdicts = _mixed_link_verdicts(negator.text, obj.text, link)
+        if link.language != "he":
+            # Round 21, the wall: a source with no Hebrew-block code point
+            # takes main's verdict, which reads no German negator and no
+            # German computation word after `without` (review r9 finding 5).
+            # The same words behind a Hebrew label (`(א) It is paid nicht
+            # computed ...`) still take the translation's verdict.
+            words = " ".join((negator.text, obj.text, link.text))
+            source = f"(a) It is paid {words}."
+            if not hebrew.holds_hebrew_script(source):
+                assert verdicts[0] is main_verdicts[source], source
+                verdicts = verdicts[1:]
+        for mixed in verdicts:
             assert (mixed, english) == expected, (negator.text, obj.text, link.text)
         assert all(_mixed_link_verdicts("", obj.text, link)), (obj.text, link.text)
         compared += 1
     assert compared
+
+
+@functools.cache
+def _main_cross_language_verdicts() -> dict[str, bool]:
+    pinned = json.loads(
+        (FIXTURE.parent.parent / "non_hebrew_wall_main_issues.json").read_text()
+    )
+    return pinned["cross_language_matrix_main_verdicts"]
 
 
 def test_the_cross_language_matrix_covers_every_language_pairing():
