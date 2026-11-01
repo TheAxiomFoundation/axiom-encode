@@ -1,1 +1,1 @@
-Credit a bare proof selector with any name a formula spells, including one that lowering discards, as main does.
+Certify a bare proof selector by main's text match over every formula, so legacy programs pass and fail this check as on main.

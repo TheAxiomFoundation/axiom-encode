@@ -158,12 +158,13 @@ def test_a1_unused_members_boolean_read_leaves_relation_uncovered(tmp_path):
     [
         ("{symbol} + 1", True),
         ("{symbol} + @", True),
-        ("max(a, b)", False),
-        ('"{symbol}"', False),
-        ("1 # {symbol}", False),
+        ("{symbol}(a, b)", True),
+        ('"{symbol}"', True),
+        ("1 # {symbol}", True),
+        ("min(a, b)", False),
     ],
 )
-def test_c1_proof_imports_read_bare_builtin_names(symbol, formula, used):
+def test_c1_proof_imports_keep_mains_text_match(symbol, formula, used):
     payload = scalar_payload(formula.format(symbol=symbol))
     payload["rules"][0]["metadata"] = {
         "proof": {

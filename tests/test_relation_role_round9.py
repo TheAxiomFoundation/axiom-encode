@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from axiom_encode.formula_references import spelled_names
 from axiom_encode.harness import validator_pipeline as validation
 from tests.test_companion_declared_entities import _compile
 from tests.test_relation_role_round6 import (
@@ -92,36 +95,41 @@ def test_a_relation_id_alias_takes_the_engines_read_of_that_relation(
 
 
 @pytest.mark.parametrize(
-    "formula,expected",
+    "formula",
     [
-        ("view + 1", {"view"}),
-        ("match view: _ => 1", {"view"}),
-        ("len(pairs, view)", {"pairs", "view"}),
-        ("len(pairs.view)", {"pairs", "view"}),
-        ("view(1)", set()),
-        ("1 + (", set()),
+        "match view: _ => 1",
+        "len(pairs, view)",
+        "len(pairs.view)",
+        "view(1)",
+        '"view"',
+        "1 # view",
     ],
 )
-def test_spelled_names_keep_what_lowering_drops(formula, expected):
-    assert spelled_names(formula) == expected
-
-
-@pytest.mark.parametrize(
-    "formula", ["match view: _ => 1", "len(pairs, view)", "len(pairs.view)"]
-)
-def test_a_bare_proof_selector_keeps_a_read_lowering_discards(formula):
+def test_a_bare_proof_selector_keeps_every_spelling_main_reads(formula):
     bare = {"target": SCALAR, "output": "view"}
     assert certified(selector_proof(formula, imports=[SCALAR], atom=bare))
 
 
-@pytest.mark.parametrize(
-    "formula,atom",
-    [
-        ("max(1, 2)", {"target": f"{PROVIDER}#max", "output": "max"}),
-        ("match view: _ => 1", {"target": VIEW, "output": VIEW}),
-    ],
+@given(
+    formula=st.text(alphabet='ab_ (+#"', max_size=12),
+    symbol=st.sampled_from(["a", "ab", "a_b"]),
 )
-def test_a_discarded_read_certifies_only_a_bare_selector(formula, atom):
+@settings(deadline=None)
+def test_a_bare_proof_selector_equals_mains_text_match(formula, symbol):
+    target = f"{PROVIDER}#{symbol}"
+    content = selector_proof(
+        formula, imports=[target], atom={"target": target, "output": symbol}
+    )
+    spelled = re.search(rf"(?<![A-Za-z0-9_]){symbol}(?![A-Za-z0-9_])", formula)
+    assert certified(content) is (spelled is not None)
+
+
+@pytest.mark.parametrize(
+    "formula",
+    ["match view: _ => 1", f'"{VIEW}"', f"1 # {VIEW}"],
+)
+def test_a_spelling_certifies_only_a_bare_selector(formula):
+    atom = {"target": VIEW, "output": VIEW}
     assert not certified(selector_proof(formula, imports=[VIEW], atom=atom))
 
 

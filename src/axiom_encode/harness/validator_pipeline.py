@@ -151,7 +151,6 @@ from axiom_encode.formula_references import (
     rule_lowers_formulas,
     rule_relation_sources,
     rule_uses_relation_predicate,
-    spelled_names,
 )
 from axiom_encode.harness.amendment_timing import amendment_timing_issues
 from axiom_encode.harness.coverage_exemptions import (
@@ -32379,19 +32378,16 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                 local_reference_name(symbol) for _target, symbol, _output in selectors
             )
             sources = rule_relation_sources(rule) - local_relations
-            referenced = set(sources)
-            unparsed_formulas: list[str] = []
-            for formula in formula_texts:
-                analyzed = analyze_relation_predicate(
+            unparsed_formulas = [
+                formula
+                for formula in formula_texts
+                if analyze_relation_predicate(
                     formula,
                     predicate_terms=rule_uses_relation_predicate(rule),
                     lowering_entry=rule_lowering_entry(rule),
-                )
-                if analyzed.parse_error is not None:
-                    unparsed_formulas.append(formula)
-                else:
-                    referenced.update(analyzed.identifiers)
-                    referenced.update(spelled_names(formula))
+                ).parse_error
+                is not None
+            ]
             relation_reads = sources | (
                 _rulespec_relation_reads(rule, selected_names, aliases)
                 - local_relations
@@ -32399,11 +32395,14 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
             for target, symbol, named in selectors:
                 local_symbol = local_reference_name(symbol)
                 if local_symbol == symbol:
+                    # A bare selector keeps main's text match over every
+                    # formula, and a source that names it reads it too.
                     certified = (
                         not symbol
-                        or local_symbol in referenced
-                        or (named and target in referenced)
+                        or local_symbol in sources
+                        or (named and target in sources)
                     )
+                    spelled_in = formula_texts
                 else:
                     # A qualified selector names one import, so only a read
                     # that reaches that import certifies it. A scalar, a local
@@ -32415,9 +32414,10 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                         symbol in sources
                         or (local_symbol in relation_reads and symbol in imported)
                     )
+                    spelled_in = unparsed_formulas
                 if certified or any(
                     _formula_references_symbol(formula, symbol)
-                    for formula in unparsed_formulas
+                    for formula in spelled_in
                 ):
                     continue
                 issues.append(
