@@ -701,6 +701,15 @@ def test_a_pair_relation_no_output_reaches_needs_no_assignment():
     assert pair_relation_assignment_issues(schemas, case, "reach", derived) == []
 
 
+def test_a_missing_alias_or_malformed_derivation_reaches_nothing():
+    schemas, derived = role_reach(
+        {"kind": "literal", "value": "None"},
+        relations=[{"name": "odd", "arity": 2, "derivation": "None"}],
+    )
+    case = {"input": {}, "output": {"us:m#output": 1}}
+    assert pair_relation_assignment_issues(schemas, case, "reach", derived) == []
+
+
 def test_a_qualified_schema_matches_a_local_reference():
     schemas, derived = role_reach({"kind": "count_related", "relation": "parents"})
     schemas[0]["name"] = "us:statutes/example#relation.parents"
