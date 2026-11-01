@@ -1,3 +1,7 @@
+## 0.2.2279
+
+- Wall off text without Hebrew from the Hebrew deferral additions: the English link guard reads a raw scope with main's own negation pattern, and the branch-naming diagnostic, native-citation alternative and Hebrew branch-letter scheme need a Hebrew-block code point in the reason or source. This restores main's verdicts and issue strings for English and German text, which 0.2.2273-0.2.2278 had changed for surnames such as `Nie` and `Kein` and for the root English deferral diagnostic. Read a claim noun's own relative clause (`הדיווחים שהוגשו לפי סעיף 2 אינם נכונים`) as no claim, generate the full and plene spellings `ייוותר`, `חוייב` and `תקומנה` with every holam alternate, classify every snapshot word one ו or י from a generated form, and keep the reason grammar unchanged.
+
 ## 0.2.2278
 
 - Correct the generated Hebrew source audit assumption for pre-existing reason negators such as `משולל`; preserve harness behavior and the independent pinned reason differential.
