@@ -1379,6 +1379,26 @@ def _lack_is_causal(match: re.Match[str]) -> bool:
     return True
 
 
+# Present feminine plural ``דוחות`` ("reject") is also the noun ``דוחות``
+# ("reports"): ``יוגשו דוחות חישוב``, "calculation reports shall be filed".
+# The verb needs an overt feminine plural subject directly before it: a word
+# ending in ``ות``, with any prefix (``הרשויות דוחות חישוב``, "the
+# authorities reject calculation"), or ``הן``, ``אלה``, ``אלו`` (round 22).
+# ``דוחה`` and ``דוחים`` have no noun homograph.
+FEMININE_PLURAL_PRONOUNS = frozenset(("הן", "אלה", "אלו"))
+
+
+def _reports_noun(match: re.Match[str]) -> bool:
+    """Whether a guarded ``דוחות`` is the noun "reports", not the verb "reject"."""
+
+    if match.group("guarded") is None:
+        return False
+    if match.string[match.start("guarded") : match.end()] != "דוחות":
+        return False
+    previous = _previous_word(match.string, match.start())
+    return not (previous.endswith("ות") or previous in FEMININE_PLURAL_PRONOUNS)
+
+
 # The explicit complement disambiguates "exclude from" even after a modal
 # which normally makes להוציא mean "issue". Only the source reader widens
 # this reading: its newly closed הוצא מכלל paradigm includes the infinitive.
@@ -1410,7 +1430,8 @@ class NegationPattern:
             self._source and _explicit_source_exclusion(match)
         )
         return genuine and not (
-            self._source and (_lack_is_causal(match) or _concedes(match))
+            self._source
+            and (_lack_is_causal(match) or _concedes(match) or _reports_noun(match))
         )
 
     def finditer(
