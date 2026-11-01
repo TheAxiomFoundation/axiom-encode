@@ -1,10 +1,14 @@
+## 0.2.2276
+
+- Generate the full-spelling first-person singular and second-person feminine singular plural possessives in every listed Hebrew noun family, while preserving compact spellings obtained by folding pointed Hebrew. Share the same suffix generator across computation and claim readers, and read prefix joints in the existing `באפס`, `במקום` and `בשונה` guarded heads, without adding stems or changing the reason grammar.
+
 ## 0.2.2275
 
-- Correct the generated feminine-present continuation slot to `ממשיכה`, so a provision that continues to remain unaffected cannot make a cited computation operative. Keep ordinary continuing-company wording operative and preserve reason-reader behavior.
+- Correct the generated feminine-present continuation slot to `ממשיכה` and validate the guarded unaffected-provision construction. Keep ordinary continuing-company wording operative and preserve reason-reader behavior.
 
 ## 0.2.2274
 
-- Close the listed Hebrew source paradigms with one grammar generator for noun possessives, final-letter rules, third-person verbs and adjective agreement. Share bounded claim complements, read prefix joints inside generated phrases and disclaimers, use forward cursors for the three new source indexes, and refuse raw/folded Hebrew blocks in English-only routes before marks can be erased. Preserve reason-negation grammar and English/German verdicts.
+- Introduce one grammar generator for listed Hebrew source noun possessives, final-letter rules, third-person verbs and adjective agreement. Share bounded claim complements, read prefix joints inside generated phrases and disclaimers, use forward cursors for the three new source indexes, and refuse raw/folded Hebrew blocks in English-only routes before marks can be erased. Preserve reason-negation grammar and English/German verdicts.
 
 ## 0.2.2273
 
