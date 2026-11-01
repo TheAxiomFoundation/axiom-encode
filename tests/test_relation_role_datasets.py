@@ -321,6 +321,23 @@ def test_generated_relation_role_requests_match_exactly(
     assert cli == pipeline
 
 
+def test_a_legacy_run_without_supplied_dtypes_keeps_each_runners_conversion(tmp_path):
+    _fixture(tmp_path, predicate="candidate.age < 22", dtype="Text")
+    payload = _program()
+    payload["program"]["relations"] = []
+    payload["program"]["derived"][0]["expr"] = {
+        "kind": "literal",
+        "value": {"kind": "integer", "value": 1},
+    }
+    case = {"input": {AGE: "01"}, "output": {OUTPUT: 1}}
+    cli, pipeline = _requests(tmp_path, case, payload)
+    assert cli["dataset"]["inputs"][0]["value"] == {"kind": "text", "value": "01"}
+    assert pipeline["dataset"]["inputs"][0]["value"] == {
+        "kind": "integer",
+        "value": 1,
+    }
+
+
 def test_legacy_root_ids_and_outcome_fingerprints_stay_unchanged(tmp_path):
     case = {"entity_id": "alice", "input": {}, "output": {OUTPUT: 1}}
     payload = _program()

@@ -74,6 +74,7 @@ from axiom_encode.companion_relations import (
     executable_relation_directions,
     explicit_relation_tuples,
     explicit_tuple_relation_names,
+    filtered_entity_kinds,
     pair_relation_assignment_issues,
     query_entity_kinds,
     relation_role_query_entity_id,
@@ -27851,17 +27852,6 @@ def _rulespec_relation_names(payload: dict[str, Any]) -> set[str]:
     }
 
 
-def _rulespec_member_relations(payload: dict[str, Any]) -> set[str]:
-    rules = payload.get("rules")
-    return {
-        str(config["member_relation"]).strip()
-        for rule in (rules if isinstance(rules, list) else [])
-        if isinstance(rule, dict)
-        and isinstance(config := rule.get("derived_relation"), dict)
-        and config.get("member_relation")
-    }
-
-
 def _source_limitation_subject_slugs(source_text: str) -> set[str]:
     slugs: set[str] = set()
     for match in _LIMITATION_ON_SUBJECT_PATTERN.finditer(source_text):
@@ -32255,15 +32245,6 @@ def find_unused_import_issues(content: str) -> list[str]:
             for source in relation_source_names(rule.get("derived_relation"))
         }
         proof_import_targets = _rulespec_proof_import_targets(payload)
-        # This check reads one module, so a provider's filtered alias resolves
-        # to no name here. A relation read with no local or imported name can
-        # only come through such an alias, which keeps relation imports in use.
-        alias_reads = (
-            relation_reads
-            - relation_names
-            - _rulespec_member_relations(payload)
-            - {local_reference_name(item) for item in imports if isinstance(item, str)}
-        )
         issues: list[str] = []
         for raw_item in imports:
             if not isinstance(raw_item, str):
@@ -32274,21 +32255,20 @@ def find_unused_import_issues(content: str) -> list[str]:
             symbol = local_reference_name(import_item)
             if not symbol:
                 continue
-            explicit_relation = import_item.rsplit("#", 1)[1].startswith("relation.")
+            imported = import_item.rsplit("#", 1)[1].strip()
+            explicit_relation = imported.startswith("relation.")
             reads = relation_reads if explicit_relation else identifiers
             if symbol in reads or symbol in source_references:
                 continue
-            if explicit_relation and alias_reads:
-                continue
-            if not explicit_relation and any(
-                _formula_references_symbol(formula, symbol)
+            if any(
+                _formula_references_symbol(formula, imported)
                 for formula in unparsed_formulas
             ):
                 continue
-            if not explicit_relation and import_item in proof_import_targets:
+            if import_item in proof_import_targets:
                 continue
             issues.append(
-                f"Unused import `{import_item}`: imported symbol `{symbol}` is "
+                f"Unused import `{import_item}`: imported symbol `{imported}` is "
                 "not referenced by any formula or proof import."
             )
         return issues
@@ -38041,6 +38021,7 @@ class ValidatorPipeline:
         relation_role_program: bool = False,
         input_dtypes: dict[str, str] | None = None,
         query_kinds: frozenset[str] | None = None,
+        entity_kinds: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Build an Axiom rules engine dataset from compact RuleSpec test inputs."""
         if case_input in (None, ""):
@@ -38342,12 +38323,12 @@ class ValidatorPipeline:
                             (table_entity, row_ids, 0, inputs[input_start:])
                         )
 
-        require_distinct_entity_ids(occupied_entity_ids, query_kinds=query_kinds)
+        require_distinct_entity_ids(occupied_entity_ids, entity_kinds=entity_kinds)
         assign_generated_fixture_ids(
-            generated_table_rows, occupied_entity_ids, query_kinds=query_kinds
+            generated_table_rows, occupied_entity_ids, entity_kinds=entity_kinds
         )
         assign_generated_fixture_ids(
-            generated_relation_rows, occupied_entity_ids, query_kinds=query_kinds
+            generated_relation_rows, occupied_entity_ids, entity_kinds=entity_kinds
         )
         if table_entity_ids is not None:
             table_entity_ids.update(
@@ -38724,6 +38705,7 @@ class ValidatorPipeline:
         """Execute one compact RuleSpec test case through `run-compiled`."""
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
         relation_role_program = uses_relation_roles(compiled_relations)
+        entity_kinds = filtered_entity_kinds(compiled_relations)
         query_entity_id = (
             relation_role_query_entity_id(case, query_entity)
             if relation_role_program
@@ -38731,7 +38713,7 @@ class ValidatorPipeline:
         )
         table_entity_ids: dict[str, list[str]] = {}
         try:
-            if input_dtypes is None:
+            if input_dtypes is None and relation_role_program:
                 artifact = (
                     json.loads(compiled_path.read_text())
                     if compiled_path.is_file()
@@ -38776,7 +38758,8 @@ class ValidatorPipeline:
                 table_entity_ids=table_entity_ids,
                 relation_role_program=relation_role_program,
                 input_dtypes=input_dtypes,
-                query_kinds=query_entity_kinds(query_entity, compiled_relations),
+                query_kinds=query_entity_kinds(query_entity, entity_kinds),
+                entity_kinds=entity_kinds,
             )
         except ValueError as exc:
             return None, [f"Test case `{case_name}` input invalid: {exc}"]
@@ -39172,8 +39155,15 @@ class ValidatorPipeline:
                     input_entities = self._rulespec_companion_input_entities(
                         rules_file, case.get("input", {})
                     )
-                    input_dtypes = self._rulespec_companion_input_dtypes(
-                        rules_file, case, compiled_payload
+                    # A legacy program keeps each runner's own conversion.
+                    input_dtypes = (
+                        self._rulespec_companion_input_dtypes(
+                            rules_file, case, compiled_payload
+                        )
+                        if uses_relation_roles(
+                            compiled_payload.get("program", {}).get("relations", [])
+                        )
+                        else {}
                     )
                 except (OSError, ValueError, yaml.YAMLError) as exc:
                     issues.append(f"Test case `{case_name}` input invalid: {exc}")

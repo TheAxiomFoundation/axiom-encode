@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Any
 
 _RELATION_ROLE_KINDS = frozenset(
@@ -64,34 +65,72 @@ def uses_relation_roles(relations: list[dict[str, Any]] | None) -> bool:
     return walk(relations)
 
 
-def query_entity_kinds(
-    query_entity: str, relations: list[dict[str, Any]] | None
-) -> frozenset[str]:
-    """Name each entity kind that a companion query's root ID carries.
+def _slot_kinds(
+    relation: dict[str, Any], relations_by_name: dict[Any, dict[str, Any]]
+) -> list[Any]:
+    """Read a relation's slot kinds, following a source that declares them."""
+    seen: set[int] = set()
+    current: dict[str, Any] | None = relation
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        derivation = current.get("derivation")
+        if not isinstance(derivation, dict):
+            return current.get("slot_entities") or []
+        declared = derivation.get("slot_entities") or current.get("slot_entities")
+        if declared or derivation.get("source_path"):
+            return declared or []
+        current = relations_by_name.get(derivation.get("source_relation"))
+    return []
 
-    A filtered alias takes its runtime ID from one source's current ID, so its
-    query ID also identifies that source's anchor. Legacy programs keep their
-    one query kind and their existing request bytes.
+
+def filtered_entity_kinds(relations: list[dict[str, Any]] | None) -> dict[str, str]:
+    """Map each filtered entity to the innermost kind of its IDs, as the engine does.
+
+    The engine queries a filtered entity with its source's current-slot IDs
+    and canonicalizes every filtered entity before it binds a dataset. A chain
+    of filters ends at its innermost kind. An entity whose relations disagree
+    or whose chain cycles stays unmapped. Legacy programs map nothing, which
+    keeps their existing request bytes.
     """
-    kinds = {query_entity}
     if not uses_relation_roles(relations):
-        return frozenset(kinds)
-    pending = [query_entity]
-    while pending:
-        alias = pending.pop()
-        for relation in relations or []:
-            derivation = relation.get("derivation")
-            if not isinstance(derivation, dict) or derivation.get("entity") != alias:
-                continue
-            slots = derivation.get("slot_entities") or relation.get("slot_entities")
-            current = derivation.get("current_slot")
-            if not slots or type(current) is not int or current >= len(slots):
-                continue
-            underlying = str(slots[current])
-            if underlying not in kinds:
-                kinds.add(underlying)
-                pending.append(underlying)
-    return frozenset(kinds)
+        return {}
+    relations_by_name = {relation.get("name"): relation for relation in relations or []}
+    current_kinds: dict[str, set[str]] = {}
+    for relation in relations or []:
+        derivation = relation.get("derivation")
+        if not isinstance(derivation, dict) or not derivation.get("entity"):
+            continue
+        slots = _slot_kinds(relation, relations_by_name)
+        current = derivation.get("current_slot")
+        if type(current) is int and current < len(slots):
+            current_kinds.setdefault(str(derivation["entity"]), set()).add(
+                str(slots[current])
+            )
+    direct = {
+        entity: next(iter(kinds))
+        for entity, kinds in current_kinds.items()
+        if len(kinds) == 1
+    }
+    innermost: dict[str, str] = {}
+    for entity, kind in direct.items():
+        visited = {entity}
+        while direct.get(kind, kind) != kind and kind not in visited:
+            visited.add(kind)
+            kind = direct[kind]
+        if kind not in visited:
+            innermost[entity] = kind
+    return innermost
+
+
+def query_entity_kinds(
+    query_entity: str, entity_kinds: Mapping[str, str]
+) -> frozenset[str]:
+    """Name each entity kind that a companion query's root ID carries."""
+    root = entity_kinds.get(query_entity, query_entity)
+    return frozenset(
+        {query_entity, root}
+        | {entity for entity, kind in entity_kinds.items() if kind == root}
+    )
 
 
 def pair_relation_assignment_issues(

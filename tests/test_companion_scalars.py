@@ -87,9 +87,9 @@ def test_compiled_input_types_include_metadata_request_aliases():
         },
     }
     assert compiled_input_dtypes(payload) == {
-        "age": "integer",
-        "us:fact#input.age": "integer",
-        "us:consumer#input.age": "integer",
+        "age": "number",
+        "us:fact#input.age": "number",
+        "us:consumer#input.age": "number",
     }
 
 
@@ -182,6 +182,56 @@ def test_agreeing_readers_share_a_slot_dtype(tmp_path):
         input_readers=dict.fromkeys(("fact", *names), names),
         resolve_reference=_resolver(modules),
     ) == {names[2]: "text"}
+
+
+def _two_reader_dtypes(tmp_path, one, two):
+    modules = _reader_modules(tmp_path, consumer=None, one=one, two=two)
+    names = ("us:one#input.fact", "us:two#input.fact", "us:consumer#input.fact")
+    return declared_input_dtypes(
+        modules["consumer"],
+        [names[2]],
+        input_readers=dict.fromkeys(("fact", *names), names),
+        resolve_reference=_resolver(modules),
+    ).get(names[2])
+
+
+@pytest.mark.parametrize(
+    "one,two,expected",
+    [
+        ("int", "Integer", "number"),
+        ("Integer", "Decimal", "number"),
+        ("Money", "float", "number"),
+        ("Rate", "Number", "number"),
+        ("Text", "String", "text"),
+        ("Bool", "Judgment", "bool"),
+        ("boolean", "bool", "bool"),
+        ("Date", "date", "date"),
+    ],
+)
+def test_readers_agree_when_they_convert_a_quoted_value_alike(
+    tmp_path, one, two, expected
+):
+    assert _two_reader_dtypes(tmp_path, one, two) == expected
+    assert _two_reader_dtypes(tmp_path, two, one) == expected
+
+
+@pytest.mark.parametrize(
+    "one,two",
+    [
+        ("Text", "Integer"),
+        ("String", "int"),
+        ("Date", "Text"),
+        ("Date", "Decimal"),
+        ("Bool", "Integer"),
+        ("boolean", "Text"),
+        ("Judgment", "Text"),
+    ],
+)
+def test_readers_disagree_when_they_convert_a_quoted_value_differently(
+    tmp_path, one, two
+):
+    assert _two_reader_dtypes(tmp_path, one, two) is None
+    assert _two_reader_dtypes(tmp_path, two, one) is None
 
 
 def test_a_rule_qualified_key_finds_its_readers(tmp_path):

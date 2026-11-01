@@ -113,6 +113,7 @@ from axiom_encode.companion_relations import (
     executable_relation_directions,
     explicit_relation_tuples,
     explicit_tuple_relation_names,
+    filtered_entity_kinds,
     pair_relation_assignment_issues,
     query_entity_kinds,
     relation_role_query_entity_id,
@@ -5880,7 +5881,8 @@ def _execute_rulespec_test_case(
         ),
         "Case",
     )
-    query_kinds = query_entity_kinds(query_entity, compiled_relations)
+    entity_kinds = filtered_entity_kinds(compiled_relations)
+    query_kinds = query_entity_kinds(query_entity, entity_kinds)
     root_entity_id = (
         relation_role_query_entity_id(case, query_entity)
         if relation_role_program
@@ -5926,23 +5928,27 @@ def _execute_rulespec_test_case(
             rulespec_dependency_roots=rulespec_roots,
         ),
     )
-    artifact = json.loads(compiled_path.read_text()) if compiled_path.is_file() else {}
-    compiled_dtypes = compiled_input_dtypes(artifact)
-    input_dtypes = declared_input_dtypes(
-        module_file,
-        (
-            key
-            for key in companion_input_keys(case)
-            if input_dtype(compiled_dtypes, key) is None
-        ),
-        input_readers=compiled_input_readers(artifact),
-        resolve_reference=lambda key: _rulespec_file_for_absolute_module_ref(
-            key,
-            policy_repo_path=policy_repo_path,
-            rulespec_dependency_roots=rulespec_roots,
-        ),
-    )
-    input_dtypes.update(compiled_dtypes)
+    input_dtypes: dict[str, str] = {}
+    if relation_role_program:
+        artifact = (
+            json.loads(compiled_path.read_text()) if compiled_path.is_file() else {}
+        )
+        compiled_dtypes = compiled_input_dtypes(artifact)
+        input_dtypes = declared_input_dtypes(
+            module_file,
+            (
+                key
+                for key in companion_input_keys(case)
+                if input_dtype(compiled_dtypes, key) is None
+            ),
+            input_readers=compiled_input_readers(artifact),
+            resolve_reference=lambda key: _rulespec_file_for_absolute_module_ref(
+                key,
+                policy_repo_path=policy_repo_path,
+                rulespec_dependency_roots=rulespec_roots,
+            ),
+        )
+        input_dtypes.update(compiled_dtypes)
 
     for key, value in (case.get("input") or {}).items():
         key = str(key)
@@ -6156,12 +6162,12 @@ def _execute_rulespec_test_case(
                     )
             table_rows_by_entity[table_entity] = resolved_rows
 
-    require_distinct_entity_ids(occupied_entity_ids, query_kinds=query_kinds)
+    require_distinct_entity_ids(occupied_entity_ids, entity_kinds=entity_kinds)
     assign_generated_fixture_ids(
-        generated_table_rows, occupied_entity_ids, query_kinds=query_kinds
+        generated_table_rows, occupied_entity_ids, entity_kinds=entity_kinds
     )
     assign_generated_fixture_ids(
-        generated_relation_rows, occupied_entity_ids, query_kinds=query_kinds
+        generated_relation_rows, occupied_entity_ids, entity_kinds=entity_kinds
     )
     flat_entity_ids: dict[str, str] = {}
     for record in flat_input_records:

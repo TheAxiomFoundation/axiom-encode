@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Callable, Collection, Iterable
+from typing import Any, Callable, Collection, Iterable, Mapping
 
 import yaml
 
@@ -114,24 +114,23 @@ def _available_entity_id(preferred: str, reserved_entity_ids: Iterable[str]) -> 
     return candidate
 
 
-def _distinct_kinds(entities: set[str], query_kinds: Collection[str]) -> int:
-    """Count the kinds behind one ID; the query's kinds share a runtime ID."""
-    return len(entities.difference(query_kinds)) + bool(
-        entities.intersection(query_kinds)
-    )
+def _distinct_kinds(entities: set[str], entity_kinds: Mapping[str, str]) -> int:
+    """Count the kinds behind one ID; a filtered entity counts as its IDs' kind."""
+    return len({entity_kinds.get(entity, entity) for entity in entities})
 
 
 def require_distinct_entity_ids(
     occupied_entity_ids: dict[str, set[str]],
     *,
-    query_kinds: Collection[str] = (),
+    entity_kinds: Mapping[str, str] | None = None,
 ) -> None:
     """Reject explicit fixture IDs shared by different entity kinds.
 
-    A query's filtered alias and its underlying kind name one entity.
+    `entity_kinds` maps each filtered entity to the kind of its IDs, so a
+    filtered entity and that kind name one entity.
     """
     for entity_id, entities in occupied_entity_ids.items():
-        if _distinct_kinds(entities, query_kinds) > 1:
+        if _distinct_kinds(entities, entity_kinds or {}) > 1:
             raise ValueError(
                 f"fixture entity ID `{entity_id}` is shared by "
                 f"{', '.join(f'`{entity}`' for entity in sorted(entities))}; "
@@ -143,7 +142,7 @@ def assign_generated_fixture_ids(
     rows: Iterable[tuple[str, list[str], int, list[dict[str, Any]]]],
     occupied_entity_ids: dict[str, set[str]],
     *,
-    query_kinds: Collection[str] = (),
+    entity_kinds: Mapping[str, str] | None = None,
 ) -> None:
     """Allocate generated fixture rows after every explicit ID is reserved.
 
@@ -151,7 +150,7 @@ def assign_generated_fixture_ids(
     records. The container is a relation tuple or a table row's ID list, so
     updating it also updates relation aliases and row-ordered queries.
     Same-kind aliases keep their IDs; foreign-kind collisions get fresh IDs.
-    The query's kinds count as one kind here, as they do in
+    `entity_kinds` decides what counts as one kind, as it does in
     `require_distinct_entity_ids`.
     """
     for entity, entity_ids, allocated_slot, inputs in rows:
@@ -159,7 +158,7 @@ def assign_generated_fixture_ids(
         reserved = {
             entity_id
             for entity_id, entities in occupied_entity_ids.items()
-            if _distinct_kinds(entities | {entity}, query_kinds) > 1
+            if _distinct_kinds(entities | {entity}, entity_kinds or {}) > 1
         }
         entity_id = (
             _available_entity_id(f"{preferred}:entity:{entity}", reserved)

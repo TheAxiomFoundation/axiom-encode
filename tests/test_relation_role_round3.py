@@ -141,15 +141,20 @@ def test_judgment_scalar_named_like_a_relation_runs_in_both_runners(
     )
 
 
-def test_imported_alias_read_uses_its_explicit_relation_import():
+def test_unproven_imported_alias_read_keeps_the_base_refusal():
     payload = consumer("if unused_view: len(members) else: 0", PROVIDER)
     payload["rules"][0]["entity"] = "FilteredPerson"
-    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == [
+        f"Unused import `{PROVIDER}`: imported symbol `relation.unused_view` is "
+        "not referenced by any formula or proof import."
+    ]
 
 
-def test_bare_imported_alias_read_uses_its_explicit_relation_import():
+def test_bare_imported_alias_read_keeps_the_base_refusal():
     payload = consumer("len(members)", PROVIDER)
-    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+    issues = validation.find_unused_import_issues(yaml.safe_dump(payload))
+    assert len(issues) == 1
+    assert "#relation.unused_view`" in issues[0]
 
 
 def test_alias_with_a_canonical_proof_keeps_its_import(tmp_path):
@@ -192,6 +197,46 @@ def test_alias_with_a_canonical_proof_keeps_its_import(tmp_path):
     )
 
 
+def proven(payload, target):
+    payload["rules"][0]["metadata"] = {
+        "proof": {
+            "atoms": [
+                {
+                    "path": "versions[0].formula",
+                    "kind": "import",
+                    "import": {"target": target, "output": "unused_view"},
+                }
+            ]
+        }
+    }
+    return payload
+
+
+def test_a_proof_keeps_only_the_import_it_names():
+    extra = "us:policies/example/provider#relation.unused_extra"
+    payload = consumer("if unused_view: len(members) else: 0", PROVIDER, extra)
+    issues = validation.find_unused_import_issues(
+        yaml.safe_dump(proven(payload, PROVIDER))
+    )
+    assert len(issues) == 1
+    assert "#relation.unused_extra`" in issues[0]
+
+
+def test_a_local_alias_with_the_same_name_leaves_a_proven_import_alone():
+    payload = consumer("if unused_view: len(members) else: 0", PROVIDER)
+    view = relation("local_view", True)
+    view["derived_relation"].update(entity="LocalUnit", member_relation="members")
+    proven(payload, PROVIDER)["rules"][:0] = [PAIRS, view]
+    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+
+
+def test_a_formula_outside_the_port_keeps_the_base_scan():
+    payload = consumer("$ relation.unused_view", PROVIDER)
+    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+    payload = consumer("$ unused_view", PROVIDER)
+    assert len(validation.find_unused_import_issues(yaml.safe_dump(payload))) == 1
+
+
 def test_import_stays_unused_beside_a_local_alias_read():
     payload = consumer("len(local_members)", PROVIDER)
     payload["rules"][:0] = [PAIRS, filtered_view()]
@@ -218,14 +263,15 @@ def test_import_stays_unused_beside_a_local_relation_read():
 def test_import_stays_unused_when_a_sibling_import_explains_the_read(sibling):
     payload = consumer("len(selected)", PROVIDER, sibling)
     issues = validation.find_unused_import_issues(yaml.safe_dump(payload))
-    assert len(issues) == 1
-    assert "#relation.unused_view`" in issues[0]
+    assert any("#relation.unused_view`" in issue for issue in issues)
 
 
-def test_alias_read_never_keeps_a_scalar_import():
+def test_scalar_import_stays_unused_beside_an_alias_read():
     scalar = "us:policies/example/provider#unused_rate"
-    payload = consumer("len(members)", PROVIDER, scalar)
-    issues = validation.find_unused_import_issues(yaml.safe_dump(payload))
+    payload = consumer("if unused_view: len(members) else: 0", PROVIDER, scalar)
+    issues = validation.find_unused_import_issues(
+        yaml.safe_dump(proven(payload, PROVIDER))
+    )
     assert len(issues) == 1
     assert "#unused_rate`" in issues[0]
 
@@ -312,7 +358,12 @@ def parameter_rule(name):
     }
 
 
-def scalar_case(module, inputs, output):
+def role_rules(*rules):
+    """Put rules in a relation-role program, the only kind that reads dtypes."""
+    return [PAIRS, relation("view", True), *rules]
+
+
+def scalar_case(module, inputs, output, *, role=False):
     target = "us:policies/example/" + module.stem
     case = {
         "name": "scalar",
@@ -320,6 +371,9 @@ def scalar_case(module, inputs, output):
         "input": {f"{target}#input.{name}": value for name, value in inputs.items()},
         "output": {f"{target}#result": output},
     }
+    if role:
+        case["entity_id"] = "a"
+        case["input"][f"{target}#relation.pairs"] = []
     module.with_suffix(".test.yaml").write_text(LABEL + yaml.safe_dump([case]))
 
 
@@ -343,6 +397,34 @@ def test_an_untyped_quoted_number_keeps_each_runners_own_meaning(
     root = tmp_path / "rulespec-us"
     module = scalar_module(
         root, "codes", {"rules": [scalar_rule("if code == other: 1 else: 0")]}
+    )
+    scalar_case(module, {"code": "001", "other": "1"}, expected)
+    assert run_companions(tmp_path, real_engine, root, module, executor) == []
+
+
+@pytest.mark.parametrize(
+    "executor,dtype,expected",
+    [
+        ("cli", "Integer", 0),
+        ("cli", "Text", 0),
+        ("validator", "Integer", 1),
+        ("validator", "Text", 1),
+    ],
+)
+def test_a_declared_type_leaves_a_legacy_program_alone(
+    tmp_path, real_engine, executor, dtype, expected
+):
+    root = tmp_path / "rulespec-us"
+    module = scalar_module(
+        root,
+        "codes",
+        {
+            "inputs": [
+                {"name": "code", "dtype": dtype},
+                {"name": "other", "dtype": dtype},
+            ],
+            "rules": [scalar_rule("if code == other: 1 else: 0")],
+        },
     )
     scalar_case(module, {"code": "001", "other": "1"}, expected)
     assert run_companions(tmp_path, real_engine, root, module, executor) == []
@@ -373,15 +455,15 @@ def test_unread_imported_declarations_leave_a_consumer_input_alone(
                 "us:policies/example/one#threshold_one",
                 "us:policies/example/two#threshold_two",
             ],
-            "rules": [
+            "rules": role_rules(
                 scalar_rule(
                     "amount == other and threshold_one == threshold_two",
                     dtype="Judgment",
                 )
-            ],
+            ),
         },
     )
-    scalar_case(consumer, {"amount": 1, "other": 1}, "holds")
+    scalar_case(consumer, {"amount": 1, "other": 1}, "holds", role=True)
     assert run_companions(tmp_path, real_engine, root, consumer, executor) == []
 
 
@@ -410,8 +492,51 @@ def test_a_co_reader_declaration_types_the_shared_slot(
         "consumer",
         {
             "imports": ["us:policies/example/provider#matches"],
-            "rules": [scalar_rule("code == other and matches", dtype="Judgment")],
+            "rules": role_rules(
+                scalar_rule("code == other and matches", dtype="Judgment")
+            ),
         },
     )
-    scalar_case(consumer, {"code": "01", "other": "1"}, output)
+    scalar_case(consumer, {"code": "01", "other": "1"}, output, role=True)
+    assert run_companions(tmp_path, real_engine, root, consumer, executor) == []
+
+
+@pytest.mark.parametrize("executor", ["cli", "validator"])
+@pytest.mark.parametrize(
+    "first,second,output",
+    [("int", "Integer", "holds"), ("Text", "String", "not_holds")],
+    ids=["number", "text"],
+)
+def test_equivalent_reader_spellings_type_a_shared_slot(
+    tmp_path, real_engine, executor, first, second, output
+):
+    root = tmp_path / "rulespec-us"
+    for name, dtype in (("one", first), ("two", second)):
+        scalar_module(
+            root,
+            name,
+            {
+                "inputs": [
+                    {"name": "code", "dtype": dtype},
+                    {"name": "other", "dtype": dtype},
+                ],
+                "rules": [
+                    scalar_rule("code == other", dtype="Judgment", name=f"{name}_read")
+                ],
+            },
+        )
+    consumer = scalar_module(
+        root,
+        "consumer",
+        {
+            "imports": [
+                "us:policies/example/one#one_read",
+                "us:policies/example/two#two_read",
+            ],
+            "rules": role_rules(
+                scalar_rule("code == other and one_read and two_read", dtype="Judgment")
+            ),
+        },
+    )
+    scalar_case(consumer, {"code": "01", "other": "1"}, output, role=True)
     assert run_companions(tmp_path, real_engine, root, consumer, executor) == []

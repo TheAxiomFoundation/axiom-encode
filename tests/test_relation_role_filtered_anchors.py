@@ -23,7 +23,7 @@ from axiom_encode.companion_entities import (
     flat_input_entity_id,
     require_distinct_entity_ids,
 )
-from axiom_encode.companion_relations import query_entity_kinds
+from axiom_encode.companion_relations import filtered_entity_kinds, query_entity_kinds
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 from tests.test_companion_declared_entities import _compile
 from tests.test_relation_role_datasets import (
@@ -323,7 +323,7 @@ def test_filtered_alias_follows_the_declared_current_slot(tmp_path, real_engine)
     payload = _compile(
         real_engine.binary, real_engine.root, root, module, tmp_path / "compiled.json"
     )
-    assert query_entity_kinds("SnapUnit", payload["program"]["relations"]) == {
+    assert _query_kinds("SnapUnit", payload["program"]["relations"]) == {
         "SnapUnit",
         "Household",
     }
@@ -400,51 +400,70 @@ def test_legacy_filtered_compact_rows_keep_their_refusal(tmp_path):
         _requests(tmp_path, case, _legacy_filtered_program())
 
 
+SNAP_ON_PERSON = {"SnapUnit": "Person"}
+BOTH_ON_PERSON = {"SnapUnit": "Person", "OtherUnit": "Person"}
+OTHER_LINEAGE = {"SnapUnit": "Household", "OtherUnit": "Person"}
+
+
 @pytest.mark.parametrize(
-    "occupied,query_kinds",
+    "occupied,entity_kinds",
     [
-        ({"case": {"SnapUnit", "Household"}}, {"SnapUnit", "Person"}),
-        ({"case": {"SnapUnit", "Person", "Household"}}, {"SnapUnit", "Person"}),
-        ({"case": {"Household", "Tax"}}, {"SnapUnit", "Person"}),
-        ({"case": {"SnapUnit", "Person"}}, ()),
+        ({"case": {"SnapUnit", "Household"}}, SNAP_ON_PERSON),
+        ({"case": {"SnapUnit", "Person", "Household"}}, SNAP_ON_PERSON),
+        ({"case": {"Household", "Tax"}}, SNAP_ON_PERSON),
+        ({"case": {"SnapUnit", "Person"}}, None),
+        ({"case": {"SnapUnit", "OtherUnit"}}, OTHER_LINEAGE),
+        ({"case": {"OtherUnit", "Household"}}, OTHER_LINEAGE),
     ],
 )
-def test_distinct_id_check_refuses_kinds_outside_the_alias(occupied, query_kinds):
+def test_distinct_id_check_refuses_kinds_outside_the_alias(occupied, entity_kinds):
     with pytest.raises(ValueError, match="is shared by"):
-        require_distinct_entity_ids(occupied, query_kinds=query_kinds)
+        require_distinct_entity_ids(occupied, entity_kinds=entity_kinds)
 
 
-def test_distinct_id_check_accepts_a_filtered_alias_and_its_anchor():
-    require_distinct_entity_ids(
-        {"case": {"SnapUnit", "Person"}, "bob": {"Household"}},
-        query_kinds={"SnapUnit", "Person"},
-    )
+@pytest.mark.parametrize(
+    "occupied,entity_kinds",
+    [
+        ({"case": {"SnapUnit", "Person"}, "bob": {"Household"}}, SNAP_ON_PERSON),
+        ({"case": {"SnapUnit", "OtherUnit"}}, BOTH_ON_PERSON),
+        ({"case": {"SnapUnit", "OtherUnit", "Person"}}, BOTH_ON_PERSON),
+        ({"case": {"OtherUnit", "Person"}, "unit": {"SnapUnit"}}, OTHER_LINEAGE),
+    ],
+)
+def test_distinct_id_check_accepts_every_name_of_one_kind(occupied, entity_kinds):
+    require_distinct_entity_ids(occupied, entity_kinds=entity_kinds)
 
 
-def _allocated(entity, occupied, query_kinds):
+def _allocated(entity, occupied, entity_kinds):
     ids, facts = ["case"], [{"entity_id": "case"}]
     assign_generated_fixture_ids(
-        [(entity, ids, 0, facts)], occupied, query_kinds=query_kinds
+        [(entity, ids, 0, facts)], occupied, entity_kinds=entity_kinds
     )
     assert facts[0]["entity_id"] == ids[0]
     return ids[0]
 
 
 @pytest.mark.parametrize(
-    "entity,occupied,query_kinds,expected",
+    "entity,occupied,entity_kinds,expected",
     [
-        ("Person", {"SnapUnit"}, {"SnapUnit", "Person"}, "case"),
-        ("SnapUnit", {"Person"}, {"SnapUnit", "Person"}, "case"),
-        ("Household", {"SnapUnit"}, {"SnapUnit", "Person"}, "case:entity:Household"),
-        ("Person", {"Household"}, {"SnapUnit", "Person"}, "case:entity:Person"),
-        ("Person", {"SnapUnit"}, (), "case:entity:Person"),
-        ("Person", {"SnapUnit"}, {"SnapUnit"}, "case:entity:Person"),
+        ("Person", {"SnapUnit"}, SNAP_ON_PERSON, "case"),
+        ("SnapUnit", {"Person"}, SNAP_ON_PERSON, "case"),
+        ("OtherUnit", {"SnapUnit"}, BOTH_ON_PERSON, "case"),
+        ("Person", {"OtherUnit"}, OTHER_LINEAGE, "case"),
+        ("Household", {"SnapUnit"}, SNAP_ON_PERSON, "case:entity:Household"),
+        ("Person", {"Household"}, SNAP_ON_PERSON, "case:entity:Person"),
+        ("Person", {"SnapUnit"}, None, "case:entity:Person"),
+        ("Person", {"SnapUnit"}, OTHER_LINEAGE, "case:entity:Person"),
     ],
 )
-def test_generated_ids_share_a_root_only_across_query_kinds(
-    entity, occupied, query_kinds, expected
+def test_generated_ids_share_an_id_only_across_one_kind(
+    entity, occupied, entity_kinds, expected
 ):
-    assert _allocated(entity, {"case": occupied}, query_kinds) == expected
+    assert _allocated(entity, {"case": occupied}, entity_kinds) == expected
+
+
+def _query_kinds(query, relations):
+    return query_entity_kinds(query, filtered_entity_kinds(relations))
 
 
 def _relation(alias, slots, current=0, **extra):
@@ -492,18 +511,264 @@ def _relation(alias, slots, current=0, **extra):
 )
 def test_unusable_alias_coordinates_add_no_kind(relation):
     relations = [relation, _relation("Other", ["Person", "Person"])]
-    assert query_entity_kinds("SnapUnit", relations) == {"SnapUnit"}
+    assert _query_kinds("SnapUnit", relations) == {"SnapUnit"}
 
 
 def test_alias_reads_slot_kinds_from_the_relation_when_the_derivation_omits_them():
     relation = _relation("SnapUnit", ["Person", "Person"])
     del relation["derivation"]["slot_entities"]
-    assert query_entity_kinds("SnapUnit", [relation]) == {"SnapUnit", "Person"}
+    assert _query_kinds("SnapUnit", [relation]) == {"SnapUnit", "Person"}
+
+
+def _inheriting(alias, source):
+    relation = _relation(alias, [], source_relation=source)
+    del relation["slot_entities"], relation["derivation"]["slot_entities"]
+    return relation
+
+
+def test_alias_inherits_slot_kinds_through_its_sources():
+    base = {"name": "pairs", "slot_entities": ["Household", "Person"]}
+    middle = {**_inheriting("Unused", "pairs"), "name": "middle"}
+    assert filtered_entity_kinds([base, middle, _inheriting("SnapUnit", "middle")]) == {
+        "Unused": "Household",
+        "SnapUnit": "Household",
+    }
+
+
+def test_a_derived_declaration_settles_slot_kinds_before_its_source():
+    base = {"name": "pairs", "slot_entities": ["Household", "Person"]}
+    alias = _relation("SnapUnit", ["Person", "Household"], source_relation="pairs")
+    assert filtered_entity_kinds([base, alias]) == {"SnapUnit": "Person"}
+
+
+def test_a_derivation_settles_slot_kinds_before_its_own_relation():
+    alias = _relation("SnapUnit", ["Person", "Person"])
+    alias["slot_entities"] = ["Household", "Household"]
+    assert filtered_entity_kinds([alias]) == {"SnapUnit": "Person"}
+
+
+def test_a_path_source_never_inherits_slot_kinds():
+    base = {"name": "pairs", "slot_entities": ["Household", "Person"]}
+    alias = _inheriting("SnapUnit", "pairs")
+    alias["derivation"]["source_path"] = [{"relation": "pairs"}]
+    assert filtered_entity_kinds([base, alias]) == {}
+
+
+def test_a_source_cycle_settles_no_slot_kinds():
+    first, second = _inheriting("One", "two"), _inheriting("Two", "one")
+    first["name"], second["name"] = "one", "two"
+    assert filtered_entity_kinds([first, second]) == {}
+
+
+def test_a_filter_chain_ends_at_its_innermost_kind():
+    relations = [
+        _relation("Outer", ["Inner", "Inner"]),
+        _relation("Inner", ["Person", "Person"]),
+    ]
+    assert filtered_entity_kinds(relations) == {"Outer": "Person", "Inner": "Person"}
+
+
+def test_a_self_filter_is_its_own_kind():
+    relations = [
+        _relation("Outer", ["Household", "Household"]),
+        _relation("Household", ["Household", "Household"]),
+    ]
+    assert filtered_entity_kinds(relations) == {"Outer": "Household"}
+
+
+def test_an_alias_with_disagreeing_relations_stays_unmapped():
+    relations = [
+        _relation("SnapUnit", ["Person", "Person"]),
+        _relation("SnapUnit", ["Household", "Household"]),
+        _relation("Outer", ["SnapUnit", "SnapUnit"]),
+    ]
+    assert filtered_entity_kinds(relations) == {"Outer": "SnapUnit"}
+
+
+def test_an_alias_cycle_stays_unmapped():
+    relations = [
+        _relation("One", ["Two", "Two"]),
+        _relation("Two", ["One", "One"]),
+        _relation("Three", ["One", "One"]),
+    ]
+    assert filtered_entity_kinds(relations) == {}
+
+
+def test_query_kinds_cover_every_name_of_the_query_kind():
+    relations = [
+        _relation("SnapUnit", ["Person", "Person"]),
+        _relation("OtherUnit", ["Person", "Person"]),
+        _relation("HouseUnit", ["Household", "Household"]),
+    ]
+    kinds = {"SnapUnit", "OtherUnit", "Person"}
+    assert _query_kinds("SnapUnit", relations) == kinds
+    assert _query_kinds("OtherUnit", relations) == kinds
+    assert _query_kinds("Person", relations) == kinds
+    assert _query_kinds("Household", relations) == {"HouseUnit", "Household"}
 
 
 def test_query_kinds_ignore_missing_relations():
-    assert query_entity_kinds("Person", None) == {"Person"}
-    assert query_entity_kinds("Person", []) == {"Person"}
+    assert filtered_entity_kinds(None) == {}
+    assert filtered_entity_kinds([]) == {}
+    assert query_entity_kinds("Person", {}) == {"Person"}
+
+
+def _two_aliases(
+    tmp_path, *, query_slots, other_slots, predicate, formula, input_dtype
+):
+    """Two filtered entities, each over a source its own slot kinds name."""
+    root = tmp_path / "rulespec-us"
+    module = root / "us/policies/example/dataset_roles.yaml"
+    module.parent.mkdir(parents=True, exist_ok=True)
+
+    def filtered(name, source, slots, entity, member, condition):
+        return {
+            "name": name,
+            "kind": "derived_relation",
+            "derived_relation": {
+                "arity": 2,
+                "slot_entities": slots,
+                "current_slot": 0,
+                "related_slot": 1,
+                "source_relation": source,
+                "entity": entity,
+                "member_relation": member,
+            },
+            "versions": [{"effective_from": "2026-01-01", "formula": condition}],
+        }
+
+    def derived(name, entity, condition, dtype):
+        return {
+            "name": name,
+            "kind": "derived",
+            "entity": entity,
+            "dtype": dtype,
+            "versions": [{"effective_from": "2026-01-01", "formula": condition}],
+        }
+
+    module.write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        + yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "inputs": [
+                    {"name": "age", "entity": "OtherUnit", "dtype": input_dtype}
+                ],
+                "rules": [
+                    {
+                        "name": "pairs",
+                        "kind": "data_relation",
+                        "data_relation": {"arity": 2, "arguments": query_slots},
+                    },
+                    {
+                        "name": "ties",
+                        "kind": "data_relation",
+                        "data_relation": {"arity": 2, "arguments": other_slots},
+                    },
+                    filtered(
+                        "members",
+                        "pairs",
+                        query_slots,
+                        "SnapUnit",
+                        "selected",
+                        predicate,
+                    ),
+                    derived("member_count", "SnapUnit", formula, "Integer"),
+                    filtered(
+                        "others",
+                        "ties",
+                        other_slots,
+                        "OtherUnit",
+                        "other_selected",
+                        True,
+                    ),
+                    derived("other_value", "OtherUnit", "age", input_dtype),
+                ],
+            }
+        )
+    )
+    return root, module
+
+
+PERSON_PAIR = ["Person", "Person"]
+
+
+@pytest.mark.parametrize("surface", ["table", "flat"])
+def test_a_sibling_alias_fact_stays_on_the_shared_id(tmp_path, real_engine, surface):
+    root, module = _two_aliases(
+        tmp_path,
+        query_slots=PERSON_PAIR,
+        other_slots=PERSON_PAIR,
+        predicate="candidate == anchor",
+        formula="len(selected) + other_value",
+        input_dtype="Integer",
+    )
+    case = {
+        "name": "sibling",
+        "entity_id": "related_0",
+        "period": "2026-01",
+        "input": {PAIRS: [{}], TIES: []},
+        "output": {OUTPUT: 3},
+    }
+    if surface == "table":
+        case["tables"] = {"OtherUnit": [{"id": "related_0", AGE: 2}]}
+    else:
+        case["input"][AGE] = 2
+    assert _run_both(tmp_path, root, module, case, real_engine)[:2] == ([], [])
+    case["output"] = {OUTPUT: 2}
+    cli, other, payload = _run_both(tmp_path, root, module, case, real_engine)
+    assert cli and other
+    requests = _requests(tmp_path, copy.deepcopy(case), payload)
+    assert requests[0] == requests[1]
+    assert requests[0]["dataset"]["relations"][0]["tuple"] == ["related_0", "related_0"]
+    assert _ids_by_name(requests[0]) == {(AGE, "related_0")}
+
+
+def test_a_generated_id_joins_an_alias_outside_the_query_kind(tmp_path, real_engine):
+    root, module = _two_aliases(
+        tmp_path,
+        query_slots=["Household", "Person"],
+        other_slots=PERSON_PAIR,
+        predicate="candidate.age == candidate.age",
+        formula="len(selected)",
+        input_dtype="Text",
+    )
+    case = {
+        "name": "outside",
+        "period": "2026-01",
+        "input": {PAIRS: [{}], TIES: []},
+        "tables": {"OtherUnit": [{"id": "related_0", AGE: "x"}]},
+        "output": {OUTPUT: 1},
+    }
+    cli, other, payload = _run_both(tmp_path, root, module, case, real_engine)
+    assert (cli, other) == ([], [])
+    requests = _requests(tmp_path, copy.deepcopy(case), payload)
+    assert requests[0] == requests[1]
+    assert requests[0]["dataset"]["relations"][0]["tuple"] == ["case", "related_0"]
+
+
+def test_an_alias_of_another_kind_stays_off_a_shared_id(tmp_path, real_engine):
+    root, module = _two_aliases(
+        tmp_path,
+        query_slots=["Household", "Person"],
+        other_slots=PERSON_PAIR,
+        predicate="candidate.age == candidate.age",
+        formula="len(selected)",
+        input_dtype="Text",
+    )
+    case = {
+        "name": "foreign",
+        "entity_id": "shared",
+        "period": "2026-01",
+        "input": {PAIRS: EXPLICIT_PAIR, TIES: []},
+        "tables": {"OtherUnit": [{"id": "shared", AGE: "x"}]},
+        "output": {OUTPUT: 0},
+    }
+    payload = _compile(
+        real_engine.binary, real_engine.root, root, module, tmp_path / "compiled.json"
+    )
+    with pytest.raises(ValueError, match="is shared by"):
+        _requests(tmp_path, case, payload)
 
 
 KINDS = st.sampled_from(["A", "B", "C", "D", "E"])
@@ -514,33 +779,64 @@ OCCUPIED = st.dictionaries(FIXTURE_IDS, KINDS, max_size=3)
 GENERATED = st.lists(st.tuples(KINDS, FIXTURE_IDS), max_size=6)
 
 
-def _allocate_all(occupied, rows, query_kinds):
+ENTITY_KINDS = st.dictionaries(KINDS, st.sampled_from(["P", "Q"]), max_size=5)
+
+
+def _allocate_all(occupied, rows, entity_kinds):
     placed = {entity_id: {kind} for entity_id, kind in occupied.items()}
     generated = [(kind, [preferred], 0, []) for kind, preferred in rows]
-    assign_generated_fixture_ids(generated, placed, query_kinds=query_kinds)
+    assign_generated_fixture_ids(generated, placed, entity_kinds=entity_kinds)
     return placed, [ids[0] for _, ids, _, _ in generated]
 
 
-@given(OCCUPIED, GENERATED, st.frozensets(KINDS))
-def test_allocation_never_makes_an_id_the_check_refuses(occupied, rows, query_kinds):
-    placed, _ = _allocate_all(occupied, rows, query_kinds)
-    require_distinct_entity_ids(placed, query_kinds=query_kinds)
+def _base_allocation(occupied, rows):
+    """Literal copy of the allocator on main, which keeps every kind apart."""
+    placed = {entity_id: {kind} for entity_id, kind in occupied.items()}
+    allocated = []
+    for entity, preferred in rows:
+        reserved = {
+            entity_id for entity_id, kinds in placed.items() if kinds - {entity}
+        }
+        entity_id = preferred
+        if preferred in reserved:
+            base = entity_id = f"{preferred}:entity:{entity}"
+            suffix = 1
+            while entity_id in reserved:
+                entity_id, suffix = f"{base}:{suffix}", suffix + 1
+        allocated.append(entity_id)
+        placed.setdefault(entity_id, set()).add(entity)
+    return placed, allocated
 
 
-@given(OCCUPIED, GENERATED, KINDS)
-def test_one_query_kind_keeps_the_legacy_allocation(occupied, rows, query):
-    assert _allocate_all(occupied, rows, {query}) == _allocate_all(occupied, rows, ())
+@given(OCCUPIED, GENERATED, ENTITY_KINDS)
+def test_allocation_never_makes_an_id_the_check_refuses(occupied, rows, entity_kinds):
+    placed, _ = _allocate_all(occupied, rows, entity_kinds)
+    require_distinct_entity_ids(placed, entity_kinds=entity_kinds)
 
 
-@given(st.lists(st.tuples(KINDS, KINDS), max_size=8), KINDS)
-def test_query_kinds_equal_alias_reachability(edges, query):
-    relations = [
-        _relation(alias, [underlying, underlying]) for alias, underlying in edges
-    ]
-    reachable = {query}
-    for _ in edges:
-        reachable |= {b for a, b in edges if a in reachable}
-    assert query_entity_kinds(query, relations) == reachable
+@given(OCCUPIED, GENERATED)
+def test_no_alias_map_keeps_the_base_allocation(occupied, rows):
+    assert _allocate_all(occupied, rows, {}) == _base_allocation(occupied, rows)
+
+
+@given(st.dictionaries(st.sampled_from("BCDE"), KINDS, max_size=4), KINDS)
+def test_query_kinds_match_the_innermost_kind(parents, query):
+    forest = {alias: parent for alias, parent in parents.items() if parent < alias}
+    relations = [_relation(alias, [parent, parent]) for alias, parent in forest.items()]
+
+    def innermost(kind):
+        while kind in forest:
+            kind = forest[kind]
+        return kind
+
+    assert filtered_entity_kinds(relations) == {
+        alias: innermost(alias) for alias in forest
+    }
+    assert _query_kinds(query, relations) == {
+        query,
+        innermost(query),
+        *(alias for alias in forest if innermost(alias) == innermost(query)),
+    }
 
 
 @given(st.lists(st.tuples(KINDS, KINDS), max_size=8), KINDS)
@@ -555,7 +851,8 @@ def test_legacy_programs_keep_one_query_kind(edges, query):
         }
         for alias, underlying in edges
     ]
-    assert query_entity_kinds(query, relations) == {query}
+    assert filtered_entity_kinds(relations) == {}
+    assert _query_kinds(query, relations) == {query}
 
 
 @given(KINDS, st.frozensets(KINDS), st.sampled_from(["case", "alice"]))

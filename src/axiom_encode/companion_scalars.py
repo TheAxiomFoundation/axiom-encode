@@ -9,33 +9,28 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-_INPUT_DTYPES = frozenset(
-    {
-        "bool",
-        "boolean",
-        "judgment",
-        "integer",
-        "int",
-        "decimal",
-        "float",
-        "money",
-        "rate",
-        "number",
-        "text",
-        "string",
-        "date",
-    }
-)
-_NUMERIC_DTYPES = frozenset(
-    {"integer", "int", "decimal", "float", "money", "rate", "number"}
-)
+_QUOTED_VALUE_CONVERSIONS = {
+    "bool": "bool",
+    "boolean": "bool",
+    "judgment": "bool",
+    "integer": "number",
+    "int": "number",
+    "decimal": "number",
+    "float": "number",
+    "money": "number",
+    "rate": "number",
+    "number": "number",
+    "text": "text",
+    "string": "text",
+    "date": "date",
+}
 
 
-def _normalized_dtype(dtype: Any) -> str | None:
+def _quoted_value_conversion(dtype: Any) -> str | None:
+    """Name how a dtype reads a quoted value, whatever its spelling."""
     if not isinstance(dtype, str):
         return None
-    normalized = dtype.strip().lower()
-    return normalized if normalized in _INPUT_DTYPES else None
+    return _QUOTED_VALUE_CONVERSIONS.get(dtype.strip().lower())
 
 
 def companion_scalar_value(
@@ -46,10 +41,10 @@ def companion_scalar_value(
 ) -> dict[str, Any]:
     """Convert one supplied scalar, keeping text that no type makes a number.
 
-    A numeric dtype converts quoted numbers in both runners. Without one,
-    `infer_numeric_text` keeps each runner's own handling: the pipeline reads
-    legacy quoted numbers as numbers, and the CLI and relation-role programs
-    keep them as text.
+    Relation-role programs supply `dtype`, and a numeric one converts quoted
+    numbers. Legacy programs supply none, so `infer_numeric_text` keeps each
+    runner's own handling: the pipeline reads their quoted numbers as numbers,
+    and the CLI keeps them as text.
     """
     if isinstance(value, bool):
         return {"kind": "bool", "value": value}
@@ -60,13 +55,13 @@ def companion_scalar_value(
     if isinstance(value, date):
         return {"kind": "date", "value": value.isoformat()}
     if isinstance(value, str):
-        declared = _normalized_dtype(dtype)
-        if declared in {"text", "string"}:
+        conversion = _quoted_value_conversion(dtype)
+        if conversion == "text":
             return {"kind": "text", "value": value}
         stripped = value.strip()
-        if declared == "date":
+        if conversion == "date":
             return {"kind": "date", "value": stripped}
-        if declared not in _NUMERIC_DTYPES and not infer_numeric_text:
+        if conversion != "number" and not infer_numeric_text:
             if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
                 return {"kind": "date", "value": value}
             return {"kind": "text", "value": value}
@@ -123,7 +118,7 @@ def compiled_input_dtypes(payload: dict[str, Any]) -> dict[str, str]:
     for item in interface.get("inputs") or []:
         if not isinstance(item, dict):
             continue
-        dtype = _normalized_dtype(item.get("dtype"))
+        dtype = _quoted_value_conversion(item.get("dtype"))
         if dtype is None:
             continue
         for key in (item.get("name"), item.get("legal_id")):
@@ -166,7 +161,7 @@ def _input_reference(key: str) -> str:
 
 def input_dtype(dtypes: dict[str, str], key: str) -> str | None:
     """Look up an input key, including rule-qualified input references."""
-    return _normalized_dtype(dtypes.get(key)) or _normalized_dtype(
+    return _quoted_value_conversion(dtypes.get(key)) or _quoted_value_conversion(
         dtypes.get(_input_reference(key))
     )
 
@@ -183,22 +178,36 @@ def declared_input_dtypes(
     A module's `inputs:` block describes what its own rules read, so a
     same-named declaration in a module that never reads this input says nothing
     about it. `input_readers` holds the compiled catalog's reader names, one
-    `<module>#input.<slot>` per reader. Readers that disagree leave the input
-    untyped, and the engine still decides whether the value runs.
+    `<module>#input.<slot>` per reader. Readers that would convert a quoted
+    value differently leave the input untyped, and the engine still decides
+    whether the value runs.
     """
     import yaml
 
     if not module_file.is_file():
         return {}
-    payloads = {}
+    modules: dict[Path, dict[Any, str]] = {}
 
-    def payload(path):
-        if path not in payloads:
+    def module_declarations(path: Path) -> dict[Any, str]:
+        """Map each declared input to its dtype, "" for an untyped declaration."""
+        if path not in modules:
             data = yaml.safe_load(path.read_text()) if path.is_file() else {}
-            payloads[path] = data if isinstance(data, dict) else {}
-        return payloads[path]
+            values = (data.get("inputs") if isinstance(data, dict) else None) or []
+            if isinstance(values, dict):
+                values = [
+                    {**item, "name": name}
+                    for name, item in values.items()
+                    if isinstance(item, dict)
+                ]
+            modules[path] = {}
+            for item in values:
+                if isinstance(item, dict):
+                    modules[path].setdefault(
+                        item.get("name"), str(item.get("dtype") or "")
+                    )
+        return modules[path]
 
-    def declaration(reference):
+    def declaration(reference: str) -> str | None:
         """Return the reference's declared dtype, or None without a declaration."""
         if ":" in reference and "#" in reference:
             target = resolve_reference(reference)
@@ -208,17 +217,7 @@ def declared_input_dtypes(
             name = name.removeprefix("input.")
         else:
             target, name = module_file, reference
-        values = payload(target).get("inputs") or []
-        if isinstance(values, dict):
-            values = [
-                {**item, "name": name}
-                for name, item in values.items()
-                if isinstance(item, dict)
-            ]
-        for item in values:
-            if isinstance(item, dict) and item.get("name") == name:
-                return str(item.get("dtype") or "")
-        return None
+        return module_declarations(target).get(name)
 
     dtypes = {}
     for key in input_keys:
@@ -226,7 +225,7 @@ def declared_input_dtypes(
         dtype = declaration(key)
         if dtype is None:
             found = {
-                _normalized_dtype(declaration(reader))
+                _quoted_value_conversion(declaration(reader))
                 for reader in input_readers.get(_input_reference(key), ())
             } - {None}
             dtype = found.pop() if len(found) == 1 else None
