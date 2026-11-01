@@ -129,6 +129,20 @@ def test_declared_input_types_follow_readers_and_local_authority(tmp_path, mappi
     ) == {"fact": "text", "local_fact": "Integer", "us:provider#input.fact": "Text"}
 
 
+def test_the_first_declaration_of_a_name_decides_its_dtype(tmp_path):
+    module = tmp_path / "module.yaml"
+    module.write_text(
+        "# Synthetic encoder test input; not a RuleSpec module.\n"
+        "inputs: [{name: fact, dtype: Text}, {name: fact, dtype: Integer}]\n"
+    )
+    assert declared_input_dtypes(
+        module,
+        ["fact"],
+        input_readers={},
+        resolve_reference=lambda _: None,
+    ) == {"fact": "Text"}
+
+
 def _reader_modules(tmp_path, **declared):
     label = "# Synthetic encoder test input; not a RuleSpec module.\n"
     modules = {}

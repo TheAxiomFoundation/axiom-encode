@@ -230,6 +230,23 @@ def test_a_local_alias_with_the_same_name_leaves_a_proven_import_alone():
     assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        {"source_relation": "unused_view"},
+        {"source_path": [{"relation": "unused_view"}]},
+    ],
+    ids=["relation", "path"],
+)
+def test_a_derived_relation_source_keeps_its_import(source):
+    payload = consumer("len(selected)", PROVIDER)
+    view = relation("selected", "true")
+    del view["derived_relation"]["source_relation"]
+    view["derived_relation"].update(source)
+    payload["rules"].insert(0, view)
+    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+
+
 def test_a_formula_outside_the_port_keeps_the_base_scan():
     payload = consumer("$ relation.unused_view", PROVIDER)
     assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
