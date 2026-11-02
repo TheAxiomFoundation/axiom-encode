@@ -89,31 +89,49 @@ def _select_work_clock() -> _WorkClock:
 _CLOCK = _select_work_clock()
 
 
+class WorkSample(float):
+    """The lowest work of one operation, which can measure that operation again."""
+
+    def __new__(cls, work: float, measure: Callable[[], WorkSample]) -> WorkSample:
+        sample = super().__new__(cls, work)
+        sample.measure = measure
+        return sample
+
+
 def lowest_work(
     call: Callable[[], T],
     check: Callable[[T], object],
     *,
     setup: Callable[[], object] | None = None,
     runs: int = 3,
-) -> float:
+) -> WorkSample:
     """Lowest work of several calls, with setup and every output check untimed.
 
     Clear caches in ``setup`` on every sample, so later samples do real work.
     A counter failing after selection raises rather than mixing units mid-run.
+    The returned sample's ``measure`` repeats all of this.
     """
     if runs < 1:
         raise ValueError("runs must be positive")
-    lowest = float("inf")
-    for _ in range(runs):
-        if setup is not None:
-            setup()
-        started = _CLOCK.read()
-        result = call()
-        work = _CLOCK.read() - started
-        assert work > 0, (_CLOCK.unit, work)
-        lowest = min(lowest, work)
-        check(result)
-    return lowest
+
+    def measure() -> WorkSample:
+        lowest = float("inf")
+        for _ in range(runs):
+            if setup is not None:
+                setup()
+            started = _CLOCK.read()
+            result = call()
+            work = _CLOCK.read() - started
+            assert work > 0, (_CLOCK.unit, work)
+            lowest = min(lowest, work)
+            check(result)
+        return WorkSample(lowest, measure)
+
+    return measure()
+
+
+def _within_headroom(small: float, large: float, input_ratio: float) -> bool:
+    return large < 3 * input_ratio * max(small, _CLOCK.floor)
 
 
 def assert_linear_growth(small: float, large: float, *, input_ratio: float) -> None:
@@ -122,12 +140,26 @@ def assert_linear_growth(small: float, large: float, *, input_ratio: float) -> N
     Use ratios above three for quadratic guards to leave room below r squared.
     Smaller ratios can expose exponential regressions with finite fixtures.
     Size fixtures so a known regression reaches that bound despite the floor.
+
+    CPU seconds for one fixed loop moved 3.6x on a loaded Mac at utility
+    priority, past that headroom. So a pair from ``lowest_work`` over the bound
+    measures again and fails only if the fresh pair exceeds it too. The fresh
+    pair replaces both samples, because the old small one may be the lucky one.
+    Plain numbers can't measure again, so they fail at once.
     """
     if input_ratio <= 1:
         raise ValueError("input ratio must exceed one")
     assert small > 0 and large > 0, (small, large)
-    assert large < 3 * input_ratio * max(small, _CLOCK.floor), (
+    first = small, large
+    if (
+        not _within_headroom(small, large, input_ratio)
+        and isinstance(small, WorkSample)
+        and isinstance(large, WorkSample)
+    ):
+        small, large = small.measure(), large.measure()
+    assert _within_headroom(small, large, input_ratio), (
         _CLOCK.unit,
+        first,
         small,
         large,
         input_ratio,

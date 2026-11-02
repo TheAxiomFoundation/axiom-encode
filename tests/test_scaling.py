@@ -7,6 +7,8 @@ import os
 from types import SimpleNamespace
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from tests import scaling
 
@@ -92,6 +94,95 @@ def test_small_input_ratios_can_guard_exponential_regressions():
 def test_growth_rejects_nonpositive_samples(small, large):
     with pytest.raises(AssertionError):
         scaling.assert_linear_growth(small, large, input_ratio=16)
+
+
+def scripted_sample(*values):
+    # A third measurement exhausts two values and raises, failing the test.
+    remaining = iter(values)
+
+    def measure():
+        return scaling.WorkSample(next(remaining), measure)
+
+    return measure()
+
+
+@pytest.fixture
+def unit_clock(monkeypatch):
+    monkeypatch.setattr(scaling, "_CLOCK", scaling._WorkClock(lambda: 0, 1, "test"))
+
+
+def test_growth_within_the_bound_does_not_measure_again(unit_clock):
+    scaling.assert_linear_growth(
+        scripted_sample(10), scripted_sample(479), input_ratio=16
+    )
+
+
+def test_growth_over_the_bound_passes_when_a_fresh_pair_fits(unit_clock):
+    scaling.assert_linear_growth(
+        scripted_sample(10, 10), scripted_sample(480, 479), input_ratio=16
+    )
+
+
+def test_a_fresh_pair_replaces_a_lucky_small_sample(unit_clock):
+    # 480 fits only against the new small sample of 20.
+    scaling.assert_linear_growth(
+        scripted_sample(10, 20), scripted_sample(480, 480), input_ratio=16
+    )
+
+
+def test_growth_fails_when_the_fresh_pair_also_exceeds_the_bound(unit_clock):
+    with pytest.raises(AssertionError) as failure:
+        scaling.assert_linear_growth(
+            scripted_sample(10, 11), scripted_sample(480, 600), input_ratio=16
+        )
+    # The report shows both pairs, so a failure reads as confirmed.
+    for reading in ("10.0", "480.0", "11.0", "600.0"):
+        assert reading in str(failure.value)
+
+
+@given(
+    first=st.tuples(st.integers(1, 10**9), st.integers(1, 10**9)),
+    fresh=st.tuples(st.integers(1, 10**9), st.integers(1, 10**9)),
+    input_ratio=st.integers(2, 256),
+)
+def test_growth_fails_exactly_when_two_measured_pairs_exceed_the_bound(
+    first, fresh, input_ratio
+):
+    def exceeds(small, large):
+        return large >= 3 * input_ratio * small
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(scaling, "_CLOCK", scaling._WorkClock(lambda: 0, 1, "test"))
+        small, large = (scripted_sample(*pair) for pair in zip(first, fresh))
+        if exceeds(*first) and exceeds(*fresh):
+            with pytest.raises(AssertionError):
+                scaling.assert_linear_growth(small, large, input_ratio=input_ratio)
+        else:
+            scaling.assert_linear_growth(small, large, input_ratio=input_ratio)
+
+
+def test_a_sample_repeats_its_whole_measurement(monkeypatch):
+    events = []
+    readings = iter((0, 30, 100, 110))
+
+    def read():
+        events.append("read")
+        return next(readings)
+
+    def check(value):
+        assert value == 42
+        events.append("check")
+
+    monkeypatch.setattr(scaling, "_CLOCK", scaling._WorkClock(read, 1, "test work"))
+    sample = scaling.lowest_work(
+        lambda: events.append("call") or 42,
+        check,
+        setup=lambda: events.append("setup"),
+        runs=1,
+    )
+    assert sample == 30
+    assert sample.measure() == 10
+    assert events == ["setup", "read", "call", "read", "check"] * 2
 
 
 def test_macos_selects_an_advancing_instruction_counter(monkeypatch):
