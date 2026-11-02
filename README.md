@@ -35,6 +35,13 @@ pipeline produces. The chartered admission model — where generation runs,
 what gets signed, and what CI is allowed to do — is
 [axiom-encode#1192](https://github.com/TheAxiomFoundation/axiom-encode/issues/1192).
 
+Signed re-encodes run centrally through this repository's
+[`targeted-signed-reencode.yml`](.github/workflows/targeted-signed-reencode.yml),
+behind the `production-signing` environment approval. The former key-migration
+and reusable caller-signing lanes were retired on 2026-10-14; jurisdiction
+repositories do not receive signing keys. See
+[signing deployment and secrets discipline](docs/trusted-signing-supervisor.md#workflow-deployment-and-secrets-discipline).
+
 If you are not running the supervised pipeline, you generally do not need
 this repo:
 
@@ -89,6 +96,61 @@ the output directory are not a second validation layout.
 explicit `--rulespec-dependency-root` pointing to the canonical country
 checkout; ambient environment and sibling checkout discovery are not used.
 
+### Engine pin differentials
+
+Bind both engine checkouts with `engine-bind --axiom-rules-engine-path <checkout>
+--pin <40-hex-ref>` first. The differential requires verified binding receipts,
+checks each checkout's HEAD independently, and does not change a policy pin:
+
+```bash
+axiom-encode engine-pin-diff --root /path/to/rulespec-dk/dk \
+  --old-engine /path/to/old-engine --old-engine-ref "$OLD_REF" \
+  --new-engine /path/to/new-engine --new-engine-ref "$NEW_REF" \
+  --as-of 2026-10-27 --out-dir /path/to/evidence
+```
+
+Optional positional paths are relative to `--root` and select modules, companion
+files, or directories. Cross-country imports use `--rulespec-dependency-root`;
+composition modules also require `--axiom-compose-path`. Each engine compiles its
+own artifacts through the validation pipeline. Companion requests reuse the
+`test` request builder and preserve all outputs together, in Explain and Fast.
+Parameter-only expectations retain `test`'s shared parameter evaluator and are
+recorded separately as `companion_parameters`, not represented as runtime-derived
+outputs. They reuse translated flat inputs, including table rows; parameter
+errors never replace runtime outcomes, and parameter changes have an independent
+DIFF comparison even alongside an expected derived refusal.
+Boundary probes inventory dated single-version derived rules, including the
+engine's top-level `formula` shorthand, and query the day before, the day of,
+and the day after each effective start and end. They prefer a direct or
+dependent-output companion; missing companions are marked `no_case`.
+
+Boundary periods retain their original duration; inputs and relations move by
+the same day delta. Current-period probes run Explain on both engines: months
+use calendar months, tax years retain their fiscal start, benefit weeks retain
+their weekday, and custom periods tile the original duration from its start.
+Calendar periods are finalized before translating input and relation intervals,
+preserving their coverage when month or fiscal-year lengths change. Date-valued
+facts are not changed. Published requests and independently compiled artifacts
+live under `--out-dir`, outside `--root`'s repository and every
+`--rulespec-dependency-root` checkout. Compilation uses a fresh private temporary
+directory under the system temporary directory, removed afterward. The command
+rejects a symlinked output directory or any symlink inside an existing output directory, and creates output
+without following links.
+
+`report.json` retains refs, binary digests, module blob SHAs, requests, values and
+errors. `report.md` lists classification counts and every non-PASS comparison.
+Only a precisely identified out-of-window formula refusal is expected, and only
+after an old success or an old date refusal at the same period start (a dated
+parameter with no value yet, or another rule with no formula version); companion
+cases affected this way are flagged for encoder repair. Matching missing-input
+refusals count as incomplete coverage. DIFF, new-engine PARITY_BREAK, and
+incomplete preparations or executions exit nonzero.
+Old-only parity breaks are evidence, not a migration gate. Do not move a pin
+with an unexplained on/after-start outcome change or new Explain/Fast disagreement.
+Cross-pin classification uses Explain as the established companion-runner
+baseline; each engine's Explain/Fast comparison and all four raw outcomes are
+retained, so an old Fast defect alone cannot turn into a blocking migration diff.
+
 Git probes for RuleSpec checkout identity and configuration use a 10-second
 timeout per attempt and retry once on timeout. On loaded hosts, set
 `AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS` to a finite positive number of seconds
@@ -114,6 +176,12 @@ remote corpus resolver. Multiple matching active
 rows are rejected as ambiguous. If the named release or an unambiguous provision
 is unavailable, encoding stops before calling a model. Supabase run/session sync
 is a separate telemetry feature and never supplies legal source text.
+
+For enacted amendments, request the principal provision with amendment and
+commencement evidence attached from the pinned corpus release. See
+[Encoding enacted amendments before commencement](docs/amendment-encoding.md)
+for the dated-version pattern, the exact discovery metadata ingest must supply,
+and blockers for direct amending-provision requests with unresolved context.
 
 A corpus checkout that keeps its bytes outside git (`.axiom/corpus-locks/`) gets
 the pinned release's provisions placed on binding, each file verified against the
@@ -345,8 +413,16 @@ Repository CI should run:
 axiom-encode guard-generated \
   --repo "$GITHUB_WORKSPACE" \
   --corpus-path "$AXIOM_CORPUS_PATH" \
+  --base-ref "$PROTECTED_BASE_REF" \
   --all
 ```
+
+CI must supply `PROTECTED_BASE_REF` from its trusted review or dispatch context.
+When retired source metadata migration receipts are present, `--all` requires
+this protected base to admit each receipt's complete transaction, including
+every rewritten importer and replacement owner. The receipt's own
+`base_commit` does not establish which base CI trusts. Without an explicit
+protected base, the guard refuses the receipt and names its path.
 
 That guard protects atomic RuleSpec YAML under `legislation/`, `policies/`,
 `regulations/`, and `statutes/` unless it matches a root-owned encoder apply
@@ -372,6 +448,68 @@ source — plus
 in-content `module.encoding_provenance` (`encoder`, `model`, `run_id`,
 `reviewed_by`) and `module.validation` (oracle, `matches`/`mismatches`/
 `pending` status, `last_run` date) blocks. These fields are inert at runtime.
+
+`module.interpretations` records each reading adopted when provisions conflict,
+the encoding departs from literal text, or a question has been put to the
+publisher. It is also inert at runtime. **Synthetic example:** an encoder can
+record an unresolved reading for the invented Example District Council Support
+Scheme as follows. The citation, excerpt, and readings below are fictional:
+
+```yaml
+module:
+  interpretations:
+    - id: household-change-notice
+      question: Must each adult notify the council separately of a household change?
+      texts:
+        - corpus_citation_path: xx-fictional/manual/example-district-support-scheme/notifications
+          excerpt: "Applicants must notify the council when household circumstances change."
+      reading: One household notification satisfies the notice requirement.
+      alternatives:
+        - id: separate-adult-notices
+          reading: Each adult must notify the council separately.
+          effect: Applicants would need to send separate notices.
+      basis: The scheme addresses the household as one applicant.
+      status: open
+      affects:
+        - example_support_change_notice_required
+```
+
+Each entry requires a module-unique `id` matching
+`[a-z0-9]+(-[a-z0-9]+)*`, non-blank `question`, `reading`, and `basis`, and
+non-empty `texts`, `alternatives`, and `affects` lists. A text has only
+`corpus_citation_path` and `excerpt`; an alternative requires an `id` unique
+within its interpretation and matching `^[a-z0-9]+(-[a-z0-9]+)*$`, a `reading`,
+and an optional `effect`. Its only allowed keys are `id`, `reading`, and
+`effect`. All string fields, including optional fields when present,
+must be non-blank. Unknown keys are rejected throughout the block.
+Each canonical corpus citation must resolve, and its excerpt must match the
+corpus using the same normalization and matcher as source proof atoms.
+`affects` names must be local `rules[].name` values, never deferred outputs.
+Interpretation excerpts count toward neither proof obligations nor the
+complete-source coverage gate.
+
+The status controls the additional evidence blocks:
+
+| `status` | `ruling` | `confirmation` |
+| --- | --- | --- |
+| `open` | Forbidden | Forbidden |
+| `ruled` | Required | Forbidden |
+| `confirmed` | Required | Required |
+| `contradicted` | Required | Required |
+
+`ruling` contains `by` (the ruling organisation), `date` (a real `YYYY-MM-DD`
+date), and `record` (an https URL to a public PR, issue, or comment).
+`confirmation` contains `by` (the publisher organisation), `date`, and the
+publisher's verbatim `excerpt`, plus an optional public https `record`.
+Quote dates in YAML. Use organisations, never people's names, and omit private
+decision identifiers, session identifiers, and local paths. The encoder is
+instructed to create `open` entries only, and repair rounds to copy a recorded
+human ruling only when it is supplied through `--review-findings` (then
+`status: ruled`). Validation checks the shape of `ruling` and `confirmation`
+blocks, not where a ruling came from. A supplied publisher reply
+permits `confirmed` or `contradicted` only with both evidence blocks. A
+`contradicted` entry blocks validation: repair the module, move the old reading
+into `alternatives`, and set the new reading's status.
 
 Check every pinned module in a jurisdiction checkout against a local
 `axiom-corpus` checkout:
@@ -448,7 +586,9 @@ from axiom_encode.core_export import build_spec_from_eval_result
 spec, metadata = build_spec_from_eval_result(
     selected_result,
     root="us:statutes/26/32/a/1",
-    modules=[("us:statutes/26/32/b", Path("/explicit/rulespec-us/us/statutes/26/32/b.yaml"))],
+    modules=[
+        ("us:statutes/26/32/b", Path("/explicit/rulespec-us/us/statutes/26/32/b.yaml"))
+    ],
 )
 ```
 

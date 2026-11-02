@@ -962,7 +962,13 @@ def _complete_source_obligations(module, complete_source_module, outline):
     )
     # Compare every completeness finding, branch, and numeric occurrence count,
     # including numeric recall, without sharing either implementation's results.
-    return dataclasses.asdict(result)
+    serialized = dataclasses.asdict(result)
+    # The pinned baseline predates this optional branch metadata. Fill only
+    # absent defaults so actual metadata values remain part of the comparison.
+    for branch in serialized["branches"]:
+        branch.setdefault("computation_chapeaux", ())
+        branch.setdefault("required_principal_output", None)
+    return serialized
 
 
 @given(outline=constructed_outlines())

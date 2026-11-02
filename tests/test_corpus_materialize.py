@@ -2933,3 +2933,163 @@ def test_property_git_batch_reader_survives_any_interleaving(_git_corpus, operat
             assert b"".join(store.open(f"{commit}:{path}", len(data))) == data
     finally:
         store.close()
+
+
+# ------------------------------------------------------- directory listing
+
+
+def test_listing_names_each_scope_file_of_one_class_in_one_directory(tmp_path):
+    manual = "data/corpus/provisions/us-or/manual"
+    _write_locks(
+        tmp_path,
+        {
+            f"{manual}/v1.jsonl": b"one\n",
+            "data/corpus/inventory/us-or/manual/v1.json": b"{}\n",
+            "data/corpus/sources/us-or/manual/v1/a.html": b"a\n",
+            # A scope whose lock lists no provisions file adds nothing.
+            "data/corpus/coverage/us-or/manual/v2.json": b"{}\n",
+            f"{manual}/v3.jsonl": b"three\n",
+            # Other directories are not listed.
+            "data/corpus/provisions/us-or/regulation/v1.jsonl": b"reg\n",
+            "data/corpus/provisions/us-ut/manual/v1.jsonl": b"ut\n",
+        },
+    )
+    # Files on disk do not change the listing.
+    (tmp_path / manual).mkdir(parents=True)
+    (tmp_path / manual / "stray.jsonl").write_bytes(b"stray\n")
+
+    listing = cm.locked_directory_listing(tmp_path, "provisions", "us-or", "manual")
+
+    assert listing == {
+        f"{manual}/v1.jsonl": cm.LockEntry(hashlib.sha256(b"one\n").hexdigest(), 4),
+        f"{manual}/v3.jsonl": cm.LockEntry(hashlib.sha256(b"three\n").hexdigest(), 6),
+    }
+    assert cm.locked_directory_listing(tmp_path, "coverage", "us-or", "manual") == {
+        "data/corpus/coverage/us-or/manual/v2.json": cm.LockEntry(
+            hashlib.sha256(b"{}\n").hexdigest(), 3
+        )
+    }
+    assert cm.locked_directory_listing(tmp_path, "provisions", "us-wy", "manual") == {}
+    assert cm.locked_directory_listing(tmp_path / "none", "provisions", "us", "x") == {}
+
+
+def test_listing_ignores_names_that_are_not_lock_files(tmp_path):
+    _write_locks(tmp_path, {PROVISIONS: b"row\n"})
+    directory = tmp_path / cm.LOCK_ROOT / "us/statute"
+    (directory / "README.md").write_text("notes\n")
+    (directory / "nested").mkdir()
+    # Hidden names are never locks, as axiom-corpus's load_locks skips them.
+    (directory / ".notes.json").write_text("not a lock\n")
+    (directory / ".DS_Store").write_bytes(b"\0")
+
+    assert set(
+        cm.locked_directory_listing(tmp_path, "provisions", "us", "statute")
+    ) == {PROVISIONS}
+
+
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        lambda lock: lock.write_bytes(lock.read_bytes().replace(b"  ]\n}\n", b"]}\n")),
+        lambda lock: lock.write_bytes(b"{"),
+        lambda lock: (lock.unlink(), lock.mkdir()),
+        lambda lock: (
+            lock.rename(lock.with_name("real.lock")),
+            lock.symlink_to(lock.with_name("real.lock")),
+        ),
+    ],
+    ids=["non-canonical", "not-json", "directory", "symlink"],
+)
+def test_listing_fails_closed_on_any_unusable_lock(tmp_path, corrupt):
+    _write_locks(tmp_path, {PROVISIONS: b"row\n", REG_PROVISIONS: b"reg\n"})
+    corrupt(tmp_path / cm.lock_path_for(PROVISIONS))
+
+    with pytest.raises(cm.CorpusMaterializationError, match="lock"):
+        cm.locked_directory_listing(tmp_path, "provisions", "us", "statute")
+    # A sibling directory with valid locks still lists.
+    assert set(
+        cm.locked_directory_listing(tmp_path, "provisions", "us", "regulation")
+    ) == {REG_PROVISIONS}
+
+
+def test_listing_refuses_an_indirect_lock_directory(tmp_path):
+    real = tmp_path / "real-locks"
+    _write_locks(real, {PROVISIONS: b"row\n"})
+    root = tmp_path / "checkout"
+    (root / cm.LOCK_ROOT).mkdir(parents=True)
+    (root / cm.LOCK_ROOT / "us").symlink_to(real / cm.LOCK_ROOT / "us")
+
+    with pytest.raises(cm.CorpusMaterializationError, match="not a real directory"):
+        cm.locked_directory_listing(root, "provisions", "us", "statute")
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        (("sources", "us", "statute"), "not a single-file artifact class"),
+        (("provisions", "../us", "statute"), "invalid scope component"),
+        (("provisions", "us", "Statute"), "invalid scope component"),
+    ],
+)
+def test_listing_refuses_other_classes_and_components(tmp_path, arguments, message):
+    with pytest.raises(cm.CorpusMaterializationError, match=message):
+        cm.locked_directory_listing(tmp_path, *arguments)
+
+
+_LISTING_CLASSES = ("provisions", "inventory", "coverage", "sources")
+_LISTING_DIRECTORIES = (("us-or", "manual"), ("us-ut", "manual"), ("us", "statute"))
+
+
+@st.composite
+def _locked_scopes(draw):
+    scopes = draw(
+        st.dictionaries(
+            st.tuples(
+                st.sampled_from(_LISTING_DIRECTORIES),
+                st.from_regex(r"[a-z0-9][a-z0-9.-]{0,12}", fullmatch=True),
+            ),
+            st.sets(st.sampled_from(_LISTING_CLASSES), min_size=1),
+            max_size=8,
+        )
+    )
+    pins: dict[str, bytes] = {}
+    for ((jurisdiction, document_class), version), classes in scopes.items():
+        prefix = f"{jurisdiction}/{document_class}"
+        for artifact_class in classes:
+            path = {
+                "provisions": f"data/corpus/provisions/{prefix}/{version}.jsonl",
+                "inventory": f"data/corpus/inventory/{prefix}/{version}.json",
+                "coverage": f"data/corpus/coverage/{prefix}/{version}.json",
+                "sources": f"data/corpus/sources/{prefix}/{version}/s.html",
+            }[artifact_class]
+            pins[path] = path.encode()
+    return pins
+
+
+@settings(
+    max_examples=100,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(_locked_scopes())
+def test_property_listing_is_the_locked_files_of_that_class_and_directory(pins):
+    """Invariant: a listing is exactly the lock entries of its class that sit
+    directly in its directory, the files a fetched checkout would hold there."""
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        _write_locks(root, pins)
+        for artifact_class in cm.PLACEABLE_ARTIFACT_CLASSES:
+            for jurisdiction, document_class in _LISTING_DIRECTORIES:
+                parent = f"data/corpus/{artifact_class}/{jurisdiction}/{document_class}"
+                expected = {
+                    path: cm.LockEntry(hashlib.sha256(data).hexdigest(), len(data))
+                    for path, data in pins.items()
+                    if path.rpartition("/")[0] == parent
+                }
+                assert (
+                    cm.locked_directory_listing(
+                        root, artifact_class, jurisdiction, document_class
+                    )
+                    == expected
+                )

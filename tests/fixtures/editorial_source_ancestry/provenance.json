@@ -1,0 +1,11 @@
+{
+  "source_release": "us-rulespec-2026-10-13-snap-fy2026-memo-source-corrected",
+  "source_release_content_sha256": "c0097c7ca468769aef0b5c7996dc9da91881a7e025f38a6baf2d31617afe2121",
+  "note": "Exact public source texts resolved with authenticated existing release and exact original deferred policies. Fixtures confer no admission.",
+  "files": {
+    "b-12-source.txt": "eeb9d8da8084dd18b6bd90f296eff74884335e21781c4c9a23b67e0785b45717",
+    "a-9-source.txt": "b559f25fcb8a8e6a2bf4bb37235c24b3065fe118eb7349bc78fbac2cfccbdba3",
+    "b-12-policy.yaml": "a63452ba98d32785e4e06779bf280b40d09164ae20806b6c7141868e0fa1bc80",
+    "a-9-policy.yaml": "76b9d9ec8950850b54b554fcfc364a4ec34c5d1ba0985b50bcb55cfb3ee62589"
+  }
+}

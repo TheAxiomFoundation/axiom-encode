@@ -1,4 +1,4 @@
-"""Conservative replacement obligations for externally proved scalar parameters.
+"""Conservative replacement obligations for externally proved legacy rules.
 
 This is input admission, not a source validator or a generated-output exemption.
 Every admitted rule must survive unchanged and pass the ordinary proof pipeline.
@@ -44,29 +44,43 @@ def external_parameter_obligations(
             continue
         versions = rule.get("versions")
         if (
-            rule.get("kind") != "parameter"
-            or rule.get("indexed_by") is not None
+            rule.get("indexed_by") is not None
             or not isinstance(versions, list)
             or len(versions) != 1
             or not isinstance(versions[0], dict)
         ):
             raise ValueError(
-                f"external source {citation} requires an unchanged scalar parameter"
+                f"external source {citation} requires an unchanged single-version rule"
             )
         value = versions[0].get("formula")
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (str, int, float))
-            or not re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)", str(value).strip())
-        ):
-            raise ValueError(
-                f"external source {citation} requires a literal numeric parameter"
+        scalar_parameter = rule.get("kind") == "parameter"
+        preserved_derived = (
+            rule.get("kind") == "derived"
+            and isinstance(value, str)
+            and bool(value.strip())
+            and all(
+                atom.get("kind") in {"condition", "effective_period"} for atom in cited
             )
-        try:
-            if not Decimal(str(value).strip()).is_finite():
-                raise ValueError("nonfinite scalar parameter")
-        except InvalidOperation as exc:
-            raise ValueError("invalid scalar parameter") from exc
+        )
+        if scalar_parameter:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (str, int, float))
+                or not re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)", str(value).strip())
+            ):
+                raise ValueError(
+                    f"external source {citation} requires a literal numeric parameter"
+                )
+            try:
+                if not Decimal(str(value).strip()).is_finite():
+                    raise ValueError("nonfinite scalar parameter")
+            except InvalidOperation as exc:
+                raise ValueError("invalid scalar parameter") from exc
+        elif not preserved_derived:
+            raise ValueError(
+                f"external source {citation} requires an unchanged scalar parameter "
+                "or a derived condition/effective-period proof"
+            )
         for atom in cited:
             excerpt = atom["source"].get("excerpt")
             if (
@@ -79,7 +93,7 @@ def external_parameter_obligations(
                 )
             ):
                 raise ValueError(
-                    f"external source {citation} lacks a source-grounded scalar formula proof"
+                    f"external source {citation} lacks a source-grounded formula proof"
                 )
         admitted_reference_count += len(cited)
         required.append(rule)
@@ -106,7 +120,7 @@ def external_parameter_obligations(
 
     if count_references(payload) != admitted_reference_count:
         raise ValueError(
-            "external source has evidence outside admitted scalar formula proofs"
+            "external source has evidence outside admitted scalar or preserved-rule proofs"
         )
     return required
 
@@ -158,7 +172,10 @@ def external_parameter_preservation_issues(
             if isinstance(r, dict) and r.get("name") == original["name"]
         ]
         if len(matches) != 1 or not _same_typed_value(matches[0], original):
+            qualifier = (
+                "scalar" if original.get("kind") == "parameter" else "source-proved"
+            )
             issues.append(
-                f"External source replacement must preserve the entire legacy scalar rule {original['name']} unchanged, including its source proof, effective period, unit and formula"
+                f"External source replacement must preserve the entire legacy {qualifier} rule {original['name']} unchanged, including its source proof, effective period, unit and formula"
             )
     return issues

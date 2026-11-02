@@ -1,0 +1,40 @@
+from __future__ import annotations
+import hashlib
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+here=Path(__file__).resolve().parent
+sys.path.insert(0,str(here))
+spec=importlib.util.spec_from_file_location('independent_final_corpus_runner',here/'final_differential.py')
+runner=importlib.util.module_from_spec(spec);sys.modules[spec.name]=runner;spec.loader.exec_module(runner)
+output=here/'final-current-main-verified'
+runner.initialize(str(output.resolve()))
+cases=['12.25','1225 $12.25 per hour','1225\n$12.25 per hour',
+    'Fees in dollars (required)\n214.03 Application Process\n214.04 Retroactive Applications',
+    'The month shown below determines eligibility.\n032-03-0445-01 (07/2026)',
+    '1.250 dollars and 12.50 dollars','In 2026 amounts were $2,026 and $20.26.',
+    '12.25% applies to 1225 dollars','12.25 per hour and 1225 dollars',
+    'Table 1: $2,474 2 $2,909','Table 1: Household size 1 100 size 2 200']
+results=[]
+for source in cases:
+    observed,diverged=runner.OBSERVE(source)
+    actual=runner.EXTRACT_CANDIDATE(source,'legacy')
+    baseline=runner.EXTRACT_MAIN(source,'legacy')
+    candidate=runner.PROBE(source)
+    assert observed==actual
+    if not diverged:
+        assert baseline==actual
+    if not candidate:
+        assert not diverged and actual==baseline
+    if diverged:
+        assert candidate
+    results.append({'source_sha256':hashlib.sha256(source.encode()).hexdigest(),'probe':candidate,'diverged':diverged,'observed_matches_candidate':True,'main_matches_when_no_divergence':not diverged})
+assert any(row['diverged'] for row in results)
+actual_baseline={name:sys.modules[name].__file__ for name in ('axiom_encode.harness.source_completeness','axiom_encode.harness.validator_pipeline')}
+expected=(here/'current-main-package/src/axiom_encode').resolve()
+assert all(Path(path).resolve().is_relative_to(expected) for path in actual_baseline.values())
+report={'cases':len(cases),'all_assertions_passed':True,'runtime_baseline_bindings':actual_baseline,'results':results,'runner_sha256':hashlib.sha256((here/'final_differential.py').read_bytes()).hexdigest()}
+(here/'review-observer-smoke.json').write_text(json.dumps(report,indent=2)+'\n')
+print(json.dumps({'cases':len(cases),'all_assertions_passed':True,'guard_divergences':sum(row['diverged'] for row in results),'runtime_package_binding_verified':True}))

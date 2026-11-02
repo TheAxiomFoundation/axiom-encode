@@ -44,9 +44,11 @@ _NEUTRAL_GIT_ENVIRONMENT = {
     "GIT_CONFIG_GLOBAL": "/dev/null",
     "GIT_CONFIG_SYSTEM": "/dev/null",
     "GIT_CONFIG_NOSYSTEM": "1",
-    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_COUNT": "2",
     "GIT_CONFIG_KEY_0": "core.commitGraph",
     "GIT_CONFIG_VALUE_0": "false",
+    "GIT_CONFIG_KEY_1": "advice.graftFileDeprecated",
+    "GIT_CONFIG_VALUE_1": "false",
     "GIT_TERMINAL_PROMPT": "0",
 }
 _HOSTILE_GIT_ENVIRONMENT = {
@@ -458,6 +460,65 @@ def test_every_guard_git_command_scrubs_overrides_and_disables_graph_rewriting(
         assert result["commit"] == pin
     else:
         assert set(result.values()) == {cli.__version__}
+
+
+@pytest.mark.parametrize(
+    "metadata", ["none", "repository-grafts", "repository-advice-config"]
+)
+def test_guard_git_queries_leave_no_graft_deprecation_hint_on_stderr(
+    tmp_path, monkeypatch, metadata
+):
+    # GIT_GRAFT_FILE=/dev/null is a readable graft file, so Git prints its graft
+    # deprecation advice whenever a query parses a commit, grafts or not.
+    history, main, feature = _forked_graph(tmp_path / "advice-history")
+    # Control: with no inherited Git settings, GIT_GRAFT_FILE alone must make
+    # this Git advise, or the assertions below could pass without the fix.
+    control_environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
+    control_environment.update(
+        GIT_GRAFT_FILE=os.devnull,
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+    )
+    control = subprocess.run(
+        [shutil.which("git") or "git", "-C", str(history.root), "rev-list", "HEAD"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=control_environment,
+    )
+    assert control.returncode == 0, control.stderr
+    if "advice.graftFileDeprecated" not in control.stderr:
+        pytest.skip("this Git prints no graft-file deprecation advice")
+    if metadata == "repository-grafts":
+        # The guard refuses repository grafts before parsing any commit; switch
+        # that check off so its queries run with the graft file present.
+        _grafts(history.root, f"{history.commits[main]} {history.commits[feature]}\n")
+        monkeypatch.setattr(
+            cli, "_guard_encoder_git_metadata_issue", lambda checkout: None
+        )
+    elif metadata == "repository-advice-config":
+        _git(history.root, "config", "advice.graftFileDeprecated", "true")
+    calls = []
+    real_run = subprocess.run
+
+    def capture(command, **kwargs):
+        result = real_run(command, **kwargs)
+        calls.append((command, os.fsdecode(result.stderr or "")))
+        return result
+
+    monkeypatch.setattr(cli.subprocess, "run", capture)
+
+    assert _issue(history, main) is None
+    assert "producer is not on the first-parent history" in (
+        _issue(history, feature) or ""
+    )
+    assert any("rev-list" in command for command, _stderr in calls)
+    for command, stderr in calls:
+        hints = [line for line in stderr.splitlines() if line.startswith("hint:")]
+        assert not hints, command
 
 
 def _fetch_record(commit: str, branch: str = "main", repository: str | None = None):

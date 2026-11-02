@@ -5,9 +5,11 @@ import hashlib
 from pathlib import Path
 
 import pytest
+import yaml
 
 from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness import worksheet_country_evidence as c
+from axiom_encode.harness.proof_validator import validate_rulespec_proofs
 
 SOURCE = (Path(__file__).parent / "fixtures/t2036_operand_gates/source.txt").read_text()
 PREFIX = "ca:policies/cra/t1-2025/provincial-territorial-foreign-tax-credit#"
@@ -61,6 +63,7 @@ def rule(name, formula, parameter=False):
 
 def fixture():
     payload = {
+        "format": "rulespec/v1",
         "module": {
             "source_verification": {
                 "corpus_citation_path": c.CITE,
@@ -103,6 +106,21 @@ def fixture():
     return payload, cases
 
 
+def interpretation(affects, *, citation=c.CITE, excerpt=c.ANTECEDENT):
+    return {
+        "id": "separate-country-forms",
+        "question": "Should a separate form be used for each country?",
+        "texts": [{"corpus_citation_path": citation, "excerpt": excerpt}],
+        "reading": "The country count governs separate forms.",
+        "alternatives": [
+            {"id": "single-form", "reading": "One form always covers every country."}
+        ],
+        "basis": "The source distinguishes country counts.",
+        "status": "open",
+        "affects": [affects],
+    }
+
+
 def certify(payload, cases, source=SOURCE):
     return c.certify_worksheet_country(
         payload, test_cases=cases, source_text=source, corpus_citation_path=c.CITE
@@ -132,6 +150,41 @@ def test_actual_source_three_boundary_cases_and_exact_projection():
     assert len(evidence.pairs) == 2
     assert owns(evidence, payload, cases)
     assert owns(evidence, payload, cases, start=886)
+
+
+def test_interpretation_of_an_omitted_rule_does_not_change_country_evidence():
+    payload, cases = fixture()
+    assert payload["format"] == "rulespec/v1"
+    payload["rules"].append(rule("unrelated_flag", f"{c.COUNT} > 5"))
+    baseline = certify(payload, cases)
+    payload["module"]["interpretations"] = [interpretation("unrelated_flag")]
+    metadata_context = {
+        "format": payload["format"],
+        "module": {
+            "interpretations": copy.deepcopy(payload["module"]["interpretations"])
+        },
+        "rules": [{"name": rule["name"]} for rule in payload["rules"]],
+    }
+    metadata_validation = validate_rulespec_proofs(
+        yaml.safe_dump(metadata_context), source_texts={c.CITE: SOURCE}
+    )
+    assert metadata_validation.passed, metadata_validation.issues
+
+    original_payload = copy.deepcopy(payload)
+    evidence = certify(payload, cases)
+    assert not baseline.unresolved and not evidence.unresolved
+    assert evidence.pairs == baseline.pairs
+    assert evidence.span == baseline.span
+    assert evidence.interval == baseline.interval
+    assert owns(evidence, payload, cases)
+    assert payload == original_payload
+
+    metadata_context["module"]["interpretations"][0]["affects"] = ["undefined_output"]
+    invalid = validate_rulespec_proofs(
+        yaml.safe_dump(metadata_context), source_texts={c.CITE: SOURCE}
+    )
+    assert not invalid.passed
+    assert any("must name a rule defined in this module" in x for x in invalid.issues)
 
 
 @pytest.mark.parametrize(
