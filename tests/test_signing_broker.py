@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from hypothesis import given
 from hypothesis import strategies as st
 
+from axiom_encode import signing_broker
 from axiom_encode.corpus_release import RELEASE_OBJECT_PUBLIC_KEY_ENV
 from axiom_encode.retired_apply import validate_retired_apply_inventory
 from axiom_encode.signing_broker import (
@@ -222,6 +223,125 @@ def test_scrub_removes_private_keys_and_broker_handles() -> None:
         "XDG_CONFIG_HOME": "/nonexistent",
         "XDG_DATA_HOME": "/nonexistent",
     }
+
+
+def test_scrub_preserves_only_supervisor_captured_codex_home(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        signing_broker,
+        "_trusted_subprocess_base_environment",
+        {
+            "HOME": "/protected/python",
+            "PATH": "/protected/runtime",
+        },
+    )
+    monkeypatch.setattr(
+        signing_broker,
+        "_trusted_codex_home",
+        "/supervisor/isolated-codex-home",
+    )
+    monkeypatch.setenv("CODEX_HOME", "/ambient/codex-home")
+
+    environment = scrub_private_signing_environment(
+        {"CODEX_HOME": "/caller/override", "PATH": "/caller/bin"},
+        include_supervisor_codex_home=True,
+    )
+
+    assert environment == {
+        "CODEX_HOME": "/supervisor/isolated-codex-home",
+        "HOME": "/protected/python",
+        "PATH": "/protected/runtime",
+    }
+    assert "CODEX_HOME" not in scrub_private_signing_environment(
+        {"CODEX_HOME": "/caller/override"}
+    )
+
+    monkeypatch.setattr(signing_broker, "_trusted_codex_home", None)
+    assert "CODEX_HOME" not in scrub_private_signing_environment(
+        {"CODEX_HOME": "/caller/override"},
+        include_supervisor_codex_home=True,
+    )
+
+
+_ENV_NAMES = st.sampled_from(
+    [
+        "CODEX_HOME",
+        "HOME",
+        "PATH",
+        "TZ",
+        "LC_ALL",
+        "PYTHONHASHSEED",
+        APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV,
+        EVAL_EVIDENCE_PRIVATE_KEY_ENV,
+        BROKER_FD_ENV,
+    ]
+) | st.text(min_size=1, max_size=12)
+
+
+@given(
+    caller=st.none() | st.dictionaries(_ENV_NAMES, st.text(max_size=12)),
+    captured=st.none() | st.text(min_size=1, max_size=24),
+    include=st.booleans(),
+)
+def test_scrub_codex_home_is_only_ever_the_captured_supervisor_value(
+    caller: dict[str, str] | None,
+    captured: str | None,
+    include: bool,
+) -> None:
+    """CODEX_HOME comes only from the supervisor capture, and only on request.
+
+    A caller mapping can neither add nor replace it, and apart from that one
+    name the opt-in changes nothing about the scrubbed environment.
+    """
+    with (
+        patch.object(signing_broker, "_trusted_subprocess_base_environment", None),
+        patch.object(signing_broker, "_trusted_codex_home", captured),
+    ):
+        without = scrub_private_signing_environment(caller)
+        scrubbed = scrub_private_signing_environment(
+            caller, include_supervisor_codex_home=include
+        )
+
+    assert "CODEX_HOME" not in without
+    if include and captured:
+        assert scrubbed.pop("CODEX_HOME") == captured
+    else:
+        assert "CODEX_HOME" not in scrubbed
+    assert scrubbed == without
+
+
+def test_attach_captures_supervisor_codex_home(monkeypatch) -> None:
+    """The broker attach records CODEX_HOME before any child is launched."""
+
+    client, peer = socket.socketpair()
+    monkeypatch.setenv(BROKER_MARKER_ENV, "1")
+    monkeypatch.setenv(BROKER_FD_ENV, str(client.fileno()))
+    monkeypatch.setenv(BROKER_PID_ENV, str(os.getpid()))
+    monkeypatch.setenv("CODEX_HOME", "/supervisor/isolated-codex-home")
+    monkeypatch.setattr(signing_broker, "_trusted_codex_home", None)
+    monkeypatch.setattr(signing_broker, "_trusted_subprocess_base_environment", None)
+    monkeypatch.setattr(
+        signing_broker, "_harden_signing_capability_process", lambda **_: None
+    )
+    monkeypatch.setattr(
+        signing_broker, "_authenticate_broker_peer", lambda *a, **k: None
+    )
+    monkeypatch.setattr(signing_broker, "install_signing_broker", lambda *a, **k: None)
+    # The real client would block on a status round trip with the broker.
+    monkeypatch.setattr(
+        signing_broker, "SigningBrokerClient", lambda connection, **_: connection
+    )
+    monkeypatch.setattr(signing_broker.atexit, "register", lambda *_: None)
+    try:
+        signing_broker.attach_signing_broker_from_environment()
+        assert signing_broker._trusted_codex_home == "/supervisor/isolated-codex-home"
+    finally:
+        peer.close()
+        try:
+            client.close()
+        except OSError:
+            pass
 
 
 @pytest.mark.parametrize(

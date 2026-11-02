@@ -521,6 +521,10 @@ def _run_codex_reviewer_cli(
             timeout=timeout,
             idle_timeout=idle_timeout,
             cwd=cwd,
+            # Codex cannot initialize without a home directory. Under the
+            # signing supervisor only its captured, isolated home is forwarded;
+            # the sandbox above keeps the review read-only.
+            include_supervisor_codex_home=True,
         )
         return _extract_codex_text_output(result.output), result.returncode
     except subprocess.TimeoutExpired:
@@ -553,6 +557,7 @@ def _run_subprocess_with_idle_timeout(
     idle_timeout: int,
     cwd: Optional[Path] = None,
     env: Mapping[str, str] | None = None,
+    include_supervisor_codex_home: bool = False,
     poll_interval: float = 0.5,
 ) -> _SubprocessRunResult:
     """Run a subprocess, aborting if it stops emitting output for too long."""
@@ -576,10 +581,9 @@ def _run_subprocess_with_idle_timeout(
                     stderr=stderr_file,
                     text=True,
                     cwd=cwd,
-                    env=(
-                        scrub_attestation_signing_keys()
-                        if env is None
-                        else scrub_attestation_signing_keys(env)
+                    env=scrub_attestation_signing_keys(
+                        env,
+                        include_supervisor_codex_home=include_supervisor_codex_home,
                     ),
                 )
 
