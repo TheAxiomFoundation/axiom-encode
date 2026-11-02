@@ -1725,8 +1725,41 @@ def test_fixture_branch_index_descendants_are_the_path_filter(source, citation):
             )
 
 
+class _SeesOnlyTwo(int):
+    """An end that only a start of 2 falls inside, whatever the end's value.
+
+    Python asks an int subclass first, so ``start < end`` runs this. A scan asks
+    at every start, where a lookup of the least start would ask once.
+    """
+
+    def __gt__(self, other):
+        return other == 2
+
+
+class _RaisesAtTwo(int):
+    """An offset that raises when compared with a start of 2, as a scan may."""
+
+    def __le__(self, other):
+        if other == 2:
+            raise ValueError("later child")
+        return int(self) <= other
+
+    def __gt__(self, other):
+        if other == 2:
+            raise ValueError("later child")
+        return int(self) > other
+
+
 _ODD_STARTS = st.one_of(
-    st.integers(-1, 41), st.booleans(), st.floats(-1, 41), st.none()
+    st.integers(-1, 41),
+    st.booleans(),
+    st.floats(-1, 41),
+    st.none(),
+    st.sampled_from((_SeesOnlyTwo(10), _RaisesAtTwo(0), _RaisesAtTwo(10))),
+)
+_TWO_CHILDREN = (
+    SourceStructureBranch(("a", "b"), "paragraph", "(a)", "x" * 41, 1, 41),
+    SourceStructureBranch(("a", "c"), "paragraph", "(a)", "x" * 41, 2, 41),
 )
 
 
@@ -1796,6 +1829,19 @@ def _odd_branch_pools(draw):
             )
             for branch in draw(st.lists(st.sampled_from(held), max_size=3))
         ]
+        # The same prefixes on offsets the index must not trust, even when it
+        # knows every start in the pool.
+        strangers += [
+            SourceStructureBranch(
+                path=branch.path[:-1],
+                kind="paragraph",
+                label="(a)",
+                text="x" * 41,
+                start=draw(_ODD_STARTS),
+                end=draw(_ODD_STARTS),
+            )
+            for branch in draw(st.lists(st.sampled_from(held), max_size=2))
+        ]
     # Paths the index must not answer for, whatever the pool holds.
     strangers += [
         SourceStructureBranch(
@@ -1858,6 +1904,41 @@ def _odd_branch_pools(draw):
         [SourceStructureBranch((1,), "sentence", "", "x" * 41, 0, 41)],
     )
 )
+@example(
+    # An end that only a start of 2 falls inside: main scans past the least
+    # start, 1, and stops the text at 2. A lookup would keep the whole text.
+    (
+        _TWO_CHILDREN,
+        [
+            SourceStructureBranch(
+                ("a",), "paragraph", "(a)", "x" * 41, 0, _SeesOnlyTwo(10)
+            )
+        ],
+    )
+)
+@example(
+    # An end that raises at a start of 2: main's scan reaches that comparison,
+    # and a lookup of the least start would not.
+    (
+        _TWO_CHILDREN,
+        [
+            SourceStructureBranch(
+                ("a",), "paragraph", "(a)", "x" * 41, 0, _RaisesAtTwo(10)
+            )
+        ],
+    )
+)
+@example(
+    # The same for the branch's start.
+    (
+        _TWO_CHILDREN,
+        [
+            SourceStructureBranch(
+                ("a",), "paragraph", "(a)", "x" * 41, _RaisesAtTwo(0), 41
+            )
+        ],
+    )
+)
 def test_direct_text_matches_main_on_odd_pools(case):
     branches, strangers = case
     text = "x" * 41
@@ -1888,9 +1969,11 @@ def test_direct_text_matches_main_on_odd_pools(case):
         if not index._knows_lowest_starts:
             return
         for branch in (*branches, *strangers):
-            if type(branch.start) is not int or type(branch.end) is not int:
-                continue
-            if sc._plain_path(branch.path):
+            if (
+                type(branch.start) is int
+                and type(branch.end) is int
+                and sc._plain_path(branch.path)
+            ):
                 assert index.first_descendant_start(branch) == _first_start(
                     branches, branch
                 )
@@ -3014,10 +3097,16 @@ _ROUNDS = 5
 _MIN_ROUND_CPU = 0.05
 
 
-def _call_cpu_seconds(call: Callable[[], object], *, budget: float) -> float:
-    start = time.process_time()
-    call()
-    elapsed = time.process_time() - start
+def _cold_cpu_seconds(call: Callable[[], object], *, budget: float) -> float:
+    """The CPU time of one ``call`` with every cache cold, in a fresh scope."""
+
+    # Patterns built per reason are purged too: `re` keeps 512, which holds a
+    # small size's patterns between calls but not a large one's.
+    _clear_caches()
+    with sc._source_index_scope():
+        start = time.process_time()
+        call()
+        elapsed = time.process_time() - start
     if elapsed > budget:
         pytest.fail(
             f"one call took {elapsed:.2f}s of CPU, over its {budget:.2f}s "
@@ -3172,47 +3261,18 @@ def test_coverage_still_measures_other_threads_after_a_timing(core, tmp_path):
     ]
 
 
-def _round_cpu_seconds(
-    call: Callable[[], object], *, repeats: int, budget: float
-) -> float:
-    """The CPU time of ``repeats`` calls, each with every cache cold, in a
-    fresh scope.
-
-    A ``call`` with a ``warm`` attribute shares one fresh scope across the
-    round instead: ``warm`` runs there once, off the clock, to build what the
-    family does not time, so that build is not repeated for every cheap call.
-    """
-
-    warm = getattr(call, "warm", None)
-    if warm is not None:
-        _clear_caches()
-        with sc._source_index_scope():
-            warm()
-            return sum(
-                _call_cpu_seconds(call, budget=budget) for _repeat in range(repeats)
-            )
-    spent = 0.0
-    for _repeat in range(repeats):
-        # Patterns built per reason are purged too: `re` keeps 512, which holds
-        # a small size's patterns between calls but not a large one's.
-        _clear_caches()
-        with sc._source_index_scope():
-            spent += _call_cpu_seconds(call, budget=budget)
-    return spent
-
-
 def _cpu_times(calls: Sequence[Callable[[], object]], *, budget: float) -> list[float]:
     """The least CPU time of each call's round, over interleaved rounds."""
 
     with _without_tracing():
-        smallest = min(
-            _round_cpu_seconds(calls[0], repeats=1, budget=budget) for _ in range(3)
-        )
+        smallest = min(_cold_cpu_seconds(calls[0], budget=budget) for _ in range(3))
         repeats = max(1, math.ceil(_MIN_ROUND_CPU / max(smallest, 1e-6)))
         best = [math.inf] * len(calls)
         for _round in range(_ROUNDS):
             for position, call in enumerate(calls):
-                spent = _round_cpu_seconds(call, repeats=repeats, budget=budget)
+                spent = sum(
+                    _cold_cpu_seconds(call, budget=budget) for _repeat in range(repeats)
+                )
                 best[position] = min(best[position], spent)
     return best
 
@@ -3323,41 +3383,44 @@ def _deep_span_family(n: int):
 def _deep_direct_text_family(n: int):
     """``_source_branch_direct_text`` over n attached markers, n deep.
 
-    These paths hold n(n+1)/2 components in all, and building the branch index
-    reads each one, so the index is built off the clock, once per round: each
-    branch's lookup is timed, and it must not read its descendants' paths.
-    ``_deep_lowest_starts_family`` times the least starts the lookups read.
+    These paths hold n(n+1)/2 components in all, and building the trie reads
+    each one, so the family builds it and its least starts once, off the clock.
+    ``test_deep_direct_text_costs_a_fraction_of_main`` times that build, and
+    ``_deep_lowest_starts_family`` the least starts. Each call starts a new
+    index over them, so every path's first lookup stays on the clock, and no
+    lookup may read a path's components.
     """
 
     branches = _attached_markers(n)
+    built = sc._SourceBranchIndex(branches)
+    assert built._knows_lowest_starts
 
     def sweep():
+        index = sc._SourceBranchIndex(branches)
+        index._paths, index._knows_lowest_starts = built._paths, True
+        sc._open_source_indexes().branches[id(branches)] = (branches, index)
         return [
             sc._source_branch_direct_text(branch, branches=branches)
             for branch in branches
         ]
 
-    sweep.warm = lambda: sc._source_branch_index(branches)._knows_lowest_starts
     return sweep
 
 
 def _deep_lowest_starts_family(n: int):
     """Filling the least starts of n attached markers' branch index, n deep.
 
-    The trie is built off the clock, as in ``_deep_direct_text_family``. Each
-    node's least start comes from its children's; a fill that scanned every
-    node's descendants instead would read about n²/2 starts here.
+    The family builds the trie once, off the clock, as
+    ``_deep_direct_text_family`` does. Each node's least start comes from its
+    children's; a fill that scanned every node's descendants instead would read
+    about n²/2 starts here.
     """
 
-    branches = _attached_markers(n)
+    index = sc._SourceBranchIndex(_attached_markers(n))
+    assert index._paths is not None
     fill = sc._SourceBranchIndex._knows_lowest_starts.func
-
-    def refill():
-        # The fill sets every node's least start afresh, so it can run again.
-        return fill(sc._source_branch_index(branches))
-
-    refill.warm = lambda: sc._source_branch_index(branches)._paths
-    return refill
+    # The fill sets every node's least start afresh, so it can run again.
+    return lambda: fill(index)
 
 
 def _attached_markers(n: int) -> tuple[SourceStructureBranch, ...]:
@@ -3437,6 +3500,25 @@ def test_filling_least_starts_reads_each_start_a_few_times():
         reads[0] = 0
         assert index._knows_lowest_starts
         assert reads[0] <= 3 * len(branches), f"n={n}: {reads[0]} start reads"
+
+
+def test_first_lookups_of_own_paths_read_no_path_components():
+    # A count to go with the growth family's timing: a path the trie's build
+    # already read needs no second reading, on its first lookup or any later
+    # one. Reading each path by value once costs about n²/2 components here.
+    branches = _attached_markers(25)
+    with sc._source_index_scope():
+        index = sc._source_branch_index(branches)
+        assert index._knows_lowest_starts
+        with (
+            mock.patch.object(sc, "_plain_path", wraps=sc._plain_path) as plain_path,
+            mock.patch.object(sc._SourceBranchIndex, "_node", autospec=True) as node,
+        ):
+            for _sweep in range(2):
+                for branch in branches:
+                    sc._source_branch_direct_text(branch, branches=branches)
+    plain_path.assert_not_called()
+    node.assert_not_called()
 
 
 _PRECISE_REASON = (
