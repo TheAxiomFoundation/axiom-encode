@@ -1,3 +1,7 @@
+## 0.2.2282
+
+- Read a clause-initial source `דוחות` through a bounded window when looking for its filing verb, so the check costs constant time and the clause-head family grows linearly again; verdicts within the window are unchanged.
+
 ## 0.2.2281
 
 - Read Hebrew only behind one gate per candidate, opened when the authoritative source or any deferral reason holds a Hebrew-block code point: a proof excerpt, `source:` annotation, name or test that holds Hebrew over an English or German source and reasons now takes main's verdicts and issue strings, and the shared patterns keep main's literals with their Hebrew variants read behind the gate. Read a source `דוחות` as the verb "reject" unless a preposition, a filing construct noun or a filing verb stands before it, or it heads a clause before a masculine plural filing verb; read a verb-first `דוחות … את` as the verb. End a claim noun's relative clause at its own `under` citation: anything after it opens the claim's content, which the postposed denial covers. The reason grammar stays as it was.
