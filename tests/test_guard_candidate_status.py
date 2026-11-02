@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import os
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -53,6 +55,24 @@ def _report(repo: Path, base: str) -> dict:
     return cli.guard_candidate_status_report(repo, base_ref=base, head_ref="HEAD")
 
 
+def _messages(report: dict) -> list[str]:
+    return [reason["message"] for reason in report["reasons"]]
+
+
+def _codes(report: dict) -> set[str]:
+    return {reason["code"] for reason in report["reasons"]}
+
+
+def _merge_key_bomb(levels: int) -> str:
+    lines = ["a0: &a0 {x: 1}"]
+    lines.extend(
+        f"a{level}: &a{level} {{<<: [*a{level - 1}, *a{level - 1}]}}"
+        for level in range(1, levels + 1)
+    )
+    lines.append(f"<<: *a{levels}")
+    return "\n".join(lines) + "\n"
+
+
 def _candidate(repo: Path) -> None:
     _write(repo, MODULE, _module_text("us/statute/26/21"))
     _write(repo, COMPANION, "- name: case\n")
@@ -92,43 +112,144 @@ def test_single_module_and_companion_is_unadmitted_candidate(repo):
 
 
 @pytest.mark.parametrize(
-    ("case", "expected_reason"),
+    ("case", "expected_code", "expected_reason"),
     [
-        ("module_without_companion", f"companion test {COMPANION} did not change"),
-        ("companion_without_module", "expected exactly one RuleSpec module, found 0"),
-        ("two_modules", "expected exactly one RuleSpec module, found 2"),
-        ("noncanonical_path", "is not at the canonical path us/statutes/26/21.yaml"),
-        ("no_citation", "declares no module.source_verification"),
-        ("manifest_only", "manifest-only change set"),
-        ("metadata_change", "provenance metadata changed: .axiom/"),
-        ("waiver_change", "validation waiver set changed: known-validation-gaps"),
-        ("other_file_change", "non-RuleSpec file changed: README.md"),
-        ("manifest_missing_for_module", f"without its matching manifest {MANIFEST}"),
-        ("deleted_module", f"{MODULE} is deleted at head"),
-        ("deleted_manifest", f"manifest {MANIFEST} is deleted at head"),
-        ("symlink_manifest", f"manifest {MANIFEST} is not a regular 0644 file"),
-        ("waiver_only", "validation waiver set changed without a RuleSpec change"),
+        (
+            "module_without_companion",
+            "companion_missing",
+            f"companion test {COMPANION} did not change",
+        ),
+        (
+            "companion_without_module",
+            "module_count",
+            "expected exactly one RuleSpec module, found 0",
+        ),
+        (
+            "two_modules",
+            "module_count",
+            "expected exactly one RuleSpec module, found 2",
+        ),
+        (
+            "noncanonical_path",
+            "module_path_noncanonical",
+            "is not at the canonical path us/statutes/26/21.yaml",
+        ),
+        ("no_citation", "citation_missing", "declares no module.source_verification"),
+        ("manifest_only", "manifest_only", "manifest-only change set"),
+        ("metadata_change", "metadata_changed", "provenance metadata changed: .axiom/"),
+        (
+            "waiver_change",
+            "waiver_changed",
+            "validation waiver set changed: known-validation-gaps",
+        ),
+        (
+            "other_file_change",
+            "other_file_changed",
+            "non-RuleSpec file changed: README.md",
+        ),
+        (
+            "manifest_missing_for_module",
+            "manifest_missing",
+            f"without its matching manifest {MANIFEST}",
+        ),
+        ("deleted_module", "module_not_regular", f"{MODULE} is deleted at head"),
+        (
+            "deleted_manifest",
+            "manifest_not_regular",
+            f"manifest {MANIFEST} is deleted at head",
+        ),
+        (
+            "symlink_manifest",
+            "manifest_not_regular",
+            f"manifest {MANIFEST} is not a regular 0644 file",
+        ),
+        (
+            "symlink_module_with_manifest",
+            "module_not_regular",
+            f"{MODULE} is not a regular 0644 file (mode 120000) at head",
+        ),
+        (
+            "executable_module_with_manifest",
+            "module_not_regular",
+            f"{MODULE} is not a regular 0644 file (mode 100755) at head",
+        ),
+        (
+            "deleted_module_with_manifest",
+            "module_not_regular",
+            f"{MODULE} is deleted at head",
+        ),
+        (
+            "deleted_companion_with_manifest",
+            "module_not_regular",
+            f"{COMPANION} is deleted at head",
+        ),
+        (
+            "unmatched_manifest",
+            "manifest_unmatched",
+            "manifest .axiom/encoding-manifests/us/statutes/26/99.json changed "
+            "without a change to its RuleSpec module or companion",
+        ),
+        (
+            "waiver_only",
+            "waiver_changed",
+            "validation waiver set changed without a RuleSpec change",
+        ),
         (
             "jurisdiction_tree_manifest_only",
+            "metadata_changed",
             "provenance metadata changed without a RuleSpec change: us/.axiom/",
         ),
-        ("double_slash_citation", "has no canonical path"),
-        ("trailing_slash_citation", "has no canonical path"),
-        ("plural_class_citation", "has no canonical path"),
-        ("foreign_jurisdiction", "is outside the rulespec-us jurisdiction"),
-        ("invalid_yaml_date", "declares no module.source_verification"),
-        ("deeply_nested_yaml", "declares no module.source_verification"),
-        ("duplicate_citation_key", "declares no module.source_verification"),
+        ("double_slash_citation", "citation_noncanonical", "has no canonical path"),
+        ("trailing_slash_citation", "citation_noncanonical", "has no canonical path"),
+        ("plural_class_citation", "citation_noncanonical", "has no canonical path"),
+        (
+            "foreign_jurisdiction",
+            "citation_outside_jurisdiction",
+            "is outside the rulespec-us jurisdiction",
+        ),
+        (
+            "invalid_yaml_date",
+            "citation_missing",
+            "declares no module.source_verification",
+        ),
+        (
+            "deeply_nested_yaml",
+            "citation_missing",
+            "(YAML rejected: candidate YAML exceeds the 128-level limit)",
+        ),
+        (
+            "merge_key_bomb",
+            "citation_missing",
+            "(YAML rejected: YAML merge keys are not permitted in RuleSpec scans)",
+        ),
+        (
+            "duplicate_citation_key",
+            "citation_missing",
+            "declares no module.source_verification",
+        ),
         (
             "case_alias_metadata_only",
+            "metadata_changed",
             "provenance metadata changed without a RuleSpec change: .AXIOM/",
+        ),
+        (
+            "case_alias_toolchain_only",
+            "metadata_changed",
+            "provenance metadata changed without a RuleSpec change: "
+            ".AXIOM/toolchain.toml",
         ),
     ],
 )
-def test_invalid_change_sets_report_reasons(repo, case, expected_reason):
-    if case in {"manifest_only", "deleted_module", "deleted_manifest"}:
+def test_invalid_change_sets_report_reasons(repo, case, expected_code, expected_reason):
+    if case in {
+        "manifest_only",
+        "deleted_module",
+        "deleted_manifest",
+        "deleted_module_with_manifest",
+        "deleted_companion_with_manifest",
+    }:
         _candidate(repo)
-        if case in {"manifest_only", "deleted_manifest"}:
+        if case != "deleted_module":
             _write(repo, MANIFEST, "{}\n")
         _commit(repo, "existing module")
     base = _base(repo)
@@ -176,6 +297,26 @@ def test_invalid_change_sets_report_reasons(repo, case, expected_reason):
         _write(repo, "manifest-target.json", "{}\n")
         (repo / MANIFEST).parent.mkdir(parents=True)
         (repo / MANIFEST).symlink_to(repo / "manifest-target.json")
+    elif case == "symlink_module_with_manifest":
+        _write(repo, "target.yaml", _module_text("us/statute/26/21"))
+        (repo / MODULE).parent.mkdir(parents=True)
+        (repo / MODULE).symlink_to(repo / "target.yaml")
+        _write(repo, COMPANION, "- name: case\n")
+        _write(repo, MANIFEST, "{}\n")
+    elif case == "executable_module_with_manifest":
+        _candidate(repo)
+        (repo / MODULE).chmod(0o755)
+        _write(repo, MANIFEST, "{}\n")
+    elif case == "deleted_module_with_manifest":
+        (repo / MODULE).unlink()
+        _write(repo, MANIFEST, '{"changed": true}\n')
+    elif case == "deleted_companion_with_manifest":
+        (repo / COMPANION).unlink()
+        _write(repo, MANIFEST, '{"changed": true}\n')
+    elif case == "unmatched_manifest":
+        _candidate(repo)
+        _write(repo, MANIFEST, "{}\n")
+        _write(repo, ".axiom/encoding-manifests/us/statutes/26/99.json", "{}\n")
     elif case == "waiver_only":
         _write(repo, "known-validation-gaps.yaml", "validate_failures: [x]\n")
     elif case == "jurisdiction_tree_manifest_only":
@@ -212,8 +353,14 @@ def test_invalid_change_sets_report_reasons(repo, case, expected_reason):
         _write(repo, COMPANION, "- name: case\n")
     elif case == "case_alias_metadata_only":
         _write(repo, ".AXIOM/encoding-manifests/us/statutes/26/21.json", "{}\n")
+    elif case == "case_alias_toolchain_only":
+        _write(repo, ".AXIOM/toolchain.toml", "version = 1\n")
     elif case == "deeply_nested_yaml":
         _write(repo, MODULE, "[" * 5000 + "]" * 5000 + "\n")
+        _write(repo, COMPANION, "- name: case\n")
+    elif case == "merge_key_bomb":
+        # Small enough that a regression fails fast instead of exhausting memory.
+        _write(repo, MODULE, _merge_key_bomb(16))
         _write(repo, COMPANION, "- name: case\n")
     _commit(repo, case)
 
@@ -221,9 +368,15 @@ def test_invalid_change_sets_report_reasons(repo, case, expected_reason):
 
     assert report["status"] == "invalid"
     assert report["candidate"] is None
-    assert any(expected_reason in reason for reason in report["reasons"]), report[
-        "reasons"
+    matching = [
+        reason for reason in report["reasons"] if expected_reason in reason["message"]
     ]
+    assert matching, report["reasons"]
+    assert {reason["code"] for reason in matching} == {expected_code}
+    assert all(
+        reason["category"] == cli.GUARD_CANDIDATE_REASON_CATEGORIES[reason["code"]]
+        for reason in report["reasons"]
+    )
 
 
 def test_change_set_with_matching_manifest_is_admitted(repo):
@@ -257,7 +410,7 @@ def test_symlinked_module_is_invalid(repo):
     report = _report(repo, base)
 
     assert report["status"] == "invalid"
-    assert any("not a regular 0644 file" in reason for reason in report["reasons"])
+    assert any("not a regular 0644 file" in message for message in _messages(report))
 
 
 def test_uncommitted_change_and_missing_base_are_invalid(repo):
@@ -270,9 +423,16 @@ def test_uncommitted_change_and_missing_base_are_invalid(repo):
     no_base = cli.guard_candidate_status_report(repo, base_ref=None)
 
     assert dirty["status"] == "invalid"
-    assert any("scratch.txt" in reason for reason in dirty["reasons"])
+    assert any("scratch.txt" in message for message in _messages(dirty))
+    assert _codes(dirty) == {"checkout_dirty"}
     assert no_base["status"] == "invalid"
-    assert no_base["reasons"] == ["candidate status requires --base-ref"]
+    assert no_base["reasons"] == [
+        {
+            "code": "base_ref_missing",
+            "category": "environment",
+            "message": "candidate status requires --base-ref",
+        }
+    ]
 
 
 def test_replacement_refs_cannot_hide_changes(repo):
@@ -291,8 +451,8 @@ def test_replacement_refs_cannot_hide_changes(repo):
     assert report["base_sha"] == base
     assert report["status"] == "invalid"
     assert any(
-        "provenance metadata changed: .axiom/retired-source-metadata" in reason
-        for reason in report["reasons"]
+        "provenance metadata changed: .axiom/retired-source-metadata" in message
+        for message in _messages(report)
     )
 
 
@@ -317,8 +477,8 @@ def test_ignored_submodule_settings_cannot_hide_gitlink_changes(repo):
 
     assert report["status"] == "invalid"
     assert any(
-        "provenance metadata changed: .axiom/vendor" in reason
-        for reason in report["reasons"]
+        "provenance metadata changed: .axiom/vendor" in message
+        for message in _messages(report)
     ), report["reasons"]
 
 
@@ -334,8 +494,8 @@ def test_index_flags_cannot_hide_worktree_changes(repo, flag):
 
     assert report["status"] == "invalid"
     assert any(
-        "known-validation-gaps.yaml (index flag hides worktree changes)" in reason
-        for reason in report["reasons"]
+        "known-validation-gaps.yaml (index flag hides worktree changes)" in message
+        for message in _messages(report)
     ), report["reasons"]
 
 
@@ -351,8 +511,39 @@ def test_fsmonitor_valid_entries_cannot_hide_worktree_changes(repo):
 
     assert report["status"] == "invalid"
     assert any(
-        "known-validation-gaps.yaml" in reason for reason in report["reasons"]
+        "known-validation-gaps.yaml" in message for message in _messages(report)
     ), report["reasons"]
+
+
+@pytest.mark.parametrize("rewrite", ["in_place", "new_inode"])
+def test_minimal_stat_config_cannot_hide_same_size_edit(repo, rewrite):
+    base = _base(repo)
+    _candidate(repo)
+    _commit(repo, "candidate")
+    readme = repo / "README.md"
+    past = time.time_ns() - 1000 * 10**9
+    os.utime(readme, ns=(past, past))
+    # The index now caches the old mtime and is newer than it, so Git trusts
+    # the cached stat data instead of treating the entry as racily clean.
+    _git(repo, "update-index", "--refresh")
+    _git(repo, "config", "core.checkStat", "minimal")
+    _git(repo, "config", "core.trustctime", "false")
+    if rewrite == "in_place":
+        time.sleep(1.1)  # the edit changes ctime in a later whole second
+        readme.write_text("RULES\n")
+    else:
+        (repo / "README.next").write_text("RULES\n")
+        os.replace(repo / "README.next", readme)
+    os.utime(readme, ns=(past, past))
+    # With the repository's own configuration, Git cannot see the edit.
+    assert _git(repo, "diff", "--name-only", "HEAD").stdout == ""
+
+    report = _report(repo, base)
+
+    assert report["status"] == "invalid"
+    assert report["candidate"] is None
+    assert _codes(report) == {"checkout_dirty"}
+    assert any("README.md" in message for message in _messages(report))
 
 
 def test_staged_change_restored_in_worktree_is_invalid(repo):
@@ -367,7 +558,7 @@ def test_staged_change_restored_in_worktree_is_invalid(repo):
     report = _report(repo, base)
 
     assert report["status"] == "invalid"
-    assert any("README.md" in reason for reason in report["reasons"])
+    assert any("README.md" in message for message in _messages(report))
 
 
 def test_subjurisdiction_citation_in_country_checkout_is_candidate(repo):
@@ -388,6 +579,65 @@ def test_change_set_without_rulespec_is_not_classified_as_candidate(repo):
     _commit(repo, "docs")
 
     assert _report(repo, base)["status"] == "no_rulespec_change"
+
+
+def test_reason_codes_have_one_known_category():
+    assert set(cli.GUARD_CANDIDATE_REASON_CATEGORIES.values()) == {
+        "rulespec",
+        "maintenance",
+        "environment",
+    }
+    with pytest.raises(KeyError):
+        cli._guard_candidate_reason([], "free_text", "unknown codes are refused")
+
+
+def test_git_work_does_not_grow_with_changed_paths(repo, monkeypatch):
+    calls: list[tuple[str, ...]] = []
+    kept: list[set[str]] = []
+    real_run, real_popen = cli.subprocess.run, cli.subprocess.Popen
+    real_hash = cli._guard_candidate_hash_blobs
+
+    def run(command, *args, **kwargs):
+        calls.append(tuple(command))
+        return real_run(command, *args, **kwargs)
+
+    def popen(command, *args, **kwargs):
+        calls.append(tuple(command))
+        return real_popen(command, *args, **kwargs)
+
+    def hash_blobs(repo_path, object_ids, *, keep):
+        kept.append(set(keep))
+        return real_hash(repo_path, object_ids, keep=keep)
+
+    monkeypatch.setattr(cli.subprocess, "run", run)
+    monkeypatch.setattr(cli.subprocess, "Popen", popen)
+    monkeypatch.setattr(cli, "_guard_candidate_hash_blobs", hash_blobs)
+
+    def count(files: int) -> tuple[int, dict]:
+        base = _base(repo)
+        _candidate(repo)
+        for index in range(files):
+            _write(repo, f"docs/{files}/{index}.md", f"{index}\n")
+        _commit(repo, f"{files} files")
+        calls.clear()
+        report = _report(repo, base)
+        _git(repo, "reset", "-q", "--hard", base)
+        return len(calls), report
+
+    few_calls, few = count(1)
+    many_calls, many = count(40)
+
+    assert len(few["changed_files"]) == 3
+    assert len(many["changed_files"]) == 42
+    assert all(entry["sha256"] for entry in many["changed_files"])
+    assert few_calls == many_calls
+    module_entry = next(e for e in many["changed_files"] if e["path"] == MODULE)
+    assert (
+        module_entry["sha256"]
+        == hashlib.sha256(_module_text("us/statute/26/21").encode()).hexdigest()
+    )
+    # Only the single module's blob is kept in memory for parsing.
+    assert [len(keep) for keep in kept] == [1, 1]
 
 
 def test_report_does_no_corpus_engine_or_broker_work(repo, monkeypatch):
@@ -414,7 +664,8 @@ def test_report_does_no_corpus_engine_or_broker_work(repo, monkeypatch):
 
 @pytest.mark.parametrize("as_json", [False, True])
 @pytest.mark.parametrize(
-    "change", ["candidate", "docs_only", "invalid_yaml", "nested_yaml"]
+    "change",
+    ["candidate", "docs_only", "invalid_yaml", "nested_yaml", "merge_key_bomb"],
 )
 def test_guard_exit_code_and_issues_are_unchanged_by_flag(
     repo, tmp_path, capsys, as_json, change
@@ -428,6 +679,15 @@ def test_guard_exit_code_and_issues_are_unchanged_by_flag(
         _write(repo, COMPANION, "- name: case\n")
     elif change == "nested_yaml":
         _write(repo, MODULE, "[" * 5000 + "]" * 5000 + "\n")
+        _write(repo, COMPANION, "- name: case\n")
+    elif change == "merge_key_bomb":
+        # Canary: a regression fails here, before the 1 KB module below can
+        # exhaust memory (expanding its merge keys would need tens of GB).
+        assert cli._guard_candidate_citation(_merge_key_bomb(16).encode(), MODULE) == (
+            None,
+            "YAML merge keys are not permitted in RuleSpec scans",
+        )
+        _write(repo, MODULE, _merge_key_bomb(30))
         _write(repo, COMPANION, "- name: case\n")
     else:
         _write(repo, "README.md", "docs only\n")
@@ -464,6 +724,63 @@ def test_guard_exit_code_and_issues_are_unchanged_by_flag(
         report, end = decoder.raw_decode(flagged_out)
         assert flagged_out[end:].lstrip("\n") == plain_out
     assert report["status"] == expected_status
+    if change == "merge_key_bomb":
+        assert {reason["code"] for reason in report["reasons"]} == {"citation_missing"}
+        assert "YAML merge keys are not permitted" in report["reasons"][0]["message"]
     if change == "candidate":
         assert "Manual RuleSpec changes are not allowed." in plain_out or as_json
         assert f"{MODULE} changed without a matching" in plain_out
+
+
+@pytest.mark.parametrize("as_json", [False, True])
+def test_report_failure_keeps_guard_output_and_report_shape(
+    repo, tmp_path, capsys, monkeypatch, as_json
+):
+    release = _bind_test_corpus_release(repo, tmp_path / "axiom-corpus")
+    base = _commit(repo, "bind corpus release")
+    _candidate(repo)
+    _commit(repo, "candidate")
+    normal = _report(repo, base)
+
+    def run(candidate_status: bool) -> tuple[int, str]:
+        args = SimpleNamespace(
+            repo=repo,
+            corpus_path=release.root,
+            base_ref=base,
+            head_ref="HEAD",
+            json=as_json,
+            all=False,
+            candidate_status=candidate_status,
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            cli.cmd_guard_generated(args)
+        return exc_info.value.code, capsys.readouterr().out
+
+    def broken(*_args, **_kwargs):
+        raise LookupError("report bug")
+
+    plain_code, plain_out = run(False)
+    monkeypatch.setattr(cli, "guard_candidate_status_report", broken)
+    flagged_code, flagged_out = run(True)
+
+    assert flagged_code == plain_code == 1
+    if as_json:
+        plain, flagged = json.loads(plain_out), json.loads(flagged_out)
+        report = flagged.pop("candidate_status")
+        assert flagged == plain
+    else:
+        report, end = json.JSONDecoder().raw_decode(flagged_out)
+        assert flagged_out[end:].lstrip("\n") == plain_out
+    assert set(report) == set(normal)
+    assert (report["status"], report["repository"], report["country"]) == (
+        "invalid",
+        "rulespec-us",
+        "us",
+    )
+    assert report["reasons"] == [
+        {
+            "code": "report_failed",
+            "category": "environment",
+            "message": "candidate status failed: LookupError: report bug",
+        }
+    ]
