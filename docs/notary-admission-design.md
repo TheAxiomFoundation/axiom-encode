@@ -810,7 +810,7 @@ environment (required reviewers, no self-approval, **administrator
 bypass disallowed and audited** — GitHub's separate bypass setting must
 be off, and §10 tests the bypassed case; the environment holds no
 generation credentials and no write tokens, unlike today's
-`production-signing`, which provisions generation workflows with the
+`apply-signing`, which provisions generation workflows with the
 apply key, a model credential, and a write-capable token, and is
 structurally disqualified). Platform approval alone cannot bind bytes —
 neither OIDC nor the jobs API authenticates job inputs — so the binding

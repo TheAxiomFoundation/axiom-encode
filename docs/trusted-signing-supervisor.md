@@ -389,9 +389,11 @@ execution path are unchanged.
 
 Production signed re-encodes run centrally through
 [`targeted-signed-reencode.yml`](../.github/workflows/targeted-signed-reencode.yml)
-in `TheAxiomFoundation/axiom-encode`. Its signing job requires approval through
-the `production-signing` environment. The apply private key belongs only in that
-protected environment; do not configure ungated repository or organization
+in `TheAxiomFoundation/axiom-encode`. Its signing job signs in the
+`apply-signing` environment, and every run except a reviewed-candidate promotion
+first needs approval through `generation-approval` (see
+[Targeted workflow approval](#targeted-workflow-approval)). The apply private key
+belongs only in `apply-signing`; do not configure repository or organization
 copies or pass signing keys from jurisdiction repositories.
 
 The ungated apply-signing and caller App keys were removed during the October
@@ -518,7 +520,8 @@ The workflow change does not modify environment settings or secrets.
 
 - **Who can trigger it.** Only an actor who can dispatch the main-branch
   workflow — i.e. a repository collaborator — can request signing, which still
-  requires the protected environment approval. A fork contributor
+  requires a `generation-approval` reviewer unless the run is an allowlisted
+  reviewed-candidate promotion. A fork contributor
   cannot: their PR neither receives the secret nor matches the pinned workflow
   ref / permitted event.
 - **What the context binding is (and is not).** The `GITHUB_*` values and the
@@ -526,8 +529,9 @@ The workflow change does not modify environment settings or secrets.
   **defense-in-depth against misconfiguration** (an accidental `pull_request`
   trigger, or invoking the signer from the wrong workflow), not a cryptographic
   authentication of the runner. The primary boundary is external to this code:
-  the private key is held in the approval-gated `production-signing` environment,
-  and the workflow is restricted to `workflow_dispatch` on main. An
+  the private key lives in the `apply-signing` environment, which deploys only
+  from main, generation runs need a `generation-approval` reviewer, and the
+  workflow is restricted to `workflow_dispatch` on main. An
   actor who could actually forge `GITHUB_*` would have to be able to edit the
   main-branch workflow — a trusted collaborator who can already dispatch it and
   request signing approval. The binding therefore never widens who can
@@ -693,5 +697,5 @@ owner changes either active signing identity.
 
 The active public root is published as the `AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY`
 Actions variable, which the workflows provision into the supervisors' root-owned
-trust file. The active private seed is the `production-signing` environment's
+trust file. The active private seed is the `apply-signing` environment's
 signing secret.
