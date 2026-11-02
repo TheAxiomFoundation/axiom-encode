@@ -338,3 +338,30 @@ def test_operation_count_of_repeated_resolution(tmp_path: Path, monkeypatch):
     # Cached: one read and one parse of each row; each call takes one
     # lstat of the provisions file for the disk fingerprint.
     assert cached == (1, rows, calls)
+
+
+def test_mutating_selected_row_metadata_cannot_change_a_later_result(
+    tmp_path: Path,
+):
+    _write_rows(
+        tmp_path,
+        STATUTE,
+        [
+            {
+                "citation_path": "us/statute/1",
+                "body": "One.",
+                "metadata": {"notes": ["first"], "detail": {"kind": "rule"}},
+            }
+        ],
+    )
+    release = bind_test_corpus_release(tmp_path, RELEASE, [("us", "statute", STATUTE)])
+    expected = resolve_local_corpus_source("us/statute/1", _fresh(release))
+
+    for _ in range(3):
+        resolved = resolve_local_corpus_source("us/statute/1", release)
+        assert resolved == expected
+        record = resolved.selected_record
+        assert record is not None
+        record.metadata["notes"].append("mutated")
+        record.metadata["detail"]["kind"] = "mutated"
+    assert resolve_local_corpus_source("us/statute/1", release) == expected
