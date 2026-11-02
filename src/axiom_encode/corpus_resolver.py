@@ -1292,20 +1292,24 @@ def _verified_corpus_bucket(
             cache.generation += 1
         bucket = cache.buckets.get(key)
         if bucket is not None:
-            # Select the files exactly as an uncached read does: every path
+            # Take the fingerprint of the files the bucket was read from, then
+            # select the files exactly as an uncached read does: every path
             # component is checked again, so a parent directory swapped for a
-            # symlink fails here with the uncached error. That selection only
-            # stats; the fingerprint then shows whether the selected files and
-            # their locks are the ones the bucket was read from.
+            # symlink, before or during this call, fails with the uncached
+            # error. Both steps only stat.
+            fingerprint = _bucket_disk_fingerprint(
+                release, tuple(artifact.path for artifact in bucket.artifacts)
+            )
             files = _candidate_provision_files(
                 release=release,
                 jurisdiction=jurisdiction,
                 document_class=document_class,
                 scopes=bucket.scopes,
             )
-            if files == tuple(
-                artifact.path for artifact in bucket.artifacts
-            ) and _bucket_disk_fingerprint(release, files) == (bucket.disk_fingerprint):
+            if (
+                files == tuple(artifact.path for artifact in bucket.artifacts)
+                and fingerprint == bucket.disk_fingerprint
+            ):
                 cache.buckets.move_to_end(key)
                 _charge_local_corpus_read_budget(bucket.artifacts, budget=budget)
                 return bucket

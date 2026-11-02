@@ -392,3 +392,33 @@ def test_a_symlinked_parent_directory_is_refused_on_a_warm_call(tmp_path: Path):
         )
         assert warm == cold
         assert warm[0] == "error" and "symlink" in warm[2], warm
+
+
+def test_a_symlink_swapped_in_during_a_warm_call_is_refused(
+    tmp_path: Path, monkeypatch
+):
+    """The path checks run after the fingerprint, so a swap between them fails."""
+
+    _write_rows(tmp_path, STATUTE, [{"citation_path": "us/statute/1", "body": "One."}])
+    release = bind_test_corpus_release(tmp_path, RELEASE, [("us", "statute", STATUTE)])
+    assert resolve_local_corpus_source("us/statute/1", release).body == "One."
+    directory = tmp_path / "data/corpus/provisions/us/statute"
+    fingerprint = corpus_resolver._bucket_disk_fingerprint
+    swapped: list[bool] = []
+
+    def swap_then_fingerprint(*args, **kwargs):
+        if not swapped:
+            swapped.append(True)
+            os.rename(directory, directory.with_name("statute-real"))
+            os.symlink("statute-real", directory)
+        return fingerprint(*args, **kwargs)
+
+    monkeypatch.setattr(
+        corpus_resolver, "_bucket_disk_fingerprint", swap_then_fingerprint
+    )
+    warm = _outcome(lambda: resolve_local_corpus_source("us/statute/1", release))
+    assert swapped and warm[0] == "error" and "symlink" in warm[2], warm
+    monkeypatch.setattr(corpus_resolver, "_bucket_disk_fingerprint", fingerprint)
+    assert warm == _outcome(
+        lambda: resolve_local_corpus_source("us/statute/1", release.with_fresh_reads())
+    )
