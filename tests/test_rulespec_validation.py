@@ -16399,9 +16399,11 @@ def test_hebrew_compound_scanning_is_linear_on_long_prose(monkeypatch):
             setup=_clear_numeric_extraction_caches,
         )
 
-    # A native copy of the remaining words at each start costs ~1/600 of a
-    # word's scan, so the direct pair needs thousands of words before that
+    # A short first step stops a Python-level quadratic within seconds. A
+    # native copy of the remaining words at each start costs ~1/600 of a
+    # word's scan, so the second step needs thousands of words before that
     # quadratic term shows: 2,400 and 38,400 words here.
+    assert_linear_growth(work(40), work(400), input_ratio=10)
     assert_linear_growth(work(400), work(6_400), input_ratio=16)
     assert_linear_growth(work(32, whole=True), work(512, whole=True), input_ratio=16)
 
@@ -16482,7 +16484,9 @@ def test_hebrew_compound_scanning_is_linear_on_teen_only_words(monkeypatch):
             setup=_clear_numeric_extraction_caches,
         )
 
-    # As above: 2,500 and 40,000 words let a per-start native word copy show.
+    # As above: a short first step, then 2,500 and 40,000 words, which let a
+    # per-start native word copy show.
+    assert_linear_growth(work(125), work(1_250), input_ratio=10)
     assert_linear_growth(work(1_250), work(20_000), input_ratio=16)
     assert_linear_growth(work(128, whole=True), work(2_048, whole=True), input_ratio=16)
 
