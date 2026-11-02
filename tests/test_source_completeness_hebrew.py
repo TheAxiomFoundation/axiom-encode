@@ -42,6 +42,7 @@ from axiom_encode.harness.validator_pipeline import (
     extract_typed_numeric_occurrences_from_text,
     numeric_value_is_grounded,
 )
+from tests.hebrew_gate import open_hebrew_gate
 
 FIXTURE = (
     Path(__file__).parent / "fixtures/source_completeness/signed_reencode_38485394523"
@@ -54,6 +55,14 @@ STRUCTURE_BRANCH = re.compile(
     + re.escape(CITATION)
     + r"(?P<path>(?:\([a-z0-9]+\))+) \["
 )
+
+
+@pytest.fixture(autouse=True)
+def _hebrew_gate():
+    """Direct reader calls here run behind the gate a Hebrew candidate opens."""
+
+    with open_hebrew_gate():
+        yield
 
 
 def _sha256(text: str) -> str:
@@ -695,7 +704,7 @@ def test_native_range_resolves_like_its_canonical_form():
     ),
 )
 def test_hebrew_missing_dependency_language(text):
-    assert completeness_module._MISSING_DEPENDENCY_LANGUAGE.search(text)
+    assert completeness_module._HEBREW_MISSING_DEPENDENCY_LANGUAGE.search(text)
 
 
 @pytest.mark.parametrize(
@@ -720,7 +729,7 @@ def test_hebrew_missing_dependency_language(text):
     ),
 )
 def test_hebrew_word_boundaries_reject_lookalikes(text):
-    assert not completeness_module._MISSING_DEPENDENCY_LANGUAGE.search(text)
+    assert not completeness_module._HEBREW_MISSING_DEPENDENCY_LANGUAGE.search(text)
 
 
 @pytest.mark.parametrize(
@@ -737,8 +746,12 @@ def test_plain_negated_states_are_no_missing_signal_in_either_language(
 ):
     """English signals "not yet encoded" and "unavailable", not these."""
 
-    assert not completeness_module._MISSING_DEPENDENCY_LANGUAGE.search(english_text)
-    assert not completeness_module._MISSING_DEPENDENCY_LANGUAGE.search(hebrew_text)
+    assert not completeness_module._HEBREW_MISSING_DEPENDENCY_LANGUAGE.search(
+        english_text
+    )
+    assert not completeness_module._HEBREW_MISSING_DEPENDENCY_LANGUAGE.search(
+        hebrew_text
+    )
 
 
 @pytest.mark.parametrize(
@@ -2282,10 +2295,10 @@ def test_a_word_spelled_with_prefix_letters_is_no_negation(word):
 def test_reason_adversatives_use_the_shared_vocabulary():
     assert (
         hebrew._ANY_ADVERSATIVE.pattern
-        == completeness_module._ADVERSATIVE_LANGUAGE.pattern
+        == completeness_module._HEBREW_ADVERSATIVE_LANGUAGE.pattern
     )
     assert hebrew._ANY_ADVERSATIVE.flags == (
-        completeness_module._ADVERSATIVE_LANGUAGE.flags
+        completeness_module._HEBREW_ADVERSATIVE_LANGUAGE.flags
     )
 
 
@@ -3152,7 +3165,7 @@ def test_a_preposed_law_name_claims_no_branch_of_this_one(kind, separator, tail)
 
     assert (
         completeness_module._paths_from_source_reference(
-            reference, corpus_citation_path=CITATION
+            reference, corpus_citation_path=CITATION, hebrew_script=True
         )
         == set()
     )
@@ -3248,11 +3261,14 @@ def test_hebrew_omission_labels_leave_english_omissions_alone():
     """Round-6 review: `(a) (1) omitted.` keeps its English reading."""
 
     for omission in ("omitted", "...", "weggefallen", "aufgehoben"):
-        assert not completeness_module._EDITORIAL_OMISSION_ONLY.match(
-            f"(a) (1) {omission}."
-        )
-    assert completeness_module._EDITORIAL_OMISSION_ONLY.match("(ג) (בוטל).")
-    assert completeness_module._EDITORIAL_OMISSION_ONLY.match("(1) (ה1) בוטל.")
+        for pattern in (
+            completeness_module._EDITORIAL_OMISSION_ONLY,
+            completeness_module._HEBREW_EDITORIAL_OMISSION_ONLY,
+        ):
+            assert not pattern.match(f"(a) (1) {omission}.")
+    assert completeness_module._HEBREW_EDITORIAL_OMISSION_ONLY.match("(ג) (בוטל).")
+    assert completeness_module._HEBREW_EDITORIAL_OMISSION_ONLY.match("(1) (ה1) בוטל.")
+    assert not completeness_module._EDITORIAL_OMISSION_ONLY.match("(ג) (בוטל).")
 
 
 @pytest.mark.parametrize(
@@ -3503,7 +3519,7 @@ def test_another_laws_section_claims_no_branch_of_this_one(reference):
     """The qualifier binds the whole chain; no shorter prefix of it is claimed."""
 
     paths = completeness_module._paths_from_source_reference(
-        reference, corpus_citation_path=CITATION
+        reference, corpus_citation_path=CITATION, hebrew_script=True
     )
 
     assert paths == set()
@@ -7096,7 +7112,7 @@ def test_every_governor_takes_every_horizontal_whitespace_run():
         hebrew._REASON_NEGATION,
         hebrew._ADVERSATIVE,
         hebrew._ANY_ADVERSATIVE,
-        completeness_module._ADVERSATIVE_LANGUAGE,
+        completeness_module._HEBREW_ADVERSATIVE_LANGUAGE,
     )
     for governor in sorted(INFINITIVE_GOVERNORS):
         for gap in runs:
@@ -7893,7 +7909,7 @@ _ROUND_18_GOVERNOR_READERS = (
     hebrew._REASON_NEGATION,
     hebrew._ADVERSATIVE,
     hebrew._ANY_ADVERSATIVE,
-    completeness_module._ADVERSATIVE_LANGUAGE,
+    completeness_module._HEBREW_ADVERSATIVE_LANGUAGE,
 )
 _ROUND_18_FOLDED = hebrew.folded_marks()
 

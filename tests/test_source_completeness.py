@@ -8660,6 +8660,7 @@ def test_dotted_subsection_children_match_canonical_source_paths():
     assert completeness_module._paths_from_source_reference(
         "us-la/statute/47:294(A)(2)",
         corpus_citation_path="us-la/statute/47:294",
+        hebrew_script=False,
     ) == {("a", "2")}
 
 
@@ -8667,6 +8668,7 @@ def test_cfr_source_reference_alias_matches_canonical_source_paths():
     assert completeness_module._paths_from_source_reference(
         "7 CFR 273.4(a)(3)",
         corpus_citation_path="us/regulation/7/273/4",
+        hebrew_script=False,
     ) == {("a", "3")}
 
 
@@ -8674,15 +8676,18 @@ def test_usc_source_reference_alias_matches_scoped_statute_paths():
     assert completeness_module._paths_from_source_reference(
         "7 USC 2012(j)(5)(A)",
         corpus_citation_path="us/statute/7/2012/j",
+        hebrew_script=False,
     ) == {("5", "a")}
     assert completeness_module._paths_from_source_reference(
         "7 U.S.C. 2012(j)(5)(A)",
         corpus_citation_path="us/statute/7/2012/j",
+        hebrew_script=False,
     ) == {("5", "a")}
     assert (
         completeness_module._paths_from_source_reference(
             "7 USC 2012(k)(5)(A)",
             corpus_citation_path="us/statute/7/2012/j",
+            hebrew_script=False,
         )
         == set()
     )
@@ -23679,6 +23684,7 @@ rules:
     paths = completeness_module._paths_from_source_reference(
         "de/statute/estg/32a(1) Satz 1; de/statute/estg/32a(1) Satz 2",
         corpus_citation_path=CORPUS_CITATION_PATH,
+        hebrew_script=False,
     )
     result = _analyze(content, source, test_cases=test_cases)
 

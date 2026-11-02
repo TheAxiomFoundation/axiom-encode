@@ -185,6 +185,7 @@ from .same_case_execution import (
 )
 from .source_completeness import (
     _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
+    _hebrew_reading,
     _is_us_manual_citation_path,
     _nested_outline_marker_spans,
     _qualified_parenthesized_legal_outline_markers,
@@ -17557,8 +17558,12 @@ def _stated_conversion_ungrounded_literal_hint(
         and citation_path.strip() != source_citation_path.strip()
     ):
         return ""
-    # Read the source with the scope the complete-source-unit analysis uses.
-    with _us_manual_prose_scope(citation_path.strip()):
+    # Read the source with the scope and the wall's gate the complete-source-unit
+    # analysis uses (#1882).
+    with (
+        _us_manual_prose_scope(citation_path.strip()),
+        _hebrew_reading(payload, source_text.strip()),
+    ):
         if not source_states_stated_conversion_result(source_text):
             return ""
     return f" {_STATED_CONVERSION_UNGROUNDED_HINT}"

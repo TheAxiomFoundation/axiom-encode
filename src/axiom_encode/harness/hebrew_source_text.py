@@ -1349,7 +1349,7 @@ class AdversativePattern:
 
 
 _ADVERSATIVE = AdversativePattern(ADVERSATIVE_LANGUAGE)
-# The adversatives a reason is read for: ``_ADVERSATIVE_LANGUAGE`` in
+# The adversatives a reason is read for: ``_HEBREW_ADVERSATIVE_LANGUAGE`` in
 # source_completeness, verbatim, the English and German words with the Hebrew
 # ones, so a reason that reverses itself in another language (``חסר סעיף 2.
 # However it is available.``) is refused as English refuses it.

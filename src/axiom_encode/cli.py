@@ -280,6 +280,7 @@ from .harness.proof_validator import (
 )
 from .harness.source_completeness import (
     _deferred_coverage,
+    _hebrew_reading,
     _rulespec_target_base,
     recognize_source_structure,
 )
@@ -47764,61 +47765,66 @@ def _try_repair_generated_mixed_missing_deferred_outputs_for_apply(
         return []
     if not source_text:
         return []
-    branches = recognize_source_structure(
-        source_text, corpus_citation_path=citation_path
-    )
-    deferred_outputs = module.get("deferred_outputs")
-    if deferred_outputs is None:
-        deferred_outputs = []
-        module["deferred_outputs"] = deferred_outputs
-    if not isinstance(deferred_outputs, list):
-        return []
-
-    base_anchor = _relative_output_to_anchor(
-        relative_output,
-        policy_repo_path=policy_repo_path,
-    )
-    existing_outputs = {
-        str(record.get("output") or "").strip()
-        for record in deferred_outputs
-        if isinstance(record, dict)
-    }
-    repaired: list[str] = []
-    for citation, excerpt in source_gaps:
-        output_path = _source_coverage_output_path(base_anchor, citation=citation)
-        symbol = _source_coverage_deferred_symbol(excerpt, citation=citation)
-        output = f"{output_path}#{symbol}"
-        if output in existing_outputs:
-            continue
-        record = {
-            "output": output,
-            "reason": (
-                "Generated module encodes the supported rules from this "
-                "source, but this source subparagraph depends on policy "
-                "surfaces or entities that are not available in the current "
-                "RuleSpec context. It is deferred instead of being modeled "
-                "as a caller-supplied input or an unsupported local entity."
-            ),
-        }
-        # Coverage is not evidence of a missing capability. Authenticate the
-        # proposed record with the same precise-deferral gate before writing it.
-        proposed = {**payload, "module": {**module, "deferred_outputs": [record]}}
-        covered, deferral_issues = _deferred_coverage(
-            proposed,
-            corpus_citation_path=citation_path,
-            source_text=source_text,
-            branches=branches,
+    # Read the source and the proposed deferrals behind the wall's gate the
+    # analysis opens for this candidate (#1882).
+    with _hebrew_reading(payload, source_text):
+        branches = recognize_source_structure(
+            source_text, corpus_citation_path=citation_path
         )
-        if not covered or deferral_issues:
-            continue
-        deferred_outputs.append(record)
-        existing_outputs.add(output)
-        repaired.append(output)
+        deferred_outputs = module.get("deferred_outputs")
+        if deferred_outputs is None:
+            deferred_outputs = []
+            module["deferred_outputs"] = deferred_outputs
+        if not isinstance(deferred_outputs, list):
+            return []
 
-    if not repaired:
-        return []
-    rules_file.write_text(safe_dump_yaml(payload, sort_keys=False, allow_unicode=True))
-    return repaired
+        base_anchor = _relative_output_to_anchor(
+            relative_output,
+            policy_repo_path=policy_repo_path,
+        )
+        existing_outputs = {
+            str(record.get("output") or "").strip()
+            for record in deferred_outputs
+            if isinstance(record, dict)
+        }
+        repaired: list[str] = []
+        for citation, excerpt in source_gaps:
+            output_path = _source_coverage_output_path(base_anchor, citation=citation)
+            symbol = _source_coverage_deferred_symbol(excerpt, citation=citation)
+            output = f"{output_path}#{symbol}"
+            if output in existing_outputs:
+                continue
+            record = {
+                "output": output,
+                "reason": (
+                    "Generated module encodes the supported rules from this "
+                    "source, but this source subparagraph depends on policy "
+                    "surfaces or entities that are not available in the current "
+                    "RuleSpec context. It is deferred instead of being modeled "
+                    "as a caller-supplied input or an unsupported local entity."
+                ),
+            }
+            # Coverage is not evidence of a missing capability. Authenticate the
+            # proposed record with the same precise-deferral gate before writing it.
+            proposed = {**payload, "module": {**module, "deferred_outputs": [record]}}
+            covered, deferral_issues = _deferred_coverage(
+                proposed,
+                corpus_citation_path=citation_path,
+                source_text=source_text,
+                branches=branches,
+            )
+            if not covered or deferral_issues:
+                continue
+            deferred_outputs.append(record)
+            existing_outputs.add(output)
+            repaired.append(output)
+
+        if not repaired:
+            return []
+        rules_file.write_text(
+            safe_dump_yaml(payload, sort_keys=False, allow_unicode=True)
+        )
+        return repaired
 
 
 def _try_repair_generated_admin_agency_aggregate_entities_for_apply(
