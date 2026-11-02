@@ -6,8 +6,16 @@ These records share engine `89571cc2a938707fd60a5489b951135345697296` and policy
 
 `apply-result.json` records successful validation and portable provenance. `clean-apply-review.json` records 21 cases/143 typed CAD assertions and preservation of 532 baseline files. Before/after inventories show the generated diagnostic candidate's three ordinary quote normalizations; those are parsed-equivalent, not byte-identical. Source findings are empty. Harness snapshots show the observation wrappers delegating actual compilation/runtime/source checks; absolute paths identify historical local inputs and are not portable execution instructions.
 
-The logs and reports are author-produced historical evidence, not independently signed attestations. Max's review independently reproduced the unit-test checks, not these local real-engine runs. Earlier dirty-checkout and local-origin setup failures remain described in `comparison.json`; successful apply used the separately fetched official engine checkout. No guard was relaxed.
+The logs and reports are author-produced historical evidence, not independently signed attestations. The earlier agent review (posted from Max's account) reproduced the unit-test checks, not these local real-engine runs. Earlier dirty-checkout and local-origin setup failures remain described in `comparison.json`; successful apply used the separately fetched official engine checkout. No guard was relaxed.
 
 To inspect compressed records, use `gzip -dc <file.json.gz>`. Verify file digests against `manifest.json` before interpreting the results. Original 532 policy-file bytes and the compiled binary are not redistributed; inventory preservation is demonstrated by their hashes, not a fresh independent source audit.
 
 The compressed `step-3.yaml.gz` and `step-3.test.yaml.gz` are the exact diagnostic apply candidate and its companion, included to inspect expected assertions and proof context. They are unsigned diagnostic evidence, not publishable policies. Apply normalizes three quoted numeric scalars; the companion remains byte-identical to the authenticated failed run.
+
+## Test-command provenance
+
+The original commands for `shared-tests.log`, `caller-tests.log`, and `version-tests.log` were not captured and could not be recovered. Their 190/228/27 counts are unverified historical author reports, not evidence of a particular test selection. Each file now labels this limitation and the manifest retains the original progress-output hash. Current review-follow-up regression evidence records its exact invocation separately; it does not retroactively authenticate these historical counts.
+
+The optional optimization of per-case Git freshness checks is deliberately deferred. This change preserves the existing fail-closed checks rather than changing when provenance is checked during a test/documentation follow-up. Transient Git failures and their diagnostics remain a limitation; no performance improvement is claimed.
+
+`current-review-regressions.log` records the exact command for the follow-up run: 303 tests passed in 13.43 seconds. It includes the updated replacement-scope tests, same-case checks, and existing caller regressions. The manifest binds the tested file hash. Four separate copied-source gate-deletion controls failed at the new origin assertions (both eval/apply callers and canonical/legacy scopes); production files remained unchanged.

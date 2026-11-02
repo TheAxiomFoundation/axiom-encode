@@ -1,0 +1,57 @@
+{
+  "status": "CLEAR tests frozen and root documentation independently reviewed",
+  "changed_test": "tests/test_execution_overlay_origin.py",
+  "test_sha256": "709891c3930c81ab00179c17c1d41adfe7c1de9e077108e5673db99bc125692d",
+  "focused": "33 passed in10.36s",
+  "fresh_exact_command_regressions": "303 passed in13.43s; current-review-regressions.log records exact argv/CWD/PYTHONPATH",
+  "mutations": {
+    "mutants": [
+      {
+        "lane": "eval",
+        "scope": "canonical",
+        "exit_code": 1,
+        "origin_assertion_failed": true,
+        "log_sha256": "0b2c49db76060453a4463c4c390ba81ab755f09a6dbe715c2d28dc3a7c485fa6"
+      },
+      {
+        "lane": "eval",
+        "scope": "legacy",
+        "exit_code": 1,
+        "origin_assertion_failed": true,
+        "log_sha256": "889d4f6f7d938d3c424b14bb9816804f30f56574fc8573e24c66a16c0cb9d216"
+      },
+      {
+        "lane": "apply",
+        "scope": "canonical",
+        "exit_code": 1,
+        "origin_assertion_failed": true,
+        "log_sha256": "bb7e2bd7cb068abc2b3d23ba4bfdf240b8fc492a280ed8887212292771c13f41"
+      },
+      {
+        "lane": "apply",
+        "scope": "legacy",
+        "exit_code": 1,
+        "origin_assertion_failed": true,
+        "log_sha256": "8c34844d450e487b92ef37ca846936fa013d843f39f8351e81e2050f8cbe7e8a"
+      }
+    ],
+    "production_unchanged": {
+      "src/axiom_encode/cli.py": "c9def567adcedfb53b9d637ec48972b563df27f1a8a840a082a61834bfad8101",
+      "src/axiom_encode/harness/evals.py": "90d52e1cadcf9d7e9dc86b6de935ceaaff722ad163d43909367a1b872f9cb382"
+    }
+  },
+  "limitations": [
+    "Real typed legacy contract staging fixture; no signature or complete-source runtime claim from caller mocks",
+    "Initial fixture companion collision retained; resolved by exact predecessor companion rename/binding",
+    "GitNexus context/impact missing UNKNOWN; manual bothcaller staging audit",
+    "Per-case Git optimization deliberately not implemented; production bytes unchanged"
+  ],
+  "root_documentation_review": "Attribution corrected to agent posted from Max account. Historical unavailable invocation labels accurate; original progress bytes/hashes preserved exactly. No guessed invocation.",
+  "evidence": {
+    "replacement-tests-initial.log": "8c7bdaf291591a8ce01669d5cf7cc98d470b3843c2bb202df03a4b10ca73e217",
+    "replacement-tests-final.log": "6c3bb3c352e2d571c935dbbbfdea3862964176247b0d1883c8dcb6b3c16bded9",
+    "replacement-exclusion-mutation-result.json": "2e89c6ccb33e8cdb22234d100fec3e3df7e11c1199699c337f7bae278b940cec",
+    "current-review-regressions.log": "44557f532e6bd6de4b3501a8ac44a7200a2e7af4cf76ad512c63ecf49ab82f59",
+    "replacement-review-runs.py": "c78911998758bcab1df20a57c2620f3022f75603f0975b2d5a7e95f02af3cd91"
+  }
+}

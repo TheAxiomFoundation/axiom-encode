@@ -51,16 +51,22 @@
       "bytes": 369
     },
     "shared-tests.log": {
-      "sha256": "8e548def9fbdea9cc6755552cc475a81cf29da6bb3d0924bf0d2045b0843229c",
-      "bytes": 261
+      "sha256": "e8c651013da971a79d0e5dcb2feb2b6a1db71b6e12db8a75ea7c9211dc9d5996",
+      "bytes": 473,
+      "original_progress_sha256": "8e548def9fbdea9cc6755552cc475a81cf29da6bb3d0924bf0d2045b0843229c",
+      "historical_command": "not captured; unavailable"
     },
     "caller-tests.log": {
-      "sha256": "8525206186fbf589ea87d6c42e086149c95214ddaeb0ff649dcefd5db78f3702",
-      "bytes": 340
+      "sha256": "8180d74dcfc46643bd1e4ecc2a05117b4c8dc87d706366daf13b5f04c5747da0",
+      "bytes": 552,
+      "original_progress_sha256": "8525206186fbf589ea87d6c42e086149c95214ddaeb0ff649dcefd5db78f3702",
+      "historical_command": "not captured; unavailable"
     },
     "version-tests.log": {
-      "sha256": "49680ccb956a4035038d0558513a624692efbb97c19d08cfd553d4db4fb05514",
-      "bytes": 100
+      "sha256": "784b1b8b7d12bcf2565a2abe0aac0b90a0a52eb2e47a2be3994f778ab9cab2e5",
+      "bytes": 312,
+      "original_progress_sha256": "49680ccb956a4035038d0558513a624692efbb97c19d08cfd553d4db4fb05514",
+      "historical_command": "not captured; unavailable"
     },
     "postcommit-version-tests.log": {
       "sha256": "53b1f24d20a4face85a209ba01ccd9a4a6a1fd2e68f64151d76bd64b50c543d7",
@@ -108,6 +114,20 @@
       "sha256": "b54f3cb2a781180826db5c0d013871012e822f0cfc20441a0c9248e07d488367",
       "bytes": 2779,
       "uncompressed_sha256": "c7b70ce5f7ac47d26a235a086f29b8b94ee00c2f91d207e0a7443b9f5f72f237"
+    },
+    "current-review-regressions.log": {
+      "sha256": "44557f532e6bd6de4b3501a8ac44a7200a2e7af4cf76ad512c63ecf49ab82f59",
+      "bytes": 984,
+      "test_file_sha256": "709891c3930c81ab00179c17c1d41adfe7c1de9e077108e5673db99bc125692d",
+      "scope": "Current review followup regression; exact command in log; not historical2271 runtime rerun"
+    },
+    "replacement-exclusion-mutation-result.json": {
+      "sha256": "2e89c6ccb33e8cdb22234d100fec3e3df7e11c1199699c337f7bae278b940cec",
+      "bytes": 1102
+    },
+    "replacement-exclusion-final-review.json": {
+      "sha256": "e573d84d55041eea521682aa7734f17ca1995bb11a7e599f37dea5d0f7d93807",
+      "bytes": 2761
     }
   },
   "execution_contexts": {

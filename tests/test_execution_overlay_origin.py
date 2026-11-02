@@ -13,6 +13,10 @@ from axiom_encode import cli
 from axiom_encode.harness import evals
 from axiom_encode.harness import same_case_execution as e
 from axiom_encode.harness import validator_pipeline as v
+from axiom_encode.legacy_replacement import (
+    LegacyReplacementContract,
+    LegacyReplacementFile,
+)
 from tests.test_evals import _write_test_corpus_release
 
 PIN = "a" * 40
@@ -302,14 +306,50 @@ def test_head_change_during_actual_copy_refuses_binding(staged):
     assert e.bind_execution_overlay_origin(seed, copied / "ca") is None
 
 
+def replacement_contract(staged):
+    """Use the real typed staging contract with exact fixture predecessor bytes."""
+    source = Path("ca/policies/test/legacy.yaml")
+    destination = Path("ca") / REL
+    raw = staged.target.read_bytes()
+    staged.target.rename(staged.source / source)
+    companion = source.with_name("legacy.test.yaml")
+    companion_path = staged.target.with_name("consumer.test.yaml")
+    companion_raw = companion_path.read_bytes()
+    companion_path.rename(staged.source / companion)
+    manifest = Path(".axiom/encoding-manifests/ca/policies/test/legacy.json")
+    manifest_raw = b'{"schema_version":"axiom-encode/applied-rulespec/v1"}\n'
+    (staged.source / manifest).parent.mkdir(parents=True, exist_ok=True)
+    (staged.source / manifest).write_bytes(manifest_raw)
+    commit(staged.source)
+    return LegacyReplacementContract(
+        base_commit=git(staged.source, "rev-parse", "HEAD"),
+        base_tree=git(staged.source, "rev-parse", "HEAD^{tree}"),
+        source=source,
+        destination=destination,
+        legacy_manifest=LegacyReplacementFile(
+            manifest, e.digest(manifest_raw), manifest_raw
+        ),
+        deleted_files=(
+            LegacyReplacementFile(source, e.digest(raw), raw),
+            LegacyReplacementFile(companion, e.digest(companion_raw), companion_raw),
+        ),
+        rewrites=(),
+        scheduled_dependents=(),
+        exact_dependents=(),
+    )
+
+
+@pytest.mark.parametrize("replacement_scope", ["ordinary", "canonical", "legacy"])
 @pytest.mark.parametrize("stale_during_copy", [False, True])
 def test_evaluate_artifact_forwards_pre_copy_origin_to_real_pipeline(
-    staged, monkeypatch, stale_during_copy
+    staged, monkeypatch, stale_during_copy, replacement_scope
 ):
     generated = staged.tmp / "generated" / REL
     generated.parent.mkdir(parents=True)
     generated.write_text(staged.target.read_text() + "\n# evaluated candidate\n")
     generated.with_name("consumer.test.yaml").write_text("[]\n")
+    contract = replacement_contract(staged) if replacement_scope == "legacy" else None
+    eligible = not stale_during_copy and replacement_scope == "ordinary"
     original_copy = evals._copy_validation_overlay_tree
 
     def copy_then_change(*args, **kwargs):
@@ -325,9 +365,10 @@ def test_evaluate_artifact_forwards_pre_copy_origin_to_real_pipeline(
         # Only compiler execution is replaced; no runtime pass is asserted.
         assert pipeline.policy_repo_path != staged.source / "ca"
         assert (pipeline.policy_repo_path / "sibling.txt").is_file()
+        assert (pipeline.execution_overlay_origin is not None) is eligible
         with e.compilation_snapshot(pipeline, rules_file) as capture:
             observed.append(capture is not None)
-            assert (capture is not None) is (not stale_during_copy)
+            assert (capture is not None) is eligible
             if capture is not None:
                 assert (
                     capture.snapshot_root / capture.root_relative
@@ -348,15 +389,18 @@ def test_evaluate_artifact_forwards_pre_copy_origin_to_real_pipeline(
         source_text=BODY,
         source_citation_path=CITATION,
         skip_reviewers=True,
+        legacy_replacement=contract,
+        replacement_overlay_scope=replacement_scope == "canonical",
         require_complete_source_unit=True,
         axiom_rules_engine_ref=PIN,
     )
-    assert observed == [not stale_during_copy]
+    assert observed == [eligible]
 
 
+@pytest.mark.parametrize("replacement_scope", ["ordinary", "canonical", "legacy"])
 @pytest.mark.parametrize("stale_during_copy", [False, True])
 def test_apply_overlay_forwards_pre_copy_origin_to_real_pipeline(
-    staged, monkeypatch, stale_during_copy
+    staged, monkeypatch, stale_during_copy, replacement_scope
 ):
     from tests.test_cli import (
         _complete_source_attestation,
@@ -392,6 +436,12 @@ def test_apply_overlay_forwards_pre_copy_origin_to_real_pipeline(
     setattr(
         result, cli._IMMUTABLE_RULESPEC_SHA256_ATTR, e.digest(generated.read_bytes())
     )
+    contract = replacement_contract(staged) if replacement_scope == "legacy" else None
+    setattr(result, cli._LEGACY_REPLACEMENT_ATTR, contract)
+    setattr(
+        result, cli._REPLACEMENT_OVERLAY_SCOPE_ATTR, replacement_scope == "canonical"
+    )
+    eligible = not stale_during_copy and replacement_scope == "ordinary"
     original_copy = cli._stage_apply_overlay_dependency_root
 
     def copy_then_change(*args, **kwargs):
@@ -405,9 +455,10 @@ def test_apply_overlay_forwards_pre_copy_origin_to_real_pipeline(
     def validate(pipeline, *, overlay_target, **kwargs):
         assert isinstance(pipeline, v.ValidatorPipeline)
         assert (pipeline.policy_repo_path / "sibling.txt").is_file()
+        assert (pipeline.execution_overlay_origin is not None) is eligible
         with e.compilation_snapshot(pipeline, overlay_target) as capture:
             observed.append(capture is not None)
-            assert (capture is not None) is (not stale_during_copy)
+            assert (capture is not None) is eligible
             if capture is not None:
                 assert (
                     capture.snapshot_root / capture.root_relative
@@ -434,7 +485,7 @@ def test_apply_overlay_forwards_pre_copy_origin_to_real_pipeline(
         require_complete_source_unit=True,
     )
     assert ok, issues
-    assert observed == [not stale_during_copy]
+    assert observed == [eligible]
 
 
 def test_ordinary_canonical_checkout_and_git_worktree_remain_eligible(staged):
