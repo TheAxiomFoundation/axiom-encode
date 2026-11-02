@@ -22115,6 +22115,37 @@ def _retired_source_metadata_manifest_issues(
     return []
 
 
+def _retired_source_metadata_receipt_is_settled(
+    repo_path: Path,
+    receipt_relative: Path,
+    *,
+    base_ref: str,
+    changed: set[str],
+) -> bool:
+    """True when a protected-base receipt is unchanged in Git and on disk.
+
+    Git reports no change for the path, and the checkout's bytes equal the
+    protected base blob, so neither a committed nor an uncommitted edit, nor a
+    removal, can pass as history.
+    """
+
+    if receipt_relative.as_posix() in changed:
+        return False
+    try:
+        base_bytes = _rulespec_migration_base_blob(
+            repo_path, base_ref, receipt_relative
+        )
+        live_bytes = read_bounded_regular_file(
+            repo_path,
+            repo_path / receipt_relative,
+            label="historical migration receipt",
+            max_bytes=16 * 1024 * 1024,
+        )
+    except (OSError, ValueError, RuntimeError, UnsafeCorpusPathError):
+        return False
+    return live_bytes == base_bytes
+
+
 def _retired_source_metadata_change_set_issues(
     repo_path: Path,
     changed: list[str],
@@ -22178,7 +22209,10 @@ def _retired_source_metadata_change_set_issues(
             issues.append(f"{path} has no retired source metadata receipt binding")
             continue
         receipts.add(receipt_path)
-        if not all_files and receipt_path not in changed_receipts:
+        # Diff modes list only changed manifests; --all lists every manifest,
+        # so only one that changed against the protected base must introduce
+        # its receipt.
+        if path in changed_set and receipt_path not in changed_receipts:
             issues.append(
                 f"{path} changed without introducing its retired source metadata receipt {receipt_path}"
             )
@@ -22198,6 +22232,16 @@ def _retired_source_metadata_change_set_issues(
                 base_ref,
                 path,
             ):
+                if all_files and _retired_source_metadata_receipt_is_settled(
+                    repo_path, Path(path), base_ref=base_ref, changed=changed_set
+                ):
+                    # A receipt already in the protected base, byte for byte
+                    # unchanged, is settled history (#1942). Its transaction
+                    # was admitted when it landed; replay the receipt to prove
+                    # it is still genuine, and leave every live manifest and
+                    # file to the ordinary guard rules that follow.
+                    _retired_source_metadata_replay(repo_path, Path(path))
+                    continue
                 raise RetiredSourceMetadataError(
                     "historical migration receipts cannot be edited or removed"
                 )

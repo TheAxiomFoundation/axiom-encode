@@ -52,7 +52,17 @@ match the transaction exactly. Diff mode and the `changed_files` API enforce
 the same admission even when the caller supplies a selected path list; omitting
 a receipt or cascade path cannot make a partial transaction acceptable.
 
-The selected base must be the original protected pre-migration commit. A base
-that already contains the receipt cannot admit it as a new transaction. Trees
-containing sequential receipts from different bases cannot satisfy this exact
-transaction gate with one base.
+To admit a new receipt, the selected base must be its protected pre-migration
+commit. A base that already contains the receipt cannot admit it as a new
+transaction.
+
+Once a migration lands, its receipt is settled history. With a protected base
+that already contains the receipt, `--all` checks that the receipt is byte for
+byte unchanged in Git and on disk, replays it against its own `base_commit`,
+and then judges the rest of the tree under the ordinary guard rules: every live
+manifest, including the migration's replacement manifests, must still verify.
+A later tree can therefore pass `--all` with any protected base at or after the
+landing commit. Editing or removing a historical receipt is still refused, and
+so is a changed replacement manifest that does not introduce a new receipt. A
+second migration planned on a landed one is admitted as its own exact
+transaction against its own pre-migration base.
