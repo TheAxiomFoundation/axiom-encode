@@ -48,6 +48,7 @@ from axiom_encode.harness.validator_pipeline import (
 
 FIXTURES = Path(__file__).parent / "fixtures/source_completeness"
 SNAP_CITATION = "us/statute/7/2014"
+_SNAP_ANCHOR = "us:statutes/7/2014"
 
 
 def _old_reason_dependency_occurrence_is_contextual(
@@ -453,6 +454,70 @@ def _old_path_is_deferred(
     )
 
 
+def _old_branches_ending_output(
+    output_parts: tuple[str, ...],
+    branches: Sequence[SourceStructureBranch],
+) -> list[SourceStructureBranch]:
+    """Main's comprehension in ``_deferred_coverage``, as a function."""
+
+    return [
+        branch
+        for branch in branches
+        if branch.path
+        and len(output_parts) >= len(branch.path)
+        and output_parts[-len(branch.path) :] == branch.path
+    ]
+
+
+def _old_deferred_source_scope_text(
+    path: tuple[str, ...],
+    *,
+    source_text: str,
+    branches: Sequence[SourceStructureBranch],
+) -> str:
+    if not path:
+        return source_text
+    candidates = [branch.text for branch in branches if branch.path == path]
+    return max(candidates, key=len, default="")
+
+
+def _old_deferred_branch_display_path(
+    path: tuple[str, ...],
+    *,
+    corpus_citation_path: str,
+    branches: Sequence[SourceStructureBranch],
+) -> tuple[str, ...]:
+    """Restore source-marker case for federal branch-path retry advice."""
+
+    if not corpus_citation_path.startswith("us/statute/"):
+        return path
+    display_path: list[str] = []
+    for depth, segment in enumerate(path, start=1):
+        prefix = path[:depth]
+        candidate_texts = (branch.text for branch in branches if branch.path == prefix)
+        source_scope_text = max(candidate_texts, key=len, default="")
+        marker_match = re.match(
+            r"\s*(?P<markers>(?:\(\s*[A-Za-z0-9]+\s*\)\s*)+)",
+            source_scope_text,
+        )
+        if marker_match is None:
+            display_path.append(segment)
+            continue
+        marker_labels = re.findall(
+            r"\(\s*([A-Za-z0-9]+)\s*\)",
+            marker_match.group("markers"),
+        )
+        display_segment = segment
+        for width in range(min(len(prefix), len(marker_labels)), 0, -1):
+            if tuple(label.lower() for label in marker_labels[:width]) == tuple(
+                part.lower() for part in prefix[-width:]
+            ):
+                display_segment = marker_labels[width - 1]
+                break
+        display_path.append(display_segment)
+    return tuple(display_path)
+
+
 class _NaiveSpanContainment:
     """Main's linear ``any`` scans, behind ``_SpanContainment``'s interface."""
 
@@ -506,6 +571,9 @@ def _old_mode():
         _most_specific_containing_branch=_old_most_specific_containing_branch,
         _source_branch_direct_text=_old_source_branch_direct_text,
         _path_is_deferred=_old_path_is_deferred,
+        _branches_ending_output=_old_branches_ending_output,
+        _deferred_source_scope_text=_old_deferred_source_scope_text,
+        _deferred_branch_display_path=_old_deferred_branch_display_path,
         _source_branch_index=lambda branches: None,
         _SpanContainment=_NaiveSpanContainment,
     ):
@@ -631,7 +699,7 @@ def _half_deferred(n: int, *, reason: str) -> str:
         SNAP_CITATION,
         [
             (
-                f"us:statutes/7/2014/{k}#eligibility_{k}",
+                f"{_SNAP_ANCHOR}/{k}#eligibility_{k}",
                 reason.format(k=k, section=3000 + k),
             )
             for k in range(1, n + 1, 2)
@@ -796,6 +864,29 @@ def _fixture_cases():
             "en-US",
             id=f"attached-markers-{label}",
         )
+    # Each of these records draws retry advice, which restores marker case.
+    for label, output, reason in (
+        (
+            "non-source-root",
+            "us:policies/usda/snap/a/1/a#eligibility",
+            "Paragraph (a)(1)(A) cannot be encoded until eligibility under "
+            "section 3001 is available.",
+        ),
+        (
+            "root-symbol",
+            f"{_SNAP_ANCHOR}#eligibility",
+            "7 U.S.C. 2014(a)(1)(A) cannot be encoded until eligibility under "
+            "section 3001 is available.",
+        ),
+    ):
+        yield pytest.param(
+            _no_rules(SNAP_CITATION, [(output, reason)]),
+            _deep_outline(96),
+            SNAP_CITATION,
+            None,
+            "en-US",
+            id=f"retry-advice-{label}",
+        )
     yield pytest.param(
         _no_rules("de/statute/estg/32"),
         GERMAN_SOURCE,
@@ -848,6 +939,9 @@ def test_fixture_differential_reaches_every_replaced_scan():
         "_most_specific_containing_branch",
         "_source_branch_direct_text",
         "_path_is_deferred",
+        "_branches_ending_output",
+        "_deferred_source_scope_text",
+        "_deferred_branch_display_path",
     )
     _clear_caches()
     with _old_mode():
@@ -892,6 +986,48 @@ def _deferral_sets(branches: Sequence[SourceStructureBranch]):
         yield frozenset(deferred)
 
 
+def _deferred_scope_answers(
+    path: tuple[str, ...],
+    source: str,
+    pool: Sequence[SourceStructureBranch],
+    citation: str = SNAP_CITATION,
+) -> tuple[object, ...]:
+    """Each deferral-scope helper's outcome for ``path`` and its parent.
+
+    The display helper returns ``path`` as given outside a federal statute, so
+    it answers under a federal citation too. A parent can have no branch of its
+    own, which the scope text answers with no text. An output's parts end in a
+    branch's path, whole or in part, or in nothing in the pool.
+    """
+
+    return (
+        *(
+            _outcome(call)
+            for question in (path, path[:-1])
+            for call in (
+                lambda question=question: sc._deferred_source_scope_text(
+                    question, source_text=source, branches=pool
+                ),
+                lambda question=question: sc._deferred_branch_display_path(
+                    question, corpus_citation_path=citation, branches=pool
+                ),
+                lambda question=question: sc._deferred_branch_display_path(
+                    question, corpus_citation_path=SNAP_CITATION, branches=pool
+                ),
+            )
+        ),
+        *(
+            _outcome(
+                lambda parts=parts: [
+                    _identity(pool, branch)
+                    for branch in sc._branches_ending_output(parts, pool)
+                ]
+            )
+            for parts in (("us:policies", *path), path, path[1:], ("z",), ())
+        ),
+    )
+
+
 @pytest.mark.parametrize(("source", "citation"), tuple(_fixture_sources()))
 def test_fixture_branch_helpers_match_main(source, citation):
     branches = sc.recognize_source_structure(source, corpus_citation_path=citation)
@@ -930,6 +1066,7 @@ def test_fixture_branch_helpers_match_main(source, citation):
                         sc._path_is_deferred(branch.path, deferred)
                         for deferred in deferral_sets
                     ),
+                    *_deferred_scope_answers(branch.path, source, pool, citation),
                 )
                 for branch in pool
             ],
@@ -1373,6 +1510,7 @@ def test_branch_helpers_match_main_on_random_pools(case):
                     ),
                     sc._source_branch_direct_text(branch, branches=pool),
                     sc._path_is_deferred(branch.path, deferred),
+                    *_deferred_scope_answers(branch.path, text, pool),
                 )
                 for branch in pool
             ],
@@ -1383,6 +1521,74 @@ def test_branch_helpers_match_main_on_random_pools(case):
             old, cold, warm = _old_and_new(lambda: helpers(pool, deferred))
             assert cold == old
             assert warm == cold
+
+
+@settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(_branch_pools())
+def test_branch_path_lookup_returns_main_filter_in_order(case):
+    _text, branches, _deferred, _spans = case
+    if not branches:
+        return
+    questions = {
+        branch.path[:cut] for branch in branches for cut in range(len(branch.path) + 1)
+    } | {("z",), ("a", "z")}
+
+    with sc._source_index_scope():
+        index = sc._source_branch_index(branches)
+        assert index is not None
+        for question in questions:
+            found = index.at(question)
+            expected = [branch for branch in branches if branch.path == question]
+            assert [id(branch) for branch in found] == [id(b) for b in expected]
+            for parts in (question, ("z", *question), question[1:]):
+                found = index.ending(parts)
+                expected = _old_branches_ending_output(parts, branches)
+                assert [id(branch) for branch in found] == [id(b) for b in expected]
+
+
+def test_deferred_scope_text_breaks_length_ties_by_branch_order():
+    def branch(text: str, start: int) -> SourceStructureBranch:
+        return SourceStructureBranch(
+            ("a",), "kind", "(a)", text, start, start + len(text)
+        )
+
+    for texts, longest in (
+        (("xx", "yy"), "xx"),
+        (("x", "yy", "zz"), "yy"),
+        (("xx", "yyy"), "yyy"),
+    ):
+        branches = tuple(branch(text, 10 * at) for at, text in enumerate(texts))
+        with sc._source_index_scope():
+            found = sc._deferred_source_scope_text(
+                ("a",), source_text="", branches=branches
+            )
+        assert found == longest
+        assert found == _old_deferred_source_scope_text(
+            ("a",), source_text="", branches=branches
+        )
+
+
+def test_deferred_display_path_restores_marker_case_at_every_depth():
+    source = (
+        "(a) Provision.\n(1) Provision.\n(A) Provision.\n(i) Provision.\n"
+        "(ii) Provision.\n(B) Provision.\n(2) Provision.\n(b) Provision."
+    )
+    branches = sc.recognize_source_structure(source, corpus_citation_path=SNAP_CITATION)
+    path = ("a", "1", "a", "i")
+
+    with sc._source_index_scope():
+        display = sc._deferred_branch_display_path(
+            path, corpus_citation_path=SNAP_CITATION, branches=branches
+        )
+        foreign = sc._deferred_branch_display_path(
+            path, corpus_citation_path="de/statute/estg/32", branches=branches
+        )
+
+    assert display == ("a", "1", "A", "i")
+    assert foreign is path
+    assert display == _old_deferred_branch_display_path(
+        path, corpus_citation_path=SNAP_CITATION, branches=branches
+    )
 
 
 @settings(max_examples=300, deadline=None)
@@ -1666,6 +1872,7 @@ def test_branch_helpers_match_main_on_unhashable_paths():
                     )
                 ),
                 _outcome(lambda: sc._path_is_deferred(branch.path, deferred)),
+                *_deferred_scope_answers(branch.path, source, odd),
             )
             for branch in odd
         ]
@@ -1910,6 +2117,8 @@ _OTHER_FIELDS = [
     pytest.param({"start": 0.0}, id="float-start"),
     pytest.param({"end": True}, id="bool-end"),
     pytest.param({"kind": None}, id="none-kind"),
+    pytest.param({"text": None}, id="none-text"),
+    pytest.param({"text": b"(a)"}, id="bytes-text"),
 ]
 
 
@@ -1958,6 +2167,7 @@ def test_branch_helpers_match_main_on_other_field_types(change, position):
                     _outcome(lambda: sc._path_is_deferred(branch.path, deferred))
                     for deferred in deferred_sets
                 ),
+                *_deferred_scope_answers(branch.path, source, odd),
             )
             for branch in odd
         ]
@@ -1999,11 +2209,39 @@ def test_branch_questions_match_main_from_outside_the_pool(path):
     def descendants(candidate):
         return len(candidate.path) > len(path) and candidate.path[: len(path)] == path
 
+    def at(candidate):
+        return candidate.path == path
+
+    def ending(candidate):
+        return (
+            candidate.path
+            and len(path) >= len(candidate.path)
+            and path[-len(candidate.path) :] == candidate.path
+        )
+
     old, cold, warm = _old_and_new(
-        lambda: _outcome(
-            lambda: sc._is_marker_only_container(
-                asked, branches=branches, source_text=source
-            )
+        lambda: (
+            _outcome(
+                lambda: sc._is_marker_only_container(
+                    asked, branches=branches, source_text=source
+                )
+            ),
+            _outcome(
+                lambda: sc._deferred_source_scope_text(
+                    path, source_text=source, branches=branches
+                )
+            ),
+            _outcome(
+                lambda: sc._deferred_branch_display_path(
+                    path, corpus_citation_path=SNAP_CITATION, branches=branches
+                )
+            ),
+            _outcome(
+                lambda: [
+                    _identity(branches, branch)
+                    for branch in sc._branches_ending_output(path, branches)
+                ]
+            ),
         )
     )
     assert cold == old
@@ -2016,6 +2254,8 @@ def test_branch_questions_match_main_from_outside_the_pool(path):
         for question, keep in (
             (index.children, children),
             (index.descendants, descendants),
+            (index.at, at),
+            (index.ending, ending),
         ):
             expected = _outcome(lambda: [b for b in branches if keep(b)])
             assert _outcome(lambda: [b for b in question(path) if keep(b)]) == expected
@@ -2122,6 +2362,7 @@ def test_branch_helpers_match_main_on_other_branch_objects():
                         ),
                     )
                 ),
+                *_deferred_scope_answers(branch.path, source, odd),
             )
             for branch in odd
         ]
@@ -2678,6 +2919,45 @@ def test_deferral_reason_cpu_growth_is_near_linear(family, sizes, budget):
             (400, 800, 1600),
             1.0,
             id="source-clause-spans",
+        ),
+        pytest.param(
+            _branch_helper_family(
+                lambda source, branches, deferred: [
+                    sc._deferred_source_scope_text(
+                        branch.path, source_text=source, branches=branches
+                    )
+                    for branch in branches
+                ]
+            ),
+            (400, 800, 1600),
+            1.0,
+            id="deferred-source-scope-text",
+        ),
+        pytest.param(
+            _branch_helper_family(
+                lambda source, branches, deferred: [
+                    sc._deferred_branch_display_path(
+                        branch.path,
+                        corpus_citation_path=SNAP_CITATION,
+                        branches=branches,
+                    )
+                    for branch in branches
+                ]
+            ),
+            (400, 800, 1600),
+            1.0,
+            id="deferred-branch-display-path",
+        ),
+        pytest.param(
+            _branch_helper_family(
+                lambda source, branches, deferred: [
+                    sc._branches_ending_output(("us:policies", *branch.path), branches)
+                    for branch in branches
+                ]
+            ),
+            (400, 800, 1600),
+            1.0,
+            id="branches-ending-output",
         ),
     ),
 )

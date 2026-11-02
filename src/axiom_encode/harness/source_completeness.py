@@ -6792,13 +6792,7 @@ def _deferred_coverage(
             output_parts = tuple(
                 part.lower() for part in output_path.rstrip("/").split("/") if part
             )
-            matching_branches = [
-                branch
-                for branch in branches
-                if branch.path
-                and len(output_parts) >= len(branch.path)
-                and output_parts[-len(branch.path) :] == branch.path
-            ]
+            matching_branches = _branches_ending_output(output_parts, branches)
             if fragment and uses_local_policy_root and matching_branches:
                 matching_branch = max(
                     matching_branches, key=lambda branch: len(branch.path)
@@ -7220,6 +7214,21 @@ def _resolved_definition_deferral_clauses(
     return tuple(clauses)
 
 
+def _branches_ending_output(
+    output_parts: tuple[str, ...],
+    branches: Sequence[SourceStructureBranch],
+) -> list[SourceStructureBranch]:
+    index = _source_branch_index(branches)
+    pool = branches if index is None else index.ending(output_parts)
+    return [
+        branch
+        for branch in pool
+        if branch.path
+        and len(output_parts) >= len(branch.path)
+        and output_parts[-len(branch.path) :] == branch.path
+    ]
+
+
 def _deferred_source_scope_text(
     path: tuple[str, ...],
     *,
@@ -7228,7 +7237,9 @@ def _deferred_source_scope_text(
 ) -> str:
     if not path:
         return source_text
-    candidates = [branch.text for branch in branches if branch.path == path]
+    index = _source_branch_index(branches)
+    pool = branches if index is None else index.at(path)
+    candidates = [branch.text for branch in pool if branch.path == path]
     return max(candidates, key=len, default="")
 
 
@@ -7242,10 +7253,12 @@ def _deferred_branch_display_path(
 
     if not corpus_citation_path.startswith("us/statute/"):
         return path
+    index = _source_branch_index(branches)
     display_path: list[str] = []
     for depth, segment in enumerate(path, start=1):
         prefix = path[:depth]
-        candidate_texts = (branch.text for branch in branches if branch.path == prefix)
+        pool = branches if index is None else index.at(prefix)
+        candidate_texts = (branch.text for branch in pool if branch.path == prefix)
         source_scope_text = max(candidate_texts, key=len, default="")
         marker_match = re.match(
             r"\s*(?P<markers>(?:\(\s*[A-Za-z0-9]+\s*\)\s*)+)",
@@ -22568,8 +22581,9 @@ class _BranchPathNode:
 class _SourceBranchIndex:
     """Path and position lookups over one tuple of source branches.
 
-    Per-branch helpers that filtered every branch (its children, descendants,
-    or the branches containing a span) made an outline of n branches cost n².
+    Per-branch helpers that filtered every branch (those at a path or ending
+    one, its children and descendants, or those containing a span) made an
+    outline of n branches cost n².
     Each lookup here returns, in their original order and once each, a pool of
     branches that holds every branch the helper's own filter can accept; the
     helpers still apply that filter, so their results are unchanged. The path
@@ -22681,6 +22695,39 @@ class _SourceBranchIndex:
             if node is None:
                 return None
         return node
+
+    def at(self, path: tuple[str, ...]) -> list[SourceStructureBranch]:
+        """Branches whose path is ``path``."""
+
+        if self._paths is None or not _plain_path(path):
+            return list(self.branches)
+        node = self._node(path)
+        if node is None:
+            return []
+        return [self.branches[index] for index in node.indexes]
+
+    @functools.cached_property
+    def _path_lengths(self) -> list[int]:
+        return sorted({len(branch.path) for branch in self.branches})
+
+    def ending(self, parts: tuple[str, ...]) -> list[SourceStructureBranch]:
+        """Branches whose path is a non-empty suffix of ``parts``.
+
+        Each distinct path length is one slice of ``parts`` to look up, so a
+        call never slices more than a scan, which slices once per branch.
+        """
+
+        paths = self._paths
+        if paths is None or not _plain_path(parts):
+            return list(self.branches)
+        nodes = paths[1]
+        found: list[int] = []
+        for length in self._path_lengths:
+            if 0 < length <= len(parts):
+                node = nodes.get(parts[-length:])
+                if node is not None:
+                    found.extend(node.indexes)
+        return [self.branches[index] for index in sorted(found)]
 
     def children(self, path: tuple[str, ...]) -> list[SourceStructureBranch]:
         """Branches whose path is ``path`` plus one component."""
