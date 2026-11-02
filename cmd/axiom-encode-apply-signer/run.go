@@ -56,6 +56,11 @@ func runLauncher(options runOptions, environment func(string) string) (int, erro
 	if err := options.validateCodexSubscription(); err != nil {
 		return 0, err
 	}
+	// The supervisor inherits this environment and refuses an ambient
+	// CODEX_HOME in subscription mode. Refuse it here, before the key is read.
+	if options.codexAuthPath != "" && environment("CODEX_HOME") != "" {
+		return 0, errors.New("ambient CODEX_HOME is outside supervisor custody; unset it and pass --codex-subscription-auth explicitly")
+	}
 	// Fail fast with a clear message before touching key material. The signer
 	// re-validates independently as the single source of truth.
 	if _, err := options.binding.validate(environment); err != nil {

@@ -224,3 +224,27 @@ func TestSubscriptionCredentialsExcludedFromSignerEnvironment(t *testing.T) {
 		t.Fatal("signer environment must remain the six CI context fields only")
 	}
 }
+
+func TestRunLauncherSubscriptionRejectsAmbientCodexHomeBeforeConsumingKey(t *testing.T) {
+	const keyName = "APPLY_SIGNER_SUBSCRIPTION_TEST_KEY"
+	const testKey = "invented-key-must-not-be-consumed"
+	t.Setenv(keyName, testKey)
+	options := runOptions{
+		scope:              scopeApply,
+		keyEnv:             keyName,
+		binding:            ciBinding(),
+		codexCLIConfigPath: "/protected config/codex.json",
+		codexAuthPath:      "/operator auth/auth.json",
+		codexAuthOutbox:    "/operator outbox/auth.json",
+	}
+	environment := validCIEnvironment()
+	environment["CODEX_HOME"] = "/ambient/codex-home"
+	_, err := runLauncher(options, envFrom(environment))
+	want := "ambient CODEX_HOME is outside supervisor custody; unset it and pass --codex-subscription-auth explicitly"
+	if err == nil || err.Error() != want {
+		t.Fatalf("ambient CODEX_HOME must fail before key handling: %v", err)
+	}
+	if os.Getenv(keyName) != testKey {
+		t.Fatal("ambient CODEX_HOME check consumed the test key")
+	}
+}
