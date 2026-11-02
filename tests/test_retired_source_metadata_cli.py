@@ -787,7 +787,13 @@ def test_M1_actual_transaction_scope_ignores_ambient_git_checkout(
     assert any("README.md" in issue for issue in issues), issues
 
 
-def test_M1_all_rejects_receipt_already_present_at_protected_base(checkout, capsys):
+def test_M1_all_settles_receipt_already_present_at_protected_base(checkout, capsys):
+    """An unchanged receipt in the protected base is settled history (#1942).
+
+    Editing it is still refused; see
+    tests/test_retired_source_metadata_settled_history.py for later trees.
+    """
+
     report = migrate(checkout, capsys)
     git(checkout.repo, "add", ".")
     git(checkout.repo, "commit", "-m", "land complete signed migration")
@@ -799,7 +805,20 @@ def test_M1_all_rejects_receipt_already_present_at_protected_base(checkout, caps
         all_files=True,
         base_ref=protected_base,
     )
-    assert any(report["receipt_path"] in issue for issue in issues)
+    assert issues == []
+    receipt = checkout.repo / report["receipt_path"]
+    receipt.write_bytes(receipt.read_bytes() + b"\n")
+    issues = cli.guard_generated_change_issues(
+        checkout.repo,
+        corpus_path=checkout.args.corpus_path,
+        all_files=True,
+        base_ref=protected_base,
+    )
+    assert any(
+        report["receipt_path"] in issue
+        and "historical migration receipts cannot be edited or removed" in issue
+        for issue in issues
+    )
 
 
 @settings(

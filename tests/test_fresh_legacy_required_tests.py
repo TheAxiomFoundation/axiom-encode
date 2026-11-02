@@ -160,6 +160,7 @@ def test_fresh_replacement_encode_receives_exact_required_contract(tmp_path, leg
         "PYTHONPATH": str(ROOT / "src"),
         "RUNNER_TEMP": str(tmp_path),
         "GITHUB_WORKSPACE": str(tmp_path),
+        "RULES_ENGINE_REF": "a" * 40,
         "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
         "CITATION": "us/guidance/example",
         "REVIEW_FINDING": "",
@@ -176,6 +177,7 @@ def test_fresh_replacement_encode_receives_exact_required_contract(tmp_path, leg
     )
     assert result.returncode == 0, result.stderr
     args = result.stdout.rstrip("\0").split("\0")
+    assert args[args.index("--axiom-rules-engine-ref") + 1] == "a" * 40
     assert "--require-complete-source-unit" in args
     assert ("--replace-legacy-rulespec-path" in args) == legacy
     assert json.loads(args[args.index("--review-contract-json") + 1]) == {
