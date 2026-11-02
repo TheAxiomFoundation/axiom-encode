@@ -117,7 +117,9 @@ def test_real_candidates_no_longer_demand_locator_scalars(
 
 @pytest.mark.parametrize(
     ("run_id", "current_count"),
-    (("37936331759", 0), ("37936338132", 51), ("37936341740", 116)),
+    # Virginia: the subdivision clause-cue mask (#1831) removes the demand for
+    # 7 from `this subdivision 7 if such payments ...` (116 -> 115).
+    (("37936331759", 0), ("37936338132", 51), ("37936341740", 115)),
 )
 def test_replay_diagnostic_totals(run_id, current_count):
     _recorded, _source, issues = _replay(run_id)

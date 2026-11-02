@@ -48,3 +48,9 @@ companion-test evidence; the Statutes at Large values 49 and 620 remain
 excluded. These replay totals are not full production encode/apply or signing
 runs. Oklahoma and Virginia keep the diagnostic reductions shown above;
 both genuine-omission controls still reject.
+
+The subdivision clause-cue mask (#1831) removes Virginia's numeric demand for
+7, which came only from `this subdivision 7 if such payments ...`; the
+`subdivision B 10 of § 58.1-301 related to ...` locator goes too, while the
+operative `10 percent of the recognized gain` keeps the value 10 demanded.
+The direct Virginia replay reports 115 diagnostics.

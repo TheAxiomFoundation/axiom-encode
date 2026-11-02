@@ -2348,6 +2348,27 @@ _ENGLISH_SUBDIVISION_SINGLE_REFERENCE_PREDICATE = re.compile(
     r"appl(?:y|ies)|provides?|authorizes?|governs?|requires?)\b(?!-)",
     flags=re.IGNORECASE,
 )
+# A single subdivision reference can also end where a subordinate clause or a
+# participial modifier begins (`pursuant to this subdivision 7 if such
+# payments`, `subdivision B 10 of § 58.1-301 related to loans`). The cue alone
+# proves nothing about the label, so the reference must carry evidence of its
+# own: the demonstrative `this` before the keyword, or a statutory object
+# directly after the label. A unit word, a suffix letter or a coordinated label
+# keeps the number demanded.
+_ENGLISH_SUBDIVISION_STATUTORY_OBJECT = re.compile(
+    r"[ \t]+of[ \t]+(?:(?:this|the|that)[ \t]+"
+    r"(?:section|subsection|paragraph|subdivision|act|code|chapter)\b|"
+    r"§[ \t]*\d+(?:[.-]\d+)*(?:\([A-Za-z0-9]+\))*)",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_SUBDIVISION_CLAUSE_CUE = re.compile(
+    r"[ \t]+(?:if|unless|when|whenever|where|except|provided[ \t]+that|"
+    r"relat(?:ed|ing)[ \t]+to|pertaining[ \t]+to)[ \t]+[A-Za-z]",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_SUBDIVISION_DEMONSTRATIVE = re.compile(
+    r"(?<![A-Za-z])this[ \t]+\Z", flags=re.IGNORECASE
+)
 # The exact phrase can identify poverty-guideline geography. The span helper
 # also requires bare or definite reference syntax, retaining unknown units.
 _CONTIGUOUS_STATES_NUMERIC_RECALL_IDENTIFIER = re.compile(
@@ -15384,6 +15405,27 @@ class _NumericRecallSourceMap:
         return origin, origin + end - start
 
 
+def _english_subdivision_reference_ends_at_clause_cue(
+    source_text: str, citation: re.Match[str]
+) -> bool:
+    """Prove a single reference by its own evidence and a following clause cue.
+
+    ``this subdivision 7 if ...`` and ``subdivision B 10 of § 58.1-301 related
+    to ...`` qualify. Both matches are anchored at fixed positions, and the
+    demonstrative check reads at most 16 characters before the keyword.
+    """
+
+    statutory_object = _ENGLISH_SUBDIVISION_STATUTORY_OBJECT.match(
+        source_text, citation.end()
+    )
+    if statutory_object is None and not _ENGLISH_SUBDIVISION_DEMONSTRATIVE.search(
+        source_text[max(0, citation.start() - 16) : citation.start()]
+    ):
+        return False
+    cue_start = statutory_object.end() if statutory_object else citation.end()
+    return _ENGLISH_SUBDIVISION_CLAUSE_CUE.match(source_text, cue_start) is not None
+
+
 def _english_subdivision_numeric_recall_spans(
     source_text: str,
 ) -> Iterable[tuple[int, int]]:
@@ -15448,6 +15490,13 @@ def _english_subdivision_numeric_recall_spans(
             and _ENGLISH_SUBDIVISION_SINGLE_REFERENCE_PREDICATE.match(
                 source_text, citation.end()
             )
+        ):
+            selected = labels
+        elif (
+            len(labels) == 1
+            and not ambiguous_labels
+            and citation.group("keyword").lower() == "subdivision"
+            and _english_subdivision_reference_ends_at_clause_cue(source_text, citation)
         ):
             selected = labels
         else:
