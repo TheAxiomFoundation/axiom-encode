@@ -20,7 +20,6 @@ import hashlib
 import heapq
 import itertools
 import math
-import operator
 import re
 import textwrap
 import threading
@@ -36,6 +35,7 @@ from decimal import (
     InvalidOperation,
     localcontext,
 )
+from operator import is_
 from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
 import yaml
@@ -13991,7 +13991,7 @@ def _plain_strings(values: Iterable[object]) -> bool:
     metaclass can redefine to pass a subclass off as ``str``.
     """
 
-    return all(map(operator.is_, map(type, values), itertools.repeat(str)))
+    return all(map(is_, map(type, values), itertools.repeat(str)))
 
 
 def _plain_path(path: object) -> bool:
