@@ -89,6 +89,21 @@ IMPORT_FORMS = [
         False,
         id="shared-short-name",
     ),
+    pytest.param(
+        [VIEW],
+        [
+            data_relation("view", "Person", "Person"),
+            *predicate("view(anchor, candidate)"),
+        ],
+        True,
+        id="local-relation-takes-the-atom",
+    ),
+    pytest.param(
+        [VIEW],
+        [rule("result", "Person", "view(result, result)")],
+        False,
+        id="atom-in-an-ordinary-rule",
+    ),
 ]
 
 

@@ -32256,10 +32256,13 @@ def _rule_relation_import_reads(
     """Name the explicit relation imports that one rule reads.
 
     The engine binds an imported relation's short name only in an atom or an
-    `exists` generator, after a local relation of that name, and only while
-    one relation in the program has that name. `len(name)`, a bare member and
-    a bare source keep the name as this module's own relation. A full-target
-    source reads exactly the import it names.
+    `exists` generator of a derived relation's predicate, after any local
+    relation of that name, and drops a name that two relations in the program
+    share. This scan reads one module, so it credits the atom only while no
+    other explicit import shares the short name; a clash through a
+    whole-module or transitive import stays out of its view. `len(name)`, a
+    bare member and a bare source keep the name as this module's own relation.
+    A full-target source or path step reads exactly the import it names.
     """
     sources = rule_relation_sources(rule)
     atoms = _rulespec_relation_atom_reads(rule) - local_relations
