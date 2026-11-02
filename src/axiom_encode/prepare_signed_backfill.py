@@ -413,9 +413,13 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     if isinstance(payload, dict) and payload.get("schema") == (
         "axiom-encode/corpus-artifact-transport/v1"
     ):
-        if set(payload) != {"schema", "transaction", "corpus_artifact_run_id"}:
+        required_keys = {"schema", "transaction", "corpus_artifact_run_id"}
+        if frozenset(payload) not in {
+            frozenset(required_keys),
+            frozenset(required_keys | {"provision_export_run_ids"}),
+        }:
             raise ValueError(
-                "transport requires exactly transaction and corpus_artifact_run_id"
+                "transport requires transaction, corpus_artifact_run_id, and optional provision_export_run_ids"
             )
         run_id = payload["corpus_artifact_run_id"]
         if (
@@ -438,7 +442,52 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
             raise ValueError(
                 "transport requires a fresh complete-source primary without other modes"
             )
-        return {**normalized, "corpus_artifact_run_id": run_id}
+        result = {**normalized, "corpus_artifact_run_id": run_id}
+        if "provision_export_run_ids" in payload:
+            run_ids = payload["provision_export_run_ids"]
+            if (
+                not isinstance(run_ids, list)
+                or not 1 <= len(run_ids) <= 10
+                or any(
+                    not isinstance(extra_run_id, str)
+                    or re.fullmatch(r"[1-9][0-9]{0,19}", extra_run_id) is None
+                    for extra_run_id in run_ids
+                )
+                or len(set(run_ids)) != len(run_ids)
+                or run_id in run_ids
+            ):
+                raise ValueError(
+                    "transport prefetch needs 1-10 unique decimal run IDs distinct from its primary run"
+                )
+            result["provision_export_run_ids"] = run_ids
+        return result
+    if isinstance(payload, dict) and payload.get("schema") == (
+        "axiom-encode/corpus-provision-prefetch/v1"
+    ):
+        if set(payload) != {"schema", "transaction", "provision_export_run_ids"}:
+            raise ValueError(
+                "provision prefetch requires exactly transaction and run IDs"
+            )
+        run_ids = payload["provision_export_run_ids"]
+        if (
+            not isinstance(run_ids, list)
+            or not 1 <= len(run_ids) <= 11
+            or any(
+                not isinstance(run_id, str)
+                or re.fullmatch(r"[1-9][0-9]{0,19}", run_id) is None
+                for run_id in run_ids
+            )
+            or len(set(run_ids)) != len(run_ids)
+        ):
+            raise ValueError("provision prefetch needs 1-11 unique decimal run IDs")
+        inner = payload["transaction"]
+        if not isinstance(inner, dict) or inner.get("schema") not in {
+            "axiom-encode/atomic-source-transaction/v2",
+            "axiom-encode/atomic-source-transaction/v3",
+        }:
+            raise ValueError("provision prefetch requires an exact v2-v3 transaction")
+        normalized = split_atomic_source_input(json.dumps(inner, allow_nan=False))
+        return {**normalized, "provision_export_run_ids": run_ids}
     if isinstance(payload, dict) and payload.get("schema") == (
         "axiom-encode/atomic-source-transaction/v6"
     ):
@@ -595,7 +644,11 @@ def immutable_atomic_source_contract(atomic_source_json: str) -> dict[str, objec
     Unknown keys and nested wrappers fail before this projection is available.
     """
     normalized = split_atomic_source_input(atomic_source_json)
-    if "repair_mode" not in normalized and "corpus_artifact_run_id" not in normalized:
+    if not {
+        "repair_mode",
+        "corpus_artifact_run_id",
+        "provision_export_run_ids",
+    }.intersection(normalized):
         return normalized
     payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
     return split_atomic_source_input(
