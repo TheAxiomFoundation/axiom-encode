@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from base64 import b64encode
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
@@ -47,11 +47,14 @@ def write_test_release_object(
     git_commit: str = "a" * 40,
     unmaterialized_scopes: Sequence[tuple[str, str, str]] = (),
     unmaterialized_sources_per_scope: int = 1,
+    byte_count_overrides: Mapping[str, int] | None = None,
 ) -> str:
     """Write a production-shaped signed release object and return its identity.
 
     ``unmaterialized_scopes`` are signed into the object without local files,
     like the scopes a partial corpus checkout does not resolve against.
+    ``byte_count_overrides`` signs another byte count for some artifact paths
+    while keeping their sha256, as a release with a wrong size would.
     """
 
     artifact_rows: list[dict[str, object]] = []
@@ -137,6 +140,9 @@ def write_test_release_object(
                     row_count,
                 )
             )
+    for row in artifact_rows:
+        if byte_count_overrides and row["path"] in byte_count_overrides:
+            row["bytes"] = byte_count_overrides[str(row["path"])]
     artifact_rows.sort(key=lambda item: str(item["path"]))
     selector = {
         "name": name,

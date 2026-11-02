@@ -266,13 +266,19 @@ def test_scoped_parent_slice_drops_parent_source_history(tmp_path: Path):
             }
         ],
     )
-    source = resolve_local_corpus_source(parent, _release(tmp_path))
+    release = _release(tmp_path)
+    source = resolve_local_corpus_source(parent, release)
 
     scoped = scope_resolved_corpus_source(source, CITATION)
 
     assert scoped.body == "(e) Second rule."
     assert scoped.source_history == ()
     assert scoped.proof_evidence_text == scoped.body
+    assert scoped.selected_record.body == scoped.body
+    assert (
+        scoped.selected_record
+        == resolve_local_corpus_source(CITATION, release).selected_record
+    )
 
 
 def test_active_scope_beats_newer_inactive_duplicate(tmp_path: Path):
@@ -3181,7 +3187,12 @@ def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
         tmp_path,
         version,
         [
-            {"citation_path": CITATION, "body": None, "heading": "Parent"},
+            {
+                "citation_path": CITATION,
+                "body": None,
+                "heading": "Parent",
+                "metadata": {"amends": "principal document"},
+            },
             {
                 "citation_path": f"{CITATION}/2",
                 "body": "second",
@@ -3196,7 +3207,8 @@ def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
         ],
     )
 
-    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
+    release = _release(tmp_path)
+    resolved = resolve_local_corpus_source(CITATION, release)
 
     assert resolved.body == "First heading\n\nfirst\n\nsecond"
     assert [row.citation_path for row in resolved.component_rows] == [
@@ -3204,6 +3216,15 @@ def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
         f"{CITATION}/2",
     ]
     assert all(row.provision_file_sha256 for row in resolved.component_rows)
+    assert resolved.selected_record.row == resolved.row
+    assert resolved.selected_record.body == resolved.body
+    assert resolved.selected_record.heading == "Parent"
+    assert dict(resolved.selected_record.metadata) == {"amends": "principal document"}
+    records = list(iter_active_local_corpus_rows(release, include_bodyless=True))
+    selected = next(record for record in records if record.row == resolved.row)
+    assert selected.body == ""
+    assert selected.row.body_sha256 is None
+    assert selected.metadata == resolved.selected_record.metadata
 
 
 def test_metadata_parent_composes_descendants_in_hierarchy_preorder(tmp_path: Path):
@@ -3948,3 +3969,164 @@ def test_release_object_swap_to_outside_symlink_fails_closed(
             release.content_sha256,
             TEST_RELEASE_PUBLIC_KEY,
         )
+
+
+@pytest.mark.parametrize(
+    "status_fields,expected",
+    [
+        ({"metadata": {"status": "repealed"}}, True),
+        ({"metadata": {"status": "active"}}, False),
+        ({"metadata": {"status": "REPEALED"}}, False),
+        ({"metadata": {"status": "repealed "}}, False),
+        ({"status": "repealed"}, False),
+        ({}, False),
+    ],
+)
+def test_exact_release_row_status_can_authenticate_repeal(
+    tmp_path, status_fields, expected
+):
+    version = "2026-10-15-reviewed-repeal"
+    _write_selector(tmp_path, [_scope(version)])
+    child = CITATION + "/2"
+    _write_rows(
+        tmp_path,
+        version,
+        [{"citation_path": child, "body": None, **status_fields}],
+    )
+    release = _release(tmp_path)
+    assert corpus_resolver.local_corpus_row_is_repealed(child, release) is expected
+    # An exact descendant tombstone does not authenticate its parent or sibling.
+    assert not corpus_resolver.local_corpus_row_is_repealed(CITATION, release)
+    assert not corpus_resolver.local_corpus_row_is_repealed(CITATION + "/3", release)
+
+
+def test_repealed_row_status_refuses_aliases_and_ambiguous_rows(tmp_path):
+    version = "2026-10-15-ambiguous-repeal"
+    _write_selector(tmp_path, [_scope(version)])
+    row = {
+        "citation_path": CITATION,
+        "body": None,
+        "metadata": {"status": "repealed"},
+    }
+    _write_rows(tmp_path, version, [row, row])
+    release = _release(tmp_path)
+    with pytest.raises(InvalidCorpusCitationError):
+        corpus_resolver.local_corpus_row_is_repealed("7 USC 2014(e)", release)
+    with pytest.raises(AmbiguousCorpusSourceError):
+        corpus_resolver.local_corpus_row_is_repealed(CITATION, release)
+
+
+def test_coverage_repeal_status_uses_only_the_bound_exact_release_row(tmp_path):
+    from axiom_encode.harness import validator_pipeline as vp
+
+    version = "2026-10-15-bound-repeal"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {
+                "citation_path": CITATION + "/2",
+                "body": None,
+                "metadata": {"status": "repealed"},
+            }
+        ],
+    )
+    token = vp._AUTHORITATIVE_CORPUS_RELEASE.set(_release(tmp_path))
+    try:
+        assert vp._requested_corpus_row_is_repealed(CITATION + "/2")
+        assert not vp._requested_corpus_row_is_repealed(CITATION + "/3")
+        assert not vp._requested_corpus_row_is_repealed(None)
+    finally:
+        vp._AUTHORITATIVE_CORPUS_RELEASE.reset(token)
+
+
+@pytest.mark.parametrize("label", ["I", "i"])
+@pytest.mark.parametrize("status", ["repealed", "active", None])
+@pytest.mark.parametrize(
+    "request_form",
+    ["corpus", "human", "target", "rules_file", "rules_file_subsection", "precedence"],
+)
+def test_coverage_repeal_authenticates_case_sensitive_requested_row(
+    tmp_path, label, status, request_form
+):
+    import yaml
+
+    from axiom_encode.harness import validator_pipeline as vp
+
+    section = "us/statute/42/1"
+    citation = section + "/a" if request_form == "rules_file_subsection" else section
+    requested = f"{section}/a/2/{label}"
+    other = f"{section}/a/2/{label.swapcase()}"
+    source = (
+        '(a) "benefit" means payable.\n(2) A person is eligible.\n'
+        f"({label}) Repealed.\n(b) Effective date.\n"
+    )
+    version = "case-sensitive-repeal"
+    _write_selector(tmp_path, [_scope(version)])
+    rows = [{"citation_path": citation, "body": source}]
+    if status is not None:
+        rows.append(
+            {
+                "citation_path": requested,
+                "body": None if status == "repealed" else "An operative child.",
+                "metadata": {"status": status},
+            }
+        )
+    # A missing/active requested row must not borrow the other case's status.
+    # Positive cases have only the literal requested tombstone.
+    if status != "repealed":
+        rows.append(
+            {
+                "citation_path": other,
+                "body": None,
+                "metadata": {"status": "repealed"},
+            }
+        )
+    _write_rows(tmp_path, version, rows)
+    release = _release(tmp_path)
+    assert corpus_resolver.local_corpus_row_is_repealed(requested, release) is (
+        status == "repealed"
+    )
+    requested_source = {
+        "corpus": f" /{requested}/ ",
+        "human": f"42 USC 1(a)(2)({label})",
+        "target": f"us:statutes/42/1/a/2/{label}",
+        "rules_file": None,
+        "rules_file_subsection": None,
+        "precedence": requested,
+    }[request_form]
+    file_label = label.swapcase() if request_form == "precedence" else label
+    rules_file = tmp_path / f"statutes/42/1/a/2/{file_label}.yaml"
+
+    def issues(
+        *, summary=f"({label}) Repealed.", text=source, module_status="deferred"
+    ):
+        content = yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "module": {
+                    "status": module_status,
+                    "summary": summary,
+                    "source_verification": {"corpus_citation_path": citation},
+                },
+                "rules": [],
+            }
+        )
+        return vp.find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={citation: text},
+            requested_source=requested_source,
+            rules_file=rules_file,
+        )
+
+    token = vp._AUTHORITATIVE_CORPUS_RELEASE.set(release)
+    try:
+        assert len(issues()) == (0 if status == "repealed" else 1)
+        # Signed metadata supplements all of the original notice conditions.
+        assert len(issues(summary="(3) Repealed.")) == 1
+        assert len(issues(summary=f"({label}) An operative provision.")) == 1
+        assert len(issues(module_status="active")) == 1
+        assert len(issues(text=source.replace("Repealed.", "An operative child."))) == 1
+    finally:
+        vp._AUTHORITATIVE_CORPUS_RELEASE.reset(token)

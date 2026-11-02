@@ -525,6 +525,18 @@ class TestTrustedGit:
             (["rev-parse", "--is-inside-work-tree"], None),
             (["rev-parse", "--show-toplevel"], None),
             (["rev-parse", "--verify", "HEAD^{commit}"], None),
+            (
+                ["rev-parse", "--verify", "--end-of-options", "HEAD^{commit}"],
+                None,
+            ),
+            (
+                ["rev-parse", "--verify", "--end-of-options", f"{head}^{{commit}}"],
+                None,
+            ),
+            (
+                ["rev-parse", "--verify", "--end-of-options", f"{head}^{{tree}}"],
+                None,
+            ),
             (["rev-parse", f"{head}^{{commit}}"], None),
             (["rev-parse", f"{head}^{{tree}}"], None),
             (["status", "--porcelain"], None),
@@ -574,7 +586,47 @@ class TestTrustedGit:
                 None,
             ),
             (
+                [
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--diff-filter=ACDMRT",
+                    "-z",
+                    "--end-of-options",
+                    "HEAD",
+                    "--",
+                ],
+                None,
+            ),
+            (
+                [
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--diff-filter=ACDMRT",
+                    "-z",
+                    "--end-of-options",
+                    head,
+                    head,
+                    "--",
+                ],
+                None,
+            ),
+            (
                 ["diff", "--name-only", "--diff-filter=ACMRT", "HEAD..HEAD"],
+                None,
+            ),
+            (
+                [
+                    "log",
+                    "--full-history",
+                    "-m",
+                    "--format=%H",
+                    "--no-renames",
+                    f"{head}..{head}",
+                    "--",
+                    "a.txt",
+                ],
                 None,
             ),
             (["ls-files", "-z"], None),
@@ -616,6 +668,10 @@ class TestTrustedGit:
             ),
             (["ls-tree", "-r", "-z", "HEAD"], None),
             (["ls-tree", "-r", "-l", "-z", "--full-tree", head], None),
+            (["ls-tree", "-z", "--full-tree", "--", head, "a.txt"], None),
+            (["ls-tree", "-r", "-l", "-z", "--full-tree", "--", head], None),
+            (["ls-tree", "-z", "--", head, "a.txt"], None),
+            (["ls-tree", "-r", "-z", "--", head], None),
             (
                 [
                     "grep",
@@ -635,6 +691,8 @@ class TestTrustedGit:
             (["merge-base", "--is-ancestor", "HEAD", "HEAD"], None),
             (["rev-list", "--parents", "-n", "1", "HEAD"], None),
             (["show", "HEAD:a.txt"], None),
+            (["show", "--end-of-options", "HEAD:a.txt", "--"], None),
+            (["show", "--end-of-options", f"{head}:a.txt", "--"], None),
         )
         for command, command_input in allowed_commands:
             subprocess.run(
@@ -685,6 +743,16 @@ class TestTrustedGit:
                 "-z",
                 "HEAD",
             ],
+            [
+                "diff",
+                "--name-only",
+                "--no-renames",
+                "--diff-filter=ACDMRT",
+                "-z",
+                "--end-of-options",
+                head,
+                "--",
+            ],
         )
         for command in filtered_worktree_commands:
             refused_filter = subprocess.run(
@@ -697,6 +765,19 @@ class TestTrustedGit:
             assert refused_filter.returncode != 0
             assert "refused worktree filter for" in refused_filter.stderr
         assert not marker.exists()
+        guarded_worktree_diff = filtered_worktree_commands[-1]
+        for attribute in ("text eol=lf", "ident", "working-tree-encoding=UTF-16"):
+            (repository / ".gitattributes").write_text(f"*.txt {attribute}\n")
+            refused_attribute = subprocess.run(
+                [str(wrapper), "-C", str(repository), *guarded_worktree_diff],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=clean_environment,
+            )
+            assert refused_attribute.returncode == 126
+            assert "refused content-transforming attribute" in refused_attribute.stderr
+            assert not marker.exists()
         for driver in ("unspecified", "unset"):
             (repository / ".gitattributes").write_text(f"*.txt filter={driver}\n")
             subprocess.run(
@@ -734,6 +815,45 @@ class TestTrustedGit:
             ["cat-file", "--filters", "HEAD:a.txt"],
             ["diff", "--stat", "HEAD"],
             ["log", "--oneline"],
+            [
+                "log",
+                "--full-history",
+                "-m",
+                "--format=%H",
+                "--no-renames",
+                "main..HEAD",
+                "--",
+                "a.txt",
+            ],
+            [
+                "log",
+                "--full-history",
+                "-m",
+                "--format=%H",
+                "--no-renames",
+                f"{head}..{head}",
+                "--",
+            ],
+            [
+                "log",
+                "--full-history",
+                "-m",
+                "--format=%H",
+                "--no-renames",
+                f"{head}..{head}",
+                "--",
+                "../a.txt",
+            ],
+            [
+                "log",
+                "--full-history",
+                "-m",
+                "--format=%H",
+                "--no-renames",
+                f"{head}..{head}",
+                "--",
+                ":(glob)*",
+            ],
             ["ls-files", "--stage"],
             ["ls-files", "-z", "--stage"],
             ["ls-files", "--stage", "-z", "--debug"],
@@ -759,14 +879,42 @@ class TestTrustedGit:
             ],
             ["rev-parse", f"{head}^{{blob}}"],
             ["rev-parse", f"{head}^{{tree}}", "--verify"],
+            ["rev-parse", "--end-of-options", "--verify", "HEAD^{commit}"],
+            ["rev-parse", "--verify", "--end-of-options", "HEAD^{tree}"],
             ["merge-base", "--octopus", "HEAD", "HEAD"],
             ["remote", "add", "blocked", "https://example.invalid/repo.git"],
             ["remote", "update"],
             ["rev-list", "--all"],
             ["rev-parse", "--git-dir"],
             ["show", "--stat", "HEAD"],
+            ["show", "--end-of-options", "HEAD:a.txt"],
+            ["show", "--end-of-options", "HEAD:../a.txt", "--"],
+            ["ls-tree", "-z", "--full-tree", "--", "HEAD", "a.txt"],
+            ["ls-tree", "-z", "--full-tree", "--", head, "../a.txt"],
+            ["ls-tree", "-r", "-z", "--", head, "a.txt"],
             ["status", "--short"],
         )
+        for unsafe_ref in (
+            "--output=option-ref-output",
+            "-p",
+            "--ext-diff",
+            "--no-index",
+        ):
+            refused_arguments += (
+                ["rev-parse", "--verify", "--end-of-options", unsafe_ref],
+                [
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--diff-filter=ACDMRT",
+                    "-z",
+                    "--end-of-options",
+                    unsafe_ref,
+                    "--",
+                ],
+                ["show", "--end-of-options", f"{unsafe_ref}:a.txt", "--"],
+                ["ls-tree", "-z", "--full-tree", "--", unsafe_ref, "a.txt"],
+            )
         for command in refused_arguments:
             refused = subprocess.run(
                 [str(wrapper), "-C", str(repository), *command],
@@ -1183,6 +1331,186 @@ class TestTrustedGit:
             )
             == []
         )
+
+    def test_installed_wrapper_admits_the_encoder_guard_identity_queries(
+        self, tmp_path, monkeypatch
+    ):
+        # Under the supervisor, `git` is this wrapper. Every query the guard's
+        # encoder identity and ancestry checks make must pass through it, and
+        # the checks must still find grafts and replacement refs.
+        from axiom_encode.cli import (
+            _encoder_git_history_admission_issue,
+            _guard_encoder_git_metadata_issue,
+        )
+
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        provisioner._install_trusted_git_wrapper(
+            destination,
+            Path(sys.executable).resolve(),
+            provisioner._resolve_trusted_git(Path(git).resolve()),
+        )
+        repository = tmp_path / "axiom-encode"
+        subprocess.run(
+            [git, "init", "--quiet", "--initial-branch=main", str(repository)],
+            check=True,
+        )
+
+        def commit(message: str) -> str:
+            (repository / "file.txt").write_text(message)
+            subprocess.run([git, "-C", str(repository), "add", "file.txt"], check=True)
+            subprocess.run(
+                [
+                    git,
+                    "-c",
+                    "user.name=Axiom test",
+                    "-c",
+                    "user.email=test@axiom.invalid",
+                    "-C",
+                    str(repository),
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    message,
+                ],
+                check=True,
+            )
+            return subprocess.check_output(
+                [git, "-C", str(repository), "rev-parse", "HEAD"], text=True
+            ).strip()
+
+        pin = commit("pin")
+        producer = commit("producer")
+        real_path = os.environ["PATH"]
+        monkeypatch.setenv("PATH", str(destination))
+        assert shutil.which("git") == str(destination / "git")
+
+        assert _guard_encoder_git_metadata_issue(repository) is None
+        assert (
+            _encoder_git_history_admission_issue(repository, pin=pin, producer=producer)
+            is None
+        )
+        assert _encoder_git_history_admission_issue(
+            repository, pin=producer, producer=pin
+        ) == ("the pinned encoder commit is not an ancestor of the producer")
+
+        grafts = repository / ".git/info/grafts"
+        grafts.parent.mkdir(exist_ok=True)
+        grafts.write_text(f"{producer}\n")
+        assert (
+            _guard_encoder_git_metadata_issue(repository)
+            == "encoder history contains forbidden graft metadata"
+        )
+        grafts.unlink()
+
+        monkeypatch.setenv("PATH", real_path)
+        subprocess.run(
+            [git, "-C", str(repository), "replace", producer, pin], check=True
+        )
+        monkeypatch.setenv("PATH", str(destination))
+        assert (
+            _guard_encoder_git_metadata_issue(repository)
+            == "encoder history contains forbidden replacement refs"
+        )
+
+    def test_installed_wrapper_refuses_with_its_own_status_and_is_quiet(self, tmp_path):
+        # A refusal must never read as a Git answer that exits 1 ("not a
+        # symbolic ref", "no matches"), and a commit walk must not print the
+        # graft-file deprecation advice that the wrapper's GIT_GRAFT_FILE triggers.
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        wrapper = provisioner._install_trusted_git_wrapper(
+            destination,
+            Path(sys.executable).resolve(),
+            provisioner._resolve_trusted_git(Path(git).resolve()),
+        )
+        repository = tmp_path / "repository"
+        subprocess.run(
+            [git, "init", "--quiet", "--initial-branch=main", str(repository)],
+            check=True,
+        )
+        (repository / "file.txt").write_text("content\n")
+        subprocess.run([git, "-C", str(repository), "add", "file.txt"], check=True)
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "user.name=Axiom test",
+                "-c",
+                "user.email=test@axiom.invalid",
+                "-C",
+                str(repository),
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            check=True,
+        )
+        head = subprocess.check_output(
+            [git, "-C", str(repository), "rev-parse", "HEAD"], text=True
+        ).strip()
+        environment = {"HOME": str(tmp_path), "PATH": str(destination)}
+
+        for refused in (
+            ["push", "origin", "main"],
+            ["symbolic-ref", "refs/heads/main", "refs/heads/feature"],
+            ["for-each-ref", "refs/heads/"],
+        ):
+            result = subprocess.run(
+                [str(wrapper), "-C", str(repository), *refused],
+                capture_output=True,
+                env=environment,
+            )
+            assert result.returncode == 126, refused
+            assert b"trusted git wrapper refused" in result.stderr
+
+        walked = subprocess.run(
+            [str(wrapper), "-C", str(repository), "rev-list", "--first-parent", head],
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+        assert walked.returncode == 0
+        assert walked.stdout.split() == [head]
+        assert walked.stderr == ""
+
+    def test_installed_wrapper_refuses_when_git_cannot_run(self, tmp_path):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        vanished = tmp_path / "vanished-git"
+        vanished.write_text("#!/bin/sh\n")
+        vanished.chmod(0o755)
+        wrapper = provisioner._install_trusted_git_wrapper(
+            destination, Path(sys.executable).resolve(), vanished
+        )
+        vanished.unlink()
+        repository = tmp_path / "repository"
+        subprocess.run([git, "init", "--quiet", str(repository)], check=True)
+
+        result = subprocess.run(
+            [
+                str(wrapper),
+                "-C",
+                str(repository),
+                "rev-parse",
+                "--is-shallow-repository",
+            ],
+            capture_output=True,
+            env={"HOME": str(tmp_path), "PATH": str(destination)},
+        )
+
+        assert result.returncode == 126
+        assert b"trusted git wrapper could not run git" in result.stderr
 
     def test_installed_wrapper_disables_partial_clone_lazy_fetch(self, tmp_path):
         git = shutil.which("git")

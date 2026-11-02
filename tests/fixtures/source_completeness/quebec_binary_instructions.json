@@ -1,0 +1,175 @@
+{
+  "citation": "ca/policy/revenu-quebec/tp1-2025/main-return",
+  "source_sha256": "f4a6e922fe69a7c1ea23346fe505ad41e019a7126022223dec3719791dadb5e7",
+  "purpose": "Authenticated excerpt regression inputs, not new source-unit scope or publication proof.",
+  "samples": [
+    {
+      "start": 731,
+      "end": 759,
+      "text": "Subtract line 4 from line 1.",
+      "new_descriptors": [
+        {
+          "kind": "subtract",
+          "left": "line 1",
+          "right": "line 4"
+        }
+      ]
+    },
+    {
+      "start": 1598,
+      "end": 1658,
+      "text": "Subtract line 7 from line 6. = 8 × 6% Multiply line 8 by 6%.",
+      "new_descriptors": [
+        {
+          "kind": "subtract",
+          "left": "line 6",
+          "right": "line 7"
+        }
+      ]
+    },
+    {
+      "start": 2023,
+      "end": 2051,
+      "text": "Subtract line 4 from line 1.",
+      "new_descriptors": [
+        {
+          "kind": "subtract",
+          "left": "line 1",
+          "right": "line 4"
+        }
+      ]
+    },
+    {
+      "start": 2569,
+      "end": 2660,
+      "text": "Subtract line 5 from line 1. = 6 Enter the amount from line 2 or line 6, whichever is less.",
+      "new_descriptors": [
+        {
+          "kind": "subtract",
+          "left": "line 1",
+          "right": "line 5"
+        }
+      ]
+    },
+    {
+      "start": 3672,
+      "end": 3700,
+      "text": "Subtract line 4 from line 2.",
+      "new_descriptors": [
+        {
+          "kind": "subtract",
+          "left": "line 2",
+          "right": "line 4"
+        }
+      ]
+    },
+    {
+      "start": 7252,
+      "end": 7280,
+      "text": "Subtract line 7 from line 6.",
+      "new_descriptors": [
+        {
+          "kind": "subtract",
+          "left": "line 6",
+          "right": "line 7"
+        }
+      ]
+    },
+    {
+      "start": 7321,
+      "end": 7349,
+      "text": "Subtract line 8 from line 3.",
+      "new_descriptors": [
+        {
+          "kind": "subtract",
+          "left": "line 3",
+          "right": "line 8"
+        }
+      ]
+    },
+    {
+      "start": 7773,
+      "end": 7803,
+      "text": "Subtract line 23 from line 22.",
+      "new_descriptors": [
+        {
+          "kind": "subtract",
+          "left": "line 22",
+          "right": "line 23"
+        }
+      ]
+    },
+    {
+      "start": 7845,
+      "end": 7875,
+      "text": "Subtract line 24 from line 20.",
+      "new_descriptors": [
+        {
+          "kind": "subtract",
+          "left": "line 20",
+          "right": "line 24"
+        }
+      ]
+    },
+    {
+      "start": 194541,
+      "end": 194618,
+      "text": "Multiply the total by the exemption rate shown in box A-14 of your RL-1 slip.",
+      "new_descriptors": [
+        {
+          "kind": "multiply",
+          "left": "the total",
+          "right": "the exemption rate shown in box A-14 of your RL-1 slip"
+        }
+      ]
+    },
+    {
+      "start": 194918,
+      "end": 194995,
+      "text": "Multiply the total by the exemption rate shown in box A-14 of your RL-1 slip.",
+      "new_descriptors": [
+        {
+          "kind": "multiply",
+          "left": "the total",
+          "right": "the exemption rate shown in box A-14 of your RL-1 slip"
+        }
+      ]
+    },
+    {
+      "start": 195363,
+      "end": 195440,
+      "text": "Multiply the total by the exemption rate shown in box A-14 of your RL-1 slip.",
+      "new_descriptors": [
+        {
+          "kind": "multiply",
+          "left": "the total",
+          "right": "the exemption rate shown in box A-14 of your RL-1 slip"
+        }
+      ]
+    },
+    {
+      "start": 195748,
+      "end": 195825,
+      "text": "Multiply the total by the exemption rate shown in box A-14 of your RL-1 slip.",
+      "new_descriptors": [
+        {
+          "kind": "multiply",
+          "left": "the total",
+          "right": "the exemption rate shown in box A-14 of your RL-1 slip"
+        }
+      ]
+    },
+    {
+      "start": 202036,
+      "end": 202113,
+      "text": "Multiply the total by the exemption rate shown in box A-14 of your RL-1 slip.",
+      "new_descriptors": [
+        {
+          "kind": "multiply",
+          "left": "the total",
+          "right": "the exemption rate shown in box A-14 of your RL-1 slip"
+        }
+      ]
+    }
+  ]
+}
