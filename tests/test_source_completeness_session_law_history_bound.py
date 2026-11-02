@@ -2,8 +2,9 @@
 
 The strip used to re-normalize and re-split the whole remaining suffix for each
 candidate history start, so its work was text length times candidates. These
-tests count the characters the session-law normalizer and paragraph scanner
-read, not elapsed time, and keep main's implementation as a reference: the
+tests count the characters read through every pattern and helper the strip and
+its resume helper use (`METERED_PATTERNS` and `_whitespace_run_start`), not
+elapsed time, and keep main's implementation as a reference: the
 fixed strip must return exactly what main returned on every input.
 """
 
@@ -24,7 +25,18 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class _CountingPattern:
-    """A compiled pattern that adds the span it is asked to read to ``work``."""
+    """A compiled pattern that adds the characters each call reads to ``work``.
+
+    * ``sub``: the whole string.
+    * ``match`` and ``fullmatch``: the longest prefix the pattern consumes from
+      ``pos``, plus one character. An anchored match reads that prefix and fails
+      at the next character; billing up to ``endpos`` instead would charge the
+      rest of the paragraph to every candidate that reads only its first entry.
+    * ``search``: from ``pos`` to the end of the match, or to ``endpos``.
+    * ``finditer``: lazily, from ``pos`` to the end of each match the caller
+      takes, and to ``endpos`` when the caller exhausts the iterator. A caller
+      that rescans from the paragraph start is billed for the rescan.
+    """
 
     def __init__(self, pattern: re.Pattern[str], meter: dict[str, int]):
         self._pattern = pattern
@@ -32,23 +44,53 @@ class _CountingPattern:
         self.pattern = pattern.pattern
         self.flags = pattern.flags
 
-    def _count(self, string: str, pos: int = 0, endpos: int | None = None) -> None:
-        end = len(string) if endpos is None else min(endpos, len(string))
-        self._meter["work"] += max(0, end - pos)
+    @staticmethod
+    def _end(string: str, endpos: int | None) -> int:
+        return len(string) if endpos is None else min(endpos, len(string))
+
+    @staticmethod
+    def _args(string, pos, endpos):
+        return (string, pos) if endpos is None else (string, pos, endpos)
 
     def sub(self, repl, string, count=0):
-        self._count(string)
+        self._meter["work"] += len(string)
         return self._pattern.sub(repl, string, count)
 
+    def fullmatch(self, string, pos=0, endpos=None):
+        prefix = self._pattern.match(*self._args(string, pos, endpos))
+        self._meter["work"] += (prefix.end() - pos if prefix else 0) + 1
+        return self._pattern.fullmatch(*self._args(string, pos, endpos))
+
+    def match(self, string, pos=0, endpos=None):
+        found = self._pattern.match(*self._args(string, pos, endpos))
+        self._meter["work"] += (found.end() - pos if found else 0) + 1
+        return found
+
     def search(self, string, pos=0, endpos=None):
-        self._count(string, pos, endpos)
-        args = (string, pos) if endpos is None else (string, pos, endpos)
-        return self._pattern.search(*args)
+        found = self._pattern.search(*self._args(string, pos, endpos))
+        end = found.end() if found else self._end(string, endpos)
+        self._meter["work"] += max(1, end - pos)
+        return found
 
     def finditer(self, string, pos=0, endpos=None):
-        self._count(string, pos, endpos)
-        args = (string, pos) if endpos is None else (string, pos, endpos)
-        return self._pattern.finditer(*args)
+        reached = pos
+        for found in self._pattern.finditer(*self._args(string, pos, endpos)):
+            self._meter["work"] += max(1, found.end() - reached)
+            reached = found.end()
+            yield found
+        self._meter["work"] += max(0, self._end(string, endpos) - reached)
+
+
+# Every pattern the strip and its resume helper read the text through.
+METERED_PATTERNS = (
+    "_SESSION_LAW_SENTENCE_SEPARATOR",
+    "_SESSION_LAW_PARAGRAPH_BREAK",
+    "_SESSION_LAW_TAIL_START",
+    "_SESSION_LAW_ENTRY",
+    "_SESSION_LAW_OPERATIVE_CONTINUATION",
+    "_SESSION_LAW_OPERATIVE_CONTINUATION_AT",
+    "_SESSION_LAW_CONTINUATION_WRAPPER",
+)
 
 
 _PARAGRAPH_BREAK = re.compile(r"\r?\n[ \t]*\r?\n")
@@ -181,22 +223,24 @@ def _citation_led_single_paragraph(n: int) -> str:
 
 def _measured_work(strip, text: str, monkeypatch) -> tuple[str, int]:
     meter = {"work": 0}
+    whitespace_run_start = sc._whitespace_run_start
+
+    def counted_whitespace_run_start(text, end, floor=0):
+        start = whitespace_run_start(text, end, floor)
+        meter["work"] += end - start + 1
+        return start
+
     with monkeypatch.context() as patch:
-        patch.setattr(
-            sc,
-            "_SESSION_LAW_SENTENCE_SEPARATOR",
-            _CountingPattern(sc._SESSION_LAW_SENTENCE_SEPARATOR, meter),
-        )
-        patch.setattr(
-            sc,
-            "_SESSION_LAW_PARAGRAPH_BREAK",
-            _CountingPattern(sc._SESSION_LAW_PARAGRAPH_BREAK, meter),
-        )
+        for name in METERED_PATTERNS:
+            patch.setattr(sc, name, _CountingPattern(getattr(sc, name), meter))
+        patch.setattr(sc, "_whitespace_run_start", counted_whitespace_run_start)
         result = strip(text)
     return result, meter["work"]
 
 
-WORK_PER_CHARACTER = 3
+# Measured on this head: 4.1-5.7 reads per character on the inputs below;
+# main's per-candidate re-normalization reads 500-1,000 per character.
+WORK_PER_CHARACTER = 8
 
 ADVERSARIAL = (
     pytest.param(_unlabeled_chain, id="unlabeled-chain"),
@@ -207,14 +251,19 @@ ADVERSARIAL = (
 
 @pytest.mark.parametrize("build", ADVERSARIAL)
 def test_strip_reads_each_character_a_bounded_number_of_times(build, monkeypatch):
+    per_character = {}
     for size in (250, 1_000, 4_000):
         text = build(size)
         _result, work = _measured_work(
             sc._strip_terminal_session_law_history, text, monkeypatch
         )
-        # One normalization pass, one paragraph scan, and each candidate's own
-        # first entry: a constant number of reads per character.
+        per_character[size] = work / len(text)
+        # A constant number of reads per character: one normalization pass, one
+        # paragraph scan, one candidate scan, and each candidate's own entry,
+        # continuation and preceding whitespace.
         assert work <= WORK_PER_CHARACTER * len(text), (size, len(text), work)
+    # Linear work keeps reads per character flat as the input grows fourfold.
+    assert per_character[4_000] <= 1.1 * per_character[1_000], per_character
 
 
 @pytest.mark.parametrize("build", ADVERSARIAL)
