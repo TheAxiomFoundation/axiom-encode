@@ -21,6 +21,7 @@ from axiom_encode.cli import (
     _can_attempt_apply,
     _generated_rulespec_yaml_nonparser_issue,
     _stamp_generated_source_attestation_for_apply,
+    _try_repair_generated_unquoted_source_scalars_for_apply,
     _validate_generated_encoding_in_policy_overlay,
 )
 from axiom_encode.harness.evals import (
@@ -587,6 +588,18 @@ def test_materialization_still_normalizes_tests_without_duplicates(tmp_path, del
     assert yaml.safe_load(tests)[0]["output"] == {"first_rate": 0.1}
 
 
+OVERLAY_PREFIXES = {
+    "generated": "generated repair overlay has duplicate YAML mapping keys: ",
+    "preserved": "preserved repair overlay cannot be rewritten without losing "
+    "YAML mapping entries: ",
+}
+OVERLAY_TEST_PREFIXES = {
+    "generated": "generated repair overlay tests have duplicate YAML mapping keys: ",
+    "preserved": "preserved repair overlay tests cannot be rewritten without "
+    "losing YAML mapping entries: ",
+}
+
+
 @pytest.mark.parametrize(("content", "diagnostic"), DUPLICATES)
 @pytest.mark.parametrize("duplicate_side", ["generated", "preserved"])
 def test_retry_overlay_rejects_duplicate_keys_before_rewriting(
@@ -603,9 +616,7 @@ def test_retry_overlay_rejects_duplicate_keys_before_rewriting(
             target, artifact_root=tmp_path, candidate=candidate
         )
 
-    assert str(exc_info.value).startswith(
-        f"{duplicate_side} repair overlay has duplicate YAML mapping keys: "
-    )
+    assert str(exc_info.value).startswith(OVERLAY_PREFIXES[duplicate_side])
     assert diagnostic in str(exc_info.value)
     assert target.read_text(encoding="utf-8") == generated
 
@@ -629,9 +640,7 @@ def test_retry_overlay_rejects_duplicate_test_keys_before_rewriting(
             target, artifact_root=tmp_path, candidate=candidate
         )
 
-    assert str(exc_info.value).startswith(
-        f"{duplicate_side} repair overlay tests have duplicate YAML mapping keys: "
-    )
+    assert str(exc_info.value).startswith(OVERLAY_TEST_PREFIXES[duplicate_side])
     assert "duplicate key `output`" in str(exc_info.value)
     assert target.read_text(encoding="utf-8") == BASE
     assert test_file.read_text(encoding="utf-8") == generated_tests
@@ -715,3 +724,181 @@ def test_overlay_result_names_the_output_file_for_retry(tmp_path):
         "keys: document root has duplicate key `rules` at line 17, column 1 "
         "(first at line 4, column 1)."
     ]
+
+
+# A parse error the apply-time quoting repair fixes.
+UNQUOTED_SOURCE = "source: changes at age: 65\n"
+
+
+def test_apply_preflight_checks_companion_tests_when_the_module_does_not_parse(
+    tmp_path,
+):
+    module = BASE.replace("module:\n", UNQUOTED_SOURCE + "module:\n", 1)
+    with pytest.raises(yaml.YAMLError):
+        yaml.safe_load(module)
+    result, generated, output_root = _candidate(tmp_path, module, DUPLICATE_TESTS)
+
+    issue = _generated_rulespec_yaml_nonparser_issue(
+        result, generated, output_root=output_root
+    )
+
+    assert issue is not None
+    assert issue.startswith(
+        "Cannot apply companion test YAML with duplicate mapping keys: "
+    )
+
+
+def test_preflight_sees_module_duplicates_once_quoting_makes_it_parse(tmp_path):
+    """The apply branch reruns the preflight after this repair (see test_cli)."""
+
+    module = (
+        BASE.replace("module:\n", UNQUOTED_SOURCE + "module:\n", 1)
+        + "rules:\n"
+        + SHADOW_RULES
+    )
+    result, generated, output_root = _candidate(tmp_path, module, TESTS)
+    assert (
+        _generated_rulespec_yaml_nonparser_issue(
+            result, generated, output_root=output_root
+        )
+        is None
+    )
+
+    assert _try_repair_generated_unquoted_source_scalars_for_apply(
+        result, output_root=output_root
+    )
+    issue = _generated_rulespec_yaml_nonparser_issue(
+        result, generated, output_root=output_root
+    )
+
+    assert issue is not None
+    assert issue.startswith("Cannot apply RuleSpec YAML with duplicate mapping keys: ")
+    assert "document root has duplicate key `rules`" in issue
+    assert generated.read_text().count("\nrules:") == 2
+
+
+def _unscannable(*contents):
+    """A scan that, like a deeply nested document, exhausts the stack."""
+
+    def scan(content):
+        if not contents or content in contents:
+            raise RecursionError
+        return find_duplicate_mapping_key_issues(content)
+
+    return scan
+
+
+@pytest.mark.parametrize("delivery", ["bundle", "workspace"])
+def test_materialization_keeps_tests_the_scan_cannot_check(
+    tmp_path, delivery, monkeypatch
+):
+    monkeypatch.setattr(
+        "axiom_encode.harness.evals.find_duplicate_mapping_key_issues",
+        _unscannable(TESTS),
+    )
+
+    _main, tests = _materialize(tmp_path, BASE, delivery, TESTS)
+
+    assert tests == TESTS
+
+
+def test_normalization_keeps_modules_the_scan_cannot_check(monkeypatch):
+    content = BASE.replace("module:\n", "module:\n" + MISPLACED_INPUTS, 1)
+    monkeypatch.setattr(
+        "axiom_encode.harness.evals.find_duplicate_mapping_key_issues",
+        _unscannable(content),
+    )
+
+    assert (
+        _normalize_main_eval_content(
+            content, target_path=Path("section.yaml"), single_amount_table_slice=False
+        )
+        == content
+    )
+
+
+def test_eval_repairs_skip_files_the_scan_cannot_check(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "axiom_encode.harness.evals.find_duplicate_mapping_key_issues",
+        _unscannable(WITH_UNUSED_IMPORT),
+    )
+
+    repairs, repaired = _eval_repairs(tmp_path, WITH_UNUSED_IMPORT, TESTS)
+
+    assert repairs == []
+    assert repaired == WITH_UNUSED_IMPORT
+
+
+@pytest.mark.parametrize("unscannable", ["module", "tests"])
+def test_retry_overlay_refuses_a_base_the_scan_cannot_check(
+    tmp_path, monkeypatch, unscannable
+):
+    preserved = BASE + "# preserved\n"
+    preserved_tests = TESTS + "# preserved\n"
+    monkeypatch.setattr(
+        "axiom_encode.harness.evals.find_duplicate_mapping_key_issues",
+        _unscannable(preserved if unscannable == "module" else preserved_tests),
+    )
+    target = tmp_path / "section.yaml"
+    target.write_text(BASE, encoding="utf-8")
+    target.with_name("section.test.yaml").write_text(TESTS, encoding="utf-8")
+
+    with pytest.raises(ValueError) as exc_info:
+        _overlay_validation_retry_candidate(
+            target,
+            artifact_root=tmp_path,
+            candidate=ValidationRetryCandidate(
+                rulespec=preserved, tests=preserved_tests
+            ),
+        )
+
+    prefixes = OVERLAY_PREFIXES if unscannable == "module" else OVERLAY_TEST_PREFIXES
+    assert str(exc_info.value).startswith(prefixes["preserved"])
+    assert "too deep to check for duplicate mapping keys" in str(exc_info.value)
+    assert target.read_text(encoding="utf-8") == BASE
+
+
+def test_apply_preflight_refuses_companion_tests_the_scan_cannot_check(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        "axiom_encode.cli.find_duplicate_mapping_key_issues", _unscannable(TESTS)
+    )
+    result, generated, output_root = _candidate(tmp_path, BASE, TESTS)
+
+    assert _generated_rulespec_yaml_nonparser_issue(
+        result, generated, output_root=output_root
+    ) == (
+        "[generated-yaml:resource] generated YAML nesting exceeds safe parser capacity"
+    )
+
+
+def _first_failing_depth(check):
+    for depth in range(50, 3000, 10):
+        nested = "{a: " * depth + "0" + "}" * depth
+        try:
+            check("a: " + nested + "\n")
+        except RecursionError:
+            return depth
+    return None
+
+
+def test_real_nesting_between_the_scan_and_load_limits_keeps_raw_tests(tmp_path):
+    """Nesting that loads but exhausts the scan is never rewritten."""
+
+    scan_limit = _first_failing_depth(find_duplicate_mapping_key_issues)
+    load_limit = _first_failing_depth(yaml.safe_load)
+    if scan_limit is None or load_limit is None or load_limit - scan_limit < 40:
+        pytest.skip("no nesting depth here loads but exhausts the scan")
+    depth = (scan_limit + load_limit) // 2
+    nested = "{a: " * depth + "0" + "}" * depth
+    raw_tests = (
+        "- name: deep\n  period: 2024-01-01\n  output: "
+        + nested
+        + "\n  output: {first_rate: 0.1}\n"
+    )
+    assert len(yaml.safe_load(raw_tests)[0]) == 3
+
+    _main, tests = _materialize(tmp_path, BASE, "bundle", raw_tests)
+
+    assert tests == raw_tests

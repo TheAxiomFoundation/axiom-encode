@@ -193,6 +193,16 @@ EvalOracleMode = Literal["none", "policyengine"]
 EvalFailureKind = Literal["timeout", "validation", "error"]
 
 
+_DUPLICATE_KEY_SCAN_RESOURCE_ISSUE = (
+    "YAML nesting is too deep to check for duplicate mapping keys, so the "
+    "file is not rewritten."
+)
+_TAG_SCAN_RESOURCE_ISSUE = (
+    "YAML nesting is too deep to check for unsupported tags, so the file is "
+    "not rewritten."
+)
+
+
 class _PreservedRepairOverlayError(ValueError):
     """The retained retry candidate cannot serve as an overlay base."""
 
@@ -1632,6 +1642,7 @@ def run_model_eval(
     repair_candidate_tests_only: bool = False,
     accept_valid_retry_candidate: bool = False,
     codex_reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
+    axiom_rules_engine_ref: str | None = None,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
     validate_codex_reasoning_effort(codex_reasoning_effort)
@@ -1690,6 +1701,11 @@ def run_model_eval(
                         output_root=output_root,
                         policy_path=policy_path,
                         runtime_axiom_rules_path=runtime_axiom_rules_path,
+                        **(
+                            {"axiom_rules_engine_ref": axiom_rules_engine_ref}
+                            if axiom_rules_engine_ref is not None
+                            else {}
+                        ),
                         axiom_compose_path=axiom_compose_path,
                         corpus_release=corpus_release,
                         mode=mode,
@@ -8094,6 +8110,7 @@ def evaluate_artifact(
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
     axiom_compose_path: Path | None = None,
+    axiom_rules_engine_ref: str | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate an artifact inside one exact named corpus release."""
 
@@ -8114,6 +8131,11 @@ def evaluate_artifact(
             rulespec_file=rulespec_file,
             policy_repo_root=policy_repo_root,
             axiom_rules_path=axiom_rules_path,
+            **(
+                {"axiom_rules_engine_ref": axiom_rules_engine_ref}
+                if axiom_rules_engine_ref is not None
+                else {}
+            ),
             axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
@@ -8274,6 +8296,7 @@ def _evaluate_artifact_in_scope(
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
     axiom_compose_path: Path | None = None,
+    axiom_rules_engine_ref: str | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate one RuleSpec artifact with deterministic checks plus optional oracles."""
     existing_target_oracle_contract: ExistingTargetOracleContract | None = None
@@ -8310,6 +8333,11 @@ def _evaluate_artifact_in_scope(
         pipeline = ValidatorPipeline(
             policy_repo_path=validation_policy_repo_root,
             axiom_rules_path=axiom_rules_path,
+            **(
+                {"axiom_rules_engine_ref": axiom_rules_engine_ref}
+                if axiom_rules_engine_ref is not None
+                else {}
+            ),
             axiom_compose_path=axiom_compose_path,
             enable_oracles=oracle != "none",
             policyengine_runtime=policyengine_runtime,
@@ -8696,6 +8724,7 @@ def _evaluate_generated_artifact_with_repairs(
     replacement_overlay_scope: bool = False,
     allow_artifact_repairs: bool = True,
     axiom_compose_path: Path | None = None,
+    axiom_rules_engine_ref: str | None = None,
 ) -> EvalArtifactMetrics | None:
     evaluated_states: set[tuple[bytes | None, bytes | None]] = set()
     for _repair_round in range(_GENERATED_EVAL_REPAIR_LIMIT + 1):
@@ -8708,6 +8737,11 @@ def _evaluate_generated_artifact_with_repairs(
             rulespec_file=rulespec_file,
             policy_repo_root=policy_repo_root,
             axiom_rules_path=axiom_rules_path,
+            **(
+                {"axiom_rules_engine_ref": axiom_rules_engine_ref}
+                if axiom_rules_engine_ref is not None
+                else {}
+            ),
             axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
@@ -9762,6 +9796,7 @@ def _run_single_eval(
     repair_candidate_tests_only: bool = False,
     accept_valid_retry_candidate: bool = False,
     axiom_compose_path: Path | None = None,
+    axiom_rules_engine_ref: str | None = None,
 ) -> EvalResult:
     if (
         accept_valid_retry_candidate
@@ -9887,6 +9922,11 @@ def _run_single_eval(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
+            **(
+                {"axiom_rules_engine_ref": axiom_rules_engine_ref}
+                if axiom_rules_engine_ref is not None
+                else {}
+            ),
             axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
@@ -9926,6 +9966,11 @@ def _run_single_eval(
                 rulespec_file=output_file,
                 policy_repo_root=policy_path,
                 axiom_rules_path=runtime_axiom_rules_path,
+                **(
+                    {"axiom_rules_engine_ref": axiom_rules_engine_ref}
+                    if axiom_rules_engine_ref is not None
+                    else {}
+                ),
                 axiom_compose_path=axiom_compose_path,
                 source_text=source_text,
                 oracle=oracle,
@@ -10100,6 +10145,11 @@ def _run_single_eval(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
+            **(
+                {"axiom_rules_engine_ref": axiom_rules_engine_ref}
+                if axiom_rules_engine_ref is not None
+                else {}
+            ),
             axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
@@ -17019,20 +17069,11 @@ def _normalize_main_eval_content(
         # resolve these; keep the raw text so validation reports them.
         if find_interpretation_yaml_issues(content):
             return content
-        keep_text = bool(
-            find_duplicate_mapping_key_issues(content)
-            or find_unsupported_yaml_tag_issues(content)
-            or find_yaml_merge_key_issues(content)
-        )
-        if not keep_text:
-            yaml.safe_load(content)
-    except (yaml.YAMLError, RecursionError):
-        keep_text = False
-    except ValueError:
-        # PyYAML raises a plain ValueError, for example on a double-quoted
-        # escape beyond U+10FFFF, which the repairs below would raise again.
-        keep_text = True
-    if keep_text:
+    except (yaml.YAMLError, RecursionError, ValueError):
+        # The check below also covers PyYAML's plain ValueError, raised for
+        # example on a double-quoted escape beyond U+10FFFF.
+        pass
+    if _rewrite_would_change_yaml(content) or _rewrite_merge_key_issues(content):
         # Textual normalization only: it keeps every key, tag and merge key and
         # still refuses text that is not RuleSpec.
         return _normalize_rulespec_content(content)
@@ -17070,25 +17111,40 @@ _UNLOADABLE_YAML_ISSUE = (
 
 
 def _rewrite_duplicate_key_issues(content: str) -> list[str]:
-    """Duplicate keys that rewriting ``content`` through a YAML load would erase."""
+    """Why rewriting ``content`` through a YAML load could erase entries.
+
+    Text that does not compose cannot load either, so callers keep their own
+    handling of it, except PyYAML's plain ValueError, which their loaders let
+    escape and which is reported. The scan composes with one more frame per
+    level than ``yaml.safe_load``, so nesting can exhaust it where loading still
+    works; that text is reported too, since its duplicate keys cannot be ruled
+    out.
+    """
 
     try:
         return find_duplicate_mapping_key_issues(content)
-    except (yaml.YAMLError, RecursionError):
-        # Callers keep their own handling of unparseable text.
+    except yaml.YAMLError:
         return []
+    except RecursionError:
+        return [_DUPLICATE_KEY_SCAN_RESOURCE_ISSUE]
     except ValueError:
         return [_UNLOADABLE_YAML_ISSUE]
 
 
 def _rewrite_unsupported_tag_issues(content: str) -> list[str]:
-    """Tags that loading ``content`` would construct apart from the engine."""
+    """Tags that loading ``content`` would construct apart from the engine.
+
+    Like the duplicate-key check, text too deeply nested to scan is reported,
+    since its tags cannot be ruled out.
+    """
 
     try:
         return find_unsupported_yaml_tag_issues(content)
-    except (yaml.YAMLError, RecursionError):
+    except yaml.YAMLError:
         # Callers keep their own handling of unparseable text.
         return []
+    except RecursionError:
+        return [_TAG_SCAN_RESOURCE_ISSUE]
     except ValueError:
         return [_UNLOADABLE_YAML_ISSUE]
 
@@ -18715,14 +18771,15 @@ def _overlay_validation_retry_candidate(
     preserved_duplicate_key_issues = _rewrite_duplicate_key_issues(candidate.rulespec)
     if preserved_duplicate_key_issues:
         raise _PreservedRepairOverlayError(
-            "preserved repair overlay has duplicate YAML mapping keys: "
-            + "; ".join(preserved_duplicate_key_issues)
+            "preserved repair overlay cannot be rewritten without losing YAML "
+            "mapping entries: " + "; ".join(preserved_duplicate_key_issues)
         )
     if candidate.tests is not None:
         preserved_duplicate_key_issues = _rewrite_duplicate_key_issues(candidate.tests)
         if preserved_duplicate_key_issues:
             raise _PreservedRepairOverlayError(
-                "preserved repair overlay tests have duplicate YAML mapping keys: "
+                "preserved repair overlay tests cannot be rewritten without "
+                "losing YAML mapping entries: "
                 + "; ".join(preserved_duplicate_key_issues)
             )
     # Loading constructs these tags apart from the engine, and some make it raise.

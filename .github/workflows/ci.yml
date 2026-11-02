@@ -117,7 +117,7 @@ jobs:
       # Reviewed merged engine with required unique Boolean relation projection.
       # The tests require a clean checkout at this commit and a binding receipt
       # for the actual binary; downstream policy toolchain pins are independent.
-      AXIOM_RULES_ENGINE_REF: 50215d97ce9b59467d4738b2e872d5253b6e2847
+      AXIOM_RULES_ENGINE_REF: 363c6a6c56f7ad130996b63f7a09cfd4c3d9b021
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

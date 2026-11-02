@@ -1018,29 +1018,59 @@ def compare_gates(old: Any, new: Any, text: str, outline: Any) -> dict[str, Any]
             else None,
         )
 
+    def grouped(items: Any) -> dict[tuple[Any, ...], list[Any]]:
+        groups: dict[tuple[Any, ...], list[Any]] = {}
+        for item in items:
+            groups.setdefault(key(item), []).append(item)
+        return groups
+
+    def surplus(
+        groups: dict[tuple[Any, ...], list[Any]],
+        others: dict[tuple[Any, ...], list[Any]],
+    ) -> list[tuple[tuple[Any, ...], Any]]:
+        # Equal obligations are independent demands in production, so compare
+        # them as a multiset: each copy beyond the other side's count changed.
+        return [
+            (item_key, item)
+            for item_key, items in groups.items()
+            for item in items[len(others.get(item_key, ())) :]
+        ]
+
+    def removal_evidence(item_key: tuple[Any, ...], item: Any, gate: str) -> Any:
+        new_gates = new
+        replacements = new[gate]
+        if item_key in new_by_key:
+            # Every surviving equal copy is already accounted to an equal old
+            # obligation, so it cannot also certify this surplus copy.
+            replacements = tuple(
+                candidate for candidate in new[gate] if key(candidate) != item_key
+            )
+            new_gates = {**new, gate: replacements}
+        return structural_removal_evidence(
+            item,
+            replacements,
+            new["clauses"],
+            text,
+            outline,
+            gate,
+            old_gates=old,
+            new_gates=new_gates,
+        )
+
     for gate in GATES:
-        old_by_key = {key(item): item for item in old[gate]}
-        new_by_key = {key(item): item for item in new[gate]}
-        removed = [old_by_key[item] for item in old_by_key.keys() - new_by_key.keys()]
-        added = [new_by_key[item] for item in new_by_key.keys() - old_by_key.keys()]
+        old_by_key = grouped(old[gate])
+        new_by_key = grouped(new[gate])
+        removed = surplus(old_by_key, new_by_key)
+        added = [item for _key, item in surplus(new_by_key, old_by_key)]
         if removed or added:
             changes[gate] = {
                 "removed": [
                     {
                         **branch_record(item),
-                        "evidence": structural_removal_evidence(
-                            item,
-                            new[gate],
-                            new["clauses"],
-                            text,
-                            outline,
-                            gate,
-                            old_gates=old,
-                            new_gates=new,
-                        ),
+                        "evidence": removal_evidence(item_key, item, gate),
                     }
-                    for item in sorted(
-                        removed, key=lambda item: (item.start, item.path)
+                    for item_key, item in sorted(
+                        removed, key=lambda pair: (pair[1].start, pair[1].path)
                     )
                 ],
                 "added": [

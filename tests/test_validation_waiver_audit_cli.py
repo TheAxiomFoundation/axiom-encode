@@ -503,6 +503,34 @@ def test_unexpected_pipeline_exception_is_not_fingerprintable(tmp_path: Path):
         )
 
 
+def test_audit_times_failed_module_without_swallowing_exception(tmp_path, capsys):
+    import re
+
+    root = tmp_path / "rulespec-us"
+    module = root / "us/statutes/module.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text("format: rulespec/v1\n")
+    engine = _engine(tmp_path)
+    _FakePipeline.validate_error = RuntimeError("validator infrastructure broke")
+    with (
+        patch.object(cli, "ValidatorPipeline", _FakePipeline),
+        pytest.raises(RuntimeError, match="infrastructure broke"),
+    ):
+        cli._fingerprint_validation_waiver_modules(
+            [Path("us/statutes/module.yaml")],
+            root=root,
+            corpus_path=_bound_corpus(tmp_path, root),
+            axiom_rules_path=engine,
+            log_timings=True,
+        )
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert re.fullmatch(
+        r"validation-waivers audit: us/statutes/module.yaml \d+\.\d{3}s\n",
+        output.err,
+    )
+
+
 @pytest.mark.parametrize(
     "module_path",
     [
