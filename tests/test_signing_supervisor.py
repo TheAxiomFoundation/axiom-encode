@@ -1743,13 +1743,33 @@ def test_runtime_startup_and_editable_injection_is_rejected_before_attachment(
 
 
 @pytest.mark.parametrize(
-    ("behavior", "expected"),
+    ("behavior", "detail", "expected"),
     [
-        ("wrong_challenge_signature", "challenge response is invalid"),
-        ("legacy_v1_response", "initialization failed"),
-        ("extra_challenge_field", "initialization failed"),
-        ("wrong_sign_signature", "External apply signer failed"),
-        ("extra_sign_field", "External apply signer failed"),
+        (
+            "wrong_challenge_signature",
+            "external apply signer challenge response is invalid",
+            "External apply signer initialization failed",
+        ),
+        (
+            "legacy_v1_response",
+            "external signer response identity is invalid",
+            "External apply signer initialization failed",
+        ),
+        (
+            "extra_challenge_field",
+            'signing broker frame is malformed: json: unknown field "legacy"',
+            "External apply signer initialization failed",
+        ),
+        (
+            "wrong_sign_signature",
+            "external apply signer returned an invalid signature",
+            "External apply signer failed",
+        ),
+        (
+            "extra_sign_field",
+            'signing broker frame is malformed: json: unknown field "legacy"',
+            "External apply signer failed",
+        ),
     ],
 )
 def test_invalid_external_signer_response_fails_closed(
@@ -1757,6 +1777,7 @@ def test_invalid_external_signer_response_fails_closed(
     trusted_python_runtime: tuple[Path, Path, Path],
     tmp_path: Path,
     behavior: str,
+    detail: str,
     expected: str,
 ) -> None:
     apply_public, apply_key = _keypair(b"\xab" * 32)
@@ -1772,7 +1793,18 @@ def test_invalid_external_signer_response_fails_closed(
             descriptors,
         )
     assert completed.returncode != 0
+    # The broker sends its peer only the generic error and writes the detail to
+    # stderr first, so the detail survives the supervisor killing the broker
+    # and always precedes the generic error. main() must not print it again.
+    diagnostic = f"signing broker: {detail}\n"
+    broker_lines = [
+        line
+        for line in completed.stderr.splitlines()
+        if line.startswith("signing broker: ")
+    ]
+    assert broker_lines == [diagnostic.rstrip("\n")], completed.stderr
     assert expected in completed.stderr
+    assert completed.stderr.index(diagnostic) < completed.stderr.index(expected)
 
 
 def test_non_socket_signer_descriptor_is_rejected(
@@ -2113,6 +2145,158 @@ def test_targeted_signed_reencode_reconciles_retired_inventory_before_commits() 
     )
 
 
+def test_provision_prefetch_is_authenticated_before_release_fetch() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = workflow["jobs"]["encode"]["steps"]
+    names = [step.get("name") for step in steps]
+    release = names.index("Fetch pinned signed corpus release object")
+    select = names.index("Select authenticated signed provision export runs")
+    metadata = names.index("Download authenticated provision export metadata")
+    validate = names.index("Validate authenticated provision export metadata")
+    archives = names.index("Download authenticated provision export archives")
+    prefetch = names.index("Prefetch authenticated signed provision members")
+    fetch = names.index("Fetch pinned corpus provision objects")
+    assert release < select < metadata < validate < archives < prefetch < fetch
+    assert "provision-run-ids" in steps[select]["run"]
+    assert "GH_TOKEN" not in steps[select].get("env", {})
+    assert "validate-export \\" in steps[validate]["run"]
+    assert '--provision-run-id "$export_run"' in steps[validate]["run"]
+    assert "GH_TOKEN" not in steps[validate].get("env", {})
+    assert steps[validate]["env"]["ATOMIC_SOURCE_JSON"] == (
+        "${{ inputs.source_bundle_json }}"
+    )
+    assert "materialize \\" in steps[prefetch]["run"]
+    assert "env -u GH_TOKEN" in steps[prefetch]["run"]
+    assert "GH_TOKEN" not in steps[prefetch].get("env", {})
+    assert steps[prefetch]["env"]["ATOMIC_SOURCE_JSON"] == (
+        "${{ inputs.source_bundle_json }}"
+    )
+    assert "GH_TOKEN" in steps[metadata]["env"]
+    assert "GH_TOKEN" in steps[archives]["env"]
+    assert steps[prefetch]["env"]["TRUST_CORPUS_RELEASE_ROOT"] == (
+        "${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}"
+    )
+
+
+def test_provision_prefetch_workflow_has_all_eleven_authenticated_slots() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = {step.get("name"): step for step in workflow["jobs"]["encode"]["steps"]}
+    metadata = steps["Download authenticated provision export metadata"]["run"]
+    archives = steps["Download authenticated provision export archives"]["run"]
+    for index in range(11):
+        assert f"corpus-provision-{index}-run.json" in metadata
+        assert f"corpus-provision-{index}-artifacts.json" in metadata
+        assert f"corpus-provision-{index}.zip" in archives
+    assert "corpus-provision-11-run.json" not in metadata
+    assert "corpus-provision-11.zip" not in archives
+
+
+def test_transport_legacy_required_cases_keep_all_three_protected_guards() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = {
+        step["name"]: step
+        for step in workflow["jobs"]["encode"]["steps"]
+        if "name" in step
+    }
+    guard = re.compile(
+        re.escape(
+            '{ [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \\'
+        )
+        + r"\n\s+"
+        + re.escape('[ -z "$CORPUS_EXPORT_RUN_ID" ]; }')
+    )
+    for name in (
+        "Validate atomic source inputs",
+        "Verify existing signed imports",
+        "Encode, review, validate, and apply",
+    ):
+        step = steps[name]
+        assert step["env"]["CORPUS_EXPORT_RUN_ID"] == (
+            "${{ steps.corpus_artifact_transport.outputs.run_id }}"
+        )
+        assert guard.search(step["run"])
+        assert '[ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ]' in step["run"]
+        assert '[ "$primary_required_test_cases_json" != "[]" ]' in step["run"]
+
+
+@pytest.mark.parametrize(
+    "step_name",
+    ["Validate atomic source inputs", "Verify existing signed imports"],
+)
+def test_transport_dependent_review_finding_reaches_workflow_preflight(
+    step_name: str,
+) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    step = next(
+        item
+        for item in workflow["jobs"]["encode"]["steps"]
+        if item.get("name") == step_name
+    )
+    legacy_path = (
+        "us-az/policies/des/faa5/na-categorical-eligibility/"
+        "expanded-categorical-eligibility.yaml"
+    )
+    transaction = {
+        "schema": "axiom-encode/atomic-source-transaction/v3",
+        "source_bundle": [],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+    }
+    request = json.dumps(
+        {
+            "schema": "axiom-encode/corpus-artifact-transport/v1",
+            "transaction": transaction,
+            "corpus_artifact_run_id": "123",
+        }
+    )
+    values = {
+        "${{ inputs.source_bundle_json }}": request,
+        "${{ inputs.citation }}": (
+            "us-az/manual/des/faa5/na-categorical-eligibility/block-4"
+        ),
+        "${{ inputs.dependent_citation }}": (
+            "us-az/manual/des/faa5/na-categorical-eligibility/block-5"
+        ),
+        "${{ inputs.dependent_review_finding }}": (
+            "Regenerate the dependent against its signed source."
+        ),
+        "${{ inputs.replace_rulespec_path }}": legacy_path,
+        "${{ inputs.replace_legacy_rulespec_path }}": legacy_path,
+    }
+    projected_env = {
+        name: values.get(expression, "") for name, expression in step["env"].items()
+    }
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/prepare_signed_backfill.py"),
+            "resolve-atomic-repair-mode",
+            request,
+            "--check-selected",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "DEPENDENT_REVIEW_FINDING": "", **projected_env},
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
+
+
 def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
@@ -2175,7 +2359,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["pr_base_branch"]["default"] == "main"
     assert inputs["source_bundle_json"] == {
         "description": (
-            "Atomic source input: optional corpus-artifact-transport/v1 wrapping fresh v3; "
+            "Atomic source input: corpus-artifact-transport/v1 wrapping fresh v3 "
+            "with an optional signed corpus export and signed provision export run IDs; "
+            "corpus-provision-prefetch/v1 wrapping exact v2-v3 with signed provision run IDs; "
             "legacy citation array/refresh object, v2-v5 contract, "
             "or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} "
             "for an authenticated failed ordinary single-target repair"
@@ -2722,6 +2908,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset"' in command
     assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain"' in command
     assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain"' in command
+    assert 'DEPENDENT_CASCADE_MODE:-}" = "source-bound-proof-alias"' in command
+    assert 'scheduled_dependent_paths_json="$(' in command
+    assert '--arg first "$dependent_rulespec_path"' in command
     assert '"$DEPENDENT_CITATION" "$DEPENDENT_REVIEW_FINDING" \\\n' in command
     assert '"$REPLACE_RULESPEC_PATH" "$REPLACE_LEGACY_RULESPEC_PATH"' in command
     assert '"$CITATION" "$REVIEW_FINDING" false \\\n' in command
@@ -7482,6 +7671,161 @@ def test_targeted_artifact_preserves_pre_v4_replacement_receipts(
     )
 
     assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize(
+    ("mutation", "error"),
+    [
+        ("none", None),
+        ("wrong-owner-hash", "historical legacy replacement manifest binding differs"),
+        (
+            "wrong-receipt-and-owner-hash",
+            "historical legacy replacement manifest binding differs",
+        ),
+        ("wrong-owner-path", "historical legacy replacement manifest binding differs"),
+        ("moved-manifest", "in-place legacy replacement manifest path differs"),
+        ("owner-not-deleted", "deleted manifest inventory differs"),
+    ],
+)
+def test_targeted_artifact_packages_historical_in_place_owner(
+    tmp_path: Path, mutation: str, error: str | None
+) -> None:
+    rulespec = tmp_path / "rulespec-us"
+    rulespec.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=rulespec, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=rulespec,
+        check=True,
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=rulespec, check=True)
+    primary_path = "us-az/policies/des/faa5/expanded.yaml"
+    old_manifest_path = (
+        "us-az/.axiom/encoding-manifests/policies/des/faa5/expanded.json"
+    )
+    new_manifest_path = (
+        ".axiom/encoding-manifests/us-az/policies/des/faa5/expanded.json"
+    )
+    primary = rulespec / primary_path
+    primary.parent.mkdir(parents=True)
+    primary.write_bytes(b"old rule\n")
+    old_manifest = rulespec / old_manifest_path
+    old_manifest.parent.mkdir(parents=True)
+    old_manifest.write_bytes(b"old owner\n")
+    old_owner_sha = hashlib.sha256(old_manifest.read_bytes()).hexdigest()
+    subprocess.run(["git", "add", "."], cwd=rulespec, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=rulespec, check=True)
+    rulespec_ref = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=rulespec, text=True
+    ).strip()
+
+    primary.write_bytes(b"new rule\n")
+    if mutation != "owner-not-deleted":
+        old_manifest.unlink()
+    citation = "us-az/manual/des/faa5/block-4"
+    context = {"citation": citation, "review_findings_files": []}
+    context_bytes = json.dumps(context, sort_keys=True).encode()
+    context_path = tmp_path / "generated/target/context-manifest.json"
+    context_path.parent.mkdir(parents=True)
+    context_path.write_bytes(context_bytes)
+    nested_manifest = {
+        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+        "tool": "axiom-encode encode --apply",
+        "backend": "codex",
+        "citation": citation,
+        "context_manifest_file": str(context_path),
+        "context_manifest_sha256": hashlib.sha256(context_bytes).hexdigest(),
+        "applied_files": [
+            {
+                "path": primary_path,
+                "sha256": hashlib.sha256(primary.read_bytes()).hexdigest(),
+            }
+        ],
+    }
+    receipt_payload = {
+        "schema_version": "axiom-encode/legacy-fresh-reencode-receipt/v8",
+        "legacy": {
+            "manifest": {
+                "path": old_manifest_path,
+                "sha256": (
+                    "0" * 64
+                    if mutation == "wrong-receipt-and-owner-hash"
+                    else old_owner_sha
+                ),
+            }
+        },
+        "replacement": {
+            "source": primary_path,
+            "destination": primary_path,
+            "scheduled_dependents": [],
+            "exact_dependents": [],
+            "retained_successors": [],
+            "metadata_reconciliations": [],
+        },
+    }
+    receipt = rulespec / ".axiom/legacy-replacements" / f"{'a' * 64}.json"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text(json.dumps(receipt_payload) + "\n")
+    outer = {
+        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+        "tool": "axiom-encode encode --apply --replace-legacy-rulespec-path",
+        "replacement_manifest": nested_manifest,
+        "replacement": {
+            "receipt_path": receipt.relative_to(rulespec).as_posix(),
+            "receipt_sha256": hashlib.sha256(receipt.read_bytes()).hexdigest(),
+            "legacy_manifest_path": (
+                new_manifest_path
+                if mutation == "wrong-owner-path"
+                else old_manifest_path
+            ),
+            "legacy_manifest_sha256": (
+                "0" * 64
+                if mutation in {"wrong-owner-hash", "wrong-receipt-and-owner-hash"}
+                else old_owner_sha
+            ),
+        },
+    }
+    new_manifest = rulespec / (
+        new_manifest_path.replace("expanded.json", "moved.json")
+        if mutation == "moved-manifest"
+        else new_manifest_path
+    )
+    new_manifest.parent.mkdir(parents=True)
+    new_manifest.write_text(json.dumps(outer) + "\n")
+    (tmp_path / "source-bundle.json").write_text("[]\n")
+    (tmp_path / "canonical-refresh-bundle.json").write_text("[]\n")
+    artifact = tmp_path / "artifact"
+    artifact.mkdir()
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-",
+            str(artifact / "context-manifest.json"),
+            str(artifact / "apply-manifests.json"),
+        ],
+        cwd=tmp_path,
+        input=_targeted_package_script(),
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "CITATION": citation,
+            "PYTHONPATH": str(ROOT / "src"),
+            "REVIEW_FINDING": "",
+            "REVIEW_FINDING_PRESENT": "false",
+            "RUNNER_TEMP": str(tmp_path),
+            "RULESPEC_CHECKOUT": "rulespec-us",
+            "RULESPEC_REF": rulespec_ref,
+            "REPLACE_LEGACY_RULESPEC_PATH": primary_path,
+            "REPLACE_RULESPEC_PATH": primary_path,
+        },
+    )
+    if error:
+        assert completed.returncode != 0
+        assert error in completed.stderr
+    else:
+        assert completed.returncode == 0, completed.stderr
 
 
 @pytest.mark.parametrize(
