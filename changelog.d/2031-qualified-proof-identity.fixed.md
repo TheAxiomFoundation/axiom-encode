@@ -1,1 +1,1 @@
-A qualified proof selector needs an atom, an `exists` generator or a full-target source that reaches its own import, so `len(name)`, a bare member, a local relation, another import of its spelling or an inert formula no longer certifies it.
+A qualified proof selector needs an atom, an `exists` generator or a full-target source that reaches its own import, so `len(name)`, a bare member, a local rule or another import of its spelling, or an inert formula no longer certifies it.

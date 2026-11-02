@@ -43,6 +43,15 @@ def provider():
     )
 
 
+def parameter(name):
+    return {
+        "name": name,
+        "kind": "parameter",
+        "dtype": "Integer",
+        "versions": [{"effective_from": "2026-01-01", "values": {0: 1}}],
+    }
+
+
 def predicate(formula, **config):
     """Count a derived relation over `pairs` whose predicate reads `formula`."""
     selected = view("selected", "pairs", formula, slots=EVERYONE, **config)
@@ -104,14 +113,40 @@ IMPORT_FORMS = [
         False,
         id="atom-in-an-ordinary-rule",
     ),
+    pytest.param(
+        [VIEW],
+        [rule("view", "Person", "1"), *predicate("view(anchor, candidate)")],
+        False,
+        id="local-rule-shares-the-name",
+    ),
+    pytest.param(
+        [VIEW],
+        [parameter("view"), *predicate("view(anchor, candidate)")],
+        False,
+        id="local-parameter-shares-the-name",
+    ),
+    pytest.param([VIEW], predicate("len(view) > 0"), False, id="len-in-a-predicate"),
+    pytest.param(
+        [AMOUNT], predicate("true", source_relation=AMOUNT), False, id="scalar-source"
+    ),
+    pytest.param(
+        [AMOUNT],
+        predicate(
+            "true", source_path=[{"relation": AMOUNT, "from_slot": 0, "to_slot": 1}]
+        ),
+        False,
+        id="scalar-path-step",
+    ),
 ]
 
 
-def engine_reads(tmp_path, real_engine, imports, rules):
+def engine_reads(tmp_path, real_engine, imports, rules, **siblings):
     """Compile a consumer and name the explicit imports its own rules read."""
     consumer = program(*copy.deepcopy(rules), imports=imports)
     other = program(data_relation("view", "Person", "Person"))
-    root, module = write_module(tmp_path, consumer, provider=provider(), other=other)
+    root, module = write_module(
+        tmp_path, consumer, provider=provider(), other=other, **siblings
+    )
     try:
         compiled = _compile(
             real_engine.binary,

@@ -32251,30 +32251,51 @@ def _rulespec_relation_atom_reads(rule: dict[str, Any]) -> set[str]:
 
 
 def _rule_relation_import_reads(
-    rule: dict[str, Any], imported: set[str], local_relations: set[str]
+    rule: dict[str, Any], imported: set[str], short_names: set[str]
 ) -> set[str]:
     """Name the explicit relation imports that one rule reads.
 
-    The engine binds an imported relation's short name only in an atom or an
-    `exists` generator of a derived relation's predicate, after any local
-    relation of that name, and drops a name that two relations in the program
-    share. This scan reads one module, so it credits the atom only while no
-    other explicit import shares the short name; a clash through a
-    whole-module or transitive import stays out of its view. `len(name)`, a
-    bare member and a bare source keep the name as this module's own relation.
-    A full-target source or path step reads exactly the import it names.
+    A full-target source or path step reads exactly the import it names. An
+    atom or an `exists` generator of a derived relation's predicate reads an
+    import in `short_names` by its short name. `len(name)`, a bare member and a
+    bare source keep the name as this module's own relation.
     """
     sources = rule_relation_sources(rule)
-    atoms = _rulespec_relation_atom_reads(rule) - local_relations
-    names = Counter(map(local_reference_name, imported))
+    atoms = _rulespec_relation_atom_reads(rule)
     return {
         item
         for item in imported
         if item in sources
-        or (
-            local_reference_name(item) in atoms
-            and names[local_reference_name(item)] == 1
-        )
+        or (item in short_names and local_reference_name(item) in atoms)
+    }
+
+
+def _rulespec_short_relation_imports(
+    payload: dict[str, Any], imported: set[str]
+) -> set[str]:
+    """Name the explicit relation imports whose short name the engine binds.
+
+    A local relation of that name takes an atom's read. Any other declaration
+    of the name, a local rule of another kind or another explicit import of
+    any kind, makes the engine refuse the module. This scan reads one module,
+    so a clash through a whole-module or transitive import stays out of its
+    view.
+    """
+    raw_imports = payload.get("imports")
+    names = Counter(
+        local_reference_name(item)
+        for item in {
+            item.strip()
+            for item in (raw_imports if isinstance(raw_imports, list) else ())
+            if isinstance(item, str) and "#" in item
+        }
+    )
+    local_names = _rulespec_rule_names(payload)
+    return {
+        item
+        for item in imported
+        if names[local_reference_name(item)] == 1
+        and local_reference_name(item) not in local_names
     }
 
 
@@ -32292,11 +32313,11 @@ def _rulespec_relation_import_reads(payload: dict[str, Any]) -> set[str]:
     if not imported:
         return set()
     raw_rules = payload.get("rules")
-    local_relations = _rulespec_relation_names(payload)
+    short_names = _rulespec_short_relation_imports(payload, imported)
     reads: set[str] = set()
     for rule in raw_rules if isinstance(raw_rules, list) else []:
         if isinstance(rule, dict):
-            reads |= _rule_relation_import_reads(rule, imported, local_relations)
+            reads |= _rule_relation_import_reads(rule, imported, short_names)
     return reads
 
 
@@ -32347,8 +32368,8 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
         if not isinstance(rules, list):
             return []
 
-        local_relations = _rulespec_relation_names(payload)
         relation_imports = _rulespec_explicit_relation_imports(payload.get("imports"))
+        short_names = _rulespec_short_relation_imports(payload, relation_imports)
         issues: list[str] = []
         for rule in rules:
             if not isinstance(rule, dict):
@@ -32372,7 +32393,7 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                 if not symbol and "#" in target:
                     symbol = target.rsplit("#", 1)[1].strip()
                 selectors.append((target, symbol, bool(output)))
-            sources = rule_relation_sources(rule) - local_relations
+            sources = rule_relation_sources(rule)
             unparsed_formulas = [
                 formula
                 for formula in formula_texts
@@ -32384,15 +32405,17 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                 is not None
             ]
             relation_reads = _rule_relation_import_reads(
-                rule, relation_imports, local_relations
+                rule, relation_imports, short_names
             )
             for target, symbol, named in selectors:
                 local_symbol = local_reference_name(symbol)
                 if local_symbol == symbol:
                     # A bare selector keeps main's text match over the joined
-                    # formulas, and a full-target source that names it reads
+                    # formulas, and a source that names its full target reads
                     # it too.
-                    certified = not symbol or (named and target in sources)
+                    certified = not symbol or (
+                        named and "#" in target and target in sources
+                    )
                     spelled_in = ["\n".join(formula_texts)]
                 else:
                     # A qualified selector names one import, so only a read
