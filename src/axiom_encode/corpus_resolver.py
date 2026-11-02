@@ -29,6 +29,7 @@ from axiom_encode.corpus_materialize import (
     CorpusMaterializationError,
     corpus_uses_lock_files,
     fetch_disabled,
+    lock_path_for,
     materialize_release_artifacts,
     present_file_note,
     release_sources,
@@ -665,6 +666,9 @@ class _VerifiedCorpusBucket:
     # ("descendants", citation_path, scope); failures are stored as errors.
     memo: dict[tuple[object, ...], object] = field(default_factory=dict)
     memo_bytes: int = 0
+    # File identities of the provisions read and, in a lock-file checkout,
+    # of the locks that pin them, taken before the read.
+    disk_fingerprint: tuple[object, ...] = ()
 
     @property
     def row_bytes(self) -> int:
@@ -711,6 +715,11 @@ class _LocalCorpusResolutionCache:
             _key, evicted = self.buckets.popitem(last=False)
             self.row_bytes -= evicted.row_bytes
             self.memo_bytes -= evicted.memo_bytes
+
+    def drop_bucket(self, key: tuple[str, str]) -> None:
+        dropped = self.buckets.pop(key)
+        self.row_bytes -= dropped.row_bytes
+        self.memo_bytes -= dropped.memo_bytes
 
     def clear_memo(self, bucket: _VerifiedCorpusBucket) -> None:
         self.memo_bytes -= bucket.memo_bytes
@@ -1283,9 +1292,18 @@ def _verified_corpus_bucket(
             cache.generation += 1
         bucket = cache.buckets.get(key)
         if bucket is not None:
-            cache.buckets.move_to_end(key)
-            _charge_local_corpus_read_budget(bucket.artifacts, budget=budget)
-            return bucket
+            if (
+                _bucket_disk_fingerprint(
+                    release, tuple(artifact.path for artifact in bucket.artifacts)
+                )
+                == bucket.disk_fingerprint
+            ):
+                cache.buckets.move_to_end(key)
+                _charge_local_corpus_read_budget(bucket.artifacts, budget=budget)
+                return bucket
+            # A provisions file or its lock changed on disk: read the bucket
+            # again, exactly as an uncached call does.
+            cache.drop_bucket(key)
         scopes = tuple(
             scope
             for scope in release.scopes
@@ -1298,16 +1316,55 @@ def _verified_corpus_bucket(
             document_class=document_class,
             scopes=scopes,
         )
+        fingerprint = _bucket_disk_fingerprint(release, files)
         artifacts = _read_corpus_artifacts(files, release=release, budget=budget)
         bucket = _VerifiedCorpusBucket(
             scopes=scopes,
             artifacts=artifacts,
             artifact_bytes=sum(artifact.byte_size for artifact in artifacts),
+            disk_fingerprint=fingerprint,
         )
         cache.buckets[key] = bucket
         cache.row_bytes += bucket.row_bytes
         cache.evict_buckets()
         return bucket
+
+
+def _file_identity(path: Path) -> tuple[int, ...] | None:
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return None
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_mode,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+    )
+
+
+def _bucket_disk_fingerprint(
+    release: LocalCorpusRelease, paths: Iterable[Path]
+) -> tuple[object, ...]:
+    """Identify the files a bucket read depends on, without reading them.
+
+    One ``lstat`` per provisions file and, in a lock-file checkout, one per
+    lock that pins it. Replacing, rewriting, or touching any of them changes
+    the fingerprint, so a cached bucket is never served for files or locks
+    other than the ones it was read from.
+    """
+
+    identities: list[object] = []
+    for path in paths:
+        identities.append((path, _file_identity(path)))
+        if release.uses_corpus_locks:
+            lock = lock_path_for(path.relative_to(release.root).as_posix())
+            if lock is not None:
+                lock_path = release.root / lock
+                identities.append((lock_path, _file_identity(lock_path)))
+    return tuple(identities)
 
 
 def _memoized(

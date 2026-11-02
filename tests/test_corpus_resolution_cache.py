@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import json
+import os
 import pickle
 import random
 import sys
@@ -139,6 +140,18 @@ def _corpus(root: Path) -> LocalCorpusRelease:
         RELEASE,
         [("us", "statute", STATUTE), ("us", "regulation", REGULATION)],
     )
+
+
+def _replace_file(path: Path, data: bytes) -> None:
+    """Write a new file and rename it into place, as placement and git do.
+
+    A new file always has a new identity; an in-place same-size rewrite can
+    keep its timestamps on a coarse-timestamp filesystem.
+    """
+
+    temporary = path.with_name(f".{path.name}.replacement")
+    temporary.write_bytes(data)
+    os.replace(temporary, path)
 
 
 def _fresh(release: LocalCorpusRelease) -> LocalCorpusRelease:
@@ -447,32 +460,40 @@ def test_first_read_failure_is_not_cached(tmp_path: Path):
     )
 
 
-def test_cached_rows_are_the_verified_bytes_and_disk_checks_still_rehash(
+def test_a_changed_provisions_file_is_read_again_like_an_uncached_call(
     tmp_path: Path,
 ):
     release = _corpus(tmp_path)
-    before = resolve_local_corpus_source("us/statute/26/1", release)
-    composed = resolve_local_corpus_source("us/statute/42/9", release)
+    resolve_local_corpus_source("us/statute/26/1", release)
+    resolve_local_corpus_source("us/statute/42/9", release)
     assert resolve_local_corpus_dependency_artifacts("us/statute/42/9", release)
 
     statute = _provisions_path(tmp_path, "statute", STATUTE)
-    statute.write_bytes(statute.read_bytes().replace(b"Tax imposed.", b"Tax removed."))
+    _replace_file(
+        statute, statute.read_bytes().replace(b"Tax imposed.", b"Tax removed.")
+    )
 
-    # The release object still attests the original bytes, so cached rows are
-    # exactly what an uncached read verified; nothing reads the tampered file.
-    assert resolve_local_corpus_source("us/statute/26/1", release) == before
-    assert resolve_local_corpus_source("us/statute/42/9", release) == composed
-    # A fresh read and the on-disk dependency check both fail closed.
-    with pytest.raises(CorpusResolutionError, match="do not match the verified"):
-        resolve_local_corpus_source("us/statute/26/1", _fresh(release))
+    # The file's identity changed, so the warm release reads it again and fails
+    # closed exactly as a fresh read does; the dependency check does too.
     for identifier in ("us/statute/26/1", "us/statute/42/9"):
-        with pytest.raises(CorpusResolutionError, match="changed after resolution"):
+        warm = _outcome(lambda: resolve_local_corpus_source(identifier, release))
+        cold = _outcome(
+            lambda: resolve_local_corpus_source(identifier, _fresh(release))
+        )
+        assert warm == cold and warm[0] == "error"
+        assert "do not match the verified" in str(warm)
+        with pytest.raises(CorpusResolutionError, match="do not match the verified"):
             resolve_local_corpus_dependency_artifacts(identifier, release)
+    assert ("us", "statute") not in _cache(release).buckets
 
     statute.unlink()
-    assert resolve_local_corpus_source("us/statute/26/1", release) == before
-    with pytest.raises(CorpusResolutionError, match="changed after resolution"):
-        resolve_local_corpus_dependency_artifacts("us/statute/26/1", release)
+    assert _outcome(
+        lambda: resolve_local_corpus_source("us/statute/26/1", release)
+    ) == (
+        _outcome(
+            lambda: resolve_local_corpus_source("us/statute/26/1", _fresh(release))
+        )
+    )
 
 
 @pytest.mark.parametrize(
@@ -942,8 +963,8 @@ def test_dependency_check_hashes_each_artifact_once_per_call(
         )
     assert reads == ["resolved corpus provision"] * 2
 
-    statute.write_bytes(statute.read_bytes().replace(b"Line 29.", b"Line 99."))
-    with pytest.raises(CorpusResolutionError, match="changed after resolution"):
+    _replace_file(statute, statute.read_bytes().replace(b"Line 29.", b"Line 99."))
+    with pytest.raises(CorpusResolutionError, match="do not match the verified"):
         resolve_local_corpus_dependency_artifacts("us/statute/hts", release)
 
 

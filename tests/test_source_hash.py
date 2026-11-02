@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from axiom_encode.corpus_resolver import (
+    CorpusResolutionError,
     InvalidCorpusCitationError,
     InvalidCorpusReleaseError,
     LocalCorpusRelease,
@@ -1227,5 +1228,6 @@ def test_check_staleness_reads_the_checkout_as_it_is_now(tmp_path):
         (module_path, None)
     ]
     assert "do not match the verified release" in stale[0].resolution_error
-    # The release instance itself still serves the rows it verified.
-    assert resolve_local_corpus_source(CITATION_PATH, release).body == SOURCE_TEXT
+    # The release instance sees the changed file too and fails closed.
+    with pytest.raises(CorpusResolutionError, match="do not match the verified"):
+        resolve_local_corpus_source(CITATION_PATH, release)
