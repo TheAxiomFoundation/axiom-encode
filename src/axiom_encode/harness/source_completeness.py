@@ -472,6 +472,13 @@ _LINE_WRAPPED_OUTLINE_REFERENCE_TAIL = re.compile(
     rf"(?:(?:and|or){_OUTLINE_REFERENCE_SOFT_SPACE}*)?\()",
     flags=re.IGNORECASE,
 )
+# The near end of a citation range whose far end wraps onto the next line:
+# ``subsections (1) to`` or ``paragraphs (b) through``.
+_LINE_WRAPPED_OUTLINE_RANGE_START = re.compile(
+    r"(?P<start>(?:\([A-Za-z0-9.-]+\)[ \t]*)+)"
+    rf"{_OUTLINE_REFERENCE_SOFT_SPACE}+(?:to|through)[ \t]*\r?\n[ \t]*\Z",
+    flags=re.IGNORECASE,
+)
 _JOINED_PARENTHESIZED_REPEAL = re.compile(
     r"\s*(?P<chain>(?:\([A-Za-z0-9.-]+\)\s*)+)"
     r"(?P<peers>"
@@ -4071,6 +4078,8 @@ def _line_start_is_wrapped_outline_reference(
         return False
     if _LINE_WRAPPED_OUTLINE_REFERENCE_TAIL.match(source_text, chain.end()) is not None:
         return True
+    if _wrapped_outline_range_end_follows_its_start(prefix, chain.group()):
+        return True
     continuation = source_text[chain.end() :]
     # A relative predicate can continue the cited provision without an
     # explicit "of this section" tail. An independently numbered provision
@@ -4083,9 +4092,10 @@ def _line_start_is_wrapped_outline_reference(
     ):
         return True
     # A decimal or inserted-alpha provision can repeat its own locator in "this subsection (2.5)
-    # for each lease" or "(4.5) but was not remitted". Admit those
-    # continuations only for the current root;
-    # "For purposes of this subsection" cannot hide a new decimal branch.
+    # for each lease", "pursuant to subsection (2.5) for each lease" or
+    # "(4.5) but was not remitted". Admit those continuations only for the
+    # current root; "For purposes of this subsection" cannot hide a new
+    # decimal branch, and the lead must still name a subsection.
     labels = re.findall(r"\(([A-Za-z0-9.-]+)\)", chain.group())
     if (
         len(labels) != 1
@@ -4094,8 +4104,7 @@ def _line_start_is_wrapped_outline_reference(
         )
         is None
         or re.search(
-            rf"\bthis{_OUTLINE_REFERENCE_SOFT_SPACE}+subsection"
-            r"[ \t]*\r?\n[ \t]*\Z",
+            r"\bsubsection[ \t]*\r?\n[ \t]*\Z",
             prefix,
             flags=re.IGNORECASE,
         )
@@ -4180,6 +4189,68 @@ def _line_start_is_wrapped_outline_reference(
             "",
         )
     return labels[0].lower() == _active_numeric_root
+
+
+def _outline_range_position(
+    label: str, category: str
+) -> tuple[Decimal | int, ...] | None:
+    """Return a sortable position for ``label`` read as ``category``."""
+
+    if category == "numeric":
+        match = re.fullmatch(r"(\d+(?:\.\d+)?)([a-z]?)", label, re.IGNORECASE)
+        if match is None:
+            return None
+        suffix = match.group(2).lower()
+        return (Decimal(match.group(1)), ord(suffix) if suffix else 0)
+    if category in {"lower-alpha", "upper-alpha"}:
+        match = re.fullmatch(r"([a-z])(?:-([1-9]\d*))?", label, re.IGNORECASE)
+        if match is None:
+            return None
+        return (ord(match.group(1).lower()), int(match.group(2) or 0))
+    if category == "roman":
+        value = _roman_outline_value(label)
+        return None if value is None else (value,)
+    return None
+
+
+def _wrapped_outline_range_end_follows_its_start(prefix: str, chain: str) -> bool:
+    """Admit the far end of a ``to``/``through`` citation range wrapped onto its line.
+
+    The previous line must end in ``<locator> to`` or ``<locator> through``,
+    and the line-start chain must name a later label of the same kind at the
+    same depth. A list that a preposition introduces after a citation
+    (``subsection (3) to (a) the general fund``) and a pair that runs
+    backward or stays put keep their real branches.
+    """
+
+    match = _LINE_WRAPPED_OUTLINE_RANGE_START.search(prefix)
+    if match is None:
+        return False
+    start = re.findall(r"\(([A-Za-z0-9.-]+)\)", match.group("start"))
+    end = re.findall(r"\(([A-Za-z0-9.-]+)\)", chain)
+    if not start or not end:
+        return False
+    if len(end) > 1 and (
+        len(end) != len(start)
+        or [label.lower() for label in start[:-1]]
+        != [label.lower() for label in end[:-1]]
+    ):
+        return False
+    first, last = start[-1], end[-1]
+    if not (
+        _is_parenthesized_outline_label(first) and _is_parenthesized_outline_label(last)
+    ):
+        return False
+    if not first[0].isdigit() and first.isupper() != last.isupper():
+        return False
+    for category in set(_parenthesized_legal_outline_categories(first)) & set(
+        _parenthesized_legal_outline_categories(last)
+    ):
+        low = _outline_range_position(first, category)
+        high = _outline_range_position(last, category)
+        if low is not None and high is not None and low < high:
+            return True
+    return False
 
 
 def _joined_parenthesized_repeal_locators(
