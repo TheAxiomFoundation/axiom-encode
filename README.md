@@ -229,16 +229,16 @@ uv run axiom-encode encode us/statute/26/1 \
 The three values are the public keys in the repository's Actions variables of
 the same names; the encoder never reads them from the environment itself.
 This run conveys no signing capability. It refuses `--apply`, and it refuses
-to start when a signing broker is attached or `AXIOM_ENCODE_TRUSTED_RUNTIME=1`
-is set. Without a broker and without these keys, `encode` stops with
+to start when a signing broker is attached, `AXIOM_ENCODE_TRUSTED_RUNTIME=1` is
+set, or it runs in CI (`GITHUB_ACTIONS=true` or `CI` set). Without a broker and without these keys, `encode` stops with
 `A protected signing broker is required to verify the pinned corpus release
 object`.
 
 The generalist reviewer runs the `claude` CLI (or the `codex` CLI fallback) on
-the signed-in subscription. Only in the verification-only local run above (or
-`axiom-encode ci`), and only when no signing broker is attached, the trusted
-runtime is off and the run is not in CI, the encoder resolves the reviewer
-binary from your `PATH` and starts it with a small allowlisted environment:
+the signed-in subscription. Only in the verification-only local run above,
+and only when no signing broker is attached, the trusted runtime is off and
+the run is not in CI, the encoder resolves the reviewer binary from your
+`PATH` and starts it with a small allowlisted environment:
 your account home and user name, the per-user `TMPDIR`,
 `CODEX_HOME`/`CLAUDE_CONFIG_DIR` when set, and a `PATH` of only the directories
 that the reviewer binary needs (its own directory, and the interpreter that

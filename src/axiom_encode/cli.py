@@ -529,6 +529,7 @@ from .toolchain import (
     local_corpus_release_verification,
     local_signing_public_key,
     local_verification_active,
+    protected_process_signal_active,
     verify_rulespec_validation_waiver_set,
 )
 from .validation_waiver_scope import select_validation_waiver_scope
@@ -3298,7 +3299,7 @@ def main():
             "with this public root (AXIOM_CORPUS_RELEASE_PUBLIC_KEY) instead of "
             "an attached signing broker, as axiom-encode ci does. It conveys no "
             "signing capability, is refused with --apply, and is refused under "
-            "an attached signing broker or the trusted runtime."
+            "an attached signing broker, the trusted runtime or CI."
         ),
     )
     encode_parser.add_argument(
@@ -31027,9 +31028,9 @@ def _local_verification_encode_roots(args) -> _LocalVerificationRoots | None:
     """Return the verification-only public roots an encode was given, if any.
 
     Only explicit string arguments count; the roots are never read from the
-    environment. The run is refused when it could sign or land anything:
-    with --apply, under an attached signing broker, or under the trusted
-    runtime. A protected run therefore keeps its broker's trust roots.
+    environment. The run is refused with --apply and under any protected
+    signal (an attached signing broker, the trusted runtime, CI), so a
+    protected run always keeps its own trust roots.
     """
 
     def _string_or_none(name: str) -> str | None:
@@ -31057,24 +31058,11 @@ def _local_verification_encode_roots(args) -> _LocalVerificationRoots | None:
             "encode --corpus-release-public-key is a verification-only local "
             "run and cannot --apply; land changes through the protected workflow"
         )
-    from . import signing_broker as signing_broker_module
-
-    try:
-        get_signing_broker()
-    except SigningBrokerError:
-        broker_attached = False
-    else:
-        broker_attached = True
-    if (
-        broker_attached
-        or getattr(signing_broker_module, "_trusted_subprocess_base_environment", None)
-        is not None
-        or os.getenv("AXIOM_ENCODE_TRUSTED_RUNTIME") == "1"
-    ):
+    if protected_process_signal_active():
         raise ValueError(
             "encode --corpus-release-public-key is a verification-only local "
-            "run; it cannot run under an attached signing broker or the trusted "
-            "runtime, whose own trust roots apply"
+            "run; it cannot run under an attached signing broker, the trusted "
+            "runtime or CI"
         )
     return _LocalVerificationRoots(corpus_key, retired, apply_key, eval_key)
 

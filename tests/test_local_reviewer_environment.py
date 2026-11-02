@@ -80,16 +80,20 @@ def _fake_bin(tmp_path, name, body="#!/bin/sh\n"):
     return executable
 
 
-def _env_shebang_reviewer(tmp_path):
+_ENV_SHEBANGS = (
+    "#!/usr/bin/env fake-node",
+    "#!/usr/bin/env -S -u NODE_OPTIONS fake-node --no-warnings",
+)
+
+
+def _env_shebang_reviewer(tmp_path, shebang=_ENV_SHEBANGS[0]):
     """Return a ``claude`` launcher whose ``env`` shebang names an interpreter.
 
     The interpreter lives in another directory, as with an npm-installed CLI
     whose Node runtime is elsewhere. It prints the environment it received.
     """
     interpreter = _fake_bin(tmp_path, "fake-node", "#!/bin/sh\nexec /usr/bin/env\n")
-    launcher = _fake_bin(
-        tmp_path, "claude", "#!/usr/bin/env fake-node\nconsole.log('cli')\n"
-    )
+    launcher = _fake_bin(tmp_path, "claude", f"{shebang}\nconsole.log('cli')\n")
     return launcher, interpreter
 
 
@@ -231,11 +235,12 @@ def test_missing_reviewer_is_a_failed_unscored_review(
     assert "reviewer_unavailable" in (result.error or "")
 
 
+@pytest.mark.parametrize("shebang", _ENV_SHEBANGS)
 def test_local_reviewer_child_process_keeps_only_the_allowlist(
-    tmp_path, monkeypatch, local_context
+    tmp_path, monkeypatch, local_context, shebang
 ):
     """A real child (no mocked subprocess helper) sees only the allowlist."""
-    launcher, interpreter = _env_shebang_reviewer(tmp_path)
+    launcher, interpreter = _env_shebang_reviewer(tmp_path, shebang)
     monkeypatch.setenv(
         "PATH",
         os.pathsep.join([str(launcher.parent), str(interpreter.parent), "/usr/bin"]),
@@ -263,7 +268,7 @@ def test_env_shebang_interpreter_directory_is_load_bearing(
         os.pathsep.join([str(launcher.parent), str(interpreter.parent), "/usr/bin"]),
     )
     monkeypatch.setattr(
-        validator_pipeline, "_shebang_env_interpreter", lambda _executable: None
+        validator_pipeline, "_shebang_env_program_names", lambda _executable: ()
     )
 
     _output, returncode = validator_pipeline.run_claude_code("review", cwd=tmp_path)
@@ -274,18 +279,21 @@ def test_env_shebang_interpreter_directory_is_load_bearing(
 @pytest.mark.parametrize(
     ("first_line", "expected"),
     [
-        ("#!/usr/bin/env node\n", "node"),
-        ("#!/usr/bin/env -S node --no-warnings\n", "node"),
-        ("#!/usr/bin/env NODE_OPTIONS=--x node\n", "node"),
-        ("#!/bin/sh\n", None),
-        ("#!/usr/bin/env ./relative\n", None),
-        ("not a shebang\n", None),
+        ("#!/usr/bin/env node\n", ("node",)),
+        ("#!/usr/bin/env -S node --no-warnings\n", ("node",)),
+        ("#!/usr/bin/env NODE_OPTIONS=--x node\n", ("node",)),
+        ("#!/usr/bin/env -S -u NODE_OPTIONS node\n", ("NODE_OPTIONS", "node")),
+        ("#!/usr/bin/env -S 'node --x' -C /tmp\n", ("node",)),
+        ("#!/usr/bin/env -S 'unbalanced node\n", ("'unbalanced", "node")),
+        ("#!/bin/sh\n", ()),
+        ("#!/usr/bin/env ./relative\n", ()),
+        ("not a shebang\n", ()),
     ],
 )
-def test_shebang_interpreter_names(tmp_path, first_line, expected):
+def test_shebang_env_program_names(tmp_path, first_line, expected):
     script = tmp_path / "launcher"
     script.write_text(first_line)
-    assert validator_pipeline._shebang_env_interpreter(str(script)) == expected
+    assert validator_pipeline._shebang_env_program_names(str(script)) == expected
 
 
 def test_no_verification_context_keeps_the_protected_environment(
@@ -480,7 +488,7 @@ def test_local_encode_entry_refuses_apply(tmp_path, monkeypatch, plain_process):
     model_eval.assert_not_called()
 
 
-@pytest.mark.parametrize("protect", ["active_broker", "broker_base", "trusted_runtime"])
+@pytest.mark.parametrize("protect", _PROTECTED_SIGNALS)
 def test_local_encode_entry_refuses_a_protected_process(
     tmp_path, monkeypatch, plain_process, protect
 ):

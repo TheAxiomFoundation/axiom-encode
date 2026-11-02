@@ -308,6 +308,27 @@ def local_verification_active() -> bool:
     return _LOCAL_SIGNING_PUBLIC_KEYS.get() is not None
 
 
+def protected_process_signal_active() -> bool:
+    """True when this process shows any protected signal.
+
+    The signals are an attached signing broker (or the trusted subprocess base
+    environment its attachment pins), the trusted supervisor runtime, and CI.
+    A verification-only local encode refuses to start under any of them, and
+    the generalist reviewer keeps its protected environment under all of them.
+    """
+
+    from . import signing_broker
+
+    return (
+        getattr(signing_broker, "_trusted_subprocess_base_environment", None)
+        is not None
+        or getattr(signing_broker, "_active_broker", None) is not None
+        or os.getenv("AXIOM_ENCODE_TRUSTED_RUNTIME") == "1"
+        or os.getenv("GITHUB_ACTIONS", "").strip().lower() == "true"
+        or os.getenv("CI", "").strip().lower() in {"1", "true", "yes"}
+    )
+
+
 @contextmanager
 def local_corpus_release_verification(
     public_key: str,

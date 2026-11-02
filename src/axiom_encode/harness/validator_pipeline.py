@@ -25,6 +25,7 @@ import logging
 import math
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -427,9 +428,8 @@ _LOCAL_REVIEWER_CONFIG_DIR_NAMES: tuple[str, ...] = ("CODEX_HOME", "CLAUDE_CONFI
 _REVIEWER_UNAVAILABLE = "reviewer_unavailable"
 # A launcher whose shebang is ``#!/usr/bin/env <interpreter>`` (an npm-installed
 # ``claude`` or ``codex``, for example) needs that interpreter on the child
-# PATH. Follow at most this many such launchers and read at most this much of
-# each first line.
-_LOCAL_REVIEWER_MAX_SHEBANG_HOPS = 3
+# PATH. Read at most this many launchers and this much of each first line.
+_LOCAL_REVIEWER_MAX_SHEBANG_FILES = 4
 _LOCAL_REVIEWER_SHEBANG_READ_BYTES = 512
 
 
@@ -441,16 +441,9 @@ def _protected_reviewer_context_active() -> bool:
     runs in CI. Those runs keep the existing scrubbed reviewer environment
     unchanged.
     """
-    from axiom_encode import signing_broker
+    from axiom_encode.toolchain import protected_process_signal_active
 
-    return (
-        getattr(signing_broker, "_trusted_subprocess_base_environment", None)
-        is not None
-        or getattr(signing_broker, "_active_broker", None) is not None
-        or os.getenv("AXIOM_ENCODE_TRUSTED_RUNTIME") == "1"
-        or os.getenv("GITHUB_ACTIONS", "").strip().lower() == "true"
-        or os.getenv("CI", "").strip().lower() in {"1", "true", "yes"}
-    )
+    return protected_process_signal_active()
 
 
 def _local_reviewer_context_active() -> bool:
@@ -469,57 +462,78 @@ def _local_reviewer_context_active() -> bool:
     return local_verification_active() and not _protected_reviewer_context_active()
 
 
-def _shebang_env_interpreter(executable: str) -> str | None:
-    """Return the bare program name an ``env`` shebang looks up on PATH."""
+def _shebang_env_program_names(executable: str) -> tuple[str, ...]:
+    """Return the bare words of an ``env`` shebang, in order.
+
+    ``env`` option syntax (``-S`` strings, ``-u NAME``, ``-C DIR`` and the
+    like) is not interpreted. Every word without a leading ``-``, an ``=`` or
+    a ``/`` is returned; the caller keeps only the words that resolve to an
+    executable on the caller's PATH. A word that resolves by chance (an
+    option argument, for example) adds one more PATH directory, never an
+    environment variable.
+    """
     try:
         with open(executable, "rb") as handle:
             first_line = handle.readline(_LOCAL_REVIEWER_SHEBANG_READ_BYTES)
     except OSError:
-        return None
+        return ()
     if not first_line.startswith(b"#!"):
-        return None
+        return ()
     try:
-        words = first_line[2:].decode("utf-8").split()
+        text = first_line[2:].decode("utf-8")
     except UnicodeDecodeError:
-        return None
+        return ()
+    words = text.split(None, 1)
     if not words or os.path.basename(words[0]) != "env":
-        return None
-    for word in words[1:]:
-        # Skip env options (``-S``) and VAR=value assignments.
-        if word.startswith("-") or "=" in word:
-            continue
-        return None if "/" in word else word
-    return None
+        return ()
+    rest = words[1] if len(words) > 1 else ""
+    try:
+        tokens = shlex.split(rest)
+    except ValueError:
+        tokens = rest.split()
+    names: list[str] = []
+    for token in tokens:
+        for word in token.split():
+            if word.startswith("-") or "=" in word or "/" in word:
+                continue
+            if word not in names:
+                names.append(word)
+    return tuple(names)
 
 
 def _local_reviewer_runtime_directories(executable: str) -> list[str]:
     """Return the PATH directories one resolved reviewer CLI needs to start.
 
-    These are the interpreter directories that its ``env`` shebang chain
-    resolves to on the caller's PATH, then the launcher's own directory and
-    its real-path directory. The interpreter directories come first, so the
-    child's ``env`` finds the same interpreter that the caller's PATH gives.
+    These are the directories of the programs that its ``env`` shebang chain
+    names and the caller's PATH resolves, then the launcher's own directory
+    and its real-path directory. The interpreter directories come first, so
+    the child's ``env`` finds the same interpreter that the caller's PATH
+    gives.
     """
     interpreter_directories: list[str] = []
-    launcher_directories = [
+    pending = [os.path.realpath(executable)]
+    read: set[str] = set()
+    while pending and len(read) < _LOCAL_REVIEWER_MAX_SHEBANG_FILES:
+        current = pending.pop(0)
+        if current in read:
+            continue
+        read.add(current)
+        for name in _shebang_env_program_names(current):
+            resolved = shutil.which(name)
+            if resolved is None:
+                continue
+            resolved = os.path.abspath(resolved)
+            real = os.path.realpath(resolved)
+            interpreter_directories.extend(
+                (os.path.dirname(resolved), os.path.dirname(real))
+            )
+            pending.append(real)
+    directories: list[str] = []
+    for directory in (
+        *interpreter_directories,
         os.path.dirname(executable),
         os.path.dirname(os.path.realpath(executable)),
-    ]
-    current = os.path.realpath(executable)
-    for _hop in range(_LOCAL_REVIEWER_MAX_SHEBANG_HOPS):
-        interpreter = _shebang_env_interpreter(current)
-        if interpreter is None:
-            break
-        resolved = shutil.which(interpreter)
-        if resolved is None:
-            break
-        resolved = os.path.abspath(resolved)
-        interpreter_directories.extend(
-            (os.path.dirname(resolved), os.path.dirname(os.path.realpath(resolved)))
-        )
-        current = os.path.realpath(resolved)
-    directories: list[str] = []
-    for directory in (*interpreter_directories, *launcher_directories):
+    ):
         if directory and directory not in directories:
             directories.append(directory)
     return directories
