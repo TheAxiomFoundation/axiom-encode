@@ -349,15 +349,11 @@ def generate(snapshot: Path) -> dict:
             (UNCONDITIONAL_NEGATORS | {"בל", "להוציא"}) & counts.keys()
         ),
         # Each word before " חישוב": the source also reads its guarded heads.
-        # With no subject before it, ``דוחות`` is the noun "reports"; the verb
-        # "reject" needs an overt feminine plural subject (round 22).
+        # ``דוחות`` is the verb "reject" unless a noun context applies, and a
+        # clause-initial probe has none (round 23).
         "source_probe_negators": sorted(
             ((UNCONDITIONAL_NEGATORS | {"בל", "להוציא"}) & counts.keys())
-            | {
-                word
-                for word in counts
-                if source_guarded_head(word) not in (None, "דוחות")
-            }
+            | {word for word in counts if source_guarded_head(word) is not None}
         ),
         "audited_tokens": [
             {"token": token, "occurrences": counts[token], "contexts": contexts[token]}

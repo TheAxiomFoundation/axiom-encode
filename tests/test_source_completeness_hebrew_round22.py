@@ -343,21 +343,26 @@ def test_relatives_before_in_accordance_are_intended_stricter(
 
 def test_a_relative_needs_an_under_linker_within_four_tokens():
     claim = hebrew._CLAIM_SUBJECT
-    # Up to four tokens between the attributive verb and ``לפי``: a relative.
+    # Up to four tokens between the attributive verb and ``לפי``, then the
+    # citation and the denial (round 23: the relative ends at its citation):
+    # a relative.
     for run in ("", "בקשה", "בקשה אתמול", "בקשה אתמול בדיון רשמי"):
-        text = f"הטענה שהוגשה {run} לפי סעיף 2".replace("  ", " ")
+        text = f"הטענה שהוגשה {run} לפי סעיף 2 אינה נכונה".replace("  ", " ")
         assert claim.search(text) is None, text
-    # Five tokens, another linker or no linker: content.
+    # Five tokens, another linker, no linker, or no denial after the
+    # citation: content.
     for text in (
-        "הטענה שהוגשה בקשה אתמול בדיון רשמי נוסף לפי סעיף 2",
-        "הטענה שהוגשה בקשה בהתאם לסעיף 2",
-        "הטענה שהוגשה בהתאם לסעיף 2",
+        "הטענה שהוגשה בקשה אתמול בדיון רשמי נוסף לפי סעיף 2 אינה נכונה",
+        "הטענה שהוגשה בקשה בהתאם לסעיף 2 אינה נכונה",
+        "הטענה שהוגשה בהתאם לסעיף 2 אינה נכונה",
         "הטענה שהוגשה אתמול",
+        "הטענה שהוגשה לפי סעיף 2",
     ):
         assert claim.search(text) is not None, text
     # ``על פי`` and ``עפ"י`` are ``under`` linkers too.
     for linker in ("על פי", 'עפ"י', "ולפי"):
-        assert claim.search(f"הטענה שהוגשה בקשה {linker} סעיף 2") is None, linker
+        text = f"הטענה שהוגשה בקשה {linker} סעיף 2 אינה נכונה"
+        assert claim.search(text) is None, linker
 
 
 # --- Finding 3: the generator's object suffixes ---------------------------------
@@ -395,7 +400,10 @@ def test_the_snapshot_charge_him_keeps_its_context_guard():
     assert _accepted("a", HEBREW_REASON, source)
 
 
-# --- Finding 4: ``דוחות`` needs its subject ------------------------------------
+# --- Finding 4: ``דוחות`` is the verb unless a noun context applies -----------
+# Round 23 (review r11 B2): the verb is the default, so a bare clause-initial
+# ``דוחות חישוב`` and any subject read "reject"; only a closed noun context
+# (here a filing verb before it) reads "reports".
 
 
 @pytest.mark.parametrize(
@@ -406,12 +414,15 @@ def test_the_snapshot_charge_him_keeps_its_context_guard():
         ("הן", True),
         ("אלה", True),
         ("אלו", True),
+        ("הנשים", True),
+        ("והן", True),
+        ("ואלה", True),
         ("יוגשו", False),
         ("הנישום יגיש", False),
-        ("", False),
+        ("", True),
     ),
 )
-def test_reject_needs_an_overt_feminine_plural_subject(subject, negates):
+def test_reject_is_the_verb_unless_a_noun_context_applies(subject, negates):
     source = f"(א) {subject} דוחות חישוב בהתאם לסעיף 2.".replace("  ", " ")
     assert (not hebrew._linked_source_instruments(source)) is negates, source
 
