@@ -33,6 +33,7 @@ from re import _constants as sre_constants
 from re import _parser as sre_parser
 
 import pytest
+import yaml
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -46,6 +47,7 @@ from axiom_encode.harness.validator_pipeline import (
     numeric_value_is_grounded,
 )
 from tests.hebrew_gate import open_hebrew_gate
+from tests.hebrew_wall_channels import mutants
 
 MAIN_ISSUES = Path(__file__).parent / "fixtures/non_hebrew_wall_main_issues.json"
 MAIN = "5d40209bc0e1fea5f740581ad5bb1b114ceeff07"
@@ -727,3 +729,71 @@ def test_a_hebrew_annotation_over_a_hebrew_source_still_covers_its_branch():
         if case["id"] == "he-source:hebrew-branch"
     ]
     assert case["issues"] == []
+
+
+# --- Round 23: every rule field but the gate's -----------------------------------
+# Review r11 broke the wall through a proof excerpt, as r10 had through a
+# `source:` annotation. The gate reads only the source and the deferral
+# reasons, so Hebrew in any other string field of an English or German
+# candidate takes main's arrays: excerpts and their citation paths, `source:`,
+# names, descriptions, module and input fields, test names, keys and values.
+
+
+@functools.cache
+def _channels() -> dict:
+    return json.loads(MAIN_ISSUES.read_text())["channels"]
+
+
+def _channel_issues(base: dict, payload: dict, test_cases: list) -> list[str]:
+    profile = base["profile"]
+    kwargs = {}
+    for key, value in (base.get("extra") or {}).items():
+        kwargs[key] = (
+            tuple(map(tuple, value))
+            if key in ("artifact_numeric_bindings", "imported_symbol_contents")
+            else value
+        )
+    return list(
+        analyze_complete_source_unit(
+            yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
+            base["source"],
+            corpus_citation_path=base["citation"],
+            test_cases=test_cases,
+            extract_numeric_occurrences=functools.partial(
+                extract_typed_numeric_inventory_occurrences_from_text, profile=profile
+            ),
+            extract_numeric_grounding_occurrences=functools.partial(
+                extract_typed_numeric_occurrences_from_text, profile=profile
+            ),
+            extract_named_scalars=extract_named_scalar_occurrences,
+            numeric_value_is_grounded=numeric_value_is_grounded,
+            **kwargs,
+        ).issues
+    )
+
+
+def test_channel_bases_hold_no_hebrew_where_the_gate_reads():
+    channels = _channels()
+    assert len(channels["bases"]) == len(channels["mutants"]) == 114
+    for base in channels["bases"]:
+        payload = yaml.safe_load(base["content"])
+        records = (payload.get("module") or {}).get("deferred_outputs") or []
+        reasons = [str(r.get("reason") or "") for r in records if isinstance(r, dict)]
+        assert not hebrew_source_text.holds_hebrew_script(base["source"], *reasons)
+
+
+@pytest.mark.parametrize("index", range(114))
+def test_hebrew_in_any_other_field_takes_mains_arrays(index):
+    channels = _channels()
+    base = channels["bases"][index]
+    pinned = channels["mutants"][index]
+    built = list(mutants(yaml.safe_load(base["content"]), base["test_cases"]))
+    labels = "\n".join(label for label, _, _ in built)
+    assert hashlib.sha256(labels.encode()).hexdigest() == pinned["labels_sha256"]
+    assert len(built) == len(pinned["issues"])
+    strings = channels["strings"]
+    for (label, payload, test_cases), issue_index in zip(
+        built, pinned["issues"], strict=True
+    ):
+        main = [strings[i] for i in channels["issues"][issue_index]]
+        assert _channel_issues(base, payload, test_cases) == main, label
