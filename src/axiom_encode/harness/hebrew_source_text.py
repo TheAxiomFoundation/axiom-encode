@@ -1729,6 +1729,17 @@ def _link_resets(text: str, negation: re.Match[str], linker: re.Match[str]) -> b
 
 _LINK_WINDOW = 240
 
+# The denying predicate, with an optional copula (``היא שקר``): incorrect,
+# false, wrong, and ``נבצר`` ("was prevented").
+_POSTPOSED_DENIAL_LANGUAGE = (
+    rf"{SOURCE_PREFIX_LANGUAGE}"
+    rf"(?:(?:הוא|היא|הם|הן|הינו|הינה|הינם|הינן){_NOT_HEBREW_AFTER}{_SEP})?"
+    r"(?:(?:אינו|אינה|אינם|אינן|איננו|איננה|לא|בלתי)"
+    rf"{_SEP}(?:{compact_alternation(POSTPOSED_CORRECT_FORMS)})"
+    rf"|(?:{source_head_language(POSTPOSED_FALSE_FORMS)}))"
+    rf"{_NOT_HEBREW_AFTER}"
+)
+_POSTPOSED_DENIAL = re.compile(rf"{_REFUSAL_BEFORE}{_POSTPOSED_DENIAL_LANGUAGE}")
 # A claim, with its content clause before the link, that a predicate after
 # the citation denies: ``הדיווח שהתשלום מחושב בהתאם לסעיף 2 אינו נכון``,
 # "the report that the payment is computed under section 2 is incorrect".
@@ -1740,19 +1751,14 @@ _LINK_WINDOW = 240
 # ``האפשרות לחשב`` ("the possibility to calculate") takes an infinitive.
 _CLAIM_SUBJECT = re.compile(
     rf"{_REFUSAL_BEFORE}{SOURCE_PREFIX_LANGUAGE}(?:{prefix_word('ב')})?(?:"
-    rf"{claim_content(after=_NOT_HEBREW_AFTER, separator=_SEP, exclude_relatives=True)}"
-    rf"|(?:{prefix_word('ה')})?(?:אפשרות|יכולת)"
+    + claim_content(
+        after=_NOT_HEBREW_AFTER,
+        separator=_SEP,
+        exclude_relatives=True,
+        relative_end=_POSTPOSED_DENIAL_LANGUAGE,
+    )
+    + rf"|(?:{prefix_word('ה')})?(?:אפשרות|יכולת)"
     rf"{_NOT_HEBREW_AFTER}{_SEP}{prefix_word('ל')}(?=[{_H}]))"
-)
-# The denying predicate, with an optional copula (``היא שקר``): incorrect,
-# false, wrong, and ``נבצר`` ("was prevented").
-_POSTPOSED_DENIAL = re.compile(
-    rf"{_REFUSAL_BEFORE}{SOURCE_PREFIX_LANGUAGE}"
-    rf"(?:(?:הוא|היא|הם|הן|הינו|הינה|הינם|הינן){_NOT_HEBREW_AFTER}{_SEP})?"
-    r"(?:(?:אינו|אינה|אינם|אינן|איננו|איננה|לא|בלתי)"
-    rf"{_SEP}(?:{compact_alternation(POSTPOSED_CORRECT_FORMS)})"
-    rf"|(?:{source_head_language(POSTPOSED_FALSE_FORMS)}))"
-    rf"{_NOT_HEBREW_AFTER}"
 )
 # English refuses a clause where the cited provision ``remain[s]
 # unaffected``; ``נותר בעינו`` and ``עומד בעינו`` say so. ``נשאר בתוקפו``

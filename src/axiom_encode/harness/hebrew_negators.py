@@ -1119,7 +1119,11 @@ def _under_linker(after: str, separator: str) -> str:
 
 
 def claim_content(
-    *, after: str, separator: str, exclude_relatives: bool = False
+    *,
+    after: str,
+    separator: str,
+    exclude_relatives: bool = False,
+    relative_end: str = "",
 ) -> str:
     """A shared claim noun/content clause, with at most three owner tokens.
 
@@ -1128,22 +1132,35 @@ def claim_content(
 
     ``כי`` always opens a content clause. ``ש`` also opens a relative clause
     whose subject is the noun (``הדיווחים שהוגשו לפי סעיף 2``, "the reports
-    filed under section 2"). With ``exclude_relatives``, ``ש`` counts only
-    where it opens a content clause: not before an attributive verb that
-    agrees with the noun and reaches an ``under`` linker within four more
-    tokens, unless ``כי`` follows within three words (``הטענה שהועלתה אתמול
-    כי ...`` still claims), and not before a single word, other than a
-    computation verb, that reaches an ``under`` linker. Before any other
-    linker, ``בהתאם ל`` included, ``ש`` opens a content clause: ``הטענה
-    שהוגשה בקשה בהתאם לסעיף 2 אינה נכונה`` says "it is false that an
-    application was filed in accordance with section 2" (round 22). English
-    reads no negation before an ``under`` link, so the relative reading never
-    accepts what English refuses, whatever the agreement guess. The run to
-    the linker is possessive over atomic tokens, so each check reads at most
-    five tokens and adds no backtracking across the clause. The
-    postposed-denial reader excludes relatives; ``כופר בטענה`` ("denies the
-    claim") keeps both readings, since English refuses ``denies the claim
-    raised in accordance with section 2`` as well.
+    filed under section 2"). With ``exclude_relatives``, ``ש`` is read as a
+    relative, and so opens no claim, only where the relative is all that
+    stands before ``relative_end`` (the postposed denial): ``ש``, then an
+    attributive verb that agrees with the noun or a single word other than a
+    computation verb, then at most four letter tokens, none an ``under``
+    linker and none followed within three words by ``כי``, then the
+    ``under`` linker, then one section citation the reader can bound
+    (``סעיף 2``, ``סעיף 345ב(א)``), then ``relative_end``. Anything else after
+    that citation (``כי``, ``וכי``, a ``ש`` token, a second citation, a word)
+    or a citation the reader cannot bound (``סעיף ג``, ``החוק``, ``סעיפים 3
+    ו-4``) reads ``ש`` as opening the claim's content, so the denial covers
+    it and the link refuses (round 23). Before any other linker, ``בהתאם ל``
+    included, ``ש`` opens a content clause: ``הטענה שהוגשה בקשה בהתאם לסעיף 2
+    אינה נכונה`` says "it is false that an application was filed in accordance
+    with section 2" (round 22).
+
+    What the safety argument rests on: the relative reading accepts only a
+    clause whose every token, from the noun to the denial, belongs to the
+    relative and its own ``under`` citation, and English reads no negation
+    before an ``under`` link (``It is false that the payment is computed
+    under section 2`` accepts). Any other text there is read as content, the
+    stricter reading, so the relative reading accepts no content English
+    refuses. It does rest on the agreement and attributive lists: a listed
+    verb read as attributive where the clause is content (none in the pinned
+    snapshot) would accept. The run to the linker is possessive over atomic
+    tokens, so each check reads at most five tokens before the linker and one
+    citation after it, and adds no backtracking across the clause.
+    ``כופר בטענה`` ("denies the claim") keeps both readings, since English
+    refuses ``denies the claim raised in accordance with section 2`` as well.
     """
 
     # Intersect the caller's separator with horizontal spaces and joints.
@@ -1163,11 +1180,25 @@ def claim_content(
     computation_verbs = compact_alternation(
         form for paradigm in COMPUTATION_VERB_PARADIGMS for form in paradigm.forms
     )
+    if not relative_end:
+        raise ValueError("exclude_relatives needs the relative's end")
     under = _under_linker(after, gap)
-    single_word_relative = rf"(?!(?:{computation_verbs}){after}){token}{gap}{under}"
-    # At most four tokens, none an ``under`` linker, then the linker; a longer
-    # run, or another linker, reads as content.
-    reaches_under = rf"(?:{gap}(?!{under}){token}){{0,4}}+{gap}{under}"
+    # The relative's own span ends with one citation of a section, its
+    # outline fragments and nothing else, then ``relative_end``.
+    relative_citation = (
+        rf"(?:סעיף|(?i:section)){gap}[0-9]+(?:[{_H}]{{1,2}}|[a-z]{{1,2}})?"
+        r"(?:\([^()\s]{1,4}\))*(?![^\W_]|\()"
+        rf"(?={gap}(?:{relative_end}))"
+    )
+    single_word_relative = (
+        rf"(?!(?:{computation_verbs}){after}){token}{gap}{under}{gap}"
+        rf"{relative_citation}"
+    )
+    # At most four tokens, none an ``under`` linker, then the linker and its
+    # citation; a longer run, another linker, or more text reads as content.
+    reaches_under = (
+        rf"(?:{gap}(?!{under}){token}){{0,4}}+{gap}{under}{gap}{relative_citation}"
+    )
     alternatives = []
     for agreement in _AGREEMENT_SLOTS:
         relative = (
@@ -1318,6 +1349,10 @@ def build_source_negation_language(
         rf"{before}(?P<source_prefix>{_NEGATION_PREFIX})(?:"
         rf"(?:{compact_alternation(SOURCE_CLAUSE_NEGATORS)}){after}"
         rf"|{clause_phrases}"
+        # Verb first, then its subject, then the object marker: ``דוחות
+        # הרשויות את החישוב`` ("the authorities reject the calculation").
+        rf"|(?P<reports_head>דוחות){after}"
+        rf"(?=(?:{gap}[{_H}]+{after}){{1,3}}{gap}את{after}{gap}{computation()})"
         rf"|(?P<guarded>)(?:"
         rf"(?:{privative}){after}(?={gap}{computation()})"
         rf"|(?P<lack>מחוסר){after}(?={gap}{computation(rf'(?P<lack_article>{article})')})"
@@ -1381,22 +1416,118 @@ def _lack_is_causal(match: re.Match[str]) -> bool:
 
 # Present feminine plural ``דוחות`` ("reject") is also the noun ``דוחות``
 # ("reports"): ``יוגשו דוחות חישוב``, "calculation reports shall be filed".
-# The verb needs an overt feminine plural subject directly before it: a word
-# ending in ``ות``, with any prefix (``הרשויות דוחות חישוב``, "the
-# authorities reject calculation"), or ``הן``, ``אלה``, ``אלו`` (round 22).
-# ``דוחה`` and ``דוחים`` have no noun homograph.
-FEMININE_PLURAL_PRONOUNS = frozenset(("הן", "אלה", "אלו"))
+# A false accept blocks and a labelled false refusal does not, so the source
+# reader takes the verb by default (round 23) and the noun only in a closed
+# list of contexts where the verb is ungrammatical. Each context reads the
+# word as written directly before ``דוחות``; a mark, maqaf or punctuation
+# there leaves no previous word (`_previous_word`), so a joint never opens
+# the noun. A prefixed ``בדוחות``, ``לדוחות``, ``מדוחות``, ``כדוחות`` or
+# ``הדוחות`` and a suffixed ``דוחותיו`` never match: no source prefix ends in
+# those letters, and the next letter must end the word.
+#
+# A preposition takes a noun, never a finite verb: ``לענין דוחות``,
+# ``לעניין דוחות``, ``בדבר דוחות``, ``לגבי דוחות``, ``על דוחות``, ``של דוחות``,
+# ``אודות דוחות``, with an ordinary prefix chain (``ולענין``).
+REPORTS_PREPOSITIONS = frozenset(
+    ("לענין", "לעניין", "בדבר", "לגבי", "על", "של", "אודות")
+)
+# A construct noun of filing takes the noun as its genitive: ``הגשת דוחות``
+# ("filing of reports"), with any prefix chain (``ולהגשת``).
+REPORTS_CONSTRUCTS = frozenset(("הגשת", "הכנת", "עריכת", "מסירת", "קבלת"))
+# A filing verb takes the noun as its object or subject; two finite verbs
+# cannot stand side by side (``יוגשו דוחות``, ``מגישות דוחות``, ``להכין
+# דוחות``, ``נערכים דוחות``). Every third-person slot and infinitive.
+REPORTS_FILING_VERBS = (
+    verb_paradigm("הגיש", "מגיש", "יגיש", feminine="he", infinitive="להגיש"),
+    verb_paradigm("הוגש", "מוגש", "יוגש"),
+    verb_paradigm("הכין", "מכין", "יכין", feminine="he", infinitive="להכין"),
+    verb_paradigm("הוכן", "מוכן", "יוכן", feminine="he"),
+    verb_paradigm(
+        "ערך",
+        "עורך",
+        "יערוך",
+        future_plural="יערכ",
+        future_feminine_stem="תערכ",
+        infinitive="לערוך",
+    ),
+    verb_paradigm("נערך", "נערך", "ייערך", infinitive="להיערך"),
+    verb_paradigm(
+        "מסר",
+        "מוסר",
+        "ימסור",
+        future_plural="ימסר",
+        future_feminine_stem="תמסר",
+        infinitive="למסור",
+    ),
+    verb_paradigm("נמסר", "נמסר", "יימסר", infinitive="להימסר"),
+    verb_paradigm("קיבל", "מקבל", "יקבל", infinitive="לקבל"),
+    verb_paradigm("התקבל", "מתקבל", "יתקבל", infinitive="להתקבל"),
+    verb_paradigm("פרסם", "מפרסם", "יפרסם", infinitive="לפרסם"),
+    verb_paradigm("פורסם", "מפורסם", "יפורסם"),
+)
+_REPORTS_NOUN_WORDS = frozenset(
+    (
+        *(
+            prefix + word
+            for prefix in ORDINARY_PREFIX_CHAINS
+            for word in REPORTS_PREPOSITIONS
+        ),
+        *(
+            prefix + word
+            for prefix in LEXICAL_PREFIX_CHAINS
+            for word in REPORTS_CONSTRUCTS
+        ),
+        *(
+            prefix + form
+            for prefix in LEXICAL_PREFIX_CHAINS
+            for verb in REPORTS_FILING_VERBS
+            for form in verb.forms
+        ),
+    )
+)
+# At the head of a clause (after an outline label or nothing), ``דוחות`` is
+# the subject of a filing verb that agrees with it, masculine plural, before
+# the link: ``(א) דוחות חישוב יוגשו בהתאם לסעיף 2``, ``(8) דוחות שיגישו``.
+_REPORTS_MASCULINE_PLURAL_VERBS = frozenset(
+    prefix + form
+    for prefix in ORDINARY_PREFIX_CHAINS
+    for verb in REPORTS_FILING_VERBS
+    for form in (verb.past[2], verb.present[2], verb.future[2])
+)
+_REPORTS_CLAUSE_HEAD = re.compile(r"(?:\A|\([^()\s]{1,8}\))\s*\Z")
+_REPORTS_SUBJECT_TOKENS = 4
+_REPORTS_LINK_WORDS = frozenset(("בהתאם", "לפי", "כאמור", "מכוח", "בכפוף", "כמפורט"))
+
+
+def _reports_clause_subject(text: str, start: int, end: int) -> bool:
+    """Whether a clause-initial ``דוחות`` is the subject of a filing verb."""
+
+    if not _REPORTS_CLAUSE_HEAD.search(text, max(0, start - 16), start):
+        return False
+    for token in text[end:].split()[:_REPORTS_SUBJECT_TOKENS]:
+        word = token.strip(".,;:")
+        if word in _REPORTS_LINK_WORDS or word != token:
+            return word in _REPORTS_MASCULINE_PLURAL_VERBS
+        if word in _REPORTS_MASCULINE_PLURAL_VERBS:
+            return True
+    return False
 
 
 def _reports_noun(match: re.Match[str]) -> bool:
-    """Whether a guarded ``דוחות`` is the noun "reports", not the verb "reject"."""
+    """Whether a source ``דוחות`` is the noun "reports", not the verb "reject"."""
 
-    if match.group("guarded") is None:
+    head = match.group("reports_head") or (
+        match.string[match.start("guarded") : match.end()]
+        if match.group("guarded") is not None
+        else ""
+    )
+    if head != "דוחות":
         return False
-    if match.string[match.start("guarded") : match.end()] != "דוחות":
-        return False
-    previous = _previous_word(match.string, match.start())
-    return not (previous.endswith("ות") or previous in FEMININE_PLURAL_PRONOUNS)
+    text = match.string
+    previous = _previous_word(text, match.start())
+    if previous:
+        return previous in _REPORTS_NOUN_WORDS
+    return _reports_clause_subject(text, match.start(), match.end())
 
 
 # The explicit complement disambiguates "exclude from" even after a modal
