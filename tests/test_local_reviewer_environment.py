@@ -166,10 +166,11 @@ def test_local_claude_reviewer_gets_allowlisted_environment(
     assert kwargs["env_is_final"] is True
     env = kwargs["env"]
     _assert_local_environment_allowlist(env)
-    assert env["PATH"].split(os.pathsep)[0] == str(claude.parent)
-    assert set(env["PATH"].split(os.pathsep)) <= {
+    child_path = env["PATH"].split(os.pathsep)
+    # The caller's PATH, in order, then the system directories.
+    assert child_path[:2] == [str(claude.parent), "/usr/bin"]
+    assert set(child_path) <= {
         str(claude.parent),
-        os.path.dirname(os.path.realpath(claude)),
         *validator_pipeline._LOCAL_REVIEWER_SYSTEM_PATH,
     }
     allowed = set(scrub_attestation_signing_keys()) | {
@@ -277,10 +278,7 @@ def test_relative_caller_path_entry_keeps_its_place(
 ):
     """A relative PATH entry resolves against the current directory, in place."""
     first, second = _marked_interpreters(tmp_path)
-    # The decoy word puts second-bin on the child PATH too.
-    launcher = _fake_bin(
-        tmp_path, "claude", "#!/usr/bin/env -S -u decoy fake-node\nconsole.log(1)\n"
-    )
+    launcher = _fake_bin(tmp_path, "claude", "#!/usr/bin/env fake-node\n")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv(
         "PATH",
@@ -293,15 +291,40 @@ def test_relative_caller_path_entry_keeps_its_place(
     assert "MARKER=first" in output
     child_path = _child_environment(output)["PATH"].split(os.pathsep)
     assert all(os.path.isabs(entry) for entry in child_path)
-    assert child_path.index(os.path.abspath(first.name)) < child_path.index(
-        os.path.abspath(second)
+    assert child_path.index(os.path.join(os.getcwd(), first.name)) < (
+        child_path.index(str(second))
     )
 
 
-def test_shebang_word_collision_keeps_the_caller_interpreter(
+def test_dot_dot_after_symlink_keeps_its_filesystem_meaning(
     tmp_path, monkeypatch, local_context
 ):
-    """An option operand that resolves elsewhere cannot reorder the PATH."""
+    """``..`` after a symlink is not collapsed lexically in the child PATH."""
+    first, second = _marked_interpreters(tmp_path)
+    package = tmp_path / "cellar" / "pkg" / "1.0"
+    package.mkdir(parents=True)
+    first.rename(package / "bin")
+    (tmp_path / "opt").mkdir()
+    (tmp_path / "opt" / "pkg").symlink_to(package)
+    # opt/pkg/.. is cellar/pkg on disk, but opt/ when collapsed lexically.
+    entry = str(tmp_path / "opt" / "pkg" / ".." / "1.0" / "bin")
+    launcher = _fake_bin(tmp_path, "claude", "#!/usr/bin/env fake-node\n")
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join([str(launcher.parent), entry, str(second), "/usr/bin"]),
+    )
+
+    output, returncode = validator_pipeline.run_claude_code("review", cwd=tmp_path)
+
+    assert returncode == 0, output
+    assert "MARKER=first" in output
+    assert entry in _child_environment(output)["PATH"].split(os.pathsep)
+
+
+def test_shebang_option_operand_keeps_the_caller_interpreter(
+    tmp_path, monkeypatch, local_context
+):
+    """An env option operand cannot change which interpreter the child runs."""
     first, second = _marked_interpreters(tmp_path)
     launcher = _fake_bin(
         tmp_path, "claude", "#!/usr/bin/env -S -u decoy fake-node\nconsole.log(1)\n"
@@ -315,46 +338,23 @@ def test_shebang_word_collision_keeps_the_caller_interpreter(
 
     assert returncode == 0, output
     assert "MARKER=first" in output
-    child_path = _child_environment(output)["PATH"].split(os.pathsep)
-    assert child_path.index(str(first)) < child_path.index(str(second))
-
-
-def test_env_shebang_interpreter_directory_is_load_bearing(
-    tmp_path, monkeypatch, local_context
-):
-    """Without the shebang interpreter's directory the launcher cannot start."""
-    launcher, interpreter = _env_shebang_reviewer(tmp_path)
-    monkeypatch.setenv(
-        "PATH",
-        os.pathsep.join([str(launcher.parent), str(interpreter.parent), "/usr/bin"]),
-    )
-    monkeypatch.setattr(
-        validator_pipeline, "_shebang_env_program_names", lambda _executable: ()
-    )
-
-    _output, returncode = validator_pipeline.run_claude_code("review", cwd=tmp_path)
-
-    assert returncode != 0
 
 
 @pytest.mark.parametrize(
-    ("first_line", "expected"),
+    ("entry", "expected"),
     [
-        ("#!/usr/bin/env node\n", ("node",)),
-        ("#!/usr/bin/env -S node --no-warnings\n", ("node",)),
-        ("#!/usr/bin/env NODE_OPTIONS=--x node\n", ("node",)),
-        ("#!/usr/bin/env -S -u NODE_OPTIONS node\n", ("NODE_OPTIONS", "node")),
-        ("#!/usr/bin/env -S 'node --x' -C /tmp\n", ("node",)),
-        ("#!/usr/bin/env -S 'unbalanced node\n", ("'unbalanced", "node")),
-        ("#!/bin/sh\n", ()),
-        ("#!/usr/bin/env ./relative\n", ()),
-        ("not a shebang\n", ()),
+        ("/abs/../kept", "/abs/../kept"),
+        ("relative/bin", "CWD/relative/bin"),
+        ("../up/bin", "CWD/../up/bin"),
+        ("", "CWD"),
     ],
 )
-def test_shebang_env_program_names(tmp_path, first_line, expected):
-    script = tmp_path / "launcher"
-    script.write_text(first_line)
-    assert validator_pipeline._shebang_env_program_names(str(script)) == expected
+def test_absolute_path_entry_does_not_normalize(tmp_path, monkeypatch, entry, expected):
+    monkeypatch.chdir(tmp_path)
+    cwd = os.getcwd()
+    assert validator_pipeline._absolute_path_entry(entry) == expected.replace(
+        "CWD", cwd
+    )
 
 
 def test_no_verification_context_keeps_the_protected_environment(

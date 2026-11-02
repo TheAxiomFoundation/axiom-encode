@@ -240,10 +240,11 @@ and only when no signing broker is attached, the trusted runtime is off and
 the run is not in CI, the encoder resolves the reviewer binary from your
 `PATH` and starts it with a small allowlisted environment:
 your account home and user name, the per-user `TMPDIR`,
-`CODEX_HOME`/`CLAUDE_CONFIG_DIR` when set, and a `PATH` of only the directories
-that the reviewer binary needs (its own directory, and the interpreter that
-an `#!/usr/bin/env` launcher names, such as `node`) plus the system
-directories. API keys and other ambient variables are not forwarded. Every
+`CODEX_HOME`/`CLAUDE_CONFIG_DIR` when set, and your `PATH` in the same order
+(relative entries made absolute), so an `#!/usr/bin/env node` launcher finds
+the same `node` as in your shell, followed by the reviewer binary's directory
+and the system directories. API keys and other ambient variables are not
+forwarded. Every
 other run, including a run under the verification supervisor of #1622, keeps
 the sandboxed reviewer environment unchanged. If no reviewer CLI can start,
 the run prints `generalist_review=error reviewer_unavailable: ...` and records

@@ -25,7 +25,6 @@ import logging
 import math
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -426,11 +425,6 @@ _LOCAL_REVIEWER_SYSTEM_PATH: tuple[str, ...] = (
 )
 _LOCAL_REVIEWER_CONFIG_DIR_NAMES: tuple[str, ...] = ("CODEX_HOME", "CLAUDE_CONFIG_DIR")
 _REVIEWER_UNAVAILABLE = "reviewer_unavailable"
-# A launcher whose shebang is ``#!/usr/bin/env <interpreter>`` (an npm-installed
-# ``claude`` or ``codex``, for example) needs that interpreter on the child
-# PATH. Read at most this many launchers and this much of each first line.
-_LOCAL_REVIEWER_MAX_SHEBANG_FILES = 4
-_LOCAL_REVIEWER_SHEBANG_READ_BYTES = 512
 
 
 def _protected_reviewer_context_active() -> bool:
@@ -462,113 +456,41 @@ def _local_reviewer_context_active() -> bool:
     return local_verification_active() and not _protected_reviewer_context_active()
 
 
-def _shebang_env_program_names(executable: str) -> tuple[str, ...]:
-    """Return the bare words of an ``env`` shebang, in order.
+def _absolute_path_entry(entry: str) -> str:
+    """Return a PATH entry as an absolute directory with the same meaning.
 
-    ``env`` option syntax (``-S`` strings, ``-u NAME``, ``-C DIR`` and the
-    like) is not interpreted. Every word without a leading ``-``, an ``=`` or
-    a ``/`` is returned; the caller keeps only the words that resolve to an
-    executable on the caller's PATH. A word that resolves by chance (an
-    option argument, for example) adds one more PATH directory, never an
-    environment variable.
+    The child runs in another directory, so a relative or empty entry is
+    joined to the current directory. It is not normalized: ``..`` after a
+    symlink keeps its filesystem meaning, as in the caller's own lookup.
     """
-    try:
-        with open(executable, "rb") as handle:
-            first_line = handle.readline(_LOCAL_REVIEWER_SHEBANG_READ_BYTES)
-    except OSError:
-        return ()
-    if not first_line.startswith(b"#!"):
-        return ()
-    try:
-        text = first_line[2:].decode("utf-8")
-    except UnicodeDecodeError:
-        return ()
-    words = text.split(None, 1)
-    if not words or os.path.basename(words[0]) != "env":
-        return ()
-    rest = words[1] if len(words) > 1 else ""
-    try:
-        tokens = shlex.split(rest)
-    except ValueError:
-        tokens = rest.split()
-    names: list[str] = []
-    for token in tokens:
-        for word in token.split():
-            if word.startswith("-") or "=" in word or "/" in word:
-                continue
-            if word not in names:
-                names.append(word)
-    return tuple(names)
-
-
-def _local_reviewer_runtime_directories(executable: str) -> list[str]:
-    """Return the PATH directories one resolved reviewer CLI needs to start.
-
-    These are the launcher's own directory and real-path directory, and the
-    directories of the programs that its ``env`` shebang chain names and the
-    caller's PATH resolves. ``_local_reviewer_path`` puts them in the caller's
-    PATH order.
-    """
-    interpreter_directories: list[str] = []
-    pending = [os.path.realpath(executable)]
-    read: set[str] = set()
-    while pending and len(read) < _LOCAL_REVIEWER_MAX_SHEBANG_FILES:
-        current = pending.pop(0)
-        if current in read:
-            continue
-        read.add(current)
-        for name in _shebang_env_program_names(current):
-            resolved = shutil.which(name)
-            if resolved is None:
-                continue
-            resolved = os.path.abspath(resolved)
-            real = os.path.realpath(resolved)
-            interpreter_directories.extend(
-                (os.path.dirname(resolved), os.path.dirname(real))
-            )
-            pending.append(real)
-    directories: list[str] = []
-    for directory in (
-        os.path.dirname(executable),
-        os.path.dirname(os.path.realpath(executable)),
-        *interpreter_directories,
-    ):
-        if directory and directory not in directories:
-            directories.append(directory)
-    return directories
+    if os.path.isabs(entry):
+        return entry
+    cwd = os.getcwd()
+    return os.path.join(cwd, entry) if entry else cwd
 
 
 def _local_reviewer_path(executables: Sequence[str]) -> str:
-    """Return the child PATH for the local reviewer, in caller PATH order.
+    """Return the child PATH for the local reviewer.
 
-    It holds only the directories the reviewer executables need plus the
-    system directories. The directories that are on the caller's PATH keep
-    the caller's order, and the others follow. So for every program name the
-    caller's PATH resolves to one of these directories, the child's PATH
-    resolves the same program: a directory that comes earlier in the child
-    PATH also comes earlier in the caller's PATH, where that name was not
-    found.
+    It is the caller's PATH, entry by entry and in the same order (relative
+    entries made absolute without normalizing), so the child resolves every
+    program, such as the ``node`` that an ``#!/usr/bin/env node`` launcher
+    names, exactly as the caller's shell does. PATH carries no credential.
+    The reviewer executables' own directories and the system directories
+    follow, so they cannot change a lookup that the caller's PATH answers.
     """
-    needed: list[str] = []
-    for executable in executables:
-        for directory in _local_reviewer_runtime_directories(executable):
-            directory = os.path.abspath(directory)
-            if directory not in needed:
-                needed.append(directory)
-    for directory in _LOCAL_REVIEWER_SYSTEM_PATH:
-        if directory not in needed:
-            needed.append(directory)
-    ordered: list[str] = []
+    entries: list[str] = []
     for entry in os.environ.get("PATH", "").split(os.pathsep):
-        # shutil.which resolves an empty or relative entry against the
-        # current directory; resolve it the same way so it keeps its place.
-        directory = os.path.abspath(entry or os.curdir)
-        if directory in needed and directory not in ordered:
-            ordered.append(directory)
-    for directory in needed:
-        if directory not in ordered:
-            ordered.append(directory)
-    return os.pathsep.join(ordered)
+        directory = _absolute_path_entry(entry)
+        if directory not in entries:
+            entries.append(directory)
+    for directory in (
+        *(os.path.dirname(executable) for executable in executables),
+        *_LOCAL_REVIEWER_SYSTEM_PATH,
+    ):
+        if directory and directory not in entries:
+            entries.append(directory)
+    return os.pathsep.join(entries)
 
 
 def _local_reviewer_environment(executables: Sequence[str]) -> dict[str, str]:
@@ -578,11 +500,9 @@ def _local_reviewer_environment(executables: Sequence[str]) -> dict[str, str]:
     adds only what a subscription-authenticated reviewer CLI needs to start:
     the account's real home directory and user name (the CLI logins and the
     macOS keychain are keyed on them), the per-user TMPDIR, explicit CLI config
-    directories, and a PATH limited to the directories the resolved reviewer
-    executables need (their own directories and the interpreter that an
-    ``env`` shebang names) plus the system directories, in the caller's PATH
-    order. No other ambient variable, such as an API key or token, is
-    forwarded.
+    directories, and the caller's PATH (see ``_local_reviewer_path``) followed
+    by the reviewer executables' directories and the system directories. No
+    other ambient variable, such as an API key or token, is forwarded.
     """
     import pwd
 
@@ -605,11 +525,15 @@ def _local_reviewer_environment(executables: Sequence[str]) -> dict[str, str]:
 
 
 def _resolve_local_reviewer_executable(name: str) -> str | None:
-    """Resolve one reviewer CLI to an absolute path from the caller's PATH."""
+    """Resolve one reviewer CLI to an absolute path from the caller's PATH.
+
+    A relative result is joined to the current directory without
+    normalizing, so it names the same file.
+    """
     resolved = shutil.which(name)
     if resolved is None:
         return None
-    return os.path.abspath(resolved)
+    return _absolute_path_entry(resolved)
 
 
 def run_claude_code(
