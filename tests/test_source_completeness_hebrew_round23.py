@@ -1883,7 +1883,8 @@ EXCERPT_UNDEMONSTRATED = (
     "needs distinct executed test evidence; an internal formula-clause ordinal is "
     "not a legal paragraph number."
 )
-# Main's arrays (5d40209bc), from review r11's r11/excerpt_repro.py.
+# Main's arrays (5d40209bc, unchanged at a86a37e71), from review r11's
+# r11/excerpt_repro.py.
 EXCERPT_VARIANTS = (
     (
         "control-plain-prefix-other-unit",

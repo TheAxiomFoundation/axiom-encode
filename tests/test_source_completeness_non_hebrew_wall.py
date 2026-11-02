@@ -50,7 +50,7 @@ from tests.hebrew_gate import open_hebrew_gate
 from tests.hebrew_wall_channels import mutants
 
 MAIN_ISSUES = Path(__file__).parent / "fixtures/non_hebrew_wall_main_issues.json"
-MAIN = "5d40209bc0e1fea5f740581ad5bb1b114ceeff07"
+MAIN = "a86a37e71a0ca6ed57ce62ded660aae3dbd6cbe6"
 DEFERRAL = "[complete-source-unit:deferral]"
 STRUCTURE = "[complete-source-unit:structure]"
 
