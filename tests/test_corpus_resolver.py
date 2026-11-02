@@ -3489,7 +3489,11 @@ def test_active_bodyless_row_with_only_bodyless_descendants_is_invalid(
         resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
-def test_metadata_parent_rejects_bodyless_reserved_heading_leaf(tmp_path: Path):
+def test_metadata_parent_composes_reserved_heading_leaf_to_its_heading(
+    tmp_path: Path,
+):
+    """A heading-only leaf has text of its own: its heading (#1825)."""
+
     version = "2026-01-01-reserved-leaf"
     _write_selector(tmp_path, [_scope(version)])
     _write_rows(
@@ -3507,13 +3511,16 @@ def test_metadata_parent_rejects_bodyless_reserved_heading_leaf(tmp_path: Path):
         ],
     )
 
-    with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
-        resolve_local_corpus_source(CITATION, _release(tmp_path))
+    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
+
+    assert resolved.body == "covered\n\n(Reserved)"
 
 
-def test_metadata_parent_does_not_treat_generic_reserved_suffix_as_text(
+def test_metadata_parent_composes_generic_heading_leaf_to_its_heading(
     tmp_path: Path,
 ):
+    """Any non-blank heading on a bodyless leaf is that leaf's text (#1825)."""
+
     version = "2026-01-01-generic-reserved"
     _write_selector(tmp_path, [_scope(version)])
     _write_rows(
@@ -3530,8 +3537,9 @@ def test_metadata_parent_does_not_treat_generic_reserved_suffix_as_text(
         ],
     )
 
-    with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
-        resolve_local_corpus_source(CITATION, _release(tmp_path))
+    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
+
+    assert resolved.body == "covered\n\nAll rights reserved"
 
 
 def test_metadata_parent_rejects_cross_version_descendant_composition(

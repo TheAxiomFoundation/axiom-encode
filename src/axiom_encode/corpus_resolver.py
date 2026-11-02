@@ -728,11 +728,17 @@ def resolve_local_corpus_source(
                         f"Local descendants for {selected.row.citation_path!r} "
                         f"exceed the {MAX_CORPUS_DESCENDANT_ROWS}-row safety limit"
                     )
-            stored_body, component_rows = _compose_descendant_text(
-                selected.row.citation_path,
-                descendants,
-                expected_scope=selected_scope,
-            )
+            heading_text = _heading_only_text(selected)
+            if not descendants and heading_text is not None:
+                # A heading-only section with nothing under its path is
+                # complete: its heading is its whole text (#1825).
+                stored_body = heading_text
+            else:
+                stored_body, component_rows = _compose_descendant_text(
+                    selected.row.citation_path,
+                    descendants,
+                    expected_scope=selected_scope,
+                )
         body = stored_body
         if candidate.slice_required:
             body = _slice_parent_body(
@@ -1414,6 +1420,21 @@ def _read_descendant_records(
     return records
 
 
+def _heading_only_text(record: _StoredRecord) -> str | None:
+    """The heading of a current row that has a heading and no body, else None.
+
+    Such a row has text of its own (#1825). A row with neither body nor a
+    non-blank heading has no text, and a repealed row contributes none.
+    """
+
+    if record.body is not None or record.status == "repealed":
+        return None
+    heading = record.heading
+    if heading is None or not heading.strip():
+        return None
+    return heading
+
+
 def _compose_descendant_text(
     citation_path: str,
     records: list[_StoredRecord],
@@ -1442,7 +1463,10 @@ def _compose_descendant_text(
             ambiguous[0].row.citation_path,
             tuple(record.row for record in ambiguous),
         )
-    if not any(record.body is not None for record in records):
+    if not any(
+        record.body is not None or _heading_only_text(record) is not None
+        for record in records
+    ):
         raise CorpusDescendantStructureError(
             f"Active corpus source {citation_path!r} has no body-bearing descendants"
         )
@@ -1526,6 +1550,15 @@ def _compose_descendant_text(
         }
         if raw_child_paths and not child_paths:
             return
+        if (
+            not raw_child_paths
+            and record is not None
+            and _heading_only_text(record) is not None
+        ):
+            # A heading-only leaf, such as a part heading printed as its own
+            # row in a flat-numbered regulation, contributes its heading.
+            ordered.append(record)
+            return
         if not child_paths:
             raise CorpusDescendantStructureError(
                 f"Active corpus source {citation_path!r} has uncovered "
@@ -1554,11 +1587,12 @@ def _compose_descendant_text(
     chunks: list[str] = []
     composed_bytes = 0
     for record in ordered:
-        chunk = (
-            f"{record.heading}\n\n{record.body}"
-            if record.heading
-            else record.body or ""
-        )
+        if record.body is None:
+            chunk = _heading_only_text(record) or ""
+        else:
+            chunk = (
+                f"{record.heading}\n\n{record.body}" if record.heading else record.body
+            )
         composed_bytes += len(chunk.encode("utf-8"))
         if chunks:
             composed_bytes += 2
