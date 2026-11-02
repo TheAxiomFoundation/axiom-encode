@@ -8871,7 +8871,9 @@ def test_rejected_dotted_candidates_are_scanned_with_bounded_runtime():
     # A native suffix copy at each candidate costs a few percent of the
     # recognizer's scan at a few thousand repeats, so it needs a 128x pair to
     # outgrow the linear work, including under coverage. Correct code stays
-    # near a CPU second at the large size.
+    # near a CPU second at the large size. A Python-level quadratic would take
+    # hours at that size, so a short first step fails it within seconds.
+    assert_linear_growth(recognition_work(250), recognition_work(2_500), input_ratio=10)
     assert_linear_growth(
         recognition_work(1_000), recognition_work(128_000), input_ratio=128
     )

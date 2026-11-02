@@ -256,6 +256,9 @@ def test_stated_numeric_limit_stays_linear_on_long_space_runs():
             check,
         )
 
+    # A higher-order pattern can already take seconds a call at 256 spaces,
+    # so a short first step fails it before the pair below.
+    assert_linear_growth(work(32), work(128), input_ratio=4)
     assert_linear_growth(work(256), work(4_096), input_ratio=16)
     assert not completeness_module._STATED_NUMERIC_LIMIT.search("1" + " " * 50_000)
 

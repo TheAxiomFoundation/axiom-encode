@@ -17692,17 +17692,22 @@ def test_a_long_run_of_compound_number_words_scans_in_linear_time():
     # Repartitioning a compound endpoint once backtracked exponentially.
     # These shallow pairs finish even with that regression; test their growth
     # before the original 40/60-deep examples can be reached.
-    for prefix, phrase, tail, deep in (
+    cases = (
         ("תוספת 1", " ועשרים ואחד", " ישולם למבוטח", 40),
         ("תוספת 1", " ועשרים ואחד", " שקלים", 40),
         ("תוספת אחת", " ושתיים ושלוש", "", 40),
         ("לפי סעיפים 1, 2 או 3", " ואחד", " ישולם", 60),
-    ):
-        assert_linear_growth(
-            work(prefix + phrase * 4 + tail),
-            work(prefix + phrase * 12 + tail),
-            input_ratio=3,
-        )
+    )
+    # The historical regex spent minutes on one phrase at depth 12, so every
+    # phrase takes a short first step before any reaches that depth.
+    for small, large in ((2, 6), (4, 12)):
+        for prefix, phrase, tail, _deep in cases:
+            assert_linear_growth(
+                work(prefix + phrase * small + tail),
+                work(prefix + phrase * large + tail),
+                input_ratio=3,
+            )
+    for prefix, phrase, tail, deep in cases:
         _clear_numeric_extraction_caches()
         extract_numeric_occurrences_from_text(prefix + phrase * deep + tail)
 
@@ -24159,9 +24164,17 @@ def test_evidence_whitespace_collapses_in_linear_time():
         # The real old no-gap regex is quadratic on the first two forms:
         # repeating 64000-space failures could hang the suite. Catch it on
         # the finite pair first. The other forms retain their existing
-        # larger measured fixtures.
-        small, large = (640, 10_240) if variant < 2 else (4000, 64000)
-        assert_linear_growth(work(small, variant), work(large, variant), input_ratio=16)
+        # larger measured fixtures. A quadratic regex spends minutes on a
+        # large batch, so a short first step fails it within seconds.
+        steps = (
+            ((40, 640), (640, 10_240))
+            if variant < 2
+            else ((250, 4_000), (4_000, 64_000))
+        )
+        for small, large in steps:
+            assert_linear_growth(
+                work(small, variant), work(large, variant), input_ratio=16
+            )
         # Preserve every original output fixture once, outside measurements.
         work(16000, variant, sample=False)
         work(64000, variant, sample=False)
@@ -24187,6 +24200,8 @@ def test_evidence_whitespace_collapses_in_linear_time():
             return None
         return lowest_work(call, check)
 
+    # A short first step fails a quadratic lookahead within seconds.
+    assert_linear_growth(maqaf_work(250), maqaf_work(4_000), input_ratio=16)
     assert_linear_growth(maqaf_work(4000), maqaf_work(64000), input_ratio=16)
     maqaf_work(16000, sample=False)
     maqaf_work(64000, sample=False)
@@ -24749,10 +24764,9 @@ def test_the_percentage_pass_scans_thousands_of_phrases_in_linear_time():
             setup=_clear_numeric_extraction_caches,
         )
 
-    assert_linear_growth(work(125), work(2_000), input_ratio=16)
-    # Keep the original 4,000-phrase fixture and its outputs, once and untimed.
-    _clear_numeric_extraction_caches()
-    check(validator_pipeline._iter_hebrew_percent_phrase_matches(unit * 4000), 4000)
+    # A linear count in place of one bisect stays near the bound at 2,000
+    # phrases, so the large sample is the original 4,000-phrase fixture.
+    assert_linear_growth(work(250), work(4_000), input_ratio=16)
 
 
 def test_hebrew_number_words_join_the_recall_inventory():

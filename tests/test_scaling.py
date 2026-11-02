@@ -7,7 +7,7 @@ import os
 from types import SimpleNamespace
 
 import pytest
-from hypothesis import given
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from tests import scaling
@@ -140,6 +140,8 @@ def test_growth_fails_when_the_fresh_pair_also_exceeds_the_bound(unit_clock):
         assert reading in str(failure.value)
 
 
+# A loaded host slows generation, not the property.
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     first=st.tuples(st.integers(1, 10**9), st.integers(1, 10**9)),
     fresh=st.tuples(st.integers(1, 10**9), st.integers(1, 10**9)),
@@ -159,6 +161,21 @@ def test_growth_fails_exactly_when_two_measured_pairs_exceed_the_bound(
                 scaling.assert_linear_growth(small, large, input_ratio=input_ratio)
         else:
             scaling.assert_linear_growth(small, large, input_ratio=input_ratio)
+
+
+@pytest.mark.parametrize("plain_side", ("small", "large"))
+def test_growth_over_the_bound_fails_at_once_when_one_side_is_plain(
+    unit_clock, plain_side
+):
+    # A plain side fails the first pair. Each sample's fresh reading would fit,
+    # so remeasuring only the sample side would wrongly pass.
+    small, large = scripted_sample(10, 30), scripted_sample(480, 10)
+    if plain_side == "small":
+        small = 10.0
+    else:
+        large = 480.0
+    with pytest.raises(AssertionError):
+        scaling.assert_linear_growth(small, large, input_ratio=16)
 
 
 def test_a_sample_repeats_its_whole_measurement(monkeypatch):
