@@ -24819,6 +24819,7 @@ def test_the_hebrew_word_run_lookup_stays_linear_across_thousands_of_phrases(
         return lowest_work(
             lambda: [original(*args, **kwargs) for args, kwargs, _s in calls],
             check,
+            setup=gc.collect,
         )
 
     assert_linear_growth(work(125), work(2_000), input_ratio=16)

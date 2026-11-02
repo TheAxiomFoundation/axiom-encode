@@ -8873,7 +8873,7 @@ def test_rejected_dotted_candidates_are_scanned_with_bounded_runtime():
     # outgrow the linear work, including under coverage. Correct code stays
     # near a CPU second at the large size. A Python-level quadratic would take
     # hours at that size, so a short first step fails it first: the scan
-    # without its break took 41-47 CPU seconds plain and 154-163 under
+    # without its break took 41-47 CPU seconds plain and 153-163 under
     # coverage on a 4-vCPU Linux machine.
     assert_linear_growth(recognition_work(250), recognition_work(2_500), input_ratio=10)
     assert_linear_growth(
