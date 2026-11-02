@@ -3,14 +3,14 @@
 `axiom-encode test` and the validator answer an assertion on a compiled parameter
 here, without running the engine, so these readings must never answer what the
 engine would refuse. The engine refuses to query an indexed parameter directly,
-so a table's comparison is the derived rule that reads the same cell.
+so a table's comparison is the derived rule that reads the same cell, and a case
+supplies the index under the engine's own input name.
 """
 
 from datetime import date
 from typing import Any
 
-# Axiom rules engine `PeriodKind` serde variants, as accepted by the engine test
-# runner the org validate-rulespec workflow invokes. Local `.test.yaml` period
+# Axiom rules engine `PeriodKind` serde variants. Local `.test.yaml` period
 # coercion must accept exactly this set — no more — so `axiom-encode validate`
 # and the shared workflow agree on which fixtures are executable. Accepting a
 # kind the engine rejects (e.g. `year`) makes local validate pass fixtures the
@@ -65,32 +65,32 @@ def rulespec_engine_period(period: dict[str, Any]) -> dict[str, Any]:
 
 
 def rulespec_engine_index(value: object) -> int | None:
-    """Read an index as the engine's `as_index` does: a whole number or nothing."""
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    return None
+    """Read an index as the engine's `as_index` does: an i64 or a whole decimal.
 
-
-def rulespec_index_input(inputs: dict[str, Any], reference: object) -> object | None:
-    """Return the one case input an `indexed_by` reference names, or None.
-
-    Several matches read as none, so an answer never depends on key order.
+    Python prints a float of 1e16 or more in exponent form, which the engine refuses.
     """
-    reference = str(reference)
-    if reference in inputs:
-        return inputs[reference]
-    name = reference.split("#", 1)[-1].removeprefix("input.")
-    suffixes = (f"#input.{name}", f"#{name}", f".{name}")
-    matches = [
-        value
-        for key, value in inputs.items()
-        if str(key) == name or str(key).endswith(suffixes)
-    ]
-    return matches[0] if len(matches) == 1 else None
+    if isinstance(value, float) and value.is_integer() and abs(value) < 1e16:
+        value = int(value)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if -(2**63) <= value < 2**63 else None
+
+
+def rulespec_index_input(inputs: dict[str, Any], parameter: dict[str, Any]) -> object:
+    """Return a case's index for a parameter, or None.
+
+    The engine names the input `<module>#input.<slot>`, from the parameter's own id,
+    and refuses any other key. The one exception is `dummy#input.<slot>`, which
+    rulespec-uk cases use to read a table cell. The engine would refuse that key, so
+    it only works in a case with no derived output, which never reaches the engine.
+    """
+    slot = parameter.get("indexed_by")
+    target, _, fragment = str(parameter.get("id") or "").partition("#")
+    request_name = f"{target}#input.{slot}" if fragment else str(slot)
+    for key in (request_name, f"dummy#input.{slot}"):
+        if key in inputs:
+            return inputs[key]
+    return None
 
 
 def rulespec_parameter_version_at(
@@ -129,8 +129,8 @@ def rulespec_parameter_cell(
     values = rulespec_parameter_version_at(parameter, period_start).get("values") or {}
     key: int | None = 0
     indexed_by = parameter.get("indexed_by")
-    if indexed_by:
-        raw_index = rulespec_index_input(inputs, indexed_by)
+    if indexed_by is not None:
+        raw_index = rulespec_index_input(inputs, parameter)
         if raw_index is None:
             raise ValueError(
                 f"parameter `{name}` needs input `{indexed_by}` for indexed output"
@@ -140,7 +140,7 @@ def rulespec_parameter_cell(
             raise ValueError(
                 f"parameter key for `{name}` must be an integer, got {raw_index!r}"
             )
-    value = values.get(str(key), values.get(key))
+    value = values.get(str(key))
     if not isinstance(value, dict):
         raise ValueError(
             f"parameter `{name}` has no value for key `{key}` at {period_start}"

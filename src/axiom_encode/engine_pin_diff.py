@@ -34,8 +34,8 @@ CLASSES = (
     "OLD_PARITY_BREAK",
 )
 REFUSAL = re.compile(r"derived `([^`]+)` has no formula version at (\d{4}-\d{2}-\d{2})")
-# A companion older than a parameter refuses on every pin, so it needs the same
-# date repair as one older than a derived rule.
+# A companion with no parameter version at its period refuses on every pin, so it
+# needs the same date repair as one older than a derived rule.
 NO_PARAMETER_VERSION = re.compile(
     r"parameter `[^`]+` has no version at \d{4}-\d{2}-\d{2}"
 )
@@ -848,13 +848,19 @@ def _run(args, root, checkout, roots, confined_output, workspace, executor):
             if kind == "companion":
                 variants.append(("current", None))
             for variant, anchor in variants:
-                start = (
-                    anchor.isoformat()
-                    if anchor
-                    else current_start(period, args.as_of).isoformat()
-                    if variant == "current"
-                    else period["start"]
-                )
+                try:
+                    start = (
+                        anchor.isoformat()
+                        if anchor
+                        else current_start(period, args.as_of).isoformat()
+                        if variant == "current"
+                        else period["start"]
+                    )
+                except ArithmeticError as error:
+                    report["incomplete"].append(
+                        dict(module=name, case=case.get("name"), error=str(error))
+                    )
+                    continue
                 outcomes, saved_requests = {}, {}
                 for side in engines:
                     outcomes[side] = {}
@@ -894,7 +900,7 @@ def _run(args, root, checkout, roots, confined_output, workspace, executor):
                         )
                         parameters = request.pop("_companion_parameters", {})
                         saved_requests[side] = copy.deepcopy(request)
-                    except (ValueError, KeyError, OSError) as error:
+                    except (ArithmeticError, ValueError, KeyError, OSError) as error:
                         preparation_error = {"error": str(error)}
                         report["incomplete"].append(
                             dict(

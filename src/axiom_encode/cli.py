@@ -5858,7 +5858,6 @@ def _execute_rulespec_test_case(
     )
     inputs: list[dict] = []
     relations: list[dict] = []
-    flat_inputs: dict[str, object] = {}
     flat_input_records: list[dict] = []
     generated_relation_rows: list[tuple[str, list[str], int, list[dict]]] = []
     generated_table_rows: list[tuple[str, list[str], int, list[dict]]] = []
@@ -5890,7 +5889,6 @@ def _execute_rulespec_test_case(
 
     for key, value in (case.get("input") or {}).items():
         key = str(key)
-        flat_inputs[key] = value
         if isinstance(value, list) and "#relation." in key:
             relation_name = _rulespec_test_relation_request_name(
                 key,
@@ -6043,7 +6041,6 @@ def _execute_rulespec_test_case(
                     key = str(row_key)
                     if key in row_id_keys:
                         continue
-                    flat_inputs[key] = row_value
                     inputs.append(
                         {
                             "name": key,
@@ -6094,7 +6091,7 @@ def _execute_rulespec_test_case(
     for output, expected_value in ({} if request_only else parameter_expected).items():
         try:
             actual_value = _rulespec_parameter_value(
-                parameter_by_id[output], flat_inputs, period["start"]
+                parameter_by_id[output], case.get("input") or {}, period["start"]
             )
         except Exception as error:
             failures.append(
@@ -6211,7 +6208,9 @@ def _execute_rulespec_test_case(
             try:
                 parameter_outcomes[output] = {
                     "value": _rulespec_parameter_value(
-                        parameter_by_id[output], flat_inputs, period["start"]
+                        parameter_by_id[output],
+                        case.get("input") or {},
+                        period["start"],
                     )
                 }
             except Exception as error:
@@ -6338,7 +6337,8 @@ def _rulespec_period_spec(value) -> dict[str, str]:
             "end": end.isoformat() if hasattr(end, "isoformat") else str(end),
         }
         if period["period_kind"] == "custom":
-            period["name"] = value.get("name")
+            name = value.get("name")
+            period["name"] = name.isoformat() if isinstance(name, date) else name
         return rulespec_engine_period(period)
     if isinstance(value, int) or (
         isinstance(value, str) and len(value) == 4 and value.isdigit()
@@ -6367,7 +6367,8 @@ def _rulespec_period_spec(value) -> dict[str, str]:
     if isinstance(value, date):
         return rulespec_engine_period(
             {
-                "period_kind": "day",
+                "period_kind": "custom",
+                "name": "day",
                 "start": value.isoformat(),
                 "end": value.isoformat(),
             }

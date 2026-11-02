@@ -545,6 +545,26 @@ def test_a_companion_older_than_a_parameter_still_needs_repair():
     assert diff.companion_needs_repair("companion", rows, old)
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        "parameter `rate` has no value for key `1` at 2025-05-11",
+        "parameter `rate` needs input `band` for indexed output",
+        "parameter `rate` has no version at 2025-05-11: see above",
+        "while reading: parameter `rate` has no version at 2025-05-11",
+    ],
+)
+def test_only_the_missing_version_needs_a_date_repair(error):
+    parameters = dict(rate={"error": error})
+    old, new = (
+        dict(VALUE, companion_parameters=parameters),
+        dict(REFUSAL, companion_parameters=parameters),
+    )
+    outcomes = dict(old=dict(explain=old, fast=old), new=dict(explain=new, fast=new))
+    rows = diff.comparisons(outcomes, [RULE], "2025-05-11")
+    assert not diff.companion_needs_repair("companion", rows, old)
+
+
 def test_refusal_with_another_error_is_not_expected():
     mixed = {"error": REFUSAL["error"] + "\nmissing input"}
     assert diff.classify(VALUE, mixed, [RULE], "2025-05-11") == "DIFF"
@@ -703,10 +723,11 @@ def test_shared_translator_table_parameter_indexes_and_errors(monkeypatch, tmp_p
             ],
         )
     )
+    index = "dk:statutes/test#input.index"
     case = dict(
         name="table index",
         period="2026-01",
-        tables=dict(Person=[dict(index=2)]),
+        input={index: 2},
         output={output: 7},
     )
     payload = diff.build_request(
@@ -716,7 +737,8 @@ def test_shared_translator_table_parameter_indexes_and_errors(monkeypatch, tmp_p
         "value": dict(kind="integer", value=7)
     }
     assert payload["queries"][0]["outputs"] == []
-    case["tables"] = {}
+    del case["input"]
+    case["tables"] = dict(Person=[{index: 2}])
     payload = diff.build_request(
         tmp_path / "test.test.yaml", case, artifact, tmp_path, (tmp_path,)
     )
@@ -833,8 +855,18 @@ def _period_module(path, name, period):
         dict(period_kind="tax_year", start="2026-W01-1", end="2026-12-31"),
         dict(period_kind="tax_year", start="2026-1-1", end="2026-12-31"),
         dict(period_kind="year", start="2026-01-01", end="2026-12-31"),
+        dict(period_kind="custom", name="x", start="2026-01-02", end="2026-01-01"),
+        dict(period_kind="custom", name="x", start="2000-01-01", end="9999-12-31"),
     ],
-    ids=["nameless", "basic-date", "week-date", "unpadded-date", "unknown-kind"],
+    ids=[
+        "nameless",
+        "basic-date",
+        "week-date",
+        "unpadded-date",
+        "unknown-kind",
+        "inverted",
+        "too-wide-to-shift",
+    ],
 )
 def test_a_refused_period_leaves_the_run_going(real_engine, tmp_path, period):
     checkout = tmp_path / "rulespec-us"
@@ -881,7 +913,7 @@ def test_a_refused_period_leaves_the_run_going(real_engine, tmp_path, period):
         "b.yaml",
         "c.yaml",
     ]
-    assert "b_case" in {record.get("case") for record in report["incomplete"]}
+    assert any("b_case" in record.get("case", "") for record in report["incomplete"])
     assert any("c.yaml" in case["module"] for case in report["cases"])
 
 
