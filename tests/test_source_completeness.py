@@ -8868,9 +8868,12 @@ def test_rejected_dotted_candidates_are_scanned_with_bounded_runtime():
             setup=completeness_module.re.purge,
         )
 
-    # Native suffix copies need this pair to outgrow the recognizer's scans.
+    # A native suffix copy at each candidate costs a few percent of the
+    # recognizer's scan at a few thousand repeats, so it needs a 128x pair to
+    # outgrow the linear work, including under coverage. Correct code stays
+    # near a CPU second at the large size.
     assert_linear_growth(
-        recognition_work(2_000), recognition_work(32_000), input_ratio=16
+        recognition_work(1_000), recognition_work(128_000), input_ratio=128
     )
     recognition_work(40_000, sample=False)
 
@@ -9339,9 +9342,11 @@ def test_parenthesized_cfr_outline_is_recognized_with_bounded_runtime():
             return None
         return lowest_work(lambda: recognize_source_structure(source), check)
 
-    # These samples remain measurable on both counters. Check growth before
-    # the original outlines, so quadratic failure cases stay finite.
-    assert_linear_growth(outline_work(125), outline_work(2_000), input_ratio=16)
+    # A per-marker scan of the markers found so far costs a small share of
+    # a short outline, so its quadratic term needs a 64x pair to clear the
+    # bound. Check growth before the original outlines, so quadratic failure
+    # cases stay finite.
+    assert_linear_growth(outline_work(250), outline_work(16_000), input_ratio=64)
     outline_work(5_000, sample=False)
     outline_work(20_000, sample=False)
 

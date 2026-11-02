@@ -674,6 +674,10 @@ def test_per_admission_work_does_not_scale_with_inventory(frozen, monkeypatch):
     # rejecting a full 1,000/5,000-key scan for each admission.
     for operation in ("values viewed", "keys iterated"):
         assert work[5000].get(operation, 0) == work[1000].get(operation, 0), work
-    assert work[5000]["key comparisons"] <= 3 * work[1000]["key comparisons"], work
-    assert work[5000]["key comparisons"] < 200 * 100, work
+    # A lookup that normalizes its key to an exact str (key[:], say) compares
+    # nothing this wrapper sees; the frozen-lookup growth check above bounds
+    # that lookup's cost instead.
+    comparisons = {count: work[count].get("key comparisons", 0) for count in work}
+    assert comparisons[5000] <= 3 * comparisons[1000], work
+    assert comparisons[5000] < 200 * 100, work
     print("indexed hot admission work:", json.dumps(work, sort_keys=True))
