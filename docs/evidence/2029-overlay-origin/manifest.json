@@ -1,6 +1,6 @@
 {
   "engine_commit": "89571cc2a938707fd60a5489b951135345697296",
-  "scope": "Historical local deterministic diagnostic evidence; not native generation, signing, publication, or a rerun of the integration commit. Author-produced records, independently checked as described in the reports; not a hosted attestation.",
+  "scope": "Historical local deterministic diagnostic evidence; not native generation, signing, publication, or a rerun of the integration commit. Author-produced records, not hosted attestations. Historical independent-review claims without their narratives are unverified author reports.",
   "files": {
     "eval.log": {
       "sha256": "fea55a3cfcee178e3f998d3b78608d50ae7502af398b061141aa1673645f522a",
@@ -77,8 +77,11 @@
       "bytes": 2393
     },
     "committed-review.json": {
-      "sha256": "56d5f18519335cf6cd706c769c8d2e1b0c82675607081711ba9e8a4a4fa9011d",
-      "bytes": 2264
+      "sha256": "4d84f2e70e180c82f0561423fddd50f11d50f9fe07fc1b60c889f1d203122b86",
+      "bytes": 2524,
+      "original_sha256": "56d5f18519335cf6cd706c769c8d2e1b0c82675607081711ba9e8a4a4fa9011d",
+      "original_commit": "fafa906540166a55b4131a939cebb32f2a5f6765",
+      "qualification": "Current record adds explicit historical-review limitations; original remains available at the immutable commit."
     },
     "apply-capture.json.gz": {
       "sha256": "fb1e4827c9975b5ba76ef791029d32305d8b335c8c05e1f96e80ead533e17f88",
@@ -126,8 +129,11 @@
       "bytes": 1102
     },
     "replacement-exclusion-final-review.json": {
-      "sha256": "e573d84d55041eea521682aa7734f17ca1995bb11a7e599f37dea5d0f7d93807",
-      "bytes": 2761
+      "sha256": "cfd14059e367ded60f75481b23eb14a240c0ca05362efb453594600231b21c9e",
+      "bytes": 3051,
+      "original_sha256": "e573d84d55041eea521682aa7734f17ca1995bb11a7e599f37dea5d0f7d93807",
+      "original_commit": "fafa906540166a55b4131a939cebb32f2a5f6765",
+      "qualification": "Current record adds explicit historical-review limitations; original remains available at the immutable commit."
     }
   },
   "execution_contexts": {

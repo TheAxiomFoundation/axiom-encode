@@ -19,3 +19,7 @@ The original commands for `shared-tests.log`, `caller-tests.log`, and `version-t
 The optional optimization of per-case Git freshness checks is deliberately deferred. This change preserves the existing fail-closed checks rather than changing when provenance is checked during a test/documentation follow-up. Transient Git failures and their diagnostics remain a limitation; no performance improvement is claimed.
 
 `current-review-regressions.log` records the exact command for the follow-up run: 303 tests passed in 13.43 seconds. It includes the updated replacement-scope tests, same-case checks, and existing caller regressions. The manifest binds the tested file hash. Four separate copied-source gate-deletion controls failed at the new origin assertions (both eval/apply callers and canonical/legacy scopes); production files remained unchanged.
+
+## Historical review limitations
+
+The packaging-review digest in `committed-review.json` and the clearance summary in `replacement-exclusion-final-review.json` do not include the underlying review narratives or finding dispositions. Their claims of independent clearance, including resolution of the two initial implementation findings, are unverified historical author reports. File hashes and test results establish their narrower stated checks; they do not establish that a review occurred. The separately posted GitHub agent reviews describe their own inspections and executed checks.

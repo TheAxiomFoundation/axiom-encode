@@ -23,5 +23,6 @@
     "tests/test_sc_2026_oracle_registry.py": "7d4a1e891aa025bfa3aa25c2ea6ac08cae9d0a017dcb88fe5a66ecb7c6f452a3",
     "uv.lock": "238d6225e327ba82dfb5292895b30f08e53c0694b878f9c966d0fd98bfc329fc"
   },
-  "package_review_sha256": "43413403a5d5a8bb3b27fb33eff428143162d96328153f815037f4d6a8f5d10d"
+  "package_review_sha256": "43413403a5d5a8bb3b27fb33eff428143162d96328153f815037f4d6a8f5d10d",
+  "historical_review_limitation": "The packaging-review digest is a historical author record. The referenced narrative and finding dispositions are not included; independent packaging clearance is an unverified author report, not established by this digest."
 }
