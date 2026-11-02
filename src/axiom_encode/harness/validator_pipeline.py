@@ -23552,8 +23552,13 @@ def find_relation_role_issues(
             )
         if "#" in alias:
             shared = ", ".join(sorted(f"`{rule['name']}`" for _, rule in candidates))
+            subject = (
+                f"Derived relations {shared} spell"
+                if len(candidates) > 1
+                else f"Derived relation {shared} spells"
+            )
             issues.append(
-                f"[relation-member-alias] Derived relation {shared} spells member "
+                f"[relation-member-alias] {subject} member "
                 f"alias `{alias}` as a relation ID. The engine would send that "
                 "relation's own reads through the alias, so use a bare name."
             )
@@ -31648,18 +31653,20 @@ def _rulespec_terminal_executable_names_from_payload(payload: Any) -> list[str]:
         for rule in payload.get("rules", [])
         for source in local_relation_sources(rule, payload.get("imports"))
     } & name_set
-    for owner, kind, formula in _rulespec_rule_formulas(payload):
+    for owner, _kind, formula, _source, rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
         # A module without a derived relation keeps its lexical inventory.
-        if relation_names and not rule_lowers_formulas(rules_by_name[owner]):
+        if relation_names and not rule_lowers_formulas(rule):
             continue
         identifiers = _formula_local_identifiers(
             formula,
-            relation_predicate=rule_uses_relation_predicate(rules_by_name[owner]),
+            relation_predicate=rule_uses_relation_predicate(rule),
         )
         analyzed = analyze_relation_predicate(
             formula,
-            predicate_terms=rule_uses_relation_predicate(rules_by_name[owner]),
-            lowering_entry=rule_lowering_entry(rules_by_name[owner]),
+            predicate_terms=rule_uses_relation_predicate(rule),
+            lowering_entry=rule_lowering_entry(rule),
             relation_names=frozenset(relation_names),
         )
         relation_arguments = analyzed.relation_arguments | analyzed.atom_relations
@@ -31668,7 +31675,7 @@ def _rulespec_terminal_executable_names_from_payload(payload: Any) -> list[str]:
         ) | member_alias_reads(
             relation_arguments,
             filtered_aliases,
-            rules_by_name[owner],
+            rule,
             local_relations,
         )
         identifiers.difference_update(relation_names)
@@ -32227,73 +32234,67 @@ def find_formula_absolute_reference_issues(content: str) -> list[str]:
     return []
 
 
-def _rulespec_entity_member_aliases(payload: dict[str, Any]) -> dict[str, set[str]]:
-    """Group a module's member alias spellings by the entity they bind."""
-    aliases: dict[str, set[str]] = {}
-    rules = payload.get("rules")
-    for rule in rules if isinstance(rules, list) else ():
-        key = member_alias_key(rule)
-        if key is not None:
-            aliases.setdefault(key[1], set()).add(key[0])
-    return aliases
+def _rulespec_relation_atom_reads(rule: dict[str, Any]) -> set[str]:
+    """Name the relations a derived relation predicate reads as atoms.
 
-
-def _rulespec_relation_reads(
-    rule: dict[str, Any],
-    relation_names: frozenset[str],
-    aliases: dict[str, set[str]],
-) -> set[str]:
-    """Name the relations a rule's lowered formulas read past its member aliases.
-
-    A read counts as `len(name)`, as an atom or as a bare member of a relation
-    predicate. The engine resolves a member alias first on rules of its entity.
+    Atoms and `exists` generators lower only in a derived relation predicate.
     """
+    if rule_lowering_entry(rule) != "derived_relation":
+        return set()
     predicate = rule_uses_relation_predicate(rule)
     reads: set[str] = set()
     for formula in _rulespec_executed_formula_texts(rule):
-        analyzed = analyze_relation_predicate(
-            formula,
-            predicate_terms=predicate,
-            relation_names=relation_names,
-            lowering_entry=rule_lowering_entry(rule),
+        reads |= analyze_relation_predicate(
+            formula, predicate_terms=predicate, lowering_entry="derived_relation"
+        ).atom_relations
+    return reads
+
+
+def _rule_relation_import_reads(
+    rule: dict[str, Any], imported: set[str], local_relations: set[str]
+) -> set[str]:
+    """Name the explicit relation imports that one rule reads.
+
+    The engine binds an imported relation's short name only in an atom or an
+    `exists` generator, after a local relation of that name, and only while
+    one relation in the program has that name. `len(name)`, a bare member and
+    a bare source keep the name as this module's own relation. A full-target
+    source reads exactly the import it names.
+    """
+    sources = rule_relation_sources(rule)
+    atoms = _rulespec_relation_atom_reads(rule) - local_relations
+    names = Counter(map(local_reference_name, imported))
+    return {
+        item
+        for item in imported
+        if item in sources
+        or (
+            local_reference_name(item) in atoms
+            and names[local_reference_name(item)] == 1
         )
-        reads |= set(analyzed.atom_relations) | set(analyzed.relation_arguments)
-    return reads - aliases.get(member_alias_entity(rule), set())
+    }
+
+
+def _rulespec_explicit_relation_imports(imports: object) -> set[str]:
+    return {
+        item.strip()
+        for item in (imports if isinstance(imports, list) else ())
+        if isinstance(item, str) and "#relation." in item and local_reference_name(item)
+    }
 
 
 def _rulespec_relation_import_reads(payload: dict[str, Any]) -> set[str]:
-    """Name the explicit relation imports that a rule reads.
-
-    A formula reads a relation import as `len(name)`, as an atom or as a bare
-    member of a relation predicate, and a derived relation names one as a
-    source, by local name or by full target. The engine resolves a local
-    relation of that name first, and a member alias first on rules of its
-    entity, so a read by local name then leaves the import unread. A full
-    target reaches its own import past both, and no other import of that name.
-    """
-    imports = payload.get("imports")
-    imported = {
-        item.strip()
-        for item in imports
-        if isinstance(item, str) and "#relation." in item and local_reference_name(item)
-    }
+    """Name the explicit relation imports that the module's rules read."""
+    imported = _rulespec_explicit_relation_imports(payload.get("imports"))
     if not imported:
         return set()
     raw_rules = payload.get("rules")
-    rules = [
-        rule
-        for rule in (raw_rules if isinstance(raw_rules, list) else [])
-        if isinstance(rule, dict)
-    ]
     local_relations = _rulespec_relation_names(payload)
-    aliases = _rulespec_entity_member_aliases(payload)
-    imported_names = frozenset(map(local_reference_name, imported))
     reads: set[str] = set()
-    for rule in rules:
-        reads |= _rulespec_relation_reads(rule, imported_names, aliases)
-        reads |= rule_relation_sources(rule)
-    reads -= local_relations
-    return {item for item in imported if {item, local_reference_name(item)} & reads}
+    for rule in raw_rules if isinstance(raw_rules, list) else []:
+        if isinstance(rule, dict):
+            reads |= _rule_relation_import_reads(rule, imported, local_relations)
+    return reads
 
 
 def find_unused_import_issues(content: str) -> list[str]:
@@ -32344,13 +32345,7 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
             return []
 
         local_relations = _rulespec_relation_names(payload)
-        aliases = _rulespec_entity_member_aliases(payload)
-        imports = payload.get("imports")
-        imported = {
-            item.strip()
-            for item in (imports if isinstance(imports, list) else ())
-            if isinstance(item, str)
-        }
+        relation_imports = _rulespec_explicit_relation_imports(payload.get("imports"))
         issues: list[str] = []
         for rule in rules:
             if not isinstance(rule, dict):
@@ -32374,9 +32369,6 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                 if not symbol and "#" in target:
                     symbol = target.rsplit("#", 1)[1].strip()
                 selectors.append((target, symbol, bool(output)))
-            selected_names = frozenset(
-                local_reference_name(symbol) for _target, symbol, _output in selectors
-            )
             sources = rule_relation_sources(rule) - local_relations
             unparsed_formulas = [
                 formula
@@ -32388,21 +32380,17 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                 ).parse_error
                 is not None
             ]
-            relation_reads = sources | (
-                _rulespec_relation_reads(rule, selected_names, aliases)
-                - local_relations
+            relation_reads = _rule_relation_import_reads(
+                rule, relation_imports, local_relations
             )
             for target, symbol, named in selectors:
                 local_symbol = local_reference_name(symbol)
                 if local_symbol == symbol:
-                    # A bare selector keeps main's text match over every
-                    # formula, and a source that names it reads it too.
-                    certified = (
-                        not symbol
-                        or local_symbol in sources
-                        or (named and target in sources)
-                    )
-                    spelled_in = formula_texts
+                    # A bare selector keeps main's text match over the joined
+                    # formulas, and a full-target source that names it reads
+                    # it too.
+                    certified = not symbol or (named and target in sources)
+                    spelled_in = ["\n".join(formula_texts)]
                 else:
                     # A qualified selector names one import, so only a read
                     # that reaches that import certifies it. A scalar, a local
@@ -32410,10 +32398,7 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                     # it could certify, and a full-target source reads it alone.
                     certified = (
                         symbol == target or symbol.startswith(f"{target}#")
-                    ) and (
-                        symbol in sources
-                        or (local_symbol in relation_reads and symbol in imported)
-                    )
+                    ) and (symbol in sources or symbol in relation_reads)
                     spelled_in = unparsed_formulas
                 if certified or any(
                     _formula_references_symbol(formula, symbol)

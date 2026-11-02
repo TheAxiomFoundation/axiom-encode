@@ -15404,7 +15404,7 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
         return []
 
     exports: list[str] = []
-    formulas: list[tuple[str, str]] = []
+    formulas: list[tuple[str, str, dict]] = []
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -15426,9 +15426,9 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
                 continue
             formula = version.get("formula")
             if isinstance(formula, (int, float)) and not isinstance(formula, bool):
-                formulas.append((name, str(formula)))
+                formulas.append((name, str(formula), rule))
             elif isinstance(formula, str) and formula.strip():
-                formulas.append((name, formula))
+                formulas.append((name, formula, rule))
     if not exports:
         return []
 
@@ -15450,8 +15450,7 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
         for name, rule in rules_by_name.items()
         if rule.get("kind") == "data_relation"
     }
-    for owner, formula in formulas:
-        rule = rules_by_name[owner]
+    for owner, formula, rule in formulas:
         identifiers = formula_identifiers(
             formula, relation_predicate=rule_uses_relation_predicate(rule)
         )

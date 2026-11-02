@@ -237,6 +237,17 @@ def selector_proof(
     return yaml.safe_dump(program(*local, reader, imports=list(imports)))
 
 
+def atom_proof(
+    formula="view(anchor, candidate)", *, imports=(VIEW,), local=(), atom=None
+):
+    """Attach one proof atom to a derived relation that reads `view` as an atom."""
+    reader = view("result", "pairs", formula, slots=EVERYONE)
+    reader["metadata"] = {
+        "proof": {"atoms": [{"import": atom or {"target": VIEW, "output": VIEW}}]}
+    }
+    return yaml.safe_dump(program(PAIRS, *local, reader, imports=list(imports)))
+
+
 def certified(content):
     return validation.find_proof_import_reference_issues(content) == []
 
@@ -245,8 +256,10 @@ def certified(content):
     "options,expected",
     [
         ({}, True),
-        ({"local": [data_relation("view", "Household", "Person")]}, False),
+        ({"formula": "exists(view(anchor, p), p == candidate)"}, True),
+        ({"local": [data_relation("view", "Person", "Person")]}, False),
         ({"imports": [f"{PROVIDER}-other#relation.view"]}, False),
+        ({"imports": [VIEW, f"{PROVIDER}-other#relation.view"]}, False),
         ({"imports": [PROVIDER]}, False),
         ({"imports": []}, False),
         ({"atom": {"target": f"{PROVIDER}#relation.other", "output": VIEW}}, False),
@@ -255,7 +268,13 @@ def certified(content):
     ],
 )
 def test_a_qualified_proof_needs_a_read_of_its_own_import(options, expected):
-    assert certified(selector_proof(**options)) is expected
+    """Two imports that share a short name leave the engine no binding."""
+    assert certified(atom_proof(**options)) is expected
+
+
+def test_len_of_an_import_certifies_no_qualified_proof():
+    """The engine refuses `len(view)` as a separate, untyped relation."""
+    assert not certified(selector_proof())
 
 
 def test_a_bare_proof_selector_keeps_mains_lexical_reach():
@@ -266,8 +285,23 @@ def test_a_bare_proof_selector_keeps_mains_lexical_reach():
     assert certified(content)
 
 
-@pytest.mark.parametrize("entity,expected", [("SnapUnit", False), ("Household", True)])
-def test_a_member_alias_takes_a_read_from_a_qualified_proof(entity, expected):
+@pytest.mark.parametrize("entity", ["SnapUnit", "Person"])
+def test_a_member_alias_leaves_an_atom_read_on_its_import(entity):
+    """The engine binds the atom to the import beside an alias on any entity."""
+    alias = view(
+        "selected",
+        "pairs",
+        "true",
+        slots=EVERYONE,
+        entity=entity,
+        member_relation="view",
+    )
+    assert certified(atom_proof(local=[alias]))
+
+
+@pytest.mark.parametrize("entity", ["SnapUnit", "Household"])
+def test_a_member_alias_gives_len_no_import_read(entity):
+    """`len(view)` names this module's relation on every entity."""
     alias = view(
         "selected",
         "pairs",
@@ -276,15 +310,14 @@ def test_a_member_alias_takes_a_read_from_a_qualified_proof(entity, expected):
         entity="SnapUnit",
         member_relation="view",
     )
-    content = selector_proof(entity=entity, local=[PAIRS, alias])
-    assert certified(content) is expected
+    assert not certified(selector_proof(entity=entity, local=[PAIRS, alias]))
 
 
 @pytest.mark.parametrize(
     "source,local,imports,expected",
     [
         (VIEW, [], [], True),
-        ("view", [], [VIEW], True),
+        ("view", [], [VIEW], False),
         ("view", [data_relation("view", "Person", "Person")], [VIEW], False),
         (f"{PROVIDER}-other#relation.view", [], [VIEW], False),
     ],
@@ -292,6 +325,7 @@ def test_a_member_alias_takes_a_read_from_a_qualified_proof(entity, expected):
 def test_a_relation_source_certifies_only_the_relation_it_names(
     source, local, imports, expected
 ):
+    """A bare source names this module's relation, never the import."""
     reader = view("result", source, "true", slots=EVERYONE)
     reader["metadata"] = {
         "proof": {"atoms": [{"import": {"target": VIEW, "output": VIEW}}]}

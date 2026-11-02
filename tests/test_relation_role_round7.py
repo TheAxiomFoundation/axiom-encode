@@ -265,11 +265,12 @@ def test_a_module_without_a_derived_relation_keeps_its_lexical_terminals():
 
 
 def test_an_inert_formula_earns_no_explicit_relation_import():
+    atom = "view(anchor, candidate)"
     payload = program(
-        inert_formula("len(view)"), rule("result", "Person", "1"), imports=[VIEW]
+        inert_formula(atom), rule("result", "Person", "1"), imports=[VIEW]
     )
     assert len(validation.find_unused_import_issues(yaml.safe_dump(payload))) == 1
-    payload["rules"][1] = rule("result", "Person", "len(view)")
+    payload["rules"][1] = relation("result", atom)
     assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
 
 
@@ -381,13 +382,19 @@ def proof(formula, *, kind="derived", **selector):
         ("view", {"output": VIEW}, "derived", False),
         ("view", {}, "derived", False),
         ("view", {"output": "view"}, "derived", True),
-        ("len(view)", {"output": VIEW}, "derived", True),
+        ("len(view)", {"output": VIEW}, "derived", False),
         ("len(view)", {}, "derived", False),
         ("len(view)", {"output": "view"}, "derived", True),
         ("len(other)", {"output": VIEW}, "derived", False),
         ("foo", {"output": f"{PROVIDER}#foo"}, "derived", False),
-        ("view", {"output": VIEW}, "derived_relation", True),
+        ("view", {"output": VIEW}, "derived_relation", False),
         ("view(anchor, candidate)", {"output": VIEW}, "derived_relation", True),
+        (
+            "exists(view(anchor, p), p == candidate)",
+            {"output": VIEW},
+            "derived_relation",
+            True,
+        ),
         ("view +", {"output": VIEW}, "derived", False),
         ("view +", {"output": "view"}, "derived", True),
     ],
@@ -395,6 +402,7 @@ def proof(formula, *, kind="derived", **selector):
 def test_a_qualified_proof_selector_needs_a_relation_read(
     formula, selector, kind, certified
 ):
+    """Only an atom or an `exists` generator binds the import's short name."""
     issues = validation.find_proof_import_reference_issues(
         proof(formula, kind=kind, **selector)
     )

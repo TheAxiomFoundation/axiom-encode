@@ -221,13 +221,14 @@ def proven_source(source):
 @pytest.mark.parametrize(
     "source,read",
     [
-        ("unused_view", True),
+        ("unused_view", False),
         (PROVIDER, True),
         ("us:policies/example/other#relation.unused_view", False),
     ],
     ids=["local-name", "own-target", "other-module"],
 )
 def test_a_proof_import_reads_only_its_own_source(source, read):
+    """A bare source names this module's relation, never the import."""
     payload = consumer("1", PROVIDER)
     payload["rules"].insert(0, proven_source(source))
     issues = validation.find_proof_import_reference_issues(yaml.safe_dump(payload))
@@ -269,21 +270,26 @@ def test_a_local_alias_with_the_same_name_leaves_a_proven_import_alone():
 
 
 @pytest.mark.parametrize(
-    "source",
+    "source,unused",
     [
-        {"source_relation": "unused_view"},
-        {"source_relation": PROVIDER},
-        {"source_path": [{"relation": "unused_view"}]},
+        ({"source_relation": "unused_view"}, 1),
+        ({"source_relation": PROVIDER}, 0),
+        ({"source_path": [{"relation": "unused_view"}]}, 1),
+        ({"source_path": [{"relation": PROVIDER}]}, 0),
     ],
-    ids=["relation", "full-target", "path"],
+    ids=["relation", "full-target", "path", "full-target-path"],
 )
-def test_a_derived_relation_source_keeps_its_import(source):
+def test_a_derived_relation_source_keeps_only_an_import_it_names_in_full(
+    source, unused
+):
+    """The engine resolves a bare source or path step to this module alone."""
     payload = consumer("len(selected)", PROVIDER)
     view = relation("selected", "true")
     del view["derived_relation"]["source_relation"]
     view["derived_relation"].update(source)
     payload["rules"].insert(0, view)
-    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+    issues = validation.find_unused_import_issues(yaml.safe_dump(payload))
+    assert len(issues) == unused
 
 
 def test_a_formula_outside_the_port_keeps_the_base_scan():
@@ -299,7 +305,7 @@ def test_a_scalar_import_named_only_as_a_source_stays_unused():
         "us:policies/example/provider#unused_view",
         "us:policies/example/provider#relation.read_view",
     )
-    view = relation("selected", "len(read_view) == 0")
+    view = relation("selected", "read_view(anchor, candidate)")
     view["derived_relation"]["source_relation"] = "unused_view"
     payload["rules"].insert(0, view)
     issues = validation.find_unused_import_issues(yaml.safe_dump(payload))
@@ -308,14 +314,20 @@ def test_a_scalar_import_named_only_as_a_source_stays_unused():
 
 
 @pytest.mark.parametrize(
-    "predicate",
-    ["unused_view(anchor, candidate)", "unused_view"],
-    ids=["atom", "bare-member"],
+    "predicate,unused",
+    [
+        ("unused_view(anchor, candidate)", 0),
+        ("exists(unused_view(anchor, p), p == candidate)", 0),
+        ("unused_view", 1),
+    ],
+    ids=["atom", "exists", "bare-member"],
 )
-def test_a_relation_predicate_reads_its_import(predicate):
+def test_a_relation_predicate_reads_its_import_only_as_an_atom(predicate, unused):
+    """The engine refuses a bare member as an unknown relation dependency."""
     payload = consumer("len(selected)", PROVIDER)
     payload["rules"].insert(0, relation("selected", predicate))
-    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+    issues = validation.find_unused_import_issues(yaml.safe_dump(payload))
+    assert len(issues) == unused
 
 
 def test_a_source_on_another_rule_kind_leaves_the_import_unused():
@@ -357,7 +369,8 @@ def test_an_empty_relation_selector_stays_unused():
 
 
 def test_an_import_read_keeps_padded_spelling():
-    payload = consumer("len(unused_view)", f" {PROVIDER} ")
+    payload = consumer("len(selected)", f" {PROVIDER} ")
+    payload["rules"].insert(0, relation("selected", "unused_view(anchor, candidate)"))
     assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
 
 
@@ -434,14 +447,15 @@ def test_a_local_relation_takes_a_source_read_from_an_import_of_its_name():
     assert len(validation.find_unused_import_issues(yaml.safe_dump(payload))) == 1
 
 
-@pytest.mark.parametrize("entity,unused", [("Person", 1), ("LocalUnit", 0)])
-def test_a_member_alias_takes_a_read_only_on_its_own_entity(entity, unused):
+@pytest.mark.parametrize("entity", ["Person", "LocalUnit"])
+def test_len_reads_no_import_beside_a_member_alias_on_any_entity(entity):
+    """`len(name)` names this module's relation, alias or not."""
     payload = consumer("len(unused_view)", PROVIDER)
     view = relation("local_view", "true")
     view["derived_relation"].update(entity=entity, member_relation="unused_view")
     payload["rules"][:0] = [PAIRS, view]
     issues = validation.find_unused_import_issues(yaml.safe_dump(payload))
-    assert len(issues) == unused
+    assert len(issues) == 1
 
 
 def test_a_bound_variable_named_like_an_import_reads_nothing():
@@ -451,16 +465,16 @@ def test_a_bound_variable_named_like_an_import_reads_nothing():
     assert len(validation.find_unused_import_issues(yaml.safe_dump(payload))) == 1
 
 
-def test_a_member_alias_without_an_entity_takes_no_read():
+def test_len_reads_no_import_beside_an_alias_on_a_reader_without_an_entity():
     payload = consumer("len(unused_view)", PROVIDER)
     del payload["rules"][0]["entity"]
     view = relation("local_view", "true")
     view["derived_relation"]["member_relation"] = "unused_view"
     payload["rules"][:0] = [PAIRS, view]
-    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+    assert len(validation.find_unused_import_issues(yaml.safe_dump(payload))) == 1
 
 
-def test_a_member_alias_on_another_rule_kind_takes_no_read():
+def test_len_reads_no_import_beside_an_alias_on_another_rule_kind():
     payload = consumer("len(unused_view)", PROVIDER)
     payload["rules"].insert(
         0,
@@ -470,7 +484,7 @@ def test_a_member_alias_on_another_rule_kind_takes_no_read():
             "derived_relation": {"entity": "Person", "member_relation": "unused_view"},
         },
     )
-    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+    assert len(validation.find_unused_import_issues(yaml.safe_dump(payload))) == 1
 
 
 @pytest.mark.parametrize("rules", [5, "text", None])
@@ -530,10 +544,11 @@ def test_scalar_import_stays_unused_beside_an_alias_read():
 
 
 @pytest.mark.parametrize("formula", ["unused_view", "not unused_view"])
-def test_predicate_bare_relation_read_uses_its_explicit_import(formula):
+def test_a_bare_predicate_member_leaves_its_explicit_import_unused(formula):
+    """The engine refuses a bare member as an unknown relation dependency."""
     payload = consumer("len(selected)", PROVIDER)
     payload["rules"][:0] = [PAIRS, relation("selected", formula)]
-    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+    assert len(validation.find_unused_import_issues(yaml.safe_dump(payload))) == 1
 
 
 def test_judgment_scalar_read_does_not_use_an_explicit_relation_import():

@@ -569,9 +569,10 @@ def test_relation_predicate_consumes_a_helper_named_after_a_builtin(tmp_path):
     )
 
 
-def test_atom_and_path_sources_count_as_import_dependencies():
+def test_atom_and_full_target_path_sources_count_as_import_dependencies():
+    external = "us:policies/example/pairs#relation.external_pair"
     payload = declaration("exists(pair(anchor, p), external_pair(p, candidate))")
-    payload["imports"] = ["us:policies/example/pairs#relation.external_pair"]
+    payload["imports"] = [external]
     assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
     assert validation.find_relation_role_issues(yaml.safe_dump(payload)) == []
     selected = payload["rules"][-1]
@@ -581,6 +582,9 @@ def test_atom_and_path_sources_count_as_import_dependencies():
         {"relation": "external_pair", "from_slot": 0, "to_slot": 1}
     ]
     assert relation_source_names(selected["derived_relation"]) == {"external_pair"}
+    # The engine refuses a bare path step as an unknown relation dependency.
+    assert len(validation.find_unused_import_issues(yaml.safe_dump(payload))) == 1
+    selected["derived_relation"]["source_path"][0]["relation"] = external
     assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
 
 
@@ -665,25 +669,22 @@ def test_relation_atoms_and_path_sources_keep_temporal_dependency_checks():
     ) == [expected]
 
 
-def test_proof_import_atom_can_name_a_relation_used_by_a_path():
+def test_proof_import_atom_can_name_a_relation_used_by_a_full_target_source():
+    target = "us:policies/example/pairs#relation.pair"
     payload = declaration("pair(anchor, candidate)")
     selected = payload["rules"][-1]
     selected["metadata"] = {
-        "proof": {
-            "atoms": [
-                {
-                    "import": {
-                        "target": "us:policies/example/pairs#relation.pair",
-                        "output": "pair",
-                    }
-                }
-            ]
-        }
+        "proof": {"atoms": [{"import": {"target": target, "output": "pair"}}]}
     }
     assert validation.find_proof_import_reference_issues(yaml.safe_dump(payload)) == []
     selected["versions"][0]["formula"] = True
     selected["derived_relation"]["source_relation"] = "pair"
     payload["rules"] = [rule for rule in payload["rules"] if rule["name"] != "pair"]
+    # A bare source names this module's own relation, never the import.
+    assert (
+        len(validation.find_proof_import_reference_issues(yaml.safe_dump(payload))) == 1
+    )
+    selected["derived_relation"]["source_relation"] = target
     assert validation.find_proof_import_reference_issues(yaml.safe_dump(payload)) == []
 
 
