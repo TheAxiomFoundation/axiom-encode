@@ -27422,6 +27422,28 @@ def test_rulespec_proof_parent_resolution_is_bounded_for_repeated_lists(monkeypa
     resolve_repeated_lists(768)
 
 
+def test_rulespec_proof_parent_resolution_grows_linearly_across_lines():
+    # On separate lines each newline lookup stops at the nearest line, so the
+    # whole resolution is linear here. A prefix scan by any route shows up,
+    # which the budgets on the single-line fixture above can't promise.
+    def work(count):
+        source_text = "\n".join("a. (1) Items: (a) Item." for _ in range(count))
+        numeric_start = source_text.rfind("(1)")
+
+        def check(result):
+            assert result == ("a", "dotted")
+
+        return lowest_work(
+            lambda: _source_top_level_marker_for_numeric_parent(
+                source_text, numeric_start
+            ),
+            check,
+            setup=gc.collect,
+        )
+
+    assert_linear_growth(work(192), work(3_072), input_ratio=16)
+
+
 def _reference_chain_source(count):
     # A reference chain ends in "(c)(k)": after a letter marker, (k) would be
     # a numeric paragraph and claim the following "(a)" as its child, unless

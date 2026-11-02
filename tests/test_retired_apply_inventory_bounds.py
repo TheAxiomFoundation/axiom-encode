@@ -643,7 +643,7 @@ def _frozen_lookup_work(count):
     # makes the small sample measurable without a large quadratic fixture.
     # Native reconstruction on each access is included in the whole operation.
     return lowest_work(
-        lambda: [[mapping[key] for key in keys] for _ in range(384)], check
+        lambda: [[mapping[key] for key in keys] for _ in range(1_536)], check
     )
 
 
