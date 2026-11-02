@@ -66,3 +66,12 @@ landing commit. Editing or removing a historical receipt is still refused, and
 so is a changed replacement manifest that does not introduce a new receipt. A
 second migration planned on a landed one is admitted as its own exact
 transaction against its own pre-migration base.
+
+This rests on the `--base-ref` contract above. The guard settles every receipt
+already in the base the caller names, so the base must be the protected
+commit CI takes from its trusted review or dispatch context, never a ref the
+change under review can choose. With `--base-ref HEAD`, every receipt in the
+tree is settled and no exact-transaction check runs. The guard still replays
+each settled receipt and verifies every live manifest, including migration
+manifests by deterministic replay, so that base admits nothing inconsistent.
+But it no longer proves that the tree's changes landed as whole transactions.

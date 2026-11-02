@@ -19,7 +19,7 @@ from hypothesis import strategies as st
 
 import axiom_encode.cli as cli
 from axiom_encode.harness.evals import resolve_corpus_source_unit
-from axiom_encode.retired_source_metadata import PLAN_SCHEMA
+from axiom_encode.retired_source_metadata import PLAN_SCHEMA, RECEIPT_DIR
 from tests.test_cli import TestGuardGenerated as _GuardFixtures
 from tests.test_retired_source_metadata_cli import (  # noqa: F401
     BROKER,
@@ -95,6 +95,48 @@ def test_all_still_refuses_an_edited_historical_receipt(
     assert any(
         report["receipt_path"] in issue and HISTORICAL in issue for issue in issues
     ), issues
+
+
+def _bogus_receipt(report, checkout, kind: str) -> tuple[str, bytes]:
+    real = (checkout.repo / report["receipt_path"]).read_bytes()
+    if kind == "malformed":
+        return (RECEIPT_DIR / ("0" * 64 + ".json")).as_posix(), b"{}\n"
+    if kind == "renamed_copy":
+        # A genuine receipt's bytes at a canonical name that is not its identity.
+        return (RECEIPT_DIR / ("1" * 64 + ".json")).as_posix(), real
+    assert kind == "stale_base"
+    payload = json.loads(real)
+    payload["base_commit"] = "f" * 40
+    return (RECEIPT_DIR / ("2" * 64 + ".json")).as_posix(), (
+        json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    ).encode()
+
+
+@pytest.mark.parametrize("kind", ["malformed", "renamed_copy", "stale_base"])
+def test_all_refuses_an_invalid_receipt_that_is_already_in_the_base(
+    checkout, capsys, kind
+):
+    """An unchanged receipt in the base is settled only if it still replays.
+
+    A receipt that reached the base without the guard, and that no manifest
+    binds, is unchanged between base and head, so only the settled-path replay
+    can refuse it. On main, --all refused every receipt already in the base.
+    """
+
+    report, _landing = _land(checkout, capsys)
+    bogus_path, bogus_bytes = _bogus_receipt(report, checkout, kind)
+    target = checkout.repo / bogus_path
+    target.write_bytes(bogus_bytes)
+    git(checkout.repo, "add", ".")
+    git(checkout.repo, "commit", "-m", "receipt landed without the guard")
+    base = git(checkout.repo, "rev-parse", "HEAD")
+    cli._RETIRED_SOURCE_METADATA_REPLAY_CACHE.clear()
+
+    issues = _guard(checkout, base_ref=base, all_files=True)
+
+    assert any(bogus_path in issue for issue in issues), issues
+    # The genuine, landed receipt is still settled history.
+    assert not any(report["receipt_path"] in issue for issue in issues), issues
 
 
 def test_all_refuses_a_later_edit_to_a_migrated_file_without_a_new_manifest(

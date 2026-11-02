@@ -22124,9 +22124,18 @@ def _retired_source_metadata_receipt_is_settled(
 ) -> bool:
     """True when a protected-base receipt is unchanged in Git and on disk.
 
-    Git reports no change for the path, and the checkout's bytes equal the
-    protected base blob, so neither a committed nor an uncommitted edit, nor a
-    removal, can pass as history.
+    Two overlapping checks, kept as defence in depth:
+
+    * the path is absent from ``changed``, the Git change set between the
+      protected base and the head plus uncommitted and untracked changes;
+    * the checkout's bytes, read through the bounded regular-file reader,
+      equal the receipt's blob at the protected base.
+
+    Either check alone refuses every committed edit, uncommitted edit and
+    removal the tests make. The second also refuses a receipt that is not a
+    readable regular file (a symlink, for example) and does not depend on how
+    the caller built ``changed``. A settled receipt is still replayed by the
+    caller; this only decides whether it is history or a new transaction.
     """
 
     if receipt_relative.as_posix() in changed:
