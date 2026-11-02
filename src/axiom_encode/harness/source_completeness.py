@@ -17574,7 +17574,106 @@ def _source_conjunctive_fact_gates(
     segments = _source_gate_split_conjunctive_conditions(body)
     if len(segments) < 2:
         return ()
-    gates: list[tuple[frozenset[str], frozenset[str]]] = []
+    care_text = text if care_source_text is None else care_source_text
+    segment_gates = _source_gate_segment_gates(segments, care_source_text=care_text)
+    antecedent = _carryforward_consequent_antecedent(body)
+    if antecedent is not None:
+        # The consequent coordinates effects, so its `and` splits no condition.
+        # Cut it off only if no antecedent segment loses its gate: a segment
+        # may read as a condition only through words the consequent supplies
+        # (`... and the taxpayer elects, ... until ... has been fully deducted`).
+        antecedent_segments = _source_gate_split_conjunctive_conditions(antecedent)
+        boundary = len(antecedent_segments) - 1
+        antecedent_gates = _source_gate_segment_gates(
+            antecedent_segments, care_source_text=care_text
+        )
+        if antecedent_segments[:boundary] == segments[:boundary] and all(
+            original is None or truncated is not None
+            for original, truncated in zip(segment_gates, antecedent_gates)
+        ):
+            segment_gates = antecedent_gates
+    gates = [gate for gate in segment_gates if gate is not None]
+    return tuple(gates) if len(gates) >= 2 else ()
+
+
+# A carried amount, what may be done with it in later years, and until when.
+# Every word is fixed except the exhaustion clause's subject, which can name no
+# condition cue, relative pronoun or gate conjunction.
+_CARRYFORWARD_CONSEQUENT = re.compile(
+    r"\s*(?:then\s+)?(?:the|such|any)\s+"
+    r"(?:remainder|excess|balance|"
+    r"unused\s+(?:portion|amount|balance|credit|deduction))"
+    r"(?:\s+of\s+(?:the|such)\s+"
+    r"(?:credit|deduction|subtraction|amount|contribution|payment))?"
+    r"\s+may\s+be\s+carried\s+(?:forward|over)"
+    r"(?:\s+and\s+(?:subtracted|deducted|claimed|applied|used|taken))?"
+    r"(?:\s+(?:in|to|into|for)\s+(?:the\s+)?"
+    r"(?:future|succeeding|subsequent|following)\s+taxable\s+years?)?"
+    r"(?:\s+until\s+(?:(?:the|such)\s+"
+    r"(?:(?!(?:and|nor|who|whom|whose|which|that|if|when|unless|except|"
+    r"provided|until|while)\b)[\w'’$,.-]+\s+){1,10}?"
+    r"(?:has|have)\s+been\s+)?"
+    r"(?:fully|completely|entirely)\s+"
+    r"(?:deducted|used|claimed|applied|subtracted|exhausted|recovered))?"
+    r"\s*[;.]?\s*",
+    flags=re.IGNORECASE,
+)
+
+
+def _carryforward_consequent_antecedent(body: str) -> str | None:
+    """Return the antecedent before a closed carryforward consequent, if any.
+
+    In ``If X exceeds $ 4,000, the remainder may be carried forward and
+    subtracted ... until ... has been fully deducted`` the consequent says what
+    happens to an amount, and its ``and`` joins effects (#1832). The consequent
+    must match the closed grammar through the end of the body, so a further
+    condition, a relative clause or a factual ``until`` keeps the whole body.
+    Each top-level comma costs one anchored match.
+    """
+
+    depth = 0
+    quote: str | None = None
+    commas: list[int] = []
+    for index, character in enumerate(body):
+        if quote is not None:
+            if character == quote:
+                quote = None
+        elif character in {'"', "“"}:
+            quote = '"' if character == '"' else "”"
+        elif character == "”":
+            return None
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            if depth == 0:
+                return None
+            depth -= 1
+        elif (
+            character == ","
+            and depth == 0
+            and not (
+                0 < index < len(body) - 1
+                and body[index - 1].isdigit()
+                and body[index + 1].isdigit()
+            )
+        ):
+            commas.append(index)
+    if quote is not None or depth:
+        return None
+    for index in commas:
+        if body[:index].strip() and _CARRYFORWARD_CONSEQUENT.fullmatch(body, index + 1):
+            return body[:index]
+    return None
+
+
+def _source_gate_segment_gates(
+    segments: Sequence[tuple[str | None, str]],
+    *,
+    care_source_text: str,
+) -> list[tuple[frozenset[str], frozenset[str]] | None]:
+    """Return each conjunctive segment's entity/predicate gate, or None."""
+
+    gates: list[tuple[frozenset[str], frozenset[str]] | None] = []
     inherited_entities: frozenset[str] = frozenset()
     for connector, segment in segments:
         if re.search(
@@ -17582,10 +17681,11 @@ def _source_conjunctive_fact_gates(
             segment,
             flags=re.IGNORECASE,
         ):
+            gates.append(None)
             continue
         tokens = _source_gate_semantic_tokens(
             segment,
-            care_source_text=text if care_source_text is None else care_source_text,
+            care_source_text=care_source_text,
         )
         if (
             connector == "and"
@@ -17613,6 +17713,7 @@ def _source_conjunctive_fact_gates(
         )
         predicates = tokens - _SOURCE_GATE_ENTITIES - _SOURCE_GATE_SUBJECT_PRONOUNS
         if not predicates:
+            gates.append(None)
             continue
         if not (
             _SOURCE_GATE_PREDICATE_LANGUAGE.search(segment)
@@ -17628,9 +17729,10 @@ def _source_conjunctive_fact_gates(
                 | _SOURCE_GATE_UNKNOWN_POLARITY_PREDICATES
             )
         ):
+            gates.append(None)
             continue
         gates.append((entities, predicates))
-    return tuple(gates) if len(gates) >= 2 else ()
+    return gates
 
 
 def _source_conjunctive_fact_gate_count(text: str) -> int:

@@ -53,4 +53,7 @@ The subdivision clause-cue mask (#1831) removes Virginia's numeric demand for
 7, which came only from `this subdivision 7 if such payments ...`; the
 `subdivision B 10 of § 58.1-301 related to ...` locator goes too, while the
 operative `10 percent of the recognized gain` keeps the value 10 demanded.
-The direct Virginia replay reports 115 diagnostics.
+The carryforward consequent in subdivision 7 a (#1832) no longer splits into
+a second condition, which removes the `source-explicit-conditions` diagnostic
+for `college_savings_account_carryforward`. The direct Virginia replay
+reports 114 diagnostics.
