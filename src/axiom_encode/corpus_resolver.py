@@ -15,7 +15,7 @@ import stat
 import sys
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
-from itertools import islice
+from itertools import accumulate, islice
 from pathlib import Path
 from types import MappingProxyType
 from typing import AbstractSet, Any, Literal
@@ -1486,11 +1486,24 @@ def _compose_descendant_text(
             tuple(record.row for record in ambiguous),
         )
     if not any(record.body is not None for record in records):
+        # A part heading has no row under its path, as in the leaf branch of
+        # `visit` below. Every record's ancestor paths, collected once, keep
+        # this linear in the number of records.
+        paths_with_descendants = {
+            ancestor
+            for record in records
+            for ancestor in accumulate(
+                record.row.citation_path.split("/")[:-1],
+                lambda parent, segment: f"{parent}/{segment}",
+            )
+        }
         part_heading = next(
             (
                 record
                 for record in records
-                if record.status != "repealed" and _is_part_heading_row(record)
+                if record.status != "repealed"
+                and record.row.citation_path not in paths_with_descendants
+                and _is_part_heading_row(record)
             ),
             None,
         )

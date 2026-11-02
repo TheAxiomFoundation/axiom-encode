@@ -200,6 +200,41 @@ def test_textless_leaf_keeps_mains_refusal(tmp_path, heading):
         resolve_local_corpus_source(ROOT, release)
 
 
+@pytest.mark.parametrize("root_heading", [None, "8 CCR 1403-1"])
+def test_heading_container_over_bodyless_children_keeps_mains_refusal(
+    tmp_path, root_heading
+):
+    """A heading row with a row under it is a container, not a part heading.
+
+    In a tree with no bodies at all, main's message stands: the review's
+    reproduction for the precheck (#2035 delta review, N1).
+    """
+
+    root = {"citation_path": ROOT, "body": None}
+    if root_heading is not None:
+        root["heading"] = root_heading
+    release = _bind(
+        tmp_path,
+        [
+            root,
+            {
+                "citation_path": f"{ROOT}/3.100",
+                "body": None,
+                "heading": "3.100 PART A",
+                "ordinal": 1,
+            },
+            {"citation_path": f"{ROOT}/3.100/a", "body": None, "ordinal": 1},
+        ],
+    )
+
+    with pytest.raises(InvalidActiveCorpusSourceError) as raised:
+        resolve_local_corpus_source(ROOT, release)
+
+    assert str(raised.value) == (
+        f"Active corpus source {ROOT!r} has no body-bearing descendants"
+    )
+
+
 def test_heading_only_container_still_composes_from_its_children(tmp_path):
     release = _bind(
         tmp_path,
