@@ -16335,15 +16335,15 @@ def _assert_compound_scanning_skips_parser(monkeypatch):
     parse = validator_pipeline._parse_hebrew_number_run
     remaining_words = []
 
-    def counted_parse(words, index, *args, **kwargs):
+    def counted_parse(words, start=0, *args, **kwargs):
         if remaining_words:
             # These prose and standalone-teen heads cannot begin a number.
             # Charge the words each call could read: parsing from every start
             # reads the rest of the run each time, while a bounded call per
             # word stays within the text's own word count.
-            remaining_words[-1] -= len(words) - index
+            remaining_words[-1] -= len(words) - start
             assert remaining_words[-1] >= 0, "compound parser read past the text"
-        return parse(words, index, *args, **kwargs)
+        return parse(words, start, *args, **kwargs)
 
     def counted_compound(text):
         remaining_words.append(len(text.split()))
@@ -27350,24 +27350,24 @@ def test_rulespec_proof_parent_resolution_is_bounded_for_repeated_lists(monkeypa
                 )
             return super().rfind(needle, start, len(self) if end is None else end)
 
-    def counted_finditer(pattern, text, start=0, end=None):
+    def counted_finditer(pattern, text, pos=0, endpos=None):
         nonlocal streams, scanned_characters
-        end = len(text) if end is None else min(end, len(text))
+        endpos = len(text) if endpos is None else min(endpos, len(text))
         streams += 1
-        scanned_characters += max(0, end - start)
+        scanned_characters += max(0, endpos - pos)
         # The resolver builds three ordered structural streams once. Count
         # their actual scan spans: rebuilding prefix streams does its costly
         # work inside C, beyond a Python predicate-call counter.
         assert streams <= 3, streams
         assert scanned_characters <= scan_limit, (scanned_characters, scan_limit)
-        return pattern.finditer(text, start, end)
+        return pattern.finditer(text, pos, endpos)
 
     class CountedPattern:
         def __init__(self, pattern):
             self.pattern = pattern
 
-        def finditer(self, text, start=0, end=None):
-            return counted_finditer(self.pattern, text, start, end)
+        def finditer(self, string, pos=0, endpos=None):
+            return counted_finditer(self.pattern, string, pos, endpos)
 
         def __getattr__(self, name):
             return getattr(self.pattern, name)
