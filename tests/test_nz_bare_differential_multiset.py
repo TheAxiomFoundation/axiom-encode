@@ -123,11 +123,53 @@ def test_dropped_equal_branch_is_not_certified_by_its_surviving_twin():
     assert not removed[0]["evidence"]["structural_artifact"]
 
 
+def test_dropped_twin_evidence_sees_new_gates_without_its_twin(monkeypatch):
+    """Pins the `new_gates` override, not only the `replacements` filter.
+
+    Cross-gate checks in `structural_removal_evidence` read
+    ``new_gates[gate]``, so the surviving twin must be absent there too. A
+    removal with no surviving twin gets the unmodified new gates.
+    """
+
+    outline, pool, clause = _branch_pool()
+    twin = pool[1]
+    old = _gates(branches=(twin, copy.deepcopy(twin), pool[2]), clauses=(clause,))
+    survivor = copy.deepcopy(twin)
+    new = _gates(branches=(survivor, copy.deepcopy(pool[0])), clauses=(clause,))
+    seen = []
+    real = AUDIT.structural_removal_evidence
+
+    def spy(removed, replacements, clauses, text, outline, gate, **kwargs):
+        seen.append((removed, replacements, kwargs["new_gates"]))
+        return real(removed, replacements, clauses, text, outline, gate, **kwargs)
+
+    monkeypatch.setattr(AUDIT, "structural_removal_evidence", spy)
+
+    AUDIT.compare_gates(old, new, _BRANCH_SOURCE, outline)
+
+    by_label = {
+        removed.label: (replacements, gates) for removed, replacements, gates in seen
+    }
+    assert set(by_label) == {"(b)", "(c)"}
+    twin_replacements, twin_gates = by_label["(b)"]
+    assert survivor not in twin_replacements
+    assert survivor not in twin_gates["branches"]
+    assert twin_gates["clauses"] == new["clauses"]
+    _replacements, plain_gates = by_label["(c)"]
+    assert plain_gates is new
+
+
 # --- differential against main's dictionary comparison --------------------------
 
 
 def _legacy_compare_gates(old, new, text, outline):
-    """main's compare_gates, verbatim apart from the name."""
+    """main's dictionary comparison, for items without a ``requirement``.
+
+    The body is main's `compare_gates` apart from the name. `_gate_key` puts
+    ``None`` where main's key has the requirement tuple, so this matches main
+    only for items without ``requirement``, which are the only items the
+    property below generates.
+    """
 
     changes = {}
     key = _gate_key
