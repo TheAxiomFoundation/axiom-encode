@@ -13,6 +13,7 @@ from hypothesis import strategies as st
 
 from axiom_encode.harness import hebrew_source_text as hebrew
 from axiom_encode.harness import source_completeness as completeness
+from tests.hebrew_gate import open_hebrew_gate
 from tests.test_source_completeness_hebrew_rendering_audit import _route_accepted
 
 
@@ -162,11 +163,13 @@ def test_every_hebrew_block_or_nfkc_preimage_refuses_each_english_route(
     for code in HEBREW_ROUTE_CODEPOINTS:
         marked_reason = reason + " " + chr(code) if position == "reason" else reason
         marked_source = source + " " + chr(code) if position == "source" else source
-        assert not read(marked_reason, marked_source, **kwargs), (
-            name,
-            position,
-            f"U+{code:04X}",
-        )
+        # The Hebrew code point opens the gate for its candidate.
+        with open_hebrew_gate():
+            assert not read(marked_reason, marked_source, **kwargs), (
+                name,
+                position,
+                f"U+{code:04X}",
+            )
 
 
 @pytest.mark.parametrize("name,read,reason,source,kwargs", _ROUTE_CASES)

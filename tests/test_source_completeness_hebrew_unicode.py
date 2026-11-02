@@ -18,6 +18,7 @@ import yaml
 from axiom_encode.harness import _unicode_default_ignorables as unicode_data
 from axiom_encode.harness import hebrew_negators
 from axiom_encode.harness import hebrew_source_text as hebrew
+from tests.hebrew_gate import open_hebrew_gate
 
 _SPEC = importlib.util.spec_from_file_location(
     "_hebrew_unicode_cases",
@@ -278,9 +279,11 @@ def test_every_invisible_reaches_the_integrated_reason_source_and_outline_guards
         content, cases.REVIEW_SOURCE
     )
     marked_source = "(א" + mark + ") הוראה."
-    branches = cases.recognize_source_structure(
-        marked_source, corpus_citation_path=cases.CITATION
-    )
+    # A direct call reads Hebrew behind the gate this Hebrew source opens.
+    with open_hebrew_gate():
+        branches = cases.recognize_source_structure(
+            marked_source, corpus_citation_path=cases.CITATION
+        )
     assert [(branch.path, branch.label) for branch in branches] == [(("a",), "(א)")]
     assert all(
         marked_source[branch.start : branch.end].strip() == branch.text
@@ -311,12 +314,15 @@ def test_the_reviewers_35_marked_offset_pairs_preserve_paths_slices_and_issues(
         return "".join(char + (mark if "א" <= char <= "ת" else "") for char in text)
 
     marked_source, marked_reason = marked(source), marked(reason)
-    plain = cases.recognize_source_structure(
-        source, corpus_citation_path=cases.CITATION
-    )
-    branches = cases.recognize_source_structure(
-        marked_source, corpus_citation_path=cases.CITATION
-    )
+    # Direct calls read Hebrew behind the gate these Hebrew sources open.
+    with open_hebrew_gate():
+        plain = cases.recognize_source_structure(
+            source, corpus_citation_path=cases.CITATION
+        )
+        branches = cases.recognize_source_structure(
+            marked_source, corpus_citation_path=cases.CITATION
+        )
+    assert plain
     assert [(item.path, item.label) for item in branches] == [
         (item.path, item.label) for item in plain
     ]
@@ -390,12 +396,14 @@ def test_visible_pairs_compose_with_joint_offsets_and_original_slices(char):
     for offset, folded_char in enumerate(view.text):
         piece = original[view.original_start(offset) : view.original_end(offset + 1)]
         assert hebrew.FoldedText(piece, force=True).text == folded_char
-    raw_branches = cases.recognize_source_structure(
-        raw, corpus_citation_path=cases.CITATION
-    )
-    branches = cases.recognize_source_structure(
-        original, corpus_citation_path=cases.CITATION
-    )
+    with open_hebrew_gate():
+        raw_branches = cases.recognize_source_structure(
+            raw, corpus_citation_path=cases.CITATION
+        )
+        branches = cases.recognize_source_structure(
+            original, corpus_citation_path=cases.CITATION
+        )
+    assert raw_branches
     assert [(branch.path, branch.label) for branch in branches] == [
         (branch.path, branch.label) for branch in raw_branches
     ]
