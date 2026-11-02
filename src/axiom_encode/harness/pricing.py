@@ -130,6 +130,34 @@ def estimate_usage_cost_usd(model: str, usage: TokenUsage | None) -> float | Non
     return breakdown.total_cost_usd
 
 
+# Anthropic bills a refusal that arrives before any output by its
+# ``stop_details.category``: these are billed, these are free, and so is a null
+# category. A refusal after some output bills the input and that output at
+# normal rates. Read on 2026-10-05 from the "Billed before any output" column
+# at https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback,
+# which says the billed list may change, so a category it did not list has an
+# unknown bill.
+ANTHROPIC_BILLED_PRE_OUTPUT_REFUSAL_CATEGORIES = frozenset(
+    {"bio", "frontier_llm", "reasoning_extraction"}
+)
+ANTHROPIC_FREE_PRE_OUTPUT_REFUSAL_CATEGORIES = frozenset({"cyber", "general_harms"})
+
+
+def anthropic_refusal_is_billed(
+    category: str | None, output_tokens: int
+) -> bool | None:
+    """Whether Anthropic bills a refusal with this category and output count.
+
+    None for a refusal before any output in a category the vendor table did
+    not list, whose bill is unknown.
+    """
+    if output_tokens > 0 or category in ANTHROPIC_BILLED_PRE_OUTPUT_REFUSAL_CATEGORIES:
+        return True
+    if category is None or category in ANTHROPIC_FREE_PRE_OUTPUT_REFUSAL_CATEGORIES:
+        return False
+    return None
+
+
 def estimate_usage_cost_breakdown(
     model: str,
     usage: TokenUsage | None,
@@ -147,6 +175,10 @@ def estimate_usage_cost_breakdown(
 
     pricing = get_model_pricing(model)
     if pricing is None:
+        return None
+    if pricing.source_url and pricing.source_url.startswith("UNVERIFIED:"):
+        # Keep provisional rates inspectable without promoting an unverified
+        # proxy into cost telemetry. Aggregate usage does not verify pricing.
         return None
     if (
         enforce_context_tier

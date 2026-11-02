@@ -26,6 +26,7 @@ _CALLABLES = frozenset(
         "max",
         "max_over_periods",
         "min",
+        "only_related",
         "sum",
         "sum_over_periods",
         "sum_top_n_over_periods",
@@ -102,7 +103,7 @@ def _period_references(formula: str, *, judgment: bool | None) -> set[str]:
                 walk(node.func, True)
             # Relation names, predicate arguments and selected relation fields
             # are references, not scalar expressions in the Rust lowerer.
-            named_arguments = {"len", "sum", "count_where", "sum_where"}
+            named_arguments = {"len", "sum", "count_where", "sum_where", "only_related"}
             argument_judgment = (
                 name == "exactly_one"
                 or name in named_arguments

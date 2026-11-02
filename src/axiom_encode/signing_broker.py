@@ -22,7 +22,10 @@ from base64 import b64decode, b64encode
 from binascii import Error as BinasciiError
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Final, Protocol
+from typing import TYPE_CHECKING, Any, Final, Protocol
+
+if TYPE_CHECKING:
+    from axiom_encode.retired_apply import RetiredApplyInventory
 
 LEGACY_APPLY_SIGNING_KEY_ENV: Final = "AXIOM_ENCODE_APPLY_SIGNING_KEY"
 APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV: Final = "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY"
@@ -63,7 +66,6 @@ _EXPLICIT_SUBPROCESS_ENV_NAMES: Final = frozenset(
     }
 )
 _trusted_subprocess_base_environment: dict[str, str] | None = None
-_trusted_codex_home: str | None = None
 
 
 def canonical_signing_message(scope: str, payload: bytes) -> bytes:
@@ -90,6 +92,12 @@ class SigningBroker(Protocol):
     def apply_public_key_raw(self) -> bytes | None: ...
 
     @property
+    def retired_apply_public_keys_raw(self) -> tuple[bytes, ...]: ...
+
+    @property
+    def retired_apply_inventory(self) -> RetiredApplyInventory | None: ...
+
+    @property
     def eval_public_key_raw(self) -> bytes | None: ...
 
     @property
@@ -112,12 +120,12 @@ class BrokerStatus:
     eval_public_key_raw: bytes | None
     corpus_release_public_key_raw: bytes | None
     corpus_release_public_keys_raw: tuple[bytes, ...]
+    retired_apply_public_keys_raw: tuple[bytes, ...] = ()
+    retired_apply_inventory: RetiredApplyInventory | None = None
 
 
 def scrub_private_signing_environment(
     environment: Mapping[str, str] | None = None,
-    *,
-    include_supervisor_codex_home: bool = False,
 ) -> dict[str, str]:
     """Build the purpose-minimal environment allowed for untrusted children.
 
@@ -149,9 +157,6 @@ def scrub_private_signing_environment(
         for name, value in environment.items():
             if name in _EXPLICIT_SUBPROCESS_ENV_NAMES:
                 clean[name] = value
-    if include_supervisor_codex_home:
-        if _trusted_codex_home:
-            clean["CODEX_HOME"] = _trusted_codex_home
     return clean
 
 
@@ -193,7 +198,13 @@ class SigningBrokerClient:
             "corpus_release_public_key",
         }
         status_fields = set(status)
-        if status_fields not in {
+        retired_status_fields = {"retired_apply_public_keys", "retired_apply_inventory"}
+        has_retired_status = bool(status_fields & retired_status_fields)
+        if has_retired_status and not retired_status_fields <= status_fields:
+            raise SigningBrokerError(
+                "Signing broker returned incomplete retired apply trust"
+            )
+        if status_fields - retired_status_fields not in {
             frozenset(legacy_status_fields),
             frozenset({*legacy_status_fields, "corpus_release_public_keys"}),
         }:
@@ -259,12 +270,42 @@ class SigningBrokerClient:
                 "Signing broker must expose distinct protected apply, eval, and "
                 "corpus release trust roots"
             )
+        retired_apply_public_keys_raw: tuple[bytes, ...] = ()
+        retired_apply_inventory: RetiredApplyInventory | None = None
+        if has_retired_status:
+            encoded_retired = status["retired_apply_public_keys"]
+            if not isinstance(encoded_retired, list) or not encoded_retired:
+                raise SigningBrokerError(
+                    "Signing broker returned malformed retired apply roots"
+                )
+            retired_apply_public_keys_raw = tuple(
+                self._decode_required_status_public_key(value, label="retired apply")
+                for value in encoded_retired
+            )
+            for public_key in retired_apply_public_keys_raw:
+                if public_key in protected_roots:
+                    raise SigningBrokerError(
+                        "Signing broker returned conflicting retired apply roots"
+                    )
+                protected_roots.add(public_key)
+            from axiom_encode.retired_apply import RetiredApplyInventory
+
+            try:
+                retired_apply_inventory = RetiredApplyInventory(
+                    status["retired_apply_inventory"]
+                )
+            except ValueError as exc:
+                raise SigningBrokerError(
+                    "Signing broker returned malformed retired apply inventory"
+                ) from exc
         self._status = BrokerStatus(
             frozenset(raw_capabilities),
             apply_public_key_raw,
             eval_public_key_raw,
             corpus_release_public_key_raw,
             corpus_release_public_keys_raw,
+            retired_apply_public_keys_raw,
+            retired_apply_inventory,
         )
 
     @staticmethod
@@ -312,6 +353,14 @@ class SigningBrokerClient:
     @property
     def apply_public_key_raw(self) -> bytes | None:
         return self._status.apply_public_key_raw
+
+    @property
+    def retired_apply_public_keys_raw(self) -> tuple[bytes, ...]:
+        return self._status.retired_apply_public_keys_raw
+
+    @property
+    def retired_apply_inventory(self) -> RetiredApplyInventory | None:
+        return self._status.retired_apply_inventory
 
     @property
     def eval_public_key_raw(self) -> bytes | None:
@@ -508,13 +557,12 @@ def attach_signing_broker_from_environment() -> SigningBrokerClient | None:
         broker_pid=broker_pid,
     )
     install_signing_broker(client, broker_pid=broker_pid)
-    global _trusted_codex_home, _trusted_subprocess_base_environment
+    global _trusted_subprocess_base_environment
     _trusted_subprocess_base_environment = {
         name: os.environ[name]
         for name in _TRUSTED_SUBPROCESS_BASE_NAMES
         if name in os.environ
     }
-    _trusted_codex_home = os.environ.get("CODEX_HOME")
     atexit.register(_close_active_production_broker)
     return client
 

@@ -31,6 +31,7 @@ from axiom_encode.legacy_replacement import (
     legacy_v1_manifest_issues,
     receipt_identity_payload,
     receipt_identity_sha256,
+    source_bound_dependent_proof_imports,
 )
 from axiom_encode.legacy_replacement_overlay import (
     LegacyReplacementOverlayError,
@@ -39,6 +40,47 @@ from axiom_encode.legacy_replacement_overlay import (
     stage_legacy_replacement_overlay,
 )
 from axiom_encode.rulespec_path_migration import PlannedMove
+
+
+def test_source_bound_dependent_requires_own_source_and_exact_primary_proof() -> None:
+    primary = Path("us-az/policies/des/faa5/expanded-categorical-eligibility.yaml")
+    target = "us-az:policies/des/faa5/expanded-categorical-eligibility#limit"
+    digest = "a" * 64
+    source = "us-az/manual/des/faa5/na-categorical-eligibility/block-5"
+    body = (
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        f"    corpus_citation_path: {source}\n"
+        "imports:\n"
+        f"  - {target}\n"
+        "rules:\n"
+        "  - name: benefit_limit\n"
+        "    metadata:\n"
+        "      proof:\n"
+        "        atoms:\n"
+        "          - kind: import\n"
+        "            import:\n"
+        f"              target: {target}\n"
+        f"              hash: sha256:{digest}\n"
+    ).encode()
+    assert source_bound_dependent_proof_imports(
+        body, primary=primary, primary_sha256=digest, source_citation=source
+    ) == (target,)
+    with pytest.raises(ValueError, match="proof hash differs"):
+        source_bound_dependent_proof_imports(
+            body.replace(digest.encode(), ("b" * 64).encode()),
+            primary=primary,
+            primary_sha256=digest,
+            source_citation=source,
+        )
+    with pytest.raises(ValueError, match="source citation differs"):
+        source_bound_dependent_proof_imports(
+            body,
+            primary=primary,
+            primary_sha256=digest,
+            source_citation=source + "-other",
+        )
 
 
 def test_canonical_replacement_overlay_omits_only_active_colon_paths(tmp_path) -> None:
@@ -322,6 +364,55 @@ def test_generated_manifest_admits_exact_checkout_relative_scope() -> None:
         for item in payload["applied_files"]
     ]
     assert _generated_manifest_issues(payload) == []
+
+
+def test_historical_module_citation_is_admitted_only_for_in_place_replacement() -> None:
+    payload = _generated_manifest()
+    payload["citation"] = "statutes/42/1437c–1"
+    expected_files = {
+        "us/statutes/42/1437c–1.yaml": "a" * 64,
+        "us/statutes/42/1437c–1.test.yaml": "b" * 64,
+    }
+    kwargs = {
+        "expected_files": expected_files,
+        "expected_primary_path": "us/statutes/42/1437c–1.yaml",
+        "expected_citation": "us/statute/42/1437c–1",
+        "jurisdiction_prefix": "us",
+    }
+    assert any(
+        "citation is stale" in issue
+        for issue in legacy_v1_manifest_issues(payload, **kwargs)
+    )
+    assert (
+        legacy_v1_manifest_issues(
+            payload, **kwargs, allow_in_place_module_citation=True
+        )
+        == []
+    )
+    assert (
+        legacy_receipt_v1_manifest_issues(
+            payload,
+            owner_class="v1-hmac-untrusted",
+            **kwargs,
+            allow_in_place_module_citation=True,
+        )
+        == []
+    )
+    payload["citation"] = "statutes/42/another-module"
+    assert any(
+        "citation is stale" in issue
+        for issue in legacy_v1_manifest_issues(
+            payload, **kwargs, allow_in_place_module_citation=True
+        )
+    )
+    for malformed in ([], {}):
+        payload["citation"] = malformed
+        assert any(
+            "citation is stale" in issue
+            for issue in legacy_v1_manifest_issues(
+                payload, **kwargs, allow_in_place_module_citation=True
+            )
+        )
 
 
 @pytest.mark.parametrize(
@@ -870,35 +961,113 @@ def test_contract_admits_cryptographically_verified_retained_successor(
     ]
 
 
-def test_destination_manifest_claimant_scan_is_one_conservative_base_query(
+@pytest.mark.parametrize("encoding", ["literal", "slashes", "unicode"])
+@pytest.mark.parametrize("relative_path", [True, False])
+def test_destination_manifest_claimant_scan_decodes_all_base_json(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    encoding: str,
+    relative_path: bool,
 ) -> None:
-    base_commit = "a" * 40
+    checkout, _, _ = _generated_unicode_checkout(tmp_path)
     claimant = Path(".axiom/encoding-manifests/us/statutes/claimant.json")
-    commands: list[list[str]] = []
+    path = "us/statutes/42/1437c-1.yaml"
+    if relative_path:
+        path = path.removeprefix("us/")
+    raw = json.dumps({"applied_files": [{"path": path}]})
+    if encoding == "slashes":
+        raw = raw.replace("/", r"\/")
+    elif encoding == "unicode":
+        raw = raw.replace("s", r"\u0073").replace("4", r"\u0034")
+    (checkout / claimant).write_text(raw)
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "encoded ownership")
+    base_commit = subprocess.check_output(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+    ).strip()
+    # Only the immutable base matters, even if a live file drops its claim.
+    (checkout / claimant).write_text("{}")
+    assert _legacy_destination_manifest_claimants_at_base(
+        checkout,
+        base_commit=base_commit,
+        destination_paths={Path("us/statutes/42/1437c-1.yaml")},
+    ) == [claimant]
 
-    def run(command, **_kwargs):
-        commands.append(command)
-        return subprocess.CompletedProcess(
-            command,
-            0,
-            stdout=f"{base_commit}:{claimant.as_posix()}\0".encode(),
-            stderr=b"",
+
+@pytest.mark.parametrize("raw", ["{", "[]", '{"path":"a","path":"b"}'])
+def test_destination_manifest_claimant_scan_fails_closed_on_unreadable_json(
+    tmp_path: Path,
+    raw: str,
+) -> None:
+    checkout, _, _ = _generated_unicode_checkout(tmp_path)
+    claimant = checkout / ".axiom/encoding-manifests/us/statutes/unrelated.json"
+    claimant.write_text(raw)
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "unreadable ownership")
+    with pytest.raises(RuntimeError, match="manifest is unreadable"):
+        _legacy_destination_manifest_claimants_at_base(
+            checkout,
+            base_commit=subprocess.check_output(
+                ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+            ).strip(),
+            destination_paths={Path("us/statutes/42/1437c-1.yaml")},
         )
 
-    monkeypatch.setattr("axiom_encode.cli.subprocess.run", run)
 
+@pytest.mark.parametrize("name", ["README.md", ".gitkeep"])
+def test_destination_manifest_claimant_scan_ignores_regular_non_json(
+    tmp_path: Path,
+    name: str,
+) -> None:
+    checkout, _, _ = _generated_unicode_checkout(tmp_path)
+    extra = checkout / ".axiom/encoding-manifests" / name
+    extra.write_text("us/statutes/42/1437c-1.yaml")
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "non-manifest documentation")
+    base = subprocess.check_output(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+    ).strip()
+    assert (
+        _legacy_destination_manifest_claimants_at_base(
+            checkout,
+            base_commit=base,
+            destination_paths={Path("us/statutes/42/1437c-1.yaml")},
+        )
+        == []
+    )
+
+
+def test_destination_manifest_claimant_scan_decodes_json_keys(tmp_path: Path) -> None:
+    checkout, _, _ = _generated_unicode_checkout(tmp_path)
+    claimant = Path(".axiom/encoding-manifests/us/statutes/claimant.json")
+    (checkout / claimant).write_text(
+        json.dumps({"us/statutes/42/1437c-1.yaml": {}}).replace("/", r"\/")
+    )
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "escaped key ownership")
+    base = subprocess.check_output(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+    ).strip()
     assert _legacy_destination_manifest_claimants_at_base(
-        tmp_path,
-        base_commit=base_commit,
-        destination_paths={
-            Path("us/statutes/42/1437c-1.yaml"),
-            Path("us/statutes/42/1437c-1.test.yaml"),
-        },
+        checkout,
+        base_commit=base,
+        destination_paths={Path("us/statutes/42/1437c-1.yaml")},
     ) == [claimant]
-    assert len(commands) == 1
-    assert commands[0][3:9] == ["grep", "-z", "-l", "-a", "-F", "-e"]
+
+
+def test_destination_manifest_claimant_scan_rejects_symlink(tmp_path: Path) -> None:
+    checkout, _, _ = _generated_unicode_checkout(tmp_path)
+    claimant = checkout / ".axiom/encoding-manifests/us/statutes/claimant.json"
+    claimant.symlink_to("missing.json")
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "symlink ownership")
+    with pytest.raises(RuntimeError, match="unsafe entry"):
+        _legacy_destination_manifest_claimants_at_base(
+            checkout,
+            base_commit=subprocess.check_output(
+                ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+            ).strip(),
+            destination_paths={Path("us/statutes/42/1437c-1.yaml")},
+        )
 
 
 @pytest.mark.parametrize(
@@ -989,7 +1158,7 @@ def test_canonical_destination_predecessor_rejects_malformed_manifest_candidate(
 
     with (
         patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source),
-        pytest.raises(ValueError, match="already manifest-owned"),
+        pytest.raises(ValueError, match="ownership is unreadable"),
     ):
         _resolve_legacy_replacement_contract(
             source_raw=Path("us/statutes/42/1437c–1.yaml"),
@@ -1167,9 +1336,12 @@ def test_contract_rejects_generated_v1_with_wrong_citation(tmp_path: Path) -> No
 
 def _in_place_legacy_checkout(
     tmp_path: Path,
+    *,
+    jurisdiction: str = "us-me",
+    jurisdiction_manifest: bool = False,
 ) -> tuple[Path, Path, SimpleNamespace]:
     checkout = tmp_path / "rulespec-us"
-    content_root = checkout / "us-me"
+    content_root = checkout / jurisdiction
     primary = content_root / "policies/income_tax/pilot_liability_pipeline.yaml"
     companion = primary.with_name("pilot_liability_pipeline.test.yaml")
     primary.parent.mkdir(parents=True)
@@ -1178,8 +1350,8 @@ def _in_place_legacy_checkout(
         "module:\n"
         "  source_verification:\n"
         "    corpus_citation_paths:\n"
-        "      - us-me/guidance/revenue/rate-schedule\n"
-        "      - us-me/statute/36/5111\n"
+        f"      - {jurisdiction}/guidance/revenue/rate-schedule\n"
+        f"      - {jurisdiction}/statute/36/5111\n"
         "rules: []\n"
     )
     companion.write_text("[]\n")
@@ -1191,8 +1363,11 @@ def _in_place_legacy_checkout(
             companion.read_bytes()
         ).hexdigest(),
     }
+    manifest_root = content_root if jurisdiction_manifest else checkout
+    manifest_suffix = "" if jurisdiction_manifest else f"{jurisdiction}/"
     manifest = (
-        checkout / ".axiom/encoding-manifests/us-me/policies/income_tax/"
+        manifest_root
+        / f".axiom/encoding-manifests/{manifest_suffix}policies/income_tax/"
         "pilot_liability_pipeline.json"
     )
     manifest.parent.mkdir(parents=True)
@@ -1208,12 +1383,60 @@ def _in_place_legacy_checkout(
     _git(checkout, "add", ".")
     _git(checkout, "commit", "-qm", "base")
     source = SimpleNamespace(
-        requested="us-me/guidance/revenue/rate-schedule",
-        citation_path="us-me/guidance/revenue/rate-schedule",
+        requested=f"{jurisdiction}/guidance/revenue/rate-schedule",
+        citation_path=f"{jurisdiction}/guidance/revenue/rate-schedule",
         body="official schedule",
         resolved_source=object(),
     )
     return checkout, content_root, source
+
+
+def test_in_place_contract_admits_one_distinct_source_bound_proof_import(
+    tmp_path: Path,
+) -> None:
+    checkout, content_root, source = _in_place_legacy_checkout(tmp_path)
+    primary = Path("us-me/policies/income_tax/pilot_liability_pipeline.yaml")
+    dependent = Path("us-me/policies/income_tax/pilot_benefit.yaml")
+    target = "us-me:policies/income_tax/pilot_liability_pipeline#rate"
+    source_citation = "us-me/guidance/revenue/pilot-benefit"
+    digest = hashlib.sha256((checkout / primary).read_bytes()).hexdigest()
+    path = checkout / dependent
+    path.write_text(
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        f"    corpus_citation_path: {source_citation}\n"
+        "imports:\n"
+        f"  - {target}\n"
+        "rules:\n"
+        "  - name: benefit\n"
+        "    metadata:\n"
+        "      proof:\n"
+        "        atoms:\n"
+        "          - kind: import\n"
+        "            import:\n"
+        f"              target: {target}\n"
+        f"              hash: sha256:{digest}\n"
+    )
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "source-bound dependent")
+    with patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source):
+        contract = _resolve_legacy_replacement_contract(
+            source_raw=primary,
+            destination_raw=primary,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source,
+            corpus_release=SimpleNamespace(),
+            scheduled_dependent_paths=(dependent,),
+        )
+    assert len(contract.scheduled_dependents) == 1
+    scheduled = contract.scheduled_dependents[0]
+    assert scheduled.primary == dependent
+    assert scheduled.source_citation == source_citation
+    assert len(scheduled.files) == 1
+    assert scheduled.files[0].path == dependent
+    assert scheduled.files[0].replacements == ()
 
 
 def test_contract_binds_in_place_plural_source_and_unmarked_v1(
@@ -1241,6 +1464,128 @@ def test_contract_binds_in_place_plural_source_and_unmarked_v1(
     ]
 
 
+def test_arizona_in_place_historical_owner_layout_binds_contract_and_receipt(
+    tmp_path: Path,
+) -> None:
+    checkout, content_root, source = _in_place_legacy_checkout(
+        tmp_path, jurisdiction="us-az", jurisdiction_manifest=True
+    )
+    primary = Path("us-az/policies/income_tax/pilot_liability_pipeline.yaml")
+    historical_owner = Path(
+        "us-az/.axiom/encoding-manifests/policies/income_tax/"
+        "pilot_liability_pipeline.json"
+    )
+    model_owner = Path(
+        ".axiom/encoding-manifests/us-az/policies/income_tax/"
+        "pilot_liability_pipeline.json"
+    )
+    with patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source):
+        contract = _resolve_legacy_replacement_contract(
+            source_raw=primary,
+            destination_raw=primary,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source,
+            corpus_release=SimpleNamespace(),
+        )
+    assert contract.legacy_manifest.path == historical_owner
+    assert not (checkout / model_owner).exists()
+    legacy = {
+        "owner_class": "v1-manual-hmac-untrusted",
+        "trusted_generated_provenance": False,
+        "manifest": {
+            "path": historical_owner.as_posix(),
+            "sha256": contract.legacy_manifest.sha256,
+        },
+        "files": [
+            {"path": item.path.as_posix(), "sha256": item.sha256}
+            for item in contract.deleted_files
+        ],
+    }
+    replacement = {
+        "source": primary.as_posix(),
+        "destination": primary.as_posix(),
+        "model_manifest_path": model_owner.as_posix(),
+    }
+    replacements, issues = _legacy_replacement_authoritative_map(
+        checkout,
+        base_commit=contract.base_commit,
+        manifest_label=model_owner.as_posix(),
+        legacy=legacy,
+        replacement=replacement,
+    )
+    assert issues == []
+    assert replacements is not None
+
+    legacy["manifest"] = {**legacy["manifest"], "path": model_owner.as_posix()}
+    replacements, issues = _legacy_replacement_authoritative_map(
+        checkout,
+        base_commit=contract.base_commit,
+        manifest_label=model_owner.as_posix(),
+        legacy=legacy,
+        replacement=replacement,
+    )
+    assert replacements is None
+    assert "legacy replacement manifest does not belong to source" in issues
+
+
+def test_in_place_historical_owner_layout_rejects_ambiguous_owners(
+    tmp_path: Path,
+) -> None:
+    checkout, content_root, source = _in_place_legacy_checkout(
+        tmp_path, jurisdiction="us-az", jurisdiction_manifest=True
+    )
+    primary = Path("us-az/policies/income_tax/pilot_liability_pipeline.yaml")
+    canonical_owner = (
+        checkout / ".axiom/encoding-manifests/us-az/policies/income_tax/"
+        "pilot_liability_pipeline.json"
+    )
+    canonical_owner.parent.mkdir(parents=True)
+    canonical_owner.write_bytes(
+        (
+            checkout / "us-az/.axiom/encoding-manifests/policies/income_tax/"
+            "pilot_liability_pipeline.json"
+        ).read_bytes()
+    )
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "ambiguous historical owners")
+    with (
+        patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source),
+        pytest.raises(ValueError, match="exact tracked v1 HMAC ownership manifest"),
+    ):
+        _resolve_legacy_replacement_contract(
+            source_raw=primary,
+            destination_raw=primary,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source,
+            corpus_release=SimpleNamespace(),
+        )
+
+
+def test_receipt_authority_rejects_malformed_source_without_crashing(
+    tmp_path: Path,
+) -> None:
+    checkout, _content_root, _source = _generated_unicode_checkout(tmp_path)
+    legacy, replacement = _generated_unicode_receipt_blocks(checkout)
+    replacement["source"] = None
+    base_commit = subprocess.run(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    replacements, issues = _legacy_replacement_authoritative_map(
+        checkout,
+        base_commit=base_commit,
+        manifest_label=".axiom/encoding-manifests/us/statutes/42/1437c-1.json",
+        legacy=legacy,
+        replacement=replacement,
+    )
+    assert replacements is None
+    assert any("source path is not canonical" in issue for issue in issues)
+
+
 def test_contract_rejects_in_place_source_choice_outside_first_legacy_slot(
     tmp_path: Path,
 ) -> None:
@@ -1262,12 +1607,12 @@ def test_contract_rejects_in_place_source_choice_outside_first_legacy_slot(
         )
 
 
-def test_contract_rejects_in_place_path_dependents(tmp_path: Path) -> None:
+def test_contract_rejects_missing_in_place_dependent(tmp_path: Path) -> None:
     checkout, content_root, source = _in_place_legacy_checkout(tmp_path)
     relative = Path("us-me/policies/income_tax/pilot_liability_pipeline.yaml")
     with (
         patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source),
-        pytest.raises(ValueError, match="cannot schedule path dependents"),
+        pytest.raises(ValueError, match="unique tracked 0644"),
     ):
         _resolve_legacy_replacement_contract(
             source_raw=relative,
@@ -2404,3 +2749,304 @@ def test_empty_overlay_pruning_rejects_target_equal_to_protected_floor(
         match="strict descendant of its protected prune floor",
     ):
         _prune_empty_overlay_parent_directories(checkout, [protected_floor])
+
+
+def _new_index_candidate(citation: str) -> bytes:
+    return (
+        "format: rulespec/v1\nmodule:\n  source_verification:\n"
+        f"    corpus_citation_path: {citation}\nrules: []\n"
+    ).encode()
+
+
+def test_absent_canonical_index_uses_final_bytes_and_refinalizes(
+    tmp_path: Path,
+) -> None:
+    from axiom_encode.cli import _finalize_legacy_exact_dependents_from_overlay
+
+    checkout, content_root, source = _legacy_checkout(tmp_path)
+    index = checkout / ".axiom/index/provisions_to_rules.json"
+    index.write_text(
+        json.dumps(
+            {
+                "provisions": {
+                    "legacy/source": [
+                        {"module": "us-la/statutes/47:32.yaml", "via": ["module"]}
+                    ],
+                    "unrelated/source": [
+                        {"module": "us/keep.yaml", "via": ["proof_atom"]}
+                    ],
+                }
+            }
+        )
+        + "\n"
+    )
+    original_index = index.read_bytes()
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "index with absent canonical destination")
+    with patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source):
+        contract = _resolve_legacy_replacement_contract(
+            source_raw=Path("us-la/statutes/47:32.yaml"),
+            destination_raw=Path("us-la/statutes/47/32.yaml"),
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source,
+            corpus_release=SimpleNamespace(),
+        )
+    assert contract.provision_index_base.raw == original_index
+    assert not contract.provision_index_finalized
+    assert all(item.path != index.relative_to(checkout) for item in contract.rewrites)
+    stage_legacy_replacement_overlay(contract, checkout)
+    destination = checkout / contract.destination
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    for citation in ("generated/source", "repaired/source"):
+        destination.write_bytes(_new_index_candidate(citation))
+        contract, issues = _finalize_legacy_exact_dependents_from_overlay(
+            contract,
+            overlay_checkout_root=checkout,
+            overlay_content_root=content_root,
+        )
+        assert issues == []
+        assert contract.provision_index_finalized
+        assert json.loads(index.read_bytes()) == {
+            "provisions": {
+                citation: [{"module": "us-la/statutes/47/32.yaml", "via": ["module"]}],
+                "unrelated/source": [{"module": "us/keep.yaml", "via": ["proof_atom"]}],
+            }
+        }
+        reconciliation = next(
+            item
+            for item in contract.metadata_reconciliations
+            if item.path == index.relative_to(checkout)
+        )
+        assert (
+            reconciliation.before_sha256 == hashlib.sha256(original_index).hexdigest()
+        )
+        assert (
+            reconciliation.after_sha256
+            == hashlib.sha256(index.read_bytes()).hexdigest()
+        )
+    index.write_text("{}")
+    result, issues = _finalize_legacy_exact_dependents_from_overlay(
+        contract,
+        overlay_checkout_root=checkout,
+        overlay_content_root=content_root,
+    )
+    assert result is None
+    assert any("overlay changed" in issue for issue in issues)
+
+
+@pytest.mark.parametrize(
+    "module", ["us/unauthorized.yaml", "us-la/statutes/47:32.yaml"]
+)
+def test_new_index_rejects_unauthorized_destination(module: str) -> None:
+    with pytest.raises(ValueError, match="unauthorized new replacement"):
+        _legacy_metadata_reconciliation_bytes(
+            Path(".axiom/index/provisions_to_rules.json"),
+            json.dumps(
+                {"provisions": {"old": [{"module": "us-la/statutes/47:32.yaml"}]}}
+            ).encode(),
+            moves=[
+                PlannedMove(
+                    Path("us-la/statutes/47:32.yaml"), Path("us-la/statutes/47/32.yaml")
+                )
+            ],
+            new_destination_modules={module: _new_index_candidate("generated/source")},
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "none",
+        "tampered",
+        "missing",
+        "duplicate",
+        "wrong-destination",
+        "existing-destination",
+        "symlink",
+        "no-file",
+    ],
+)
+def test_receipt_new_index_requires_exact_signed_primary(
+    tmp_path: Path, mutation: str
+) -> None:
+    from axiom_encode.cli import _signed_replacement_index_postimages
+    from axiom_encode.corpus_resolver import UnsafeCorpusPathError
+
+    destination = "us-la/statutes/47/32.yaml"
+    path = tmp_path / destination
+    path.parent.mkdir(parents=True)
+    raw = _new_index_candidate("source/new")
+    path.write_bytes(raw)
+    replacement = {
+        "destination": destination,
+        "destination_predecessor_class": "absent",
+    }
+    nested = {
+        "applied_files": [
+            {"path": destination, "sha256": hashlib.sha256(raw).hexdigest()}
+        ]
+    }
+    moves = [PlannedMove(Path("us-la/statutes/47:32.yaml"), Path(destination))]
+    if mutation == "tampered":
+        path.write_bytes(_new_index_candidate("source/injected"))
+    elif mutation == "missing":
+        nested["applied_files"] = []
+    elif mutation == "duplicate":
+        nested["applied_files"] *= 2
+    elif mutation == "wrong-destination":
+        replacement["destination"] = "us/other.yaml"
+    elif mutation == "existing-destination":
+        replacement["destination_predecessor_class"] = "canonicalized_unowned_duplicate"
+    elif mutation == "symlink":
+        target = tmp_path / "other.yaml"
+        target.write_bytes(raw)
+        path.unlink()
+        path.symlink_to(target)
+    elif mutation == "no-file":
+        path.unlink()
+    if mutation == "none":
+        assert _signed_replacement_index_postimages(
+            tmp_path, replacement=replacement, nested=nested, moves=moves
+        ) == {destination: raw}
+    else:
+        with pytest.raises((OSError, ValueError, UnsafeCorpusPathError)):
+            _signed_replacement_index_postimages(
+                tmp_path, replacement=replacement, nested=nested, moves=moves
+            )
+
+
+@pytest.mark.parametrize("quote", ["", "'", '"'])
+def test_new_canonical_pending_oracle_keeps_all_obligations(quote: str) -> None:
+    raw = (
+        "version: 1\nceiling: 2\nentries:\n"
+        f"- legal_id: {quote}us-la:statutes/47:32#individual_income_tax_rate{quote} # keep\n"
+        "  source: manual\n  since: '2026-07-21'\n"
+        "  reason: Still awaiting independent oracle coverage.\n"
+        "- legal_id: us:keep#amount\n  source: bulk\n  since: '2026-07-08'\n"
+    ).encode()
+    after, operations = _legacy_metadata_reconciliation_bytes(
+        Path("oracle-coverage-pending.yaml"),
+        raw,
+        moves=[
+            PlannedMove(
+                Path("us-la/statutes/47:32.yaml"), Path("us-la/statutes/47/32.yaml")
+            )
+        ],
+    )
+    assert after == raw.replace(b"us-la:statutes/47:32#", b"us-la:statutes/47/32#")
+    assert operations == (
+        {"operation": "remove_legacy_oracle_pending", "count": 0},
+        {"operation": "relocate_legacy_oracle_pending", "count": 1},
+    )
+
+
+def test_pending_oracle_relocation_rejects_duplicate_output() -> None:
+    raw = b"- legal_id: us-la:statutes/47:32#rate\n- legal_id: us-la:statutes/47:32#rate\n"
+    with pytest.raises(ValueError, match="exact legal_id|ambiguous"):
+        _legacy_metadata_reconciliation_bytes(
+            Path("oracle-coverage-pending.yaml"),
+            raw,
+            moves=[
+                PlannedMove(
+                    Path("us-la/statutes/47:32.yaml"), Path("us-la/statutes/47/32.yaml")
+                )
+            ],
+        )
+
+
+def test_pending_oracle_mixed_moves_preserve_new_destination_debt() -> None:
+    import yaml
+
+    entries = [
+        {
+            "legal_id": "us-la:statutes/47:32#rate",
+            "source": "manual",
+            "since": "2026-07-21",
+        },
+        {
+            "legal_id": "us-la:statutes/47:32#tax",
+            "source": "manual",
+            "since": "2026-07-21",
+        },
+        {
+            "legal_id": "us-la:statutes/47:294#credit",
+            "source": "bulk",
+            "since": "2026-07-08",
+        },
+        {
+            "legal_id": "us-la:statutes/47/294#credit",
+            "source": "bulk",
+            "since": "2026-07-08",
+        },
+    ]
+    raw = yaml.safe_dump(
+        {"version": 1, "ceiling": 4, "entries": entries}, sort_keys=False
+    ).encode()
+    after, operations = _legacy_metadata_reconciliation_bytes(
+        Path("oracle-coverage-pending.yaml"),
+        raw,
+        moves=[
+            PlannedMove(
+                Path("us-la/statutes/47:32.yaml"), Path("us-la/statutes/47/32.yaml")
+            ),
+            PlannedMove(
+                Path("us-la/statutes/47:294.yaml"), Path("us-la/statutes/47/294.yaml")
+            ),
+        ],
+    )
+    expected = copy.deepcopy(entries)
+    for item in expected[:2]:
+        item["legal_id"] = item["legal_id"].replace("47:32", "47/32")
+    del expected[2]
+    assert yaml.safe_load(after) == {"version": 1, "ceiling": 3, "entries": expected}
+    assert operations == (
+        {"operation": "remove_legacy_oracle_pending", "count": 1},
+        {"operation": "relocate_legacy_oracle_pending", "count": 2},
+    )
+
+
+@pytest.mark.parametrize("has_target", [False, True])
+def test_in_place_contract_consumes_only_target_waiver(
+    tmp_path: Path, has_target: bool
+) -> None:
+    checkout, content_root, source = _in_place_legacy_checkout(tmp_path)
+    relative = Path("us-me/policies/income_tax/pilot_liability_pipeline.yaml")
+    waiver = checkout / "known-validation-gaps.yaml"
+    unrelated = '  "us-me/policies/other.yaml":\n    active: unchanged\n'
+    target = f'  "{relative.as_posix()}":\n    active: old\n' if has_target else ""
+    waiver.write_text("validate_failures:\n" + target + unrelated)
+    toolchain = checkout / ".axiom/toolchain.toml"
+    toolchain.write_text(
+        '[toolchain]\nvalidation_waiver_set_sha256 = "'
+        + hashlib.sha256(waiver.read_bytes()).hexdigest()
+        + '"\n'
+    )
+    pending = checkout / "oracle-coverage-pending.yaml"
+    pending.write_text(f'pending:\n  "{relative.as_posix()}": keep\n')
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "waivers")
+    with patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source):
+        contract = _resolve_legacy_replacement_contract(
+            source_raw=relative,
+            destination_raw=relative,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source,
+            corpus_release=SimpleNamespace(),
+        )
+    reconciled = {item.path: item for item in contract.metadata_reconciliations}
+    assert set(reconciled) == (
+        {Path("known-validation-gaps.yaml"), Path(".axiom/toolchain.toml")}
+        if has_target
+        else set()
+    )
+    if has_target:
+        expected = ("validate_failures:\n" + unrelated).encode()
+        assert reconciled[Path("known-validation-gaps.yaml")].raw == expected
+        assert (
+            hashlib.sha256(expected).hexdigest().encode()
+            in reconciled[Path(".axiom/toolchain.toml")].raw
+        )
+    assert pending.read_text() == f'pending:\n  "{relative.as_posix()}": keep\n'
+    assert contract.rewrites == ()

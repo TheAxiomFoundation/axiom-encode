@@ -1,7 +1,6 @@
 """CLI fixture repairs must distinguish lifetime operators from factual inputs."""
 
 import json
-import os
 import subprocess
 from pathlib import Path
 
@@ -10,6 +9,7 @@ import yaml
 
 from axiom_encode import cli
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+from tests.lifetime_engine import lifetime_capable_binary
 
 FORMULAS = [
     "sum_over_periods(net_value)",
@@ -115,12 +115,9 @@ def test_unknown_function_and_its_arguments_remain_visible():
 
 
 def test_real_rust_executes_generated_zero_fixture_and_lifetime_companion(
-    generated_zero_case, tmp_path, monkeypatch
+    real_engine, generated_zero_case, tmp_path, monkeypatch
 ):
-    configured = os.environ.get("AXIOM_LIFETIME_TEST_ENGINE")
-    if not configured:
-        pytest.skip("set AXIOM_LIFETIME_TEST_ENGINE to the real Rust lifetime CLI")
-    binary = Path(configured).resolve(strict=True)
+    binary = lifetime_capable_binary(real_engine)
     root, rules, case = generated_zero_case
     compiled = tmp_path / "compiled.json"
     result = subprocess.run(

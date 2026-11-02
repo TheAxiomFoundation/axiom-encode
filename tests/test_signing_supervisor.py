@@ -23,8 +23,7 @@ import _cffi_backend
 import cryptography
 import pytest
 import yaml
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from axiom_encode import __version__
@@ -33,6 +32,7 @@ from axiom_encode.cli import (
     APPLIED_ENCODING_MODEL_TOOL,
     _sign_applied_encoding_manifest,
 )
+from axiom_encode.corpus_resolver import MAX_RELEASE_OBJECT_BYTES
 from axiom_encode.harness.dependency_stubs import validate_explicit_context_file
 from axiom_encode.harness.evals import resolve_corpus_source_unit
 from scripts import prepare_signed_backfill as compatibility_backfill
@@ -141,6 +141,7 @@ def trusted_python_runtime(
     package_root.mkdir()
     (package_root / "__init__.py").write_text('"""Trusted fixture package."""\n')
     shutil.copy2(ROOT / "src" / "axiom_encode" / "signing_broker.py", package_root)
+    shutil.copy2(ROOT / "src" / "axiom_encode" / "retired_apply.py", package_root)
     shutil.copy2(
         ROOT / "src" / "axiom_encode" / "_trusted_signing_bootstrap.py",
         package_root,
@@ -154,9 +155,6 @@ import sys
 from base64 import b64encode
 
 def main():
-    if "--started-marker" in sys.argv:
-        from pathlib import Path
-        Path(sys.argv[sys.argv.index("--started-marker") + 1]).touch()
     from axiom_encode.signing_broker import (
         SigningBrokerError,
         get_signing_broker,
@@ -224,6 +222,30 @@ def main():
             ],
         },
     }
+    if broker.retired_apply_public_keys_raw:
+        result["roots"]["retired_apply_keys"] = [
+            b64encode(key).decode("ascii") for key in broker.retired_apply_public_keys_raw
+        ]
+        result["retired_apply_inventory"] = {
+            "schema": "axiom-encode/retired-apply-inventory/v1",
+            "repositories": [
+                {
+                    "repository": repository["repository"],
+                    "cutoff_commit": repository["cutoff_commit"],
+                    "artifacts": [
+                        {
+                            "path": artifact["path"],
+                            "sha256": artifact["sha256"],
+                            "covered_files": [
+                                dict(covered) for covered in artifact["covered_files"]
+                            ],
+                        }
+                        for artifact in repository["artifacts"].values()
+                    ],
+                }
+                for repository in broker.retired_apply_inventory.values()
+            ],
+        }
     if os.environ.get("CODEX_HOME"):
         metadata = codex_home.stat()
         result["codex_home_mode"] = metadata.st_mode & 0o777
@@ -451,6 +473,8 @@ def _trust_config(
     eval_public: str,
     corpus_release_public: str | None = None,
     corpus_release_public_keys: tuple[str, ...] | None = None,
+    retired_apply_public_keys: tuple[str, ...] = (),
+    retired_apply_inventory: dict[str, object] | None = None,
 ) -> Path:
     if corpus_release_public is None:
         corpus_release_public, _private_key = _keypair(b"\x17" * 32)
@@ -465,6 +489,10 @@ def _trust_config(
         payload["schema"] = "axiom-encode/signing-trust-roots/v3"
         payload.pop("corpus_release_ed25519_public_key")
         payload["corpus_release_ed25519_public_keys"] = corpus_release_public_keys
+    if retired_apply_public_keys:
+        payload["schema"] = "axiom-encode/signing-trust-roots/v4"
+        payload["retired_apply_ed25519_public_keys"] = retired_apply_public_keys
+        payload["retired_apply_inventory"] = retired_apply_inventory
     path.write_text(json.dumps(payload, sort_keys=True) + "\n")
     path.chmod(0o600)
     return path
@@ -644,36 +672,6 @@ def _write_signed_guard_fixture(
     return rulespec_root, corpus_root
 
 
-def _current_engine_root() -> Path | None:
-    configured = os.environ.get("AXIOM_RULES_ENGINE_ROOT")
-    candidates = [
-        *(Path(configured).expanduser() for _ in (0,) if configured),
-        ROOT.parent / "axiom-rules-engine-canonical-loader-hard-cut",
-        ROOT.parents[1] / "axiom-rules-engine",
-    ]
-    for root in candidates:
-        if not root.is_dir():
-            continue
-        for binary in (
-            root / "target" / "debug" / "axiom-rules-engine",
-            root / "target" / "release" / "axiom-rules-engine",
-            root / "axiom-rules-engine",
-        ):
-            if not binary.is_file() or not os.access(binary, os.X_OK):
-                continue
-            probe = subprocess.run(
-                [str(binary), "compile", "--help"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if probe.returncode == 0 and "--rulespec-root" in (
-                probe.stdout + probe.stderr
-            ):
-                return root.resolve()
-    return None
-
-
 def _write_current_engine_fixture(tmp_path: Path) -> tuple[Path, Path]:
     rulespec_root = tmp_path / "rulespec-us"
     corpus_root = tmp_path / "axiom-corpus"
@@ -741,7 +739,6 @@ def _serve_external_signer(
     connection: socket.socket,
     private_key: Ed25519PrivateKey,
     behavior: str,
-    operations: list[str] | None = None,
 ) -> None:
     try:
         public_key = private_key.public_key().public_bytes(
@@ -757,8 +754,6 @@ def _serve_external_signer(
                 _receive_exact(connection, struct.unpack(">I", header)[0]).decode()
             )
             request_id = request["id"]
-            if operations is not None:
-                operations.append(request["op"])
             scope = request.get("scope")
             if request.get("version") != 2:
                 response = {
@@ -817,18 +812,14 @@ def _serve_external_signer(
 
 
 @contextmanager
-def _signers(
-    *keys: Ed25519PrivateKey,
-    behavior: str = "valid",
-    operations: list[str] | None = None,
-):
+def _signers(*keys: Ed25519PrivateKey, behavior: str = "valid"):
     supervisor_connections: list[socket.socket] = []
     threads: list[threading.Thread] = []
     for key in keys:
         signer_connection, supervisor_connection = socket.socketpair()
         thread = threading.Thread(
             target=_serve_external_signer,
-            args=(signer_connection, key, behavior, operations),
+            args=(signer_connection, key, behavior),
             daemon=True,
         )
         thread.start()
@@ -1047,7 +1038,7 @@ def test_subscription_refuses_unsafe_auth_outbox(
         outbox = socket_directory / "o"
         outbox_socket = socket.socket(socket.AF_UNIX)
         try:
-            outbox_socket.bind(str(outbox.relative_to(Path.cwd())))
+            outbox_socket.bind(str(outbox))
         except PermissionError:
             outbox_socket.close()
             socket_directory.rmdir()
@@ -1424,7 +1415,7 @@ def test_verification_only_supervisor_accepts_retired_release_key_from_v3_keyrin
     }
 
 
-def test_protected_supervisor_stages_authenticated_v7_exact_dependent_transaction(
+def test_protected_supervisor_stages_authenticated_v8_exact_dependent_transaction(
     signing_supervisor: Path,
     tmp_path_factory: pytest.TempPathFactory,
     monkeypatch: pytest.MonkeyPatch,
@@ -1579,13 +1570,11 @@ def test_protected_supervisor_stages_authenticated_v7_exact_dependent_transactio
 
 
 def test_supervised_validate_uses_signed_release_and_current_engine_end_to_end(
+    real_engine,
     signing_supervisor: Path,
     trusted_real_cli_runtime: tuple[Path, Path, Path],
     tmp_path: Path,
 ) -> None:
-    engine_root = _current_engine_root()
-    if engine_root is None:
-        pytest.skip("current axiom-rules-engine binary is not available")
     rules, corpus_root = _write_current_engine_fixture(tmp_path)
     apply_public, _apply_key = _keypair(b"\xab" * 32)
     eval_public, _eval_key = _keypair(b"\xcd" * 32)
@@ -1607,7 +1596,7 @@ def test_supervised_validate_uses_signed_release_and_current_engine_end_to_end(
             "--corpus-path",
             str(corpus_root),
             "--axiom-rules-engine-path",
-            str(engine_root),
+            str(real_engine.root),
             "--skip-reviewers",
         ),
     )
@@ -1754,13 +1743,33 @@ def test_runtime_startup_and_editable_injection_is_rejected_before_attachment(
 
 
 @pytest.mark.parametrize(
-    ("behavior", "expected"),
+    ("behavior", "detail", "expected"),
     [
-        ("wrong_challenge_signature", "initialization failed"),
-        ("legacy_v1_response", "initialization failed"),
-        ("extra_challenge_field", "initialization failed"),
-        ("wrong_sign_signature", "External apply signer failed"),
-        ("extra_sign_field", "External apply signer failed"),
+        (
+            "wrong_challenge_signature",
+            "external apply signer challenge response is invalid",
+            "External apply signer initialization failed",
+        ),
+        (
+            "legacy_v1_response",
+            "external signer response identity is invalid",
+            "External apply signer initialization failed",
+        ),
+        (
+            "extra_challenge_field",
+            'signing broker frame is malformed: json: unknown field "legacy"',
+            "External apply signer initialization failed",
+        ),
+        (
+            "wrong_sign_signature",
+            "external apply signer returned an invalid signature",
+            "External apply signer failed",
+        ),
+        (
+            "extra_sign_field",
+            'signing broker frame is malformed: json: unknown field "legacy"',
+            "External apply signer failed",
+        ),
     ],
 )
 def test_invalid_external_signer_response_fails_closed(
@@ -1768,44 +1777,34 @@ def test_invalid_external_signer_response_fails_closed(
     trusted_python_runtime: tuple[Path, Path, Path],
     tmp_path: Path,
     behavior: str,
+    detail: str,
     expected: str,
 ) -> None:
     apply_public, apply_key = _keypair(b"\xab" * 32)
     eval_public, _eval_key = _keypair(b"\xcd" * 32)
     launcher = _launcher(tmp_path, trusted_python_runtime)
     trust_config = _trust_config(tmp_path, apply_public, eval_public)
-    started_marker = tmp_path / "entrypoint-started"
-    operations: list[str] = []
-    with _signers(apply_key, behavior=behavior, operations=operations) as descriptors:
+    with _signers(apply_key, behavior=behavior) as descriptors:
         completed = _invoke(
             signing_supervisor,
             trusted_python_runtime,
             launcher,
             trust_config,
             descriptors,
-            command_args=("--started-marker", str(started_marker)),
         )
     assert completed.returncode != 0
+    # The broker sends its peer only the generic error and writes the detail to
+    # stderr first, so the detail survives the supervisor killing the broker
+    # and always precedes the generic error. main() must not print it again.
+    diagnostic = f"signing broker: {detail}\n"
+    broker_lines = [
+        line
+        for line in completed.stderr.splitlines()
+        if line.startswith("signing broker: ")
+    ]
+    assert broker_lines == [diagnostic.rstrip("\n")], completed.stderr
     assert expected in completed.stderr
-    assert completed.stdout == ""
-    if behavior in {
-        "wrong_challenge_signature",
-        "legacy_v1_response",
-        "extra_challenge_field",
-    }:
-        # The supervisor may kill the broker before its detailed stderr write.
-        # Its own initialization error is stable; failed challenges must never
-        # start the trusted entrypoint or reach a signing request.
-        assert completed.returncode == 2
-        assert (
-            "signing supervisor: External apply signer initialization failed"
-            in completed.stderr
-        )
-        assert not started_marker.exists()
-        assert operations == ["challenge"]
-    else:
-        assert started_marker.exists()
-        assert operations == ["challenge", "sign"]
+    assert completed.stderr.index(diagnostic) < completed.stderr.index(expected)
 
 
 def test_non_socket_signer_descriptor_is_rejected(
@@ -2036,6 +2035,53 @@ def test_targeted_signed_reencode_shell_steps_have_valid_syntax(tmp_path: Path) 
             subprocess.run(["bash", "-n", str(script)], check=True)
 
 
+def test_targeted_signed_reencode_binds_protected_composer_to_rulespec_pin() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = workflow["jobs"]["encode"]["steps"]
+    parse = next(
+        step
+        for step in steps
+        if step.get("name") == "Parse RuleSpec-pinned axiom-compose reference"
+    )
+    checkout = next(
+        step
+        for step in steps
+        if step.get("name") == "Checkout RuleSpec-pinned axiom-compose"
+    )["run"]
+    build = next(
+        step
+        for step in steps
+        if step.get("name") == "Build protected axiom-compose runtime"
+    )["run"]
+    encode = next(
+        step
+        for step in steps
+        if step.get("name") == "Encode, review, validate, and apply"
+    )["run"]
+
+    assert 'workflow_toolchain.get("axiom_compose_ref")' in parse["run"]
+    assert "GH_TOKEN" not in parse["env"]
+    assert "python" not in checkout
+    assert 'git -C axiom-compose checkout --detach "$compose_ref"' in checkout
+    assert 'test "$(git -C axiom-compose rev-parse HEAD)" = "$compose_ref"' in checkout
+    assert "git -C axiom-compose merge-base --is-ancestor" in checkout
+    assert "uv export" in build
+    assert "--locked" in build
+    assert "--no-emit-project" in build
+    assert "provision_axiom_compose_runtime.py" in build
+    assert '--compose-ref "$AXIOM_COMPOSE_REF"' in build
+    assert "--destination /opt/axiom-compose-verification" in build
+    assert all(
+        'mv "$RUNNER_TEMP/axiom-compose-verification"' not in step.get("run", "")
+        for step in steps
+    )
+    assert "--axiom-compose-path" in encode
+    assert "/opt/axiom-compose-verification/axiom-compose" in encode
+    assert encode.count("--axiom-compose-path") == 3
+
+
 def test_targeted_signed_reencode_only_allows_audited_legacy_index_shrink() -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
@@ -2063,7 +2109,7 @@ def test_targeted_signed_reencode_reconciles_retired_inventory_before_commits() 
         if item.get("name") == "Encode, review, validate, and apply"
     )
     command = step["run"]
-    invocation = "reconcile-retired-manifest-inventory"
+    invocation = "queue_operation reconcile"
 
     assert command.count(invocation) == 3
     assert '[ "$source_bundle_enabled" = "false" ]' in command
@@ -2097,6 +2143,158 @@ def test_targeted_signed_reencode_reconciles_retired_inventory_before_commits() 
         'if [ "$source_bundle_enabled" = "true" ]; then',
         normal_reconciliation,
     )
+
+
+def test_provision_prefetch_is_authenticated_before_release_fetch() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = workflow["jobs"]["encode"]["steps"]
+    names = [step.get("name") for step in steps]
+    release = names.index("Fetch pinned signed corpus release object")
+    select = names.index("Select authenticated signed provision export runs")
+    metadata = names.index("Download authenticated provision export metadata")
+    validate = names.index("Validate authenticated provision export metadata")
+    archives = names.index("Download authenticated provision export archives")
+    prefetch = names.index("Prefetch authenticated signed provision members")
+    fetch = names.index("Fetch pinned corpus provision objects")
+    assert release < select < metadata < validate < archives < prefetch < fetch
+    assert "provision-run-ids" in steps[select]["run"]
+    assert "GH_TOKEN" not in steps[select].get("env", {})
+    assert "validate-export \\" in steps[validate]["run"]
+    assert '--provision-run-id "$export_run"' in steps[validate]["run"]
+    assert "GH_TOKEN" not in steps[validate].get("env", {})
+    assert steps[validate]["env"]["ATOMIC_SOURCE_JSON"] == (
+        "${{ inputs.source_bundle_json }}"
+    )
+    assert "materialize \\" in steps[prefetch]["run"]
+    assert "env -u GH_TOKEN" in steps[prefetch]["run"]
+    assert "GH_TOKEN" not in steps[prefetch].get("env", {})
+    assert steps[prefetch]["env"]["ATOMIC_SOURCE_JSON"] == (
+        "${{ inputs.source_bundle_json }}"
+    )
+    assert "GH_TOKEN" in steps[metadata]["env"]
+    assert "GH_TOKEN" in steps[archives]["env"]
+    assert steps[prefetch]["env"]["TRUST_CORPUS_RELEASE_ROOT"] == (
+        "${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}"
+    )
+
+
+def test_provision_prefetch_workflow_has_all_eleven_authenticated_slots() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = {step.get("name"): step for step in workflow["jobs"]["encode"]["steps"]}
+    metadata = steps["Download authenticated provision export metadata"]["run"]
+    archives = steps["Download authenticated provision export archives"]["run"]
+    for index in range(11):
+        assert f"corpus-provision-{index}-run.json" in metadata
+        assert f"corpus-provision-{index}-artifacts.json" in metadata
+        assert f"corpus-provision-{index}.zip" in archives
+    assert "corpus-provision-11-run.json" not in metadata
+    assert "corpus-provision-11.zip" not in archives
+
+
+def test_transport_legacy_required_cases_keep_all_three_protected_guards() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = {
+        step["name"]: step
+        for step in workflow["jobs"]["encode"]["steps"]
+        if "name" in step
+    }
+    guard = re.compile(
+        re.escape(
+            '{ [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \\'
+        )
+        + r"\n\s+"
+        + re.escape('[ -z "$CORPUS_EXPORT_RUN_ID" ]; }')
+    )
+    for name in (
+        "Validate atomic source inputs",
+        "Verify existing signed imports",
+        "Encode, review, validate, and apply",
+    ):
+        step = steps[name]
+        assert step["env"]["CORPUS_EXPORT_RUN_ID"] == (
+            "${{ steps.corpus_artifact_transport.outputs.run_id }}"
+        )
+        assert guard.search(step["run"])
+        assert '[ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ]' in step["run"]
+        assert '[ "$primary_required_test_cases_json" != "[]" ]' in step["run"]
+
+
+@pytest.mark.parametrize(
+    "step_name",
+    ["Validate atomic source inputs", "Verify existing signed imports"],
+)
+def test_transport_dependent_review_finding_reaches_workflow_preflight(
+    step_name: str,
+) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    step = next(
+        item
+        for item in workflow["jobs"]["encode"]["steps"]
+        if item.get("name") == step_name
+    )
+    legacy_path = (
+        "us-az/policies/des/faa5/na-categorical-eligibility/"
+        "expanded-categorical-eligibility.yaml"
+    )
+    transaction = {
+        "schema": "axiom-encode/atomic-source-transaction/v3",
+        "source_bundle": [],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+    }
+    request = json.dumps(
+        {
+            "schema": "axiom-encode/corpus-artifact-transport/v1",
+            "transaction": transaction,
+            "corpus_artifact_run_id": "123",
+        }
+    )
+    values = {
+        "${{ inputs.source_bundle_json }}": request,
+        "${{ inputs.citation }}": (
+            "us-az/manual/des/faa5/na-categorical-eligibility/block-4"
+        ),
+        "${{ inputs.dependent_citation }}": (
+            "us-az/manual/des/faa5/na-categorical-eligibility/block-5"
+        ),
+        "${{ inputs.dependent_review_finding }}": (
+            "Regenerate the dependent against its signed source."
+        ),
+        "${{ inputs.replace_rulespec_path }}": legacy_path,
+        "${{ inputs.replace_legacy_rulespec_path }}": legacy_path,
+    }
+    projected_env = {
+        name: values.get(expression, "") for name, expression in step["env"].items()
+    }
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/prepare_signed_backfill.py"),
+            "resolve-atomic-repair-mode",
+            request,
+            "--check-selected",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "DEPENDENT_REVIEW_FINDING": "", **projected_env},
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
 
 
 def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
@@ -2161,9 +2359,12 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["pr_base_branch"]["default"] == "main"
     assert inputs["source_bundle_json"] == {
         "description": (
-            "JSON citation array, canonical_refresh_bundle object, or "
-            "atomic-source-transaction/v2/v3/v4 envelope for an independent refresh "
-            "transaction"
+            "Atomic source input: corpus-artifact-transport/v1 wrapping fresh v3 "
+            "with an optional signed corpus export and signed provision export run IDs; "
+            "corpus-provision-prefetch/v1 wrapping exact v2-v3 with signed provision run IDs; "
+            "legacy citation array/refresh object, v2-v5 contract, "
+            "or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} "
+            "for an authenticated failed ordinary single-target repair"
         ),
         "required": False,
         "default": "[]",
@@ -2331,10 +2532,28 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         if step.get("name") == "Fetch pinned signed corpus release object"
     )
     assert release_step["env"] == {
+        "ATOMIC_SOURCE_JSON": "${{ inputs.source_bundle_json }}",
+        "CITATION": "${{ inputs.citation }}",
+        "REPLACE_RULESPEC_PATH": "${{ inputs.replace_rulespec_path }}",
+        "REPAIR_RUN_ID": "${{ inputs.repair_run_id }}",
+        "QUEUE_ITEM_ID": "${{ inputs.queue_item_id }}",
+        "QUEUE_ITEM_GENERATION_SHA256": "${{ inputs.queue_item_generation_sha256 }}",
+        "QUEUE_DISPATCHER_RUN_ID": "${{ inputs.queue_dispatcher_run_id }}",
+        "DEPENDENT_CITATION": "${{ inputs.dependent_citation }}",
+        "SECOND_DEPENDENT_CITATION": "${{ inputs.second_dependent_citation }}",
+        "DEPENDENT_REVIEW_FINDING": "${{ inputs.dependent_review_finding }}",
+        "SECOND_DEPENDENT_REVIEW_FINDING": "${{ inputs.second_dependent_review_finding }}",
+        "REPLACE_LEGACY_RULESPEC_PATH": "${{ inputs.replace_legacy_rulespec_path }}",
+        "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "${{ inputs.legacy_exact_dependent_rulespec_path }}",
+        "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "${{ inputs.second_legacy_exact_dependent_rulespec_path }}",
+        "EXISTING_SIGNED_IMPORTS_JSON": "${{ inputs.existing_signed_imports_json }}",
+        "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "${{ inputs.legacy_retained_successor_rulespec_paths_json }}",
+        "TRUST_CORPUS_RELEASE_ROOT": "${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}",
         "RELEASE_BASE_URL": ("https://pub-a8952f8657fc49fda358146ac001366c.r2.dev"),
         "RULESPEC_CHECKOUT": "rulespec-${{ inputs.country }}",
         "QUEUE_ID": "${{ inputs.queue_id }}",
         "QUEUE_MANIFEST_SHA256": "${{ inputs.queue_manifest_sha256 }}",
+        "EXPORT_RUN": "${{ steps.corpus_artifact_transport.outputs.run_id }}",
     }
     release_command = release_step["run"]
     assert "materialize_corpus_release.py" in release_command
@@ -2345,7 +2564,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'mktemp "$RUNNER_TEMP/' in release_command
     assert "/releases/${release_name}/${release_sha}.json" in release_command
     assert "--proto '=https' --proto-redir '=https' --tlsv1.2" in release_command
-    assert "--max-filesize 16777216" in release_command
+    assert f"--max-filesize {MAX_RELEASE_OBJECT_BYTES}" in release_command
     assert "NEXT_PUBLIC_SUPABASE_ANON_KEY" not in release_command
     assert "SUPABASE" not in release_command
     assert "jq -ce" in release_command
@@ -2355,6 +2574,58 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert "--corpus-root axiom-corpus" in release_command
     assert 'merge-base --is-ancestor "$release_commit" HEAD' in release_command
+    assert "axiom_encode.corpus_artifact_transport materialize" in release_command
+    fetch_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Fetch pinned corpus provision objects"
+    )
+    assert fetch_step["env"] == {
+        "RELEASE_OBJECT": "${{ steps.pinned_corpus_release.outputs.release_object }}",
+        "R2_ACCESS_KEY_ID": "${{ secrets.R2_ACCESS_KEY_ID }}",
+        "R2_SECRET_ACCESS_KEY": "${{ secrets.R2_SECRET_ACCESS_KEY }}",
+    }
+    fetch_command = fetch_step["run"]
+    assert "axiom_encode.corpus_artifact_transport" not in fetch_command
+    assert "if [ -d axiom-corpus/.axiom/corpus-locks ]; then" in fetch_command
+    assert 'select(.artifact_class == "provisions")' in fetch_command
+    provision_filter = fetch_command.split("provision_paths_json=", 1)[1].split("'", 2)[
+        1
+    ]
+    assert "\\" not in provision_filter
+    if jq_binary := shutil.which("jq"):
+        sample_release = {
+            "content": {
+                "artifacts": [
+                    {
+                        "artifact_class": "provisions",
+                        "path": "data/corpus/provisions/a",
+                    },
+                    {"artifact_class": "documents", "path": "data/corpus/documents/b"},
+                ]
+            }
+        }
+        selected = subprocess.run(
+            [jq_binary, "-ce", provision_filter],
+            input=json.dumps(sample_release),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert selected.returncode == 0, selected.stderr
+        assert json.loads(selected.stdout) == ["data/corpus/provisions/a"]
+        sample_release["content"]["artifacts"] = []
+        missing = subprocess.run(
+            [jq_binary, "-ce", provision_filter],
+            input=json.dumps(sample_release),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert missing.returncode != 0
+    assert "axiom-corpus-ingest corpus fetch --repo axiom-corpus" in fetch_command
+    assert '--no-cache --verify "${fetch_args[@]}"' in fetch_command
+    assert "test -d axiom-corpus/data/corpus/provisions" in fetch_command
 
     repair_step = next(
         step
@@ -2381,8 +2652,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "merge-base --is-ancestor" in repair_command
     assert '"$repair_encoder_commit" "$GITHUB_SHA"' in repair_command
     assert "repair replay is limited to one non-legacy target" in repair_command
-    assert "repair_tests_only=false" in repair_command
-    assert "repair_tests_only=true" in repair_command
+    assert 'resolve-atomic-repair-mode "${ATOMIC_SOURCE_JSON:-[]}"' in repair_command
+    assert "repair_tests_only=\"$(jq -r '.tests_only'" in repair_command
     assert 'echo "tests_only=$repair_tests_only" >> "$GITHUB_OUTPUT"' in (
         repair_command
     )
@@ -2483,8 +2754,14 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert 'cascade_args+=("${dependent_citations[@]}")' in cascade_step["run"]
     assert "--allow-proof-import-subset" in cascade_step["run"]
-    assert 'cascade_mode="$("${cascade_args[@]}")"' in cascade_step["run"]
+    assert (
+        "all-direct|all-direct-proof-chain|proof-import-subset|proof-import-subset-chain|proof-import-chain"
+        in cascade_step["run"]
+    )
+    assert 'cascade_result="$("${cascade_args[@]}")"' in cascade_step["run"]
+    assert "cascade_args+=(--json)" in cascade_step["run"]
     assert "DEPENDENT_CASCADE_MODE=%s" in cascade_step["run"]
+    assert "DEPENDENT_RULESPEC_PATHS_JSON=%s" in cascade_step["run"]
 
     signed_import_step = next(
         step for step in steps if step.get("name") == "Verify existing signed imports"
@@ -2506,20 +2783,23 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         for step in steps
         if step.get("name") == "Encode, review, validate, and apply"
     )
-    assert apply_step["id"] == "encode_apply"
-    assert apply_step["env"]["AXIOM_ENCODE_APPLY_SIGNING_KEY"] == (
+    assert apply_step["id"] == "prepare_encode_apply"
+    assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in apply_step["env"]
+    signer_step = next(step for step in steps if step.get("id") == "apply_signing_01")
+    assert signer_step["env"]["AXIOM_ENCODE_APPLY_SIGNING_KEY"] == (
         "${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}"
     )
     assert "AXIOM_ENCODE_APPLY_CHECKOUT" not in apply_step["env"]
     command = apply_step["run"]
     assert "run_signed_encode()" in command
-    assert "/opt/axiom-verification/axiom-encode-apply-signer run" in command
-    assert "--key-env AXIOM_ENCODE_APPLY_SIGNING_KEY" in command
+    signer_command = signer_step["run"]
+    assert "/opt/axiom-verification/axiom-encode-apply-signer run" in signer_command
+    assert "--key-env AXIOM_ENCODE_APPLY_SIGNING_KEY" in signer_command
     assert (
         "TheAxiomFoundation/axiom-encode/.github/workflows/"
-        "targeted-signed-reencode.yml@refs/heads/main" in command
+        "targeted-signed-reencode.yml@refs/heads/main" in signer_command
     )
-    assert "--allowed-event-name workflow_dispatch" in command
+    assert "--allowed-event-name workflow_dispatch" in signer_command
     assert "--apply" in command
     assert "--require-complete-source-unit" in command
     assert 'local require_complete_source_unit="${10:-true}"' in command
@@ -2611,7 +2891,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         command
     )
     assert "--legacy-dependent-rulespec-path" in command
-    assert 'citation-rulespec-path "$DEPENDENT_CITATION"' in command
+    assert "dependent_rulespec_path=\"$(jq -er '.[0]'" in command
     assert '[ "$target_only" = "true" ]' in command
     assert (
         "queue-authorized re-encodes cannot override the RuleSpec target path"
@@ -2619,11 +2899,18 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert '--output "$RUNNER_TEMP/generated/$output_lane"' in command
     assert '"$SECOND_DEPENDENT_CITATION"' in command
-    assert '"$SECOND_DEPENDENT_REVIEW_FINDING" false dependent-2 "" "" false' in command
+    assert '"$SECOND_DEPENDENT_REVIEW_FINDING" false dependent-2 \\' in command
+    assert '"$second_replacement_path" "" false' in command
+    assert '"$second_dependent_rulespec_path" != "$canonical_second_path"' in command
     assert '"$CITATION" "$REVIEW_FINDING" "$primary_target_only" target \\\n' in command
     assert 'local scheduled_dependent_paths_json="${11:-[]}"' in command
     assert "--scheduled-dependent-rulespec-path" in command
     assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset"' in command
+    assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain"' in command
+    assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain"' in command
+    assert 'DEPENDENT_CASCADE_MODE:-}" = "source-bound-proof-alias"' in command
+    assert 'scheduled_dependent_paths_json="$(' in command
+    assert '--arg first "$dependent_rulespec_path"' in command
     assert '"$DEPENDENT_CITATION" "$DEPENDENT_REVIEW_FINDING" \\\n' in command
     assert '"$REPLACE_RULESPEC_PATH" "$REPLACE_LEGACY_RULESPEC_PATH"' in command
     assert '"$CITATION" "$REVIEW_FINDING" false \\\n' in command
@@ -2682,6 +2969,16 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     ) + 1 == steps.index(failure_package_step)
     assert failure_package_step["if"] == "${{ failure() && !cancelled() }}"
     assert set(failure_package_step["env"]) == {
+        "RETIRED_SOURCE_METADATA_REQUEST_CONCLUSION",
+        "RETIRED_SOURCE_METADATA_REQUEST_OUTCOME",
+        "RETIRED_SOURCE_METADATA_MIGRATION_CONCLUSION",
+        "RETIRED_SOURCE_METADATA_MIGRATION_OUTCOME",
+        "PACKAGE_RETIRED_SOURCE_METADATA_CHANGES_CONCLUSION",
+        "PACKAGE_RETIRED_SOURCE_METADATA_CHANGES_OUTCOME",
+        "COMMIT_RETIRED_SOURCE_METADATA_MIGRATION_CONCLUSION",
+        "COMMIT_RETIRED_SOURCE_METADATA_MIGRATION_OUTCOME",
+        "PUBLISH_RETIRED_SOURCE_METADATA_PULL_REQUEST_CONCLUSION",
+        "PUBLISH_RETIRED_SOURCE_METADATA_PULL_REQUEST_OUTCOME",
         "ATOMIC_SOURCE_JSON",
         "CITATION",
         "CORPUS_REF",
@@ -2709,6 +3006,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         "REPAIR_CANDIDATE_RULESPEC_SHA256",
         "REPAIR_CANDIDATE_TESTS_SHA256",
         "REPAIR_RUN_ID",
+        "REPAIR_EXECUTION_JSON",
         "PROVISION_SIGNING_SUPERVISOR_CONCLUSION",
         "PUBLISH_LANE_PULL_REQUEST_CONCLUSION",
         "PUBLISH_LANE_PULL_REQUEST_OUTCOME",
@@ -2949,7 +3247,13 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         for step in steps
         if "AXIOM_ENCODE_APPLY_SIGNING_KEY" in (step.get("env") or {})
     ]
-    assert secret_steps == [apply_step]
+    metadata_migration_step = next(
+        step for step in steps if step.get("name") == "Migrate retired source metadata"
+    )
+    assert secret_steps == [metadata_migration_step] + [
+        step for step in steps if step.get("id", "").startswith("apply_signing_")
+    ]
+    assert len(secret_steps) == 20
 
     publish_step = next(
         step
@@ -2957,18 +3261,37 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         if step.get("name") == "Push lane branch and open draft pull request"
     )
     assert publish_step["id"] == "publish_lane_pull_request"
-    assert publish_step["if"] == "${{ inputs.open_pr }}"
+    assert publish_step["if"] == (
+        "${{ !cancelled() && "
+        "steps.verify_reviewed_lane_pull_request_base.outcome != 'skipped' && "
+        "inputs.open_pr && "
+        "steps.retired_source_metadata_request.outputs.enabled != 'true' }}"
+    )
     assert publish_step["env"]["GH_TOKEN"] == "${{ secrets.AXIOM_REPO_TOKEN }}"
     assert publish_step["env"]["PR_BASE_BRANCH"] == ("${{ inputs.pr_base_branch }}")
     assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in publish_step["env"]
     publish_command = publish_step["run"]
-    assert f"workflow_python=({trusted_python} -I)" in publish_command
+    prepare_branch = next(
+        step
+        for step in steps
+        if step.get("name") == "Prepare reviewed lane pull request branch"
+    )
+    verify_base = next(
+        step
+        for step in steps
+        if step.get("name") == "Verify reviewed lane pull request base"
+    )
+    assert f"workflow_python=({trusted_python} -I)" in prepare_branch["run"]
+    assert "GH_TOKEN" not in prepare_branch["env"]
+    assert "python" not in publish_command
     assert 'repo="TheAxiomFoundation/rulespec-${COUNTRY}"' in publish_command
-    assert '"$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"' in publish_command
+    assert '"$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"' in prepare_branch["run"]
     assert "core.hooksPath=/dev/null" in publish_command
-    assert "fetch --no-tags origin \\\n" in publish_command
-    assert "refs/remotes/origin/${PR_BASE_BRANCH}" in publish_command
-    assert '" = "$RULESPEC_REF"' in publish_command
+    assert "fetch --no-tags origin \\\n" in verify_base["run"]
+    assert "refs/remotes/origin/${PR_BASE_BRANCH}" in verify_base["run"]
+    assert '" = "$RULESPEC_REF"' in verify_base["run"]
+    assert steps.index(verify_base) < steps.index(prepare_branch)
+    assert steps.index(prepare_branch) < steps.index(publish_step)
     assert '"HEAD:refs/heads/${branch}"' in publish_command
     assert publish_command.count('"HEAD:refs/heads/${branch}"') == 1
     assert "gh api --method POST" in publish_command
@@ -3000,7 +3323,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     checksum_command = checksum_step["run"]
     assert 'artifact="$RUNNER_TEMP/targeted-reencode"' in checksum_command
     assert 'cd "$artifact"' in checksum_command
-    assert "sha256sum * > SHA256SUMS" in checksum_command
+    assert "find . -type f ! -path ./SHA256SUMS -print0" in checksum_command
+    assert "xargs -0 -r sha256sum > SHA256SUMS" in checksum_command
+    assert "sha256sum --check SHA256SUMS" in checksum_command
     assert 'sha256sum "$RUNNER_TEMP/targeted-reencode"/*' not in checksum_command
     assert upload_step["id"] == "upload_signed_reencode_artifact"
     assert upload_step["with"]["name"] == (
@@ -3008,6 +3333,46 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert steps.index(checksum_step) + 1 == steps.index(upload_step)
     assert steps.index(failure_upload_step) == len(steps) - 1
+
+
+def test_targeted_reencode_checksums_include_nested_admission_files(
+    tmp_path: Path,
+) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Finalize signed re-encode artifact checksums"
+    )
+    artifact = tmp_path / "targeted-reencode"
+    admission = artifact / "source-admission" / "target"
+    admission.mkdir(parents=True)
+    (artifact / "lane-pull-request.json").write_text('{"number":1770}\n')
+    (admission / "source.json").write_text('{"admitted":true}\n')
+
+    completed = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", command],
+        env={**os.environ, "RUNNER_TEMP": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    checksums = (artifact / "SHA256SUMS").read_text()
+    assert "./lane-pull-request.json" in checksums
+    assert "./source-admission/target/source.json" in checksums
+    assert "./SHA256SUMS" not in checksums
+
+    (artifact / "unexpected-link").symlink_to(admission / "source.json")
+    rejected = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", command],
+        env={**os.environ, "RUNNER_TEMP": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    assert rejected.returncode != 0
+    assert "artifact contains a symlink" in rejected.stderr
 
 
 def test_targeted_reencode_defaults_legacy_manifest_refresh_mode_to_false() -> None:
@@ -3038,6 +3403,26 @@ def test_targeted_reencode_defaults_legacy_manifest_refresh_mode_to_false() -> N
     )
 
     assert completed.stdout == "false\n"
+
+
+def test_targeted_reencode_has_fail_closed_reviewed_candidate_promotion() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Encode, review, validate, and apply"
+    )
+
+    assert "reviewed_candidate_promotion" in command
+    assert "promote-reviewed-candidate" in command
+    assert '--reviewed-rulespec-ref "$RULESPEC_REF"' in command
+    assert '--rulespec-path "$REPLACE_RULESPEC_PATH"' in command
+    assert "cannot mix with other transaction modes" in command
+    assert command.index("promote-reviewed-candidate") < command.index(
+        'elif [ "$canonical_refresh_enabled" = "true" ]'
+    )
 
 
 def test_targeted_reencode_extracts_false_complete_source_scope() -> None:
@@ -3174,9 +3559,20 @@ def test_repair_preflight_splits_atomic_source(
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "target\nus-ri/statutes/44-30-2.6.yaml\n"
-    assert (tmp_path / "github-output").read_text(encoding="utf-8") == (
-        f"tests_only={expected_tests_only}\n"
+    mode = "tests_only" if expected_tests_only == "true" else "full_artifact"
+    outputs = dict(
+        line.split("=", 1)
+        for line in (tmp_path / "github-output")
+        .read_text(encoding="utf-8")
+        .splitlines()
     )
+    assert outputs["tests_only"] == expected_tests_only
+    assert outputs["mode"] == mode
+    assert json.loads(outputs["execution"]) == {
+        "mode": mode,
+        "requested_mode": "legacy_inference",
+        "tests_only": expected_tests_only == "true",
+    }
 
 
 def test_signed_head_tests_only_preflight_binds_exact_reviewed_files(
@@ -3353,12 +3749,25 @@ def test_repair_preflight_accepts_one_bound_dependent_lane(tmp_path: Path) -> No
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "dependent\nus/statutes/42/1437c-1.yaml\n"
-    assert (tmp_path / "github-output").read_text(encoding="utf-8") == (
-        "tests_only=false\n"
+    outputs = dict(
+        line.split("=", 1)
+        for line in (tmp_path / "github-output")
+        .read_text(encoding="utf-8")
+        .splitlines()
     )
+    assert outputs["tests_only"] == "false"
+    assert outputs["mode"] == "full_artifact"
+    assert json.loads(outputs["execution"]) == {
+        "mode": "full_artifact",
+        "requested_mode": "legacy_inference",
+        "tests_only": False,
+    }
 
 
-def test_repair_preflight_accepts_new_source_target(tmp_path: Path) -> None:
+@pytest.mark.parametrize("second_without_first", [False, True])
+def test_repair_preflight_accepts_new_source_target(
+    tmp_path: Path, second_without_first: bool
+) -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
     )
@@ -3394,16 +3803,32 @@ def test_repair_preflight_accepts_new_source_target(tmp_path: Path) -> None:
             "REPAIR_RULESPEC_PATH": "",
             "REPLACE_LEGACY_RULESPEC_PATH": "",
             "REPLACE_RULESPEC_PATH": "",
-            "SECOND_DEPENDENT_CITATION": "",
+            "SECOND_DEPENDENT_CITATION": "us/statute/42/402/w"
+            if second_without_first
+            else "",
             "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
         },
     )
 
+    if second_without_first:
+        assert completed.returncode != 0
+        assert "repair replay is limited" in completed.stderr
+        return
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "target\n\n"
-    assert (tmp_path / "github-output").read_text(encoding="utf-8") == (
-        "tests_only=false\n"
+    outputs = dict(
+        line.split("=", 1)
+        for line in (tmp_path / "github-output")
+        .read_text(encoding="utf-8")
+        .splitlines()
     )
+    assert outputs["tests_only"] == "false"
+    assert outputs["mode"] == "full_artifact"
+    assert json.loads(outputs["execution"]) == {
+        "mode": "full_artifact",
+        "requested_mode": "legacy_inference",
+        "tests_only": False,
+    }
 
 
 def test_repair_preflight_rejects_tests_only_new_source(tmp_path: Path) -> None:
@@ -3528,6 +3953,9 @@ def test_fresh_v2_required_test_cases_do_not_require_a_repair_run(
             "REPLACE_LEGACY_RULESPEC_PATH": "",
             "REPLACE_RULESPEC_PATH": primary_path,
             "RULESPEC_CHECKOUT": str(checkout),
+            "RULESPEC_REF": subprocess.check_output(
+                ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+            ).strip(),
             "SECOND_DEPENDENT_CITATION": "",
             "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
         },
@@ -3596,6 +4024,8 @@ def test_repair_required_test_cases_do_not_enable_canonical_refresh(
             "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
             "QUEUE_ID": "",
             "REPAIR_RUN_ID": "100",
+            "REPAIR_MODE": "tests_only",
+            "REPAIR_TESTS_ONLY": "true",
             "REPLACE_LEGACY_RULESPEC_PATH": "",
             "REPLACE_RULESPEC_PATH": primary_path,
             "RULESPEC_CHECKOUT": str(checkout),
@@ -3628,8 +4058,12 @@ def test_repair_witness_routing_is_rechecked_in_protected_steps() -> None:
     assert verify["env"]["REPAIR_TESTS_ONLY"] == (
         "${{ steps.repair_candidate.outputs.tests_only }}"
     )
-    assert 'if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then' in verify["run"]
-    assert 'if [ "$REPAIR_TESTS_ONLY" = "true" ]; then' in encode["run"]
+    assert 'if [ -n "${REPAIR_RUN_ID:-}" ] ||' in verify["run"]
+    assert '[ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then' in verify["run"]
+    assert (
+        'if [ -n "${REPAIR_RUN_ID:-}" ] || [ "$REPAIR_TESTS_ONLY" = "true" ]; then'
+        in encode["run"]
+    )
     for step in (validate, verify, encode):
         assert '"$canonical_refresh_primary_required_test_cases_json"' in step["run"]
 
@@ -3703,6 +4137,9 @@ def test_targeted_signed_reencode_packages_bounded_failure_diagnostics(
     (tmp_path / "repair-candidate.json").write_text("")
     env = {
         **os.environ,
+        # The protected workflow runs on Linux; macOS tar otherwise adds
+        # AppleDouble entries that are unrelated to these diagnostic bounds.
+        "COPYFILE_DISABLE": "1",
         "CITATION": "us/statute/42/1437c-1",
         "CORPUS_REF": "corpus-ref",
         "COUNTRY": "us",
@@ -4046,10 +4483,7 @@ def test_targeted_signed_reencode_preserves_checkpoint_guard_failure(
         for step in workflow["jobs"]["encode"]["steps"]
         if step.get("name") == "Encode, review, validate, and apply"
     )
-    checkpoint = command.split("checkpoint_signed_changes() {", 1)[1].split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
-        1,
-    )[0]
+    checkpoint = _signed_reencode_checkpoint_body(command)
     guard_stub = tmp_path / "guard-stub"
     guard_stub.write_text(
         "#!/bin/sh\n"
@@ -4124,10 +4558,7 @@ def test_targeted_signed_reencode_packages_noncontract_checkpoint_failure(
         for step in steps
         if step.get("name") == "Encode, review, validate, and apply"
     )
-    checkpoint = apply_command.split("checkpoint_signed_changes() {", 1)[1].split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
-        1,
-    )[0]
+    checkpoint = _signed_reencode_checkpoint_body(apply_command)
     guard_stub = tmp_path / "guard-stub"
     guard_stub.write_text(
         "#!/bin/sh\n"
@@ -4187,6 +4618,7 @@ def test_targeted_signed_reencode_packages_noncontract_checkpoint_failure(
         ["bash", "-c", package_command],
         env={
             **os.environ,
+            "COPYFILE_DISABLE": "1",
             "CITATION": "us-la/statute/47:294",
             "CORPUS_REF": "corpus-ref",
             "COUNTRY": "us",
@@ -4410,7 +4842,7 @@ def test_signed_snap_queue_finalizer_uses_live_fail_closed_evidence() -> None:
     )
     command = evidence["run"]
     assert 'test "$(jq -r \'.state\' "$queue")" = "paused"' in command
-    assert "git/ref/heads/hard-cut/canonical-layout-us" in command
+    assert "git/ref/heads/$pr_base_branch" in command
     assert "commits/$NEW_RULESPEC_REF/check-runs?per_page=100" in command
     assert '.status == "completed"' in command
     assert 'IN("success", "neutral", "skipped")' in command
@@ -4418,7 +4850,7 @@ def test_signed_snap_queue_finalizer_uses_live_fail_closed_evidence() -> None:
     assert "targeted-signed-reencode.yml/runs" in command
     assert "finalize-repin" in command
     assert "finalization-target-plan" in command
-    assert "targeted-reencode-$run_id" in command
+    assert '"targeted-reencode-${run_id}-${run_attempt}"' in command
     assert "jobs?filter=all&per_page=100" in command
     assert "--slurpfile jobs" in command
     assert "sha256sum -c SHA256SUMS" in command
@@ -4477,7 +4909,7 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     assert "verify-activation-commit" in validate_command
     assert '--finalizer-jobs "$RUNNER_TEMP/finalizer-jobs.json"' in validate_command
     assert "snap-queue-finalization-$run_id" in validate_command
-    assert "git/ref/heads/hard-cut/canonical-layout-us" in validate_command
+    assert "git/ref/heads/$pr_base_branch" in validate_command
     assert 'echo "initial=$authenticate_queue" >> "$GITHUB_OUTPUT"' in validate_command
     assert ".dispatch != $previous[0].dispatch" in validate_command
     assert ".release != $previous[0].release" in validate_command
@@ -4517,8 +4949,9 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     assert "unsupported initial SNAP queue" in provenance_command
     assert "--state paused" in provenance_command
     assert "cmp --silent" in provenance_command
-    assert "rulespec-us/git/ref/heads/hard-cut/canonical-layout-us" in (
-        provenance_command
+    assert "rulespec-us/git/ref/heads/$PR_BASE_BRANCH" in provenance_command
+    assert provenance["env"]["PR_BASE_BRANCH"] == (
+        "${{ steps.transition.outputs.pr_base_branch }}"
     )
     assert "initial-axiom-rules-engine merge-base --is-ancestor" in (provenance_command)
     assert "rules-engine-check-runs.json" in provenance_command
@@ -4558,7 +4991,7 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     assert "commits/$rulespec_ref/check-runs?per_page=100" in command
     assert '--previous-queue "$RUNNER_TEMP/previous-snap-queue.json"' in command
     assert '--expected-base-sha "$BASE_SHA"' in command
-    assert "git/ref/heads/hard-cut/canonical-layout-us" in command
+    assert "git/ref/heads/$pr_base_branch" in command
     assert '--match-head-commit "$HEAD_SHA"' in command
     assert "git log --first-parent" in command
     upload = next(
@@ -4576,6 +5009,118 @@ def _prepare_empty_signed_import_inputs(runner_temp: Path) -> None:
     (runner_temp / "canonical-refresh-bundle.json").write_text("[]\n")
     (runner_temp / "existing-signed-imports.json").write_text("[]\n")
     (runner_temp / "existing-signed-import-paths.txt").write_text("")
+
+
+def _signed_reencode_checkpoint_body(command: str) -> str:
+    return command.split("checkpoint_signed_changes() {", 1)[1].split(
+        "\n}\n\n# Capture only named non-secret inputs",
+        1,
+    )[0]
+
+
+def _stub_signed_reencode_checkpoints(command: str) -> str:
+    body = _signed_reencode_checkpoint_body(command)
+    return command.replace(
+        "checkpoint_signed_changes() {" + body + "\n}",
+        "checkpoint_signed_changes() {\n"
+        + '  printf \'%s\\n\' "$1" >> "$CHECKPOINTS_PATH"\n'
+        + '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n'
+        + "}",
+        1,
+    )
+
+
+def _stub_signed_reencode_reconciliation(command: str, replacement: str) -> str:
+    original = (
+        '      "$workflow_python" "$backfill_helper" \\\n'
+        "        reconcile-retired-manifest-inventory \\\n"
+        '        "$RULESPEC_CHECKOUT" "${operation[1]}"'
+    )
+    assert original in command
+    return command.replace(original, replacement, 1)
+
+
+def _run_prepared_signed_reencode(
+    command: str,
+    *,
+    env: dict[str, str],
+    check: bool = True,
+    capture_output: bool = False,
+    text: bool = True,
+    cwd: Path = ROOT,
+    signing_slots: int | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run the workflow's init, signer, and advance steps in separate processes."""
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = workflow["jobs"]["encode"]["steps"]
+    initialization = next(
+        step for step in steps if step.get("id") == "prepare_encode_apply"
+    )
+    environment = {
+        name: value if "${{" not in value else ""
+        for name, value in initialization["env"].items()
+    }
+    environment.update(env)
+    for name in PRIVATE_ENV_NAMES:
+        environment.pop(name, None)
+    assert not any(name in environment for name in PRIVATE_ENV_NAMES)
+    runner_temp = Path(environment["RUNNER_TEMP"])
+    shutil.rmtree(runner_temp / "signed-encode", ignore_errors=True)
+    output = runner_temp / "prepared-step-output"
+    environment["GITHUB_OUTPUT"] = str(output)
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+
+    def run_step(script: str, step_env: dict[str, str]) -> subprocess.CompletedProcess:
+        output.write_text("")
+        completed = subprocess.run(
+            ["bash", "-c", script],
+            cwd=cwd,
+            env=step_env,
+            capture_output=True,
+            text=True,
+        )
+        stdout_parts.append(completed.stdout)
+        stderr_parts.append(completed.stderr)
+        return completed
+
+    completed = run_step(command, environment)
+    signer_steps = [
+        step for step in steps if step.get("id", "").startswith("apply_signing_")
+    ]
+    if signing_slots is not None:
+        signer_steps = signer_steps[:signing_slots]
+    advance = next(step for step in steps if step.get("id") == "prepare_apply_02")
+    for signer in signer_steps:
+        if completed.returncode or "ready=true" not in output.read_text().splitlines():
+            break
+        signer_script = signer["run"].replace(
+            "/opt/axiom-verification/axiom-encode-apply-signer run",
+            '"$SIGNER_STUB"',
+        )
+        completed = run_step(
+            signer_script,
+            {**environment, "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key"},
+        )
+        if completed.returncode:
+            break
+        if signer is signer_steps[-1]:
+            break
+        completed = run_step(advance["run"], environment)
+    if completed.returncode == 0:
+        finish = next(step for step in steps if step.get("id") == "encode_apply")
+        completed = run_step(finish["run"], {**environment, "PRIOR_STATUS": "success"})
+    result = subprocess.CompletedProcess(
+        args=["bash", "-c", command],
+        returncode=completed.returncode,
+        stdout="".join(stdout_parts),
+        stderr="".join(stderr_parts),
+    )
+    if check:
+        result.check_returncode()
+    return result
 
 
 def _prepare_canonical_refresh_inputs(
@@ -4649,38 +5194,12 @@ def test_targeted_signed_reencode_runs_canonical_refresh_bundle_in_order(
         step["run"]
         for step in workflow["jobs"]["encode"]["steps"]
         if step.get("name") == "Encode, review, validate, and apply"
-    ).replace(
-        "/opt/axiom-verification/axiom-encode-apply-signer run",
-        '"$SIGNER_STUB"',
     )
-    before_checkpoint, checkpoint_and_after = command.split(
-        "checkpoint_signed_changes() {",
-        1,
+    command = _stub_signed_reencode_checkpoints(command)
+    command = _stub_signed_reencode_reconciliation(
+        command,
+        '      printf \'%s\\n\' "${operation[1]}" >> "$RECONCILIATIONS_PATH"',
     )
-    _checkpoint_body, after_checkpoint = checkpoint_and_after.split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
-        1,
-    )
-    command = (
-        before_checkpoint
-        + "checkpoint_signed_changes() {\n"
-        + '  printf \'%s\\n\' "$1" >> "$CHECKPOINTS_PATH"\n'
-        + '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n'
-        + '}\n\nif [ "$canonical_refresh_enabled"'
-        + after_checkpoint
-    )
-    canonical_reconciliation = (
-        '    "$workflow_python" "$backfill_helper" \\\n'
-        "      reconcile-retired-manifest-inventory \\\n"
-        '      "$RULESPEC_CHECKOUT" "$refresh_rulespec_path"'
-    )
-    command_before_reconciliation_stub = command
-    command = command.replace(
-        canonical_reconciliation,
-        '    printf \'%s\\n\' "$refresh_rulespec_path" >> "$RECONCILIATIONS_PATH"',
-        1,
-    )
-    assert command != command_before_reconciliation_stub
 
     repo, primary_citation, primary_path, additions = _prepare_canonical_refresh_inputs(
         tmp_path
@@ -4814,8 +5333,8 @@ if mutation_path and len(calls_path.read_text(encoding="utf-8").splitlines()) ==
         "SECOND_DEPENDENT_REVIEW_FINDING": "",
         "SIGNER_STUB": str(signer_stub),
     }
-    subprocess.run(
-        ["bash", "-c", command],
+    _run_prepared_signed_reencode(
+        command,
         cwd=ROOT,
         check=True,
         env=environment,
@@ -4909,8 +5428,8 @@ if mutation_path and len(calls_path.read_text(encoding="utf-8").splitlines()) ==
     checkpoints_path.unlink()
     reconciliations_path.unlink()
     future_companion = repo / str(normalized[1]["companion_path"])
-    blocked = subprocess.run(
-        ["bash", "-c", command],
+    blocked = _run_prepared_signed_reencode(
+        command,
         cwd=ROOT,
         check=False,
         capture_output=True,
@@ -4936,7 +5455,14 @@ if mutation_path and len(calls_path.read_text(encoding="utf-8").splitlines()) ==
         (1, "", ""),
         (1, "proof-import-subset", ""),
         (1, "", "dependent"),
+        (1, "", "target-existing"),
+        (1, "proof-import-subset", "target-existing"),
         (2, "", ""),
+        (2, "", "target-existing"),
+        (2, "all-direct", "target-existing"),
+        (2, "all-direct-proof-chain", "target-existing"),
+        (2, "proof-import-subset-chain", "target-existing"),
+        (2, "proof-import-chain", "target-existing"),
     ],
 )
 def test_targeted_signed_reencode_orders_target_and_dependents(
@@ -4962,6 +5488,7 @@ def test_targeted_signed_reencode_orders_target_and_dependents(
     signer_stub = tmp_path / "signer-stub"
     signer_stub.write_text(
         """#!/usr/bin/env python3
+import hashlib
 import json
 import os
 import sys
@@ -4971,6 +5498,48 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
     stream.write(json.dumps(sys.argv[1:]) + "\\n")
 """
     )
+    if repair_lane == "target-existing":
+        # The native encoder is stubbed above; materialize its minimal apply output
+        # so the real manifest-maintenance commands still run against a Git repo.
+        signer_stub.write_text(
+            signer_stub.read_text()
+            + """
+if sys.argv[-1] == os.environ["CITATION"]:
+    repo = Path(os.environ["RULESPEC_CHECKOUT"])
+    relative = os.environ["REPLACE_RULESPEC_PATH"]
+    target = repo / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("rules: []\\n")
+    manifest = repo / ".axiom/encoding-manifests" / Path(relative).with_suffix(".json")
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps({
+        "schema_version": "axiom-encode/applied-rulespec/v5",
+        "tool": "axiom-encode encode --apply",
+        "backend": "openai",
+        "signature": {"algorithm": "ed25519-domain-v1", "key_id": "fixture", "value": "fixture"},
+        "applied_files": [{"path": relative, "sha256": hashlib.sha256(target.read_bytes()).hexdigest()}],
+    }))
+"""
+        )
+        repo = tmp_path / "rulespec-us"
+        subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "Base",
+            ],
+            check=True,
+            capture_output=True,
+        )
     signer_stub.chmod(0o700)
     runner_temp = tmp_path / "runner-temp"
     runner_temp.mkdir()
@@ -5000,6 +5569,9 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
             {
                 "DEPENDENT_CITATION": "us/regulation/42/435/559",
                 "DEPENDENT_REVIEW_FINDING": "Preserve the dependent source.",
+                "DEPENDENT_RULESPEC_PATHS_JSON": json.dumps(
+                    ["us/regulations/42-cfr/435/559.yaml"]
+                ),
             }
         )
     if repair_lane == "dependent":
@@ -5026,6 +5598,19 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
                 "REPAIR_TESTS_ONLY": "false",
             }
         )
+    elif repair_lane == "target-existing":
+        environment.update(
+            {
+                "REPAIR_CANDIDATE_PATH": "regulations/42-cfr/435/555.yaml",
+                "REPAIR_CANDIDATE_ROOT": str(tmp_path / "repair-candidate"),
+                "REPAIR_CANDIDATE_RULESPEC_SHA256": "b" * 64,
+                "REPAIR_CANDIDATE_TESTS_SHA256": "c" * 64,
+                "REPAIR_RUN_LANE": "target",
+                "REPAIR_RULESPEC_PATH": "us/regulations/42-cfr/435/555.yaml",
+                "REPLACE_RULESPEC_PATH": "us/regulations/42-cfr/435/555.yaml",
+                "REPAIR_TESTS_ONLY": "false",
+            }
+        )
     if dependent_count == 2:
         environment.update(
             {
@@ -5033,14 +5618,24 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
                 "SECOND_DEPENDENT_REVIEW_FINDING": (
                     "Preserve the second dependent source."
                 ),
+                "DEPENDENT_RULESPEC_PATHS_JSON": json.dumps(
+                    [
+                        "us/regulations/42-cfr/435/559.yaml",
+                        "us/regulations/42-cfr/435/561/c.yaml"
+                        if cascade_mode
+                        in {
+                            "all-direct",
+                            "all-direct-proof-chain",
+                            "proof-import-subset-chain",
+                            "proof-import-chain",
+                        }
+                        else "us/regulations/42-cfr/435/561.yaml",
+                    ]
+                ),
             }
         )
 
-    subprocess.run(
-        ["bash", "-c", command],
-        check=True,
-        env=environment,
-    )
+    _run_prepared_signed_reencode(command, check=True, env=environment)
 
     calls = [
         json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()
@@ -5057,8 +5652,15 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
     )
     assert encode_args[0][-1] == expected_primary_citation
     assert ("--repair-candidate-root" in encode_args[0]) is (
-        repair_lane == "target-new-source"
+        repair_lane in {"target-new-source", "target-existing"}
     )
+    if repair_lane == "target-existing":
+        assert encode_args[0][encode_args[0].index("--repair-candidate-path") + 1] == (
+            "regulations/42-cfr/435/555.yaml"
+        )
+        assert encode_args[0][encode_args[0].index("--replace-rulespec-path") + 1] == (
+            "us/regulations/42-cfr/435/555.yaml"
+        )
     if repair_lane == "target-new-source":
         assert "--replace-rulespec-path" not in encode_args[0]
         expected_repair_values = {
@@ -5071,16 +5673,44 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
             assert encode_args[0][encode_args[0].index(option) + 1] == expected_value
         assert "--repair-candidate-tests-only" not in encode_args[0]
     assert ("--apply-target-only" in encode_args[0]) is (
-        dependent_count > 0 and cascade_mode != "proof-import-subset"
+        dependent_count > 0
+        and cascade_mode
+        not in {
+            "proof-import-subset",
+            "proof-import-subset-chain",
+            "proof-import-chain",
+        }
     )
     scheduled_option = "--scheduled-dependent-rulespec-path"
     assert (scheduled_option in encode_args[0]) is (
-        cascade_mode == "proof-import-subset"
+        cascade_mode
+        in {
+            "proof-import-subset",
+            "proof-import-subset-chain",
+            "proof-import-chain",
+        }
     )
-    if cascade_mode == "proof-import-subset":
+    if cascade_mode in {
+        "proof-import-subset",
+        "proof-import-subset-chain",
+        "proof-import-chain",
+    }:
         assert encode_args[0][encode_args[0].index(scheduled_option) + 1] == (
             "us/regulations/42-cfr/435/559.yaml"
         )
+        if cascade_mode in {
+            "all-direct",
+            "all-direct-proof-chain",
+            "proof-import-subset-chain",
+            "proof-import-chain",
+        }:
+            assert encode_args[0].count(scheduled_option) == 2
+            second = encode_args[0].index(
+                scheduled_option, encode_args[0].index(scheduled_option) + 1
+            )
+            assert encode_args[0][second + 1] == (
+                "us/regulations/42-cfr/435/561/c.yaml"
+            )
     assert (
         Path(encode_args[0][encode_args[0].index("--review-findings") + 1])
         .read_text(encoding="utf-8")
@@ -5101,7 +5731,24 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
             assert encode_args[1].count("--repair-candidate-path") == 1
             assert encode_args[1].count("--repair-candidate-rulespec-sha256") == 1
             assert encode_args[1].count("--repair-candidate-tests-sha256") == 1
-        assert ("--apply-target-only" in encode_args[1]) is (dependent_count == 2)
+        assert "--apply-target-only" not in encode_args[1]
+        assert (scheduled_option in encode_args[1]) is (
+            cascade_mode
+            in {
+                "proof-import-chain",
+                "all-direct-proof-chain",
+                "proof-import-subset-chain",
+            }
+        )
+        if cascade_mode in {
+            "proof-import-chain",
+            "all-direct-proof-chain",
+            "proof-import-subset-chain",
+        }:
+            assert encode_args[1].count(scheduled_option) == 1
+            assert encode_args[1][encode_args[1].index(scheduled_option) + 1] == (
+                "us/regulations/42-cfr/435/561/c.yaml"
+            )
         assert (
             Path(encode_args[1][encode_args[1].index("--review-findings") + 1])
             .read_text(encoding="utf-8")
@@ -5111,6 +5758,19 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
     if dependent_count == 2:
         assert encode_args[2][-1] == "us/regulation/42/435/561"
         assert "--apply-target-only" not in encode_args[2]
+        assert "--repair-candidate-root" not in encode_args[2]
+        if cascade_mode in {
+            "all-direct",
+            "all-direct-proof-chain",
+            "proof-import-subset-chain",
+            "proof-import-chain",
+        }:
+            assert (
+                encode_args[2][encode_args[2].index("--replace-rulespec-path") + 1]
+                == "us/regulations/42-cfr/435/561/c.yaml"
+            )
+        else:
+            assert "--replace-rulespec-path" not in encode_args[2]
         assert (
             Path(encode_args[2][encode_args[2].index("--review-findings") + 1])
             .read_text(encoding="utf-8")
@@ -5126,38 +5786,15 @@ def test_targeted_signed_reencode_composes_nonempty_source_bundle(
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
     )
-    command = (
-        next(
-            step["run"]
-            for step in workflow["jobs"]["encode"]["steps"]
-            if step.get("name") == "Encode, review, validate, and apply"
-        )
-        .replace(
-            "/opt/axiom-verification/axiom-encode-apply-signer run",
-            '"$SIGNER_STUB"',
-        )
-        .replace(
-            '    "$workflow_python" "$backfill_helper" \\\n'
-            "      reconcile-retired-manifest-inventory \\\n"
-            '      "$RULESPEC_CHECKOUT" "$REPLACE_RULESPEC_PATH"',
-            '    printf \'%s\\n\' "$REPLACE_RULESPEC_PATH" >> "$RECONCILIATIONS_PATH"',
-        )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Encode, review, validate, and apply"
     )
-    before_checkpoint, checkpoint_and_after = command.split(
-        "checkpoint_signed_changes() {",
-        1,
-    )
-    _checkpoint_body, after_checkpoint = checkpoint_and_after.split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
-        1,
-    )
-    command = (
-        before_checkpoint
-        + "checkpoint_signed_changes() {\n"
-        + '  printf \'%s\\n\' "$1" >> "$CHECKPOINTS_PATH"\n'
-        + '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n'
-        + '}\n\nif [ "$canonical_refresh_enabled"'
-        + after_checkpoint
+    command = _stub_signed_reencode_checkpoints(command)
+    command = _stub_signed_reencode_reconciliation(
+        command,
+        '      printf \'%s\\n\' "${operation[1]}" >> "$RECONCILIATIONS_PATH"',
     )
 
     calls_path = tmp_path / "calls.jsonl"
@@ -5228,8 +5865,8 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
             + ')"',
         )
 
-    subprocess.run(
-        ["bash", "-c", command],
+    _run_prepared_signed_reencode(
+        command,
         check=True,
         env={
             **os.environ,
@@ -5324,6 +5961,142 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
         replacement_path
     ]
     assert canonical.is_file()
+
+
+@pytest.mark.parametrize("failure_point", ["none", "signer", "checkpoint", "limit"])
+def test_targeted_signed_reencode_handles_all_nineteen_signing_slots(
+    tmp_path: Path, failure_point: str
+) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("id") == "prepare_encode_apply"
+    )
+    # This capacity test keeps the real input parsers. Avoid sixteen identical
+    # package startups for the fixture's already-known citation path mapping.
+    source_path_lookup = (
+        '  "$workflow_python" "$backfill_helper" \\\n'
+        '    citation-rulespec-path "$source_citation" \\\n'
+        '    >> "$RUNNER_TEMP/source-bundle-rulespec-paths.txt"'
+    )
+    assert command.count(source_path_lookup) == 1
+    command = command.replace(
+        source_path_lookup,
+        "  printf 'us/policies/%s.yaml\\n' "
+        '"${source_citation#us/guidance/}" \\\n'
+        '    >> "$RUNNER_TEMP/source-bundle-rulespec-paths.txt"',
+        1,
+    )
+    command = _stub_signed_reencode_checkpoints(command).replace(
+        '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n',
+        '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n'
+        '  test -z "${AXIOM_ENCODE_APPLY_SIGNING_KEY+x}"\n'
+        '  if [ "${FAIL_CHECKPOINT:-}" = true ]; then return 29; fi\n',
+        1,
+    )
+    command = 'test -z "${AXIOM_ENCODE_APPLY_SIGNING_KEY+x}"\n' + command
+    command = command.replace(
+        "# Each invocation runs key-free post-signing work and prepares one request.\n",
+        "# Each invocation runs key-free post-signing work and prepares one request.\n"
+        'test -z "${AXIOM_ENCODE_APPLY_SIGNING_KEY+x}"\n',
+        1,
+    )
+    runner_temp = tmp_path / "runner-temp"
+    runner_temp.mkdir()
+    _prepare_empty_signed_import_inputs(runner_temp)
+    calls_path = tmp_path / "calls.jsonl"
+    checkpoints_path = tmp_path / "checkpoints.txt"
+    signer_stub = tmp_path / "signer-stub"
+    signer_stub.write_text(
+        """#!/usr/bin/env python3
+import json
+import os
+import sys
+from pathlib import Path
+
+assert os.environ["AXIOM_ENCODE_APPLY_SIGNING_KEY"] == "test-key"
+calls = Path(os.environ["CALLS_PATH"])
+with calls.open("a", encoding="utf-8") as stream:
+    stream.write(json.dumps(sys.argv[1:]) + "\\n")
+if os.environ["FAIL_SIGNER"] == "true" and len(calls.read_text().splitlines()) == 2:
+    raise SystemExit(23)
+""",
+        encoding="utf-8",
+    )
+    signer_stub.chmod(0o700)
+    primary = "us/guidance/example/target"
+    sources = [f"us/guidance/example/source-{index:02d}" for index in range(1, 17)]
+    dependents = ["us/guidance/example/dependent-1", "us/guidance/example/dependent-2"]
+    result = _run_prepared_signed_reencode(
+        command,
+        check=False,
+        signing_slots=18 if failure_point == "limit" else None,
+        env={
+            **os.environ,
+            "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key",
+            "AXIOM_TEST_PYTHON": sys.executable,
+            "ATOMIC_SOURCE_JSON": json.dumps(sources),
+            "CALLS_PATH": str(calls_path),
+            "CHECKPOINTS_PATH": str(checkpoints_path),
+            "CITATION": primary,
+            "DEPENDENT_CITATION": dependents[0],
+            "DEPENDENT_REVIEW_FINDING": "Preserve the first dependent.",
+            "DEPENDENT_RULESPEC_PATHS_JSON": json.dumps(
+                [
+                    "us/policies/example/dependent-1.yaml",
+                    "us/policies/example/dependent-2.yaml",
+                ]
+            ),
+            "FAIL_CHECKPOINT": str(failure_point == "checkpoint").lower(),
+            "FAIL_SIGNER": str(failure_point == "signer").lower(),
+            "GITHUB_WORKSPACE": str(tmp_path),
+            "REVIEW_FINDING": "Preserve the target.",
+            "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
+            "RULESPEC_REF": "a" * 40,
+            "RUNNER_TEMP": str(runner_temp),
+            "SECOND_DEPENDENT_CITATION": dependents[1],
+            "SECOND_DEPENDENT_REVIEW_FINDING": "Preserve the second dependent.",
+            "SIGNER_STUB": str(signer_stub),
+        },
+    )
+    calls = [json.loads(line) for line in calls_path.read_text().splitlines()]
+    citations = [call[-1] for call in calls]
+    checkpoints = checkpoints_path.read_text().splitlines()
+    if failure_point == "none":
+        assert result.returncode == 0, result.stderr
+        assert citations == [*sources, primary, *dependents]
+        target_args = calls[len(sources)]
+        required_imports = [
+            target_args[index + 1]
+            for index, value in enumerate(target_args)
+            if value == "--required-import-rulespec-path"
+        ]
+        assert required_imports == [
+            f"us/policies/example/source-{index:02d}.yaml" for index in range(1, 17)
+        ]
+        for source_args in calls[: len(sources)]:
+            assert "--apply-target-only" in source_args
+            assert "--required-import-rulespec-path" not in source_args
+        assert checkpoints == [
+            *(f"Add signed source module for {citation}" for citation in sources),
+            f"Compose signed source bundle for {primary}",
+        ]
+    elif failure_point == "signer":
+        assert result.returncode == 23
+        assert citations == sources[:2]
+        assert checkpoints == [f"Add signed source module for {sources[0]}"]
+    elif failure_point == "checkpoint":
+        assert result.returncode == 29
+        assert citations == sources[:1]
+        assert checkpoints == [f"Add signed source module for {sources[0]}"]
+    else:
+        assert result.returncode != 0
+        assert "exceeded the bounded signing slots" in result.stderr
+        assert citations == [*sources, primary, dependents[0]]
+        assert len(checkpoints) == 16
 
 
 @pytest.mark.parametrize(
@@ -5509,8 +6282,8 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
     (runner_temp / "existing-signed-import-paths.txt").write_text(existing_path + "\n")
     (runner_temp / "canonical-refresh-bundle.json").write_text("[]\n")
 
-    subprocess.run(
-        ["bash", "-c", command],
+    _run_prepared_signed_reencode(
+        command,
         check=True,
         env={
             **os.environ,
@@ -5551,22 +6324,14 @@ def test_targeted_signed_reencode_runs_replacement_target(
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
     )
-    command = (
-        next(
-            step["run"]
-            for step in workflow["jobs"]["encode"]["steps"]
-            if step.get("name") == "Encode, review, validate, and apply"
-        )
-        .replace(
-            "/opt/axiom-verification/axiom-encode-apply-signer run",
-            '"$SIGNER_STUB"',
-        )
-        .replace(
-            '    "$workflow_python" "$backfill_helper" \\\n'
-            "      reconcile-retired-manifest-inventory \\\n"
-            '      "$RULESPEC_CHECKOUT" "$REPLACE_RULESPEC_PATH"',
-            "    printf '%s\\n' 'retired manifest inventory unchanged'",
-        )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Encode, review, validate, and apply"
+    )
+    command = _stub_signed_reencode_reconciliation(
+        command,
+        "      printf '%s\\n' 'retired manifest inventory unchanged'",
     )
     calls_path = tmp_path / "calls.jsonl"
     signer_stub = tmp_path / "signer-stub"
@@ -5599,6 +6364,9 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
         "CITATION": "us-nc/statute/105/105-153.7",
         "DEPENDENT_CITATION": dependent_citation,
         "DEPENDENT_REVIEW_FINDING": dependent_finding,
+        "DEPENDENT_RULESPEC_PATHS_JSON": json.dumps(
+            ["us-nc/statutes/105/105-153.5.yaml"] if with_dependent else []
+        ),
         "GITHUB_WORKSPACE": str(tmp_path),
         "REPLACE_LEGACY_RULESPEC_PATH": (
             "us-nc/policies/income_tax/PILOT_LIABILITY_PIPELINE.yaml"
@@ -5615,11 +6383,7 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
         "SIGNER_STUB": str(signer_stub),
         "ATOMIC_SOURCE_JSON": "[]",
     }
-    subprocess.run(
-        ["bash", "-c", command],
-        check=True,
-        env=environment,
-    )
+    _run_prepared_signed_reencode(command, check=True, env=environment)
 
     calls = [
         json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()
@@ -5638,8 +6402,8 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
         assert "--apply-target-only" not in encode_args[1]
         assert encode_args[1][-1] == dependent_citation
 
-    blocked = subprocess.run(
-        ["bash", "-c", command],
+    blocked = _run_prepared_signed_reencode(
+        command,
         check=False,
         capture_output=True,
         text=True,
@@ -5721,7 +6485,7 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
         "ATOMIC_SOURCE_JSON": "[]",
     }
 
-    subprocess.run(["bash", "-c", command], check=True, env=environment)
+    _run_prepared_signed_reencode(command, check=True, env=environment)
 
     calls = [
         json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()
@@ -5870,7 +6634,7 @@ def test_targeted_review_finding_temp_file_is_valid_context(tmp_path: Path) -> N
     assert validate_explicit_context_file(finding_path, policy_root) == finding_path
 
 
-@pytest.mark.parametrize("contract_case", ["none", "exact", "tampered"])
+@pytest.mark.parametrize("contract_case", ["none", "exact", "tampered", "admission"])
 def test_targeted_artifact_packages_signed_review_context(
     tmp_path: Path, contract_case: str
 ) -> None:
@@ -5954,6 +6718,11 @@ def test_targeted_artifact_packages_signed_review_context(
     context_path = tmp_path / "generated" / "target" / "context-manifest.json"
     context_path.parent.mkdir(parents=True)
     context_path.write_bytes(context_bytes)
+    admission_bytes = b'{"contract":"retired-source-containment/v1","sources":[]}\n'
+    if contract_case == "admission":
+        (context_path.parent / "retired-source-admission.json").write_bytes(
+            admission_bytes
+        )
     applied_manifest = {
         "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
         "citation": citation,
@@ -6018,10 +6787,25 @@ def test_targeted_artifact_packages_signed_review_context(
     assert inventory["items"] == [
         {
             "citation": citation,
+            **(
+                {
+                    "source_admission": {
+                        "path": "source-admission/target/retired-source-admission.json",
+                        "sha256": hashlib.sha256(admission_bytes).hexdigest(),
+                    }
+                }
+                if contract_case == "admission"
+                else {}
+            ),
             "path": applied_path.relative_to(rulespec).as_posix(),
             "sha256": hashlib.sha256(applied_path.read_bytes()).hexdigest(),
         }
     ]
+
+    if contract_case == "admission":
+        assert (
+            packaged_context.parent / inventory["items"][0]["source_admission"]["path"]
+        ).read_bytes() == admission_bytes
 
 
 def _targeted_package_script() -> str:
@@ -6342,8 +7126,9 @@ def test_targeted_artifact_enforces_exact_canonical_refresh_inventory(
 
 
 @pytest.mark.parametrize("repair_lane", ["target", "source-only"])
+@pytest.mark.parametrize("selected_mode", ["full_artifact", "tests_only", ""])
 def test_targeted_metadata_uses_consumed_repair_identity_after_evidence_mutation(
-    tmp_path: Path, repair_lane: str
+    tmp_path: Path, repair_lane: str, selected_mode: str
 ) -> None:
     script = _targeted_metadata_script()
     heads: dict[str, str] = {}
@@ -6417,15 +7202,33 @@ def test_targeted_metadata_uses_consumed_repair_identity_after_evidence_mutation
             "REPAIR_CANDIDATE_TESTS_SHA256": (
                 "" if repair_lane == "source-only" else "e" * 64
             ),
-            "REPAIR_RUN_ID": "1234",
+            "REPAIR_RUN_ID": "1234" if selected_mode else "",
+            "REPAIR_MODE": selected_mode,
+            "REPAIR_TESTS_ONLY": ("true" if selected_mode == "tests_only" else "false")
+            if selected_mode
+            else "",
+            "PYTHONPATH": str(ROOT / "src"),
             "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
             "RULESPEC_REF": heads["rulespec-us"],
             "RUNNER_TEMP": str(runner_temp),
         },
     )
 
+    if selected_mode == "tests_only":
+        assert completed.returncode != 0
+        assert "repair execution mode differs" in completed.stderr
+        return
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if not selected_mode:
+        assert payload["repair_execution"] is None
+        assert payload["repair_candidate"] is None
+        return
+    assert payload["repair_execution"] == {
+        "requested_mode": "legacy_inference",
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
     expected = {
         "lane": repair_lane,
         "run_id": "1234",
@@ -6871,6 +7674,161 @@ def test_targeted_artifact_preserves_pre_v4_replacement_receipts(
 
 
 @pytest.mark.parametrize(
+    ("mutation", "error"),
+    [
+        ("none", None),
+        ("wrong-owner-hash", "historical legacy replacement manifest binding differs"),
+        (
+            "wrong-receipt-and-owner-hash",
+            "historical legacy replacement manifest binding differs",
+        ),
+        ("wrong-owner-path", "historical legacy replacement manifest binding differs"),
+        ("moved-manifest", "in-place legacy replacement manifest path differs"),
+        ("owner-not-deleted", "deleted manifest inventory differs"),
+    ],
+)
+def test_targeted_artifact_packages_historical_in_place_owner(
+    tmp_path: Path, mutation: str, error: str | None
+) -> None:
+    rulespec = tmp_path / "rulespec-us"
+    rulespec.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=rulespec, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=rulespec,
+        check=True,
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=rulespec, check=True)
+    primary_path = "us-az/policies/des/faa5/expanded.yaml"
+    old_manifest_path = (
+        "us-az/.axiom/encoding-manifests/policies/des/faa5/expanded.json"
+    )
+    new_manifest_path = (
+        ".axiom/encoding-manifests/us-az/policies/des/faa5/expanded.json"
+    )
+    primary = rulespec / primary_path
+    primary.parent.mkdir(parents=True)
+    primary.write_bytes(b"old rule\n")
+    old_manifest = rulespec / old_manifest_path
+    old_manifest.parent.mkdir(parents=True)
+    old_manifest.write_bytes(b"old owner\n")
+    old_owner_sha = hashlib.sha256(old_manifest.read_bytes()).hexdigest()
+    subprocess.run(["git", "add", "."], cwd=rulespec, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=rulespec, check=True)
+    rulespec_ref = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=rulespec, text=True
+    ).strip()
+
+    primary.write_bytes(b"new rule\n")
+    if mutation != "owner-not-deleted":
+        old_manifest.unlink()
+    citation = "us-az/manual/des/faa5/block-4"
+    context = {"citation": citation, "review_findings_files": []}
+    context_bytes = json.dumps(context, sort_keys=True).encode()
+    context_path = tmp_path / "generated/target/context-manifest.json"
+    context_path.parent.mkdir(parents=True)
+    context_path.write_bytes(context_bytes)
+    nested_manifest = {
+        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+        "tool": "axiom-encode encode --apply",
+        "backend": "codex",
+        "citation": citation,
+        "context_manifest_file": str(context_path),
+        "context_manifest_sha256": hashlib.sha256(context_bytes).hexdigest(),
+        "applied_files": [
+            {
+                "path": primary_path,
+                "sha256": hashlib.sha256(primary.read_bytes()).hexdigest(),
+            }
+        ],
+    }
+    receipt_payload = {
+        "schema_version": "axiom-encode/legacy-fresh-reencode-receipt/v8",
+        "legacy": {
+            "manifest": {
+                "path": old_manifest_path,
+                "sha256": (
+                    "0" * 64
+                    if mutation == "wrong-receipt-and-owner-hash"
+                    else old_owner_sha
+                ),
+            }
+        },
+        "replacement": {
+            "source": primary_path,
+            "destination": primary_path,
+            "scheduled_dependents": [],
+            "exact_dependents": [],
+            "retained_successors": [],
+            "metadata_reconciliations": [],
+        },
+    }
+    receipt = rulespec / ".axiom/legacy-replacements" / f"{'a' * 64}.json"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text(json.dumps(receipt_payload) + "\n")
+    outer = {
+        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+        "tool": "axiom-encode encode --apply --replace-legacy-rulespec-path",
+        "replacement_manifest": nested_manifest,
+        "replacement": {
+            "receipt_path": receipt.relative_to(rulespec).as_posix(),
+            "receipt_sha256": hashlib.sha256(receipt.read_bytes()).hexdigest(),
+            "legacy_manifest_path": (
+                new_manifest_path
+                if mutation == "wrong-owner-path"
+                else old_manifest_path
+            ),
+            "legacy_manifest_sha256": (
+                "0" * 64
+                if mutation in {"wrong-owner-hash", "wrong-receipt-and-owner-hash"}
+                else old_owner_sha
+            ),
+        },
+    }
+    new_manifest = rulespec / (
+        new_manifest_path.replace("expanded.json", "moved.json")
+        if mutation == "moved-manifest"
+        else new_manifest_path
+    )
+    new_manifest.parent.mkdir(parents=True)
+    new_manifest.write_text(json.dumps(outer) + "\n")
+    (tmp_path / "source-bundle.json").write_text("[]\n")
+    (tmp_path / "canonical-refresh-bundle.json").write_text("[]\n")
+    artifact = tmp_path / "artifact"
+    artifact.mkdir()
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-",
+            str(artifact / "context-manifest.json"),
+            str(artifact / "apply-manifests.json"),
+        ],
+        cwd=tmp_path,
+        input=_targeted_package_script(),
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "CITATION": citation,
+            "PYTHONPATH": str(ROOT / "src"),
+            "REVIEW_FINDING": "",
+            "REVIEW_FINDING_PRESENT": "false",
+            "RUNNER_TEMP": str(tmp_path),
+            "RULESPEC_CHECKOUT": "rulespec-us",
+            "RULESPEC_REF": rulespec_ref,
+            "REPLACE_LEGACY_RULESPEC_PATH": primary_path,
+            "REPLACE_RULESPEC_PATH": primary_path,
+        },
+    )
+    if error:
+        assert completed.returncode != 0
+        assert error in completed.stderr
+    else:
+        assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize(
     ("target_lane", "dependent_lane", "dependent_context_citation", "error"),
     [
         ("target", "dependent", None, None),
@@ -7050,351 +8008,80 @@ def test_targeted_artifact_enforces_target_and_dependent_context_lanes(
     ]
 
 
-def test_apply_signing_key_migration_workflow_is_main_only() -> None:
-    workflow = yaml.safe_load(
-        (ROOT / ".github/workflows/migrate-apply-signing-key.yml").read_text()
-    )
-    trigger = workflow.get("on", workflow.get(True))
-    assert set(trigger) == {"workflow_dispatch"}
-    assert workflow["permissions"] == {"contents": "read"}
-
-    job = workflow["jobs"]["migrate"]
-    assert job["environment"] == "signing-key-migration"
-    assert "github.ref == 'refs/heads/main'" in job["if"]
-    steps = job["steps"]
-    assert not any(
-        step.get("uses", "").startswith("actions/checkout@") for step in steps
-    )
-    setup_go = next(
-        step for step in steps if step.get("name") == "Install pinned Go toolchain"
-    )
-    assert setup_go["uses"] == (
-        "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16"
-    )
-    assert setup_go["with"] == {"go-version": "1.26.1", "cache": False}
-
-    encrypt_step = next(
-        step for step in steps if step.get("name") == "Encrypt inherited signing key"
-    )
-    assert encrypt_step["env"]["APPLY_SIGNING_KEY"] == (
-        "${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}"
-    )
-    command = encrypt_step["run"]
-    assert "rsa_padding_mode:oaep" in command
-    assert "rsa_oaep_md:sha256" in command
-    assert "rsa_mgf1_md:sha256" in command
-    assert "unset APPLY_SIGNING_KEY" in command
-    assert '"$rsa_bits" -lt 3072' in command
-    assert "base64.StdEncoding.Strict().DecodeString" in command
-    assert "x509.ParsePKCS8PrivateKey" in command
-    assert "bytes.Equal(derivedPublic, trustedPublic)" in command
-    assert "sha256sum --check SHA256SUMS" in command
-    assert 'rm -f "$plaintext"' in command
-    assert 'echo "$APPLY_SIGNING_KEY"' not in command
-    upload_step = next(
-        step
-        for step in steps
-        if step.get("name") == "Upload encrypted migration artifact"
-    )
-    assert upload_step["with"]["path"] == (
-        "${{ runner.temp }}/apply-signing-key-migration"
-    )
-    assert upload_step["with"]["retention-days"] == 1
-
-    secret_steps = [
-        step for step in steps if "APPLY_SIGNING_KEY" in (step.get("env") or {})
-    ]
-    assert secret_steps == [encrypt_step]
-
-
-def _migration_openssl() -> Path:
-    candidates = (
-        Path("/opt/homebrew/opt/openssl@3/bin/openssl"),
-        Path("/usr/local/opt/openssl@3/bin/openssl"),
-        Path(shutil.which("openssl") or "/missing"),
-    )
-    for candidate in candidates:
-        if not candidate.is_file():
-            continue
-        version = subprocess.run(
-            [candidate, "version"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if version.returncode == 0 and version.stdout.startswith("OpenSSL 3."):
-            return candidate
-    pytest.skip("OpenSSL 3 is required for the executable migration workflow test")
-
-
-def _run_apply_key_migration(
-    tmp_path: Path,
-    *,
-    run_name: str,
-    signing_key: str,
-    apply_public_key: str,
-    recipient_public_key: bytes,
-) -> tuple[subprocess.CompletedProcess[str], Path]:
-    go = Path(shutil.which("go") or "/opt/homebrew/bin/go")
-    if not go.is_file():
-        pytest.skip("Go is required for the executable migration workflow test")
-    workflow = yaml.safe_load(
-        (ROOT / ".github/workflows/migrate-apply-signing-key.yml").read_text()
-    )
-    command = next(
-        step["run"]
-        for step in workflow["jobs"]["migrate"]["steps"]
-        if step.get("name") == "Encrypt inherited signing key"
-    )
-    runner_temp = tmp_path / run_name
-    runner_temp.mkdir()
-    shim_dir = runner_temp / "bin"
-    shim_dir.mkdir()
-    (shim_dir / "go").symlink_to(go)
-    (shim_dir / "openssl").symlink_to(_migration_openssl())
-    sha256sum = shim_dir / "sha256sum"
-    sha256sum.write_text(
-        "#!/usr/bin/env python3\n"
-        "import hashlib, pathlib, sys\n"
-        "if sys.argv[1:2] == ['--check']:\n"
-        "    for line in pathlib.Path(sys.argv[2]).read_text().splitlines():\n"
-        "        expected, name = line.split('  ', 1)\n"
-        "        actual = hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest()\n"
-        "        if actual != expected:\n"
-        "            raise SystemExit(f'{name}: FAILED')\n"
-        "        print(f'{name}: OK')\n"
-        "else:\n"
-        "    for name in sys.argv[1:]:\n"
-        "        digest = hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest()\n"
-        "        print(f'{digest}  {name}')\n"
-    )
-    sha256sum.chmod(0o700)
-    completed = subprocess.run(
-        ["bash", "-c", command],
-        check=False,
-        capture_output=True,
-        text=True,
-        env={
-            **os.environ,
-            "RUNNER_TEMP": str(runner_temp),
-            "APPLY_SIGNING_KEY": signing_key,
-            "APPLY_PUBLIC_KEY": apply_public_key,
-            "RECIPIENT_PUBLIC_KEY": b64encode(recipient_public_key).decode("ascii"),
-            "PATH": f"{shim_dir}{os.pathsep}{os.environ['PATH']}",
-        },
-    )
-    return completed, runner_temp / "apply-signing-key-migration"
-
-
-def test_apply_signing_key_migration_round_trip_and_artifact_allowlist(
-    tmp_path: Path,
-) -> None:
-    seed = bytes(range(32))
-    apply_public_key, private_key = _keypair(seed)
-    recipient_private_key = rsa.generate_private_key(
-        public_exponent=65537, key_size=3072
-    )
-    recipient_public_key = recipient_private_key.public_key().public_bytes(
-        serialization.Encoding.PEM,
-        serialization.PublicFormat.SubjectPublicKeyInfo,
-    )
-    raw_seed = b64encode(seed).decode("ascii")
-    pkcs8_pem = private_key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    ).decode("ascii")
-    serializations = {
-        "raw-seed": (raw_seed, raw_seed),
-        "raw-seed-whitespace": (f" \n{raw_seed}\n ", raw_seed),
-        "pkcs8-pem": (pkcs8_pem, pkcs8_pem.strip()),
+def _retired_apply_frozen_inventory() -> dict[str, object]:
+    return {
+        "schema": "axiom-encode/retired-apply-inventory/v1",
+        "repositories": [
+            {
+                "repository": "TheAxiomFoundation/rulespec-us",
+                "cutoff_commit": "a" * 40,
+                "artifacts": [
+                    {
+                        "path": ".axiom/encoding-manifests/frozen.json",
+                        "sha256": "b" * 64,
+                        "covered_files": [
+                            {"path": "statute/frozen.yaml", "sha256": "c" * 64}
+                        ],
+                    }
+                ],
+            }
+        ],
     }
 
-    for run_name, (
-        serialized_private_key,
-        expected_private_key,
-    ) in serializations.items():
-        completed, artifact = _run_apply_key_migration(
+
+def test_supervisor_v4_forwards_frozen_retired_apply_trust(
+    signing_supervisor: Path,
+    trusted_python_runtime: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    active_public, _active_key = _keypair(b"\xab" * 32)
+    retired_public, _retired_key = _keypair(b"\xac" * 32)
+    eval_public, _eval_key = _keypair(b"\xcd" * 32)
+    inventory = _retired_apply_frozen_inventory()
+    completed = _invoke(
+        signing_supervisor,
+        trusted_python_runtime,
+        _launcher(tmp_path, trusted_python_runtime),
+        _trust_config(
             tmp_path,
-            run_name=run_name,
-            signing_key=serialized_private_key,
-            apply_public_key=apply_public_key,
-            recipient_public_key=recipient_public_key,
-        )
-
-        assert completed.returncode == 0, completed.stderr
-        assert sorted(path.name for path in artifact.iterdir()) == [
-            "SHA256SUMS",
-            "apply-public-key.txt",
-            "apply-signing-key.oaep-sha256.bin",
-        ]
-        checksum_manifest = (artifact / "SHA256SUMS").read_text()
-        assert str(tmp_path) not in checksum_manifest
-        for line in checksum_manifest.splitlines():
-            expected_digest, relative_name = line.split("  ", 1)
-            assert (
-                hashlib.sha256((artifact / relative_name).read_bytes()).hexdigest()
-                == expected_digest
-            )
-        decrypted = recipient_private_key.decrypt(
-            (artifact / "apply-signing-key.oaep-sha256.bin").read_bytes(),
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None,
-            ),
-        )
-        assert decrypted.decode("ascii") == expected_private_key
-
-    escaped_public_pem = (
-        private_key.public_key()
-        .public_bytes(
-            serialization.Encoding.PEM,
-            serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        .decode("ascii")
-        .replace("\n", "\\n")
-    )
-    escaped_public, artifact = _run_apply_key_migration(
-        tmp_path,
-        run_name="escaped-public-pem",
-        signing_key=raw_seed,
-        apply_public_key=escaped_public_pem,
-        recipient_public_key=recipient_public_key,
-    )
-    assert escaped_public.returncode == 0, escaped_public.stderr
-    decrypted = recipient_private_key.decrypt(
-        (artifact / "apply-signing-key.oaep-sha256.bin").read_bytes(),
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None,
+            active_public,
+            eval_public,
+            retired_apply_public_keys=(retired_public,),
+            retired_apply_inventory=inventory,
         ),
+        [],
     )
-    assert decrypted.decode("ascii") == raw_seed
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout)
+    assert result["capabilities"] == []
+    assert result["roots"]["apply"] == active_public
+    assert result["roots"]["retired_apply_keys"] == [retired_public]
+    assert result["retired_apply_inventory"] == inventory
 
 
-def test_apply_signing_key_migration_rejects_mismatched_or_malformed_key(
+def test_retired_apply_leaf_signer_fails_active_root_challenge(
+    signing_supervisor: Path,
+    trusted_python_runtime: tuple[Path, Path, Path],
     tmp_path: Path,
 ) -> None:
-    seed = bytes(range(32))
-    apply_public_key, _private_key = _keypair(seed)
-    wrong_public_key, _wrong_private_key = _keypair(bytes(reversed(range(32))))
-    recipient_private_key = rsa.generate_private_key(
-        public_exponent=65537, key_size=3072
-    )
-    recipient_public_key = recipient_private_key.public_key().public_bytes(
-        serialization.Encoding.PEM,
-        serialization.PublicFormat.SubjectPublicKeyInfo,
-    )
-
-    mismatched, _artifact = _run_apply_key_migration(
+    active_public, _active_key = _keypair(b"\xab" * 32)
+    retired_public, retired_key = _keypair(b"\xac" * 32)
+    eval_public, _eval_key = _keypair(b"\xcd" * 32)
+    trust = _trust_config(
         tmp_path,
-        run_name="mismatched",
-        signing_key=b64encode(seed).decode("ascii"),
-        apply_public_key=wrong_public_key,
-        recipient_public_key=recipient_public_key,
+        active_public,
+        eval_public,
+        retired_apply_public_keys=(retired_public,),
+        retired_apply_inventory=_retired_apply_frozen_inventory(),
     )
-    malformed, _artifact = _run_apply_key_migration(
-        tmp_path,
-        run_name="malformed",
-        signing_key="!" * 44,
-        apply_public_key=apply_public_key,
-        recipient_public_key=recipient_public_key,
-    )
-    pkcs8_pem = _private_key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    ).decode("ascii")
-    trailing_data, _artifact = _run_apply_key_migration(
-        tmp_path,
-        run_name="trailing-data",
-        signing_key=f"{pkcs8_pem}not-part-of-the-pem",
-        apply_public_key=apply_public_key,
-        recipient_public_key=recipient_public_key,
-    )
-    private_der = _private_key.private_bytes(
-        serialization.Encoding.DER,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    )
-    internal_trailing_der = b64encode(private_der + b"X").decode("ascii")
-    internal_trailing_pem = "\n".join(
-        [
-            "-----BEGIN PRIVATE KEY-----",
-            *(
-                internal_trailing_der[index : index + 64]
-                for index in range(0, len(internal_trailing_der), 64)
-            ),
-            "-----END PRIVATE KEY-----",
-        ]
-    )
-    trailing_der, _artifact = _run_apply_key_migration(
-        tmp_path,
-        run_name="trailing-der",
-        signing_key=internal_trailing_pem,
-        apply_public_key=apply_public_key,
-        recipient_public_key=recipient_public_key,
-    )
-
-    canonical_seed = b64encode(seed).decode("ascii")
-    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-    padding_index = alphabet.index(canonical_seed[-2])
-    assert padding_index % 4 == 0
-    noncanonical_seed = f"{canonical_seed[:-2]}{alphabet[padding_index + 1]}="
-    noncanonical_private, _artifact = _run_apply_key_migration(
-        tmp_path,
-        run_name="noncanonical-private-base64",
-        signing_key=noncanonical_seed,
-        apply_public_key=apply_public_key,
-        recipient_public_key=recipient_public_key,
-    )
-    public_padding_index = alphabet.index(apply_public_key[-2])
-    assert public_padding_index % 4 == 0
-    noncanonical_apply_public = (
-        f"{apply_public_key[:-2]}{alphabet[public_padding_index + 1]}="
-    )
-    noncanonical_public, _artifact = _run_apply_key_migration(
-        tmp_path,
-        run_name="noncanonical-public-base64",
-        signing_key=canonical_seed,
-        apply_public_key=noncanonical_apply_public,
-        recipient_public_key=recipient_public_key,
-    )
-
-    assert mismatched.returncode != 0
-    assert "does not match the trusted apply public key" in mismatched.stderr
-    assert malformed.returncode != 0
-    assert "not strict base64 or PKCS8 PEM" in malformed.stderr
-    assert trailing_data.returncode != 0
-    assert "PEM contains trailing data" in trailing_data.stderr
-    assert trailing_der.returncode != 0
-    assert "contains trailing ASN.1 data" in trailing_der.stderr
-    assert noncanonical_private.returncode != 0
-    assert "not strict base64 or PKCS8 PEM" in noncanonical_private.stderr
-    assert noncanonical_public.returncode != 0
-    assert "not strict base64 Ed25519 material" in noncanonical_public.stderr
-
-
-def test_apply_signing_key_migration_rejects_weak_recipient_rsa(
-    tmp_path: Path,
-) -> None:
-    seed = bytes(range(32))
-    apply_public_key, _private_key = _keypair(seed)
-    weak_recipient = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    weak_public_key = weak_recipient.public_key().public_bytes(
-        serialization.Encoding.PEM,
-        serialization.PublicFormat.SubjectPublicKeyInfo,
-    )
-
-    completed, _artifact = _run_apply_key_migration(
-        tmp_path,
-        run_name="weak-rsa",
-        signing_key=b64encode(seed).decode("ascii"),
-        apply_public_key=apply_public_key,
-        recipient_public_key=weak_public_key,
-    )
-
+    with _signers(retired_key) as descriptors:
+        completed = _invoke(
+            signing_supervisor,
+            trusted_python_runtime,
+            _launcher(tmp_path, trusted_python_runtime),
+            trust,
+            descriptors,
+        )
     assert completed.returncode != 0
-    assert "must be RSA with at least 3072 bits" in completed.stderr
+    assert "External apply signer initialization failed" in completed.stderr
+    assert completed.stdout == ""

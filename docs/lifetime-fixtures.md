@@ -10,18 +10,10 @@ An older CLI fails validation rather than falling back to scalar evaluation.
 Production generation must still use the reviewed, pinned engine and protected
 encoder workflow. This feature does not update a repository's toolchain pins.
 
-For a job that selects an engine commit explicitly, pass
-`--axiom-rules-engine-ref` with its full lowercase commit SHA to `encode`, along
-with `--axiom-rules-engine-path`. The checkout must be clean and its HEAD must
-equal that SHA. The existing `engine-bind` receipt resolver verifies the binary
-or builds it from that checkout. Generation, retained-candidate validation,
-repairs, companion tests, and dependent overlay/baseline checks all receive the
-same ref. Successful generation and apply validation recheck the source and
-binary; changes prevent success or apply. The additional binding stays in the
-in-memory validation snapshot, and the portable signed-manifest format remains
-unchanged. Omitting the option preserves existing engine selection behavior.
-See [Pinning the engine for encode](encode-engine-binding.md) for the complete
-binding and upgrade contract.
+To pin the engine for a job, pass `--axiom-rules-engine-ref` with the full
+40-character commit to `encode`, along with `--axiom-rules-engine-path`. Lifetime
+cases run through the same engine binding as every other companion check, and
+this fixture shape adds no binding of its own.
 
 Each lifetime case has only `name`, optional `description`, `period`, `output`,
 and `lifetime`. The lifetime mapping contains `entity`, optional

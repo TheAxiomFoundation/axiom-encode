@@ -1,5 +1,6 @@
 """Never turn missing lifetime coverage into an invented scalar scenario."""
 
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,14 @@ from axiom_encode import cli
 from axiom_encode.rulespec_formula_identifiers import formula_calls_lifetime_reduction
 
 PREFIX = "us:statutes/99/3#"
+
+# Output repair writes generated cases only after an engine screen accepts
+# them. Accepting every world here leaves lifetime routing as the only reason
+# a repair can be refused.
+OUTPUT_REPAIR = partial(
+    cli._append_generated_derived_output_tests_if_missing,
+    test_failure_checker=lambda _candidate: [],
+)
 
 
 def rule(name, formula, **kwargs):
@@ -110,7 +119,7 @@ def test_auto_repair_preserves_history_and_leaves_missing_coverage_for_encoder(
     test_before = test.read_bytes()
     names = ["history", "count", "result"]
     if kind == "output":
-        repair = cli._append_generated_derived_output_tests_if_missing
+        repair = OUTPUT_REPAIR
         issues = [
             f"Derived rule missing companion output coverage: `{PREFIX}{name}` is not asserted by the companion `.test.yaml` file."
             for name in names
@@ -193,7 +202,7 @@ def test_imported_lifetime_or_unknown_dependency_cannot_receive_scalar_repair(
     test.write_text("[]\n")
     before = test.read_bytes()
     repair = (
-        cli._append_generated_derived_output_tests_if_missing
+        OUTPUT_REPAIR
         if repair_kind == "output"
         else cli._append_generic_zero_branch_tests_if_missing
     )
@@ -251,7 +260,7 @@ def test_duplicate_import_fragments_cannot_be_cleared_by_one_parameter(
     test = source.with_name("3.test.yaml")
     test.write_text("[]\n")
     repair = (
-        cli._append_generated_derived_output_tests_if_missing
+        OUTPUT_REPAIR
         if repair_kind == "output"
         else cli._append_generic_zero_branch_tests_if_missing
     )

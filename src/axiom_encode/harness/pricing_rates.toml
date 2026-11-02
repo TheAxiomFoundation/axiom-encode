@@ -1,12 +1,31 @@
 # Axiom Encode model pricing rates.
 #
-# Rates are per 1,000,000 tokens in USD, sourced from vendor public pricing.
+# Rates are per 1,000,000 tokens in USD, sourced from vendor public pricing
+# except where explicitly marked as UNVERIFIED provisional proxy estimates.
 # When vendor pricing changes, bump `version` and update `effective_date`.
-# Every model carries `source_url` (the vendor page the numbers were read from)
-# and `captured_at` (the day it was read), so a rate traces to a document.
+# Model provenance uses `source_url` (the vendor page or marked local proxy
+# source) and `captured_at` (the day it was read), so a rate traces to a document.
 
-version = 3
-effective_date = "2026-09-10"
+version = 6
+effective_date = "2026-10-06"
+
+# Cache hits on Opus 5.5 are 0.05x input (the pricing page's footnote 2), not
+# the usual 0.1x; cache writes are the standard 1.25x (5-minute cache).
+[models.claude-opus-5-5]
+input_per_million = 4.0
+output_per_million = 20.0
+cache_read_per_million = 0.20
+cache_create_per_million = 5.0
+source_url = "https://platform.claude.com/docs/en/about-claude/pricing"
+captured_at = "2026-09-28"
+
+[models.claude-sonnet-5-5]
+input_per_million = 2.0
+output_per_million = 10.0
+cache_read_per_million = 0.20
+cache_create_per_million = 2.50
+source_url = "https://platform.claude.com/docs/en/about-claude/pricing"
+captured_at = "2026-09-28"
 
 [models.claude-opus-4-6]
 input_per_million = 5.0
@@ -25,6 +44,40 @@ input_per_million = 2.5
 output_per_million = 15.0
 cache_read_per_million = 0.25
 cache_create_per_million = 0.0
+
+# Cache writes are 1.25x and cached reads 0.1x the uncached input rate; prompts
+# over 272K input tokens bill at 2x input/cache and 1.5x output (same pages).
+[models."gpt-6-luna"]
+input_per_million = 0.10
+output_per_million = 0.50
+cache_read_per_million = 0.01
+cache_create_per_million = 0.125
+max_input_tokens = 272000
+source_url = "https://developers.openai.com/api/docs/models/gpt-6-luna"
+captured_at = "2026-09-24"
+
+[models."gpt-6-sol"]
+input_per_million = 2.0
+output_per_million = 10.0
+cache_read_per_million = 0.20
+cache_create_per_million = 2.50
+max_input_tokens = 272000
+source_url = "https://developers.openai.com/api/docs/models/gpt-6-sol"
+captured_at = "2026-09-24"
+
+# UNVERIFIED: no locally verified upstream GPT-6.1 Sol price is available.
+# These are provisional proxy estimates copied from the GPT-6 Sol row at
+# src/axiom_encode/harness/pricing_rates.toml:40-47@3bf5a2afbff0, including
+# its short-context bound; they are not official GPT-6.1 Sol pricing.
+# Keep these rates inspectable; cost estimators report unpriced until verified.
+[models."gpt-6.1-sol"]
+input_per_million = 2.0
+output_per_million = 10.0
+cache_read_per_million = 0.20
+cache_create_per_million = 2.50
+max_input_tokens = 272000
+source_url = "UNVERIFIED: src/axiom_encode/harness/pricing_rates.toml:40-47@3bf5a2afbff0 (gpt-6-sol proxy)"
+captured_at = "2026-10-06"
 
 [models."gpt-5.6-terra"]
 input_per_million = 2.0

@@ -28,6 +28,7 @@ from axiom_encode.signing_broker import (
     reject_direct_private_signing_environment,
     scrub_private_signing_environment,
 )
+from axiom_encode.toolchain import local_signing_public_key, local_verification_active
 
 EVAL_EVIDENCE_SIGNATURE_ALGORITHM = "ed25519-domain-v1"
 
@@ -57,6 +58,16 @@ def isolated_eval_evidence_signer() -> Iterator[SigningBroker]:
 def load_eval_evidence_public_key_from_broker() -> Ed25519PublicKey:
     """Load the broker-provisioned eval root; environment trust is forbidden."""
 
+    # `axiom-encode ci` supplies a verification-only root explicitly; without
+    # --eval-public-key it verifies no eval evidence, and no broker stands in.
+    if local_verification_active():
+        local_public_key = local_signing_public_key("eval")
+        if local_public_key is None:
+            raise ValueError(
+                "axiom-encode ci was given no --eval-public-key to verify "
+                "authenticated eval result evidence"
+            )
+        return Ed25519PublicKey.from_public_bytes(local_public_key)
     try:
         broker = get_signing_broker()
     except SigningBrokerError as exc:
@@ -135,15 +146,10 @@ def eval_evidence_key_id(public_key: Ed25519PublicKey) -> str:
 
 def scrub_attestation_signing_keys(
     environment: Mapping[str, str] | None = None,
-    *,
-    include_supervisor_codex_home: bool = False,
 ) -> dict[str, str]:
     """Copy an environment without private keys or broker capabilities."""
 
-    return scrub_private_signing_environment(
-        environment,
-        include_supervisor_codex_home=include_supervisor_codex_home,
-    )
+    return scrub_private_signing_environment(environment)
 
 
 def _public_key_bytes(public_key: Ed25519PublicKey) -> bytes:

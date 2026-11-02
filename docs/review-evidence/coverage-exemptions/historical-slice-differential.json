@@ -1,0 +1,32 @@
+{
+  "schema": "axiom-encode/coverage-exemption-ledger/v1",
+  "release": "us-rulespec-2026-08-08-obbb-alien-snap",
+  "release_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+  "release_commit": "e79781bddeaba4d3697c5375c7371b2a038f0f74",
+  "scope": "selected release artifacts",
+  "complete_selected_range": true,
+  "artifact_start": 0,
+  "artifact_stop": 186,
+  "checked_artifacts": 186,
+  "selected_artifacts": 186,
+  "release_provision_artifacts": 272,
+  "approved_entries": 345,
+  "entries_validated": 345,
+  "entries_matched": 345,
+  "entries_untested": 0,
+  "counts": {
+    "rows": 75934,
+    "nonempty_rows": 63992,
+    "source_bytes": 113332969,
+    "main_physical_demands": 5438,
+    "main_row_labels": 4383,
+    "evaluated_scopes": 75934,
+    "expected_physical_removals": 345,
+    "physical_removals": 345,
+    "physical_additions": 0,
+    "row_labels_removed": 173,
+    "rows_with_physical_removals": 159
+  },
+  "errors": [],
+  "passed": true
+}

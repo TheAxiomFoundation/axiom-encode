@@ -1,7 +1,6 @@
 """Regressions for callable spellings that are also valid bare RuleSpec facts."""
 
 import json
-import os
 import subprocess
 from pathlib import Path
 
@@ -11,6 +10,7 @@ import yaml
 from axiom_encode import cli
 from axiom_encode.harness import evals, validator_pipeline
 from axiom_encode.rulespec_formula_identifiers import formula_reference_identifiers
+from tests.lifetime_engine import lifetime_capable_binary
 
 BARE_NAMES = [
     "count",
@@ -153,11 +153,8 @@ def test_terminal_exports_distinguish_bare_helper_dependencies_from_calls(
 
 
 @pytest.fixture
-def actual_engine():
-    configured = os.environ.get("AXIOM_LIFETIME_TEST_ENGINE")
-    if not configured:
-        pytest.skip("set AXIOM_LIFETIME_TEST_ENGINE to the actual Rust CLI")
-    return Path(configured).resolve(strict=True)
+def actual_engine(real_engine):
+    return lifetime_capable_binary(real_engine)
 
 
 def compile_actual(binary, root, rules, compiled):

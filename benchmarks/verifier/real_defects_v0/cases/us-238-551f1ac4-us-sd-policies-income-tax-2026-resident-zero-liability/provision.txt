@@ -1,0 +1,273 @@
+January 2026
+
+Sales and Use Tax Guide
+
+January 2026 • South Dakota Department of Revenue
+
+2 • January 2026 • Sales and Use Tax Guide • South Dakota Department of Revenue
+
+ONLINE RESOURCESTABLE OF CONTENTS Tax License Application: Apply online for the following types of tax licenses: Contractor's Excise, Manufacturer, Sales, Use, Wholesaler, andTax Basics ......................................... 4 all Motor Fuel tax types. Apply online at https://apps.sd.gov/rv23cedar/Sales Tax ........................................... 5 main/main.aspx. Remote Sellers .............................. 5 EPath: File and pay Sales, Use, and Contractor's Excise Taxes, 911 Marketplace Providers .............. 6 Surcharges and certain Motor Fuel taxes online. Find EPath at https:// Use Tax .............................................. 6 sd.gov/EPath. Gross Receipts ............................... 7 Sales Tax Rate Lookup: A tool to look up state and municipal sales or Municipal Tax ................................ 8 use tax rates for any location within South Dakota. Visit the Online Tourism Tax .................................... 8 Services at https://dor.sd.gov/online-services/. Wireless Gross Business Education: Go to https://apps.sd.gov/RV23Education/ Receipts Tax ................................. 9 Classes.aspx to register for a seminar. 911 Emergency Surcharge .... 10 Tax Facts: Publications to help you better understand the tax obligations for specific industries. To view tax facts, visit https://Sales and Use Tax on sddor.seamlessdocs.com/sc/publications-tax-facts/. Indian Country ......................... 10 Remote Sellers and Marketplace Providers: For updates on howExemptions ............................11-13 South Dakota's remote seller land marketplace provider laws affect you, Tax License Changes ............... 13 visit https://dor.sd.gov/businesses/taxes/sales-use-tax/#and. File and Pay Your Tax Streamlined Sales Tax: Obtain sales tax licensing with multiple states Return ......................................... 14 through the Streamlined system at https://www.streamlinedsalestax.org. Accounting Methods .............. 15 Record Keeping ......................... 15 CONTACT US Audits and Review.................... 16 If you have any questions, please contact the Taxpayer’s Bill of Rights ....... 16 South Dakota Department of Revenue. Collections .................................... 17 Call toll-free: 1-800-829-9188Sales and Use Tax Return ..... 18 Business Tax Division Email: bustax@state.sd.us Website: https://dor.sd.gov/ E-file: https://sd.gov/EPath Mailing address and office location: South Dakota Department of Revenue 445 East Capitol Ave Pierre, SD 57501
+
+Aberdeen Office Rapid City Office Sioux Falls Office P.O. Box 4730 221 Mall Drive 1501 S Highline Ave Aberdeen, SD 57402 Suite 103 Suite 3B Rapid City, SD 57701 Sioux Falls, SD 57110 420 S Roosevelt St
+
+Aberdeen, SD 57401 Yankton Office
+
+1900 Summit Street Yankton, SD 57078
+
+South Dakota Department of Revenue • Sales and Use Tax Guide • January 2026 • 3
+
+Tax Basics South Dakota does not have a corporate, unitary, or personal income tax; however, businesses may be subject to one or more of the following taxes.
+
+The Department of Revenue administers these taxes. The following sections of this guide are basic descriptions of each tax and information on how to report the tax. This is general information only. For explanations on specific laws and how they apply to your business, refer to South Dakota laws, administrative rules, and publications on our website at https://dor.sd.gov or call 1-800-829-9188.
+
+South Dakota Taxes and Rates
+
+State Sales Tax and Use Tax – Applies to all sales or purchases of taxable products and services. 4.2% Municipal Sales and Use Tax – Applies to all sales of products and services that are subject to the state sales tax or use tax if the purchaser receives or uses the product or service in a municipality that imposes a sales tax 1 to 2% or use tax. Municipal Gross Receipts Tax (MGRT) – Imposed on alcoholic beverages, eating establishments, lodging accommodations, admissions to places of amusement, athletic and cultural events. MGRT is in addition to 1% municipal sales tax and use tax. Contractor’s Excise Tax – Imposed on the gross receipts of all prime contractors engaged in construction services or realty improvement projects in South Dakota. The gross receipts include the tax collected from the 2% consumer. Motor Vehicle Excise Tax – Applies to the purchase of most motor vehicles. 4% Motor Vehicle Gross Receipts Tax – Applies to the rental of motorcycles, cars, trucks, and vans for less than 4.2% 28 days, and the rental of certain trailers for 6 months or less. Tourism Tax – Applies to certain lodging and amusement services and the rental of certain motor vehicles. The tourism tax is used for the promotion of tourism in South Dakota. Tourism tax does not apply when you 1.5% are remitting use tax. Ag Excise Tax – Applies to all sales or purchases of farm machinery, attachment units or irrigation equipment used exclusively for agricultural purposes. Purchasers are responsible for the ag excise tax if the retailer does 4.2% not charge the tax. Ag excise tax does not apply to vehicles subject to motor vehicle excise tax. Prepaid Wireless 911 Emergency Surcharge – All sellers and wireless service providers that sell prepaid wireless service are responsible for collecting and remitting the Prepaid Wireless 911 Emergency Surcharge. The surcharge is on the gross receipts from retail sales of all types of prepaid wireless services and applies to 2% sales of goods and services delivered to customers in South Dakota or sold to online customers with a South Dakota address. $2.00 911 Emergency Surcharge – All telecommunications service providers, wireless service providers, or per user Interconnected Voice over Internet Protocol service providers are responsible for collecting and remitting the line per 911 Emergency Surcharge. month Wireless Gross Receipts Tax – Applies to the gross receipts on the retail sale of wireless personal communications service, wireless local loop services, enhanced special mobile radio services, fixed wireless 4% services, and cellular services that provide two-way communication if the customer’s place of primary use is located in South Dakota. Amusement Excise Tax – Applies to the gross receipts from any mechanical or electronic amusement device. The excise tax is reported as sales tax on the sales tax return. (Examples: pinball machines, jukeboxes, pool 4.2% tables, arcade games, shooting gallery games, dart boards) Sioux Falls Lodging Tax – The City of Sioux Falls imposes a tax on lodging establishment’s receipts. Report the Sioux Falls lodging tax in the City and Special Jurisdiction Section on the state sales tax return using code 1% 800-1.
+
+4 • January 2026 • Sales and Use Tax Guide • South Dakota Department of Revenue
+
+Sales Tax The sales tax applies to the gross receipts of all retail sales, including the sale, lease, or rental of personal property or any product transferred electronically, and the sale of services.
+
+A business must report and pay sales tax on its gross receipts from South Dakota law allows the seller to add the the sale of a product or service unless: tax to the price of the product or service. However, the seller is liable for the sales tax • They receive an exemption certificate from the buyer due, whether or not it is collected. stating:  the purchase is intended for resale;  the purchase is intended for an exempt use; or  the sale is to an exempt entity, such as South Dakota state or local governments; • The product or service is specifically exempt by law; or • The service is a construction service taxed in chapter 10-46A or 10-46B. See the Contractor's Excise Tax Guide for information on tax applied to construction services. Location of Sale Examples: • Personal care services are taxed at the Determine the location of the sale location the service is performed, which Sales tax applies where the customer receives the product or service. is the same location where the customer • Products picked up at the seller’s location are subject to sales receives the service. This includes any tax at that location. service performed on the physical human body, such as haircuts or massages. • Products delivered are subject to sales tax where delivered. Delivery may be by the seller or by a transportation company • Services performed on products are hired by the customer. taxed at the location the product is delivered to the customer. This includes • If the product is delivered, but the delivery address is services such as repair services. unknown, sales tax applies based on the customer’s address. • Lease or rental of products is taxed • For products transferred electronically, if there is no delivery where the customer receives the product. or customer address on file, sales tax applies based on where However, if the product is moved to the product is first available for transmission by the seller. another location, sales tax on future • Products delivered to a location outside South Dakota are not payments applies at that location. subject to South Dakota sales tax, but may be subject to that state’s tax.
+
+Remote Sellers For more information on South Dakota's As of November 1, 2018, remote sellers who meet certain remote seller law, visit our website or thresholds must obtain a South Dakota sales tax license and pay check out our Remote Seller Bulletin. applicable sales tax.
+
+Who this impacts South Dakota law requires any business without a physical presence in South Dakota to obtain a South Dakota sales tax license and pay applicable sales tax if the business has more than $100,000 in gross sales into South Dakota in the previous or current calendar year. Remote sellers are required to register by the first day of the month that starts at least thirty days after the threshold is met.  Gross sales or transactions including selling, renting, or leasing products or services (including products delivered electronically) into South Dakota. (SDCL ch. 10-64)
+
+Note: Any business with a physical presence in South Dakota is required to be licensed for sales tax collection. The minimum threshold does not apply to any business with a physical presence in South Dakota.
+
+South Dakota Retailers Each state's remote seller taxation laws are different. If you sell products or services to be used in other states, you may be required to pay sales tax in that state. You can access more information on other states' laws and contact information by visiting US Departments of Revenue by State.
+
+We also encourage you to visit the https://www.streamlinedsalestax.org/ to view collection requirements from the 24 member states. You can also register for tax collection through the Streamlined Sales Tax Project.
+
+South Dakota Department of Revenue • Sales and Use Tax Guide • January 2026 • 5
+
+Marketplace Providers For more information on types of As of March 1, 2019, marketplace providers who meet certain thresholds marketplace providers, frequently must obtain a South Dakota sales tax license and pay applicable sales tax on asked questions, and more, visit the behalf of their marketplace sellers. Marketplace Tax Fact.
+
+Who this impacts Marketplace providers are required to license their business and remit applicable sales tax on all sales it facilitates into South Dakota if:
+
+• The marketplace provider is a remote seller; or • The marketplace provider facilitates the sales of at least one marketplace seller that meets the remote seller criteria; or • The marketplace provider facilitates the sales of two or more marketplace sellers that, when the sales are combined, meets the remote seller criteria.
+
+Marketplace providers are required to register by the first day of the month that starts at least thirty days after the threshold is met.  Gross sales or transactions including selling, renting, or leasing products or services (including products delivered electronically) into South Dakota. (SDCL ch. 10-64)
+
+Note: Any business with a physical presence in South Dakota is required to be licensed for sales tax collection. The minimum threshold does not apply to any business with a physical presence in South Dakota.
+
+South Dakota Retailers The marketplace will remit sales tax if the $100,000 threshold is met. If a marketplace is remitting the sales tax, the South Dakota business will not be responsible for sales tax remittance on sales through that marketplace.
+
+Use Tax South Dakota state and municipal use tax applies to all products and services when the applicable sales tax is not collected. • The use tax rate is the same as the sales tax rate. The use tax is due on the purchase price, including freight and handling charges. • Use tax is due in the filing period in which the product or service is received. • Use tax is also due on supplies taken out of retail inventory for the business's use. • The tax rate is based on the location where the product or service is used.
+
+When you purchase a product or service out-of-state, the seller may legally charge the state's sales tax. You will receive credit for tax legally due in another state when you bring the product or service back to South Dakota. • If the other state's sales tax is the same or more than South Dakota's tax, there is no South Dakota use tax owed. If it is less than South Dakota's, the difference must be paid to South Dakota. • The state plus applicable municipal taxes must be added together to determine if additional tax is due.
+
+Examples of when South Dakota sales tax may not Examples of Use Taxable Items: have been charged and use tax is due: • Computers • Manufacturing • Demonstration and equipment • When items are purchased from an out-of-state seller sample items • Meals furnished for • When untaxed retail inventory is removed for the • Donations employees business’s or personal use • Equipment brought • Promotional gifts • When a product purchased from an out-of-state seller is delivered in South Dakota, but the other state’s tax is into South Dakota • Services incorrectly charged from another state • Software & support • When a purchase is made in another state then brought • Farm equipment • Snow removal into South Dakota and the product was not taxed or was • Office supplies • Tools taxed at a lower tax rate than applies in South Dakota, • Leases of you owe use tax equipment
+
+6 • January 2026 • Sales and Use Tax Guide • South Dakota Department of Revenue
+
+Gross Receipts Gross receipts means the total amount of money or other consideration the seller receives for products or services sold, leased, or rented. Consideration may include cash, credit, property, or services.
+
+More information is available in the Gross Receipts Tax Fact. Visit our Tax Facts for more information on various topics: A seller may not deduct the following from their gross https://sddor.seamlessdocs.com/sc/publications-tax-facts/receipts: • The seller’s cost of the product or service sold; • The seller’s expenses such as the cost of materials, labor, interest, losses, transportation, or taxes imposed on the seller; and • Charges by the seller for services necessary to complete the sale, including delivery charges. Construction services taxed in chapter 10-46A or 10-46B are not subject to sales tax.
+
+Gross receipts include consideration received from third parties if the following four criteria are met: A. The seller actually receives consideration from a third party that is directly related to a discount on the sale; B. The seller has an obligation to pass the discount through to the purchaser; C. The amount of consideration on the sale is set by the seller at the time of the sale to the purchaser; and D. One of the following criteria is met: • The purchaser provides a coupon, certificate, or other document to the seller to claim the discount and the document is authorized, distributed, or granted by a third party with the understanding the third party will reimburse the seller for the coupon; • The purchaser provides documentation that he is a member of a group entitled to a discount; or • The discount is identified as a third party discount on the invoice given to the purchaser or on the documentation presented by the purchaser.
+
+Gross receipts do not include: • Discounts that are not reimbursed by a third party. This may include cash discounts, early payment discounts, or store coupons; • The sale price of property returned by purchaser if the full sale price is refunded in cash or by credit; and • Credit allowed for products taken in trade as a part payment of a taxable retail sale when Examples: the product taken in trade is subject to sales tax.  If a business collects $100 plus $4.20 in sales tax ($100 x 4.2% sales tax rate = $4.20). • The business reports $100 gross receipts and owesThe following are not included in the gross $4.20 sales tax.receipts when separately stated on the invoice or documentation provided the purchaser: 2. If a business collects $100 and the document says tax is • Interest, financing, and carrying charges included. from credit extended on the sale of • The business reports $95.97 as gross receipts and owes products or services; $4.03 sales tax ($100 ÷ 1.042 = $95.97). • Any taxes legally imposed directly on the purchaser; and • Any fees or other interest imposed for late charges on overdue accounts, no account, or insufficient funds checks.
+
+Delivery ChargesSales tax is not included in the gross receipts if itemized or documentation shows the tax is included in the sales Delivery charges are the charges by the seller for preparation price. and delivery to a location designated by the purchaser of product or services. Delivery charges include shipping, Returned Merchandise postage, handling, crating, packing, and fuel surcharge. The amount credited to the customer for returned Delivery charges are included in the gross receipts and aremerchandise is reported as a non-taxable sale on the subject to the same sales or use tax rate as the product ortax return during the reporting period the item is service. If the product or service is not taxable, the deliverycredited. charge is not taxable.
+
+South Dakota Department of Revenue • Sales and Use Tax Guide • January 2026 • 7
+
+Municipal Tax Municipal sales tax applies when the customer purchases or receives the products or services within a city that imposes a tax. Examples of Municipal Tax Exceptions: • Transportation of passengers is subject to Municipal use tax applies to all products or services when the state tax—municipal tax applies if the trip applicable sales tax is not collected within a city that imposes a tax. begins, remains, and ends in the same city. • The municipal use tax rate is based on the location where the product or service is used. • Farm machinery and irrigation equipment for exclusive agricultural use are subject to • Additional municipal use tax may be due if a product or state tax - no municipal tax. service is used in a different city that imposes a higher rate than was previously paid. • Receipts from amusement devices are subject to state tax - no municipal tax.
+
+Municipal Gross Receipts Tax The municipal gross receipts tax (MGRT) is in addition to the municipal sales tax. The MGRT can be imposed on alcoholic beverages, eating establishments, lodging accommodations, admissions to places of amusement, athletic, and cultural events.
+
+To ensure local governments receive the correct amount of tax money, retailers must report their sales accurately.
+
+Report the municipal taxes in the City and Special Jurisdiction City tax rates vary across the state. You can Section on the sales tax return using the code designated for that find state, municipal, and special jurisdiction city and tax. Each tax must be reported separately, using the tax rates using the Sale Tax Rate Lookup. You designated code for that tax. Do not combine taxes or report all tax may also view the Municipal Tax Guide that under one code. lists all municipal sales, use, and gross receipts taxes. Sioux Falls Lodging Tax The City of Sioux Falls imposes a tax on lodging establishment’s Changes are effective January 1 and July 1. receipts. Report the Sioux Falls lodging tax in the City and Special Jurisdiction Section on the sales tax return using code 800-1.
+
+Tourism Tax
+
+The tourism tax on certain lodging and amusement services is for tourism promotion.
+
+Report the tourism tax in the City and Special Jurisdiction Section on the sales tax return using the code 700-1.
+
+For listings of specific products and services subject to tourism tax, review the Tourism Tax Fact.
+
+Examples of items Tourism Tax applies to the gross receipts of: • Hotels and Lodging Establishments • Campgrounds • Motor Vehicle Rentals • Recreational Equipment Rentals • Recreational Services • Spectator Events • Visitor Attractions • Visitor-Intensive Businesses
+
+8 • January 2026 • Sales and Use Tax Guide • South Dakota Department of Revenue
+
+Tourism Tax (cont.)
+
+Example:
+
+An Aberdeen motel has $10,000 in receipts from room rentals. Motel rooms rented in July 2023 in Aberdeen are subject to state sales tax, municipal sales tax, municipal gross receipts tax, and tourism tax. The municipal and tourism taxes are reported under the City and Special Jurisdiction Section of the tax return.
+
+Wireless Gross Receipts Tax The telecommunications gross receipts tax applies to the retail sale of wireless intrastate and interstate telecommunications services if the customer’s place of primary use is in South Dakota.
+
+Wireless telecommunications services include wireless personal communications services, wireless local loop services, enhanced special mobile radio services, fixed wireless services, and cellular services that provide two-way communication.
+
+Report the wireless gross receipts tax in the City and Special Jurisdiction Section on the state sales tax return using code 900-1.
+
+More information available in the Telecommunication Services Tax Fact.
+
+Visit our Tax Facts for more information on various topics:
+
+https://sddor.seamlessdocs.com/sc/publications-tax-facts/
+
+Undue Enrichment Undue enrichment is the overcollection of tax. If more tax is collected than is actually due, the additional tax must be remitted to the department or refunded to the customer.
+
+South Dakota Department of Revenue • Sales and Use Tax Guide • January 2026 • 9
+
+911 Emergency Surcharge All telecommunications service providers, wireless service providers, and Interconnected Voice over Internet Protocol service providers are responsible for collecting and remitting the 911 Emergency Surcharge. 911 Emergency Surcharges • The surcharge is $2.00 per service user line per month. itemized on the customer’s invoice are NOT subject to sales tax. • The $2.00 per service user line surcharge does not apply to prepaid wireless telecommunications service.
+
+Prepaid Wireless 911 Emergency Surcharge All sellers and wireless service providers that sell prepaid wireless service are responsible for collecting and remitting the Prepaid Wireless 911 Emergency Surcharge. Prepaid wireless service includes: • prepaid wireless airtime cards • prepaid wireless plans • prepaid wireless minutes
+
+The surcharge is on the gross receipts from retail sales of prepaid wireless service made in South Dakota, delivered to customers in South Dakota, or sold to online customers with a South Dakota address.
+
+The surcharge applies to the sale of all prepaid wireless services; however, a seller may elect not to collect the surcharge on any sale of a prepaid wireless device (a prepaid wireless phone) that is bundled with prepaid wireless service denominated as 10 minutes or less or as five dollars or less.
+
+Registration: All sellers and providers that collect and remit the 911 Emergency Surcharges are required to register with the Department of Revenue, even if the provider has a sales tax license.
+
+Reporting: All 911 surcharges are electronically reported and paid to the Department of Revenue using EPath.
+
+Administrative Fee: All providers and sellers may keep 2% or $25, whichever amount is greater, of the total surcharge collected each month as an allowance for the cost of collecting and remitting the 911 Emergency Surcharge. The administrative fee cannot exceed the amount of surcharge collected. Returns and payments must be filed and paid timely by electronic means to receive the administrative fee. More information available in the 911 Emergency Surcharge Tax Fact. s and
+
+Sales and Use Tax on Indian Country
+
+Currently, five Indian tribes in South Dakota have comprehensive tax collection agreements with the State that include, but are not limited to, sales, use, tourism, and contractor’s excise taxes. The five Indian tribes with comprehensive tax collection agreements are Cheyenne River Sioux Tribe, Crow Creek Sioux Tribe, Oglala Sioux Tribe, Rosebud Sioux Tribe, and Standing Rock Sioux Tribe. Some tribes have limited tax collection agreements. Contact DOR for further information on the tax collection agreements.
+
+The tax collection agreements ensure that all retail transactions or construction services on property included in a tax collection agreement are subject to the same taxes, tax rates, and exemptions as set forth in the agreement. • All businesses, including those owned by tribal members, are responsible for remitting tax.
+
+Indian country that is part of a tax collection agreement is considered a Special Jurisdiction. All tax due in each Special Jurisdiction is reported on the state tax return using the code assigned to that Special Jurisdiction. The tax remitted is then distributed between the State and Tribal governments based on the tax collection agreements.
+
+If you have any questions concerning whether a business or customer is located in a Special Jurisdiction set forth above, please contact the department at 1-800-829-9188.
+
+For information on tax rates and reporting of taxes for Special Jurisdictions and Indian country not included in agreements, review the Tribal Tax Fact.
+
+10 • January 2026 • Sales and Use Tax Guide • South Dakota Department of Revenue
+
+Exemptions Sellers A seller does not have to collect sales tax when a purchaser gives a seller a completed exemption certificate at the time of sale. The exemption certificate is used to: • Claim exemption for: South Dakota businesses with permit numbers containing UT (use tax) or ET  Products or services intended to be resold; or (contractor's excise tax) cannot buy  Products or services used for an exempt purpose. products or services for resale. • Document that the purchaser is an exempt entity. Any purchaser that provides an invalid The purchaser can give a “single purchase” certificate for just one exemption certificate with the intent to transaction or a blanket certificate that applies to future purchases evade payment of the tax is guilty of a of qualifying exempt items. Class I misdemeanor and may be fined up to 50% of the tax in addition to the tax. Exemption certificates do not expire unless the information on the certificate changes; however, we recommend updating exemption certificates every three to four years. A purchaser from a state that does not issue sales tax permits may use their FEIN, driver’s license number, or state-issued ID number on the exemption certificate. A business that purchases an item for resale, but later uses that item is responsible for reporting and paying use tax on that item. Exemption certificates may be obtained on our website at https://dor.sd.gov or by calling 1-800-829-9188. More information available in the Exemption Certificate Tax Fact. Exempt Entities Direct Payment Permit A direct payment permit allows the holder to purchase products and services without sales tax. The holder reports and pays the use tax on their purchases directly to the department. Only taxpayers with a sales, use, manufacturer, or wholesaler tax license may qualify for a direct payment permit. For further information, review the direct payment permit application. Sales for Resale A business that purchases items to sell, rent, or lease to others in the normal course of its business may purchase those items exempt from sales tax. Specific criteria must be met before a business can purchase services for resale. For information on services that can be purchased for resale, view the Exemption Certificate Tax Fact, the tax fact(s) for that service, or call 1-800-829-9188.
+
+Exempt Entities State law exempts certain entities from paying South Dakota sales tax or use tax on their purchases. These entities include: • Indian tribes • United States government agencies • South Dakota governments including state, county and municipal • Municipal or volunteer fire or ambulance departments • Public schools, including K-12, universities and technical institutes • Non-profit hospitals • Relief agencies • South Dakota religious and private schools
+
+Relief agencies and religious and private schools must apply to the department and be approved for exempt status. Their exemption number must be included on the exemption certificate. The exemption numbers for relief agencies include an “RA”; private schools include an “RS”.
+
+South Dakota Department of Revenue • Sales and Use Tax Guide • January 2026 • 11
+
+Exemptions (cont.) Exempt Entities (cont.) State Governments ExemptGovernment entities must provide an exemption certificate to the vendor, or the from South Dakota Sales Tax:vendor must keep documentation to show the purchase was paid with government funds. • Alaska • ColoradoSome government entities are issued exemption numbers that include the letters • Delaware“RG”. These agencies may include their exemption number on the exemption • Indianacertificate. • Montana The governments from other states and the District of Columbia are exempt • New Hampshire from sales tax if the law in that state provides a similar exemption for South • North Dakota Dakota governments or does not impose a sales tax. • Ohio • Oregon Employee Purchases • West Virginia The purchase of products or services for the personal use of officials, members, or • Iowa (motels and hotels are not employees of exempt entities is subject to sales tax. exempt) • Minnesota (motels, hotels, Employees or representatives of an exempt entity cannot buy products or services beverages, and meals are not without paying sales tax if they use a personal check or personal credit card. This exempt) is true even if the exempt entity later reimburses the employee. The exempt entity must pay the vendor from the exempt entity’s funds using that entity’s check or credit card. Exempt Products and Services State law exempts certain products or services from sales or use tax. Documentation is not required to support these exemptions. However, if there is any doubt as to the intended use of these items, the purchaser should provide an exemption certificate to the seller. For information on exemptions that apply to specific businesses, review the following tax facts: • Advertising Agencies • Agriculture Equipment • Agriculture Products • Agriculture Services • Financial Institutions • Hospitals – Nonprofit • Health Services, Drugs, • Hotels, Motels and and Medical Devices Campgrounds • Manufactured and • Motor Vehicle Leases & • Motor Vehicle Repairs & • Motor Vehicle Sales & Modular Homes Rentals Services Purchases • Schools • Telecommunication Services Examples of services exempt from sales tax: Other Exempt Transactions or Products • Health services • Educational services Coin-Operated Washers and Dryers – Receipts from • Social servicescoin-operated washers and dryers are not subject to sales • Agricultural servicestax. There is an annual license fee paid in lieu of a sales tax on receipts. Fee amounts are: $20 for each coin-operated • Forestry services washer and dryer located in municipalities having • Services provided by certain membership organizations populations greater than 1,000 and a $16 fee for each • Financial services performed by institutions registered under machine located in municipalities with populations of bank franchise 1,000 or less. • Commissions paid by an insurance company to an agent for the sale of a policyThe sale of coin-operated washers and dryers is taxable. • Stock and commodity broker service; services of brokers and agents licensed under Title 47Controlled Group - Services between controlled group members are not subject to sales tax if sales tax was paid • Trucking on the original purchase. • Travel agent services • Construction services (see Contractor's Excise Tax Guide)A controlled group is defined as any corporations or other entities eligible to file a consolidated federal income tax return, or entitled to only a single surtax exemption for federal corporate income tax purposes, and includes a controlled group of corporations as defined at 26 U.S.C. § 1563, as of July 1, 2002. A controlled group also consists of any subchapter S corporation, limited liability company, limited liability partnership, general partnership, or limited partnership with at least eighty percent common ownership as if the entity was converted to or taxed as a subchapter C corporation under the Internal Revenue Code as in effect on January 1, 2002. Sole proprietors are not part of a controlled group. Controlled group exemptions do not apply to contractor's excise tax.
+
+12 • January 2026 • Sales and Use Tax Guide • South Dakota Department of Revenue
+
+Exemptions (cont.) Other Exempt Transactions or Products (cont.)
+
+Food Stamp Purchases - All food stamp purchases (SNAP) are not subject to sales tax.
+
+Gasoline - Sales of gasoline, diesel fuels, gasohol, alcohol fuels, propane, kerosene, aviation fuel, jet fuel, and other similar combustible fuels are not subject to sales tax as they are subject to South Dakota fuel tax. Dyed diesel fuel used for agricultural purposes is not subject to sales tax. However, propane and kerosene used for home Taxable Transactions heating and other purposes would be subject to sales tax. Sales to: Sales of: Off road use of dyed diesel fuel may be subject to sales tax. • Churches • Gifts and Premiums • Membership • Prepared Food,Lottery Sales - South Dakota lottery tickets and video lottery organizations such as Meals, or Drinkreceipts are not subject to sales tax. YMCA, YWCA, Boys • Repair and Service of The sale of video lottery machines is subject to state sales tax but and Girls Scouts, Products not municipal tax. Lions Club or Jaycees • Products Sold at • Civic and Nonprofit AuctionRepairs - Repairs to products in inventory to be sold are not Organizations subject to sales tax. • Schools, Colleges, Taxable: Repair and replacement parts for leased products. and Religious, Benevolent, Fraternal, and CharitableW.I.C. - Authorized purchases made under the Child Nutrition Organizations for Act (W.I.C.) are not subject to sales tax. fundraisers Warranty Parts and Service - Parts and services to fulfill an obligation of the manufacturer, providing no charge is made to the customer are not subject to sales tax. Charges to customer for parts, service, or deductibles are taxable.
+
+Water - Bulk water for domestic use, water sold by water supply system for domestic, commercial, and industrial use are not subject to sales tax.
+
+Tax License Changes License Cancellation - Sales tax licenses are NOT transferable. File a final return and pay all tax due A change in ownership or legal organization requires awhen: new tax license (i.e. from one sole proprietor to another, • Business is closed; from a sole proprietor to a partnership, a change from sole proprietor to a corporation, or a merger). • Business is sold; or • Ownership of the business changes.
+
+Partnership Changes - Information on any change in partners must be sent in writing to the department and must be signed by all partners, including those leaving, entering, and staying in the partnership. Information must include: • The name, social security number, personal address, phone number, and effective date of change for any new partner. • The name and effective date of separation for any partner leaving.
+
+All tax license changes can beCorporations LLC, or LLP Changes - Information on any change in completed through an EPath account corporate officers or members must be sent to the department. A change in at https://sd.gov/EPath. corporate officers or members does not require a new tax license.
+
+Address Changes - Click here to fill out the change of address form online or notify the department in writing if the mailing address or the business location changes. Include the new address information, effective date of the change, tax license number, and business name.
+
+South Dakota Department of Revenue • Sales and Use Tax Guide • January 2026 • 13
+
+File and Pay Your Tax Return
+
+A business must file a tax return each reporting period even if they did not conduct business or receive income. Due Dates for Returns and Payments Paper Returns Electronic Returns and Payments Businesses filing paper returns are sent a tax return and worksheet for each reporting period. All electronic returns are due the 20th of the It is your responsibility to contact the department if you do not month. receive a return. If you file electronically, you will not receive a paper return. All electronic payments are due the 25th of the month. Filing an Amended Return If you have an EPath account, you may amend your returns one Paper Returns and Payments time through EPath. If you file by paper or are not able to amend the return through EPath, please call 1-800-829-9188 All paper returns must be filed and paid by the for amended return information. 20th of the month in which the return is due.
+
+Late Filing and Paying If a due date falls on a Saturday, Sunday, or legal Penalty: A penalty of 10% (.10) of the tax liability is assessed if holiday, the next business day is the due date. a return is not received within 30 days following the month the return is due. The minimum penalty is $10 and is assessed even if no tax is due. Mail returns and payments to the: Interest: 1% (.01) interest will be assessed each month on any South Dakota Department of Revenue past due tax until the tax is paid in full. (A minimum of $5.00 Anderson Bldg interest is due the first month). Mail Code 5055 445 E Capitol Avenue File and pay electronically at: https:// sd.gov/EPath. Pierre, SD 57501-3100 This option allows you to make a single ACH debit or credit card payment on an account without an EPath account or without logging into your EPath account.
+
+Visa, MasterCard, and Discover credit cards may now be used to pay your taxes. A nonrefundable convenience fee of 2.45% of the payment amount is charged on each credit card payment. The convenience fee is automatically calculated and added to your payment amount.
+
+Pay Online: Pay by ACH Debit or Credit Card • Use your EPath account or Make a Payment if you do not have an EPath account. Pay by Phone: Call 1-800-829-9188 to make a payment by ACH Debit or Credit Card. ACH Credit: Contact your bank to have a payment sent electronically to the department. Pay by Check: Send payment to Department of Revenue, Anderson Bldg, Mail Code 5055, 445 E. Capitol Ave., Pierre, SD 57501-3100
+
+14 • January 2026 • Sales and Use Tax Guide • South Dakota Department of Revenue
+
+Accounting Methods
+
+When using the accrual method, taxes must be paid on all sales made during the reporting period, even if you have not received payment.
+
+An exception is a conditional sale. When payments for the principal sum are extended over a period longer than 60 days from the date of the sale, only the payment received during each reporting period is subject to sales tax.
+
+When you report using the accrual method, you may take credit for bad debts during the reporting period in which you write the bad debt off as uncollectible in your books and records. Bad debts are eligible to be deducted for federal income tax purposes.
+
+When you use the cash method of accounting, you report gross receipts and pay tax as you receive payments. No bad debts are allowed on the cash method.
+
+Click here to fill out the changes in accounting method form online or notify the department in writing.
+
+Record Keeping
+
+Record keeping is a responsibility of not only those paying sales tax or contractor's excise tax, but also individuals paying use tax and any person purchasing products or services for storage, use, or other consumption in the state.
+
+Keeping accurate and complete records makes filling out tax returns and other reports easier. It also helps us correctly determine your tax liabilities during an audit of business income, purchases, exemptions, and deductions.
+
+We may use the records to determine if you reported and paid your taxes correctly.
+
+You must keep your records for a minimum of three years or longer if you are depreciating capital assets. This includes both paper and electronic records.
+
+Records supporting the following are to be kept and presented upon request of the Department of Revenue: • The amount of gross receipts and sales from all sources, including barter. • The amount of all deductions, exemptions, or credits claimed.
+
+Businesses should keep the following books and records:
+
+• South Dakota sales, use, and • Sales invoices • Depreciation schedules listing contractor's excise tax returns all assets acquired or disposed • Purchase invoices (accounts and work papers of during the audit period payable, receipts) along with purchase or sales • Federal income tax returns for • Beginning and ending invoices for those assets the business inventories • Prime Contractor’s Exemption • Summary accounting records • Bills of lading Certificates and source journals, such as: the check register, general • Cancelled checks • Supporting documentation for ledger, sales journal, general all deductions and exemptions • Contracts journal, cash receipts journal, and any other records you use • Exemption certificates for any to record income and sales for resale, sales to expenses exempt entities, or other exemptions claimed
+
+South Dakota Department of Revenue • Sales and Use Tax Guide • January 2026 • 15
+
+Audits and Reviews
+
+Any business, whether licensed or unlicensed, may be selected for an audit or review. Audits and reviews are routine procedures used to determine if taxes were correctly reported and paid.
+
+Our auditors and agents will do their best to minimize any disruption of your business during the audit or review.
+
+Prior to the audit or review, an auditor or agent will contact you to set up a time to check your books and records. You will need records to allow the auditor or agent to confirm the accuracy of your tax returns.
+
+If, after reviewing your books, an auditor or agent determines that taxes are due, you will be assessed the additional tax and interest. The auditor or agent will discuss both the procedures used and the differences identified. You will have an opportunity to review the results and discuss them with the auditor or agent before any assessment is issued.
+
+In occasional cases where the errors in filing a return were fraudulent, returns were not filed, no taxes were paid, or the law was otherwise broken, criminal charges may be filed in addition to the interest and penalties assessed.
+
+Taxpayer’s Bill of Rights
+
+1. You have the right to confidentiality. 2. You have the right to tax information written in plain language. 3. You have the right of appeal. 4. You have the right to courteous, prompt, and accurate answers to your questions. 5. You have the right to be certain that performance goals or quotas do not influence collection procedures or assessments. 6. You have the right to rely on the written advice given to you by the Department of Revenue. 7. You have the right to be notified before the department audits your records unless the Secretary of Revenue determines that a delay will jeopardize the collection of tax. 8. You have the right to clear and consistent policy regarding the deadlines for filing tax returns and making payments. 9. You have the right to seek a refund of any taxes you believe that you have overpaid within the last three years. 10. You have the right to a process requiring a person no lower in authority than the division director approve the seizure of your property for taxes. 11. You have the right to expect that a good-faith effort to comply with tax laws will be given consideration in disputed cases. 12. You have the right to a tax credit of interest or penalties that are determined to have been inappropriately levied. 13. You have the right to the removal of a lien on your property within 30 days after you have paid all tax, penalty and interest due. 14. You have the right to have the South Dakota Department of Revenue correct the public record.
+
+16 • January 2026 • Sales and Use Tax Guide • South Dakota Department of Revenue
+
+Collections
+
+What happens if you do not file returns due or pay the amount due? 1. Penalty applies to returns filed late. 2. Interest applies to the unpaid tax each month until paid in full. 3. A revenue agent will attempt to contact you to resolve the delinquency. 4. The department may:
+
+• Issue an assessment of the estimated tax, penalty, or interest.
+
+• File a notice of the tax lien with the register of deeds in any county. Any tax, penalty, or interest due from a taxpayer is a lien in favor of the state on all real or personal property and rights to property belonging to the taxpayer.
+
+• Issue a distress warrant directing the sheriff to seize your property to pay the debt.
+
+• Revoke your tax license. It is a Class 6 felony to engage in business after the Secretary of Revenue has revoked a tax license.
+
+• File a criminal complaint. Failing to file and/or pay one return within sixty days of the due date is a Class 1 misdemeanor. Failing to do so twice within a twelve-month period is a Class 6 felony. The sentence for a Class 6 felony may be up to two years in prison and/or a $2,000 fine.
+
+• Refer any amount due to the State’s collection agency for collection.
+
+ If the business ownership is a corporation, limited liability company, limited partnership, limited liability partnership, or limited liability limited partnership, the department may take these actions against any of the corporate officers, member-managers or managers of limited liability companies, or partners of partnerships.
+
+What can you do to avoid becoming delinquent?
+
+• Know your tax responsibilities and plan for them.
+
+• File electronically. Electronic filing reduces errors, saving you time and money.
+
+• Pay careful attention to the due date on your tax return.
+
+• Respond promptly to any Notice of Balance Due or Delinquency Notice sent to you.
+
+• Open and read Department of Revenue correspondence sent to you; it may contain reporting instructions, due dates, changes in laws or tax rates, or other important information that may affect your tax responsibilities.
+
+• Set up a separate bank account and regularly deposit collected retail sales tax or other taxes you may owe. Withdraw the funds only when you pay the taxes.
+
+• Promptly notify the Department of Revenue if your address and/or phone number changes.
+
+South Dakota Department of Revenue • Sales and Use Tax Guide • January 2026 • 17
+
+18 • Janaury 2026 • Sales and Use Tax Guide • South Dakota Department of Revenue

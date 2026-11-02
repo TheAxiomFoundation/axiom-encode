@@ -1,23 +1,17 @@
-"""Opt-in transport checks against a real calendar-unit-capable Rust engine."""
+"""Transport checks against a real calendar-unit-capable Rust engine."""
 
 import json
-import os
 import subprocess
-from pathlib import Path
 
 import pytest
 
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+from tests.lifetime_engine import lifetime_capable_binary
 
 
 @pytest.fixture
-def calendar_execution(tmp_path, monkeypatch):
-    configured = os.environ.get("AXIOM_LIFETIME_TEST_ENGINE")
-    if not configured:
-        pytest.skip(
-            "set AXIOM_LIFETIME_TEST_ENGINE to a calendar-unit-capable Rust CLI"
-        )
-    binary = Path(configured).resolve(strict=True)
+def calendar_execution(real_engine, tmp_path, monkeypatch):
+    binary = lifetime_capable_binary(real_engine)
 
     def execute(increment="1"):
         root = tmp_path / "rulespec-us"

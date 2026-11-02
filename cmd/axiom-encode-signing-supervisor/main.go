@@ -25,7 +25,9 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -128,22 +130,26 @@ type brokerOptions struct {
 }
 
 type signingTrustRoots struct {
-	Schema                  string   `json:"schema"`
-	ApplyPublicKey          string   `json:"apply_ed25519_public_key"`
-	EvalPublicKey           string   `json:"eval_ed25519_public_key"`
-	CorpusReleasePublicKey  *string  `json:"corpus_release_ed25519_public_key,omitempty"`
-	CorpusReleasePublicKeys []string `json:"corpus_release_ed25519_public_keys,omitempty"`
+	Schema                  string                 `json:"schema"`
+	ApplyPublicKey          string                 `json:"apply_ed25519_public_key"`
+	EvalPublicKey           string                 `json:"eval_ed25519_public_key"`
+	CorpusReleasePublicKey  *string                `json:"corpus_release_ed25519_public_key,omitempty"`
+	CorpusReleasePublicKeys []string               `json:"corpus_release_ed25519_public_keys,omitempty"`
+	RetiredApplyPublicKeys  []string               `json:"retired_apply_ed25519_public_keys,omitempty"`
+	RetiredApplyInventory   *retiredApplyInventory `json:"retired_apply_inventory,omitempty"`
 }
 
 type brokerRequest struct {
-	Version                 int      `json:"version"`
-	ID                      int64    `json:"id"`
-	Operation               string   `json:"op"`
-	Payload                 []byte   `json:"payload,omitempty"`
-	ApplyPublicKey          []byte   `json:"apply_public_key,omitempty"`
-	EvalPublicKey           []byte   `json:"eval_public_key,omitempty"`
-	CorpusReleasePublicKey  []byte   `json:"corpus_release_public_key,omitempty"`
-	CorpusReleasePublicKeys [][]byte `json:"corpus_release_public_keys,omitempty"`
+	Version                 int                    `json:"version"`
+	ID                      int64                  `json:"id"`
+	Operation               string                 `json:"op"`
+	Payload                 []byte                 `json:"payload,omitempty"`
+	ApplyPublicKey          []byte                 `json:"apply_public_key,omitempty"`
+	EvalPublicKey           []byte                 `json:"eval_public_key,omitempty"`
+	CorpusReleasePublicKey  []byte                 `json:"corpus_release_public_key,omitempty"`
+	CorpusReleasePublicKeys [][]byte               `json:"corpus_release_public_keys,omitempty"`
+	RetiredApplyPublicKeys  [][]byte               `json:"retired_apply_public_keys,omitempty"`
+	RetiredApplyInventory   *retiredApplyInventory `json:"retired_apply_inventory,omitempty"`
 	presentFields           map[string]struct{}
 }
 
@@ -156,6 +162,8 @@ var brokerRequestFields = map[string]struct{}{
 	"eval_public_key":            {},
 	"corpus_release_public_key":  {},
 	"corpus_release_public_keys": {},
+	"retired_apply_public_keys":  {},
+	"retired_apply_inventory":    {},
 }
 
 func (request *brokerRequest) UnmarshalJSON(raw []byte) error {
@@ -214,7 +222,9 @@ func (request *brokerRequest) hasInitializationFields() bool {
 	return request.hasField("apply_public_key") ||
 		request.hasField("eval_public_key") ||
 		request.hasField("corpus_release_public_key") ||
-		request.hasField("corpus_release_public_keys")
+		request.hasField("corpus_release_public_keys") ||
+		request.hasField("retired_apply_public_keys") ||
+		request.hasField("retired_apply_inventory")
 }
 
 func (request *brokerRequest) hasValidInitializationShape() bool {
@@ -240,13 +250,27 @@ func (request *brokerRequest) hasValidInitializationShape() bool {
 		}
 		seen[encoded] = struct{}{}
 	}
-	return len(request.ApplyPublicKey) == ed25519.PublicKeySize &&
-		len(request.EvalPublicKey) == ed25519.PublicKeySize &&
-		len(request.CorpusReleasePublicKey) == ed25519.PublicKeySize &&
-		request.hasExactFields(
-			"version", "id", "op", "apply_public_key", "eval_public_key",
-			"corpus_release_public_key", "corpus_release_public_keys",
-		)
+	expected := []string{
+		"version", "id", "op", "apply_public_key", "eval_public_key",
+		"corpus_release_public_key", "corpus_release_public_keys",
+	}
+	if request.hasField("retired_apply_public_keys") || request.hasField("retired_apply_inventory") {
+		if !request.hasField("retired_apply_public_keys") || !request.hasField("retired_apply_inventory") ||
+			len(request.RetiredApplyPublicKeys) == 0 || validateRetiredApplyInventory(request.RetiredApplyInventory) != nil {
+			return false
+		}
+		for _, publicKey := range request.RetiredApplyPublicKeys {
+			if len(publicKey) != ed25519.PublicKeySize {
+				return false
+			}
+			if _, duplicate := seen[string(publicKey)]; duplicate {
+				return false
+			}
+			seen[string(publicKey)] = struct{}{}
+		}
+		expected = append(expected, "retired_apply_public_keys", "retired_apply_inventory")
+	}
+	return request.hasExactFields(expected...)
 }
 
 func validateBrokerRequestEnvelope(request *brokerRequest, lastRequestID *int64) error {
@@ -288,11 +312,13 @@ func validateBrokerRequestOperation(request *brokerRequest) error {
 }
 
 type brokerStatus struct {
-	Capabilities            []string `json:"capabilities"`
-	ApplyPublicKey          []byte   `json:"apply_public_key"`
-	EvalPublicKey           []byte   `json:"eval_public_key"`
-	CorpusReleasePublicKey  []byte   `json:"corpus_release_public_key"`
-	CorpusReleasePublicKeys [][]byte `json:"corpus_release_public_keys"`
+	Capabilities            []string               `json:"capabilities"`
+	ApplyPublicKey          []byte                 `json:"apply_public_key"`
+	EvalPublicKey           []byte                 `json:"eval_public_key"`
+	CorpusReleasePublicKey  []byte                 `json:"corpus_release_public_key"`
+	CorpusReleasePublicKeys [][]byte               `json:"corpus_release_public_keys"`
+	RetiredApplyPublicKeys  [][]byte               `json:"retired_apply_public_keys,omitempty"`
+	RetiredApplyInventory   *retiredApplyInventory `json:"retired_apply_inventory,omitempty"`
 }
 
 type brokerResponse struct {
@@ -312,12 +338,14 @@ type receivedBrokerResponse struct {
 }
 
 type brokerResult struct {
-	Capabilities            []string `json:"capabilities,omitempty"`
-	ApplyPublicKey          []byte   `json:"apply_public_key,omitempty"`
-	EvalPublicKey           []byte   `json:"eval_public_key,omitempty"`
-	CorpusReleasePublicKey  []byte   `json:"corpus_release_public_key,omitempty"`
-	CorpusReleasePublicKeys [][]byte `json:"corpus_release_public_keys,omitempty"`
-	Signature               []byte   `json:"signature,omitempty"`
+	Capabilities            []string               `json:"capabilities,omitempty"`
+	ApplyPublicKey          []byte                 `json:"apply_public_key,omitempty"`
+	EvalPublicKey           []byte                 `json:"eval_public_key,omitempty"`
+	CorpusReleasePublicKey  []byte                 `json:"corpus_release_public_key,omitempty"`
+	CorpusReleasePublicKeys [][]byte               `json:"corpus_release_public_keys,omitempty"`
+	RetiredApplyPublicKeys  [][]byte               `json:"retired_apply_public_keys,omitempty"`
+	RetiredApplyInventory   *retiredApplyInventory `json:"retired_apply_inventory,omitempty"`
+	Signature               []byte                 `json:"signature,omitempty"`
 }
 
 type signerRequest struct {
@@ -410,7 +438,7 @@ func main() {
 			err = serveBroker(brokerServerFD, parsed)
 		}
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "signing broker: %v\n", err)
+			_ = reportBrokerFailure(os.Stderr, err)
 			os.Exit(2)
 		}
 		return
@@ -601,7 +629,7 @@ func supervise(arguments []string) error {
 		}
 	}
 
-	applyPublicKey, evalPublicKey, corpusReleasePublicKeys, err := loadProtectedTrustRoots(
+	applyPublicKey, evalPublicKey, corpusReleasePublicKeys, retiredApplyPublicKeys, retiredInventory, err := loadProtectedTrustRoots(
 		parsed.trustRootsPath,
 	)
 	if err != nil {
@@ -630,6 +658,8 @@ func supervise(arguments []string) error {
 	initialization.EvalPublicKey = evalPublicKey
 	initialization.CorpusReleasePublicKey = corpusReleasePublicKeys[0]
 	initialization.CorpusReleasePublicKeys = corpusReleasePublicKeys
+	initialization.RetiredApplyPublicKeys = retiredApplyPublicKeys
+	initialization.RetiredApplyInventory = retiredInventory
 	if err := sendFrame(connection, initialization); err != nil {
 		return fmt.Errorf("could not provision signing broker: %w", err)
 	}
@@ -651,6 +681,8 @@ func supervise(arguments []string) error {
 		applyPublicKey,
 		evalPublicKey,
 		corpusReleasePublicKeys,
+		retiredApplyPublicKeys,
+		retiredInventory,
 		parsed.applySignerFD >= 0,
 		parsed.evalSignerFD >= 0,
 	); err != nil {
@@ -955,30 +987,33 @@ func superviseWithCodexSubscription(parsed options, connection *os.File, environ
 	return nil
 }
 
-func loadProtectedTrustRoots(path string) ([]byte, []byte, [][]byte, error) {
+func loadProtectedTrustRoots(path string) ([]byte, []byte, [][]byte, [][]byte, *retiredApplyInventory, error) {
 	trustedPath, file, err := inspectTrustedRegularFile(path, false)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("signing trust-root config is not protected: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("signing trust-root config is not protected: %w", err)
 	}
 	defer file.Close()
-	raw, err := io.ReadAll(io.LimitReader(file, 64*1024+1))
+	raw, err := io.ReadAll(io.LimitReader(file, 16*1024*1024+1))
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("could not read signing trust-root config: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("could not read signing trust-root config: %w", err)
 	}
 	defer zero(raw)
-	if len(raw) > 64*1024 {
-		return nil, nil, nil, errors.New("signing trust-root config exceeds 64 KiB")
+	if len(raw) > 16*1024*1024 {
+		return nil, nil, nil, nil, nil, errors.New("signing trust-root config exceeds 16 MiB")
 	}
 	if err := rejectDuplicateJSONKeys(raw); err != nil {
-		return nil, nil, nil, fmt.Errorf("signing trust-root config is malformed: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("signing trust-root config is malformed: %w", err)
 	}
 	return parseProtectedTrustRoots(raw, trustedPath)
 }
 
-func parseProtectedTrustRoots(raw []byte, trustedPath string) ([]byte, []byte, [][]byte, error) {
+func parseProtectedTrustRoots(raw []byte, trustedPath string) ([]byte, []byte, [][]byte, [][]byte, *retiredApplyInventory, error) {
+	if err := rejectDuplicateJSONKeys(raw); err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("signing trust-root config is malformed: %w", err)
+	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		return nil, nil, nil, errors.New("signing trust-root config must be one JSON object")
+		return nil, nil, nil, nil, nil, errors.New("signing trust-root config must be one JSON object")
 	}
 	allowed := map[string]struct{}{
 		"schema":                             {},
@@ -986,54 +1021,70 @@ func parseProtectedTrustRoots(raw []byte, trustedPath string) ([]byte, []byte, [
 		"eval_ed25519_public_key":            {},
 		"corpus_release_ed25519_public_key":  {},
 		"corpus_release_ed25519_public_keys": {},
+		"retired_apply_ed25519_public_keys":  {},
+		"retired_apply_inventory":            {},
 	}
 	for name := range fields {
 		if _, ok := allowed[name]; !ok {
-			return nil, nil, nil, fmt.Errorf("signing trust-root config has unknown field %q", name)
+			return nil, nil, nil, nil, nil, fmt.Errorf("signing trust-root config has unknown field %q", name)
 		}
 	}
 	var config signingTrustRoots
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&config); err != nil {
-		return nil, nil, nil, fmt.Errorf("signing trust-root config is malformed: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("signing trust-root config is malformed: %w", err)
 	}
 	const schemaV2 = "axiom-encode/signing-trust-roots/v2"
 	const schemaV3 = "axiom-encode/signing-trust-roots/v3"
-	if config.Schema != schemaV2 && config.Schema != schemaV3 {
-		return nil, nil, nil, errors.New("signing trust-root config schema is unsupported")
+	const schemaV4 = "axiom-encode/signing-trust-roots/v4"
+	if config.Schema != schemaV2 && config.Schema != schemaV3 && config.Schema != schemaV4 {
+		return nil, nil, nil, nil, nil, errors.New("signing trust-root config schema is unsupported")
+	}
+	if config.Schema != schemaV4 && len(raw) > 64*1024 {
+		return nil, nil, nil, nil, nil, errors.New("signing trust-root config exceeds 64 KiB")
 	}
 	for _, required := range []string{
 		"schema", "apply_ed25519_public_key", "eval_ed25519_public_key",
 	} {
 		if _, present := fields[required]; !present {
-			return nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
+			return nil, nil, nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
 		}
 	}
 	_, hasCorpusReleasePublicKey := fields["corpus_release_ed25519_public_key"]
 	_, hasCorpusReleasePublicKeys := fields["corpus_release_ed25519_public_keys"]
 	if config.Schema == schemaV2 {
 		if len(fields) != 4 || !hasCorpusReleasePublicKey || hasCorpusReleasePublicKeys {
-			return nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
+			return nil, nil, nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
 		}
-	} else if (!hasCorpusReleasePublicKey && !hasCorpusReleasePublicKeys) || len(fields) > 5 {
-		return nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
+	} else if !hasCorpusReleasePublicKey && !hasCorpusReleasePublicKeys {
+		return nil, nil, nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
+	}
+	_, hasRetiredKeys := fields["retired_apply_ed25519_public_keys"]
+	_, hasRetiredInventory := fields["retired_apply_inventory"]
+	if config.Schema == schemaV4 {
+		if !hasRetiredKeys || !hasRetiredInventory || len(fields) > 7 ||
+			len(config.RetiredApplyPublicKeys) == 0 || validateRetiredApplyInventory(config.RetiredApplyInventory) != nil {
+			return nil, nil, nil, nil, nil, errors.New("retired apply trust requires nonempty roots and a valid frozen inventory")
+		}
+	} else if hasRetiredKeys || hasRetiredInventory || (config.Schema == schemaV3 && len(fields) > 5) {
+		return nil, nil, nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
 	}
 	applyPublicKey, err := parsePublicKey([]byte(config.ApplyPublicKey))
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("invalid apply manifest public key in %s: %w", trustedPath, err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("invalid apply manifest public key in %s: %w", trustedPath, err)
 	}
 	evalPublicKey, err := parsePublicKey([]byte(config.EvalPublicKey))
 	if err != nil {
 		zero(applyPublicKey)
-		return nil, nil, nil, fmt.Errorf("invalid eval evidence public key in %s: %w", trustedPath, err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("invalid eval evidence public key in %s: %w", trustedPath, err)
 	}
 	var corpusReleasePublicKeys [][]byte
 	if hasCorpusReleasePublicKeys {
 		if len(config.CorpusReleasePublicKeys) == 0 {
 			zero(applyPublicKey)
 			zero(evalPublicKey)
-			return nil, nil, nil, errors.New("corpus release public keyring must not be empty")
+			return nil, nil, nil, nil, nil, errors.New("corpus release public keyring must not be empty")
 		}
 		for index, encoded := range config.CorpusReleasePublicKeys {
 			publicKey, parseErr := parseRawPublicKey([]byte(encoded))
@@ -1041,7 +1092,7 @@ func parseProtectedTrustRoots(raw []byte, trustedPath string) ([]byte, []byte, [
 				zero(applyPublicKey)
 				zero(evalPublicKey)
 				zeroPublicKeys(corpusReleasePublicKeys)
-				return nil, nil, nil, fmt.Errorf(
+				return nil, nil, nil, nil, nil, fmt.Errorf(
 					"invalid corpus release public key %d in %s: %w",
 					index, trustedPath, parseErr,
 				)
@@ -1052,13 +1103,13 @@ func parseProtectedTrustRoots(raw []byte, trustedPath string) ([]byte, []byte, [
 		if config.CorpusReleasePublicKey == nil {
 			zero(applyPublicKey)
 			zero(evalPublicKey)
-			return nil, nil, nil, errors.New("corpus release public key is missing")
+			return nil, nil, nil, nil, nil, errors.New("corpus release public key is missing")
 		}
 		publicKey, parseErr := parsePublicKey([]byte(*config.CorpusReleasePublicKey))
 		if parseErr != nil {
 			zero(applyPublicKey)
 			zero(evalPublicKey)
-			return nil, nil, nil, fmt.Errorf(
+			return nil, nil, nil, nil, nil, fmt.Errorf(
 				"invalid corpus release public key in %s: %w", trustedPath, parseErr,
 			)
 		}
@@ -1069,14 +1120,14 @@ func parseProtectedTrustRoots(raw []byte, trustedPath string) ([]byte, []byte, [
 			zero(applyPublicKey)
 			zero(evalPublicKey)
 			zeroPublicKeys(corpusReleasePublicKeys)
-			return nil, nil, nil, errors.New("corpus release public key is missing")
+			return nil, nil, nil, nil, nil, errors.New("corpus release public key is missing")
 		}
 		singularPublicKey, parseErr := parsePublicKey([]byte(*config.CorpusReleasePublicKey))
 		if parseErr != nil {
 			zero(applyPublicKey)
 			zero(evalPublicKey)
 			zeroPublicKeys(corpusReleasePublicKeys)
-			return nil, nil, nil, fmt.Errorf(
+			return nil, nil, nil, nil, nil, fmt.Errorf(
 				"invalid corpus release public key in %s: %w", trustedPath, parseErr,
 			)
 		}
@@ -1086,7 +1137,7 @@ func parseProtectedTrustRoots(raw []byte, trustedPath string) ([]byte, []byte, [
 			zero(applyPublicKey)
 			zero(evalPublicKey)
 			zeroPublicKeys(corpusReleasePublicKeys)
-			return nil, nil, nil, errors.New(
+			return nil, nil, nil, nil, nil, errors.New(
 				"singular and plural corpus release public keys conflict",
 			)
 		}
@@ -1095,7 +1146,7 @@ func parseProtectedTrustRoots(raw []byte, trustedPath string) ([]byte, []byte, [
 		zero(applyPublicKey)
 		zero(evalPublicKey)
 		zeroPublicKeys(corpusReleasePublicKeys)
-		return nil, nil, nil, errors.New(
+		return nil, nil, nil, nil, nil, errors.New(
 			"apply, eval, and corpus release trust roots must be distinct",
 		)
 	}
@@ -1109,13 +1160,25 @@ func parseProtectedTrustRoots(raw []byte, trustedPath string) ([]byte, []byte, [
 			zero(applyPublicKey)
 			zero(evalPublicKey)
 			zeroPublicKeys(corpusReleasePublicKeys)
-			return nil, nil, nil, errors.New(
+			return nil, nil, nil, nil, nil, errors.New(
 				"apply, eval, and corpus release trust roots must be distinct",
 			)
 		}
 		seen[encoded] = struct{}{}
 	}
-	return applyPublicKey, evalPublicKey, corpusReleasePublicKeys, nil
+	var retiredApplyPublicKeys [][]byte
+	for index, encoded := range config.RetiredApplyPublicKeys {
+		publicKey, parseErr := parseRawPublicKey([]byte(encoded))
+		if parseErr != nil {
+			return nil, nil, nil, nil, nil, fmt.Errorf("invalid retired apply public key %d: %w", index, parseErr)
+		}
+		if _, duplicate := seen[string(publicKey)]; duplicate {
+			return nil, nil, nil, nil, nil, errors.New("active, retired apply, eval, and corpus release trust roots must be distinct")
+		}
+		seen[string(publicKey)] = struct{}{}
+		retiredApplyPublicKeys = append(retiredApplyPublicKeys, publicKey)
+	}
+	return applyPublicKey, evalPublicKey, corpusReleasePublicKeys, retiredApplyPublicKeys, config.RetiredApplyInventory, nil
 }
 
 func parseRawPublicKey(material []byte) ([]byte, error) {
@@ -1294,6 +1357,8 @@ func validateStatus(
 	result brokerResult,
 	applyPublicKey, evalPublicKey []byte,
 	corpusReleasePublicKeys [][]byte,
+	retiredApplyPublicKeys [][]byte,
+	retiredInventory *retiredApplyInventory,
 	hasApplyCapability, hasEvalCapability bool,
 ) error {
 	expectedCapabilities := make([]string, 0, 2)
@@ -1314,6 +1379,10 @@ func validateStatus(
 	}
 	if !equalByteSlices(result.CorpusReleasePublicKeys, corpusReleasePublicKeys) {
 		return errors.New("signing broker returned the wrong corpus release public keyring")
+	}
+	if !equalByteSlices(result.RetiredApplyPublicKeys, retiredApplyPublicKeys) ||
+		!reflect.DeepEqual(result.RetiredApplyInventory, retiredInventory) {
+		return errors.New("signing broker returned the wrong retired apply trust")
 	}
 	if !equalStrings(result.Capabilities, expectedCapabilities) {
 		return errors.New("signing broker returned unexpected capabilities")
@@ -1565,7 +1634,30 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 	if connection == nil {
 		return errors.New("broker descriptor is invalid")
 	}
+	// The broker writes each diagnostic before its peer can see the failure.
+	// Go ends a process that writes to a closed stderr pipe, which would end
+	// the broker before it sends its peer the error reply; with SIGPIPE
+	// ignored, that write fails with EPIPE instead.
+	signal.Ignore(syscall.SIGPIPE)
+	return serveBrokerConnection(connection, parsed, os.Stderr)
+}
+
+// serveBrokerConnection runs the broker protocol on connection, then closes it.
+// Every returned error is written to diagnostics before the peer can observe
+// it, as an error reply or as EOF when the connection closes. The supervisor
+// kills the broker as soon as it reads an initialization failure, and the
+// Codex-subscription supervisor kills it once the child exits, so a diagnostic
+// written after the peer has seen the failure can be lost.
+func serveBrokerConnection(
+	connection *os.File,
+	parsed brokerOptions,
+	diagnostics io.Writer,
+) (err error) {
 	defer connection.Close()
+	// Deferred after Close, so it runs first.
+	defer func() {
+		err = reportBrokerFailure(diagnostics, err)
+	}()
 
 	var initialization brokerRequest
 	if err := receiveFrame(connection, &initialization); err != nil {
@@ -1576,8 +1668,11 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 		initialization.Operation != "initialize" ||
 		!initialization.hasValidInitializationShape() {
 		zeroRequestSecrets(&initialization)
-		_ = sendError(connection, 0, "Signing broker initialization is malformed")
-		return errors.New("initialization is malformed")
+		return failBroker(
+			connection, diagnostics, 0,
+			"Signing broker initialization is malformed",
+			errors.New("initialization is malformed"),
+		)
 	}
 	var applySigner *externalSigner
 	var evalSigner *externalSigner
@@ -1595,6 +1690,8 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 		CorpusReleasePublicKeys: clonePublicKeys(
 			initialization.CorpusReleasePublicKeys,
 		),
+		RetiredApplyPublicKeys: clonePublicKeys(initialization.RetiredApplyPublicKeys),
+		RetiredApplyInventory:  initialization.RetiredApplyInventory,
 	}
 	if parsed.applySignerFD >= 0 {
 		var err error
@@ -1603,8 +1700,10 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 		)
 		if err != nil {
 			zeroRequestSecrets(&initialization)
-			_ = sendError(connection, 0, "External apply signer initialization failed")
-			return err
+			return failBroker(
+				connection, diagnostics, 0,
+				"External apply signer initialization failed", err,
+			)
 		}
 		defer applySigner.close() //nolint:errcheck
 		status.Capabilities = append(status.Capabilities, "apply_ed25519")
@@ -1616,8 +1715,10 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 		)
 		if err != nil {
 			zeroRequestSecrets(&initialization)
-			_ = sendError(connection, 0, "External eval signer initialization failed")
-			return err
+			return failBroker(
+				connection, diagnostics, 0,
+				"External eval signer initialization failed", err,
+			)
 		}
 		defer evalSigner.close() //nolint:errcheck
 		status.Capabilities = append(status.Capabilities, "eval_ed25519")
@@ -1681,8 +1782,10 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 			signature, signErr := applySigner.sign(request.Payload)
 			zero(request.Payload)
 			if signErr != nil {
-				_ = sendError(connection, request.ID, "External apply signer failed")
-				return signErr
+				return failBroker(
+					connection, diagnostics, request.ID,
+					"External apply signer failed", signErr,
+				)
 			}
 			err := sendFrame(connection, brokerResponse{
 				Version: protocolVersion,
@@ -1704,8 +1807,10 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 			signature, signErr := evalSigner.sign(request.Payload)
 			zero(request.Payload)
 			if signErr != nil {
-				_ = sendError(connection, request.ID, "External eval signer failed")
-				return signErr
+				return failBroker(
+					connection, diagnostics, request.ID,
+					"External eval signer failed", signErr,
+				)
 			}
 			err := sendFrame(connection, brokerResponse{
 				Version: protocolVersion,
@@ -1727,6 +1832,48 @@ func zeroRequestSecrets(request *brokerRequest) {
 	zero(request.EvalPublicKey)
 	zero(request.CorpusReleasePublicKey)
 	zeroPublicKeys(request.CorpusReleasePublicKeys)
+	zeroPublicKeys(request.RetiredApplyPublicKeys)
+}
+
+// reportedBrokerFailure marks a broker error whose diagnostic is already written.
+type reportedBrokerFailure struct {
+	cause error
+}
+
+func (failure reportedBrokerFailure) Error() string {
+	return failure.cause.Error()
+}
+
+func (failure reportedBrokerFailure) Unwrap() error {
+	return failure.cause
+}
+
+// reportBrokerFailure writes the broker's diagnostic for err once and returns
+// err marked as reported.
+func reportBrokerFailure(diagnostics io.Writer, err error) error {
+	if err == nil {
+		return nil
+	}
+	var reported reportedBrokerFailure
+	if errors.As(err, &reported) {
+		return err
+	}
+	fmt.Fprintf(diagnostics, "signing broker: %v\n", err)
+	return reportedBrokerFailure{cause: err}
+}
+
+// failBroker writes the detailed diagnostic for cause, and only then sends the
+// peer the generic reply.
+func failBroker(
+	connection io.Writer,
+	diagnostics io.Writer,
+	requestID int64,
+	reply string,
+	cause error,
+) error {
+	reported := reportBrokerFailure(diagnostics, cause)
+	_ = sendError(connection, requestID, reply)
+	return reported
 }
 
 func sendError(connection io.Writer, requestID int64, message string) error {

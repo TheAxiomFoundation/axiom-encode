@@ -1,0 +1,61 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-ut/manual/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm
+    source_sha256: e7229d486b3a84bf4503dedfea70d93f7ba82d3752d1a2e02506dc96fa1bafe5
+  summary: Advance notice is generally required before adverse action; the notice
+    period begins on the day the notice is mailed. Advance notice is defined as 1
+    day for Financial and Child Care, and 10 days for SNAP and RCA. Exceptions are
+    addressed in policies 770-2 and 770-3.
+rules:
+- name: financial_child_care_advance_notice_days
+  kind: parameter
+  dtype: Integer
+  period: Day
+  source: Additional Considerations for Financial and Child Care
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ut/manual/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm
+          excerpt: Advance notice is defined as 1 day.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '1'
+- name: snap_advance_notice_days
+  kind: parameter
+  dtype: Integer
+  period: Day
+  source: Additional Considerations for Supplemental Nutrition Assistance Program
+    (SNAP)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ut/manual/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm
+          excerpt: Advance notice is defined as 10 days.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '10'
+- name: rca_advance_notice_days
+  kind: parameter
+  dtype: Integer
+  period: Day
+  source: Additional Considerations for Refugee Cash Assistance (RCA)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ut/manual/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm
+          excerpt: Advance notice is defined as 10 days
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '10'

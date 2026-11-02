@@ -1,1 +1,0 @@
-Forward an explicit engine commit through encode generation, retained candidates, repairs, and apply validation; reject changed source or binary identities before recording success or applying artifacts.

@@ -47,14 +47,19 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
 
       - name: Set up Python 3.13
         run: uv python install 3.13
 
       - name: Install Python test dependencies
-        run: |
-          uv venv --python 3.13
-          uv pip install -e ".[dev]"
+        run: uv sync --locked --python 3.13 --extra dev
+
+      - name: Check the environment is the locked set
+        run: >-
+          .venv/bin/pytest -q -o addopts=''
+          tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set
 
       - name: Test supervisor package
         run: |

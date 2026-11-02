@@ -1,15 +1,14 @@
 """Known runtime date operations must not become phantom factual input slots."""
 
 import json
-import os
 import subprocess
-from pathlib import Path
 
 import pytest
 import yaml
 
 from axiom_encode import cli
 from axiom_encode.harness import evals, validator_pipeline
+from tests.lifetime_engine import lifetime_capable_binary
 
 
 @pytest.mark.parametrize(
@@ -60,12 +59,9 @@ def test_cli_context_and_validation_collectors_preserve_only_actual_arguments(
 
 
 def test_actual_v2_runtime_evaluates_date_operators_inside_history_reduction(
-    tmp_path, monkeypatch
+    real_engine, tmp_path, monkeypatch
 ):
-    configured = os.environ.get("AXIOM_LIFETIME_TEST_ENGINE")
-    if not configured:
-        pytest.skip("set AXIOM_LIFETIME_TEST_ENGINE to the real v2-capable Rust CLI")
-    binary = Path(configured).resolve(strict=True)
+    binary = lifetime_capable_binary(real_engine)
     root = tmp_path / "rulespec-us"
     rules = root / "us/statutes/99/4.yaml"
     rules.parent.mkdir(parents=True)

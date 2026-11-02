@@ -1,21 +1,17 @@
-"""Opt-in synthetic integration with an actual run-lifetime-capable Rust CLI."""
+"""Synthetic integration with an actual run-lifetime-capable Rust CLI."""
 
 import json
-import os
 import subprocess
-from pathlib import Path
 
 import pytest
 
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+from tests.lifetime_engine import lifetime_capable_binary
 
 
 @pytest.fixture
-def execution(tmp_path, monkeypatch):
-    configured = os.environ.get("AXIOM_LIFETIME_TEST_ENGINE")
-    if not configured:
-        pytest.skip("set AXIOM_LIFETIME_TEST_ENGINE to the real Rust CLI")
-    binary = Path(configured).resolve(strict=True)
+def execution(real_engine, tmp_path, monkeypatch):
+    binary = lifetime_capable_binary(real_engine)
     root = tmp_path / "rulespec-us"
     rules = root / "us/statutes/99/1.yaml"
     rules.parent.mkdir(parents=True)
@@ -53,7 +49,7 @@ def execution(tmp_path, monkeypatch):
     payload = json.loads(compiled.read_text())
     pipeline = ValidatorPipeline(
         policy_repo_path=root,
-        axiom_rules_path=binary.parent,
+        axiom_rules_path=real_engine.root,
         local_corpus_release=None,
         enable_oracles=False,
     )

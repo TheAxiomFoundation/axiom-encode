@@ -1,0 +1,13 @@
+{
+  "attempt_count": 4,
+  "citation": "us-ok/statute/68-2906",
+  "encoder_version": "0.2.2154",
+  "issues": [
+    "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 162 has no named scalar representation. `module.summary` is not consulted."
+  ],
+  "path": "statutes/68-2906.yaml",
+  "rulespec_sha256": "0c0c419064eabb26c1e1dbe54e1b62247d9ba2833ba826981f85c877c351a774",
+  "schema": "axiom-encode/terminal-rejected-candidate/v1",
+  "tests_sha256": "bb34872d011459557cd8b3461053df2bfb35b2fe47050cb42c23cde7f966cd05",
+  "candidate_origin": "openai-gpt-6-sol terminal candidate; retained luna snapshot differs"
+}

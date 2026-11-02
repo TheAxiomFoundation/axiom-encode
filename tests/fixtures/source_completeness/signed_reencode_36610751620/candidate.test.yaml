@@ -1,0 +1,9 @@
+- name: source_stated_rates_and_limits
+  period: 2026-08
+  input: {}
+  output:
+    us:regulations/42-cfr/457/622#enhanced_fmap_regular_rate_multiplier: 0.7
+    us:regulations/42-cfr/457/622#enhanced_fmap_additional_percentage_points: 0.3
+    us:regulations/42-cfr/457/622#enhanced_fmap_ceiling: 0.85
+    us:regulations/42-cfr/457/622#claimed_expenditure_limit_rate: 0.1
+    us:regulations/42-cfr/457/622#listed_expenditure_limit_rate: 0.1
