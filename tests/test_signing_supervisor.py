@@ -7887,18 +7887,20 @@ def test_targeted_artifact_packages_historical_in_place_owner(
         check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "CITATION": citation,
-            "PYTHONPATH": str(ROOT / "src"),
-            "REVIEW_FINDING": "",
-            "REVIEW_FINDING_PRESENT": "false",
-            "RUNNER_TEMP": str(tmp_path),
-            "RULESPEC_CHECKOUT": "rulespec-us",
-            "RULESPEC_REF": rulespec_ref,
-            "REPLACE_LEGACY_RULESPEC_PATH": primary_path,
-            "REPLACE_RULESPEC_PATH": primary_path,
-        },
+        env=Names(
+            {
+                **os.environ,
+                "CITATION": citation,
+                "PYTHONPATH": str(ROOT / "src"),
+                "REVIEW_FINDING": "",
+                "REVIEW_FINDING_PRESENT": "false",
+                "RUNNER_TEMP": str(tmp_path),
+                "RULESPEC_CHECKOUT": "rulespec-us",
+                "RULESPEC_REF": rulespec_ref,
+                "REPLACE_LEGACY_RULESPEC_PATH": primary_path,
+                "REPLACE_RULESPEC_PATH": primary_path,
+            }
+        ),
     )
     if error:
         assert completed.returncode != 0

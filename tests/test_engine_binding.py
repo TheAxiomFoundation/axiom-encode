@@ -18,7 +18,7 @@ from axiom_encode.engine_binding import (
     resolve_pinned_engine_binary,
     write_engine_binding_receipt,
 )
-from tests.environment_assertions import environment_variable
+from tests.environment_assertions import Names, environment_variable
 
 _ZERO_SHA256 = "0" * 64
 
@@ -580,7 +580,7 @@ def test_targeted_workflow_receipts_engine_before_protected_runtime(
     binary.write_bytes(b"prebuilt without receipt")
     binary.chmod(0o755)
     assert read_engine_binding_receipt(binary) is None
-    normal_path = os.environ["PATH"]
+    normal_path = environment_variable("PATH")
     protected_bin = tmp_path / "protected-bin"
     protected_bin.mkdir()
     git = shutil.which("git")
@@ -605,7 +605,7 @@ def test_targeted_workflow_receipts_engine_before_protected_runtime(
     completed = subprocess.run(
         ["/bin/bash", "-c", step["run"]],
         cwd=tmp_path,
-        env=env,
+        env=Names(env),
         capture_output=True,
         text=True,
     )
