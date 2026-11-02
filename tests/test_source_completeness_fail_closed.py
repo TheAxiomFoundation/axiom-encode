@@ -61,6 +61,14 @@ def _unanalyzable(result) -> list[str]:
         pytest.param("- format: rulespec/v1\n", id="top-level-list"),
         pytest.param("format: rulespec/v2\nrules: []\n", id="unknown-format"),
         pytest.param("", id="empty-document"),
+        # PyYAML raises ValueError, not YAMLError, for an impossible date.
+        pytest.param(HEADER + "rules: []\nx: 2026-02-30\n", id="timestamp-value-error"),
+        pytest.param(
+            HEADER + "inputs:\n  - just_a_string\nrules: []\n", id="bare-string-input"
+        ),
+        pytest.param(HEADER + "inputs: 7\nrules: []\n", id="scalar-inputs"),
+        pytest.param(HEADER + "rules:\n  - just_a_string\n", id="bare-string-rule"),
+        pytest.param(HEADER + "rules: {}\n", id="mapping-rules"),
     ],
 )
 def test_malformed_payload_reports_unanalyzable(content):
@@ -69,10 +77,25 @@ def test_malformed_payload_reports_unanalyzable(content):
     assert _unanalyzable(result), result.issues
 
 
-def test_bare_string_input_item_is_never_a_silent_pass():
-    result = _analyze(HEADER + "inputs:\n  - just_a_string\nrules: []\n")
+@pytest.mark.parametrize(
+    "source",
+    [SOURCE, "A credit is allowed.\n"],
+    ids=["numbered-source", "source-without-numbers"],
+)
+def test_bare_string_input_item_is_reported_whatever_the_source(source):
+    """The issue's third shape does not raise; the shape check reports it.
 
-    assert result.issues
+    With a source that has no numbers, main returned no issues at all for this
+    payload; the old test passed on main because its source had a number.
+    """
+
+    result = _analyze(HEADER + "inputs:\n  - just_a_string\nrules: []\n", source)
+
+    assert result.issues == (
+        f"{UNANALYZABLE} The RuleSpec payload could not be analysed against its "
+        "authoritative source (`inputs` is not a mapping or a list of mappings); "
+        "fix the payload shape before completeness can pass.",
+    )
 
 
 def test_inner_exception_becomes_an_issue(monkeypatch):
@@ -88,6 +111,30 @@ def test_inner_exception_becomes_an_issue(monkeypatch):
         "its authoritative source (TypeError: 'NoneType' object is not "
         "iterable); fix the payload shape before completeness can pass.",
     )
+
+
+def test_inner_value_error_becomes_an_issue(monkeypatch):
+    def _raise(*_args, **_kwargs):
+        raise ValueError("could not convert string to float: 'x'")
+
+    monkeypatch.setattr(completeness_module, "_analyze_rulespec_payload", _raise)
+
+    result = _analyze(HEADER + "rules: []\n")
+
+    assert result.issues == (
+        f"{UNANALYZABLE} The RuleSpec payload could not be analysed against "
+        "its authoritative source (ValueError: could not convert string to "
+        "float: 'x'); fix the payload shape before completeness can pass.",
+    )
+
+
+def test_inner_yaml_error_becomes_an_issue(monkeypatch):
+    def _raise(*_args, **_kwargs):
+        raise yaml.YAMLError("nested document")
+
+    monkeypatch.setattr(completeness_module, "_analyze_rulespec_payload", _raise)
+
+    assert _unanalyzable(_analyze(HEADER + "rules: []\n"))
 
 
 def test_unexpected_exception_types_still_propagate(monkeypatch):
@@ -127,11 +174,12 @@ _SHAPES = st.one_of(
     )
 )
 def test_property_raising_analysis_is_never_an_empty_pass(monkeypatch, fields):
-    """Whenever the inner analysis raises, the gate reports the payload.
+    """The gate never passes a payload it could not read.
 
-    The spy records what the inner analysis did; the property is that the
-    gate's verdict equals the inner verdict when it returned, and is an
-    explicit unanalyzable issue when it raised.
+    A shape the analysis cannot read is reported before the inner analysis
+    runs. Otherwise the spy records what the inner analysis did: the gate's
+    verdict equals the inner verdict when it returned, and is an explicit
+    unanalyzable issue when it raised.
     """
 
     inner = completeness_module._analyze_rulespec_payload
@@ -158,6 +206,10 @@ def test_property_raising_analysis_is_never_an_empty_pass(monkeypatch, fields):
             assert not isinstance(exc, (TypeError, ValueError, yaml.YAMLError))
             return
 
+    if completeness_module._rulespec_payload_shape_problem(payload) is not None:
+        assert seen == []
+        assert _unanalyzable(result)
+        return
     assert len(seen) == 1
     if isinstance(seen[0], BaseException):
         assert _unanalyzable(result)
@@ -202,3 +254,34 @@ def test_differential_fixture_verdicts_are_unchanged(
 
     assert returned == [result]
     assert not _unanalyzable(result)
+
+
+def _repository_rulespec_files():
+    root = Path(__file__).parents[1]
+    paths = []
+    for path in sorted(root.rglob("*.yaml")):
+        if {".venv", ".git", "node_modules"} & set(path.parts):
+            continue
+        try:
+            payload = yaml.safe_load(path.read_text())
+        except (yaml.YAMLError, ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(payload, dict) and payload.get("format") == "rulespec/v1":
+            paths.append(path)
+    return paths
+
+
+def test_differential_no_repository_rulespec_file_is_unanalyzable():
+    """Every `format: rulespec/v1` file in the repository passes the shape check.
+
+    The shape check is the only new refusal for a payload that parses as a
+    RuleSpec mapping, so no file main analysed is now refused as unanalyzable.
+    """
+
+    paths = _repository_rulespec_files()
+    assert len(paths) >= 300
+    for path in paths:
+        payload = yaml.safe_load(path.read_text())
+        assert completeness_module._rulespec_payload_shape_problem(payload) is None, (
+            path
+        )

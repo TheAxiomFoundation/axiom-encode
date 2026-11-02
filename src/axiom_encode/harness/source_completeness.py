@@ -5418,12 +5418,17 @@ def analyze_complete_source_unit(
 
         try:
             payload = yaml.safe_load(content)
-        except yaml.YAMLError as exc:
+        except (yaml.YAMLError, TypeError, ValueError) as exc:
+            # PyYAML raises ValueError for an impossible timestamp such as
+            # `2026-02-30`, not a YAMLError.
             return _unanalyzable_complete_source_unit(exc)
         if not (isinstance(payload, dict) and payload.get("format") == "rulespec/v1"):
             return _unanalyzable_complete_source_unit(
                 None, reason="the artifact is not a `format: rulespec/v1` mapping"
             )
+        shape_problem = _rulespec_payload_shape_problem(payload)
+        if shape_problem is not None:
+            return _unanalyzable_complete_source_unit(None, reason=shape_problem)
         try:
             return _analyze_rulespec_payload(
                 payload,
@@ -5452,6 +5457,32 @@ def analyze_complete_source_unit(
         except (yaml.YAMLError, TypeError, ValueError) as exc:
             # A gate that cannot read its input must report it, never pass it.
             return _unanalyzable_complete_source_unit(exc)
+
+
+def _rulespec_payload_shape_problem(payload: Mapping[str, Any]) -> str | None:
+    """Name a top-level shape this analysis cannot read, or return None.
+
+    Some malformed shapes do not raise: a bare string in `inputs` is skipped,
+    so the analysis would pass the artifact on what it could read (#1927).
+    Every RuleSpec file in this repository has `rules` as a list of mappings
+    and `inputs` as a list of mappings or one mapping; anything else is
+    reported instead of analysed.
+    """
+
+    if "rules" in payload:
+        rules = payload["rules"]
+        if not isinstance(rules, list) or not all(
+            isinstance(rule, dict) for rule in rules
+        ):
+            return "`rules` is not a list of mappings"
+    if "inputs" in payload:
+        inputs = payload["inputs"]
+        if not isinstance(inputs, dict) and (
+            not isinstance(inputs, list)
+            or not all(isinstance(item, dict) for item in inputs)
+        ):
+            return "`inputs` is not a mapping or a list of mappings"
+    return None
 
 
 def _unanalyzable_complete_source_unit(
