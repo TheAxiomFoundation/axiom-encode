@@ -817,9 +817,10 @@ def test_marked_bodyless_ancestor_is_not_hidden_by_unmarked_document_root(tmp_pa
         evals.resolve_corpus_source_unit(request, release)
 
 
+@pytest.mark.parametrize("engine_ref", [None, "a" * 40])
 @pytest.mark.parametrize("effective", ["0001-01-01", "2027-04-01"])
 def test_amendment_commencement_gates_artifact_acceptance(
-    tmp_path, monkeypatch, effective
+    tmp_path, monkeypatch, effective, engine_ref
 ):
     release = _write_test_corpus_release(tmp_path, _amendment_rows())
     source = evals.resolve_corpus_source_unit(_AMENDING_SECTION, release)
@@ -857,11 +858,14 @@ def test_amendment_commencement_gates_artifact_acceptance(
             }
         )
     )
-    monkeypatch.setattr(
-        evals.ValidatorPipeline,
-        "_run_compile_check",
-        lambda *_args: evals.ValidationResult("compile", passed=True),
-    )
+    observed_pins = []
+
+    def compile_check(pipeline, *_args):
+        pin = pipeline._declared_engine_pin()
+        observed_pins.append(None if pin is None else pin.sha)
+        return evals.ValidationResult("compile", passed=True)
+
+    monkeypatch.setattr(evals.ValidatorPipeline, "_run_compile_check", compile_check)
     monkeypatch.setattr(
         evals.ValidatorPipeline,
         "_run_ci",
@@ -877,8 +881,11 @@ def test_amendment_commencement_gates_artifact_acceptance(
         source_citation_path=_PRINCIPAL_TARGET,
         amendment_documents=source.amendment_documents,
         skip_reviewers=True,
+        axiom_rules_engine_ref=engine_ref,
     )
 
+    if effective == "2027-04-01":
+        assert observed_pins == [engine_ref]
     assert metrics.compile_pass is (effective == "2027-04-01")
     if effective == "0001-01-01":
         assert "predates commencement 2027-04-01" in "\n".join(metrics.compile_issues)
