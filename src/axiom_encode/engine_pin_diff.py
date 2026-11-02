@@ -34,6 +34,11 @@ CLASSES = (
     "OLD_PARITY_BREAK",
 )
 REFUSAL = re.compile(r"derived `([^`]+)` has no formula version at (\d{4}-\d{2}-\d{2})")
+# A companion with no parameter version at its period refuses on every pin, so it
+# needs the same date repair as one older than a derived rule.
+NO_PARAMETER_VERSION = re.compile(
+    r"parameter `[^`]+` has no version at \d{4}-\d{2}-\d{2}"
+)
 # An old engine that already refused the same date: a dated parameter without a
 # value yet, or another dated rule. The new engine refusing earlier is no change.
 OLD_DATE_REFUSAL = re.compile(
@@ -439,6 +444,10 @@ def comparisons(
     ]
 
 
+def no_parameter_version(outcome: dict) -> bool:
+    return bool(NO_PARAMETER_VERSION.fullmatch(outcome.get("error", "")))
+
+
 def missing_input(outcome: dict) -> bool:
     return bool(re.search(r"\bmissing input\b", outcome.get("error", "")))
 
@@ -450,7 +459,7 @@ def companion_needs_repair(kind: str, rows: list[dict], old_outcome: dict) -> bo
         and "EXPECTED_PRESTART_REFUSAL" in labels
         and not labels.intersection({"DIFF", "PARITY_BREAK"})
         and not any(
-            "error" in result
+            "error" in result and not no_parameter_version(result)
             for result in old_outcome.get("companion_parameters", {}).values()
         )
     )
@@ -828,18 +837,30 @@ def _run(args, root, checkout, roots, confined_output, workspace, executor):
                 case["name"] = f"{rule['rule']}@{boundary} ({seed.get('name', 'case')})"
                 seeds.append(("boundary", case, boundary, not cases))
         for kind, case, boundary, no_case in seeds:
-            period = cli._rulespec_period_spec(case.get("period", "2026-01"))
+            try:
+                period = cli._rulespec_period_spec(case.get("period", "2026-01"))
+            except ValueError as error:
+                report["incomplete"].append(
+                    dict(module=name, case=case.get("name"), error=str(error))
+                )
+                continue
             variants = [(kind, boundary)]
             if kind == "companion":
                 variants.append(("current", None))
             for variant, anchor in variants:
-                start = (
-                    anchor.isoformat()
-                    if anchor
-                    else current_start(period, args.as_of).isoformat()
-                    if variant == "current"
-                    else period["start"]
-                )
+                try:
+                    start = (
+                        anchor.isoformat()
+                        if anchor
+                        else current_start(period, args.as_of).isoformat()
+                        if variant == "current"
+                        else period["start"]
+                    )
+                except ArithmeticError as error:
+                    report["incomplete"].append(
+                        dict(module=name, case=case.get("name"), error=str(error))
+                    )
+                    continue
                 outcomes, saved_requests = {}, {}
                 for side in engines:
                     outcomes[side] = {}
@@ -879,7 +900,7 @@ def _run(args, root, checkout, roots, confined_output, workspace, executor):
                         )
                         parameters = request.pop("_companion_parameters", {})
                         saved_requests[side] = copy.deepcopy(request)
-                    except (ValueError, KeyError, OSError) as error:
+                    except (ArithmeticError, ValueError, KeyError, OSError) as error:
                         preparation_error = {"error": str(error)}
                         report["incomplete"].append(
                             dict(

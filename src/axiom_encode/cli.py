@@ -121,6 +121,11 @@ from .codex_cli import (
     codex_auth_error,
     validate_codex_reasoning_effort,
 )
+from .companion_parameters import (
+    RULESPEC_ENGINE_PERIOD_KINDS,
+    rulespec_engine_period,
+    rulespec_parameter_cell,
+)
 from .concepts import (
     audit_corpus as audit_concept_corpus,
 )
@@ -1472,7 +1477,7 @@ def _parse_deferred_output_review_contract_json(
                     f"{label} period must be an exact normalized RuleSpec period "
                     "mapping"
                 )
-            if period["period_kind"] not in _RULESPEC_ENGINE_PERIOD_KINDS:
+            if period["period_kind"] not in RULESPEC_ENGINE_PERIOD_KINDS:
                 raise argparse.ArgumentTypeError(
                     f"{label} period_kind is not supported by the RuleSpec engine"
                 )
@@ -5853,7 +5858,6 @@ def _execute_rulespec_test_case(
     )
     inputs: list[dict] = []
     relations: list[dict] = []
-    flat_inputs: dict[str, object] = {}
     flat_input_records: list[dict] = []
     generated_relation_rows: list[tuple[str, list[str], int, list[dict]]] = []
     generated_table_rows: list[tuple[str, list[str], int, list[dict]]] = []
@@ -5885,7 +5889,6 @@ def _execute_rulespec_test_case(
 
     for key, value in (case.get("input") or {}).items():
         key = str(key)
-        flat_inputs[key] = value
         if isinstance(value, list) and "#relation." in key:
             relation_name = _rulespec_test_relation_request_name(
                 key,
@@ -6038,7 +6041,6 @@ def _execute_rulespec_test_case(
                     key = str(row_key)
                     if key in row_id_keys:
                         continue
-                    flat_inputs[key] = row_value
                     inputs.append(
                         {
                             "name": key,
@@ -6089,7 +6091,7 @@ def _execute_rulespec_test_case(
     for output, expected_value in ({} if request_only else parameter_expected).items():
         try:
             actual_value = _rulespec_parameter_value(
-                parameter_by_id[output], flat_inputs, period["start"]
+                parameter_by_id[output], case.get("input") or {}, period["start"]
             )
         except Exception as error:
             failures.append(
@@ -6206,7 +6208,9 @@ def _execute_rulespec_test_case(
             try:
                 parameter_outcomes[output] = {
                     "value": _rulespec_parameter_value(
-                        parameter_by_id[output], flat_inputs, period["start"]
+                        parameter_by_id[output],
+                        case.get("input") or {},
+                        period["start"],
                     )
                 }
             except Exception as error:
@@ -6332,14 +6336,15 @@ def _rulespec_period_spec(value) -> dict[str, str]:
             "start": start.isoformat() if hasattr(start, "isoformat") else str(start),
             "end": end.isoformat() if hasattr(end, "isoformat") else str(end),
         }
-        if period["period_kind"] == "custom" and value.get("name") is not None:
-            period["name"] = str(value["name"])
-        return _validate_rulespec_period_spec(period)
+        if period["period_kind"] == "custom":
+            name = value.get("name")
+            period["name"] = name.isoformat() if isinstance(name, date) else name
+        return rulespec_engine_period(period)
     if isinstance(value, int) or (
         isinstance(value, str) and len(value) == 4 and value.isdigit()
     ):
         year = int(value)
-        return _validate_rulespec_period_spec(
+        return rulespec_engine_period(
             {
                 "period_kind": "tax_year",
                 "start": f"{year:04d}-01-01",
@@ -6352,7 +6357,7 @@ def _rulespec_period_spec(value) -> dict[str, str]:
         next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
         next_start = date(next_year, next_month, 1)
         end = date.fromordinal(next_start.toordinal() - 1)
-        return _validate_rulespec_period_spec(
+        return rulespec_engine_period(
             {
                 "period_kind": "month",
                 "start": f"{year:04d}-{month:02d}-01",
@@ -6360,34 +6365,15 @@ def _rulespec_period_spec(value) -> dict[str, str]:
             }
         )
     if isinstance(value, date):
-        return _validate_rulespec_period_spec(
+        return rulespec_engine_period(
             {
-                "period_kind": "day",
+                "period_kind": "custom",
+                "name": "day",
                 "start": value.isoformat(),
                 "end": value.isoformat(),
             }
         )
     raise ValueError(f"unsupported period shorthand: {value!r}")
-
-
-# Axiom rules engine `PeriodKind` variants, as exposed by serde during the
-# rulespec-dk#2 fixture failure. The engine is an external checkout, not vendored here.
-_RULESPEC_ENGINE_PERIOD_KINDS = (
-    "month",
-    "benefit_week",
-    "tax_year",
-    "custom",
-)
-
-
-def _validate_rulespec_period_spec(period: dict[str, str]) -> dict[str, str]:
-    period_kind = period["period_kind"]
-    if period_kind not in _RULESPEC_ENGINE_PERIOD_KINDS:
-        accepted = "|".join(_RULESPEC_ENGINE_PERIOD_KINDS)
-        raise ValueError(
-            f"period.period_kind: {period_kind!r} is not one of {accepted}"
-        )
-    return period
 
 
 _SERDE_ENVELOPE_SCHEMA_ERROR_SIGNATURES = (
@@ -6440,49 +6426,7 @@ def _rulespec_scalar_value(value) -> dict:
 def _rulespec_parameter_value(
     parameter: dict, case_inputs: dict[str, object], period_start: str
 ) -> dict:
-    versions = sorted(
-        parameter.get("versions") or [], key=lambda item: str(item["effective_from"])
-    )
-    chosen = None
-    for version in versions:
-        if str(version["effective_from"]) <= period_start:
-            chosen = version
-    if chosen is None:
-        if not versions:
-            raise KeyError("no parameter versions")
-        chosen = versions[0]
-    values = chosen.get("values") or {}
-    key = "0"
-    indexed_by = parameter.get("indexed_by")
-    if indexed_by:
-        raw_index = _rulespec_case_input_value(case_inputs, indexed_by)
-        if raw_index is None:
-            raise KeyError(f"missing parameter index input {indexed_by}")
-        if isinstance(raw_index, (int, float)) and not isinstance(raw_index, bool):
-            key = str(int(raw_index))
-        else:
-            key = str(raw_index)
-    if key not in values:
-        raise KeyError(f"missing parameter value key {key}")
-    return values[key]
-
-
-def _rulespec_case_input_value(
-    case_inputs: dict[str, object], reference: str
-) -> object | None:
-    reference = str(reference)
-    candidates = [reference]
-    fragment = reference.split("#", 1)[-1]
-    if not fragment.startswith("input."):
-        candidates.append(f"dummy#input.{fragment}")
-    for candidate in candidates:
-        if candidate in case_inputs:
-            return case_inputs[candidate]
-    suffix = f"#input.{fragment.removeprefix('input.')}"
-    matches = [value for key, value in case_inputs.items() if str(key).endswith(suffix)]
-    if len(matches) == 1:
-        return matches[0]
-    return None
+    return rulespec_parameter_cell(parameter, period_start, case_inputs)
 
 
 def _rulespec_scalar_matches(actual_value: dict, expected) -> bool:

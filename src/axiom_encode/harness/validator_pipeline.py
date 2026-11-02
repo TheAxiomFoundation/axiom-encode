@@ -69,6 +69,10 @@ from axiom_encode.companion_entities import (
     flat_input_entity_id,
     require_distinct_entity_ids,
 )
+from axiom_encode.companion_parameters import (
+    rulespec_engine_period,
+    rulespec_parameter_cell,
+)
 from axiom_encode.companion_relations import executable_relation_directions
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.constants import (
@@ -35128,20 +35132,6 @@ _RULESPEC_FORMULA_BUILTINS = {
 }
 
 
-# Axiom rules engine `PeriodKind` serde variants, as accepted by the engine test
-# runner the org validate-rulespec workflow invokes. Local `.test.yaml` period
-# coercion must accept exactly this set — no more — so `axiom-encode validate`
-# and the shared workflow agree on which fixtures are executable. Accepting a
-# kind the engine rejects (e.g. `year`) makes local validate pass fixtures the
-# workflow then fails as `unknown variant` (axiom-encode#1112, rulespec-dk#2).
-_RULESPEC_ENGINE_PERIOD_KINDS = (
-    "month",
-    "benefit_week",
-    "tax_year",
-    "custom",
-)
-
-
 @dataclass(frozen=True)
 class _RuleSpecReferenceSummary:
     """Symbols a RuleSpec file can legitimately expose to companion tests."""
@@ -36948,24 +36938,7 @@ class ValidatorPipeline:
                 raise ValueError(
                     "period mapping missing required field(s): " + ", ".join(missing)
                 )
-            period_kind = period["period_kind"]
-            if period_kind not in _RULESPEC_ENGINE_PERIOD_KINDS:
-                accepted = "|".join(_RULESPEC_ENGINE_PERIOD_KINDS)
-                hint = " (did you mean 'tax_year'?)" if period_kind == "year" else ""
-                raise ValueError(
-                    f"unsupported period_kind: {period_kind!r}; the engine test "
-                    f"runner accepts {accepted}{hint}"
-                )
-            for key in ("start", "end"):
-                try:
-                    date.fromisoformat(str(period[key]))
-                except ValueError as exc:
-                    raise ValueError(
-                        f"period {key} must be an ISO date, got {period[key]!r}"
-                    ) from exc
-            if period["period_kind"] == "custom" and not period.get("name"):
-                raise ValueError("custom period mappings must include name")
-            return period
+            return rulespec_engine_period(period)
         if isinstance(value, int):
             raise ValueError(
                 "bare year periods are ambiguous; use an explicit period mapping "
@@ -37473,49 +37446,7 @@ class ValidatorPipeline:
         inputs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Return the live scalar value for a compiled scalar or table parameter."""
-        period_start = date.fromisoformat(str(period["start"]))
-        versions = parameter.get("versions") or []
-        live_versions = [
-            version
-            for version in versions
-            if isinstance(version, dict)
-            and date.fromisoformat(str(version["effective_from"])) <= period_start
-        ]
-        if not live_versions:
-            raise ValueError(
-                f"parameter `{parameter.get('name')}` has no version at {period['start']}"
-            )
-        version = max(
-            live_versions,
-            key=lambda item: date.fromisoformat(str(item["effective_from"])),
-        )
-        values = version.get("values") or {}
-        value = values.get("0", values.get(0))
-        indexed_by = parameter.get("indexed_by")
-        if indexed_by:
-            index_names = (
-                [str(indexed_by)]
-                if isinstance(indexed_by, str)
-                else [str(item) for item in indexed_by]
-            )
-            if len(index_names) != 1:
-                raise ValueError(
-                    f"parameter `{parameter.get('name')}` has unsupported "
-                    "multi-index test output"
-                )
-            input_value = self._rulespec_test_input_value(inputs or {}, index_names[0])
-            if input_value is None:
-                raise ValueError(
-                    f"parameter `{parameter.get('name')}` needs input "
-                    f"`{index_names[0]}` for indexed output"
-                )
-            value = values.get(str(input_value), values.get(input_value))
-        if not isinstance(value, dict):
-            raise ValueError(
-                f"parameter `{parameter.get('name')}` has no scalar value "
-                "for the requested test output"
-            )
-        return value
+        return rulespec_parameter_cell(parameter, period["start"], inputs or {})
 
     def _rulespec_decimal(self, value: Any) -> Decimal:
         """Coerce a scalar value to Decimal for numeric equality checks."""

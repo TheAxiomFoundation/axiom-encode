@@ -7852,8 +7852,9 @@ rules:
                     ),
                     "case": "year_period",
                     "message": (
-                        "period.period_kind: 'year' is not one of "
-                        "month|benefit_week|tax_year|custom"
+                        "unsupported period_kind: 'year'; the engine test runner "
+                        "accepts month|benefit_week|tax_year|custom "
+                        "(did you mean 'tax_year'?)"
                     ),
                 }
             ],
