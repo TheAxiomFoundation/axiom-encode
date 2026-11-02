@@ -24774,7 +24774,54 @@ def test_the_percentage_pass_scans_thousands_of_phrases_in_linear_time():
 
     # A linear count in place of one bisect stays near the bound at 2,000
     # phrases, so the large sample is the original 4,000-phrase fixture.
+    # Coverage still hides a native count here; the next test catches it.
     assert_linear_growth(work(250), work(4_000), input_ratio=16)
+
+
+def test_the_hebrew_word_run_lookup_stays_linear_across_thousands_of_phrases(
+    monkeypatch,
+):
+    # Under coverage the pass above traces its Python work but not a native
+    # count, so a native linear count in place of the bisect stays under the
+    # bound there. Measured alone, with the arguments the percentage pass
+    # passes it, the run lookup has little Python work left to dilute the
+    # count, which then fails at 2,000 phrases in both modes. A refactor that
+    # stops calling the lookup fails the capture rather than passing.
+    unit = "בשיעור של חמישה אחוזים מההכנסה; "
+    original = validator_pipeline._hebrew_word_run_before
+
+    def arguments(phrases):
+        seen = []
+
+        def spy(text, end, *args, **kwargs):
+            run = original(text, end, *args, **kwargs)
+            seen.append(((text, end, *args), kwargs, [m.span() for m in run]))
+            return run
+
+        _clear_numeric_extraction_caches()
+        monkeypatch.setattr(validator_pipeline, "_hebrew_word_run_before", spy)
+        validator_pipeline._iter_hebrew_percent_phrase_matches(unit * phrases)
+        monkeypatch.undo()
+        # One lookup per phrase, each against the one token index.
+        assert len(seen) == phrases, (phrases, len(seen))
+        assert len({id(kwargs.get("tokens")) for _a, kwargs, _r in seen}) == 1
+        assert all(kwargs.get("tokens") is not None for _a, kwargs, _r in seen)
+        return seen
+
+    def work(phrases):
+        calls = arguments(phrases)
+
+        def check(runs):
+            assert [[m.span() for m in run] for run in runs] == [
+                spans for _a, _k, spans in calls
+            ]
+
+        return lowest_work(
+            lambda: [original(*args, **kwargs) for args, kwargs, _s in calls],
+            check,
+        )
+
+    assert_linear_growth(work(125), work(2_000), input_ratio=16)
 
 
 def test_hebrew_number_words_join_the_recall_inventory():
@@ -27468,6 +27515,45 @@ def test_rulespec_proof_parent_resolution_grows_linearly_across_lines():
         )
 
     assert_linear_growth(work(192), work(3_072), input_ratio=16)
+
+
+def test_rulespec_proof_parent_resolution_stays_near_native_line_lookups():
+    # On one long line, correct code's newline lookups scan each prefix in C,
+    # so the resolution is quadratic but cheap, and no growth bound tells
+    # that scan from a Python loop back to the line start. Compare instead
+    # with a native newline lookup at each structural marker on the same
+    # line, measured in the same process: the resolver's own work at each
+    # marker adds a constant factor, while a Python loop multiplies the
+    # lookup by its cost per character, whatever the machine.
+    source_text = " ".join("a. (1) Items: (a) Item." for _ in range(768))
+    assert "\n" not in source_text
+    numeric_start = source_text.rfind("(1)")
+    starts = [
+        match.start()
+        for match in re.compile(
+            r"(?<![A-Za-z])[a-z]\.(?=\s)|\([a-z]\)(?=\s)|\(\d+\)"
+        ).finditer(source_text, 0, numeric_start + 1)
+    ]
+
+    def check_lookups(line_starts):
+        assert line_starts == [-1] * len(starts)
+
+    def check(result):
+        assert result == ("a", "dotted")
+
+    lookups = lowest_work(
+        lambda: [source_text.rfind("\n", 0, start) for start in starts],
+        check_lookups,
+        setup=gc.collect,
+    )
+    resolution = lowest_work(
+        lambda: _source_top_level_marker_for_numeric_parent(source_text, numeric_start),
+        check,
+        setup=gc.collect,
+    )
+    # The lookups stand in for the small sample: this allows the resolution
+    # 120 times their work, after the clock's floor, with one fresh pair.
+    assert_linear_growth(lookups, resolution, input_ratio=40)
 
 
 def _reference_chain_source(count):
