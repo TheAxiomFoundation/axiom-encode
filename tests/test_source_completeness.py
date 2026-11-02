@@ -11263,11 +11263,51 @@ def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtim
     # the gap. Correct code is not linear beyond a few hundred spaces either:
     # an existing optional-currency pattern backtracks across the run, so the
     # pairs stay narrow. The first step stops a cubic scan before it reaches
-    # widths where it runs for minutes; the second catches a quadratic one.
+    # widths where it runs for minutes; the second catches a quadratic one in
+    # plain runs. Under coverage the fixed cost of each call can hide a
+    # quadratic gap scan here, so the next test measures the gap parser alone.
     assert_linear_growth(work(32), work(256), input_ratio=8)
     assert_linear_growth(work(64), work(1_024), input_ratio=16)
     # Keep the original 10,000-space rejection, once and untimed.
     check(interval_for(10_000))
+
+
+def test_formula_upper_gap_parser_stays_linear_on_wide_space_runs(monkeypatch):
+    original = completeness_module._formula_conjoined_bound
+
+    def arguments(width):
+        seen = []
+
+        def spy(text, occurrences):
+            seen.append((text, occurrences))
+            return original(text, occurrences)
+
+        monkeypatch.setattr(completeness_module, "_formula_conjoined_bound", spy)
+        completeness_module._formula_interval_from_text(
+            "income greater than 1" + " " * width + "x 2",
+            extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        )
+        monkeypatch.undo()
+        (called,) = seen
+        return called
+
+    def work(width):
+        text, occurrences = arguments(width)
+
+        def check(bounds):
+            assert bounds == [None] * 8
+
+        return lowest_work(
+            lambda: [original(text, occurrences) for _ in range(8)], check
+        )
+
+    # The interval parser's own patterns cap the test above at 1,024 spaces.
+    # Called alone with the arguments that parser passes it, the gap parser
+    # stays linear far wider, where a quadratic scan of the gap outgrows the
+    # fixed cost of each call even under coverage. The short first step fails
+    # a cubic scan before the wide pair would run it for minutes.
+    assert_linear_growth(work(125), work(500), input_ratio=4)
+    assert_linear_growth(work(500), work(8_000), input_ratio=16)
 
 
 def test_formula_interval_skips_arithmetic_from_before_real_comparator():
