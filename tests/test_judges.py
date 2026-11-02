@@ -2246,7 +2246,7 @@ def test_drift_workflow_isolates_model_and_github_credentials_by_job():
     assert "OPENAI_API_KEY" not in publish_step["env"]
     assert "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY" not in publish_step["env"]
     assert engine_checkout["with"]["ref"] == (
-        "38b5f646165f18f64307f1eef226c7a6f2d4936e"
+        "363c6a6c56f7ad130996b63f7a09cfd4c3d9b021"
     )
     assert all(
         "uv sync --locked --python 3.13 --extra api" in step["run"]
