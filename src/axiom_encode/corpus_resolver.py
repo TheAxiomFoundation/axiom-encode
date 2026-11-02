@@ -728,17 +728,11 @@ def resolve_local_corpus_source(
                         f"Local descendants for {selected.row.citation_path!r} "
                         f"exceed the {MAX_CORPUS_DESCENDANT_ROWS}-row safety limit"
                     )
-            heading_text = _heading_only_text(selected)
-            if not descendants and heading_text is not None:
-                # A heading-only section with nothing under its path is
-                # complete: its heading is its whole text (#1825).
-                stored_body = heading_text
-            else:
-                stored_body, component_rows = _compose_descendant_text(
-                    selected.row.citation_path,
-                    descendants,
-                    expected_scope=selected_scope,
-                )
+            stored_body, component_rows = _compose_descendant_text(
+                selected.row.citation_path,
+                descendants,
+                expected_scope=selected_scope,
+            )
         body = stored_body
         if candidate.slice_required:
             body = _slice_parent_body(
@@ -1420,14 +1414,40 @@ def _read_descendant_records(
     return records
 
 
-def _heading_only_text(record: _StoredRecord) -> str | None:
-    """The heading of a current row that has a heading and no body, else None.
+# Metadata that makes a row amendment or commencement evidence. Such a row
+# must carry its own body; its heading never stands in for it.
+_HEADING_ONLY_EXCLUDED_METADATA = frozenset(
+    {
+        "amendment_target",
+        "commencement_citation_path",
+        "commencement_date",
+        "document_type",
+    }
+)
 
-    Such a row has text of its own (#1825). A row with neither body nor a
-    non-blank heading has no text, and a repealed row contributes none.
+
+def _heading_only_text(record: _StoredRecord) -> str | None:
+    """The heading a flat-numbered regulation part-heading row contributes.
+
+    Flat-numbered regulations such as Colorado's CCR print a part heading as
+    its own row, with no body and no rows under its path (#1825). Only such a
+    row, as a leaf under a parent being composed, contributes its heading:
+
+    * its document class is ``regulation``;
+    * it has no body, nothing under its path, and a non-blank heading;
+    * it is not repealed;
+    * its metadata names no amendment or commencement routing field.
+
+    Everything else keeps main's contract: a bodyless target still refuses,
+    and a bodyless leaf that is not such a row is still an uncovered branch.
     """
 
-    if record.body is not None or record.status == "repealed":
+    if (
+        record.body is not None
+        or record.status == "repealed"
+        or record.row.document_class != "regulation"
+        or _HEADING_ONLY_EXCLUDED_METADATA & set(record.metadata)
+    ):
         return None
     heading = record.heading
     if heading is None or not heading.strip():

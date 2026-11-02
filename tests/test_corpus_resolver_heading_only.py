@@ -1,9 +1,11 @@
-"""Heading-only section rows resolve to their heading (#1825).
+"""Flat-numbered regulation part headings compose into their parent (#1825).
 
 Regulations numbered flat (``3.104``, ``3.104.1``, ...) print a part heading as
-its own row, with no body and no rows under its path. Such a row is complete:
-nothing is missing from its scope. A row with no body, no heading and no rows
-under it still has no text, and the resolver still refuses it.
+its own row, with no body and no rows under its path. As a leaf of a composed
+regulation parent, such a row contributes its heading. Everything else keeps
+main's contract: a bodyless target still refuses, a heading-only statute leaf
+or a row with amendment or commencement metadata is still an uncovered branch,
+and a row with no text at all is still refused.
 """
 
 from __future__ import annotations
@@ -18,18 +20,35 @@ from axiom_encode.corpus_resolver import (
     InvalidActiveCorpusSourceError,
     resolve_local_corpus_source,
 )
-from tests.test_corpus_resolver import _release, _scope, _write_rows, _write_selector
+from tests.test_corpus_resolver import _release, _write_rows, _write_selector
 
-ROOT = "us/statute/8-ccr-1403-1"
+ROOT = "us/regulation/8-ccr-1403-1"
+STATUTE_ROOT = "us/statute/8-ccr-1403-1"
 
 
-def _bind(tmp_path: Path, rows: list[dict[str, object]], version: str = "2026-09-27"):
-    _write_selector(tmp_path, [_scope(version)])
-    _write_rows(tmp_path, version, rows)
+def _bind(
+    tmp_path: Path,
+    rows: list[dict[str, object]],
+    version: str = "2026-09-27",
+    document_class: str = "regulation",
+):
+    _write_selector(
+        tmp_path,
+        [
+            {
+                "jurisdiction": "us",
+                "document_class": document_class,
+                "version": version,
+            }
+        ],
+    )
+    _write_rows(tmp_path, version, rows, document_class=document_class)
     return _release(tmp_path)
 
 
-def test_heading_only_section_resolves_to_its_heading(tmp_path):
+def test_heading_only_target_still_refuses(tmp_path):
+    """Requested on its own, a bodyless row refuses as on main."""
+
     release = _bind(
         tmp_path,
         [
@@ -41,12 +60,53 @@ def test_heading_only_section_resolves_to_its_heading(tmp_path):
         ],
     )
 
-    resolved = resolve_local_corpus_source(f"{ROOT}/3.100", release)
+    with pytest.raises(InvalidActiveCorpusSourceError, match="no body-bearing"):
+        resolve_local_corpus_source(f"{ROOT}/3.100", release)
 
-    assert resolved.body == "3.100 PART A: GENERAL PROVISIONS"
-    assert resolved.component_rows == ()
-    # The row identity stays truthful: the row itself carries no body.
-    assert resolved.row.body_sha256 is None
+
+def test_heading_only_statute_leaf_is_still_uncovered(tmp_path):
+    release = _bind(
+        tmp_path,
+        [
+            {"citation_path": STATUTE_ROOT, "body": None},
+            {"citation_path": f"{STATUTE_ROOT}/1", "body": "covered"},
+            {"citation_path": f"{STATUTE_ROOT}/2", "body": None, "heading": "PART"},
+        ],
+        document_class="statute",
+    )
+
+    with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
+        resolve_local_corpus_source(STATUTE_ROOT, release)
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"amendment_target": "us/regulation/other/1"},
+        {"commencement_date": "2027-04-01"},
+        {"commencement_citation_path": "us/regulation/other/2"},
+        {"document_type": "amendment act"},
+    ],
+)
+def test_heading_only_leaf_with_amendment_metadata_is_still_uncovered(
+    tmp_path, metadata
+):
+    release = _bind(
+        tmp_path,
+        [
+            {"citation_path": ROOT, "body": None},
+            {"citation_path": f"{ROOT}/3.101", "body": "operative text"},
+            {
+                "citation_path": f"{ROOT}/3.102",
+                "body": None,
+                "heading": "3.102 Amended",
+                "metadata": metadata,
+            },
+        ],
+    )
+
+    with pytest.raises(InvalidActiveCorpusSourceError, match="uncovered bodyless"):
+        resolve_local_corpus_source(ROOT, release)
 
 
 def test_root_over_flat_numbered_rows_composes_part_headings_in_order(tmp_path):
