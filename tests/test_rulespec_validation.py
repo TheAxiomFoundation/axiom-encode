@@ -21934,6 +21934,14 @@ def test_the_range_passes_scan_thousands_of_members_and_clauses_in_linear_time()
         ("השיעורים הם", "אחוזים"),
         ("הסכומים הם", "מיליון שקלים"),
     ):
+        # A quadratic with a costly step, such as a span list rebuilt at each
+        # overlap check, runs for minutes at 8,000 members, so a short first
+        # step fails it within seconds.
+        assert_linear_growth(
+            members_work(125, heading, unit),
+            members_work(2_000, heading, unit),
+            input_ratio=16,
+        )
         # A scan of every taken span costs ~1% of a member at 250 members;
         # 32x more members lets that quadratic term clear the bound on CPU
         # seconds without coverage, where 16x left it at the bound.
