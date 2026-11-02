@@ -26,11 +26,13 @@ ROOT = Path(__file__).resolve().parents[1]
 RECORD_ROOT = ROOT / "data" / "reviewed-rulespec-refs"
 
 # The exact allowlist as it stood in src/axiom_encode/prepare_signed_backfill.py
-# before records replaced it (origin/main 2a13e5f08). These pairs and bases are
-# frozen: the migration must preserve every one of them unchanged.
+# before records replaced it (origin/main 2a13e5f08, plus ca 94789006 that
+# axiom-encode#1984 added on main before this migration merged). These pairs
+# and bases are frozen: the migration must preserve every one of them unchanged.
 PRE_RECORD_REVIEWED_RULESPEC_REFS = frozenset(
     {
         ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
+        ("ca", "94789006ce372a1967c258ef47c12b15a1fe511e"),
         ("dk", "06489d04e7d4b8d424d1711d99df883c6411248a"),
         ("us", "b61918da93fe8a1a29b35b9330aef2085291a5d0"),
         ("us", "251d8d66dabdebcb763d9e7c9b8322a281440c36"),

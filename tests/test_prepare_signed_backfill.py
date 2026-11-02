@@ -2995,6 +2995,24 @@ def test_stage_accepts_receipt_linked_legacy_deletion_with_dependent_manifest(
     ) == {path.as_posix() for path in expected}
 
 
+def test_shallow_historical_manifest_deletion_requires_legacy_receipt(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    historical = repo / "us-az/.axiom/encoding-manifests/policies/foo.json"
+    historical.parent.mkdir(parents=True)
+    historical.write_text("historical owner\n", encoding="utf-8")
+    _git(repo, "add", historical.relative_to(repo).as_posix())
+    _git(repo, "commit", "-m", "historical owner")
+    historical.unlink()
+    _write_signed_change(repo)
+
+    with pytest.raises(
+        ValueError, match="deleted manifests require exactly one receipt-linked"
+    ):
+        authorized_changed_paths(repo)
+
+
 def _refresh_legacy_receipt_bindings(
     repo: Path,
     manifest: Path,
@@ -3746,6 +3764,70 @@ def test_validate_dependent_cascade_uses_nondefault_replacement_target(
     ) == (dependent.relative_to(repo / "us"),)
 
 
+def test_validate_dependent_cascade_resolves_one_source_bound_legacy_alias(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    target = _write_module(
+        repo,
+        "policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility.yaml",
+    )
+    import_ref = (
+        "us:policies/des/faa5/na-categorical-eligibility/"
+        "expanded-categorical-eligibility#rate"
+    )
+    dependent = _write_module(
+        repo,
+        "policies/des/faa5/na-categorical-eligibility/"
+        "categorical-eligibility-benefit-calculation.yaml",
+        imports=(import_ref,),
+    )
+    dependent.write_text(
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        "    corpus_citation_path: us/manual/des/faa5/na-categorical-eligibility/block-5\n"
+        "imports:\n"
+        f"  - {import_ref}\n"
+        "rules:\n"
+        "  - name: benefit\n"
+        "    metadata:\n"
+        "      proof:\n"
+        "        atoms:\n"
+        "          - kind: import\n"
+        "            import:\n"
+        f"              target: {import_ref}\n"
+        "              hash: sha256:deadbeef\n"
+    )
+    args = (
+        repo,
+        "us/manual/des/faa5/na-categorical-eligibility/block-4",
+        "us/manual/des/faa5/na-categorical-eligibility/block-5",
+    )
+    target_path = target.relative_to(repo).as_posix()
+    with pytest.raises(ValueError, match="no regular baseline"):
+        validate_dependent_cascade(
+            *args,
+            target_rulespec_path=target_path,
+        )
+    assert validate_dependent_cascade(
+        *args,
+        target_rulespec_path=target_path,
+        allow_source_bound_dependent_alias=True,
+    ) == (dependent.relative_to(repo / "us"),)
+    duplicate = _write_module(
+        repo,
+        "policies/des/faa5/na-categorical-eligibility/another-benefit.yaml",
+    )
+    duplicate.write_bytes(dependent.read_bytes())
+    with pytest.raises(ValueError, match="exactly one proof-pinned direct importer"):
+        validate_dependent_cascade(
+            *args,
+            target_rulespec_path=target_path,
+            allow_source_bound_dependent_alias=True,
+        )
+
+
 @pytest.mark.parametrize(
     "replacement_path",
     [
@@ -4326,6 +4408,7 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
+        ("ca", "94789006ce372a1967c258ef47c12b15a1fe511e"),
     ],
 )
 def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
@@ -4879,3 +4962,32 @@ def test_both_verifiers_reject_predecessor_with_encoded_base_owner(
         local_corpus_release=None,
     )
     assert any("already manifest-owned" in issue for issue in issues)
+
+
+@pytest.mark.parametrize(
+    ("country", "requested"),
+    [
+        ("us", "94789006ce372a1967c258ef47c12b15a1fe511e"),
+        ("ca", "94789006ce372a1967c258ef47c12b15a1fe511f"),
+    ],
+)
+def test_reviewed_head_rejects_country_or_full_sha_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    country: str,
+    requested: str,
+) -> None:
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{requested}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+    with pytest.raises(
+        ValueError, match="neither on main nor an approved reviewed head"
+    ):
+        validate_rulespec_base(
+            tmp_path / f"rulespec-{country}", country, requested, open_pr=False
+        )

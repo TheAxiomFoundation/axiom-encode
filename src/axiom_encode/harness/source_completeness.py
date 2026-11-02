@@ -293,6 +293,7 @@ class _TerminalGateEvidence:
     predicates: frozenset[str]
     polarity_conflict: bool
     explicit_name_polarities: frozenset[tuple[str, bool]] = frozenset()
+    numeric_income_amount: bool = False
 
 
 @dataclass(frozen=True)
@@ -2352,6 +2353,36 @@ _CONTIGUOUS_STATES_NUMERIC_RECALL_IDENTIFIER = re.compile(
     r"(?<![\w.,])48(?=[ \t]+contiguous[ \t]+states\b)",
     flags=re.IGNORECASE,
 )
+# A table column label that names a jurisdiction set, such as USDA's
+# `Household Size 48 States, District of Columbia, Guam, Virgin Islands`.
+# The capitalized `States` must be followed directly by a listed jurisdiction
+# (District of Columbia, D.C., DC, Guam or Virgin Islands); `48 States` alone,
+# `48 states` and `48 months` keep their demand. The span helper also requires
+# the column caption `Household Size` directly before it and the table's first
+# row (`1 $1,305`) after the column headers: in prose, even `The 48 States and
+# DC must approve ...` can state an operative count, and a row such as
+# `Maximum Household Size 48 States, ...` is not a header.
+_JURISDICTION_SET_LABEL_NUMERIC_RECALL_IDENTIFIER = re.compile(
+    r"(?<![\w.,])48(?= States[ \t]*(?:,|&|and\b)[ \t]*(?:the[ \t]+)?"
+    r"(?:District[ \t]+of[ \t]+Columbia\b|D\.[ \t]?C\.|DC\b|Guam\b|"
+    r"Virgin[ \t]+Islands\b))"
+)
+_JURISDICTION_SET_LABEL_CAPTION = re.compile(
+    r"(?<![\w$])Household[ \t]+Size\Z", re.IGNORECASE
+)
+# A qualifier before the caption (`Maximum Household Size 48 ...`, across any
+# whitespace) makes it a row label with an operative value.
+_JURISDICTION_SET_LABEL_CAPTION_QUALIFIER = re.compile(
+    r"\b(?:max(?:imum)?|min(?:imum)?|largest|smallest|total|average|eligible|"
+    r"limit|up[ \t]+to)\W*\Z",
+    re.IGNORECASE,
+)
+# Only column-header words (no digit, currency sign or second `Household`
+# caption, at most 200 characters) may separate the label from row
+# `1 $<amount>`.
+_JURISDICTION_SET_LABEL_FIRST_ROW = re.compile(
+    r"(?:(?!household)[^\d$]){0,200}?(?<!\S)1[ \t]+\$[ \t]*\d", re.IGNORECASE
+)
 _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
     r"\bWAC[ \t]+\d+-\d+-\d+[A-Za-z]?"
     r"(?:[ \t]*(?:,|and|or|through|to)[ \t]*\d+-\d+-\d+[A-Za-z]?)*"
@@ -2375,15 +2406,63 @@ _NUMBERED_MANUAL_HEADING_LABEL = re.compile(
     r"Business|Calendar|Working)\b)"
     r"(?P<title>[A-Z][A-Za-z'’&()/-]*(?:[ \t,]+[A-Za-z'’&()/-]+){1,15})[ \t]*$)"
 )
+# A ZIP+4 extension. PDF extraction can split it after its hyphen
+# (`22314-\n1500`) or space it on the same line (`20001 - 3710;`, only
+# before punctuation, a line end or a telephone number: `22902 -2964
+# 434-970-3160`). A hyphen that opens a new line is a bullet
+# (`22314\n- 1500, ...`), never an extension.
+_US_ZIP_PLUS_FOUR_EXTENSION = (
+    r"(?:-[ \t]*(?:\r?\n[ \t]*)?\d{4}"
+    r"|[ \t]+-[ \t]*\d{4}(?=[ \t]*(?:[;,)]|\.(?!\d)|\r?\n|\Z)"
+    r"|[ \t]+(?:\(\d{3}\)[ \t]*|\d{3}[-.])\d{3}-\d{4}\b))(?![\d-])"
+)
 # Telephone numbers, post-office boxes, ZIP+4 codes and letter-prefixed form
-# numbers (`Schedule K-210`) on US forms and notices. PDF extraction can split
-# a ZIP+4 code at its hyphen.
+# numbers (`Schedule K-210`) on US forms and notices.
 _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL = re.compile(
     r"(?:\(\d{3}\)\s*|\b(?:1-)?\d{3}[-.])\d{3}-\d{4}\b"
     r"|\bP\.?\s*O\.?\s*Box\s+\d+\b"
-    r"|\b[A-Z]{2}\s+\d{5}\s*-\s*\d{4}\b"
+    rf"|\b[A-Z]{{2}}\s+\d{{5}}{_US_ZIP_PLUS_FOUR_EXTENSION}"
     r"|\b(?:Schedule|Form)[ \t]+[A-Z]{1,3}-\d+[A-Z]*(?:-\d+[A-Z]*)*\b"
 )
+# A complete US postal address: house number, capitalized street name and
+# street suffix, an optional directional and suite/room, then `City, ST
+# 12345[-6789]` with a USPS state code. Only the whole address is removed, so
+# its house number and ZIP code are never demanded. A number after a digit,
+# sign, decimal point or comma, or after a currency sign or `USD` across any
+# whitespace (`$1,320 Braddock Place ...`, see `_us_street_address_or_amount`),
+# is not a house number, and an address without the city/state/ZIP tail keeps
+# every number demanded.
+_US_STREET_ADDRESS_NUMERIC_RECALL = re.compile(
+    r"(?<![\w.,$¢£¥€₹₩+\-−])\d{1,6}"
+    r"\s+[A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,4}\s+"
+    r"(?:Avenue|Ave\.?|Boulevard|Blvd\.?|Center|Drive|Dr\.?|Lane|Ln\.?|Parkway|"
+    r"Pkwy\.?|Place|Pl\.?|Plaza|Road|Rd\.?|Street|St\.?|Way)(?![\w'’-])"
+    r"(?:,?\s+[NS]\.?[EW]\.?(?![\w'’-]))?"
+    r"(?:,\s*(?:Suite|Ste\.?|Room|Rm\.?)\s+(?=[A-Z]*\d)[A-Z\d]{1,6}(?:-\d{1,6})?"
+    r"(?![\w'’-]))?"
+    r",\s*[A-Za-z .'-]+,\s*"
+    r"(?:A[KLRSZ]|C[AOT]|D[CE]|FL|G[AU]|HI|I[ADLN]|K[SY]|LA|M[ADEINOPST]|"
+    r"N[CDEHJMVY]|O[HKR]|P[AR]|RI|S[CD]|T[NX]|UT|V[AIT]|W[AIVY])"
+    rf"\s+\d{{5}}(?:{_US_ZIP_PLUS_FOUR_EXTENSION})?(?!\d)"
+)
+_US_STREET_ADDRESS_CURRENCY_PREFIX = re.compile(r"(?:[$¢£¥€₹₩]|\b(?i:usd))\Z")
+
+
+def _us_street_address_or_amount(match: re.Match[str]) -> str:
+    """Remove a postal address unless its first number reads as an amount."""
+
+    before = match.start()
+    while before > 0 and (
+        match.string[before - 1].isspace() or match.string[before - 1] in "+-−–"
+    ):
+        before -= 1
+    if _US_STREET_ADDRESS_CURRENCY_PREFIX.search(
+        match.string, max(0, before - 4), before
+    ):
+        return match.group(0)
+    return ""
+
+
 # Paginated US manuals open each page with its page number and a revision
 # stamp: the Oregon Programs Eligibility Notebook reads `93 (07/2026) Chapter
 # 2:Eligibility ...` or `26 Chapter 1: Introduction ... (07/2026)`. These
@@ -15195,6 +15274,86 @@ def _contiguous_states_numeric_recall_spans(
             r"(?<!\w)the$", source_text[max(0, before - 4) : before], re.IGNORECASE
         ):
             yield identifier.span()
+    # The same geography as a table column label. Only the `Household Size`
+    # column caption may precede it (text start, `the`, a currency, sign,
+    # number or any other word keeps the 48 demanded), and the table's first
+    # household-size row must follow the column headers.
+    for identifier in _JURISDICTION_SET_LABEL_NUMERIC_RECALL_IDENTIFIER.finditer(
+        source_text
+    ):
+        before = identifier.start()
+        while before > 0 and source_text[before - 1].isspace():
+            before -= 1
+        caption = _JURISDICTION_SET_LABEL_CAPTION.search(
+            source_text, max(0, before - 32), before
+        )
+        if (
+            caption
+            and not _JURISDICTION_SET_LABEL_CAPTION_QUALIFIER.search(
+                source_text, max(0, caption.start() - 64), caption.start()
+            )
+            and _JURISDICTION_SET_LABEL_FIRST_ROW.match(source_text, identifier.end())
+        ):
+            yield identifier.span()
+
+
+_IRS_PAGED_GUIDANCE_CITATION = re.compile(
+    r"us/guidance/irs/(?:rev-proc|notice)-\d{4}-\d+/page-(?P<page>[1-9]\d{0,3})"
+)
+# The page number stands alone and a blank line separates it from the page
+# text. A single line break is not enough: an amount whose unit or qualifier
+# wraps onto the next line looks the same, so it stays demanded.
+_LEADING_PAGE_NUMBER_LINE = re.compile(
+    r"[ \t]*(?P<page>[0-9]{1,4})[ \t]*\r?\n[ \t]*\r?\n"
+)
+# Extra exclusion after the blank line: text that continues a quantity (`14\ndollars per
+# hour`, `14\r\npercent`, `14\ntaxable years`, `14\nto 18 years`) makes the
+# number an amount whose unit wrapped onto the next line, not a page number.
+# A unit may follow up to two modifier words (`U.S. dollars`, `consecutive
+# months`). A range or list word (`to`, `through`, `or`, `and`) counts only
+# before a number or a comparison word, so a page that opens with
+# `To qualify, ...` keeps its page number masked. A fraction glyph (`2\n½
+# months`, `9\n1/2 months`) completes a mixed number, and a hyphenated
+# duration (`3\nconsecutive 12-month periods`) counts as a unit.
+_LEADING_PAGE_NUMBER_QUANTITY_CONTINUATION = re.compile(
+    r"\s*(?:[%\u00a2\u00bc-\u00be\u2150-\u215e]"
+    r"|(?:[A-Za-z][A-Za-z.'\-]*\s+){0,2}"
+    r"(?:dollars?|cents?|usd|percent(?:age)?s?|per|seconds?|minutes?|hours?"
+    r"|days?|weeks?|months?|quarters?|years?|times|miles?)\b"
+    r"|(?:to|through|or|and)\s+"
+    r"(?:(?:(?:not|no)\s+)?(?:less|more|fewer|greater)\s+than\s+)?\$?\d"
+    r"|but\s+(?:(?:not|no)\s+)?(?:less|more|fewer|greater)\s+than\s+\$?\d"
+    r"|\d+\s*[/\u2044]\s*\d+"
+    r"|(?:[A-Za-z][A-Za-z.'\-]*\s+){0,2}\d+-(?:hour|day|week|month|quarter|year)s?\b"
+    r"|(?:or|and)\s+(?:more|less|fewer|greater|older|younger|over|under)\b)",
+    re.IGNORECASE,
+)
+
+
+def _irs_page_locator_numeric_recall_spans(
+    source_text: str, *, corpus_citation_path: str
+) -> Iterable[tuple[int, int]]:
+    """Prove an IRS PDF page's printed page number, never a leading amount.
+
+    Revenue procedure and notice pages start with the printed page number
+    alone on the first line, then a blank line. Only that exact shape, with
+    the number equal to the citation's own page index and the following text
+    not continuing a quantity, is a locator. Any other leading number,
+    including one followed by a single line break, stays demanded.
+    """
+
+    citation = _IRS_PAGED_GUIDANCE_CITATION.fullmatch(corpus_citation_path)
+    if citation is None:
+        return
+    line = _LEADING_PAGE_NUMBER_LINE.match(source_text)
+    if (
+        line is not None
+        and line.group("page") == citation.group("page")
+        and not _LEADING_PAGE_NUMBER_QUANTITY_CONTINUATION.match(
+            source_text, line.end()
+        )
+    ):
+        yield line.span("page")
 
 
 def authoritative_numeric_recall_text(
@@ -15215,6 +15374,15 @@ def authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path
     )
     source_text = mask(source_text, form_numeric_locator_spans(source_text))
+    # This mask runs before the context-sensitive recognizers below, so they
+    # see the text after the page number. For example, a page that starts with
+    # `48 contiguous states` after its page number is then read as geography.
+    source_text = mask(
+        source_text,
+        _irs_page_locator_numeric_recall_spans(
+            source_text, corpus_citation_path=corpus_citation_path
+        ),
+    )
     source_text = mask_bare_labels(source_text)
     source_text = mask(
         source_text, _english_subdivision_numeric_recall_spans(source_text)
@@ -15353,11 +15521,7 @@ def authoritative_numeric_recall_text(
         cleaned,
     )
     cleaned = sub(
-        r"\b\d{1,6}\s+[A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,4}\s+"
-        r"(?:Avenue|Boulevard|Center|Drive|Lane|Place|Plaza|Road|Street|Way)\b"
-        r",\s*[A-Za-z .'-]+,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?",
-        "",
-        cleaned,
+        _US_STREET_ADDRESS_NUMERIC_RECALL, _us_street_address_or_amount, cleaned
     )
     if _US_CORPUS_CITATION_PATH.match(corpus_citation_path):
         # US-only: a German line such as `1.000 Euro Freibetrag` would
@@ -16256,6 +16420,38 @@ def _source_gate_semantic_tokens(
         and normalized not in _SOURCE_GATE_STOPWORDS
         and len(normalized) > 1
     }
+    if "income" in tokens:
+        comparison_text = _normalized_source_gate_polarity_text(subject_text)
+        comparison_tokens = re.findall(r"[a-z]+", comparison_text)
+        comparison_tokens, wrapper_parity = _source_gate_unwrap_negation(
+            comparison_tokens
+        )
+        income_index = next(
+            index
+            for index, token in enumerate(comparison_tokens)
+            if _source_gate_normalized_token(token) == "income"
+        )
+        comparison_text = " ".join(comparison_tokens[income_index + 1 :])
+        upper = re.search(
+            r"\b(?:not\s+exceed(?:s|ed|ing)?|not\s+above|not\s+over|within|"
+            r"under|below|less\s+than|at\s+most|"
+            r"(?:no|not)\s+(?:more|greater)\s+than)\b",
+            comparison_text,
+        )
+        lower = re.search(
+            r"\b(?:not\s+within|not\s+under|not\s+below|"
+            r"(?:no|not)\s+less\s+than|"
+            r"exceed(?:s|ed|ing)?|above|over|more\s+than|greater\s+than|"
+            r"at\s+least)\b",
+            comparison_text,
+        )
+        if upper is not None or lower is not None:
+            upper_bound = upper is not None and (
+                lower is None or upper.start() <= lower.start()
+            )
+            if wrapper_parity:
+                upper_bound = not upper_bound
+            tokens.add("income_upper_bound" if upper_bound else "income_lower_bound")
     if "care" in tokens:
         tokens.update(_source_gate_care_action_tokens(text))
         tokens.update(_source_gate_care_expense_tokens(text))
@@ -16647,6 +16843,13 @@ def _source_gate_income_reading(
         blockers=_SOURCE_GATE_INCOME_BLOCKERS,
     ):
         return _SourceGatePredicateReading("income", None)
+    # An amount ceiling negates the comparison, not the existence of income.
+    # Treating "income does not exceed" as unknown existence makes a
+    # source-stated eligibility gate impossible to corroborate.
+    if tuple(tokens[index + 1 : index + 4]) == ("does", "not", "exceed"):
+        if wrapper_parity or out_of_window_negation:
+            return _SourceGatePredicateReading("income", None)
+        return _SourceGatePredicateReading("income", False)
     prefix_start = max(0, index - _SOURCE_GATE_PREDICATE_SCAN_LIMIT)
     if out_of_window_negation:
         return _SourceGatePredicateReading("income", None)
@@ -17359,6 +17562,13 @@ def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, in
     boundaries.extend(_work_chart_heading_starts(text))
     boundaries.extend(_printed_chart_arithmetic_starts(text))
     boundaries.extend(_printed_page_header_boundaries(text))
+    # DES manual notes following a physical bullet list are separate
+    # propositions, not another conjunctive eligibility condition.
+    boundaries.extend(
+        match.start()
+        for match in re.finditer(r"(?m)^[ \t]*NOTE\b", text)
+        if text[: match.start()].endswith("\n\n")
+    )
     boundaries.extend(
         match.end()
         for match in re.finditer(
@@ -17387,6 +17597,49 @@ def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, in
         max(position for position in ordered if position <= start),
         min(position for position in ordered if position >= end),
     )
+
+
+def _source_bullet_item_bounds(
+    text: str, start: int, end: int
+) -> tuple[int, int] | None:
+    """Keep an exact proof inside one physical bullet from owning its siblings."""
+
+    markers = tuple(re.finditer(r"(?m)^(?P<indent>[ \t]*)[●•][ \t]+", text))
+    # Prefer the most deeply nested item containing the proof. An indented
+    # child does not terminate its parent item.
+    for index in range(len(markers) - 1, -1, -1):
+        marker = markers[index]
+        indent = len(marker.group("indent"))
+        next_marker = next(
+            (
+                candidate.start()
+                for candidate in markers[index + 1 :]
+                if len(candidate.group("indent")) <= indent
+            ),
+            len(text),
+        )
+        first_line_end = text.find("\n", marker.end(), next_marker)
+        if first_line_end < 0:
+            first_line_end = next_marker
+        if (
+            marker.end() <= start
+            and end <= first_line_end
+            and text[marker.end() : first_line_end].rstrip().endswith(":")
+        ):
+            # A bullet can itself be the chapeau of an indented list. Its
+            # exact proof retains the child conditions.
+            return None
+        paragraph_break = re.search(
+            r"\r?\n[ \t]*\r?\n", text[marker.end() : next_marker]
+        )
+        item_end = (
+            marker.end() + paragraph_break.start()
+            if paragraph_break is not None
+            else next_marker
+        )
+        if marker.end() <= start and end <= item_end:
+            return marker.start(), item_end
+    return None
 
 
 def _flattened_inline_dotted_marker_has_item_boundary(
@@ -17700,6 +17953,10 @@ def _source_condition_clauses_owned_by_excerpt(
             local_start,
             local_end,
         )
+        bullet_item = _source_bullet_item_bounds(container_text, local_start, local_end)
+        if bullet_item is not None:
+            proposition_start = max(proposition_start, bullet_item[0])
+            proposition_end = min(proposition_end, bullet_item[1])
         if (
             narrow_conjunctive_excerpt
             and _excerpt_is_conjunction_delimited_subclause(
@@ -17974,7 +18231,9 @@ def _terminal_gate_evidence(
 ) -> dict[str, _TerminalGateEvidence]:
     evidence: dict[str, _TerminalGateEvidence] = {}
 
-    def build(name: str, description: str = "") -> _TerminalGateEvidence:
+    def build(
+        name: str, description: str = "", *, numeric_amount: bool = False
+    ) -> _TerminalGateEvidence:
         if care_source_text in _SOURCE_GATE_REVIEWED_DEPENDENT_CARE_SOURCES and (
             name,
             description,
@@ -18028,6 +18287,14 @@ def _terminal_gate_evidence(
                 for base_predicate, negative in name_polarities.items()
                 if negative is not None
             ),
+            numeric_amount
+            and re.search(r"(?:^|_)income(?:_amount)?$", name) is not None
+            and not _SOURCE_GATE_INCOME_BLOCKERS.intersection(
+                name_text.casefold().split() + description.casefold().split()
+            )
+            and not _SOURCE_GATE_INCOME_NEGATION_MARKERS.intersection(
+                name_text.casefold().split() + description.casefold().split()
+            ),
         )
 
     for item in payload.get("inputs", ()) or ():
@@ -18036,7 +18303,14 @@ def _terminal_gate_evidence(
         name = str(item.get("name") or "").strip()
         if not name:
             continue
-        evidence[name] = build(name, str(item.get("description") or ""))
+        evidence[name] = build(
+            name,
+            str(item.get("description") or ""),
+            numeric_amount=(
+                str(item.get("dtype") or "").strip().casefold()
+                in {"money", "decimal", "integer", "count"}
+            ),
+        )
     for item in payload.get("imports", ()) or ():
         if not isinstance(item, str) or "#" not in item:
             continue
@@ -18104,16 +18378,76 @@ def _terminal_names_corroborate_source_gates(
         if predicates & _SOURCE_GATE_UNKNOWN_POLARITY_PREDICATES:
             candidates.append(())
             continue
+        income_ceiling_gate = "income" in predicates and bool(
+            predicates
+            & {
+                "exceed",
+                "limit",
+                "over",
+                "under",
+                "below",
+                "above",
+                "income_upper_bound",
+                "income_lower_bound",
+            }
+        )
+        source_income_comparators = predicates & {
+            "exceed",
+            "over",
+            "under",
+            "below",
+            "above",
+        }
+        source_income_direction = predicates & {
+            "income_upper_bound",
+            "income_lower_bound",
+        }
         matches: list[str] = []
         for name in sorted(names):
             evidence = terminal_evidence.get(
                 name,
                 _TerminalGateEvidence(frozenset(), frozenset(), True),
             )
-            if evidence.polarity_conflict:
+            numeric_income_comparison = (
+                evidence.numeric_income_amount
+                and income_ceiling_gate
+                and "unknown_income" in evidence.predicates
+            )
+            terminal_income_comparators = evidence.predicates & {
+                "exceed",
+                "over",
+                "under",
+                "below",
+                "above",
+            }
+            terminal_income_direction = evidence.predicates & {
+                "income_upper_bound",
+                "income_lower_bound",
+            }
+            explicit_income_comparison = (
+                bool(terminal_income_comparators or terminal_income_direction)
+                and (
+                    not source_income_direction
+                    or source_income_direction == terminal_income_direction
+                )
+                and (
+                    not source_income_comparators
+                    or bool(source_income_comparators & terminal_income_comparators)
+                    or bool(source_income_direction & terminal_income_direction)
+                )
+            )
+            if income_ceiling_gate and not (
+                evidence.numeric_income_amount or explicit_income_comparison
+            ):
+                continue
+            if evidence.polarity_conflict and not numeric_income_comparison:
                 continue
             terminal_entities = evidence.entities
             terminal_predicates = evidence.predicates
+            if numeric_income_comparison:
+                terminal_predicates = (terminal_predicates - {"unknown_income"}) | {
+                    "income"
+                }
             if "care" in predicates:
                 care_facts = predicates & {"care", "expense", "payment"}
                 if not care_facts <= terminal_predicates:
@@ -28117,7 +28451,224 @@ def _branch_boundary_test_witnesses(
                 ):
                     witnesses.add((rule_name, f"case:{id(case)}"))
                     break
+                # Only a principal predicate whose reached leaf itself
+                # compares the scaled amount may use this fallback. A control
+                # selector feeding an inverted if/match result is not a
+                # source-polarity witness for that result.
+                if (
+                    controller_rule is rule
+                    and boundary.has_rate_context
+                    and any(
+                        _formula_execution_references_names(
+                            controller_execution, input_names
+                        )
+                        and _formula_execution_binds_boundary(
+                            controller_execution,
+                            boundary,
+                            source_text=authoritative_numeric_recall_text(branch.text),
+                            input_names=input_names,
+                            formula_environment=(
+                                controller_execution.constant_environment
+                            ),
+                            evaluation_environment=execution_environment,
+                            source_bound_constant_occurrences=(
+                                source_bound_constant_occurrences or {}
+                            ),
+                            source_interval=source_interval,
+                            source_boolean_polarity=source_boolean_polarity,
+                            extract_numeric_occurrences=extract_numeric_occurrences,
+                            numeric_value_is_grounded=numeric_value_is_grounded,
+                            leaf_only=True,
+                        )
+                        and _formula_execution_boolean_value(controller_execution)
+                        is comparison_boolean_at_boundary
+                        and _boundary_case_changes_formula_effect(
+                            controller_rule,
+                            case,
+                            input_key=input_key,
+                            selector_names=input_names,
+                            boundary_value=scaled_value,
+                            execution=controller_execution,
+                            principal_rules=principal_rules,
+                            dependency_names=set(dependency_environment),
+                            formula_environment=formula_environment or {},
+                            source_interval=scaled_source_interval,
+                            source_boolean_polarity=scaled_effect_polarity,
+                            root_rule=rule,
+                            root_execution=execution,
+                        )
+                        for (
+                            input_key,
+                            input_names,
+                            scaled_value,
+                            comparison_boolean_at_boundary,
+                            scaled_source_interval,
+                            scaled_effect_polarity,
+                        ) in (
+                            _case_scaled_percentage_boundary_evidence(
+                                case,
+                                controller_execution,
+                                boundary,
+                                selector_names=selector_names,
+                                source_text=authoritative_numeric_recall_text(
+                                    branch.text
+                                ),
+                                source_interval=source_interval,
+                                source_boolean_polarity=source_boolean_polarity,
+                                numeric_value_is_grounded=numeric_value_is_grounded,
+                            )
+                        )
+                    )
+                ):
+                    witnesses.add((rule_name, f"case:{id(case)}"))
+                    break
     return witnesses
+
+
+def _case_scaled_percentage_boundary_evidence(
+    case: dict[str, Any],
+    execution: _FormulaExecution,
+    boundary: NumericOccurrenceLike,
+    *,
+    selector_names: set[str],
+    source_text: str,
+    source_interval: _NumericInterval | None,
+    source_boolean_polarity: int,
+    numeric_value_is_grounded: NumericGroundingPredicate,
+) -> tuple[tuple[object, set[str], float, bool, _NumericInterval, int], ...]:
+    """Find an asserted amount at a source-stated percent-of-base boundary.
+
+    A percentage may be supplied by a source-bound imported rate rather than
+    as a test input. In that case the tested boundary is ``rate * base`` in
+    money, not the rate itself in the input map.
+    """
+    if not boundary.has_rate_context or source_interval is None:
+        return ()
+    inputs = case.get("input")
+    if not isinstance(inputs, dict):
+        return ()
+    numeric_inputs = {
+        name: (key, float(value))
+        for key, value in inputs.items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+        for name in _input_key_names(key)
+    }
+    evidence: list[tuple[object, set[str], float, bool, _NumericInterval, int]] = []
+    for text in (execution.leaf,):
+        expression = _parse_formula_expression(text)
+        if expression is None:
+            continue
+        for comparison, negated in _formula_comparisons_with_polarity(expression):
+            operands = (comparison.left, *comparison.comparators)
+            for operator, left, right in zip(comparison.ops, operands, operands[1:]):
+                if not isinstance(
+                    operator,
+                    (ast.Gt, ast.GtE, ast.Lt, ast.LtE, ast.Eq, ast.NotEq),
+                ):
+                    continue
+                comparison_boolean_at_boundary = isinstance(
+                    operator, (ast.GtE, ast.LtE, ast.Eq)
+                )
+                if negated:
+                    comparison_boolean_at_boundary = not comparison_boolean_at_boundary
+                for amount_node, threshold_node in ((left, right), (right, left)):
+                    if (
+                        not isinstance(amount_node, ast.Name)
+                        or amount_node.id not in numeric_inputs
+                        or amount_node.id not in selector_names
+                        or not isinstance(threshold_node, ast.BinOp)
+                        or not isinstance(threshold_node.op, ast.Mult)
+                    ):
+                        continue
+                    amount_key, amount = numeric_inputs[amount_node.id]
+                    for rate_node, base_node in (
+                        (threshold_node.left, threshold_node.right),
+                        (threshold_node.right, threshold_node.left),
+                    ):
+                        if (
+                            not isinstance(base_node, ast.Name)
+                            or base_node.id not in numeric_inputs
+                            or not _source_percentage_base_matches(
+                                source_text,
+                                boundary=boundary,
+                                base_name=base_node.id,
+                            )
+                        ):
+                            continue
+                        rate_names = {
+                            node.id
+                            for node in ast.walk(rate_node)
+                            if isinstance(node, ast.Name)
+                        }
+                        if rate_names & numeric_inputs.keys():
+                            continue
+                        rate = _rulespec_runtime_decimal(
+                            _evaluate_condition_expression(
+                                rate_node, execution.constant_environment
+                            )
+                        )
+                        if rate is None or not numeric_value_is_grounded(
+                            float(rate), (boundary,)
+                        ):
+                            continue
+                        if not _comparison_matches_source_interval(
+                            operator,
+                            input_on_left=amount_node is left,
+                            compared_boundary_value=float(rate),
+                            boundary_names=set(),
+                            boundary=boundary,
+                            numeric_value_is_grounded=numeric_value_is_grounded,
+                            source_interval=source_interval,
+                            allow_complement_relation=source_boolean_polarity < 0,
+                            negated=negated,
+                        ):
+                            continue
+                        _base_key, base = numeric_inputs[base_node.id]
+                        if base <= 0 or not math.isclose(
+                            amount,
+                            float(rate) * base,
+                            rel_tol=1e-9,
+                            abs_tol=1e-9,
+                        ):
+                            continue
+                        scaled_source_interval = _NumericInterval(
+                            lower=(
+                                replace(
+                                    source_interval.lower,
+                                    value=float(source_interval.lower.value) * base,
+                                )
+                                if source_interval.lower is not None
+                                else None
+                            ),
+                            lower_inclusive=source_interval.lower_inclusive,
+                            upper=(
+                                replace(
+                                    source_interval.upper,
+                                    value=float(source_interval.upper.value) * base,
+                                )
+                                if source_interval.upper is not None
+                                else None
+                            ),
+                            upper_inclusive=source_interval.upper_inclusive,
+                            upper_directly_conjoined=source_interval.upper_directly_conjoined,
+                        )
+                        scaled_effect_polarity = (
+                            1
+                            if comparison_boolean_at_boundary
+                            == _interval_contains(scaled_source_interval, amount)
+                            else -1
+                        )
+                        evidence.append(
+                            (
+                                amount_key,
+                                {amount_node.id},
+                                amount,
+                                comparison_boolean_at_boundary,
+                                scaled_source_interval,
+                                scaled_effect_polarity,
+                            )
+                        )
+    return tuple(evidence)
 
 
 def _asserted_reached_rule_executions(
@@ -28226,6 +28777,7 @@ def _formula_execution_binds_boundary(
     source_boolean_polarity: int,
     extract_numeric_occurrences: NumericOccurrenceExtractor | None,
     numeric_value_is_grounded: NumericGroundingPredicate,
+    leaf_only: bool = False,
 ) -> bool:
     boundary_names = {
         name
@@ -28247,10 +28799,11 @@ def _formula_execution_binds_boundary(
         )
     }
     checks: list[tuple[str, bool]] = []
-    for step in execution.trace:
-        if step.kind not in {"if", "match"}:
-            continue
-        checks.extend((selector, True) for selector in step.selectors)
+    if not leaf_only:
+        for step in execution.trace:
+            if step.kind not in {"if", "match"}:
+                continue
+            checks.extend((selector, True) for selector in step.selectors)
     checks.append((execution.leaf, source_boolean_polarity < 0))
     resolved_environment = dict(formula_environment)
     resolved_environment.update(evaluation_environment or {})
@@ -28834,16 +29387,20 @@ def _source_percentage_base_matches(
         return False
     searchable_text = explicit_base.group("base")
     collapsed = _collapse_text(searchable_text).lower()
+    selector_tokens = tuple(_normalized_selector_name(base_name).split("_"))
     concept_tokens = tuple(
         token
-        for token in _normalized_selector_name(base_name).split("_")
+        for token in selector_tokens
         if (len(token) >= 4 or token in _SOURCE_ACRONYM_EXPANSIONS)
         and token not in _SOURCE_SELECTOR_TOKEN_STOPWORDS
         and token not in _SOURCE_SELECTOR_GENERIC_ENTITY_TOKENS
         and token not in _SOURCE_GENERIC_NUMERIC_NAME_TOKENS
     )
     return bool(concept_tokens) and all(
-        _source_concept_token_matches(collapsed, token) for token in concept_tokens
+        _source_selector_token_matches(
+            collapsed, token, selector_tokens=selector_tokens
+        )
+        for token in concept_tokens
     )
 
 
