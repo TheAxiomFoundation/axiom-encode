@@ -1496,6 +1496,10 @@ _REPORTS_MASCULINE_PLURAL_VERBS = frozenset(
 )
 _REPORTS_CLAUSE_HEAD = re.compile(r"(?:\A|\([^()\s]{1,8}\))\s*\Z")
 _REPORTS_SUBJECT_TOKENS = 4
+# The subject check reads at most this many characters after ``דוחות``, so a
+# clause-initial ``דוחות`` costs constant time however long the text is; a
+# fourth token past it reads as no filing verb, the verb reading.
+_REPORTS_SUBJECT_WINDOW = 160
 _REPORTS_LINK_WORDS = frozenset(("בהתאם", "לפי", "כאמור", "מכוח", "בכפוף", "כמפורט"))
 
 
@@ -1504,7 +1508,8 @@ def _reports_clause_subject(text: str, start: int, end: int) -> bool:
 
     if not _REPORTS_CLAUSE_HEAD.search(text, max(0, start - 16), start):
         return False
-    for token in text[end:].split()[:_REPORTS_SUBJECT_TOKENS]:
+    window = text[end : end + _REPORTS_SUBJECT_WINDOW]
+    for token in window.split()[:_REPORTS_SUBJECT_TOKENS]:
         word = token.strip(".,;:")
         if word in _REPORTS_LINK_WORDS or word != token:
             return word in _REPORTS_MASCULINE_PLURAL_VERBS

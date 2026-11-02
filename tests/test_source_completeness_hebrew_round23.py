@@ -1722,6 +1722,24 @@ def test_a_clause_head_reads_reports_only_before_a_filing_verb():
     assert not _links("(א) דוחות חישוב יוגשה בהתאם לסעיף 2.")
 
 
+def test_a_clause_head_reads_a_bounded_window():
+    """A clause-initial ``דוחות`` reads a constant window, not the rest of the text."""
+
+    reads = []
+
+    class Recording(str):
+        def __getitem__(self, key):
+            if isinstance(key, slice):
+                start, stop, _ = key.indices(len(self))
+                reads.append(stop - start)
+            return str.__getitem__(self, key)
+
+    text = Recording("(1) דוחות חישוב יוגשו בהתאם לסעיף 2; " + "מילה " * 20000)
+    start = text.index("דוחות")
+    assert negators._reports_clause_subject(text, start, start + len("דוחות"))
+    assert reads and max(reads) <= negators._REPORTS_SUBJECT_WINDOW
+
+
 def test_the_filing_paradigms_are_generated():
     forms = {form for verb in negators.REPORTS_FILING_VERBS for form in verb.forms}
     for form in (
