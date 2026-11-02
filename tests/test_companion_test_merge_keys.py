@@ -11,6 +11,7 @@ as before.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -19,6 +20,10 @@ import yaml
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
+from axiom_encode.cli import (
+    _parse_deferred_output_review_contract_json,
+    _required_deferred_output_contract_issues,
+)
 from axiom_encode.harness import validator_pipeline
 from axiom_encode.harness.validator_pipeline import (
     ValidatorPipeline,
@@ -133,6 +138,63 @@ def test_ci_still_rejects_two_equal_keys_written_in_one_companion_case(
         and "found duplicate key 'resides_in_new_york_city'" in issue
         and "line 21, column 5" in issue
     ]
+
+
+def test_the_apply_test_case_contract_reads_a_merge_override(tmp_path):
+    single = "us-la:statutes/47/294#input.filing_status_is_single"
+    joint = "us-la:statutes/47/294#input.filing_status_is_joint"
+    principal = "us-la:statutes/47/294#standard_deduction"
+    period = {"period_kind": "tax_year", "start": "2025-01-01", "end": "2025-12-31"}
+    contract = _parse_deferred_output_review_contract_json(
+        json.dumps(
+            {
+                "schema": "axiom-encode/review-contract/v2",
+                "citation": "us-la/statute/47:294",
+                "rulespec_path": "us-la/statutes/47/294.yaml",
+                "required_deferred_outputs": [],
+                "required_test_cases": [
+                    {
+                        "name": "single filer",
+                        "period": period,
+                        "input": {single: True, joint: False},
+                        "required_output": {principal: 12500},
+                    }
+                ],
+            }
+        )
+    )
+    rulespec = tmp_path / "294.yaml"
+    rulespec.write_text("format: rulespec/v1\nmodule: {}\nrules: []\n")
+    rulespec.with_name("294.test.yaml").write_text(
+        "- name: joint filers\n"
+        "  period: &period\n"
+        "    period_kind: tax_year\n"
+        "    start: '2025-01-01'\n"
+        "    end: '2025-12-31'\n"
+        "  input: &joint\n"
+        f"    {single}: false\n"
+        f"    {joint}: true\n"
+        "  output:\n"
+        f"    {principal}: 25000\n"
+        "- name: single filer\n"
+        "  period: *period\n"
+        "  input:\n"
+        "    <<: *joint\n"
+        f"    {single}: true\n"
+        f"    {joint}: false\n"
+        "  output:\n"
+        f"    {principal}: 12500\n"
+    )
+
+    assert (
+        _required_deferred_output_contract_issues(
+            rulespec,
+            contract,
+            citation="us-la/statute/47:294",
+            rulespec_path="us-la/statutes/47/294.yaml",
+        )
+        == []
+    )
 
 
 def test_the_new_york_city_override_loads_as_pyyaml_reads_it():
