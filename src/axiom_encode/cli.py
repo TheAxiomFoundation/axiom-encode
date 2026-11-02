@@ -8378,9 +8378,10 @@ def _guard_candidate_hash_blobs(
             stderr=errors,
             env=_rulespec_migration_git_environment(),
         )
+        stream = process.stdout
+        assert stream is not None
+        read_all = False
         try:
-            stream = process.stdout
-            assert stream is not None
             for object_id in object_ids:
                 header = stream.readline().decode("ascii").rstrip("\n").split(" ")
                 if len(header) != 3 or header[0] != object_id or header[1] != "blob":
@@ -8401,12 +8402,16 @@ def _guard_candidate_hash_blobs(
                 digests[object_id] = digest.hexdigest()
                 if chunks is not None:
                     kept[object_id] = b"".join(chunks)
+            # Git exits on its own at the end of the request file; wait for
+            # that end of output instead of racing its exit.
+            if stream.read(1):
+                raise RuntimeError("git cat-file --batch wrote unexpected output")
+            read_all = True
         finally:
-            if process.stdout is not None:
-                process.stdout.close()
-            if process.poll() is None:
+            if not read_all:
                 process.kill()
             returncode = process.wait()
+            stream.close()
         if returncode != 0:
             errors.seek(0)
             stderr = errors.read().decode("utf-8", errors="replace").strip()

@@ -606,8 +606,10 @@ def test_git_work_does_not_grow_with_changed_paths(repo, monkeypatch):
         return real_popen(command, *args, **kwargs)
 
     def hash_blobs(repo_path, object_ids, *, keep):
-        kept.append(set(keep))
-        return real_hash(repo_path, object_ids, keep=keep)
+        digests, blobs = real_hash(repo_path, object_ids, keep=keep)
+        assert len(set(object_ids)) == len(digests) > len(keep) == 1
+        kept.append(set(blobs))
+        return digests, blobs
 
     monkeypatch.setattr(cli.subprocess, "run", run)
     monkeypatch.setattr(cli.subprocess, "Popen", popen)
@@ -636,8 +638,49 @@ def test_git_work_does_not_grow_with_changed_paths(repo, monkeypatch):
         module_entry["sha256"]
         == hashlib.sha256(_module_text("us/statute/26/21").encode()).hexdigest()
     )
-    # Only the single module's blob is kept in memory for parsing.
-    assert [len(keep) for keep in kept] == [1, 1]
+    # Of all blobs read, only the single module's bytes are kept for parsing.
+    module_bytes = _module_text("us/statute/26/21").encode()
+    module_blob = hashlib.sha1(
+        b"blob %d\0" % len(module_bytes) + module_bytes
+    ).hexdigest()
+    assert kept == [{module_blob}, {module_blob}]
+
+
+def test_blob_reader_waits_for_git_to_exit(repo, monkeypatch):
+    real_popen = cli.subprocess.Popen
+    killed: list[bool] = []
+
+    class SlowExit:
+        """Git that has written every response but has not exited yet."""
+
+        def __init__(self, *args, **kwargs):
+            self._process = real_popen(*args, **kwargs)
+            self.stdout = self._process.stdout
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            killed.append(True)
+            self._process.kill()
+
+        def wait(self, *args, **kwargs):
+            return self._process.wait(*args, **kwargs)
+
+    def popen(command, *args, **kwargs):
+        if command[-2:] == ["cat-file", "--batch"]:
+            return SlowExit(command, *args, **kwargs)
+        return real_popen(command, *args, **kwargs)
+
+    monkeypatch.setattr(cli.subprocess, "Popen", popen)
+    base = _base(repo)
+    _candidate(repo)
+    _commit(repo, "candidate")
+
+    report = _report(repo, base)
+
+    assert report["status"] == "unadmitted_reviewed_candidate", report["reasons"]
+    assert killed == []
 
 
 def test_report_does_no_corpus_engine_or_broker_work(repo, monkeypatch):
