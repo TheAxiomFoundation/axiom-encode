@@ -45,6 +45,7 @@ from axiom_encode.harness.validator_pipeline import (
     extract_typed_numeric_occurrences_from_text,
     numeric_value_is_grounded,
 )
+from tests.hebrew_gate import open_hebrew_gate
 
 MAIN_ISSUES = Path(__file__).parent / "fixtures/non_hebrew_wall_main_issues.json"
 MAIN = "5d40209bc0e1fea5f740581ad5bb1b114ceeff07"
@@ -441,10 +442,20 @@ def test_a_raw_scope_reads_only_the_english_link_negations(monkeypatch):
         "(a) The amount is not calculated in accordance with",
     ):
         completeness._source_link_scope_has_unreset_negation(scope)
+        # Even behind an open gate, a scope without Hebrew has no copy.
+        with open_hebrew_gate():
+            completeness._source_link_scope_has_unreset_negation(scope)
     assert read == []
+    # A Hebrew scope outside the gate (an excerpt of an English candidate)
+    # has no copy either; behind it, its copy is read.
     completeness._source_link_scope_has_unreset_negation(
         "(א) Tax is computed for Nie in accordance with"
     )
+    assert read == []
+    with open_hebrew_gate():
+        completeness._source_link_scope_has_unreset_negation(
+            "(א) Tax is computed for Nie in accordance with"
+        )
     assert read and all(HEBREW_BLOCKS.search(text) for text in read)
 
 
@@ -461,24 +472,39 @@ def test_a_raw_scope_reads_only_the_english_link_negations(monkeypatch):
     ),
 )
 def test_scope_negation_by_script(scope, negated):
-    assert completeness._source_link_scope_has_unreset_negation(scope) is negated
+    # Behind the gate a Hebrew candidate opens; outside it every scope reads
+    # with main's English markers alone.
+    with open_hebrew_gate():
+        assert completeness._source_link_scope_has_unreset_negation(scope) is negated
+    assert completeness._source_link_scope_has_unreset_negation(scope) is (
+        "not computed" in scope
+    )
 
 
 # --- Shared English patterns that gained Hebrew alternatives -------------------
 
 
 @pytest.mark.parametrize("name", sorted(MAIN_SHARED_PATTERNS))
-def test_shared_pattern_is_mains_plus_a_hebrew_suffix(name):
+def test_shared_pattern_is_mains_and_its_hebrew_variant_extends_it(name):
+    """Round 23: the shared name holds main's literal, byte for byte; the
+    Hebrew variant, read only behind the gate, is main's plus a suffix."""
+
     main_pattern, digest, hebrew_suffix = MAIN_SHARED_PATTERNS[name]
     compiled = getattr(completeness, name)
     assert _sha256(main_pattern) == digest
-    assert compiled.pattern == f"{main_pattern}|{hebrew_suffix}"
+    assert compiled.pattern == main_pattern
     assert compiled.flags == re.IGNORECASE | re.UNICODE
+    hebrew = getattr(completeness, f"_HEBREW{name}")
+    assert hebrew.pattern == f"{main_pattern}|{hebrew_suffix}"
+    assert hebrew.flags == re.IGNORECASE | re.UNICODE
 
 
 def test_editorial_omission_pattern_is_mains_on_non_hebrew_text():
     assert _sha256(MAIN_EDITORIAL_OMISSION_ONLY) == MAIN_EDITORIAL_OMISSION_ONLY_SHA256
     main = re.compile(MAIN_EDITORIAL_OMISSION_ONLY, flags=re.IGNORECASE)
+    # Round 23: the shared name is main's literal; the Hebrew variant is
+    # read only behind the gate.
+    assert completeness._EDITORIAL_OMISSION_ONLY.pattern == MAIN_EDITORIAL_OMISSION_ONLY
     for text in (
         "(1) weggefallen",
         "(a) (aufgehoben)",
