@@ -1473,8 +1473,12 @@ _MONTH_NAME_DATE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _SLASH_DATE_PATTERN = re.compile(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b")
+# A bare month name and a following number are a date only on one line. Across
+# a line break the month is usually a column header and the number a table
+# value (#1822); a line-broken date must carry its own day-and-year evidence,
+# which `_MONTH_NAME_DATE_PATTERN` and `_ENGLISH_MONTH_DAY_YEAR_PATTERN` match.
 _MONTH_NAME_DAY_PATTERN = re.compile(
-    rf"\b{_MONTH_NAME_BODY}\s+\d{{1,2}}\b",
+    rf"\b{_MONTH_NAME_BODY}[^\S\n]+\d{{1,2}}\b",
     re.IGNORECASE,
 )
 _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
@@ -7595,8 +7599,10 @@ _GERMAN_DAY_MONTH_YEAR_PATTERN = re.compile(
     rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
+# A month-year pair without a day does not cross a line break between the
+# month and what follows it (#1822); see `_MONTH_NAME_DAY_PATTERN`.
 _GERMAN_MONTH_YEAR_PATTERN = re.compile(
-    rf"\b{_GERMAN_MONTH_NAME_BODY}\s+(?:des\s+Jahres\s+)?"
+    rf"\b{_GERMAN_MONTH_NAME_BODY}[^\S\n]+(?:des\s+Jahres\s+)?"
     rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
@@ -7612,8 +7618,10 @@ _ENGLISH_DAY_MONTH_YEAR_PATTERN = re.compile(
     rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
+# Like `_MONTH_NAME_DAY_PATTERN`, a month-year pair without a day does not
+# cross a line break (#1822).
 _ENGLISH_MONTH_YEAR_PATTERN = re.compile(
-    rf"\b{_MONTH_NAME_BODY}\s+(?P<year>{_TEMPORAL_YEAR_BODY})"
+    rf"\b{_MONTH_NAME_BODY}[^\S\n]+(?P<year>{_TEMPORAL_YEAR_BODY})"
     rf"{_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
