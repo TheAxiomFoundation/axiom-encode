@@ -552,7 +552,7 @@ def _local_reviewer_path(executables: Sequence[str]) -> str:
     needed: list[str] = []
     for executable in executables:
         for directory in _local_reviewer_runtime_directories(executable):
-            directory = os.path.normpath(directory)
+            directory = os.path.abspath(directory)
             if directory not in needed:
                 needed.append(directory)
     for directory in _LOCAL_REVIEWER_SYSTEM_PATH:
@@ -560,9 +560,9 @@ def _local_reviewer_path(executables: Sequence[str]) -> str:
             needed.append(directory)
     ordered: list[str] = []
     for entry in os.environ.get("PATH", "").split(os.pathsep):
-        if not entry or not os.path.isabs(entry):
-            continue
-        directory = os.path.normpath(entry)
+        # shutil.which resolves an empty or relative entry against the
+        # current directory; resolve it the same way so it keeps its place.
+        directory = os.path.abspath(entry or os.curdir)
         if directory in needed and directory not in ordered:
             ordered.append(directory)
     for directory in needed:

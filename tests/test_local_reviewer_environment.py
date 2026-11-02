@@ -258,10 +258,7 @@ def test_local_reviewer_child_process_keeps_only_the_allowlist(
         assert value not in output
 
 
-def test_shebang_word_collision_keeps_the_caller_interpreter(
-    tmp_path, monkeypatch, local_context
-):
-    """An option operand that resolves elsewhere cannot reorder the PATH."""
+def _marked_interpreters(tmp_path):
     first = tmp_path / "first-bin"
     second = tmp_path / "second-bin"
     for directory, marker in ((first, "first"), (second, "second")):
@@ -272,6 +269,40 @@ def test_shebang_word_collision_keeps_the_caller_interpreter(
     decoy = second / "decoy"
     decoy.write_text("#!/bin/sh\n")
     decoy.chmod(0o755)
+    return first, second
+
+
+def test_relative_caller_path_entry_keeps_its_place(
+    tmp_path, monkeypatch, local_context
+):
+    """A relative PATH entry resolves against the current directory, in place."""
+    first, second = _marked_interpreters(tmp_path)
+    # The decoy word puts second-bin on the child PATH too.
+    launcher = _fake_bin(
+        tmp_path, "claude", "#!/usr/bin/env -S -u decoy fake-node\nconsole.log(1)\n"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join([str(launcher.parent), first.name, str(second), "/usr/bin"]),
+    )
+
+    output, returncode = validator_pipeline.run_claude_code("review", cwd=tmp_path)
+
+    assert returncode == 0, output
+    assert "MARKER=first" in output
+    child_path = _child_environment(output)["PATH"].split(os.pathsep)
+    assert all(os.path.isabs(entry) for entry in child_path)
+    assert child_path.index(os.path.abspath(first.name)) < child_path.index(
+        os.path.abspath(second)
+    )
+
+
+def test_shebang_word_collision_keeps_the_caller_interpreter(
+    tmp_path, monkeypatch, local_context
+):
+    """An option operand that resolves elsewhere cannot reorder the PATH."""
+    first, second = _marked_interpreters(tmp_path)
     launcher = _fake_bin(
         tmp_path, "claude", "#!/usr/bin/env -S -u decoy fake-node\nconsole.log(1)\n"
     )
