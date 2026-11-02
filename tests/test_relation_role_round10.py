@@ -63,6 +63,9 @@ def predicate(formula, **config):
 IMPORT_FORMS = [
     pytest.param([VIEW], predicate("view(anchor, candidate)"), True, id="atom"),
     pytest.param(
+        [VIEW, VIEW], predicate("view(anchor, candidate)"), True, id="exact-duplicate"
+    ),
+    pytest.param(
         [VIEW],
         predicate("exists(view(anchor, p), p == candidate)"),
         True,
@@ -136,6 +139,12 @@ IMPORT_FORMS = [
         ),
         False,
         id="scalar-path-step",
+    ),
+    pytest.param(
+        [f"{PROVIDER}#relation."],
+        predicate("true", source_relation=f"{PROVIDER}#relation."),
+        False,
+        id="empty-relation-name",
     ),
 ]
 

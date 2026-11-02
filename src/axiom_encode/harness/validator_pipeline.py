@@ -32389,21 +32389,16 @@ def _rulespec_short_relation_imports(
 ) -> set[str]:
     """Name the explicit relation imports whose short name the engine binds.
 
-    A local relation of that name takes an atom's read. Any other declaration
+    `imported` comes from `_rulespec_explicit_relation_imports(payload)`. A
+    local relation of that name takes an atom's read. Any other declaration
     of the name, a local rule of another kind or another explicit import of
     any kind, makes the engine refuse the module. This scan reads one module,
     so a clash through a whole-module or transitive import stays out of its
     view.
     """
-    raw_imports = payload.get("imports")
-    names = Counter(
-        local_reference_name(item)
-        for item in {
-            item.strip()
-            for item in (raw_imports if isinstance(raw_imports, list) else ())
-            if isinstance(item, str) and "#" in item
-        }
-    )
+    if not imported:
+        return set()
+    names = Counter(map(local_reference_name, set(payload["imports"])))
     local_names = _rulespec_rule_names(payload)
     return {
         item
@@ -32413,17 +32408,69 @@ def _rulespec_short_relation_imports(
     }
 
 
-def _rulespec_explicit_relation_imports(imports: object) -> set[str]:
+_ENGINE_REPO_PREFIX = re.compile(r"[a-z]{2}(?:-[a-z0-9]+)*")
+_ENGINE_TARGET_SEGMENT = re.compile(r"[A-Za-z0-9_.~-]+")
+_ENGINE_IMPORT_FRAGMENT = re.compile(r"[A-Za-z0-9_.-]+")
+
+
+def _engine_accepts_import_spelling(item: str) -> bool:
+    """Say whether the engine resolves an import as spelled.
+
+    This follows `resolve_import_target` and `validate_module_target` in the
+    engine's `src/rulespec.rs`, which trim nothing. An import holds a
+    canonical jurisdiction prefix, a colon and at least two path segments
+    under an atomic root, with no `.yaml`, `.yml` or `.test` filename, then
+    at most one `#fragment` of ASCII letters, digits, `_`, `-` and `.`.
+    Whether the target's file exists stays out of this check.
+    """
+    module, *fragments = item.split("#")
+    if len(fragments) > 1 or not all(map(_ENGINE_IMPORT_FRAGMENT.fullmatch, fragments)):
+        return False
+    prefix, _, path = module.partition(":")
+    segments = path.split("/")
+    return bool(
+        _ENGINE_REPO_PREFIX.fullmatch(prefix)
+        and len(segments) >= 2
+        and segments[0] in RULESPEC_ATOMIC_MODULE_ROOTS
+        and all(
+            _ENGINE_TARGET_SEGMENT.fullmatch(segment) and segment not in {".", ".."}
+            for segment in segments
+        )
+        and not segments[-1].lower().endswith((".yaml", ".yml", ".test"))
+    )
+
+
+def _rulespec_imports_load(payload: dict[str, Any]) -> bool:
+    """Say whether the engine loads a module's imports.
+
+    The engine reads `imports` as a list of strings, a missing key as none,
+    and refuses the whole module over a null or other non-list value, an
+    entry that is no string, or a spelling it cannot resolve. A module it
+    refuses binds no import, so the import checks give main's result there.
+    """
+    if "imports" not in payload:
+        return True
+    imports = payload["imports"]
+    return isinstance(imports, list) and all(
+        isinstance(item, str) and _engine_accepts_import_spelling(item)
+        for item in imports
+    )
+
+
+def _rulespec_explicit_relation_imports(payload: dict[str, Any]) -> set[str]:
+    """Name the explicit relation imports of a module the engine loads."""
+    if not _rulespec_imports_load(payload):
+        return set()
     return {
-        item.strip()
-        for item in (imports if isinstance(imports, list) else ())
-        if isinstance(item, str) and "#relation." in item and local_reference_name(item)
+        item
+        for item in payload.get("imports") or ()
+        if "#relation." in item and local_reference_name(item)
     }
 
 
 def _rulespec_relation_import_reads(payload: dict[str, Any]) -> set[str]:
     """Name the explicit relation imports that the module's rules read."""
-    imported = _rulespec_explicit_relation_imports(payload.get("imports"))
+    imported = _rulespec_explicit_relation_imports(payload)
     if not imported:
         return set()
     raw_rules = payload.get("rules")
@@ -32482,8 +32529,10 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
         if not isinstance(rules, list):
             return []
 
-        relation_imports = _rulespec_explicit_relation_imports(payload.get("imports"))
+        relation_imports = _rulespec_explicit_relation_imports(payload)
         short_names = _rulespec_short_relation_imports(payload, relation_imports)
+        # A module whose imports the engine cannot load reads no source.
+        imports_load = _rulespec_imports_load(payload)
         issues: list[str] = []
         for rule in rules:
             if not isinstance(rule, dict):
@@ -32507,7 +32556,7 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
                 if not symbol and "#" in target:
                     symbol = target.rsplit("#", 1)[1].strip()
                 selectors.append((target, symbol, bool(output)))
-            sources = rule_relation_sources(rule)
+            sources = rule_relation_sources(rule) if imports_load else set()
             unparsed_formulas = [
                 formula
                 for formula in formula_texts

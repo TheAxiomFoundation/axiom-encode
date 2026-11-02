@@ -368,10 +368,13 @@ def test_an_empty_relation_selector_stays_unused():
     assert "imported symbol `relation.`" in issues[0]
 
 
-def test_an_import_read_keeps_padded_spelling():
+def test_a_padded_import_keeps_mains_finding():
+    """The engine resolves an import as spelled, so a padded one binds nothing."""
     payload = consumer("len(selected)", f" {PROVIDER} ")
     payload["rules"].insert(0, relation("selected", "unused_view(anchor, candidate)"))
-    assert validation.find_unused_import_issues(yaml.safe_dump(payload)) == []
+    issues = validation.find_unused_import_issues(yaml.safe_dump(payload))
+    assert len(issues) == 1
+    assert f"Unused import `{PROVIDER}`" in issues[0]
 
 
 def test_a_full_target_source_reads_only_its_own_import():
