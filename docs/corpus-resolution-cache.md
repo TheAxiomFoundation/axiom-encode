@@ -28,7 +28,9 @@ empty. Nothing is shared between release objects.
   mode, size, modification and change times, by `lstat`) of every provisions
   file it read and, in a lock-file checkout, of the lock under
   `.axiom/corpus-locks/` that pins each one, taken before the read. Every
-  later call compares them first. If any differ, or a file is gone, the bucket
+  later call first selects the bucket's files as an uncached read does, so
+  every path component is checked again and a parent directory swapped for a
+  symlink fails with the uncached error; it then compares the identities. If any differ, or a file is gone, the bucket
   and its memo are dropped and the call reads the checkout again, exactly as
   an uncached call does. Replacing a file by rename (as corpus placement and
   git checkouts do) always changes its identity. An in-place rewrite that
@@ -146,7 +148,8 @@ worst-case steady state there is eight times the per-release bound. A
   first call after each change reads the checkout again; interleaved calls on
   two releases over the same citation paths each match their own release,
   uncached, and attest their own release; a replaced or deleted lock drops the
-  bucket; an in-place rewrite with a new timestamp is read again; and the
+  bucket; an in-place rewrite with a new timestamp is read again; a parent
+  directory swapped for a symlink is refused on a warm call; and the
   operation counts quoted below.
 - `tests/test_validator_corpus_cache.py`: waiver fingerprints of seven modules
   (resolved, missing, ambiguous, sliced, composed, mixed, invalid citations)

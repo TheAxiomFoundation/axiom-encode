@@ -365,3 +365,30 @@ def test_mutating_selected_row_metadata_cannot_change_a_later_result(
         record.metadata["notes"].append("mutated")
         record.metadata["detail"]["kind"] = "mutated"
     assert resolve_local_corpus_source("us/statute/1", release) == expected
+
+
+def test_a_symlinked_parent_directory_is_refused_on_a_warm_call(tmp_path: Path):
+    """A warm call applies the same path-safety checks as an uncached call.
+
+    Renaming a directory leaves the identities of the files inside unchanged,
+    so the disk fingerprint alone cannot see a parent swapped for a symlink.
+    """
+
+    for parent in ("data/corpus/provisions/us/statute", "data/corpus/provisions"):
+        root = tmp_path / parent.replace("/", "_")
+        root.mkdir()
+        _write_rows(root, STATUTE, [{"citation_path": "us/statute/1", "body": "One."}])
+        release = bind_test_corpus_release(root, RELEASE, [("us", "statute", STATUTE)])
+        assert resolve_local_corpus_source("us/statute/1", release).body == "One."
+        directory = root / parent
+        os.rename(directory, directory.with_name(directory.name + "-real"))
+        os.symlink(directory.name + "-real", directory)
+
+        warm = _outcome(lambda: resolve_local_corpus_source("us/statute/1", release))
+        cold = _outcome(
+            lambda: resolve_local_corpus_source(
+                "us/statute/1", release.with_fresh_reads()
+            )
+        )
+        assert warm == cold
+        assert warm[0] == "error" and "symlink" in warm[2], warm
