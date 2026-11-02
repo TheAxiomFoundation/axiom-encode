@@ -1,0 +1,1 @@
+Parse relation formulas with the engine grammar, align companion identities, require versioned derived formulas, preserve date aliases, validate reachable elections, and clarify guarded household prompts. Keep legacy filtered-entity findings and strict evidence boundaries intact.

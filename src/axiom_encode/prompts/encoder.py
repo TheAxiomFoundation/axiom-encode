@@ -8,7 +8,7 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
-__version__ = 3
+__version__ = 4
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -412,10 +412,140 @@ _TABLES_PROTOCOL = """- Use `kind: parameter` with `indexed_by` and versioned `v
   source header itself states that entity.
 """
 
-_STRUCTURE_PROTOCOL = """- Use `kind: derived` for entity-scoped outputs.
+RELATION_ROLES_STRUCTURE_PROTOCOL = """Relation-role structure:
+- When the source defines a legal unit's membership, derive a relation from
+  the applicant or other source-stated anchor to persons. The engine advertises
+  this surface as `relation_roles`; it adds no `kind: unit` shorthand.
+- Declare `arity: 2`, `slot_entities`, `current_slot` and `related_slot` for an
+  anchored membership relation. `anchor` names the current-slot id and
+  `candidate` names the related-slot id. Declare both slot kinds explicitly
+  when both ends are `Person`; do not infer a direction from their names.
+- Use exactly one candidate source: `source_relation`, or a nonempty
+  `source_path`. A path requires explicit binary arity, two slot kinds, and
+  distinct current/related slots in {0, 1}. Each step has `relation`,
+  `from_slot` and `to_slot`, and traverses a binary relation between distinct
+  slots. Match kinds at every junction and at the anchor/candidate endpoints.
+  Traverse a derived step only from its current slot to its related slot.
+  Paths produce distinct sorted final candidates; an anchor with no roster
+  record reaches nobody. Path sources cannot declare `entity` or
+  `member_relation`.
+- Keep the existing single-source filtered-entity form when the law filters
+  a structural entity's members and its current id identifies the filtered
+  entity: `source_relation`, `entity`, `member_relation`, `slot_entities`.
+  Use an anchored relation when membership depends on the chosen applicant,
+  either endpoint's facts, pair facts, bounded joins or a source path.
+- Preserve the worked guard's caller contract: every co-resident, evaluated
+  or not, has exactly one roster record covering the entire query period;
+  every supplied pair fact covers that period; the pair facts are complete;
+  and caller-supplied household ids are correct. The guard does not establish
+  these factual preconditions.
+"""
+
+RELATION_ROLES_FORMULA_PROTOCOL = """Relation-role formulas:
+- Only derived-relation predicates bind `anchor`, `candidate` and variables
+  introduced by `exists`. Read facts or rules with `anchor.x`, `candidate.x`
+  or `p.x`; a qualified rule must have the term's entity kind. Read scalar
+  parameters and indexed parameter tables unqualified, as in a rule formula.
+  Do not qualify a parameter, relation, `period_start` or `period_end`.
+  Qualified reads, atoms, term comparisons and `exists` have no scope in
+  ordinary rule bodies, aggregate values or aggregation `where` clauses.
+- A term is an entity id, not a scalar input: use it only before `.`, as an
+  atom argument, or in a term comparison. Compare same-kind terms only with
+  `==` or `!=`, such as `candidate != anchor`; never compare a term to a value.
+  Reserve `anchor` and `candidate` from declaration names.
+- Write relation atoms as `R(t1, ..., tn)` in the relation's declared slot
+  order. Every argument is a term in scope with the corresponding slot kind;
+  the atom has exactly the declared arity and produces a Judgment. A data
+  relation carries tuple membership, not a value on a pair. A derived atom
+  requires arity 2 and tests its related-slot term against the members for its
+  current-slot term. Do not use a built-in function name for an atom.
+- Write bounded quantification as `exists(R(anchor, p), body)`: its generator
+  is an atom with exactly one new lowercase `[a-z][a-z0-9_]*` variable and all
+  other arguments already bound. A data generator can bind any slot; a derived
+  generator binds only its related slot. The body is a Judgment and may nest
+  `exists`; the variable takes its slot kind and exists only inside its body.
+  Do not hide a visible declaration or rebind an enclosing variable. A bound
+  spelling used outside its body never becomes an input. Domains contain
+  distinct matching ids in sorted order; an empty domain makes `exists` false.
+  Express a universal test as `not exists(G, not body)`.
+- Put pair atoms before the value reads they guard. Ground numbers in role
+  predicates exactly as in other formulas: `candidate.age < 22` needs the same
+  source support for 22, and a source-stated age threshold should be a named
+  numeric concept consumed by the predicate.
+- Give no input read by a relation predicate a default. A contested legal
+  reading gets no default: encode it with cited authority or keep it an
+  explicit input. Do not turn pairwise purchasing or other pair facts into a
+  group closure unless a provision or cited State policy requires that
+  closure, including the State-policy question under 7 CFR 273.1(c).
+- When cited authority requires a closure beyond the bounded language, use
+  the guarded form from engine `docs/relation-roles.md` section 8: compute the
+  set within two ties exactly, prove no tie leaves it, and use that set only
+  when the guard holds and no unresolved exception applies. Otherwise compare
+  caller-supplied household ids, with no default. Never approximate a closure
+  or silently truncate a chain. Keep composition separate from participation;
+  every aggregation names in its rule and proof whether it reads composition
+  or participation, and reads the corresponding relation.
+- Purchases that form no single group, such as a buying with b and b with c
+  while a does not buy with c, have no true `meal_group`. Treat this as a
+  7 CFR 273.1(c) case: set the exception input and supply household ids.
+  Supply any `meal_group` value because the fixture still reads it and fails
+  when it is missing. With the exception flag set, the ids alone decide the
+  household.
+- Declare each election in top-level `inputs:` with `election: {actor,
+  provision}` and exactly those two election keys. `actor` is the choosing
+  entity kind in UpperCamelCase, and `provision` is the granting corpus citation
+  path. The same module must read the declared input. Never give an election
+  a default or use `input_or_else` for it; the runtime evaluates the supplied
+  choice and the simulation layer chooses scenarios.
+- This surface provides no recursion, inverse derived traversal, pair-valued
+  facts or dense execution of relation roles. Atoms, generator relations,
+  qualified rules and path steps remain dependencies; do not create a cycle.
+  Supply tuples only for data relations, never for a derived relation, and
+  use strict tuple binding rather than `relation_binding: lenient`.
+"""
+
+RELATION_ROLES_TESTS_PROTOCOL = """Relation-role companion tests:
+- Each case explicitly assigns every base pair relation, including a known
+  false relation as `[]`, and every supported completeness assertion,
+  including false assertions. Do not treat an omitted pair fact as a supplied
+  false fact. The section 8 fixture requires complete pair facts as a caller
+  precondition; this engine surface does not yet declare completeness. Do not
+  invent completeness keys or imply that the engine checks that precondition.
+- Supply shared person ids and factual reads in `tables.Person` rows, for
+  example `{id: a, <jurisdiction>:<repo-path>#input.meal_group: 1}`. Put pair
+  tuples under top-level `input:` as canonical `#relation.<name>` keys with
+  rows such as `{tuple: [a, b]}`. A tuple row contains only `tuple`, whose
+  nonempty string ids follow the relation's declared slot order. These tuples
+  cover the whole case period and connect the named table rows.
+- Assert membership through a derived output that reads the relation, such as
+  `count_where(household_member, test_target)`, with `test_target` true only on
+  the person being tested. Assert composition and participation separately.
+  Named table cases use row-ordered scalar output lists. Cover every derived
+  relation through an asserted output that reads it; relation views themselves
+  are not executable scalar outputs.
+- Exercise both the exact guarded branch and the supplied-id branch, including
+  a tie leaving the two-tie set and an exception that requires supplied ids.
+  Set every reached endpoint/quantifier fact explicitly, including false
+  facts, and keep the full-period roster and complete pair facts explicit.
+"""
+
+RELATION_ROLES_SELF_CHECK = """  5. Relation-role inventory: name both slot roles, check every atom and
+     path-step dependency/import, keep bound variables inside their bodies,
+     and ground every predicate number. Give predicate inputs and elections
+     no defaults. Cite authority for any grouping closure and contested reading.
+     Identify composition or participation for every aggregation. Check that
+     every pair relation and supported completeness assertion is explicit in
+     each companion case, including `[]` or false. Cover relation membership
+     through asserted derived outputs. Check the exact closure guard and the
+     caller-id fallback against all section 8 factual preconditions.
+"""
+
+_STRUCTURE_PROTOCOL = (
+    """- Use `kind: derived` for entity-scoped outputs.
 - Use `kind: derived_relation` only when the source text explicitly defines
-  membership in a derived legal unit by filtering a source relation through a
-  stated predicate. "This source is about SNAP" is not enough. If the source
+  membership in a derived legal unit by filtering candidates from a source
+  relation or path through a stated predicate.
+  "This source is about SNAP" is not enough. If the source
   uses an existing structural entity such as `Household`, `TaxUnit`, `Employer`,
   `Person`, or a source-stated administrative or organizational entity such as
   `StateAgency`, and merely references a program-specific concept without
@@ -423,7 +553,8 @@ _STRUCTURE_PROTOCOL = """- Use `kind: derived` for entity-scoped outputs.
 - For source text that imposes an amount, tax, credit, or limitation on each,
   every, or any employer, use `entity: Employer`. Do not default to `TaxUnit`
   merely because the output is tax-related.
-- Keep the membership predicate as an ordinary source-backed rule, then define
+- For a single-source filtered entity, keep its per-member predicate as an
+  ordinary source-backed rule, then define
   the filtered entity under `derived_relation:` with `arity`, `source_relation`,
   `entity`, `member_relation`, `slot_entities`, and a `versions[].formula` that
   names the predicate.
@@ -433,6 +564,8 @@ _STRUCTURE_PROTOCOL = """- Use `kind: derived` for entity-scoped outputs.
   that declares it. Filtered entities have no structural existence without that
   dependency.
 """
+    + RELATION_ROLES_STRUCTURE_PROTOCOL
+)
 
 _COMPOSITION_AND_DEFERRAL = """- If source text is a broad application, furnishing, administrative duty, or
   purpose clause without a computable policy condition, preserve it in
@@ -968,8 +1101,9 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   relation inputs, and `<jurisdiction>:<repo-path>#<rule_or_parameter>` for
   executable outputs or imported legal values. Never use bare friendly keys.
 - Every local executable `kind: derived` or `kind: derived_relation` rule must
-  appear at least once under an `output:` block in the companion `.test.yaml`;
-  do not leave helper derived rules unasserted.
+  have companion output coverage. Assert every derived rule directly under
+  `output:` and cover every derived relation through an asserted derived
+  output that reads it; do not leave helper rules or relations untested.
 - In modules with executable derived outputs, do not assert raw
   `kind: parameter` rules directly in companion test `output:` blocks; cover
   parameters through derived outputs that consume them. If a module contains
@@ -996,9 +1130,9 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   `<jurisdiction>:<repo-path>#relation.member_of_household:`
   followed by `- <jurisdiction>:<repo-path>#input.member_has_required_status: true`.
 - Put `#relation.<name>` test inputs under the test case's top-level `input:`,
-  not inside `tables.<Entity>` rows. If a table-row entity output depends on a
-  relation, write separate scalar cases with the row's scalar facts and relation
-  list under `input:` instead of a row-ordered `tables` case.
+  not inside `tables.<Entity>` rows. Explicit tuple rows can connect named
+  table rows for row-ordered outputs. For legacy synthetic relation rows,
+  write scalar cases with relation lists under `input:`.
 - Never assign an imported module's computed `#rule_name` output in `input:`.
   If this file imports that rule, the compiled program computes it. To make an
   imported output true, false, or equal a value, mirror the imported file's
@@ -1219,6 +1353,8 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   residency eligibility test.
 """
 
+_TESTS_PROTOCOL += "\n" + RELATION_ROLES_TESTS_PROTOCOL
+
 _FORMULA_PROTOCOL = """- Put formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
 - Do not encode legal effective dates as `dtype: String` parameters or date
   literal formulas such as `2025-01-01`. Axiom formulas have no date literal type.
@@ -1300,7 +1436,8 @@ _FORMULA_PROTOCOL = """- Put formulas under `versions: - effective_from: 'YYYY-M
   `if condition: cap_b else: uncapped_amount` unless the source expressly says
   the alternative amount is used "instead of", "in lieu of", or as a
   substitution for the base computation.
-- Formula strings must use bare identifiers only. If an imported rule is listed
+- Formula strings use bare declaration names and permitted qualified role
+  reads. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
   reference `example_rule` inside formula text.
 - Axiom conditionals are expression syntax, not YAML syntax. Money/scalar
@@ -1328,6 +1465,8 @@ _FORMULA_PROTOCOL = """- Put formulas under `versions: - effective_from: 'YYYY-M
   subsection, table row, or clause that grounds an encoded
   numeric amount, rate, threshold, cap, or limit.
 """
+
+_FORMULA_PROTOCOL += "\n" + RELATION_ROLES_FORMULA_PROTOCOL
 
 US_TAX_PACK = """- US tax filing status is a derived legal classification, not a downstream
   boundary fact. Do not create local `#input.filing_status` facts in a rule or
@@ -1526,6 +1665,128 @@ rules:
         formula: snap_member_eligible
 """
 
+_SELF_CHECK += "\n" + RELATION_ROLES_SELF_CHECK
+
+RELATION_ROLES_SHAPE = """Guarded anchored membership shape:
+
+This synthetic encoder example adapts engine `docs/relation-roles.md` section
+8. It does not encode any provision in full. Use it only when cited authority
+requires the symmetric ties to form a household closure. Resolve the legal
+tie predicate and exceptions from source; preserve all section 8 preconditions.
+Every input below has no default.
+
+```yaml
+# Synthetic encoder prompt test input; not a corpus module.
+format: rulespec/v1
+inputs:
+  - {name: meal_group, dtype: Integer}
+  - {name: household_exception_may_apply, dtype: Judgment}
+  - {name: snap_household_unit, dtype: Integer}
+  - {name: ineligible_for_participation, dtype: Judgment}
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation: {arity: 2, arguments: [Person, Household]}
+  - name: required_pair
+    kind: data_relation
+    data_relation: {arity: 2, arguments: [Person, Person]}
+  - name: residence_size
+    kind: derived
+    entity: Household
+    dtype: Integer
+    period: Month
+    source: <source defining the residence composition roster>
+    versions:
+      - effective_from: '2026-01-01'
+        formula: len(member_of_household)
+  - name: lives_with
+    kind: derived_relation
+    derived_relation:
+      arity: 2
+      slot_entities: [Person, Person]
+      current_slot: 0
+      related_slot: 1
+      source_path:
+        - {relation: member_of_household, from_slot: 0, to_slot: 1}
+        - {relation: member_of_household, from_slot: 1, to_slot: 0}
+    source: <source requiring shared residence>
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+  - name: household_tie
+    kind: derived_relation
+    derived_relation: {arity: 2, slot_entities: [Person, Person],
+                       current_slot: 0, related_slot: 1, source_relation: lives_with}
+    source: <authority requiring the stated symmetric combinations>
+    versions:
+      - effective_from: '2026-01-01'
+        formula: >-
+          candidate.meal_group == anchor.meal_group
+          or required_pair(anchor, candidate) or required_pair(candidate, anchor)
+  - name: within_two_ties
+    kind: derived_relation
+    derived_relation: {arity: 2, slot_entities: [Person, Person],
+                       current_slot: 0, related_slot: 1, source_relation: lives_with}
+    source: <authority requiring closure of the stated ties>
+    versions:
+      - effective_from: '2026-01-01'
+        formula: >-
+          candidate == anchor or household_tie(anchor, candidate)
+          or exists(household_tie(anchor, p), household_tie(p, candidate))
+  - name: exception_in_residence
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: <unresolved exceptions affecting residence composition>
+    versions:
+      - effective_from: '2026-01-01'
+        formula: count_where(lives_with, household_exception_may_apply) > 0
+  - name: household_member
+    kind: derived_relation
+    derived_relation: {arity: 2, slot_entities: [Person, Person],
+                       current_slot: 0, related_slot: 1, source_relation: lives_with}
+    source: <authority defining household composition>
+    versions:
+      - effective_from: '2026-01-01'
+        formula: >-
+          (within_two_ties(anchor, candidate)
+           and not anchor.exception_in_residence
+           and not exists(within_two_ties(anchor, p),
+                          exists(household_tie(p, r), not within_two_ties(anchor, r))))
+          or ((anchor.exception_in_residence
+               or exists(within_two_ties(anchor, p),
+                         exists(household_tie(p, r), not within_two_ties(anchor, r))))
+              and candidate.snap_household_unit == anchor.snap_household_unit)
+  - name: participating_member
+    kind: derived_relation
+    derived_relation: {arity: 2, slot_entities: [Person, Person],
+                       current_slot: 0, related_slot: 1, source_relation: household_member}
+    source: <authority excluding a composition member from participation>
+    versions:
+      - effective_from: '2026-01-01'
+        formula: not candidate.ineligible_for_participation
+  - name: household_composition_size
+    kind: derived
+    entity: Person
+    dtype: Integer
+    period: Month
+    source: <authority using composition size>
+    versions:
+      - effective_from: '2026-01-01'
+        formula: len(household_member)
+  - name: household_participating_size
+    kind: derived
+    entity: Person
+    dtype: Integer
+    period: Month
+    source: <authority using participation size>
+    versions:
+      - effective_from: '2026-01-01'
+        formula: len(participating_member)
+```
+"""
+
 _SHAPES = """Minimal shape:
 
 format: rulespec/v1
@@ -1651,6 +1912,8 @@ Companion-test shape (relation rows under input; exceptions paired):
   output:
     us:statutes/7/2017/a#allotment_available: not_holds
 """
+
+_SHAPES += "\n" + RELATION_ROLES_SHAPE
 
 _PROMPT_BLOCKS = (
     _CORE_CONTRACT,

@@ -1,0 +1,1 @@
+Treat every filtered entity of one runtime kind as that kind when companion fixtures check, share or generate IDs, including aliases outside the query entity's lineage, following the engine's slot-kind rules.

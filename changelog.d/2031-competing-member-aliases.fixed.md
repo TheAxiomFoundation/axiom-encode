@@ -1,0 +1,1 @@
+Companion coverage and terminal inventories credit only the first relation that declares a member alias and entity, and the role gate refuses a member alias shared anywhere in a module's import closure.

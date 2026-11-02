@@ -26,6 +26,7 @@ from axiom_encode.harness.imported_export_evidence import (
     bind_entered_observations,
 )
 from axiom_encode.printed_source_rows import recognize_printed_rows
+from axiom_encode.rulespec_version_dates import version_date_fields
 
 _GROUP = re.compile(
     r"[A-Z][A-Za-z -]{3,80}:\r?\n\r?\n"
@@ -47,7 +48,6 @@ _RULE_KEYS = {
     "source",
     "description",
 }
-_VERSION_KEYS = {"effective_from", "effective_to", "formula"}
 
 
 @dataclass(frozen=True)
@@ -132,12 +132,22 @@ def _versions(
         return None
     result = []
     for i, version in enumerate(values):
-        if not isinstance(version, dict) or set(version) - _VERSION_KEYS:
+        if not isinstance(version, dict):
+            return None
+        date_fields = version_date_fields(version)
+        if date_fields is None or set(version) - {*date_fields, "formula"}:
             return None
         frame = _frame(rule, i, version, context)
         if frame is None or any(frame[0] == f[0] for _, f in result):
             return None
-        result.append((version, frame))
+        # Authenticate proof paths on the original spelling before normalizing
+        # the internal record. Dates retain their original string type.
+        canonical = dict(version)
+        for field, canonical_field in zip(
+            date_fields, ("effective_from", "effective_to"), strict=True
+        ):
+            canonical[canonical_field] = canonical.pop(field)
+        result.append((canonical, frame))
     return result
 
 

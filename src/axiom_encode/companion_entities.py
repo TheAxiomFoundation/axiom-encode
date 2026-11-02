@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Collection, Iterable, Mapping
 
 import yaml
 
@@ -15,6 +15,7 @@ def declared_input_entities(
     *,
     resolve_reference: Callable[[str], Path | None],
     resolve_import: Callable[[str, Path], Path | None],
+    relation_roles: bool = False,
 ) -> dict[str, str]:
     """Resolve facts from their source declarations, including imported facts.
 
@@ -33,9 +34,20 @@ def declared_input_entities(
         return payloads[path]
 
     def declarations(path: Path) -> dict[str, str]:
+        entries = payload(path).get("inputs", []) or []
+        # The engine ignores `inputs:` metadata, whatever its shape, so only
+        # a name and an entity spelled as text can route a fact.
+        if relation_roles:
+            entries = [
+                item
+                for item in (entries if isinstance(entries, list) else ())
+                if isinstance(item, dict)
+                and isinstance(item.get("name"), str)
+                and isinstance(item.get("entity"), str)
+            ]
         return {
             str(item["name"]): str(item["entity"])
-            for item in payload(path).get("inputs", []) or []
+            for item in entries
             if isinstance(item, dict) and item.get("name") and item.get("entity")
         }
 
@@ -94,9 +106,10 @@ def flat_input_entity_id(
     query_entity_id: str,
     *,
     reserved_entity_ids: Iterable[str] = (),
+    query_kinds: Collection[str] = (),
 ) -> str:
     """Retain owner IDs and avoid IDs occupied by other fixture entity kinds."""
-    if entity == query_entity:
+    if entity == query_entity or entity in query_kinds:
         return query_entity_id
     return _available_entity_id(
         f"{query_entity_id}:entity:{entity}", reserved_entity_ids
@@ -113,10 +126,39 @@ def _available_entity_id(preferred: str, reserved_entity_ids: Iterable[str]) -> 
     return candidate
 
 
-def require_distinct_entity_ids(occupied_entity_ids: dict[str, set[str]]) -> None:
-    """Reject explicit fixture IDs shared by different entity kinds."""
+def _distinct_kinds(entities: set[str], entity_kinds: Mapping[str, str]) -> int:
+    """Count the kinds behind one ID; a filtered entity counts as its IDs' kind."""
+    return len({entity_kinds.get(entity, entity) for entity in entities})
+
+
+def foreign_entity_ids(
+    occupied_entity_ids: Mapping[str, set[str]],
+    entity: str,
+    *,
+    entity_kinds: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Name the IDs another kind holds; a filtered entity is its IDs' kind."""
+    entity_kinds = entity_kinds or {}
+    kind = entity_kinds.get(entity, entity)
+    return [
+        entity_id
+        for entity_id, entities in occupied_entity_ids.items()
+        if {entity_kinds.get(item, item) for item in entities} - {kind}
+    ]
+
+
+def require_distinct_entity_ids(
+    occupied_entity_ids: dict[str, set[str]],
+    *,
+    entity_kinds: Mapping[str, str] | None = None,
+) -> None:
+    """Reject explicit fixture IDs shared by different entity kinds.
+
+    `entity_kinds` maps each filtered entity to the kind of its IDs, so a
+    filtered entity and that kind name one entity.
+    """
     for entity_id, entities in occupied_entity_ids.items():
-        if len(entities) > 1:
+        if _distinct_kinds(entities, entity_kinds or {}) > 1:
             raise ValueError(
                 f"fixture entity ID `{entity_id}` is shared by "
                 f"{', '.join(f'`{entity}`' for entity in sorted(entities))}; "
@@ -124,9 +166,25 @@ def require_distinct_entity_ids(occupied_entity_ids: dict[str, set[str]]) -> Non
             )
 
 
+def reserve_explicit_tuple_ids(
+    occupied_entity_ids: dict[str, set[str]],
+    tuples: Iterable[tuple[list[str], tuple[str, ...]]],
+) -> None:
+    """Keep generated IDs off the IDs in explicit relation tuples.
+
+    Each item pairs a tuple with its relation's slot kinds. The engine checks
+    explicit tuples, so reserve them after `require_distinct_entity_ids`.
+    """
+    for relation_tuple, slots in tuples:
+        for entity_id, entity in zip(relation_tuple, slots, strict=True):
+            occupied_entity_ids.setdefault(entity_id, set()).add(entity)
+
+
 def assign_generated_fixture_ids(
     rows: Iterable[tuple[str, list[str], int, list[dict[str, Any]]]],
     occupied_entity_ids: dict[str, set[str]],
+    *,
+    entity_kinds: Mapping[str, str] | None = None,
 ) -> None:
     """Allocate generated fixture rows after every explicit ID is reserved.
 
@@ -134,13 +192,15 @@ def assign_generated_fixture_ids(
     records. The container is a relation tuple or a table row's ID list, so
     updating it also updates relation aliases and row-ordered queries.
     Same-kind aliases keep their IDs; foreign-kind collisions get fresh IDs.
+    `entity_kinds` decides what counts as one kind, as it does in
+    `require_distinct_entity_ids`.
     """
     for entity, entity_ids, allocated_slot, inputs in rows:
         preferred = entity_ids[allocated_slot]
         reserved = {
             entity_id
             for entity_id, entities in occupied_entity_ids.items()
-            if entities - {entity}
+            if _distinct_kinds(entities | {entity}, entity_kinds or {}) > 1
         }
         entity_id = (
             _available_entity_id(f"{preferred}:entity:{entity}", reserved)
@@ -195,7 +255,7 @@ def cross_entity_input_findings(
             if input_entity == output_entity:
                 continue
             if any(
-                input_entity in slots and output_entity in slots
+                len(slots) == 2 and input_entity in slots and output_entity in slots
                 for slots in declared_relation_slots.values()
             ):
                 continue

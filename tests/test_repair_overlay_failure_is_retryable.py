@@ -550,7 +550,7 @@ def test_unreadable_retained_candidate_does_not_replace_valid_generation(
             ValidationRetryCandidate(
                 rulespec="format: rulespec/v1\ninputs: {name: broken}\nrules: []\n"
             ),
-            "preserved repair overlay inputs must be a list",
+            "repair overlay input mappings need string names and mapping values",
         ),
         (
             ValidationRetryCandidate(

@@ -1,0 +1,1 @@
+Count a derived relation's source only on `kind: derived_relation` and only for the module it names, so an inert block or an external target no longer covers a same-named local rule in the coverage, temporal, terminal-export, input-assignment and proof-import checks.

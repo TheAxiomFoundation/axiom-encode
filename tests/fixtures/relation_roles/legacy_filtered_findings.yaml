@@ -1,0 +1,112 @@
+# Synthetic encoder test input; not a RuleSpec module.
+baseline_commit: 5d40209bc0e1fea5f740581ad5bb1b114ceeff07
+fixtures:
+- fixture: tests/test_cli.py:51402
+  sha256: e83a34e8bed9492210d01cf69e2ee904f05bfe8438c1b74fb970eeef6c71a1fc
+  identifiers:
+  - snap_member_eligible
+  findings:
+    find_local_dependency_temporal_coverage_issues: []
+    find_relation_aggregate_syntax_issues: []
+    find_unused_import_issues: []
+    find_proof_import_reference_issues: []
+    find_filtered_entity_dependency_issues: []
+    find_rule_source_metadata_issues: []
+    find_formula_date_literal_issues: []
+    find_test_input_assignment_issues: []
+    find_missing_derived_companion_output_issues: []
+- fixture: tests/test_evals.py:5427
+  sha256: 7e71d336c2547fe2c812064a874437a4ed6572ebe90ad30f58466e35a739acb9
+  identifiers:
+  - snap_member_eligible
+  findings:
+    find_local_dependency_temporal_coverage_issues: []
+    find_relation_aggregate_syntax_issues: []
+    find_unused_import_issues: []
+    find_proof_import_reference_issues: []
+    find_filtered_entity_dependency_issues: []
+    find_rule_source_metadata_issues:
+    - 'Rule source locator required: module.source_verification must include exactly
+      one `corpus_citation_path` when executable rules are present.'
+    - 'Rule source metadata required: `snap_unit` is an executable rule and must include
+      `source:` with the legal citation/span supporting it.'
+    find_formula_date_literal_issues: []
+    find_test_input_assignment_issues: []
+    find_missing_derived_companion_output_issues: []
+- fixture: tests/test_policyengine_coverage.py:5893
+  sha256: 7e71d336c2547fe2c812064a874437a4ed6572ebe90ad30f58466e35a739acb9
+  identifiers:
+  - snap_member_eligible
+  findings:
+    find_local_dependency_temporal_coverage_issues: []
+    find_relation_aggregate_syntax_issues: []
+    find_unused_import_issues: []
+    find_proof_import_reference_issues: []
+    find_filtered_entity_dependency_issues: []
+    find_rule_source_metadata_issues:
+    - 'Rule source locator required: module.source_verification must include exactly
+      one `corpus_citation_path` when executable rules are present.'
+    - 'Rule source metadata required: `snap_unit` is an executable rule and must include
+      `source:` with the legal citation/span supporting it.'
+    find_formula_date_literal_issues: []
+    find_test_input_assignment_issues: []
+    find_missing_derived_companion_output_issues: []
+- fixture: tests/test_rulespec_validation.py:3496
+  sha256: 6187c35cb2b5be1b50c3bf93ae2f098cbbad55d36270fd3771530e909e741ae7
+  identifiers:
+  - snap_member_eligible
+  findings:
+    find_local_dependency_temporal_coverage_issues: []
+    find_relation_aggregate_syntax_issues: []
+    find_unused_import_issues: []
+    find_proof_import_reference_issues: []
+    find_filtered_entity_dependency_issues: []
+    find_rule_source_metadata_issues:
+    - 'Rule source metadata required: `snap_unit` is an executable rule and must include
+      `source:` with the legal citation/span supporting it.'
+    find_formula_date_literal_issues: []
+    find_test_input_assignment_issues: []
+    find_missing_derived_companion_output_issues: []
+- fixture: tests/test_rulespec_validation.py:41358
+  sha256: d8f85040612594f8a2a07251c334d18dfed28461a59ca5e3958c4352d7c67152
+  identifiers:
+  - expedited_service_conditions_met
+  - household_member_eligible_for_snap_unit
+  - household_member_meets_snap_unit_rules
+  findings:
+    find_local_dependency_temporal_coverage_issues: []
+    find_relation_aggregate_syntax_issues: []
+    find_unused_import_issues: []
+    find_proof_import_reference_issues: []
+    find_filtered_entity_dependency_issues: []
+    find_rule_source_metadata_issues:
+    - 'Rule source locator required: module.source_verification must include exactly
+      one `corpus_citation_path` when executable rules are present.'
+    find_formula_date_literal_issues: []
+    find_test_input_assignment_issues: []
+    find_missing_derived_companion_output_issues:
+    - 'Derived rule missing companion output coverage: `us:policies/example/legacy#household_member_eligible_for_snap_unit`
+      is not asserted by the companion `.test.yaml` file.'
+    - 'Derived rule missing companion output coverage: `us:policies/example/legacy#snap_unit_entitled_to_expedited_service`
+      is not asserted by the companion `.test.yaml` file.'
+- fixture: tests/test_rulespec_validation.py:46741
+  sha256: acd0f3ffb9f78c8af56d196aa3c7df3c7ccd4ad600ec31023fe65ce20a9ed837
+  identifiers:
+  - member_entry_date
+  findings:
+    find_local_dependency_temporal_coverage_issues: []
+    find_relation_aggregate_syntax_issues: []
+    find_unused_import_issues: []
+    find_proof_import_reference_issues: []
+    find_filtered_entity_dependency_issues: []
+    find_rule_source_metadata_issues:
+    - 'Rule source locator required: module.source_verification must include exactly
+      one `corpus_citation_path` when executable rules are present.'
+    - 'Rule source metadata required: `snap_unit` is an executable rule and must include
+      `source:` with the legal citation/span supporting it.'
+    find_formula_date_literal_issues:
+    - 'Formula date literal unsupported: `snap_unit` uses `2025-01-01` inside an executable
+      formula. Axiom formula syntax has no date literal type; encode effective windows
+      with `effective_from` metadata or source-stated boolean predicates such as `taxable_year_begins_after_termination_date`.'
+    find_test_input_assignment_issues: []
+    find_missing_derived_companion_output_issues: []

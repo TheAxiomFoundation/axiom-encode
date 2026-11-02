@@ -1,6 +1,12 @@
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from axiom_encode.companion_relations import executable_relation_directions
+from axiom_encode.companion_relations import (
+    executable_relation_directions,
+    explicit_relation_tuples,
+    pair_relation_assignment_issues,
+)
 
 
 def fixture(current=1):
@@ -453,3 +459,612 @@ def test_mixed_sum_value_and_predicate_use_fallback_and_traverse_both(reverse):
         with pytest.raises(ValueError, match="coordinates"):
             resolve(d)
         d[key]["expr"] = original
+
+
+def test_path_source_keeps_only_first_step_at_query_anchor():
+    d = fixture(0)
+    d["count"]["entity"] = "Person"
+    schemas = [
+        {
+            "name": "members",
+            "derivation": {
+                "current_slot": 0,
+                "related_slot": 1,
+                "slot_entities": ["Person", "Person"],
+                "source_path": [
+                    {"relation": "roster", "from_slot": 0, "to_slot": 1},
+                    {"relation": "roster", "from_slot": 1, "to_slot": 0},
+                ],
+                "predicate": {"kind": "literal"},
+            },
+        }
+    ]
+    assert executable_relation_directions(
+        d,
+        ["count"],
+        {"start": "2024-01-01"},
+        "Person",
+        {"members": ("Person", "Person"), "roster": ("Person", "Household")},
+        schemas,
+    ) == {"members": (0, "Person"), "roster": (0, "Household")}
+
+
+@pytest.mark.parametrize("term,at_root", [("anchor", True), ("candidate", False)])
+def test_qualified_derived_reads_follow_term_in_same_kind_predicate(term, at_root):
+    d = fixture(0)
+    d["count"]["entity"] = "Person"
+    d["extra"] = {
+        "id": "extra",
+        "entity": "Person",
+        "expr": {
+            "kind": "count_related",
+            "relation": "extra_members",
+            "current_slot": 0,
+            "related_slot": 1,
+        },
+    }
+    schemas = [
+        {
+            "name": "members",
+            "derivation": {
+                "source_relation": "raw",
+                "current_slot": 0,
+                "related_slot": 1,
+                "slot_entities": ["Person", "Person"],
+                "predicate": {"kind": "role_derived", "name": "extra", "term": term},
+            },
+        }
+    ]
+    result = executable_relation_directions(
+        d,
+        ["count"],
+        {"start": "2024-01-01"},
+        "Person",
+        {"members": ("Person", "Person")},
+        schemas,
+    )
+    assert ("extra_members" in result) is at_root
+
+
+def test_exists_variable_derived_read_does_not_become_root_relation():
+    d = fixture(0)
+    d["count"]["entity"] = "Person"
+    d["extra"] = {
+        "id": "extra",
+        "entity": "Person",
+        "expr": {
+            "kind": "count_related",
+            "relation": "extra_members",
+            "current_slot": 0,
+            "related_slot": 1,
+        },
+    }
+    schemas = [
+        {"name": "domain", "arity": 2, "slot_entities": ["Person", "Person"]},
+        {
+            "name": "members",
+            "derivation": {
+                "source_relation": "raw",
+                "current_slot": 0,
+                "related_slot": 1,
+                "slot_entities": ["Person", "Person"],
+                "predicate": {
+                    "kind": "exists",
+                    "relation": "domain",
+                    "terms": ["anchor", {"var": 0}],
+                    "variable_slot": 1,
+                    "body": {
+                        "kind": "role_derived",
+                        "name": "extra",
+                        "term": {"var": 0},
+                    },
+                },
+            },
+        },
+    ]
+    result = executable_relation_directions(
+        d,
+        ["count"],
+        {"start": "2024-01-01"},
+        "Person",
+        {"members": ("Person", "Person")},
+        schemas,
+    )
+    assert "extra_members" not in result
+
+
+def role_relations():
+    return [
+        {"name": "parents", "arity": 2, "slot_entities": ["Person", "Person"]},
+        {
+            "name": "members",
+            "arity": 2,
+            "derivation": {
+                "predicate": {"kind": "relation_atom", "relation": "parents"},
+            },
+        },
+    ]
+
+
+def test_relation_roles_require_explicit_empty_pair_facts():
+    assert pair_relation_assignment_issues(
+        role_relations(), {"input": {}}, "empty"
+    ) == [
+        "Test case `empty` must assign pair relation `parents`, including `[]` when no tuples hold."
+    ]
+    assert (
+        pair_relation_assignment_issues(
+            role_relations(),
+            {"input": {"us:statutes/example#relation.parents": []}},
+            "empty",
+        )
+        == []
+    )
+
+
+def role_reach(expr, *extra_rules, relations=()):
+    """Build a role program with an `output` rule and an unread `unread` relation."""
+    derived = {
+        "us:m#output": {
+            "id": "us:m#output",
+            "name": "output",
+            "entity": "Person",
+            "expr": expr,
+        },
+        **{rule["id"]: rule for rule in extra_rules},
+    }
+    schemas = [
+        *role_relations(),
+        {"name": "unread", "arity": 2, "slot_entities": ["Person", "Person"]},
+        *relations,
+    ]
+    return schemas, derived
+
+
+COUNT_PARENTS = {
+    "kind": "count_related",
+    "relation": "us:statutes/example#relation.parents",
+}
+INNER = {"id": "us:m#inner", "name": "inner", "entity": "Person", "expr": COUNT_PARENTS}
+
+
+class WalkedOnce(dict):
+    """Stop a repeat walk of a cyclic expression with an assertion."""
+
+    walks = 0
+
+    def values(self):
+        self.walks += 1
+        assert self.walks == 1
+        return super().values()
+
+
+def test_reach_walks_a_cyclic_rule_once():
+    rule = {"id": "us:m#inner", "name": "inner", "entity": "Person"}
+    rule["expr"] = WalkedOnce(kind="derived", name="inner")
+    schemas, derived = role_reach({"kind": "derived", "name": "inner"}, rule)
+    case = {"input": {}, "output": {"us:m#output": 1}}
+    assert pair_relation_assignment_issues(schemas, case, "reach", derived) == []
+
+
+VERSIONED = {
+    "id": "us:m#inner",
+    "name": "inner",
+    "versions": [{"effective_from": "2026-01-01", "expr": COUNT_PARENTS}],
+}
+
+
+def view_of(name, **derivation):
+    return {"name": name, "arity": 2, "derivation": derivation}
+
+
+@pytest.mark.parametrize(
+    "expr,extra_rules,relations",
+    [
+        (COUNT_PARENTS, [], []),
+        ({"kind": "add", "items": [{"kind": "derived", "name": "inner"}]}, [INNER], []),
+        ({"kind": "derived", "name": "us:m#inner"}, [VERSIONED], []),
+        ({"kind": "count_related", "relation": "members"}, [], []),
+        (
+            {"kind": "count_related", "relation": "through"},
+            [],
+            [view_of("through", source_relation="parents")],
+        ),
+        (
+            {"kind": "count_related", "relation": "through"},
+            [],
+            [view_of("through", source_path=[{"relation": "parents"}])],
+        ),
+        (
+            {"kind": "count_related", "relation": "through"},
+            [INNER],
+            [
+                view_of(
+                    "through",
+                    predicate={"kind": "role_derived", "name": "inner"},
+                )
+            ],
+        ),
+        (
+            {"kind": "literal", "value": 1},
+            [],
+            [view_of("filter", entity="Person", source_relation="parents")],
+        ),
+        (
+            {"kind": "count_related", "relation": "alias"},
+            [],
+            [view_of("filter", member_relation="alias", source_relation="parents")],
+        ),
+    ],
+    ids=[
+        "direct",
+        "rule",
+        "versioned-rule",
+        "predicate-atom",
+        "source",
+        "source-path",
+        "role-derived",
+        "filtered-entity",
+        "member-alias",
+    ],
+)
+def test_pair_facts_follow_each_read_an_output_reaches(expr, extra_rules, relations):
+    schemas, derived = role_reach(expr, *extra_rules, relations=relations)
+    case = {"input": {}, "output": {"us:m#output": 1}}
+    assert pair_relation_assignment_issues(schemas, case, "reach", derived) == [
+        "Test case `reach` must assign pair relation `parents`, including `[]` when no tuples hold."
+    ]
+
+
+def test_a_pair_relation_no_output_reaches_needs_no_assignment():
+    schemas, derived = role_reach({"kind": "literal", "value": 1})
+    case = {"input": {}, "output": {"us:m#output": 1}}
+    assert pair_relation_assignment_issues(schemas, case, "reach", derived) == []
+
+
+def test_a_missing_alias_or_malformed_derivation_reaches_nothing():
+    schemas, derived = role_reach(
+        {"kind": "literal", "value": "None"},
+        relations=[{"name": "odd", "arity": 2, "derivation": "None"}],
+    )
+    case = {"input": {}, "output": {"us:m#output": 1}}
+    assert pair_relation_assignment_issues(schemas, case, "reach", derived) == []
+
+
+def test_a_qualified_schema_matches_a_local_reference():
+    schemas, derived = role_reach({"kind": "count_related", "relation": "parents"})
+    schemas[0]["name"] = "us:statutes/example#relation.parents"
+    case = {"input": {}, "output": {"us:m#output": 1}}
+    assert pair_relation_assignment_issues(schemas, case, "reach", derived) == [
+        "Test case `reach` must assign pair relation `us:statutes/example#relation.parents`, including `[]` when no tuples hold."
+    ]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        {"input": {}},
+        {"input": {}, "output": {}},
+        {"input": {}, "output": ["us:m#output"]},
+        {"input": {}, "output": {"us:m#unknown": 1}},
+        {"input": {}, "output": {"us:m#output": 1, "us:m#unknown": 1}},
+    ],
+    ids=["none", "empty", "list", "unknown", "one-unknown"],
+)
+def test_a_case_of_unknown_reach_assigns_every_pair_relation(case):
+    schemas, derived = role_reach({"kind": "literal", "value": 1})
+    assert len(pair_relation_assignment_issues(schemas, case, "reach", derived)) == 2
+
+
+@settings(max_examples=200, deadline=None, derandomize=True)
+@given(
+    st.lists(
+        st.lists(st.integers(0, 5), max_size=3),
+        min_size=6,
+        max_size=6,
+    ),
+    st.integers(0, 2),
+)
+def test_reach_equals_the_reference_graph(edges, start):
+    """Nodes 0-2 are rules, 3-4 derived relations and 5 a base pair relation."""
+
+    def reference(node):
+        if node < 3:
+            return {"kind": "derived", "name": f"rule_{node}"}
+        name = "pairs" if node == 5 else f"view_{node}"
+        return {"kind": "count_related", "relation": f"us:m#relation.{name}"}
+
+    def body(node):
+        return {"kind": "add", "items": [reference(item) for item in edges[node]]}
+
+    derived = {
+        f"us:m#rule_{node}": {
+            "id": f"us:m#rule_{node}",
+            "name": f"rule_{node}",
+            "expr": body(node),
+        }
+        for node in range(3)
+    }
+    relations = [
+        {"name": f"us:m#relation.view_{node}", "derivation": {"predicate": body(node)}}
+        for node in (3, 4)
+    ]
+    relations.append({"name": "us:m#relation.pairs", "arity": 2, "extra": body(5)})
+    reached, frontier = set(), [start]
+    while frontier:
+        node = frontier.pop()
+        if node not in reached:
+            reached.add(node)
+            frontier.extend(edges[node])
+    case = {"input": {}, "output": {f"us:m#rule_{start}": 1}}
+    issues = pair_relation_assignment_issues(relations, case, "reach", derived)
+    assert bool(issues) == (5 in reached)
+
+
+def test_a_case_without_derived_rules_assigns_every_pair_relation():
+    schemas, _ = role_reach({"kind": "literal", "value": 1})
+    assert len(pair_relation_assignment_issues(schemas, {"input": {}}, "reach")) == 2
+
+
+@pytest.mark.parametrize("member_alias", [False, True])
+def test_legacy_filtered_relations_keep_pair_assignment_findings(member_alias):
+    relations = role_relations()
+    relations[1]["derivation"].update(
+        {
+            "entity": "SnapUnit",
+            "member_relation": "members",
+            "predicate": {"kind": "derived", "name": "eligible"},
+        }
+    )
+    if not member_alias:
+        relations[1]["derivation"].pop("member_relation")
+    assert pair_relation_assignment_issues(relations, {"input": {}}, "empty") == []
+
+
+def test_tuple_rows_preserve_declared_order_and_shared_ids():
+    assert explicit_relation_tuples(
+        [{"tuple": ["child", "parent"]}],
+        relation="parents",
+        slots=("Person", "Person"),
+        relation_roles=True,
+    ) == [["child", "parent"]]
+    assert (
+        explicit_relation_tuples(
+            [{"age": 10}], relation="parents", slots=None, relation_roles=True
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [{"tuple": ["child"]}],
+        [{"tuple": ["child", 3]}],
+        [{"tuple": "child,parent"}],
+        [{"tuple": ["child", "parent"], "age": 10}],
+        [{"tuple": ["child", "parent"]}, {"age": 10}],
+    ],
+)
+def test_malformed_tuple_rows_fail_closed(rows):
+    with pytest.raises(ValueError, match="tuple row"):
+        explicit_relation_tuples(
+            rows,
+            relation="parents",
+            slots=("Person", "Person"),
+            relation_roles=True,
+        )
+
+
+@pytest.mark.parametrize("kind", ["relation_atom", "exists"])
+@pytest.mark.parametrize("root_slot", [0, 1])
+def test_data_atoms_and_generators_supply_query_anchor_direction(kind, root_slot):
+    d = fixture(0)
+    d["count"]["entity"] = "Person"
+    terms = ["candidate", "candidate"]
+    terms[root_slot] = "anchor"
+    predicate = {"kind": kind, "relation": "parents", "terms": terms}
+    if kind == "exists":
+        predicate["terms"][1 - root_slot] = {"var": 0}
+        predicate["variable_slot"] = 1 - root_slot
+        predicate["body"] = {"kind": "literal"}
+    schemas = [
+        {"name": "parents", "arity": 2, "slot_entities": ["Person", "Person"]},
+        {
+            "name": "members",
+            "derivation": {
+                "source_relation": "raw",
+                "current_slot": 0,
+                "related_slot": 1,
+                "slot_entities": ["Person", "Person"],
+                "predicate": predicate,
+            },
+        },
+    ]
+    assert executable_relation_directions(
+        d,
+        ["count"],
+        {"start": "2024-01-01"},
+        "Person",
+        {"members": ("Person", "Person"), "parents": ("Person", "Person")},
+        schemas,
+    )["parents"] == (root_slot, "Person")
+
+
+def test_explicit_tuples_do_not_need_one_root_direction_for_pair_atoms():
+    d = fixture(0)
+    d["count"]["entity"] = "Person"
+    schemas = [
+        {"name": "parents", "arity": 2, "slot_entities": ["Person", "Person"]},
+        {
+            "name": "members",
+            "derivation": {
+                "source_relation": "raw",
+                "current_slot": 0,
+                "related_slot": 1,
+                "slot_entities": ["Person", "Person"],
+                "predicate": {
+                    "kind": "and",
+                    "items": [
+                        {
+                            "kind": "relation_atom",
+                            "relation": "parents",
+                            "terms": ["anchor", "candidate"],
+                        },
+                        {
+                            "kind": "relation_atom",
+                            "relation": "parents",
+                            "terms": ["candidate", "anchor"],
+                        },
+                    ],
+                },
+            },
+        },
+    ]
+    args = (
+        d,
+        ["count"],
+        {"start": "2024-01-01"},
+        "Person",
+        {"members": ("Person", "Person"), "parents": ("Person", "Person")},
+        schemas,
+    )
+    with pytest.raises(
+        ValueError, match="conflicting executable directions for parents"
+    ):
+        executable_relation_directions(*args)
+    assert "parents" not in executable_relation_directions(
+        *args, explicit_relations={"parents"}
+    )
+
+
+@pytest.mark.parametrize("anchor_term", [True, False])
+def test_compact_same_kind_pair_rows_use_atom_direction_or_refuse(
+    tmp_path, anchor_term
+):
+    from axiom_encode.cli import _execute_rulespec_test_case
+
+    d = fixture(0)
+    d["count"]["entity"] = "Person"
+    schemas = [
+        {"name": "parents", "arity": 2, "slot_entities": ["Person", "Person"]},
+        {"name": "raw", "arity": 2, "slot_entities": ["Person", "Person"]},
+        {
+            "name": "members",
+            "derivation": {
+                "source_relation": "raw",
+                "current_slot": 0,
+                "related_slot": 1,
+                "slot_entities": ["Person", "Person"],
+                "predicate": {
+                    "kind": "relation_atom",
+                    "relation": "parents",
+                    "terms": ["anchor" if anchor_term else "candidate", "candidate"],
+                },
+            },
+        },
+    ]
+    kwargs = dict(
+        case_name="pair",
+        compiled_path=tmp_path / "compiled.json",
+        binary=tmp_path / "engine",
+        axiom_rules_path=tmp_path,
+        env={},
+        parameter_by_id={},
+        derived_ids=set(d),
+        derived_by_id=d,
+        declared_relation_names={"parents", "raw", "members"},
+        declared_relation_slots={
+            name: ("Person", "Person") for name in ("parents", "raw", "members")
+        },
+        compiled_relations=schemas,
+        policy_repo_path=tmp_path / "rulespec-us/us",
+        request_only=True,
+    )
+    case = {
+        "period": "2024-01",
+        "input": {
+            "us:statutes/example#relation.parents": [
+                {"us:statutes/example#input.age": 10}
+            ],
+            "us:statutes/example#relation.raw": [{"us:statutes/example#input.age": 10}],
+        },
+        "output": {"count": 1},
+    }
+    if not anchor_term:
+        with pytest.raises(ValueError) as error:
+            _execute_rulespec_test_case(tmp_path / "case.test.yaml", case, **kwargs)
+        assert str(error.value) == (
+            "relation `us:statutes/example#relation.parents` compact rows have no "
+            "unambiguous query-anchor direction; use explicit `tuple` rows"
+        )
+        return
+    request = _execute_rulespec_test_case(tmp_path / "case.test.yaml", case, **kwargs)
+    tuples = [
+        row["tuple"]
+        for row in request["dataset"]["relations"]
+        if row["name"] == "parents"
+    ]
+    assert tuples and all(pair[0] == "case" for pair in tuples)
+
+
+@pytest.mark.parametrize("value", [True, False])
+@pytest.mark.parametrize("unused_member_alias", [False, True])
+def test_anchored_constant_predicate_requires_explicit_pair_facts(
+    value, unused_member_alias
+):
+    relations = role_relations()
+    relations[1]["derivation"] = {
+        "source_relation": "parents",
+        "current_slot": 0,
+        "related_slot": 1,
+        "slot_entities": ["Person", "Person"],
+        "predicate": {
+            "kind": "comparison",
+            "left": {"kind": "literal", "value": {"kind": "bool", "value": value}},
+            "op": "eq",
+            "right": {"kind": "literal", "value": {"kind": "bool", "value": True}},
+        },
+    }
+    if unused_member_alias:
+        relations[1]["derivation"]["member_relation"] = "unused_alias"
+    assert pair_relation_assignment_issues(relations, {"input": {}}, "constant") == [
+        "Test case `constant` must assign pair relation `parents`, including `[]` when no tuples hold."
+    ]
+    assert (
+        pair_relation_assignment_issues(
+            relations, {"input": {"parents": []}}, "constant"
+        )
+        == []
+    )
+
+
+def test_mixed_constant_anchored_and_legacy_views_require_all_pair_facts():
+    relations = role_relations()
+    relations[1]["derivation"].update(
+        {
+            "entity": "SnapUnit",
+            "member_relation": "members",
+            "predicate": {"kind": "derived", "name": "eligible"},
+        }
+    )
+    relations.extend(
+        [
+            {"name": "other_pairs", "arity": 2, "slot_entities": ["Person", "Person"]},
+            {
+                "name": "anchored_members",
+                "arity": 2,
+                "derivation": {
+                    "source_relation": "other_pairs",
+                    "current_slot": 0,
+                    "related_slot": 1,
+                    "slot_entities": ["Person", "Person"],
+                    "predicate": {"kind": "comparison"},
+                },
+            },
+        ]
+    )
+    assert pair_relation_assignment_issues(relations, {"input": {}}, "mixed") == [
+        "Test case `mixed` must assign pair relation `parents`, including `[]` when no tuples hold.",
+        "Test case `mixed` must assign pair relation `other_pairs`, including `[]` when no tuples hold.",
+    ]
