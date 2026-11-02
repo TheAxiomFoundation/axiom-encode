@@ -111,10 +111,13 @@ REVIEWED_RULESPEC_DECLARED_FIELDS = frozenset(
 # They never recorded which module they admitted, so their records carry no
 # binding and promote-reviewed-candidate keeps their original behaviour (any
 # eligible module at the commit). FROZEN: never add an entry. Every later
-# record must carry a binding to be promotable.
+# record must carry a binding to be promotable. ca 94789006 is a pre-record
+# admission too: axiom-encode#1984 added it to the shared allowlist, for all
+# protected artifact-only modes including promotion, before records replaced it.
 UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS = frozenset(
     {
         ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
+        ("ca", "94789006ce372a1967c258ef47c12b15a1fe511e"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         ("dk", "06489d04e7d4b8d424d1711d99df883c6411248a"),
         ("us", "1e04e456ab404860050586c34eef51321eea95e9"),
