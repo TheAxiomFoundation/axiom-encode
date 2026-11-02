@@ -24822,8 +24822,8 @@ def test_the_hebrew_word_run_lookup_stays_linear_across_thousands_of_phrases(
             lambda: [original(*args, **kwargs) for args, kwargs, _s in calls],
             check,
             setup=gc.collect,
-            # A few milliseconds per sample: five runs make it likelier that
-            # one of them misses a slow spell on a shared host.
+            # Under a millisecond per small sample: five runs make it likelier
+            # that one of them misses a slow spell on a shared host.
             runs=5,
         )
 
@@ -27523,46 +27523,50 @@ def test_rulespec_proof_parent_resolution_grows_linearly_across_lines():
     assert_linear_growth(work(192), work(3_072), input_ratio=16)
 
 
-def test_rulespec_proof_parent_resolution_stays_near_native_line_lookups():
+def test_rulespec_proof_parent_resolution_stays_far_below_a_python_line_scan():
     # On one long line, correct code's newline lookups scan each prefix in C,
     # so the resolution is quadratic but cheap, and no growth bound tells
     # that scan from a Python loop back to the line start. Compare instead
-    # with a native newline lookup at each structural marker on the same
-    # line, measured in the same process: the resolver's own work at each
-    # marker adds a constant factor, while a Python loop multiplies the
-    # lookup by its cost per character, whatever the machine.
+    # with that loop itself at one marker in 64, measured in the same process:
+    # a resolver that runs it at every marker of one kind takes about 21 times
+    # the loop's steps here, whatever the machine. A native lookup's own cost
+    # moves with the platform, so it makes a poor yardstick: the same regression
+    # took 1,100-2,800 times the native lookups' work on Linux and 28-88 times
+    # on macOS.
     source_text = " ".join("a. (1) Items: (a) Item." for _ in range(768))
     assert "\n" not in source_text
     numeric_start = source_text.rfind("(1)")
-    starts = [
+    sampled_starts = [
         match.start()
         for match in re.compile(
             r"(?<![A-Za-z])[a-z]\.(?=\s)|\([a-z]\)(?=\s)|\(\d+\)"
         ).finditer(source_text, 0, numeric_start + 1)
-    ]
+    ][::64]
 
-    def check_lookups(line_starts):
-        assert line_starts == [-1] * len(starts)
+    def python_line_starts():
+        line_starts = []
+        for start in sampled_starts:
+            line_start = start - 1
+            while line_start >= 0 and source_text[line_start] != "\n":
+                line_start -= 1
+            line_starts.append(line_start)
+        return line_starts
+
+    def check_scan(line_starts):
+        assert line_starts == [-1] * len(sampled_starts)
 
     def check(result):
         assert result == ("a", "dotted")
 
-    lookups = lowest_work(
-        lambda: [source_text.rfind("\n", 0, start) for start in starts],
-        check_lookups,
-        setup=gc.collect,
-    )
+    python_scan = lowest_work(python_line_starts, check_scan, setup=gc.collect)
     resolution = lowest_work(
         lambda: _source_top_level_marker_for_numeric_parent(source_text, numeric_start),
         check,
         setup=gc.collect,
     )
-    # The lookups stand in for the small sample: this allows the resolution
-    # 240 times their work, after the clock's floor, with one fresh pair.
-    # On a 4-vCPU Linux machine correct code took 11-14 times the lookups'
-    # CPU time plain and 16-56 times under coverage, and a Python loop back
-    # to the line start took 1,100-2,800 times.
-    assert_linear_growth(lookups, resolution, input_ratio=80)
+    # The sampled scan stands in for the small sample: this allows the
+    # resolution 6 times its work, after the clock's floor, with one fresh pair.
+    assert_linear_growth(python_scan, resolution, input_ratio=2)
 
 
 def _reference_chain_source(count):
