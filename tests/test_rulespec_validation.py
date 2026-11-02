@@ -24785,8 +24785,10 @@ def test_the_hebrew_word_run_lookup_stays_linear_across_thousands_of_phrases(
     # count, so a native linear count in place of the bisect stays under the
     # bound there. Measured alone, with the arguments the percentage pass
     # passes it, the run lookup has little Python work left to dilute the
-    # count, which then fails at 2,000 phrases in both modes. A refactor that
-    # stops calling the lookup fails the capture rather than passing.
+    # count, which then fails at 2,000 phrases in both modes. On a 4-vCPU
+    # Linux machine correct code grew 8-19 times plain and 14-17 times under
+    # coverage, and the native count 193-227 times. A refactor that stops
+    # calling the lookup fails the capture rather than passing.
     unit = "בשיעור של חמישה אחוזים מההכנסה; "
     original = validator_pipeline._hebrew_word_run_before
 
@@ -24820,6 +24822,9 @@ def test_the_hebrew_word_run_lookup_stays_linear_across_thousands_of_phrases(
             lambda: [original(*args, **kwargs) for args, kwargs, _s in calls],
             check,
             setup=gc.collect,
+            # A few milliseconds per sample: five runs make it likelier that
+            # one of them misses a slow spell on a shared host.
+            runs=5,
         )
 
     assert_linear_growth(work(125), work(2_000), input_ratio=16)
@@ -27553,8 +27558,11 @@ def test_rulespec_proof_parent_resolution_stays_near_native_line_lookups():
         setup=gc.collect,
     )
     # The lookups stand in for the small sample: this allows the resolution
-    # 120 times their work, after the clock's floor, with one fresh pair.
-    assert_linear_growth(lookups, resolution, input_ratio=40)
+    # 240 times their work, after the clock's floor, with one fresh pair.
+    # On a 4-vCPU Linux machine correct code took 11-14 times the lookups'
+    # CPU time plain and 16-56 times under coverage, and a Python loop back
+    # to the line start took 1,100-2,800 times.
+    assert_linear_growth(lookups, resolution, input_ratio=80)
 
 
 def _reference_chain_source(count):
