@@ -1,0 +1,104 @@
+format: rulespec/v1
+module:
+  summary: |-
+    18 NYCRR 387.14(a)(1) prorates a New York SNAP household's initial
+    month benefit from the application date through the end of the initial
+    month. For a resident of a public institution who jointly applies for SSI
+    and SNAP through the SSA prerelease program, the proration start date is
+    the release date. Migrant and seasonal farmworker households have an
+    initial month only after a break in certification of more than 30 days.
+  source_verification:
+    corpus_citation_path: us-ny/regulation/18-nycrr/387/14/a/1
+imports:
+  - us:policies/usda/snap/fy-2026-cola/maximum-allotments
+  - us:regulations/7-cfr/273/10
+  - us:statutes/7/2017/a
+rules:
+  - name: snap_initial_month_proration_start_date
+    kind: derived
+    entity: Household
+    dtype: Date
+    period: Month
+    source: 18 NYCRR 387.14(a)(1)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if public_institution_joint_ssi_snap_application_before_release:
+              public_institution_release_date
+          else: application_date
+  - name: snap_initial_month_proration_exception
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: 18 NYCRR 387.14(a)(1)(ii)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          migrant_or_seasonal_farmworker_household_in_job_stream
+          and break_in_participation_days <= 30
+  - name: snap_initial_month_proration_applies
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: 18 NYCRR 387.14(a)(1)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: initial_application_month and not snap_initial_month_proration_exception
+  - name: snap_days_in_application_month
+    kind: derived
+    entity: Household
+    dtype: Integer
+    period: Month
+    source: 18 NYCRR 387.14(a)(1)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: days_between(period_start, date_add_days(period_end, 1))
+  - name: snap_initial_month_proration_days
+    kind: derived
+    entity: Household
+    dtype: Integer
+    period: Month
+    source: 18 NYCRR 387.14(a)(1)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          days_between(
+              snap_initial_month_proration_start_date,
+              date_add_days(period_end, 1)
+          )
+  - name: snap_initial_month_proration_factor
+    kind: derived
+    entity: Household
+    dtype: Rate
+    period: Month
+    source: 18 NYCRR 387.14(a)(1)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_initial_month_proration_days / snap_days_in_application_month
+  - name: snap_initial_month_prorated_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: 18 NYCRR 387.14(a)(1)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: floor(snap_allotment_before_minimum * snap_initial_month_proration_factor)
+  - name: snap_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: 18 NYCRR 387.14(a)(1)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if snap_eligible:
+              if snap_initial_month_proration_applies:
+                  snap_initial_month_allotment_after_minimum_issuance
+              else: snap_regular_month_allotment
+          else: 0

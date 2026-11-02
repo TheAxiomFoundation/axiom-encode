@@ -1,0 +1,17 @@
+format: rulespec/v1
+module:
+  summary: Reduced dependent-admission entity mismatch from issue 1851.
+inputs:
+  - name: claimable_as_dependent_on_another_return
+    entity: Person
+    dtype: Boolean
+    period: Month
+rules:
+  - name: nm_certain_dependents_person_admission
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: claimable_as_dependent_on_another_return

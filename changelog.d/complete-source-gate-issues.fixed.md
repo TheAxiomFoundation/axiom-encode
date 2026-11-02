@@ -1,0 +1,1 @@
+Fail the complete-source analysis closed on payloads it cannot analyse (`[complete-source-unit:unanalyzable]`) instead of returning zero issues (#1927); keep a number on the line after a bare month name in numeric recall (#1822); and make the terminal session-law history strip do linear work on adversarial input (#1828).

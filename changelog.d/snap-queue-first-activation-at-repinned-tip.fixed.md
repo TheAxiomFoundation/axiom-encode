@@ -1,0 +1,1 @@
+A never-activated protected SNAP queue (no suspension evidence, every item pending on attempt 1) can now activate at the exact tip its authenticated paused repin pinned. Before this, finalization demanded a strictly newer tip, so a queue repinned to a live branch tip could not start until that branch moved again. A queue that has run a tranche must still advance.

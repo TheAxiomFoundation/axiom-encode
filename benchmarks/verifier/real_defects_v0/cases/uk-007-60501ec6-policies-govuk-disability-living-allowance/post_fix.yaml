@@ -1,0 +1,164 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_paths:
+      - uk/guidance/govuk/disability-living-allowance-children
+      - uk/guidance/govuk/disability-living-allowance-children/rates
+      - uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+  summary: |-
+    Disability living allowance for children as described by GOV.UK guidance: a
+    weekly amount for a child under 16, made up of a care component paid at the
+    lowest, middle or highest rate and a mobility component paid at the lower
+    rate (children aged 5 or over) or higher rate (children aged 3 or over).
+    Weekly rates are those set by the Social Security Benefits Up-rating Order
+    2026.
+imports:
+  - uk:regulations/uksi/2026/148/article/14#dla_self_care_higher_weekly_rate
+  - uk:regulations/uksi/2026/148/article/14#dla_self_care_middle_weekly_rate
+  - uk:regulations/uksi/2026/148/article/14#dla_self_care_lower_weekly_rate
+  - uk:regulations/uksi/2026/148/article/14#dla_mobility_higher_weekly_rate
+  - uk:regulations/uksi/2026/148/article/14#dla_mobility_lower_weekly_rate
+rules:
+  - name: disability_living_allowance_weeks_in_year
+    kind: parameter
+    dtype: Count
+    source: Universal Credit Regulations 2013, Schedule 4 paragraph 7 (weekly amounts converted over 52 weeks)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+              excerpt: "calculated as a monthly amount"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          52
+
+  - name: dla_care_component_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: GOV.UK, Disability Living Allowance for children, "DLA rates for children"
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/govuk/disability-living-allowance-children/rates
+              excerpt: "help or supervision throughout both day and night"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/govuk/disability-living-allowance-children/rates
+              excerpt: "frequent help or continual supervision during the day"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/govuk/disability-living-allowance-children/rates
+              excerpt: "help for some of the day"
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/article/14#dla_self_care_higher_weekly_rate
+              output: dla_self_care_higher_weekly_rate
+              hash: sha256:2b397b176389de17d3f3f0745ae19d33bce746064f9e9e5a5c2dacbd7b78c002
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/article/14#dla_self_care_middle_weekly_rate
+              output: dla_self_care_middle_weekly_rate
+              hash: sha256:2b397b176389de17d3f3f0745ae19d33bce746064f9e9e5a5c2dacbd7b78c002
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/article/14#dla_self_care_lower_weekly_rate
+              output: dla_self_care_lower_weekly_rate
+              hash: sha256:2b397b176389de17d3f3f0745ae19d33bce746064f9e9e5a5c2dacbd7b78c002
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if not child_is_under_16: 0 else: if care_component_is_highest_rate: dla_self_care_higher_weekly_rate else: if care_component_is_middle_rate: dla_self_care_middle_weekly_rate else: if care_component_is_lowest_rate: dla_self_care_lower_weekly_rate else: 0
+
+  - name: dla_mobility_component_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: GOV.UK, Disability Living Allowance for children, "DLA rates for children"
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/govuk/disability-living-allowance-children/rates
+              excerpt: "5 years or over"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/govuk/disability-living-allowance-children/rates
+              excerpt: "3 years or over"
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/article/14#dla_mobility_higher_weekly_rate
+              output: dla_mobility_higher_weekly_rate
+              hash: sha256:2b397b176389de17d3f3f0745ae19d33bce746064f9e9e5a5c2dacbd7b78c002
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/article/14#dla_mobility_lower_weekly_rate
+              output: dla_mobility_lower_weekly_rate
+              hash: sha256:2b397b176389de17d3f3f0745ae19d33bce746064f9e9e5a5c2dacbd7b78c002
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if not child_is_under_16: 0 else: if mobility_component_is_higher_rate and child_is_aged_3_or_over: dla_mobility_higher_weekly_rate else: if mobility_component_is_lower_rate and child_is_aged_5_or_over: dla_mobility_lower_weekly_rate else: 0
+
+  - name: disability_living_allowance_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: GOV.UK, Disability Living Allowance for children
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/guidance/govuk/disability-living-allowance-children
+              excerpt: "The DLA rate is between £30.30 and £194.60 a week"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          dla_care_component_weekly_amount + dla_mobility_component_weekly_amount
+
+  - name: disability_living_allowance_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: GOV.UK, Disability Living Allowance for children (weekly amount annualised)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/guidance/govuk/disability-living-allowance-children
+              excerpt: "The DLA rate is between £30.30 and £194.60 a week"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          disability_living_allowance_weekly_amount * disability_living_allowance_weeks_in_year

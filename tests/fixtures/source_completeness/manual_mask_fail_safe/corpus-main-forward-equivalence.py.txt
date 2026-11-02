@@ -1,0 +1,50 @@
+"""Bind the recorded baseline to later observed main by exact package bytes."""
+from __future__ import annotations
+import hashlib
+import json
+import subprocess
+from pathlib import Path
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+BASELINE='4f3547461300bfa70569f57c83728b2ad25d9d0b'
+FORWARD='52c76d75849a628bbfd62b31795fd06e6bf9fdd1'
+
+
+def git(*arguments):return subprocess.check_output(['git',*arguments],cwd=ROOT)
+def sha(data):return hashlib.sha256(data).hexdigest()
+
+
+def blobs(commit):
+    result={}
+    for item in git('ls-tree','-rz',commit,'src/axiom_encode').split(b'\0'):
+        if not item:continue
+        metadata,path=item.split(b'\t',1);mode,kind,digest=metadata.decode().split()
+        if kind=='blob':result[path.decode()]={'mode':mode,'git_blob_sha1':digest}
+    return result
+
+
+old,current=blobs(BASELINE),blobs(FORWARD)
+assert old==current and len(old)==99
+tree_old=git('rev-parse',BASELINE+':src/axiom_encode').decode().strip()
+tree_current=git('rev-parse',FORWARD+':src/axiom_encode').decode().strip()
+assert tree_old==tree_current
+review=json.loads((HERE/'review-corpus-proof.json').read_text())
+reviewed={entry['path']:entry for entry in review['baseline_package_blobs']}
+assert old.keys()==reviewed.keys()
+for name,entry in old.items():assert entry['git_blob_sha1']==reviewed[name]['git_blob_sha1']
+locked={}
+for name in ('pyproject.toml','uv.lock'):
+    before=git('show',BASELINE+':'+name);after=git('show',FORWARD+':'+name)
+    assert before==after
+    locked[name]={'identical_bytes':True,'sha256':sha(before),'baseline_git_blob':git('rev-parse',BASELINE+':'+name).decode().strip(),'forward_git_blob':git('rev-parse',FORWARD+':'+name).decode().strip()}
+report={'recorded_execution_baseline':BASELINE,'later_observed_main':FORWARD,
+    'origin_main_observed_when_report_created':git('rev-parse','origin/main').decode().strip(),
+    'baseline_package_tree_id':tree_old,'later_main_package_tree_id':tree_current,
+    'entire_python_package_tree_identical':True,'all_99_baseline_git_blobs_identical':True,
+    'baseline_package_blobs':review['baseline_package_blobs'],'locked_files':locked,
+    'recorded_baseline_proof_sha256':sha((HERE/'review-corpus-proof.json').read_bytes()),
+    'execution_summary_policy':'The emitted summary retains its actual recorded baseline. Exact package and lock equality transfers numeric results to the later observed main without re-execution or relabeling.',
+    'reproducer_sha256':sha(Path(__file__).read_bytes())}
+(HERE/'corpus-main-forward-equivalence.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
+print(json.dumps({'recorded_baseline':BASELINE,'later_main':FORWARD,'package_tree_id':tree_old,'blobs':len(old),'all_equal':True,'report_sha256':sha((HERE/'corpus-main-forward-equivalence.json').read_bytes())},indent=2))

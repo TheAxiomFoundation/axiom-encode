@@ -21,6 +21,7 @@ from axiom_encode.repo_routing import (
     canonical_rulespec_repo_name,
     find_policy_repo_root,
 )
+from axiom_encode.yaml_serialization import safe_dump_yaml
 
 
 @dataclass(frozen=True)
@@ -425,7 +426,7 @@ def build_registered_stub_content(specs: Sequence[ResolvedDefinedTerm]) -> str:
             for spec in specs
         ],
     }
-    return yaml.safe_dump(payload, sort_keys=False)
+    return safe_dump_yaml(payload, sort_keys=False)
 
 
 def materialize_registered_stub(

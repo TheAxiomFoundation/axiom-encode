@@ -1,0 +1,1 @@
+Recognize Arizona SNAP "budgetary unit" participant language as household-scoped so protected repairs preserve household aggregate rules instead of rewriting them as person rules, and bump the encoder to 0.2.2059.

@@ -1,0 +1,489 @@
+{
+  "id": "us-248-70376bf8-us-policies-usitc-us-tariff-duty-overlays-ieepa-fentanyl-energy-9903-01-13",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "70376bf80a09ea7110e3eb80883c9ecec568a7e5",
+  "parent_commit": "729408dbf61dc8f2806099f5928c46b7f7b31ea7",
+  "commit_date": "2026-08-02T04:23:16-04:00",
+  "commit_subject": "Gate the energy heading on chapter 98 claims and 9903.01.16 transshipment",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1195",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/fentanyl-energy-9903-01-13.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.01.13",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.01.13",
+    "us/statute/hts/9903.01.11",
+    "us/statute/hts/9903.01.12",
+    "us/statute/hts/9903.01.14",
+    "us/statute/hts/9903.01.15",
+    "us/statute/hts/chapter-99/page-174",
+    "us/statute/hts/chapter-99/page-175"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.92,
+  "description": "Note 2(j) excludes properly claimed chapter 98 entries from the 9903.01.13 additional duty except goods entered under 9802.00.80/.40/.50/.60, and note 2(m) substitutes heading 9903.01.16's 40% rate for goods CBP determines were transshipped to evade these duties.",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        15,
+        15
+      ],
+      [
+        56,
+        57
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        13,
+        13
+      ],
+      [
+        15,
+        15
+      ],
+      [
+        56,
+        57
+      ],
+      [
+        83,
+        97
+      ],
+      [
+        118,
+        120
+      ]
+    ],
+    "rule_names": [
+      "fentanyl_energy_additional_duty_applies"
+    ],
+    "rule_path": "rules[fentanyl_energy_additional_duty_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "bca59c69f58781ff8e06cc37eedf84bf7a0ac580e869335d1891d53821f600ee",
+  "post_fix_artifact_sha256": "c09050af487e0912fd2987609bbd5236ebf69ef91a9b03e4c315e859fabf33cd",
+  "provision_sha256": "b8cfeeba965aef88b867a24d256e4379e22669c33b9088986498860cac2a5a01",
+  "provision_chars": 12923,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.01.13",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1094,
+    "record_id": "4af929c8-26db-5fa5-b1dd-db517100f355",
+    "stored_body_sha256": "b6762c3f5a1058084b905e80e87da95a93c7d04f869f73345ebe588eea887639",
+    "resolved_text_sha256": "b6762c3f5a1058084b905e80e87da95a93c7d04f869f73345ebe588eea887639",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.01.13",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      }
+    ]
+  },
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "b6762c3f5a1058084b905e80e87da95a93c7d04f869f73345ebe588eea887639",
+    "first_citation_chars": 477,
+    "added": [
+      {
+        "citation_path": "us/statute/hts/chapter-99/page-174",
+        "text_sha256": "29a067fce87385a044d3e8eed42f17c2332e6be42756da78d1dd7c2d4a674f92",
+        "chars": 6207,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/statute/hts/chapter-99/page-174",
+          "provision_file": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+          "provision_file_sha256": "818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+          "line_number": 184,
+          "record_id": "d03e745a-fbae-5f19-9014-d498ec2e453c",
+          "stored_body_sha256": "29a067fce87385a044d3e8eed42f17c2332e6be42756da78d1dd7c2d4a674f92",
+          "resolved_text_sha256": "29a067fce87385a044d3e8eed42f17c2332e6be42756da78d1dd7c2d4a674f92",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-02-12",
+          "source_as_of": "2026-08-01",
+          "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64"
+        }
+      },
+      {
+        "citation_path": "us/statute/hts/chapter-99/page-175",
+        "text_sha256": "b8505f63805d929872ed7be902021e726fbc180a6cfacdc0a1d4b964fda7ac89",
+        "chars": 6091,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/statute/hts/chapter-99/page-175",
+          "provision_file": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+          "provision_file_sha256": "818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+          "line_number": 185,
+          "record_id": "1c5fb19a-f791-505b-a9d8-a9a27628acc7",
+          "stored_body_sha256": "b8505f63805d929872ed7be902021e726fbc180a6cfacdc0a1d4b964fda7ac89",
+          "resolved_text_sha256": "b8505f63805d929872ed7be902021e726fbc180a6cfacdc0a1d4b964fda7ac89",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-02-12",
+          "source_as_of": "2026-08-01",
+          "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "fentanyl_energy_additional_duty_applies"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Except for products described in headings 9903.01.11, 9903.01.12, 9903.01.14 and 9903.01.15 and other than products for personal use included in accompanied baggage of persons arriving in the United States, articles the product of Canada:",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.13",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The additional duties imposed by headings 9903.01.10 and 9903.01.13 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 of the tariff schedule pursuant to applicable regulations of U.S. Customs and Border Protection",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-174",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-174",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "transshipped to evade applicable duties provided for by headings 9903.01.10, 9903.01.13, or 9903.01.15 shall be subject to an additional 40% ad valorem rate of duty in lieu of the additional rate of duty provided for in headings 9903.01.10, 9903.01.13, or 9903.01.15",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-175",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Articles that are entered free of duty under the terms of general note 11 to the HTSUS, including any treatment set forth in subchapter XXIII of chapter 98 and subchapter XXII of chapter 99 of the HTS, as related to the USMCA.",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.14",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Articles the product of Canada that are donations, by persons subject to the jurisdiction of the United States, of articles, such as food, clothing, and medicine, intended to be used to relieve human suffering, as provided for in U.S. note 2(k) to this subchapter",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.11",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Articles the product of Canada that are informational materials, including but not limited to, publications, films, posters, phonograph records, photographs, microfilms, microfiche, tapes, compact disks, CD ROMs, artworks, and news wire feeds",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Crude oil, natural gas, lease condensates, natural gas liquids, refined petroleum products, uranium, coal, biofuels, geothermal heat, the kinetic movement of flowing water, and critical minerals",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.13",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "For the purposes of heading 9903.01.13, the covered products of Canada shall be subject to an additional 10% ad valorem rate of duty",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-174",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Potash that is a product of Canada, as provided for in U.S. note 2(I) to this subchapter",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.15",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "other than products for personal use included in accompanied baggage of persons arriving in the United States",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-174",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Except for products described in headings 9903.01.11, 9903.01.12, 9903.01.13, 9903.01.14 or 9903.01.15",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The additional duties imposed by headings 9903.01.10 and 9903.01.13 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 ... except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The additional duties imposed by headings 9903.01.10 and 9903.01.13 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 of the tariff schedule ... except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "do not qualify as originating under the USMCA",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "in lieu of the additional rate of duty provided for in headings 9903.01.10, 9903.01.13, or 9903.01.15",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "this heading's rate — so the pre-fix encoding, whose own source field is",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 10,
+    "post_side_matched": 6,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/hts/chapter-99/page-174",
+        "quote": "The additional duties imposed by headings 9903.01.10 and 9903.01.13 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 of the tariff schedule",
+        "span": [
+          5004,
+          5187
+        ]
+      },
+      {
+        "citation_path": "us/statute/hts/chapter-99/page-174",
+        "quote": "except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60",
+        "span": [
+          2106,
+          2211
+        ]
+      },
+      {
+        "citation_path": "us/statute/hts/chapter-99/page-175",
+        "quote": "transshipped to evade applicable duties provided for by headings 9903.01.10, 9903.01.13, or 9903.01.15 shall be subject to an additional 40% ad valorem rate of duty in lieu of the additional rate of duty provided for in headings 9903.01.10, 9903.01.13, or 9903.01.15",
+        "span": [
+          10818,
+          11084
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "U.S. note 2(j) on page 174 names heading 9903.01.13 and excludes goods properly claimed under chapter 98, except entries under 9802.00.80, .40, .50 and .60. Note 2(m) on page 175 puts CBP-determined transshipped goods under the 40% rate instead of this heading's rate. The pre-fix applicability formula has neither exclusion, so it applies the 10% to both groups. provision.txt is only the 9903.01.13 article list and rate columns and says nothing on chapter 98 or transshipment.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "adjudication_note": "",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.93,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.93,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
+  "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-70376bf8-3370c1963faf",
+  "family_size": 1,
+  "family_representative": true,
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix applicability formula applied the 9903.01.13 additional 10% duty to goods that HTS U.S. note 2(j) exempts because entry was properly claimed under a chapter 98 provision (outside the 9802.00.80/.40/.50/.60 exceptions), and to goods that note 2(m) removes from this heading's rate in favor of heading 9903.01.16's 40% transshipment rate.",
+    "triage_notes": "Provision read through the pinned corpus release (us-rulespec-2026-08-03-ecps-pit-tariff-union). Page-174 note 2(j) verbatim: \"The additional duties imposed by headings 9903.01.10 and 9903.01.13 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 of the tariff schedule ... except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60\" — it names 9903.01.13 explicitly, so the carve-out was genuinely missing, not new scope. Page-175 note 2(m) verbatim: transshipped-to-evade goods are subject to 40% \"in lieu of the additional rate of duty provided for in headings 9903.01.10, 9903.01.13, or 9903.01.15\", so the pre-fix module over-applied the 10% to those goods. Decisive change is the formula: adds `and not (article_is_properly_claimed_chapter_98_entry and not article_is_9802_excepted_entry)` and `and not article_is_cbp_determined_transshipped_to_evade`. Bundled with the formula fix, and mechanical on their own: the heading-exception proof atom was re-anchored from corpus_citation_path us/statute/hts/9903.01.10 (excerpt \"Except for products described in headings 9903.01.11, 9903.01.12, 9903.01.13, 9903.01.14 or 9903.01.15\", which is 9903.01.10's own exception list, i.e. the wrong record) to us/statute/hts/9903.01.13 with its inherited ancestor text; module summary expanded; source_verification list drops 9903.01.10 and adds chapter-99/page-175. The resolver returns only the 9903.01.13 record body (no inherited ancestor text), so the new excerpt could not be byte-verified against the resolver output — proof-validate presumably checks it against the inherited text. Residual precision gap a reviewer may note: the new transshipment gate does not encode note 2(m)'s \"do not qualify as originating under the USMCA\" qualifier, though the formula separately excludes article_is_usmca_duty_free_good. The bundled PR body is PR #1195, which describes the original creation of these overlay modules and does not mention these gates; the commit message is the defect statement. Also changed in the commit: the companion test file (12 new behavioral witness cases plus the three new inputs added to existing cases) and the .axiom encoding manifest.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.93,
+    "verifier_justification": "The diff changes encoded meaning: the applicability formula for fentanyl_energy_additional_duty_applies gains three conjuncts that gate the 9903.01.13 additional duty on a properly claimed chapter 98 entry (with the 9802.00.80/.40/.50/.60 carve-back) and on CBP-determined transshipment. Reading note 2(j) and 2(m) through the pinned release (provision file data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl, lines 184 and 185) confirms the source states both clauses for heading 9903.01.13 — \"The additional duties imposed by headings 9903.01.10 and 9903.01.13 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 ... except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60\" and the 40% transshipment rate \"in lieu of\" this heading's rate — so the pre-fix encoding, whose own source field is \"HTS 9903.01.13 article scope under U.S. note 2(j)\", disagreed with the very provision it cites. This is not mechanical (the formula, not just proof atoms, changed) and not mere new scope (the module already claimed note 2(j) scope); the added companion cases show the gates flip the result. The concurrent re-anchor of the heading-exception atom from 9903.01.10 to 9903.01.13 is provenance only and does not displace unrepresented_clause as the kind.",
+    "verifier_quote": "+          and not (article_is_properly_claimed_chapter_98_entry\n+                   and not article_is_9802_excepted_entry)\n+          and not article_is_cbp_determined_transshipped_to_evade",
+    "verifier_notes": "Decisive evidence is the formula hunk at rules[fentanyl_energy_additional_duty_applies].versions[0].formula (diff <scratch>/diffs/us/70376bf80a/000.diff). Source verification: resolve_provision on us/statute/hts/chapter-99/page-174 (note 2(j), chapter 98 / 9802 carve-back) and page-175 (note 2(m), 40% in lieu of the 9903.01.13 rate), corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union. Companion test additions witness the behavior change (chapter-98 claim with 9802 false -> not subject; 9802 true -> still subject; transshipped -> out of heading), so the new conjuncts are load-bearing rather than inert free facts. Mixed-content caveat: the same commit re-anchors one exception proof atom from us/statute/hts/9903.01.10 to us/statute/hts/9903.01.13 with a new excerpt, adds page-175 to corpus_citation_paths, drops 9903.01.10, and extends the summary — those parts are mechanical provenance/metadata. Residual fidelity gaps left unencoded: note 2(m)'s \"do not qualify as originating under the USMCA\" qualifier is not in the transshipment gate (only partly covered by the pre-existing not article_is_usmca_duty_free_good), and note 2(j)'s partial-value base for 9802.00.40/.50/.60 (value of repairs/alterations/processing) and 9802.00.80 (value assembled abroad less US content) is not represented — the module treats a 9802 entry as fully subject to the 10%.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen",
+    "screen_reason": "Adds missing note 2(j)/2(m) gates to the existing energy heading and \"re-anchor the heading-exception atom to the 9903.01.13 record's inherited ancestor text\" (PR #1195).",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
+  },
+  "triage_notes": "Provision read through the pinned corpus release (us-rulespec-2026-08-03-ecps-pit-tariff-union). Page-174 note 2(j) verbatim: \"The additional duties imposed by headings 9903.01.10 and 9903.01.13 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 of the tariff schedule ... except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60\" — it names 9903.01.13 explicitly, so the carve-out was genuinely missing, not new scope. Page-175 note 2(m) verbatim: transshipped-to-evade goods are subject to 40% \"in lieu of the additional rate of duty provided for in headings 9903.01.10, 9903.01.13, or 9903.01.15\", so the pre-fix module over-applied the 10% to those goods. Decisive change is the formula: adds `and not (article_is_properly_claimed_chapter_98_entry and not article_is_9802_excepted_entry)` and `and not article_is_cbp_determined_transshipped_to_evade`. Bundled with the formula fix, and mechanical on their own: the heading-exception proof atom was re-anchored from corpus_citation_path us/statute/hts/9903.01.10 (excerpt \"Except for products described in headings 9903.01.11, 9903.01.12, 9903.01.13, 9903.01.14 or 9903.01.15\", which is 9903.01.10's own exception list, i.e. the wrong record) to us/statute/hts/9903.01.13 with its inherited ancestor text; module summary expanded; source_verification list drops 9903.01.10 and adds chapter-99/page-175. The resolver returns only the 9903.01.13 record body (no inherited ancestor text), so the new excerpt could not be byte-verified against the resolver output — proof-validate presumably checks it against the inherited text. Residual precision gap a reviewer may note: the new transshipment gate does not encode note 2(m)'s \"do not qualify as originating under the USMCA\" qualifier, though the formula separately excludes article_is_usmca_duty_free_good. The bundled PR body is PR #1195, which describes the original creation of these overlay modules and does not mention these gates; the commit message is the defect statement. Also changed in the commit: the companion test file (12 new behavioral witness cases plus the three new inputs added to existing cases) and the .axiom encoding manifest. | verifier confirmed at 0.93"
+}

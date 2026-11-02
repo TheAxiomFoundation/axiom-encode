@@ -1,0 +1,1 @@
+Add v2 neutral metadata migration plans and receipts for retired source-verification URL lists. Preserve ordered URLs and exact YAML history, keep v1 receipt replay byte-identical, and reuse protected signing, ownership, and complete proof-pin cascade checks. This does not establish source fidelity or publication readiness.

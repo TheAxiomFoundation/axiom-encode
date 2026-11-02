@@ -1,0 +1,393 @@
+1.
+A tax is hereby imposed for each taxable year upon income earned or received in that
+taxable year by every resident and nonresident individual, estate, and trust. A taxpayer
+computing the tax under this section is only eligible for those adjustments or credits
+that are specifically provided for in this section. Provided, that for purposes of this
+section, any person required to file a state income tax return under this chapter, but
+who has not computed a federal taxable income figure, shall compute a federal
+taxable income figure using a pro forma return in order to determine a federal taxable
+income figure to be used as a starting point in computing state income tax under this
+section. The tax for individuals is equal to North Dakota taxable income multiplied by
+the rates in the applicable rate schedule in subdivisions a through d corresponding to
+an individual's filing status used for federal income tax purposes. For an estate or trust,
+the schedule in subdivision e must be used for purposes of this subsection.
+a.
+Single, other than head of household or surviving spouse.
+If North Dakota taxable income is:
+Over | Not over | The tax is equal to | Of amount over
+$0 | $49,575 | $0.00 + 0.00% | $0
+$49,575 | $250,400 | $0.00 + 1.95% | $49,575
+$250,400 |  | $3,916.09 + 2.50% | $250,400
+b.
+Married filing jointly and surviving spouse.
+If North Dakota taxable income is:
+Over | Not over | The tax is equal to | Of amount over
+$0 | $82,800 | $0.00 + 0.00% | $0
+$82,800 | $304,850 | $0.00 + 1.95% | $82,800
+$304,850 |  | $4,329.98 + 2.50% | $304,850
+c.
+Married filing separately.
+If North Dakota taxable income is:
+Over | Not over | The tax is equal to | Of amount over
+$0 | $41,400 | $0.00 + 0.00% | $0
+$41,400 | $152,425 | $0.00 + 1.95% | $41,400
+$152,425 |  | $2,164.99 + 2.50% | $152,425
+d.
+Head of household.
+If North Dakota taxable income is:
+Over | Not over | The tax is equal to | Of amount over
+$0 | $66,400 | $0.00 + 0.00% | $0
+$66,400 | $277,600 | $0.00 + 1.95% | $66,400
+$277,600 |  | $4,118.40 + 2.50% | $277,600
+e.
+Estates and trusts.
+If North Dakota taxable income is:
+Over | Not over | The tax is equal to | Of amount over
+$0 | $3,300 | $0.00 + 0.00% | $0
+$3,300 | $11,900 | $0.00 + 1.95% | $3,300
+$11,900 |  | $167.70 + 2.50% | $11,900
+f.
+For an individual who is not a resident of this state for the entire year, or for a
+nonresident estate or trust, the tax is equal to the tax otherwise computed under
+this subsection multiplied by a fraction in which:
+(1)
+The numerator is the federal adjusted gross income allocable and
+apportionable to this state; and
+(2)
+The denominator is the federal adjusted gross income from all sources
+reduced by the net income from the amounts specified in subdivisions a and
+b of subsection 2.
+In the case of married individuals filing a joint return, if one spouse is a resident of
+this state for the entire year and the other spouse is a nonresident for part or all of
+the tax year, the tax on the joint return must be computed under this subdivision.
+g.
+The tax commissioner shall prescribe new rate schedules that apply in lieu of the
+schedules set forth in subdivisions a through e. The new schedules must be
+determined by increasing the minimum and maximum dollar amounts for each
+income bracket for which a tax is imposed by the cost-of-living adjustment for the
+taxable year as determined by the secretary of the United States treasury for
+purposes of section 1(f) of the United States Internal Revenue Code of 1954, as
+amended. For this purpose, the rate applicable to each income bracket may not
+be changed, and the manner of applying the cost-of-living adjustment must be the
+same as that used for adjusting the income brackets for federal income tax
+purposes.
+h.
+The tax commissioner shall prescribe an optional simplified method of computing
+tax under this section that may be used by an individual taxpayer who is not
+entitled to claim an adjustment under subsection 2 or credit against income tax
+liability under subsection 7.
+2.
+For purposes of this section, "North Dakota taxable income" means the federal taxable
+income of an individual, estate, or trust as computed under the Internal Revenue Code
+of 1986, as amended, adjusted as follows:
+a.
+Reduced by interest income from obligations of the United States and income
+exempt from state income tax under federal statute or United States or North
+Dakota constitutional provisions.
+b.
+Reduced by the portion of a distribution from a qualified investment fund
+described in section 57-38-01 which is attributable to investments by the qualified
+investment fund in obligations of the United States, obligations of North Dakota or
+its political subdivisions, and any other obligation the interest from which is
+exempt from state income tax under federal statute or United States or North
+Dakota constitutional provisions.
+c.
+Reduced by the amount equal to the earnings that are passed through to a
+taxpayer in connection with an allocation and apportionment to North Dakota
+under section 57-38-01.35.
+d.
+Reduced by forty percent of:
+(1)
+The excess of the taxpayer's net long-term capital gain for the taxable year
+over the net short-term capital loss for that year, as computed for purposes
+of the Internal Revenue Code of 1986, as amended. The adjustment
+provided by this subdivision is allowed only to the extent the net long-term
+capital gain is allocated to this state.
+(2)
+Qualified dividends as defined under Internal Revenue Code section 1(h)
+(11), added by section 302(a) of the Jobs and Growth Tax Relief
+Reconciliation Act of 2003 [Pub. L. 108-27; 117 Stat. 752; 2 U.S.C. 963
+et seq.], but only if taxed at a federal income tax rate that is lower than the
+regular federal income tax rates applicable to ordinary income. If, for any
+taxable year, qualified dividends are taxed at the regular federal income tax
+rates applicable to ordinary income, the reduction allowed under this
+subdivision is equal to thirty percent of all dividends included in federal
+taxable income. The adjustment provided by this subdivision is allowed only
+to the extent the qualified dividend income is allocated to this state.
+e.
+Increased by the amount of a lump sum distribution for which income averaging
+was elected under section 402 of the Internal Revenue Code of 1986 [26 U.S.C.
+402], as amended. This adjustment does not apply if the taxpayer received the
+lump sum distribution while a nonresident of this state and the distribution is
+exempt from taxation by this state under federal law.
+f.
+Increased by an amount equal to the losses that are passed through to a
+taxpayer in connection with an allocation and apportionment to North Dakota
+under section 57-38-01.35.
+g.
+Reduced by the amount of military pay received by a taxpayer as a member of
+the armed forces of the United States on federal active duty, member of the
+national guard or reserve member of the armed forces of the United States, to the
+extent that military pay is included in North Dakota taxable income of the
+taxpayer. For purposes of this subdivision, "military pay" includes all federal pay
+for training, education, mobilization, and bonuses and state pay when called to
+support an emergency on state active duty.
+h.
+Reduced by income from a new and expanding business exempt from state
+income tax under section 40-57.1-04.
+i.
+Reduced by up to ten thousand dollars of qualified expenses that are related to a
+donation by a taxpayer or a taxpayer's dependent, while living, of one or more
+human organs to another human being for human organ transplantation. A
+taxpayer may claim the reduction in this subdivision only once for each instance
+of organ donation during the taxable year in which the human organ donation and
+the human organ transplantation occurs but if qualified expenses are incurred in
+more than one taxable year, the reduction for those expenses must be claimed in
+the year in which the expenses are incurred. For purposes of this subdivision:
+(1)
+"Human organ transplantation" means the medical procedure by which
+transfer of a human organ is made from the body of one person to the body
+of another person.
+(2)
+"Organ" means all or part of an individual's liver, pancreas, kidney, intestine,
+lung, or bone marrow.
+(3)
+"Qualified expenses" means lost wages not compensated by sick pay and
+unreimbursed medical expenses as defined for federal income tax
+purposes, to the extent not deducted in computing federal taxable income,
+whether or not the taxpayer itemizes federal income tax deductions.
+j.
+Increased by the amount of the contribution upon which the credit under section
+57-38-01.21 is computed, but only to the extent that the contribution reduced
+federal taxable income.
+k.
+Reduced by the amount of any payment received by a veteran or beneficiary of a
+veteran under section 37-28-03 or 37-28-04.
+l.
+Reduced by the amount received by a taxpayer that was paid by an employer
+under paragraph 4 of subdivision a of subsection 2 of section 57-38-01.25 to hire
+the taxpayer for a hard-to-fill position under section 57-38-01.25, but only to the
+extent the amount received by the taxpayer is included in federal taxable income.
+The reduction applies only if the employer is entitled to the credit under section
+57-38-01.25. The taxpayer must attach a statement from the employer in which
+the employer certifies that the employer is entitled to the credit under section
+57-38-01.25 and which specifically identified the type of payment and the amount
+of the exemption under this section.
+m.
+Reduced by the amount up to a maximum of five thousand dollars, or ten
+thousand dollars if a joint return is filed, for contributions made under a higher
+education savings plan administered by the Bank of North Dakota, pursuant to
+section 6-09-38.
+n.
+Reduced by the amount of income of a taxpayer, who resides anywhere within
+the exterior boundaries of a reservation situated in this state or situated both in
+this state and in an adjoining state and who is an enrolled member of a federally
+recognized Indian tribe, from activities or sources anywhere within the exterior
+boundaries of a reservation situated in this state or both situated in this state and
+in an adjoining state.
+o.
+For married individuals filing jointly, reduced by an amount equal to the excess of
+the recomputed itemized deductions or standard deduction over the amount of
+the itemized deductions or standard deduction deducted in computing federal
+taxable income. For purposes of this subdivision, "itemized deductions or
+standard deduction" means the amount under section 63 of the Internal Revenue
+Code that the married individuals deducted in computing their federal taxable
+income and "recomputed itemized deductions or standard deduction" means an
+amount determined by computing the itemized deductions or standard deduction
+in a manner that replaces the basic standard deduction under section 63(c)(2) of
+the Internal Revenue Code for married individuals filing jointly with an amount
+equal to double the amount of the basic standard deduction under section 63(c)
+(2) of the Internal Revenue Code for a single individual other than a head of
+household and surviving spouse. If the married individuals elected under
+section 63(e) of the Internal Revenue Code to deduct itemized deductions in
+computing their federal taxable income even though the amount of the allowable
+standard deduction is greater, the reduction under this subdivision is not allowed.
+Married individuals filing jointly shall compute the available reduction under this
+subdivision in a manner prescribed by the tax commissioner.
+p.
+Reduced by an amount equal to four thousand one hundred fifty dollars for
+taxable year 2018, for each birth resulting in stillbirth, as defined in section
+23-02.1-01, for which a fetal death certificate has been filed under section
+23-02.1-20. For taxable years beginning after December 31, 2018, the deduction
+amount must be adjusted annually on January first of each year by the
+cost-of-living adjustment. For purposes of this subdivision, "cost-of-living
+adjustment" means the percentage increase in the consumer price index for all
+urban consumers in the midwest region as determined by the United States
+department of labor, bureau of labor statistics, for the most recent year ending
+December thirty-first. The exemption may only be claimed in the taxable year in
+which the stillbirth occurred.
+q.
+Reduced by the amount of expenses incurred by an employee which are directly
+related to the attainment of higher education or career and technical education
+which are reimbursed by the employee's employer, but only to the extent the
+amount of reimbursement is reported as federal taxable income.
+r.
+Reduced by the amount received by a taxpayer as retired military personnel
+benefits, including retired military personnel benefits paid to the surviving spouse
+of a deceased retired member of the armed forces of the United States, a reserve
+component of the armed forces of the United States, or the national guard, but
+only to the extent the amount was included in federal taxable income.
+s.
+Reduced by the amount of social security benefits included in a taxpayer's federal
+adjusted gross income under section 86 of the Internal Revenue Code.
+t.
+Reduced by the amount of retired law enforcement personnel benefits received
+by a taxpayer who has served a combined total of at least twenty years as a
+peace officer or has medically retired from the taxpayer's duties as a peace
+officer with a medical certificate due to a permanent mental or physical disability
+that rendered the taxpayer unable to discharge the taxpayer's duties as a peace
+officer, but only to the extent the amount was included in federal taxable income.
+For purposes of this subdivision:
+(1)
+"Peace officer" means a public servant authorized by law or by a
+government agency or branch of the United States, a state, or a political
+subdivision of a state to enforce the law and to conduct or engage in
+investigations of violations of the law.
+(2)
+"Retired law enforcement personnel benefits" means retirement income
+received by a taxpayer eligible to receive retirement income attributable to
+the taxpayer's employment as a peace officer from a retirement plan
+maintained by or through the employer from which the taxpayer retired as a
+peace officer.
+3.
+The same filing status used when filing federal income tax returns must be used when
+filing state income tax returns.
+4.
+a.
+A resident individual, estate, or trust is entitled to a credit against the tax imposed
+under this section for the amount of income tax paid by the taxpayer for the
+taxable year by another state or territory of the United States or the District of
+Columbia on income derived from sources in those jurisdictions that is also
+subject to tax under this section.
+b.
+For an individual, estate, or trust that is a resident of this state for the entire
+taxable year, the credit allowed under this subsection may not exceed an amount
+equal to the tax imposed under this section multiplied by a ratio equal to federal
+adjusted gross income derived from sources in the other jurisdiction divided by
+federal adjusted gross income less the amounts under subdivisions a and b of
+subsection 2.
+c.
+For an individual, estate, or trust that is a resident of this state for only part of the
+taxable year, the credit allowed under this subsection may not exceed the lesser
+of the following:
+(1)
+The tax imposed under this chapter multiplied by a ratio equal to federal
+adjusted gross income derived from sources in the other jurisdiction
+received while a resident of this state divided by federal adjusted gross
+income derived from North Dakota sources less the amounts under
+subdivisions a and b of subsection 2.
+(2)
+The tax paid to the other jurisdiction multiplied by a ratio equal to federal
+adjusted gross income derived from sources in the other jurisdiction
+received while a resident of this state divided by federal adjusted gross
+income derived from sources in the other states.
+d.
+The tax commissioner may require written proof of the tax paid to another state.
+The required proof must be provided in a form and manner as determined by the
+tax commissioner.
+5.
+Individuals, estates, or trusts that file an amended federal income tax return changing
+their federal taxable income figure for a year for which an election to file state income
+tax returns has been made under this section shall file an amended state income tax
+return to reflect the changes on the federal income tax return.
+6.
+The tax commissioner may prescribe procedures and guidelines to prevent requiring
+income that had been previously taxed under this chapter from becoming taxed again
+because of the provisions of this section and may prescribe procedures and guidelines
+to prevent any income from becoming exempt from taxation because of the provisions
+of this section if it would otherwise have been subject to taxation under the provisions
+of this chapter.
+7.
+A taxpayer filing a return under this section is entitled to the following tax credits:
+a.
+Family care tax credit under section 57-38-01.20.
+b.
+Renaissance zone tax credits under sections 40-63-04, 40-63-06, and 40-63-07.
+c.
+Agricultural business investment tax credit under section 57-38.6-03.
+d.
+Seed capital investment tax credit under section 57-38.5-03.
+e.
+Planned gift tax credit under section 57-38-01.21.
+f.
+Biodiesel fuel or green diesel fuel tax credits under sections 57-38-01.22 and
+57-38-01.23.
+g.
+Internship employment tax credit under section 57-38-01.24.
+h.
+Workforce recruitment credit under section 57-38-01.25.
+i.
+Marriage penalty credit under section 57-38-01.28.
+j.
+Research and experimental expenditures under section 57-38-30.5.
+k.
+Geothermal energy device installation credit under section 57-38-01.8.
+l.
+Long-term care partnership plan premiums income tax credit under section
+57-38-29.3.
+m.
+Employer tax credit for salary and related retirement plan contributions of
+mobilized employees under section 57-38-01.31.
+n.
+Income tax credit for passthrough entity contributions to private education
+institutions under section 57-38-01.7.
+o.
+Angel investor tax credit under section 57-38-01.26.
+p.
+Income tax credit for employment of individuals with developmental disabilities or
+severe mental illness under section 57-38-01.16.
+q.
+Adoption tax credit under section 57-38-01.38.
+r.
+Tax credit for contributions to a maternity home, child-placing agency, or
+pregnancy help center under section 57-38-01.39.
+s.
+Apprenticeship tax credit under section 57-38-01.40.
+t.
+Twenty-first century manufacturing and animal agricultural workforce incentive
+under section 57-38-01.41.
+u.
+Child care contribution credit under section 57-38-01.42.
+8.
+A taxpayer filing a return under this section is entitled to the exemption provided under
+section 40-63-04.
+9.
+a.
+If an individual taxpayer engaged in a farming business elects to average farm
+income under section 1301 of the Internal Revenue Code [26 U.S.C. 1301], the
+taxpayer may elect to compute tax under this subsection. If an election to
+compute tax under this subsection is made, the tax imposed by subsection 1 for
+the taxable year must be equal to the sum of the following:
+(1)
+The tax computed under subsection 1 on North Dakota taxable income
+reduced by elected farm income.
+(2)
+The increase in tax imposed by subsection 1 which would result if North
+Dakota taxable income for each of the three prior taxable years were
+increased by an amount equal to one-third of the elected farm income.
+However, if other provisions of this chapter other than this section were used
+to compute the tax for any of the three prior years, the same provisions in
+effect for that prior tax year must be used to compute the increase in tax
+under this paragraph. For purposes of applying this paragraph to taxable
+years beginning before January 1, 2001, the increase in tax must be
+determined by recomputing the tax in the manner prescribed by the tax
+commissioner.
+b.
+For purposes of this subsection, "elected farm income" means that portion of
+North Dakota taxable income for the taxable year which is elected farm income
+as defined in section 1301 of the Internal Revenue Code of 1986 [26 U.S.C.
+1301], as amended, reduced by the portion of an exclusion claimed under
+subdivision d of subsection 2 that is attributable to a net long-term capital gain
+included in elected farm income.
+c.
+The reduction in North Dakota taxable income under this subsection must be
+taken into account for purposes of making an election under this subsection for
+any subsequent taxable year.
+d.
+The tax commissioner may prescribe rules, procedures, or guidelines necessary
+to administer this subsection.
+10.
+The tax commissioner may prescribe tax tables, to be used in computing the tax
+according to subsection 1, if the amounts of the tax tables are based on the tax rates
+set forth in subsection 1. If prescribed by the tax commissioner, the tables must be
+followed by every individual, estate, or trust determining a tax under this section.

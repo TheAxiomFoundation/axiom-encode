@@ -33,10 +33,11 @@ import time
 import unicodedata
 from bisect import bisect_left, bisect_right
 from calendar import monthrange
-from collections import Counter
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from dataclasses import replace as dataclass_replace
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
@@ -57,7 +58,19 @@ from axiom_oracles.bridges.registry import (
     load_policyengine_registry,
 )
 
-from axiom_encode.codex_cli import resolve_codex_cli
+from axiom_encode.bare_structure import bare_outline, mask_bare_labels
+from axiom_encode.codex_cli import (
+    resolve_codex_cli,
+    with_codex_model_availability_hint,
+)
+from axiom_encode.companion_entities import (
+    assign_generated_fixture_ids,
+    cross_entity_input_findings,
+    declared_input_entities,
+    flat_input_entity_id,
+    require_distinct_entity_ids,
+)
+from axiom_encode.companion_relations import executable_relation_directions
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.constants import (
     DEFAULT_OPENAI_MODEL,
@@ -73,8 +86,23 @@ from axiom_encode.corpus_resolver import (
     InvalidCorpusCitationError,
     LocalCorpusRelease,
     UnsafeCorpusPathError,
+    local_corpus_row_is_repealed,
     require_canonical_corpus_citation_path,
     resolve_local_corpus_source,
+)
+from axiom_encode.editorial_source_ancestry import (
+    BIBLIOGRAPHIC_NOTICE,
+    confirms_bibliographic_editorial_scope,
+)
+from axiom_encode.encode_timing import (
+    PHASE_REVIEW_MODEL_CALL,
+    TOOL_CI_STATIC_CHECKS,
+    TOOL_CI_TEST_CASES,
+    TOOL_POLICYENGINE_ORACLE,
+    TOOL_RULES_ENGINE_COMPILE,
+    TOOL_SOURCE_COMPLETENESS_CHECKS,
+    timed_phase,
+    timed_tool,
 )
 from axiom_encode.engine_binding import (
     ENGINE_PIN_FIELD,
@@ -82,6 +110,21 @@ from axiom_encode.engine_binding import (
     load_declared_engine_pin,
     require_engine_ref_sha,
     resolve_pinned_engine_binary,
+)
+from axiom_encode.form_numeric_structure import (
+    form_numeric_locator_spans,
+    mask_form_numeric_locators,
+)
+from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.harness.amendment_timing import amendment_timing_issues
+from axiom_encode.harness.coverage_exemptions import (
+    CoverageDemand,
+    filter_coverage_demands,
+    has_reviewed_repeal,
+)
+from axiom_encode.harness.imported_export_evidence import ResolvedImportedExport
+from axiom_encode.harness.strict_compiled_inputs import (
+    compiled_program_has_strict_input_reads,
 )
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.repo_routing import (
@@ -103,6 +146,7 @@ from axiom_encode.statute import (
     normalize_rulespec_path_segment,
     parse_usc_citation,
 )
+from axiom_encode.yaml_serialization import safe_dump_yaml
 
 from .dependency_stubs import (
     UnsafeRulespecContextPath,
@@ -132,11 +176,23 @@ from .proof_validator import (
     collapse_evidence_whitespace,
     find_plural_corpus_citation_path_issues,
     find_rulespec_proof_issues,
+    interpretation_source_citation_paths,
     validate_rulespec_proofs,
 )
+from .same_case_execution import (
+    ExecutionCapture,
+    SameCaseEvidence,
+    compilation_snapshot,
+)
 from .source_completeness import (
+    _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
+    _is_us_manual_citation_path,
+    _nested_outline_marker_spans,
+    _qualified_parenthesized_legal_outline_markers,
+    _us_manual_prose_scope,
     analyze_complete_source_unit,
     collect_artifact_numeric_bindings,
+    manual_outcome_exception_advice,
     source_states_stated_conversion_result,
 )
 
@@ -190,6 +246,7 @@ class ExistingTargetSurfaceContract:
     unit: str
     indexed_by: tuple[str, ...]
     private: bool
+    replacement_entity: str = ""
 
 
 @dataclass(frozen=True)
@@ -232,6 +289,14 @@ class _CachedTargetFile:
     file_stamp: _PathMutationStamp
 
 
+@dataclass(frozen=True)
+class _CachedProgramOwners:
+    owners: tuple[Path, ...]
+    directory_stamps: tuple[tuple[Path, _PathMutationStamp], ...]
+    file_stamps: tuple[tuple[Path, _PathMutationStamp], ...]
+    admitted_roots: tuple[Path, ...]
+
+
 @dataclass
 class _RuleSpecResolutionCache:
     """Successful filesystem admissions retained for one validation operation."""
@@ -242,6 +307,9 @@ class _RuleSpecResolutionCache:
     active_checkouts: dict[Path, _CachedActiveCheckout] = field(default_factory=dict)
     symlink_audits: dict[Path, _CachedSymlinkAudit] = field(default_factory=dict)
     target_files: dict[tuple[Any, ...], _CachedTargetFile] = field(default_factory=dict)
+    program_owners: dict[tuple[Path, Path, tuple[Path, ...]], _CachedProgramOwners] = (
+        field(default_factory=dict)
+    )
 
 
 _RULESPEC_RESOLUTION_CACHE: ContextVar[_RuleSpecResolutionCache | None] = ContextVar(
@@ -603,7 +671,11 @@ def _extract_codex_text_output(output: str) -> str:
         elif payload_type == "error":
             last_error = payload.get("message") or "codex exec error"
 
-    return "\n".join(assistant_messages).strip() or last_error or output
+    return (
+        "\n".join(assistant_messages).strip()
+        or with_codex_model_availability_hint(last_error)
+        or output
+    )
 
 
 _REVIEW_JSON_KEYS = {
@@ -1164,7 +1236,8 @@ _EMBEDDED_SCALAR_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 _EMBEDDED_SCALAR_ALLOWED_VALUES = {"-1", "0", "1", "2", "3"}
 _QUOTED_STRING_PATTERN = re.compile(r"'[^']*'|\"[^\"]*\"")
 _STRUCTURAL_SOURCE_LINE_PATTERN = re.compile(
-    r"^[\(\[]?(?:\d+[A-Za-z]?|[ivxlcdm]+|[a-z])[\)\].]?$", re.IGNORECASE
+    r"^(?!\d+[A-Za-z]?$)[\(\[]?(?:\d+[A-Za-z]?|[ivxlcdm]+|[a-z])[\)\].]?$",
+    re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_HEADING_PATTERN = re.compile(
     r"^(?:(?:PART|CHAPTER|SCHEDULE|REGULATION)\b|"
@@ -1182,6 +1255,19 @@ _STRUCTURAL_SOURCE_CITATION_PREFIX_PATTERN = re.compile(
 _STRUCTURAL_SOURCE_PREFIX_PATTERN = re.compile(
     r"^\s*(?:(?P<bare_dotted>\d+(?:\.\d+){2,})\s+|\d+[A-Za-z]?\.\s+|"
     r"\d+\s+(?=[A-Z][A-Za-z].*:)|\([0-9A-Za-zivxlcdm]+\)\s+)",
+    re.IGNORECASE,
+)
+_STRUCTURAL_SOURCE_QUOTE_CHARS = "\"'`“”‘’"
+# Page syntax cannot prove that a leading integer is nonoperative. The
+# completeness mask authenticates complete manual context before erasing
+# genuine locators; generic cleanup must preserve candidates that remain,
+# including integers split onto their own line and composed child headers.
+_MANUAL_PAGE_CANDIDATE_LINE_PATTERN = re.compile(
+    # Use the same line boundaries as splitlines(), including PDF separators.
+    r"(?:\A|(?<=[\r\n\v\f\x1c-\x1e\x85\u2028\u2029]))"
+    r"""(?:[^\S\r\n\v\f\x1c-\x1e\x85\u2028\u2029]|["'`“”‘’])*(?P<value>\d{1,4})"""
+    rf"[{re.escape(_STRUCTURAL_SOURCE_QUOTE_CHARS)}]*"
+    r"(?=\s+(?:\((?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\)|Chapter\b))",
     re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_MANUAL_NUMBER_PATTERN = re.compile(
@@ -1217,14 +1303,45 @@ _STRUCTURAL_SOURCE_REVISION_CODE_PATTERN = re.compile(
 _STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN = re.compile(
     r"\b[A-Z]-\d+(?:\.\d+)+(?:\([A-Za-z0-9]+\))*\b"
 )
+# Complete locators only: a partial integer match must not leave a decimal
+# suffix behind or swallow a value carrying currency/rate/arithmetic context.
+_STRUCTURAL_LOCATOR_END = (
+    r"(?![\w-]|[.,]\d)"
+    r"(?!\s*(?:%|percent\b|dollars?\b|euros?\b|pounds?\b|"
+    r"CAD\b|USD\b|EUR\b|years?\b|months?\b|days?\b|hours?\b|weeks?\b|"
+    r"kg\b|kilograms?\b|grams?\b|metres?\b|meters?\b|litres?\b|liters?\b|[+*/=]|-\s*\d))"
+)
 _STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN = re.compile(
-    r"\b(?:Form\s+(?:[A-Z]{1,8}-?\d+[A-Za-z0-9-]*|[A-Z]?\d+[A-Za-z0-9-]*)|"
-    r"[A-Z]{2,8}-\d+[A-Za-z0-9-]*)\b",
+    r"\b(?:Form\s+(?:[A-Z]{1,8}-?\d+[A-Za-z0-9]*(?:\.\d+)*(?:-[A-Za-z0-9]+)*|"
+    r"[A-Z]?\d+[A-Za-z0-9]*(?:\.\d+)*(?:-[A-Za-z0-9]+)*)|"
+    r"[A-Z]{2,8}-\d+[A-Za-z0-9]*(?:\.\d+)*(?:-[A-Za-z0-9]+)*)"
+    + _STRUCTURAL_LOCATOR_END,
     re.IGNORECASE,
 )
+_STRUCTURAL_FORM_LINE_TOKEN = r"\d+(?:\.\d+)?[A-Za-z]?"
 _STRUCTURAL_SOURCE_FORM_LINE_PATTERN = re.compile(
-    r"\bLine\s+\d+[A-Za-z]?\b",
+    r"\bLine\s+" + _STRUCTURAL_FORM_LINE_TOKEN + _STRUCTURAL_LOCATOR_END,
     re.IGNORECASE,
+)
+_STRUCTURAL_SOURCE_FORM_LINES_PATTERN = re.compile(
+    r"\blines\s+"
+    + _STRUCTURAL_FORM_LINE_TOKEN
+    + r"(?:(?:,\s+(?:(?:and|or)\s+)?|\s+(?:and|or|through|to)\s+)"
+    + _STRUCTURAL_FORM_LINE_TOKEN
+    + r")+"
+    + _STRUCTURAL_LOCATOR_END,
+    re.IGNORECASE,
+)
+# Require the complete explicit slip referral; bare hyphenated numbers remain
+# quantities/operators. Run this before the form-code matcher blanks RL-15.
+_STRUCTURAL_SOURCE_SLIP_BOX_PATTERN = re.compile(
+    r"\bbox\s+\d{1,3}-\d{1,3}\s+of\s+(?:your|the)\s+RL-15\s+slip\b"
+    + _STRUCTURAL_LOCATOR_END,
+    re.IGNORECASE,
+)
+_STRUCTURAL_SOURCE_PAGE_COUNTER_PATTERN = re.compile(
+    r"\bpage[ \t]+\d+[ \t]+of[ \t]+\d+[ \t]*(?=\r?$)",
+    re.IGNORECASE | re.MULTILINE,
 )
 _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN = re.compile(
     r"\b\d+\s+"
@@ -1291,7 +1408,6 @@ _STRUCTURAL_SOURCE_SECTION_PATTERN = re.compile(
     r"(?=$|[\s,.;:])",
     re.IGNORECASE,
 )
-_STRUCTURAL_SOURCE_QUOTE_CHARS = "\"'`“”‘’"
 _SYNTHETIC_MODELING_INSTRUCTION_PATTERN = re.compile(
     r"^\s*model\s+`[^`]+`\s+as\b",
     re.IGNORECASE,
@@ -1352,14 +1468,47 @@ _MONTH_NAME_BODY = (
     r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
     r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?"
 )
+# Every separator `str.splitlines` treats as a line boundary, not only `\n`.
+_LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
+_LINE_BREAK_CLASS = rf"[{_LINE_BREAK_CHARS}]"
+# Indentation the standalone-month guard recognises before a header line.
+_MAX_MONTH_HEADER_INDENT = 16
+
+
+def _standalone_month_line_guard(month_body: str) -> str:
+    """A lookahead refusing a month name that stands alone on its own line.
+
+    A table column header such as ``May`` printed on its own line is followed by
+    row values, not by a day or year (#1822). A month inside wrapped prose
+    (``in May\n2026``, ``ab Januar\n2026``) still reads as a date. ``re`` has no
+    variable-width lookbehind, so "start of line" is the start of the text or a
+    line break followed by up to `_MAX_MONTH_HEADER_INDENT` spaces or tabs.
+    """
+
+    line_starts = "|".join(
+        # The start of the text, or a line break, immediately before.
+        [rf"(?<![^{_LINE_BREAK_CHARS}])"]
+        + [
+            rf"(?<={_LINE_BREAK_CLASS}[ \t]{{{indent}}})"
+            for indent in range(1, _MAX_MONTH_HEADER_INDENT + 1)
+        ]
+    )
+    return rf"(?!(?:{line_starts}){month_body}[ \t]*(?:\r\n|{_LINE_BREAK_CLASS}))"
+
+
+_STANDALONE_MONTH_LINE_GUARD = _standalone_month_line_guard(_MONTH_NAME_BODY)
 _MONTH_NAME_PATTERN = re.compile(rf"\b{_MONTH_NAME_BODY}(?=$|[\s,.;:])", re.IGNORECASE)
 _MONTH_NAME_DATE_PATTERN = re.compile(
     rf"\b{_MONTH_NAME_BODY}\s+\d{{1,2}},\s+\d{{4}}\b",
     re.IGNORECASE,
 )
 _SLASH_DATE_PATTERN = re.compile(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b")
+# A month name alone on its line is a column header, not the first half of a
+# date: the number on the next line is a table value (#1822). Elsewhere, a
+# month and a following day pair across any whitespace, as on main, so a date
+# wrapped mid-sentence still reads as a date.
 _MONTH_NAME_DAY_PATTERN = re.compile(
-    rf"\b{_MONTH_NAME_BODY}\s+\d{{1,2}}\b",
+    rf"\b{_STANDALONE_MONTH_LINE_GUARD}{_MONTH_NAME_BODY}\s+\d{{1,2}}\b",
     re.IGNORECASE,
 )
 _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
@@ -1371,6 +1520,22 @@ _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
 )
 _TABLE_HEADING_PATTERN = re.compile(
     r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE
+)
+_TABLE_HEADING_PREFIX_PATTERN = re.compile(
+    r"^\s*table\s+\d+[A-Za-z]?(?=\s*:)", re.IGNORECASE
+)
+_INLINE_TABLE_VALUE_PATTERN = re.compile(
+    r"[$£€]\s*\d|\b(?:(?:household|unit)\s+)?size\s+\d{1,3}(?:\s+|:)-?[\d,]+",
+    re.IGNORECASE,
+)
+_COLLAPSED_CURRENCY_TABLE_ROW_BOUNDARY_PATTERN = re.compile(
+    r"(?P<amount>[$£€]\s*\d[\d,.]*)"
+    r"(?P<separator>[ \t]+)(?P<row>\d{1,2})(?=[ \t]+[$£€]\s*\d)"
+)
+_COLLAPSED_SIZE_TABLE_ROW_PATTERN = re.compile(
+    r"(?P<label>\b(?:(?:household|unit)[ \t]+)?size[ \t]+\d{1,3})"
+    r"(?P<separator>[ \t]+)(?=-?[\d,]+)",
+    re.IGNORECASE,
 )
 _ORDINAL_NUMBER_PATTERN = re.compile(r"\b(\d+)(?:st|nd|rd|th)\b", re.IGNORECASE)
 _ORDINAL_WORD_VALUES = {
@@ -7436,7 +7601,11 @@ _TABLE_RATE_HEADER_PATTERN = re.compile(
     r"\bper[ \t-]+cent(?:um)?\b|"
     r"\bProzent\b|"
     r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
-    r"\bvom[ \t]+Hundert\b"
+    r"\bvom[ \t]+Hundert\b|"
+    # The Hebrew percent noun, bare or behind a one-letter prefix: a column
+    # headed "אחוזים מההכנסה" or "הניכוי ... באחוזים" holds percentages.
+    r"(?<![\u0590-\u05ff])(?:[\u05d1\u05d4\u05d5\u05dc\u05de][\u05be-]?)?"
+    r"\u05d0\u05d7\u05d5\u05d6(?:\u05d9\u05dd|\u05d9)?(?![\u0590-\u05ff])"
     r")",
     re.IGNORECASE,
 )
@@ -7460,8 +7629,11 @@ _GERMAN_DAY_MONTH_YEAR_PATTERN = re.compile(
     rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
+# A German month alone on its line is a column header too (#1822); see
+# `_MONTH_NAME_DAY_PATTERN`.
 _GERMAN_MONTH_YEAR_PATTERN = re.compile(
-    rf"\b{_GERMAN_MONTH_NAME_BODY}\s+(?:des\s+Jahres\s+)?"
+    rf"\b{_standalone_month_line_guard(_GERMAN_MONTH_NAME_BODY)}"
+    rf"{_GERMAN_MONTH_NAME_BODY}\s+(?:des\s+Jahres\s+)?"
     rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
@@ -7477,8 +7649,11 @@ _ENGLISH_DAY_MONTH_YEAR_PATTERN = re.compile(
     rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
+# Like `_MONTH_NAME_DAY_PATTERN`, a month alone on its line does not pair with
+# the year on the next line (#1822).
 _ENGLISH_MONTH_YEAR_PATTERN = re.compile(
-    rf"\b{_MONTH_NAME_BODY}\s+(?P<year>{_TEMPORAL_YEAR_BODY})"
+    rf"\b{_STANDALONE_MONTH_LINE_GUARD}{_MONTH_NAME_BODY}\s+"
+    rf"(?P<year>{_TEMPORAL_YEAR_BODY})"
     rf"{_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
@@ -8794,6 +8969,7 @@ class _IntervalSelectorBound:
 
 
 _PE_UNSUPPORTED_ERROR_PATTERNS = (
+    re.compile(r"AXIOM_ORACLE_UNSUPPORTED:"),
     re.compile(r"ParameterNotFoundError"),
     re.compile(r"VariableNotFoundError"),
     re.compile(r"was not found in the .*tax and benefit system", re.IGNORECASE),
@@ -12282,6 +12458,10 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             (_STRUCTURAL_SOURCE_DOTTED_SECTION_REFERENCE_PATTERN,),
         )
     )
+    mask_spans.extend(
+        (label.start, label.marker_end) for label in bare_outline(text) or ()
+    )
+    mask_spans.extend(form_numeric_locator_spans(text))
     structural_spans = _structural_numeric_component_spans(text, profile="da-DK")
 
     def masked_text() -> str:
@@ -12294,12 +12474,20 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
         )
 
     preserve_split_schedule_value = False
+    page_candidate_offsets = {
+        match.start("value")
+        for match in _MANUAL_PAGE_CANDIDATE_LINE_PATTERN.finditer(text)
+    }
     line_offset = 0
     for line_with_ending in text.splitlines(keepends=True):
         line = line_with_ending.rstrip("\r\n")
         line_span = (line_offset, line_offset + len(line))
         stripped = line.strip()
         structural_stripped = stripped.strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
+        page_candidate = bool(page_candidate_offsets) and any(
+            offset in page_candidate_offsets
+            for offset in range(line_offset, line_offset + len(line))
+        )
         if preserve_split_schedule_value and _SCHEDULE_SPLIT_VALUE_PATTERN.fullmatch(
             structural_stripped
         ):
@@ -12312,9 +12500,12 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             line_offset += len(line_with_ending)
             continue
         if (
-            _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped)
+            not page_candidate
+            and (
+                _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped)
+                or _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped)
+            )
             or _STRUCTURAL_SOURCE_HEADING_PATTERN.match(structural_stripped)
-            or _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped)
             or _TABLE_HEADING_PATTERN.match(structural_stripped)
             or _SYNTHETIC_MODELING_INSTRUCTION_PATTERN.match(structural_stripped)
             or _SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN.match(
@@ -12376,7 +12567,11 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             )
             for match in _TABLE_ROW_LABEL_PATTERN.finditer(normalized_line)
         )
-        structural_prefix = _STRUCTURAL_SOURCE_PREFIX_PATTERN.match(normalized_line)
+        structural_prefix = (
+            None
+            if page_candidate
+            else _STRUCTURAL_SOURCE_PREFIX_PATTERN.match(normalized_line)
+        )
         if structural_prefix is not None:
             prefix_span = (
                 line_offset + normalized_start + structural_prefix.start(),
@@ -12418,8 +12613,11 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             _STRUCTURAL_SOURCE_REVISION_PATTERN,
             _STRUCTURAL_SOURCE_REVISION_CODE_PATTERN,
             _STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN,
+            _STRUCTURAL_SOURCE_SLIP_BOX_PATTERN,
             _STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN,
             _STRUCTURAL_SOURCE_FORM_LINE_PATTERN,
+            _STRUCTURAL_SOURCE_FORM_LINES_PATTERN,
+            _STRUCTURAL_SOURCE_PAGE_COUNTER_PATTERN,
             _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN,
             _STRUCTURAL_SOURCE_LEGAL_EDITION_PATTERN,
             _STRUCTURAL_SOURCE_STATE_CODE_CITATION_PATTERN,
@@ -12741,7 +12939,11 @@ def _clean_source_text_for_numeric_extraction_tracked(
     if profile == "da-DK":
         masked = _danish_equal_length_numeric_mask(text).text
         return _TrackedText(masked, list(range(len(masked))))
-    tracked = _TrackedText.identity(text)
+    # A bare number is scaffolding only when the complete shared outline
+    # authenticates it. Uncertain table cells/counts retain their source slots.
+    tracked = _TrackedText.identity(
+        mask_form_display(mask_bare_labels(mask_form_numeric_locators(text)))
+    )
     # A carriage return before a newline becomes a space of its own, so a CRLF
     # line ends in "\n" and keeps its width; one that ends a line by itself
     # (a classic Mac or a mixed-terminator source) becomes the newline it is,
@@ -12866,8 +13068,24 @@ def _clean_source_text_for_numeric_extraction_tracked(
     tracked = tracked.sub(
         re.compile("\u05be(?=[\\d\u00bc-\u00be\u2150-\u215e]|\\.\\d)"), " "
     )
+    # OCR can concatenate successive currency-table rows into one line:
+    # "$2,474 2 $2,909". Keep a row boundary so the strict locale parser
+    # does not reserve "2,474 2" as one malformed numeric envelope.
+    tracked = tracked.sub(
+        _COLLAPSED_CURRENCY_TABLE_ROW_BOUNDARY_PATTERN,
+        lambda match: (
+            match.group("amount")
+            + "\n"
+            + match.group("separator")[1:]
+            + match.group("row")
+        ),
+    )
     cleaned_lines: list[_TrackedText] = []
     preserve_split_schedule_value = False
+    page_candidate_offsets = {
+        tracked.offsets[match.start("value")]
+        for match in _MANUAL_PAGE_CANDIDATE_LINE_PATTERN.finditer(tracked.text)
+    }
     for tracked_line in tracked.lines():
         ending = tracked_line.text[len(tracked_line.text.rstrip("\n")) :]
         content = _TrackedText(
@@ -12878,6 +13096,21 @@ def _clean_source_text_for_numeric_extraction_tracked(
         line = content.text
         stripped = line.strip()
         structural_stripped = stripped.strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
+        page_candidate = bool(page_candidate_offsets) and any(
+            offset in page_candidate_offsets for offset in content.offsets
+        )
+        if _TABLE_HEADING_PATTERN.match(
+            structural_stripped
+        ) and _INLINE_TABLE_VALUE_PATTERN.search(structural_stripped):
+            # Only on an identified table line, separate explicit "size N V"
+            # cells. Applying this to prose would reinterpret "size 1 100"
+            # as an amount, although strict locale parsing rejects it there.
+            content = content.sub(
+                _COLLAPSED_SIZE_TABLE_ROW_PATTERN,
+                lambda match: match.group("label") + ":" + match.group("separator")[1:],
+            )
+            line = content.text
+            structural_stripped = line.strip().strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
         if preserve_split_schedule_value and _SCHEDULE_SPLIT_VALUE_PATTERN.fullmatch(
             structural_stripped
         ):
@@ -12889,7 +13122,9 @@ def _clean_source_text_for_numeric_extraction_tracked(
             cleaned_lines.append(_TrackedText.concat([content, terminator]))
             preserve_split_schedule_value = True
             continue
-        if _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped):
+        if not page_candidate and _STRUCTURAL_SOURCE_LINE_PATTERN.match(
+            structural_stripped
+        ):
             cleaned_lines.append(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
@@ -12899,12 +13134,16 @@ def _clean_source_text_for_numeric_extraction_tracked(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
             continue
-        if _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped):
+        if not page_candidate and _STRUCTURAL_SOURCE_CITATION_PATTERN.match(
+            structural_stripped
+        ):
             cleaned_lines.append(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
             continue
-        if _TABLE_HEADING_PATTERN.match(structural_stripped):
+        if _TABLE_HEADING_PATTERN.match(
+            structural_stripped
+        ) and not _INLINE_TABLE_VALUE_PATTERN.search(structural_stripped):
             cleaned_lines.append(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
@@ -12925,6 +13164,14 @@ def _clean_source_text_for_numeric_extraction_tracked(
         normalized = content.blank(
             0, len(line) - len(line.lstrip(_STRUCTURAL_SOURCE_QUOTE_CHARS))
         )
+        # PDF extraction may flatten a table title with currency cells or
+        # explicit "size N V" rows. In those recognized cases only the table
+        # number is structural; bare numeric grids remain ambiguous and fail
+        # closed rather than inventing a row/value interpretation.
+        if _INLINE_TABLE_VALUE_PATTERN.search(normalized.text):
+            normalized = normalized.sub(
+                _TABLE_HEADING_PREFIX_PATTERN, _blank_match, count=1
+            )
         normalized = normalized.sub(
             _STRUCTURAL_SOURCE_CITATION_PREFIX_PATTERN, _blank_match, count=1
         )
@@ -12941,7 +13188,8 @@ def _clean_source_text_for_numeric_extraction_tracked(
         normalized = normalized.sub(
             _TABLE_ROW_LABEL_PATTERN, lambda m: "size".ljust(len(m.group(0)))
         )
-        normalized = normalized.sub(_STRUCTURAL_SOURCE_PREFIX_PATTERN, _blank_match)
+        if not page_candidate:
+            normalized = normalized.sub(_STRUCTURAL_SOURCE_PREFIX_PATTERN, _blank_match)
         cleaned_lines.append(_TrackedText.concat([normalized, terminator]))
 
     tracked = _TrackedText.concat(cleaned_lines)
@@ -12957,8 +13205,11 @@ def _clean_source_text_for_numeric_extraction_tracked(
     tracked = tracked.sub(_STRUCTURAL_SOURCE_REVISION_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_REVISION_CODE_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_SLIP_BOX_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_LINE_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_LINES_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_PAGE_COUNTER_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_CODE_CITATION_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_LEGAL_EDITION_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_STATE_CODE_CITATION_PATTERN, _blank_match)
@@ -13448,24 +13699,96 @@ def _numeric_occurrence_has_rate_table_header(
     if "|" not in line:
         return False
 
-    relative_start = start - line_start
-    column = line[:relative_start].count("|")
-    if line.lstrip().startswith("|"):
-        column -= 1
-    if column < 0:
-        return False
-
-    previous_lines = text[:line_start].splitlines()
-    for previous_line in reversed(previous_lines):
+    header_lines: list[str] = []
+    for previous_line in reversed(text[:line_start].splitlines()):
         if "|" not in previous_line:
             break
-        cells = previous_line.strip().strip("|").split("|")
+        header_lines.append(previous_line)
+    block = [*reversed(header_lines), line]
+    widths: list[int] = []
+    width: int | None = None
+    for block_line in block:
+        width = _pipe_table_next_width(block_line, width)
+        widths.append(width)
+
+    relative_start = start - line_start
+    column = next(
+        (
+            index
+            for index, (cell_start, cell_end) in enumerate(
+                _pipe_table_line_cells(line, widths[-1])
+            )
+            if cell_start <= relative_start <= cell_end
+        ),
+        None,
+    )
+    if column is None:
+        return False
+
+    for header_line, header_width in zip(block[:-1], widths[:-1], strict=True):
+        cells = _pipe_table_line_cells(header_line, header_width)
         if column < len(cells) and _table_rate_header_matches(
-            cells[column],
+            header_line[cells[column][0] : cells[column][1]],
             profile=profile,
         ):
             return True
     return False
+
+
+def _pipe_table_next_width(line: str, width: int | None) -> int:
+    """Return the width ``_pipe_table_line_cells`` reads ``line`` with.
+
+    ``width`` is what the previous line of the same pipe block used, or None
+    for a block's first line. A block reads with the border rule (width 0,
+    which no line's raw cell count equals) once any line so far looks
+    bordered: its first line starts or ends with a pipe, a later line starts
+    and ends with one, or a later line's leading pipe is a border because,
+    counted as a cell, it would make the line wider than the table. A line
+    narrower than the table proves nothing: the empty-first-cell total row
+    ``| סך הכל | 14.50`` can be narrower too. Until then the first line's cell
+    count is the width, and a later row's leading pipe that keeps the row at
+    that width marks an empty first cell.
+    """
+    starts = line.lstrip().startswith("|")
+    ends = line.rstrip().endswith("|")
+    if width is None:
+        return 0 if starts or ends else len(_pipe_table_line_cells(line, None))
+    if starts and (ends or line.count("|") + 1 > width):
+        return 0
+    return width
+
+
+def _pipe_table_line_cells(
+    line: str,
+    width: int | None,
+) -> list[tuple[int, int]]:
+    """Return the cell spans of one pipe-table line.
+
+    A leading or trailing pipe is dropped as a border unless the line, with
+    them counted as cells, already has the table's ``width``. A table whose
+    rows begin with a cell, the way ``1. | אימהות | 1.40`` does, marks an
+    empty first cell with a leading pipe (``| סך הכל | 14.50``); that cell is a
+    column, and dropping it would shift every value one column left.
+    ``_pipe_table_next_width`` gives the width: 0 (which no line matches) once
+    the block looks bordered anywhere, so a bordered or mixed Markdown table
+    keeps the border rule on every row; with ``None``, borders are dropped.
+    """
+    boundaries = [
+        -1,
+        *(match.start() for match in re.finditer(r"\|", line)),
+        len(line),
+    ]
+    cells = [
+        (boundaries[index] + 1, boundaries[index + 1])
+        for index in range(len(boundaries) - 1)
+    ]
+    if width is not None and len(cells) == width:
+        return cells
+    if line.lstrip().startswith("|") and cells:
+        cells = cells[1:]
+    if line.rstrip().endswith("|") and cells:
+        cells = cells[:-1]
+    return cells
 
 
 _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS = frozenset("\u200d\u200c\u2060\u00ad\ufeff")
@@ -13797,27 +14120,18 @@ def _pipe_table_rate_cell_spans(
     """Index cells whose pipe-table column has an explicit percentage header."""
     rate_cells: list[tuple[int, int]] = []
     rate_columns: set[int] = set()
+    width: int | None = None
     line_offset = 0
     for line_with_ending in text.splitlines(keepends=True):
         line = line_with_ending.rstrip("\r\n")
         if "|" not in line:
             rate_columns.clear()
+            width = None
             line_offset += len(line_with_ending)
             continue
 
-        boundaries = [
-            -1,
-            *(match.start() for match in re.finditer(r"\|", line)),
-            len(line),
-        ]
-        cells = [
-            (boundaries[index] + 1, boundaries[index + 1])
-            for index in range(len(boundaries) - 1)
-        ]
-        if line.lstrip().startswith("|") and cells:
-            cells = cells[1:]
-        if line.rstrip().endswith("|") and cells:
-            cells = cells[:-1]
+        width = _pipe_table_next_width(line, width)
+        cells = _pipe_table_line_cells(line, width)
 
         for column, (start, end) in enumerate(cells):
             if _table_rate_header_matches(line[start:end], profile=profile):
@@ -14164,6 +14478,7 @@ class _LegacyNumericCollector:
     rate_table_cell_prefix_max_ends: tuple[int, ...] = field(init=False)
     shared_rate_spans: tuple[tuple[int, int], ...] = field(init=False)
     temporal_component_spans: tuple[tuple[int, int], ...] = field(init=False)
+    standalone_month_header_year_spans: tuple[tuple[int, int], ...] = field(init=False)
     structural_component_spans: tuple[tuple[int, int], ...] = field(init=False)
     structural_component_span_starts: tuple[int, ...] = field(init=False)
     structural_component_prefix_max_ends: tuple[int, ...] = field(init=False)
@@ -14196,6 +14511,9 @@ class _LegacyNumericCollector:
             self.rate_table_cell_prefix_max_ends,
         ) = _span_containment_index(self.rate_table_cell_spans)
         self.temporal_component_spans = _temporal_numeric_component_spans(
+            self.context_text
+        )
+        self.standalone_month_header_year_spans = _standalone_month_header_year_spans(
             self.context_text
         )
         self.structural_component_spans = _structural_numeric_component_spans(
@@ -14285,8 +14603,18 @@ class _LegacyNumericCollector:
             require_exact=self.profile == "da-DK",
         )
         start, end = source_span
-        has_table_rate_context = self.profile != "da-DK" and (
-            _span_is_contained_in_index(
+        in_structural_component = _span_is_contained_in_index(
+            source_span,
+            self.structural_component_span_starts,
+            self.structural_component_prefix_max_ends,
+        )
+        # A percent heading types the values in its column as rates, not the
+        # section references the heading itself cites ("אחוזים מההכנסה לפי
+        # סעיפים 337(א) ו־340(א)").
+        has_table_rate_context = (
+            self.profile != "da-DK"
+            and not in_structural_component
+            and _span_is_contained_in_index(
                 source_span,
                 self.rate_table_cell_span_starts,
                 self.rate_table_cell_prefix_max_ends,
@@ -14337,13 +14665,7 @@ class _LegacyNumericCollector:
             )
         )
         has_structural_context = (
-            not has_rate_context
-            and not has_money_context
-            and _span_is_contained_in_index(
-                source_span,
-                self.structural_component_span_starts,
-                self.structural_component_prefix_max_ends,
-            )
+            not has_rate_context and not has_money_context and in_structural_component
         )
         return NumericOccurrence(
             value=value,
@@ -15205,6 +15527,49 @@ def _locale_numeric_envelope_has_token_boundaries(
     )
 
 
+# main's month-year readings, which also pair a month standing alone on its
+# line with the year below it. Used only by
+# `_standalone_month_header_year_spans`.
+_ANY_LINE_MONTH_YEAR_PATTERNS = (
+    re.compile(
+        rf"\b{_GERMAN_MONTH_NAME_BODY}\s+(?:des\s+Jahres\s+)?"
+        rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"\b{_MONTH_NAME_BODY}\s+(?P<year>{_TEMPORAL_YEAR_BODY})"
+        rf"{_TEMPORAL_YEAR_END}",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _standalone_month_header_year_spans(text: str) -> tuple[tuple[int, int], ...]:
+    """Year tokens main read as dates after a month standing alone on its line.
+
+    #1822 stops these from being temporal components, so a table value below a
+    month column header stays a demand. They are kept only so that typed-year
+    recovery can restore one that structural cleaning removed (``Mai\n2026.``
+    reads as a ``2026.`` line label), exactly as main restored it.
+    """
+
+    guarded = {
+        match.span("year")
+        for pattern in (_GERMAN_MONTH_YEAR_PATTERN, _ENGLISH_MONTH_YEAR_PATTERN)
+        for match in pattern.finditer(text)
+    }
+    return tuple(
+        sorted(
+            {
+                match.span("year")
+                for pattern in _ANY_LINE_MONTH_YEAR_PATTERNS
+                for match in pattern.finditer(text)
+            }
+            - guarded
+        )
+    )
+
+
 def _temporal_numeric_component_spans(
     text: str,
 ) -> tuple[tuple[int, int], ...]:
@@ -15553,6 +15918,27 @@ def _complete_typed_year_occurrences(
         )
         if _TEMPORAL_YEAR_TOKEN_PATTERN.fullmatch(collector.source[span[0] : span[1]])
     }
+    occurrences = tuple(occurrences)
+    present_spans = {occurrence.span for occurrence in occurrences}
+    # A year below a month header that cleaning removed is restored as the
+    # temporal year main read it as; one that survived stays a demand (#1822).
+    header_year_spans = {
+        span
+        for span in collector.standalone_month_header_year_spans
+        if span not in present_spans
+        if _locale_numeric_envelope_has_token_boundaries(
+            collector.source,
+            span,
+            profile=collector.profile,
+        )
+        if not (
+            span[1] + 1 < len(collector.source)
+            and collector.source[span[1]] in ".,"
+            and collector.source[span[1] + 1].isdigit()
+        )
+        if _TEMPORAL_YEAR_TOKEN_PATTERN.fullmatch(collector.source[span[0] : span[1]])
+    }
+    typed_year_spans |= header_year_spans
     normalized = [
         occurrence
         for occurrence in occurrences
@@ -15571,6 +15957,12 @@ def _complete_typed_year_occurrences(
             continue
         raw = collector.source[span[0] : span[1]]
         occurrence = collector.occurrence(source_view, span, float(raw))
+        if (
+            span in header_year_spans
+            and not occurrence.has_rate_context
+            and not occurrence.has_temporal_context
+        ):
+            occurrence = dataclass_replace(occurrence, has_temporal_context=True)
         insertion_index = next(
             (
                 index
@@ -16666,6 +17058,10 @@ def _tokenize_numeric_occurrences_from_text(
             ):
                 continue
             grouped_value = _parse_belgian_numeric_phrase(match.group(1))
+            source_span = cleaned_view.source_span(span)
+            # Prefer a grouped reading only when this same source token
+            # supplied it. An unrelated integer (such as a retained page
+            # number) cannot disambiguate an operative decimal amount.
             if (
                 grouped_value is not None
                 and not math.isclose(
@@ -16675,7 +17071,8 @@ def _tokenize_numeric_occurrences_from_text(
                     abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
                 )
                 and any(
-                    math.isclose(
+                    occurrence.span == source_span
+                    and math.isclose(
                         grouped_value,
                         occurrence.value,
                         rel_tol=0,
@@ -17258,7 +17655,6 @@ def _stated_conversion_ungrounded_literal_hint(
     if (
         not require_complete_source_unit
         or value not in _STATED_CONVERSION_CALENDAR_CONSTANTS
-        or not source_states_stated_conversion_result(source_text)
     ):
         return ""
     try:
@@ -17275,6 +17671,10 @@ def _stated_conversion_ungrounded_literal_hint(
         and citation_path.strip() != source_citation_path.strip()
     ):
         return ""
+    # Read the source with the scope the complete-source-unit analysis uses.
+    with _us_manual_prose_scope(citation_path.strip()):
+        if not source_states_stated_conversion_result(source_text):
+            return ""
     return f" {_STATED_CONVERSION_UNGROUNDED_HINT}"
 
 
@@ -18247,7 +18647,7 @@ def repair_source_table_band_scalar_parameters(
         ]
         changed_rules.update(migratable_bound_names)
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -18611,7 +19011,7 @@ def repair_unsupported_chained_conditionals(content: str) -> tuple[str, list[str
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -18648,7 +19048,7 @@ def repair_formula_let_bindings(content: str) -> tuple[str, list[str]]:
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -18781,7 +19181,7 @@ def repair_source_table_open_ended_bound_sentinels(
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -18911,7 +19311,7 @@ def repair_source_table_interval_row_alignment(
     if not changed_rules:
         return content, []
 
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
 
 
@@ -18976,7 +19376,7 @@ def repair_source_table_interval_tests(
 
     if not changed_cases:
         return content, []
-    repaired_content = yaml.safe_dump(cases, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(cases, sort_keys=False).strip() + "\n"
     return repaired_content, changed_cases
 
 
@@ -19029,7 +19429,7 @@ def repair_copied_cross_reference_summary(
         return content, []
 
     module["summary"] = repaired_summary.strip()
-    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    repaired_content = safe_dump_yaml(payload, sort_keys=False).strip() + "\n"
     return repaired_content, repaired_imports
 
 
@@ -20312,6 +20712,139 @@ def _existing_target_input_contract(
     )
 
 
+def _surface_inferred_relation_entities(
+    rule: Mapping[str, object],
+    rules: Mapping[str, Mapping[str, object]],
+    *,
+    seen: frozenset[str] = frozenset(),
+    memo: dict[str, tuple[str, ...]] | None = None,
+    cyclic_names: set[str] | None = None,
+) -> tuple[str, ...]:
+    """Return every entity constraint implied by same-scope aggregates."""
+
+    if memo is None:
+        memo = {}
+    if cyclic_names is None:
+        cyclic_names = set()
+    entity = str(rule.get("entity") or "").strip().lower()
+    if not entity:
+        return ()
+    name = str(rule.get("name") or "").strip()
+    if name in memo:
+        return memo[name]
+    if name in seen:
+        cyclic_names.update(seen)
+        cyclic_names.add(name)
+        return ()
+    next_seen = seen | {name}
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return ()
+    required_entities: dict[str, str] = {}
+    for version in versions:
+        formula = version.get("formula") if isinstance(version, Mapping) else None
+        if not isinstance(formula, str):
+            continue
+        executable_formula = _QUOTED_STRING_PATTERN.sub(
+            lambda match: " " * len(match.group()), formula
+        )
+        executable_formula = "\n".join(
+            (
+                line[:comment_start] + " " * (len(line) - comment_start)
+                if (comment_start := line.find("#")) >= 0
+                else line
+            )
+            for line in executable_formula.split("\n")
+        )
+        aggregate_calls: list[tuple[str, int, int]] = []
+        for aggregate_match in _RELATION_AGGREGATE_PATTERN.finditer(executable_formula):
+            if any(
+                start <= aggregate_match.start() < end
+                for _, start, end in aggregate_calls
+            ):
+                continue
+            opening = executable_formula.find(
+                "(", aggregate_match.start(), aggregate_match.end()
+            )
+            if opening < 0:
+                continue
+            depth = 0
+            for index in range(opening, len(executable_formula)):
+                character = executable_formula[index]
+                if character == "(":
+                    depth += 1
+                elif character == ")":
+                    depth -= 1
+                    if depth == 0:
+                        aggregate_calls.append(
+                            (
+                                aggregate_match.group(1),
+                                aggregate_match.start(),
+                                index + 1,
+                            )
+                        )
+                        break
+        for relation_name, _, _ in aggregate_calls:
+            relation = rules.get(relation_name)
+            if not isinstance(relation, Mapping):
+                continue
+            relation_spec = relation.get("data_relation")
+            if not isinstance(relation_spec, Mapping):
+                continue
+            arguments = relation_spec.get("arguments")
+            if not isinstance(arguments, list) or len(arguments) != 2:
+                continue
+            current_entity = str(arguments[1] or "").strip().lower()
+            if current_entity:
+                required_entities[current_entity] = str(arguments[1]).strip()
+        same_scope_formula = executable_formula
+        for _, start, end in reversed(aggregate_calls):
+            same_scope_formula = (
+                same_scope_formula[:start]
+                + " " * (end - start)
+                + same_scope_formula[end:]
+            )
+        for identifier in _formula_local_identifiers(same_scope_formula):
+            dependency = rules.get(identifier)
+            if not isinstance(dependency, Mapping):
+                continue
+            dependency_entities = _surface_inferred_relation_entities(
+                dependency,
+                rules,
+                seen=next_seen,
+                memo=memo,
+                cyclic_names=cyclic_names,
+            )
+            for dependency_entity in dependency_entities:
+                required_entities[dependency_entity.lower()] = dependency_entity
+    inferred_entities = tuple(
+        required_entities[key] for key in sorted(required_entities)
+    )
+    if name and name not in cyclic_names:
+        memo[name] = inferred_entities
+    return inferred_entities
+
+
+def _surface_contract_matches(
+    expected: ExistingTargetSurfaceContract,
+    actual: ExistingTargetSurfaceContract | None,
+) -> bool:
+    """Compare a mapped surface while permitting one proven legacy entity repair."""
+
+    if actual is None:
+        return False
+    return (
+        expected.name == actual.name
+        and expected.kind == actual.kind
+        and (expected.replacement_entity or expected.entity) == actual.entity
+        and expected.dtype == actual.dtype
+        and expected.period == actual.period
+        and expected.unit == actual.unit
+        and expected.indexed_by == actual.indexed_by
+        and expected.private == actual.private
+    )
+
+
 _REPLACEMENT_LEGAL_SOURCE_NAME_MARKERS = frozenset(
     {
         "article",
@@ -20389,11 +20922,42 @@ def build_existing_target_oracle_contract(
     exact_mappings = getattr(policyengine_registry, "mappings_by_legal_id", {})
     if not isinstance(exact_mappings, dict):
         return None
+    # Registry entries classified as not_comparable document an oracle gap;
+    # they do not establish a PolicyEngine-owned public shape to preserve.
     surface_names = sorted(
-        name for name in rules if f"{target}#{name}" in exact_mappings
+        name
+        for name in rules
+        if (mapping := exact_mappings.get(f"{target}#{name}")) is not None
+        and getattr(mapping, "mapping_type", None) != "not_comparable"
     )
+    entity_inference_memo: dict[str, tuple[str, ...]] = {}
+    cyclic_entity_rules: set[str] = set()
+    inferred_entities_by_name = {
+        name: _surface_inferred_relation_entities(
+            rules[name],
+            rules,
+            memo=entity_inference_memo,
+            cyclic_names=cyclic_entity_rules,
+        )
+        for name in surface_names
+    }
     surfaces = tuple(
-        surface
+        ExistingTargetSurfaceContract(
+            name=surface.name,
+            kind=surface.kind,
+            entity=surface.entity,
+            dtype=surface.dtype,
+            period=surface.period,
+            unit=surface.unit,
+            indexed_by=surface.indexed_by,
+            private=surface.private,
+            replacement_entity=(
+                inferred_entities_by_name[name][0]
+                if len(inferred_entities_by_name[name]) == 1
+                and inferred_entities_by_name[name][0].lower() != surface.entity.lower()
+                else ""
+            ),
+        )
         for name in surface_names
         if (surface := _existing_target_surface_contract(rules[name])) is not None
     )
@@ -20479,13 +21043,15 @@ def find_existing_target_oracle_contract_issues(
             if isinstance(actual_rule, dict)
             else None
         )
-        if actual == expected:
+        if _surface_contract_matches(expected, actual):
             continue
+        protected_entity = expected.replacement_entity or expected.entity
         issues.append(
             "[existing-target-oracle-contract] Replacement must retain valid "
             f"exact-oracle-mapped surface `{contract.target}#{expected.name}` "
-            "with its existing kind/entity/dtype/period/unit/index and "
-            "metadata.private/public contract. Repair its implementation under "
+            "with its required kind/entity/dtype/period/unit/index and "
+            f"metadata.private/public contract (entity `{protected_entity}`). "
+            "Repair its implementation under "
             "that stable surface."
         )
     for expected in contract.inputs:
@@ -22091,10 +22657,6 @@ _UNSUPPORTED_RELATION_SUM_PATTERN = re.compile(
     r"\bsum\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,",
     flags=re.IGNORECASE,
 )
-_RELATION_FIELD_SUM_PATTERN = re.compile(
-    r"\bsum\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*\)",
-    flags=re.IGNORECASE,
-)
 _RELATION_AGGREGATE_PATTERN = re.compile(
     r"\b(?:count_where|len|sum|sum_where)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\b",
     flags=re.IGNORECASE,
@@ -22418,7 +22980,10 @@ _HEAD_OF_HOUSEHOLD_FILING_STATUS_PATTERN = re.compile(
     r"(?:\s+|\s*[-‐‑‒–—―−]\s*)household\b",
     flags=re.IGNORECASE,
 )
-_HOUSEHOLD_UNIT_SOURCE_TOKEN = r"\bhousehold\b(?!\s+members?\b)"
+_HOUSEHOLD_UNIT_SOURCE_TOKEN = (
+    r"(?:\bhousehold\b(?!\s+members?\b)|"
+    r"\bbudgetary\s+unit\b(?!\s+(?:members?|participants?)\b))"
+)
 _UNIT_SCOPE_SOURCE_PATTERN = re.compile(
     r"(?:"
     + _HOUSEHOLD_UNIT_SOURCE_TOKEN
@@ -22427,7 +22992,7 @@ _UNIT_SCOPE_SOURCE_PATTERN = re.compile(
     r"\bfamily\b(?!\s+members?\b)|\bspm\s+unit\b)"
     r"[\s\S]{0,180}\b"
     r"(?:eligible|eligibility|test|requirement|resources?|income|standard|"
-    r"benefit|allotment)\b",
+    r"benefit|allotment|disqualif\w*)\b",
     flags=re.IGNORECASE,
 )
 _UNIT_SOURCE_ENTITY_PATTERNS = (
@@ -22554,25 +23119,31 @@ _SHARED_STATUTORY_RATE_SECTION_PREFIX_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
-    r"\bhousehold\b(?!\s+members?\b)[\s\S]{0,180}"
-    r"\b(?:each|every|all|no)\s+(?:household\s+)?member\b"
+    r"(?:\bhousehold\b(?!\s+members?\b)|\bbudgetary\s+unit\b)"
+    r"[\s\S]{0,180}\b(?:each|every|all|no|an?)\s+"
+    r"(?:(?:household|budgetary\s+unit)\s+)?(?:members?|participants?)\b"
     r"|"
     r"\b(?:individuals?|persons?|clients?|participants?|recipients?)\b"
     r"[\s\S]{0,80}\b(?:resid(?:e|es|ing)|liv(?:e|es|ing))\s+with\s+"
-    r"(?:a\s+)?household\b",
+    r"(?:(?:a|the)\s+)?household\b",
     flags=re.IGNORECASE,
 )
 _UNIT_MEMBER_AGGREGATE_HELPER_SOURCE_PATTERN = re.compile(
     r"\b(?:households?|snap\s+units?|food\s+assistance\s+units?|"
-    r"assistance\s+units?|tax\s+units?|filing\s+units?|famil(?:y|ies)|"
+    r"assistance\s+units?|budgetary\s+units?|tax\s+units?|filing\s+units?|famil(?:y|ies)|"
     r"spm\s+units?)\b[\s\S]{0,240}\b(?:all|each|every|no)\s+"
-    r"(?:individuals?|persons?|(?:household\s+|family\s+)?members?)\b"
+    r"(?:individuals?|persons?|participants?|members?|"
+    r"(?:household|family|budgetary\s+unit)\s+(?:members?|participants?))\b"
     r"|"
     r"\b(?:all|each|every|no)\s+"
-    r"(?:individuals?|persons?|(?:household\s+|family\s+)?members?)\b"
+    r"(?:individuals?|persons?|participants?|members?|"
+    r"(?:household|family|budgetary\s+unit)\s+(?:members?|participants?))\b"
     r"[\s\S]{0,240}\b(?:households?|snap\s+units?|food\s+assistance\s+"
-    r"units?|assistance\s+units?|tax\s+units?|filing\s+units?|"
+    r"units?|assistance\s+units?|budgetary\s+units?|tax\s+units?|filing\s+units?|"
     r"famil(?:y|ies)|spm\s+units?)\b"
+    r"|"
+    r"\b(?:all|each|every|no)\s+(?:budgetary\s+unit|household|family)\s+"
+    r"(?:members?|participants?)\b"
     r"|"
     r"\ball[-\s]+member[-\s]+(?:disqualif|ineligib|exclud)"
     r"[\s\S]{0,120}\b(?:households?|snap\s+units?|food\s+assistance\s+"
@@ -22666,9 +23237,27 @@ def _mask_household_filing_statuses(text: str) -> str:
     )
 
 
+_PERSON_RESOURCE_TYPE_DESCRIPTION_PATTERN = re.compile(
+    r"\b(?:a|the)\s+person\s+responsible\s+for\s+a\s+"
+    r"(?P<modifier>family)-type\s+resource\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _mask_person_resource_type_description(text: str) -> str:
+    """Hide only the descriptive modifier, preserving all other scope evidence."""
+    characters = list(text)
+    for match in _PERSON_RESOURCE_TYPE_DESCRIPTION_PATTERN.finditer(text):
+        start, end = match.span("modifier")
+        characters[start:end] = " " * (end - start)
+    return "".join(characters)
+
+
 def _classify_source_scope(text: str) -> str | None:
     """Return a clear source scope, or None when the text is mixed/vague."""
-    classification_text = _mask_household_filing_statuses(text)
+    classification_text = _mask_person_resource_type_description(
+        _mask_household_filing_statuses(text)
+    )
     person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(classification_text) is not None
     unit_scoped = (
         _UNIT_SCOPE_SOURCE_PATTERN.search(classification_text) is not None
@@ -22683,7 +23272,9 @@ def _classify_source_scope(text: str) -> str | None:
 
 def _classify_source_unit_entity(text: str) -> str | None:
     """Return a clear unit entity from source text, or None when generic/mixed."""
-    classification_text = _mask_household_filing_statuses(text)
+    classification_text = _mask_person_resource_type_description(
+        _mask_household_filing_statuses(text)
+    )
     if _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(classification_text):
         return "taxunit"
     matches = {
@@ -23061,6 +23652,12 @@ def _unit_relation_aggregate_helper_names_by_rule(
     payload: dict[str, Any],
     fallback_source_text: str,
 ) -> set[str]:
+    formulas_by_name: dict[str, list[str]] = defaultdict(list)
+    for name, kind, formula, _rule_source, _rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if kind == "derived":
+            formulas_by_name[name].append(formula)
     helper_names: set[str] = set()
     for _name, kind, formula, _rule_source, rule in _rulespec_rule_formula_rule_records(
         payload
@@ -23079,6 +23676,21 @@ def _unit_relation_aggregate_helper_names_by_rule(
         ):
             continue
         helper_names.update(_relation_aggregate_helper_identifiers(formula))
+    pending = list(helper_names)
+    while pending:
+        helper_name = pending.pop()
+        helper_formulas = formulas_by_name.get(helper_name)
+        if not helper_formulas:
+            continue
+        for helper_formula in helper_formulas:
+            for dependency_name in _formula_local_identifiers(helper_formula):
+                if (
+                    dependency_name not in formulas_by_name
+                    or dependency_name in helper_names
+                ):
+                    continue
+                helper_names.add(dependency_name)
+                pending.append(dependency_name)
     return helper_names
 
 
@@ -23134,8 +23746,8 @@ def _person_rule_can_use_unit_member_aggregate_source(
     if str(rule.get("dtype") or "").strip().lower() != "judgment":
         return False
     source_contexts = _rule_proof_source_excerpts(rule)
-    if not source_contexts and fallback_source_text:
-        source_contexts = [fallback_source_text]
+    if fallback_source_text:
+        source_contexts.append(fallback_source_text)
     return any(
         _UNIT_MEMBER_AGGREGATE_HELPER_SOURCE_PATTERN.search(text)
         for text in source_contexts
@@ -24129,27 +24741,44 @@ def find_source_subparagraph_coverage_issues(
     ) or extract_embedded_source_text(content)
     if not source_text:
         return []
-    if _empty_deferred_editorial_source_slice(payload, content):
+    # The requested source takes precedence over the output file's location,
+    # which can collapse to the parent under corpus fallback (see issue #71).
+    # Preserve its literal identity for the registry and corpus authentication;
+    # only the existing outline scanner uses a case-folded scope.
+    requested_scope = _scope_prefix_from_requested_source(
+        citation_path, requested_source, preserve_case=True
+    ) or _source_subparagraph_coverage_scope_prefix(
+        citation_path, rules_file=rules_file, preserve_case=True
+    )
+    coverage_scope_prefix = tuple(part.lower() for part in requested_scope)
+    if _empty_deferred_editorial_source_slice(
+        payload, content
+    ) and _authoritative_deferred_editorial_source_slice(
+        source_text,
+        extract_embedded_source_text(content),
+        coverage_scope_prefix,
+        citation_path=citation_path,
+        requested_scope=requested_scope,
+        requested_citation_path=_requested_corpus_citation_path(
+            citation_path, requested_source, rules_file=rules_file
+        ),
+    ):
         return []
 
-    source_children = _high_signal_top_level_subparagraphs(source_text)
-    # The requested-source scope takes precedence over the rules_file-derived
-    # one because it captures encoder intent precisely; the rules_file path
-    # only tells us where the artifact landed (which can collapse to the
-    # parent under corpus fallback, see issue #71).
-    coverage_scope_prefix = _scope_prefix_from_requested_source(
-        citation_path, requested_source
-    ) or _source_subparagraph_coverage_scope_prefix(
-        citation_path,
-        rules_file=rules_file,
-    )
+    source_children = _high_signal_top_level_coverage_demands(source_text)
     if coverage_scope_prefix:
         coverage_scope_top_level = _top_level_subparagraph_path(coverage_scope_prefix)
         source_children = [
-            (label, text)
-            for label, text in source_children
-            if (label,) == coverage_scope_top_level
+            demand
+            for demand in source_children
+            if (demand.label,) == coverage_scope_top_level
         ]
+    source_children = filter_coverage_demands(
+        source_children,
+        citation_path=citation_path,
+        requested_scope=requested_scope or None,
+        source_text=source_text,
+    )
     if not source_children:
         return []
 
@@ -24164,7 +24793,8 @@ def find_source_subparagraph_coverage_issues(
     )
 
     issues: list[str] = []
-    for label, text in source_children:
+    for demand in source_children:
+        label, text = demand.label, demand.body
         if (label,) in covered_children:
             continue
         citation = _format_source_subparagraph_citation(citation_path, label)
@@ -24271,6 +24901,23 @@ def _high_signal_top_level_subparagraphs(source_text: str) -> list[tuple[str, st
     ]
 
 
+def _high_signal_top_level_coverage_demands(source_text: str) -> list[CoverageDemand]:
+    """Attach each main demand's original physical marker, including duplicates."""
+    # Compute main's complete spans first. Match origins must never be recovered
+    # with a label/body search: identical repeated headings have distinct keys.
+    demands = _high_signal_top_level_subparagraphs(source_text)
+    segments = _top_level_source_subparagraph_segments(source_text)
+    origins = _TOP_LEVEL_SOURCE_SUBPARAGRAPH_PATTERN.finditer(source_text)
+    positions: dict[tuple[str, str], list[int]] = defaultdict(list)
+    for segment, match in zip(segments, origins, strict=True):
+        positions[segment].append(match.start())
+    position_iters = {segment: iter(starts) for segment, starts in positions.items()}
+    return [
+        CoverageDemand(label, text, next(position_iters[(label, text)]))
+        for label, text in demands
+    ]
+
+
 def _top_level_source_subparagraph_segments(
     source_text: str,
 ) -> list[tuple[str, str]]:
@@ -24285,6 +24932,355 @@ def _top_level_source_subparagraph_segments(
         text = source_text[start:end].strip()
         children.append((label, text))
     return children
+
+
+def _authoritative_deferred_editorial_source_slice(
+    source_text: str,
+    summary: str,
+    scope: tuple[str, ...],
+    *,
+    citation_path: str | None = None,
+    requested_scope: tuple[str, ...] | None = None,
+    requested_citation_path: str | None = None,
+) -> bool:
+    """Add authoritative-source evidence to the existing summary waiver."""
+    if len(scope) <= 1:
+        return False
+    if requested_scope is None:
+        requested_scope = scope
+    notice_label = re.search(
+        r"\(([A-Za-z0-9]+)\)", _normalized_editorial_source_presentation(summary)
+    )
+    return bool(
+        notice_label
+        and notice_label[1].lower() == scope[-1]
+        and (
+            _authoritative_source_slice_is_editorial_omission(summary)
+            or _bibliographic_editorial_notice(summary)
+        )
+        and _source_scope_is_editorial_omission(source_text, scope)
+        and citation_path is not None
+        and (
+            has_reviewed_repeal(
+                citation_path=citation_path,
+                requested_scope=requested_scope,
+                source_text=source_text,
+            )
+            or _requested_corpus_row_is_repealed(requested_citation_path)
+        )
+    )
+
+
+def _requested_corpus_row_is_repealed(
+    requested_citation_path: str | None,
+) -> bool:
+    """Authenticate the literal requested row, preserving corpus label case."""
+    release = _AUTHORITATIVE_CORPUS_RELEASE.get()
+    if release is None or requested_citation_path is None:
+        return False
+    return local_corpus_row_is_repealed(requested_citation_path, release)
+
+
+def _normalized_editorial_source_presentation(source_text: str) -> str:
+    """Normalize notice typography while preserving physical line breaks."""
+    normalized = re.sub(r"<sup>\s*\d+\s*</sup>|[⁰¹²³⁴⁵⁶⁷⁸⁹]+", "", source_text)
+    normalized = unicodedata.normalize("NFKC", normalized)
+    normalized = "".join(
+        char for char in normalized if unicodedata.category(char) != "Cf"
+    )
+    normalized = re.sub(r"</?(?:i|em|b|strong)>", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"[\[\]*_]", "", normalized)
+    return normalized
+
+
+def _source_scope_is_editorial_omission(
+    source_text: str, scope: tuple[str, ...]
+) -> bool:
+    """Authenticate one exact requested tombstone in a proven source outline."""
+    # The finite certificate uses raw presentation and a complete sequential
+    # ancestry proof. Refusal leaves the original conservative route intact.
+    if confirms_bibliographic_editorial_scope(source_text, scope):
+        return True
+    # Preserve digits inside authoritative headings before removing notice
+    # footnotes. A superscript label is still a label, not an annotation.
+    heading_text = re.sub(
+        r"\([^()\r\n]*\)",
+        lambda match: unicodedata.normalize(
+            "NFKC",
+            re.sub(r"</?(?:i|em|b|strong|sup)>", "", match[0], flags=re.IGNORECASE),
+        ),
+        source_text,
+    )
+    normalized = _normalized_editorial_source_presentation(heading_text)
+    # Repeated labels, including references, cannot establish unique identity.
+    # Compare after presentation normalization so formatted operative headings
+    # cannot disappear from the proof or conflict with an apparent tombstone.
+    candidates = list(
+        re.finditer(rf"\({re.escape(scope[-1])}\)", normalized, flags=re.IGNORECASE)
+    )
+    if len(candidates) != 1:
+        return False
+    markers = _qualified_parenthesized_legal_outline_markers(normalized)
+    matching = [
+        (marker, end)
+        for marker, end in _nested_outline_marker_spans(
+            markers, outer_end=len(normalized)
+        )
+        if marker.path == scope and marker.start == candidates[0].start()
+    ]
+    if len(matching) != 1:
+        return False
+    marker, end = matching[0]
+    ancestor_starts = []
+    for depth in range(1, len(scope)):
+        start = max(
+            (
+                item.start
+                for item in markers
+                if item.start <= marker.start and item.path == scope[:depth]
+            ),
+            default=-1,
+        )
+        if start < 0:
+            return False
+        ancestor_starts.append(start)
+    # Notice normalization can erase footnotes or turn symbols into letters.
+    # Prove continuity from the original presentation, then align its physical
+    # offsets with the normalized outline used for exact heading identity.
+    normalized_positions = {}
+
+    def normalized_position(position: int) -> int:
+        if position not in normalized_positions:
+            normalized_positions[position] = len(
+                _normalized_editorial_source_presentation(heading_text[:position])
+            )
+        return normalized_positions[position]
+
+    marker_starts = {item.start for item in markers}
+    original_marker_starts = {
+        opening.start()
+        for opening in re.finditer(r"\(", heading_text)
+        if normalized_position(opening.start()) in marker_starts
+    }
+    possible_boundaries = _coverage_unproven_prose_starts(
+        heading_text, recognized_marker_starts=original_marker_starts
+    )
+    if any(
+        min(ancestor_starts) < normalized_position(start) <= marker.start
+        for start in possible_boundaries
+    ):
+        return False
+    return _authoritative_source_slice_is_editorial_omission(
+        normalized[marker.start : end]
+    )
+
+
+def _bibliographic_editorial_notice(source_text: str) -> bool:
+    normalized = _normalized_editorial_source_presentation(source_text).strip()
+    return BIBLIOGRAPHIC_NOTICE.fullmatch(normalized) is not None
+
+
+def _authoritative_source_slice_is_editorial_omission(source_text: str) -> bool:
+    # Authenticate the whole slice, not a repeal prefix that could swallow a
+    # different following label. Formatting and editorial dates do not change
+    # the notice's identity; unfamiliar trailing prose remains mandatory.
+    normalized = _normalized_editorial_source_presentation(source_text)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if not normalized:
+        return False
+    if re.fullmatch(
+        r"\([A-Za-z0-9]+\)\s*(?:Repealed|Omitted)\.?"
+        r"(?:\s*[.—–-]?\s*(?:Effective|Eff\.)\s+"
+        r"(?:[A-Za-z]+\s+)?\d{1,4}(?:[\s,/-]+\d{1,4})*\.?)?"
+        r"(?:\s+Pub\.\s*L\.\s*\d+-\d+,\s*title\s+[IVXLCDM\d]+,\s*"
+        r"section\s+\d+(?:\([A-Za-z0-9]+\))*\.?)?",
+        normalized,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    if re.fullmatch(r"\(?[A-Za-z0-9]+\)?\s*(?:\[?\s*)?\.{3,}(?:\s*\]?)?", normalized):
+        return True
+    return False
+
+
+def _coverage_unproven_prose_starts(
+    source_text: str,
+    *,
+    recognized_marker_starts: set[int],
+    numeric_outline: bool = False,
+) -> set[int]:
+    """Require positive prose evidence between authenticated physical markers.
+
+    A recognizer's silence cannot prove continuity. Classify each presentation
+    token as ordinary prose or an already authenticated marker; everything else
+    interrupts ancestry. Positions remain physical so uncertainty after a cue
+    cannot invalidate that cue's earlier owner.
+    """
+    starts: set[int] = set()
+    prose_punctuation = frozenset(".,;:!?\"'“”‘’%/\\—–-")
+    label_delimiters = frozenset(".):—–-")
+    ordinary_clause = re.compile(
+        r"[^\W\d_]+(?:\s+[^\W\d_]+){0,12}[\"'”’]?\s+"
+        r"(?:means|is|are|was|were|has|have|must|shall|will|can|may|does|do|did|"
+        r"continues|provides|follows|applies|contains|includes|requires|specifies)\s+\S",
+        flags=re.IGNORECASE,
+    )
+    for line in re.finditer(r"(?m)^.*$", source_text):
+        characters: list[str] = []
+        offsets: list[int] = []
+        emphasis_positions: set[int] = set()
+        for emphasis in re.finditer(r"(\*{1,2}|_|`)(?=\S).*?\S\1", line[0]):
+            emphasis_positions.update(range(emphasis.start(), emphasis.end(1)))
+            emphasis_positions.update(
+                range(emphasis.end() - len(emphasis[1]), emphasis.end())
+            )
+        for token in re.finditer(
+            r"</?(?:i|em|b|strong|sup)>|.", line[0], flags=re.IGNORECASE
+        ):
+            if token[0].startswith("<") and token[0].endswith(">"):
+                continue
+            if token.start() in emphasis_positions:
+                continue
+            if token[0].isspace() and not _is_horizontal_space(token[0]):
+                if token[0] != "\r" or token.end() != len(line[0]):
+                    starts.add(line.start() + token.start())
+            # Compatibility normalization can turn an unfamiliar symbol into
+            # ordinary letters. Its original presentation still lacks prose
+            # proof (e.g. a square unit symbol flattened into a word).
+            if unicodedata.category(token[0]).startswith("S"):
+                starts.add(line.start() + token.start())
+            for char in unicodedata.normalize("NFKC", token[0]):
+                if unicodedata.category(char) == "Cf":
+                    continue
+                characters.append(char)
+                offsets.append(line.start() + token.start())
+        presentation = "".join(characters)
+        authenticated: set[int] = set()
+        raw_physical = re.match(r"[^\S\r\n]*((?:\([A-Za-z0-9]+\)[ \t]*)+)", line[0])
+        if raw_physical and (
+            line.start() in recognized_marker_starts
+            or line.start() + raw_physical.start(1) in recognized_marker_starts
+        ):
+            authenticated.update(
+                range(
+                    line.start() + raw_physical.start(1),
+                    line.start() + raw_physical.end(1),
+                )
+            )
+        physical = re.match(r"[^\S\r\n]*((?:\([A-Za-z0-9]+\)[ \t]*)+)", presentation)
+        if physical:
+            # Stripping a wrapper must not attach an unknown inline marker to
+            # a recognized prefix. Formatted markers need their own identity.
+            for marker in re.finditer(r"\([A-Za-z0-9]+\)", physical[1]):
+                start = physical.start(1) + marker.start()
+                end = physical.start(1) + marker.end()
+                if offsets[start] in recognized_marker_starts:
+                    authenticated.update(offsets[start:end])
+        if numeric_outline:
+            # This exception is positive whole-notice proof, not a guessed
+            # heading shape. It preserves established numbered-outline behavior.
+            for opening in re.finditer(r"\(", presentation):
+                remainder = presentation[opening.start() :]
+                if re.match(
+                    r"\([a-z]\)", remainder
+                ) and _authoritative_source_slice_is_editorial_omission(remainder):
+                    authenticated.update(
+                        offsets[index]
+                        for index in range(opening.start(), len(offsets))
+                        if presentation[index] not in "[]"
+                    )
+                    bracket_stack: list[int] = []
+                    for index, char in enumerate(presentation):
+                        if char == "[":
+                            bracket_stack.append(index)
+                        elif char == "]" and bracket_stack:
+                            bracket_start = bracket_stack.pop()
+                            content = presentation[bracket_start + 1 : index].strip()
+                            notice_wrapper = (
+                                _authoritative_source_slice_is_editorial_omission(
+                                    content
+                                )
+                            )
+                            date_wrapper = re.match(
+                                r"(?:Effective|Eff\.)\s", content, flags=re.IGNORECASE
+                            ) and _authoritative_source_slice_is_editorial_omission(
+                                "(b) Repealed. " + content
+                            )
+                            if notice_wrapper or date_wrapper:
+                                authenticated.update(
+                                    (offsets[bracket_start], offsets[index])
+                                )
+                    break
+        leading = len(presentation) - len(presentation.lstrip())
+        label_leading = re.match(r"[\s\"'“”‘’]*", presentation).end()
+        if leading < len(presentation) and offsets[leading] not in authenticated:
+            # A punctuated title is still uncertain. A plain continuation
+            # needs an ordinary subject/predicate clause and its sentence end.
+            clause = ordinary_clause.match(presentation, label_leading)
+            sentence_end = (
+                re.search(r"[.!?](?=[\s\"'”’]|$)", presentation[clause.end() :])
+                if clause
+                else None
+            )
+            if not sentence_end:
+                starts.add(offsets[leading])
+            else:
+                end = clause.end() + sentence_end.end()
+                remainder = presentation[end:].strip(" \t\"'“”‘’")
+                if remainder:
+                    # A later fragment cannot invalidate an earlier cue.
+                    starts.add(offsets[end])
+        for token in re.finditer(r"\w+|[^\w\s]", presentation):
+            position = offsets[token.start()]
+            if position in authenticated:
+                continue
+            word = token[0]
+            if word.isalnum():
+                following = presentation[token.end() :].lstrip()
+                original_word = line[0][
+                    offsets[token.start()] - line.start() : offsets[token.end() - 1]
+                    - line.start()
+                    + 1
+                ]
+                section_word = word.lower().startswith("sec")
+                line_leading = token.start() == label_leading
+                label_word = (
+                    len(word) == 1
+                    or len(original_word) == 1
+                    or any(char.isdigit() for char in word)
+                    or word.isupper()
+                    or all(char.upper() in "IVXLCDM" for char in word)
+                )
+                if (
+                    section_word
+                    or (following and following[0] == ")")
+                    or (
+                        (label_word or line_leading)
+                        and (
+                            (label_word and line_leading)
+                            or (following and following[0] in label_delimiters)
+                        )
+                    )
+                ):
+                    starts.add(position)
+                # Other alphabetic words and undelimited inline numbers are
+                # ordinary prose. Nonalphabetic/nondecimal word tokens have no
+                # positive prose interpretation (e.g. unusual numeric symbols).
+                elif not (word.isalpha() or word.isdecimal()):
+                    starts.add(position)
+            elif word in prose_punctuation:
+                if word in "—–-" and not (
+                    token.start() > leading
+                    and presentation[token.start() - 1].isalpha()
+                    and token.end() < len(presentation)
+                    and presentation[token.end()].isalpha()
+                ):
+                    starts.add(position)
+            else:
+                # Opening delimiters, section signs, bullets, and unfamiliar
+                # symbols are not affirmative ordinary-prose evidence.
+                starts.add(position)
+    return starts
 
 
 def _rule_source_covered_subparagraphs(
@@ -24424,8 +25420,11 @@ def _source_subparagraph_coverage_scope_prefix(
     citation_path: str,
     *,
     rules_file: Path | None,
+    preserve_case: bool = False,
 ) -> tuple[str, ...]:
-    return _rulespec_file_subparagraph_scope(citation_path, rules_file)
+    return _rulespec_file_subparagraph_scope(
+        citation_path, rules_file, preserve_case=preserve_case
+    )
 
 
 def _normalize_requested_source_to_corpus_path(requested_source: str) -> str:
@@ -24462,7 +25461,10 @@ def _normalize_requested_source_to_corpus_path(requested_source: str) -> str:
 
 
 def _scope_prefix_from_requested_source(
-    citation_path: str, requested_source: str | None
+    citation_path: str,
+    requested_source: str | None,
+    *,
+    preserve_case: bool = False,
 ) -> tuple[str, ...]:
     """Derive a subparagraph scope from a requested source vs the resolved
     citation_path. When the corpus serves a parent-fallback slice, the
@@ -24473,6 +25475,8 @@ def _scope_prefix_from_requested_source(
     (``us/statute/7/2014/e/2/B``) or the human USC form (``7 USC 2014(e)(2)(B)``)
     — the eval workspace stores it as the raw caller input, which is usually
     human form. Normalize both to corpus paths before comparing.
+    ``preserve_case`` retains the literal labels for exact row authentication
+    and registry keys; the default retains the scanner's folded scope.
 
     Examples (citation_path → requested_source → scope):
       us/statute/7/2014 → us/statute/7/2014/e/2/B → ('e', '2', 'b')
@@ -24491,12 +25495,45 @@ def _scope_prefix_from_requested_source(
         return ()
     if requested_parts[: len(citation_parts)] != citation_parts:
         return ()
-    return tuple(part.lower() for part in requested_parts[len(citation_parts) :])
+    scope = requested_parts[len(citation_parts) :]
+    return scope if preserve_case else tuple(part.lower() for part in scope)
+
+
+def _requested_corpus_citation_path(
+    citation_path: str,
+    requested_source: str | None,
+    *,
+    rules_file: Path | None,
+) -> str | None:
+    """Keep exact corpus identity separate from the outline scanner's scope."""
+    citation_parts = tuple(part for part in citation_path.strip("/").split("/") if part)
+    if requested_source:
+        normalized = _normalize_requested_source_to_corpus_path(requested_source)
+        requested_parts = tuple(
+            part for part in normalized.strip("/").split("/") if part
+        )
+        if citation_parts and requested_parts[: len(citation_parts)] == citation_parts:
+            return "/".join(requested_parts)
+
+    base_parts = _rulespec_base_parts_for_corpus_path(citation_path)
+    file_scope = _rulespec_file_subparagraph_scope(
+        citation_path, rules_file, preserve_case=True
+    )
+    if not base_parts or not file_scope:
+        return None
+    # A RuleSpec base drops the jurisdiction and pluralizes the document kind.
+    # Its suffix starts at the section even when the resolved row is a child.
+    requested_parts = (*citation_parts[: len(base_parts) + 1], *file_scope)
+    if requested_parts[: len(citation_parts)] != citation_parts:
+        return None
+    return "/".join(requested_parts)
 
 
 def _rulespec_file_subparagraph_scope(
     citation_path: str,
     rules_file: Path | None,
+    *,
+    preserve_case: bool = False,
 ) -> tuple[str, ...]:
     if rules_file is None:
         return ()
@@ -24508,9 +25545,8 @@ def _rulespec_file_subparagraph_scope(
     for index in range(0, len(file_parts) - len(base_parts) + 1):
         if tuple(file_parts[index : index + len(base_parts)]) != base_parts:
             continue
-        return tuple(
-            part.lower() for part in file_parts[index + len(base_parts) :] if part
-        )
+        scope = tuple(part for part in file_parts[index + len(base_parts) :] if part)
+        return scope if preserve_case else tuple(part.lower() for part in scope)
     return ()
 
 
@@ -27591,7 +28627,6 @@ def find_relation_aggregate_syntax_issues(content: str) -> list[str]:
         return []
 
     relation_names = _rulespec_data_relation_names(payload)
-    executable_names = _rulespec_executable_names_from_payload(payload)
     issues: list[str] = []
     for name, _kind, formula in _rulespec_rule_formulas(payload):
         for match in _UNSUPPORTED_RELATION_SUM_PATTERN.finditer(formula):
@@ -27604,30 +28639,9 @@ def find_relation_aggregate_syntax_issues(content: str) -> list[str]:
             issues.append(
                 "Unsupported relation aggregate syntax: "
                 f"`{name}` uses `sum({relation_name}, ...)`. RuleSpec supports "
-                "`sum(relation.amount_fact)` and "
+                "`sum(relation.amount_fact_or_derived)` and "
                 "`sum_where(relation, amount_fact_or_derived, predicate_fact)`; "
                 "move arithmetic into named facts/derived rules before aggregating."
-            )
-        for match in _RELATION_FIELD_SUM_PATTERN.finditer(formula):
-            relation_name = match.group(1)
-            field_name = match.group(2)
-            if (
-                relation_name not in relation_names
-                and not _BROAD_STRUCTURAL_RELATION_PATTERN.search(relation_name)
-            ):
-                continue
-            if field_name not in executable_names:
-                continue
-            issues.append(
-                "Unsupported relation aggregate syntax: "
-                f"`{name}` uses `sum({relation_name}.{field_name})`, but "
-                f"`{field_name}` is a local executable output. RuleSpec treats "
-                "`sum(relation.amount_fact)` as summing a raw relation-row fact. "
-                "Use "
-                f"`sum_where({relation_name}, {field_name}, predicate_fact)` "
-                "for per-related-entity derived outputs, or remove the local "
-                "executable rule and model the value as a direct relation-row "
-                "fact only if the source defines that row fact directly."
             )
     return issues
 
@@ -30997,18 +32011,73 @@ def _resolve_rulespec_import_file_static(
             return resolved
         return None
 
-    candidate = policy_repo_path / f"{normalized}.yaml"
-    if resolved := validated_existing(candidate):
-        return resolved
+    for candidate_index, candidate in enumerate(
+        _rulespec_import_file_candidates_static(
+            import_path,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+    ):
+        if candidate_index == 0:
+            if resolved := validated_existing(candidate):
+                return resolved
+        else:
+            # Preserve the existing relative fallback's exception behavior:
+            # an invalid secondary candidate is unresolved, while the direct
+            # candidate remains fail closed. Candidate construction stays lazy.
+            with contextlib.suppress(ValueError):
+                if resolved := validated_existing(candidate):
+                    return resolved
+    return None
 
+
+def _rulespec_import_file_candidates_static(
+    import_path: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
+) -> Iterator[Path]:
+    """Return the resolver's ordered candidates, including absent targets.
+
+    Dependency selection needs the lexical paths that validation would read
+    if they existed. Keeping candidate construction here also catches deleted
+    targets and newly added higher-priority targets without a second resolver.
+    Existing candidates still require the normal resolver's safety checks.
+    """
+
+    normalized = _normalize_rulespec_import_path_static(import_path)
+    if not normalized:
+        return
+    normalized_path = Path(normalized)
+    if normalized_path.is_absolute() or any(
+        part in {"", ".", ".."} for part in normalized_path.parts
+    ):
+        raise UnsafeRulespecContextPath(
+            f"RuleSpec import target is outside the active policy root: {import_path}"
+        )
+    if (
+        not normalized_path.parts
+        or normalized_path.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS
+    ):
+        return
+    if _rulespec_import_prefix_static(import_path):
+        target_ref = _parse_rulespec_target(import_path)
+        if target_ref is None:
+            return
+        yield from _rulespec_target_file_candidates(
+            target_ref,
+            policy_repo_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+        return
+    yield policy_repo_path / f"{normalized}.yaml"
     with contextlib.suppress(ValueError):
         relative_parent = rules_file.parent.resolve().relative_to(
             policy_repo_path.resolve()
         )
-        candidate = policy_repo_path / relative_parent / f"{normalized}.yaml"
-        if resolved := validated_existing(candidate):
-            return resolved
-    return None
+        yield policy_repo_path / relative_parent / f"{normalized}.yaml"
 
 
 def _rulespec_import_prefix_static(import_path: str) -> str | None:
@@ -31425,20 +32494,13 @@ def find_test_input_assignment_issues(
         if isinstance(inputs, dict):
             assigned.update(_input_names_from_mapping(inputs))
         assigned.update(_table_input_names(test_case.get("tables")))
-        if not assigned:
-            issues.append(
-                "Test input assignment missing: "
-                f"`{test_name}` must provide `input` facts or `tables` rows "
-                "assigning every local factual `#input.<fact>` referenced by "
-                "this module's formulas."
-            )
-            continue
         missing = sorted(local_inputs - assigned)
         if not missing:
             continue
-        missing_display = ", ".join(f"#input.{name}" for name in missing[:8])
-        if len(missing) > 8:
-            missing_display += f", and {len(missing) - 8} more"
+        # The apply repair parses this diagnostic to add explicit facts. Report
+        # every missing name, including when a test has no factual inputs, so a
+        # single repair pass can satisfy modules with many local inputs.
+        missing_display = ", ".join(f"#input.{name}" for name in missing)
         issues.append(
             "Test input assignment missing: "
             f"`{test_name}` does not assign {missing_display}. Every test for a "
@@ -33680,12 +34742,12 @@ def _resolve_rulespec_target_file(
             )
             return cached.target_file
         cache.target_files.pop(cache_key, None)
-    for root in _candidate_rulespec_repo_roots(
-        target_ref.repo_name,
+    for target_file in _rulespec_target_file_candidates(
+        target_ref,
         policy_repo_path,
-        prefix=target_ref.prefix,
         rulespec_dependency_roots=dependency_roots,
     ):
+        root = target_file.parents[len(target_ref.relative_path.parts) - 1]
         if not root.is_dir():
             continue
         root = _validate_explicit_rulespec_directory(
@@ -33715,6 +34777,25 @@ def _resolve_rulespec_target_file(
                 )
         return resolved
     return None
+
+
+def _rulespec_target_file_candidates(
+    target_ref: _RuleSpecTargetRef,
+    policy_repo_path: Path | None,
+    *,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
+) -> tuple[Path, ...]:
+    """Return canonical target candidates even when a target has been deleted."""
+
+    return tuple(
+        root / target_ref.relative_path
+        for root in _candidate_rulespec_repo_roots(
+            target_ref.repo_name,
+            policy_repo_path,
+            prefix=target_ref.prefix,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+    )
 
 
 def _candidate_rulespec_repo_roots(
@@ -34149,6 +35230,7 @@ _RULESPEC_FORMULA_BUILTINS = {
     "max",
     "min",
     "not",
+    "only_related",
     "or",
     "period_end",
     "period_start",
@@ -34494,6 +35576,29 @@ def _rulespec_declared_relation_names(compiled_payload: dict[str, Any]) -> set[s
     }
 
 
+def _rulespec_declared_relation_slots(
+    compiled_payload: dict[str, Any],
+) -> dict[str, tuple[str, ...]]:
+    """Return the compiled slot order for explicitly typed relations."""
+    program = (
+        compiled_payload.get("program") if isinstance(compiled_payload, dict) else {}
+    )
+    if not isinstance(program, dict):
+        return {}
+    slots_by_name: dict[str, tuple[str, ...]] = {}
+    for relation in program.get("relations", []):
+        if not isinstance(relation, dict) or not relation.get("name"):
+            continue
+        slot_entities = relation.get("slot_entities")
+        if (
+            isinstance(slot_entities, list)
+            and len(slot_entities) == 2
+            and all(isinstance(entity, str) and entity for entity in slot_entities)
+        ):
+            slots_by_name[str(relation["name"])] = tuple(slot_entities)
+    return slots_by_name
+
+
 class ValidatorPipeline:
     """Runs validators in 3 tiers with session event logging."""
 
@@ -34502,6 +35607,7 @@ class ValidatorPipeline:
         policy_repo_path: Path,
         axiom_rules_path: Path,
         *,
+        axiom_compose_path: Path | None = None,
         local_corpus_release: LocalCorpusRelease | None,
         enable_oracles: bool = True,
         oracle_validators: tuple[str, ...] | None = None,
@@ -34517,6 +35623,7 @@ class ValidatorPipeline:
         source_metadata: dict[str, object] | None = None,
         source_citation_path: str | None = None,
         amendment_source_texts: Mapping[str, str] | None = None,
+        amendment_documents: Sequence[object] = (),
         rulespec_dependency_roots: Iterable[Path] = (),
         validation_staging_root: Path | None = None,
         existing_target_oracle_contract: ExistingTargetOracleContract | None = None,
@@ -34524,6 +35631,9 @@ class ValidatorPipeline:
     ):
         self.policy_repo_path = Path(policy_repo_path)
         self.axiom_rules_path = Path(axiom_rules_path)
+        self.axiom_compose_path = (
+            Path(axiom_compose_path) if axiom_compose_path is not None else None
+        )
         self._axiom_rules_engine_pin_override = (
             EnginePin(
                 sha=require_engine_ref_sha(
@@ -34614,6 +35724,9 @@ class ValidatorPipeline:
             amendment_source_texts = {}
         if not isinstance(amendment_source_texts, Mapping):
             raise TypeError("amendment_source_texts must be a mapping when provided")
+        # Keep the authenticated metadata as well as the bodies: source text
+        # alone cannot establish the legal start of amendment-backed behavior.
+        self.amendment_documents = copy.deepcopy(tuple(amendment_documents))
         self.amendment_source_texts: dict[str, str] = {}
         for raw_citation_path, raw_source_text in amendment_source_texts.items():
             if not isinstance(raw_citation_path, str):
@@ -34777,6 +35890,14 @@ class ValidatorPipeline:
             return resolved
         if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
             return resolved
+        # Interpretation quotes need the same release-bound evidence as proof
+        # atoms. They are excluded from the numeric-grounding source pool.
+        if proof_evidence:
+            for citation_path in interpretation_source_citation_paths(payload):
+                try:
+                    resolved[citation_path] = fetch_source(citation_path)
+                except InvalidCorpusCitationError:
+                    resolved[citation_path] = None
         rules = payload.get("rules")
         if not isinstance(rules, list):
             return resolved
@@ -34843,6 +35964,50 @@ class ValidatorPipeline:
             f"{declared}."
         ]
 
+    def _manual_outcome_exception_advice(
+        self,
+        content: str,
+        *,
+        validation_source_texts: Mapping[str, str] | None,
+    ) -> tuple[dict[str, Any], ...]:
+        """Collect optional manual advice from the authoritative requested body."""
+
+        try:
+            payload = yaml.safe_load(content)
+            verification = (
+                _source_verification_block(payload)
+                if isinstance(payload, dict)
+                else None
+            )
+            citation_paths, _source_label = (
+                _source_verification_source_fields(verification)
+                if verification is not None
+                else ((), "")
+            )
+            citation_path = self.source_citation_path or (
+                citation_paths[0] if citation_paths else ""
+            )
+            if not _is_us_manual_citation_path(citation_path):
+                return ()
+            source_text = _source_verification_text(
+                citation_paths=(citation_path,),
+                source_label=citation_path,
+                source_texts=(
+                    dict(validation_source_texts)
+                    if validation_source_texts is not None
+                    else None
+                ),
+            )
+            return manual_outcome_exception_advice(
+                source_text or "",
+                corpus_citation_path=citation_path,
+            )
+        except Exception:
+            # An unavailable optional hint must never create a validation failure.
+            logger.debug("Manual outcome advice unavailable", exc_info=True)
+            return ()
+
+    @timed_tool(TOOL_SOURCE_COMPLETENESS_CHECKS)
     def _complete_source_unit_issues(
         self,
         content: str,
@@ -34850,6 +36015,8 @@ class ValidatorPipeline:
         validation_source_texts: Mapping[str, str] | None,
         test_cases: Sequence[object] | None,
         rules_file: Path | None = None,
+        proof_source_texts: Mapping[str, str | None] | None = None,
+        execution_evidence: SameCaseEvidence | None = None,
     ) -> list[str]:
         """Apply opt-in completeness checks to the resolver-owned corpus body."""
 
@@ -34885,8 +36052,11 @@ class ValidatorPipeline:
         corpus_citation_path = self.source_citation_path or (
             citation_paths[0] if citation_paths else ""
         )
-        imported_symbol_contents = self._complete_source_unit_import_symbol_contents(
+        imported_export_bindings = self._complete_source_unit_import_bindings(
             rules_file
+        )
+        imported_symbol_contents = self._complete_source_import_numeric_projection(
+            imported_export_bindings
         )
         artifact_numeric_bindings = collect_artifact_numeric_bindings(
             content,
@@ -34905,10 +36075,19 @@ class ValidatorPipeline:
             extract_typed_numeric_occurrences_from_text,
             profile=numeric_profile,
         )
+        from .floor_retained_referral_evidence import collect_referral_context
+
         completeness = analyze_complete_source_unit(
             content,
             authoritative_source_text or "",
+            execution_evidence=execution_evidence,
+            referral_context=collect_referral_context(
+                self, content, rules_file, proof_source_texts
+            )
+            if execution_evidence is not None
+            else None,
             corpus_citation_path=corpus_citation_path,
+            source_context=proof_source_texts,
             test_cases=test_cases,
             extract_numeric_occurrences=numeric_occurrence_extractor,
             extract_numeric_grounding_occurrences=(
@@ -34919,18 +36098,119 @@ class ValidatorPipeline:
             artifact_numeric_values=artifact_numeric_values,
             artifact_numeric_bindings=artifact_numeric_bindings,
             imported_symbol_contents=imported_symbol_contents,
+            imported_export_bindings=imported_export_bindings,
+            imported_proof_source_context=self._complete_source_import_proof_context(
+                imported_export_bindings, proof_source_texts
+            ),
+            resolved_dependency_outputs=self._complete_source_unit_deferred_outputs(
+                content, rules_file
+            ),
             authenticated_same_act_aliases=(
                 _authenticated_same_act_aliases_from_metadata(self.source_metadata)
             ),
         )
         return list(completeness.issues)
 
+    def _complete_source_unit_deferred_outputs(
+        self,
+        content: str,
+        rules_file: Path | None,
+    ) -> tuple[str, ...]:
+        """Authenticate exact existing outputs named by definition deferrals."""
+
+        if rules_file is None:
+            return ()
+        try:
+            payload = _safe_load_unique_keys(content)
+            module = payload.get("module", {}) if isinstance(payload, dict) else {}
+            records = (
+                module.get("deferred_outputs", []) if isinstance(module, dict) else []
+            )
+            if not isinstance(records, list):
+                return ()
+            source_root = self._validation_source_root(rules_file)
+        except (OSError, ValueError, yaml.YAMLError, UnsafeRulespecContextPath):
+            return ()
+        targets = {
+            target
+            for record in records
+            if isinstance(record, dict) and isinstance(record.get("blocked_by"), list)
+            for target in record["blocked_by"]
+            if isinstance(target, str)
+            and re.fullmatch(
+                r"[a-z]{2}(?:-[a-z0-9-]+)?:[A-Za-z0-9_./-]+#[A-Za-z_][A-Za-z0-9_]*",
+                target,
+            )
+        }
+        resolved = []
+        for target in sorted(targets):
+            try:
+                dependency = _resolve_rulespec_import_file_static(
+                    target,
+                    rules_file=rules_file,
+                    policy_repo_path=source_root,
+                    rulespec_dependency_roots=self.rulespec_dependency_roots,
+                )
+                if dependency is None:
+                    continue
+                provider = _safe_load_unique_keys(dependency.read_text())
+                if (
+                    not isinstance(provider, dict)
+                    or provider.get("format") != "rulespec/v1"
+                ):
+                    continue
+                rules = provider.get("rules")
+                if not isinstance(rules, list):
+                    continue
+                symbol = target.partition("#")[2]
+                exports = [
+                    rule
+                    for rule in rules
+                    if isinstance(rule, dict) and rule.get("name") == symbol
+                ]
+                # Known behavioral interfaces must remain derived outputs:
+                # a same-name parameter cannot implement income selection or
+                # phaseout behavior. Table amount exports may be parameters.
+                allowed_kinds = (
+                    {"derived"}
+                    if target in _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS
+                    else {"parameter", "derived", "relation", "derived_relation"}
+                )
+                if len(exports) == 1 and exports[0].get("kind") in allowed_kinds:
+                    resolved.append(target)
+            except (OSError, ValueError, yaml.YAMLError, UnsafeRulespecContextPath):
+                continue
+        return tuple(resolved)
+
     def _complete_source_unit_import_symbol_contents(
         self,
         rules_file: Path | None,
     ) -> tuple[tuple[str, str], ...]:
-        """Bind every directly imported symbol to its exact resolved artifact."""
+        """Preserve the existing numeric-import projection and deduplication."""
+        return self._complete_source_import_numeric_projection(
+            self._complete_source_unit_import_bindings(rules_file)
+        )
 
+    @staticmethod
+    def _complete_source_import_numeric_projection(
+        records: Sequence[ResolvedImportedExport],
+    ) -> tuple[tuple[str, str], ...]:
+        seen: set[tuple[str, str]] = set()
+        result: list[tuple[str, str]] = []
+        for record in records:
+            key = (record.resolved_path, record.export_name)
+            if key not in seen:
+                seen.add(key)
+                # Path.read_text previously performed universal newline conversion.
+                content = record.content.replace("\r\n", "\n").replace("\r", "\n")
+                result.append((record.export_name, content))
+        return tuple(result)
+
+    def _complete_source_unit_import_bindings(
+        self,
+        rules_file: Path | None,
+    ) -> tuple[ResolvedImportedExport, ...]:
+        """Retain exact direct resolver identity; never evaluate provider rules."""
         if rules_file is None:
             return ()
         try:
@@ -34938,8 +36218,8 @@ class ValidatorPipeline:
             import_items = self._extract_import_items(rules_file.read_text())
         except (OSError, ValueError, UnsafeRulespecContextPath):
             return ()
-        seen: set[tuple[Path, str]] = set()
-        bindings: list[tuple[str, str]] = []
+        bindings: list[ResolvedImportedExport] = []
+        snapshots: dict[Path, str] = {}
         for import_item in import_items:
             _target, separator, imported_symbol = import_item.rpartition("#")
             imported_symbol = imported_symbol.strip()
@@ -34954,14 +36234,76 @@ class ValidatorPipeline:
                 )
                 if dependency is None:
                     continue
-                binding_key = (dependency.resolve(), imported_symbol)
-                if binding_key in seen:
-                    continue
-                seen.add(binding_key)
-                bindings.append((imported_symbol, dependency.read_text()))
+                dependency = dependency.resolve()
+                if dependency not in snapshots:
+                    snapshots[dependency] = dependency.read_bytes().decode("utf-8")
+                content = snapshots[dependency]
+                jurisdiction_root = _rulespec_repo_root(dependency)
+                bindings.append(
+                    ResolvedImportedExport(
+                        import_uri=import_item,
+                        canonical_target=_canonical_rulespec_file_target(
+                            policy_repo_path=source_root,
+                            rules_file=dependency,
+                            symbol=imported_symbol,
+                        ),
+                        export_name=imported_symbol,
+                        resolved_path=str(dependency),
+                        jurisdiction_root=str(jurisdiction_root)
+                        if jurisdiction_root is not None
+                        else None,
+                        content_sha256=hashlib.sha256(content.encode()).hexdigest(),
+                        content=content,
+                        consumer_imports=tuple(import_items),
+                    )
+                )
             except (OSError, ValueError, UnsafeRulespecContextPath):
                 continue
         return tuple(bindings)
+
+    def _complete_source_import_proof_context(
+        self,
+        records: Sequence[ResolvedImportedExport],
+        consumer_context: Mapping[str, str | None] | None,
+    ) -> dict[str, str | None] | None:
+        """Resolve direct snapshot proofs only for typed import evidence.
+
+        This separate map cannot widen ordinary consumer proof/numeric scope.
+        Authentication errors propagate through the existing resolver.
+        """
+        if (
+            not records
+            or not isinstance(self.local_corpus_release, LocalCorpusRelease)
+            or _AUTHORITATIVE_CORPUS_RELEASE.get() is not self.local_corpus_release
+        ):
+            return None
+        snapshots: dict[str, tuple[str, str]] = {}
+        modules: dict[str, str] = {}
+        for record in records:
+            snapshot = (record.content_sha256, record.content)
+            if (
+                hashlib.sha256(record.content.encode()).hexdigest()
+                != record.content_sha256
+                or snapshots.setdefault(record.resolved_path, snapshot) != snapshot
+            ):
+                return None
+            if record.canonical_target is None:
+                return None
+            module = record.canonical_target.rsplit("#", 1)[0]
+            if modules.setdefault(module, record.resolved_path) != record.resolved_path:
+                return None
+        combined = dict(consumer_context or {})
+        for _digest, content in snapshots.values():
+            provider = self._proof_source_texts_for_rulespec_content(
+                content, source_texts=None
+            )
+            for citation, body in provider.items():
+                if not isinstance(body, str) or (
+                    citation in combined and combined[citation] != body
+                ):
+                    return None
+                combined[citation] = body
+        return combined
 
     def _rulespec_compile_roots(self) -> tuple[Path, ...]:
         """Return the exact country checkouts authorized for engine compilation."""
@@ -35019,6 +36361,23 @@ class ValidatorPipeline:
             )
         start = time.time()
         results = {}
+        if self.amendment_documents:
+            try:
+                timing_file = _canonical_rulespec_compile_path(
+                    rulespec_file, self.policy_repo_path
+                )
+            except (OSError, ValueError, UnsafeRulespecContextPath) as exc:
+                timing_issues = [f"RuleSpec validation target is not canonical: {exc}"]
+            else:
+                timing_issues = amendment_timing_issues(
+                    timing_file.read_text(), self.amendment_documents
+                )
+            results["amendment_timing"] = ValidationResult(
+                validator_name="amendment_timing",
+                passed=not timing_issues,
+                issues=timing_issues,
+                error="\n".join(timing_issues) or None,
+            )
 
         # Tier 0: Compile check (fast, catches structural errors early)
         self._log_event(
@@ -35306,7 +36665,17 @@ class ValidatorPipeline:
         )
         return binary
 
+    @timed_tool(TOOL_RULES_ENGINE_COMPILE)
     def _compile_rulespec_to_artifact(
+        self,
+        rules_file: Path,
+        output_path: Path,
+    ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any] | None]:
+        """Compile with resolution caches scoped to this single operation."""
+        with _rulespec_resolution_cache_scope():
+            return self._compile_rulespec_to_artifact_impl(rules_file, output_path)
+
+    def _compile_rulespec_to_artifact_impl(
         self,
         rules_file: Path,
         output_path: Path,
@@ -35317,6 +36686,19 @@ class ValidatorPipeline:
             rules_file,
             self.policy_repo_path,
         )
+        payload = _safe_load_unique_keys(compile_file.read_text())
+        module = payload.get("module") if isinstance(payload, dict) else None
+        is_composition = (
+            isinstance(module, dict) and module.get("kind") == "composition"
+        )
+        if is_composition:
+            compose_result, composed_file = self._compose_rulespec_module(
+                compile_file,
+                output_path.parent,
+            )
+            if compose_result.returncode != 0 or composed_file is None:
+                return compose_result, None
+            compile_file = composed_file
         result = run_rulespec_compile(
             binary=binary,
             program=compile_file,
@@ -35324,10 +36706,288 @@ class ValidatorPipeline:
             output=output_path,
             cwd=self.axiom_rules_path if self.axiom_rules_path.exists() else None,
             env=self._rulespec_engine_env(),
+            composed=is_composition,
         )
         if result.returncode != 0:
             return result, None
         return result, json.loads(output_path.read_text())
+
+    def _compose_rulespec_module(
+        self,
+        rules_file: Path,
+        output_directory: Path,
+    ) -> tuple[subprocess.CompletedProcess[str], Path | None]:
+        """Compose one composition module through its owning ProgramSpec."""
+
+        if self.axiom_compose_path is None:
+            message = (
+                "composition RuleSpec validation requires an explicit "
+                "axiom-compose executable"
+            )
+            return subprocess.CompletedProcess([], 1, "", message), None
+        compose_binary = self.axiom_compose_path.resolve(strict=True)
+        if not compose_binary.is_file() or not os.access(compose_binary, os.X_OK):
+            message = f"axiom-compose executable is not executable: {compose_binary}"
+            return subprocess.CompletedProcess([], 1, "", message), None
+
+        program_specs = self._owning_program_specs(rules_file)
+        if len(program_specs) != 1:
+            relative = rules_file.relative_to(self.policy_repo_path).as_posix()
+            if program_specs:
+                checkout_root = _rulespec_checkout_root_for_active_path(
+                    self.policy_repo_path
+                )
+                owners = ", ".join(
+                    path.relative_to(checkout_root).as_posix() for path in program_specs
+                )
+                message = (
+                    f"composition module {relative} has multiple owning "
+                    f"ProgramSpecs: {owners}"
+                )
+            else:
+                message = (
+                    f"composition module {relative} is not in any ProgramSpec scope"
+                )
+            return subprocess.CompletedProcess([], 1, "", message), None
+
+        composed_file = output_directory / "composed-program.yaml"
+        command = [str(compose_binary), str(program_specs[0]), "-o", str(composed_file)]
+        for root in self._rulespec_compile_roots():
+            command.extend(("--rulespec-root", str(root)))
+        try:
+            result = subprocess.run(
+                command,
+                cwd=self.policy_repo_path,
+                env=self._rulespec_engine_env(),
+                capture_output=True,
+                text=True,
+                timeout=300,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            message = f"axiom-compose timed out after {exc.timeout} seconds"
+            return subprocess.CompletedProcess(command, 1, "", message), None
+        except OSError as exc:
+            return subprocess.CompletedProcess(command, 1, "", str(exc)), None
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip()
+            return subprocess.CompletedProcess(
+                command,
+                result.returncode,
+                result.stdout,
+                f"axiom-compose failed: {detail}",
+            ), None
+        if not composed_file.is_file() or composed_file.is_symlink():
+            message = "axiom-compose succeeded without a regular output file"
+            return subprocess.CompletedProcess(command, 1, result.stdout, message), None
+        return result, composed_file
+
+    def _owning_program_specs(self, rules_file: Path) -> tuple[Path, ...]:
+        """Return ProgramSpecs whose transitive import scope contains ``rules_file``."""
+
+        with _rulespec_resolution_cache_scope():
+            return self._owning_program_specs_snapshot(rules_file)
+
+    def _owning_program_specs_snapshot(self, rules_file: Path) -> tuple[Path, ...]:
+        root = _rulespec_checkout_root_for_active_path(self.policy_repo_path)
+        cache = _RULESPEC_RESOLUTION_CACHE.get()
+        assert cache is not None
+        cache_key = (root, rules_file, self.rulespec_dependency_roots)
+        cached = cache.program_owners.get(cache_key)
+        if cached is not None:
+            for checkout in cached.admitted_roots:
+                _reject_rulespec_checkout_symlinks(
+                    checkout, label="Program ownership checkout"
+                )
+            if any(
+                _path_mutation_stamp(directory) != stamp
+                for directory, stamp in cached.directory_stamps
+            ) or any(
+                path.is_symlink() or _path_mutation_stamp(path) != stamp
+                for path, stamp in cached.file_stamps
+            ):
+                raise UnsafeRulespecContextPath(
+                    "Program ownership checkout changed during validation"
+                )
+            return cached.owners
+        directory_stamps: dict[Path, _PathMutationStamp] = {}
+        file_stamps: dict[Path, _PathMutationStamp] = {}
+        admitted_roots: set[Path] = set()
+
+        def capture_audits() -> None:
+            for checkout, audit in cache.symlink_audits.items():
+                admitted_roots.add(checkout)
+                for directory, stamp in audit.directory_stamps:
+                    previous = directory_stamps.setdefault(directory, stamp)
+                    if previous != stamp:
+                        raise UnsafeRulespecContextPath(
+                            "Program ownership checkout changed during discovery"
+                        )
+
+        def read_payload(path: Path) -> Any:
+            before = _path_mutation_stamp(path)
+            if before is None or path.is_symlink():
+                raise UnsafeRulespecContextPath(
+                    "Program ownership file changed during discovery"
+                )
+            if file_stamps.setdefault(path, before) != before:
+                raise UnsafeRulespecContextPath(
+                    "Program ownership file changed during discovery"
+                )
+            try:
+                text = path.read_text()
+            finally:
+                if before != _path_mutation_stamp(path):
+                    raise UnsafeRulespecContextPath(
+                        "Program ownership file changed during discovery"
+                    )
+            return _safe_load_unique_keys(text)
+
+        capture_audits()
+        requested_stamp = _path_mutation_stamp(rules_file)
+        if requested_stamp is None or rules_file.is_symlink():
+            raise UnsafeRulespecContextPath(
+                "Program ownership requested file is unsafe"
+            )
+        file_stamps[rules_file] = requested_stamp
+        resolved_imports: dict[str, tuple[str, ...]] = {}
+        module_relative = rules_file.resolve().relative_to(root)
+        module_target = (
+            f"{module_relative.parts[0]}:"
+            f"{Path(*module_relative.parts[1:]).with_suffix('').as_posix()}"
+        )
+        owners: list[Path] = []
+        # ProgramSpecs live only under this checkout's top-level programs/
+        # root. CI checks dependency repositories out inside the rules
+        # checkout (for example _axiom/rulespec-us); a whole-checkout scan
+        # read their ProgramSpecs as second owners of every composition.
+        programs_root = root / RULESPEC_COMPOSITION_SPEC_ROOT
+        candidates = (
+            sorted(programs_root.rglob("*.yaml")) if programs_root.is_dir() else []
+        )
+        for candidate in candidates:
+            if candidate.is_symlink() or not candidate.is_file():
+                continue
+            try:
+                payload = read_payload(candidate)
+            except UnsafeRulespecContextPath:
+                raise
+            except (OSError, ValueError, yaml.YAMLError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            program = payload.get("program")
+            scope = payload.get("scope")
+            if not isinstance(program, str) or not isinstance(scope, dict):
+                continue
+            jurisdiction = program.strip().split("/", 1)[0]
+            country = jurisdiction.split("-", 1)[0]
+            scoped_targets: set[str] = set()
+            for scope_name, entries in scope.items():
+                if scope_name in {"exclude", "include", "jurisdictions"}:
+                    continue
+                if not isinstance(scope_name, str) or not isinstance(entries, list):
+                    continue
+                prefix = (
+                    country
+                    if scope_name == "federal"
+                    else jurisdiction
+                    if scope_name == "state"
+                    else scope_name
+                )
+                for entry in entries:
+                    if not isinstance(entry, str):
+                        continue
+                    raw_target = entry.strip()
+                    target_ref = _parse_rulespec_target(
+                        raw_target if ":" in raw_target else f"{prefix}:{raw_target}"
+                    )
+                    if target_ref is not None:
+                        scoped_targets.add(
+                            f"{target_ref.prefix}:"
+                            f"{target_ref.relative_path.with_suffix('').as_posix()}"
+                        )
+            pending = sorted(scoped_targets - {module_target})
+            if module_target in scoped_targets:
+                pending.append(module_target)
+            reachable: set[str] = set()
+            while pending:
+                target = pending.pop()
+                if target in reachable:
+                    continue
+                reachable.add(target)
+                if target == module_target:
+                    break
+                if target in resolved_imports:
+                    pending.extend(resolved_imports[target])
+                    continue
+                target_ref = _parse_rulespec_target(target)
+                if target_ref is None:
+                    continue
+                target_file = _resolve_rulespec_target_file(
+                    target_ref,
+                    self.policy_repo_path,
+                    rulespec_dependency_roots=self.rulespec_dependency_roots,
+                )
+                capture_audits()
+                if target_file is None:
+                    continue
+                try:
+                    target_payload = read_payload(target_file)
+                except UnsafeRulespecContextPath:
+                    raise
+                except (OSError, ValueError, yaml.YAMLError):
+                    continue
+                imports = (
+                    target_payload.get("imports")
+                    if isinstance(target_payload, dict)
+                    else None
+                )
+                if not isinstance(imports, list):
+                    resolved_imports[target] = ()
+                    continue
+                edges: list[str] = []
+                for imported in imports:
+                    if not isinstance(imported, str):
+                        continue
+                    imported_ref = _parse_rulespec_target(imported)
+                    if imported_ref is not None:
+                        edges.append(
+                            f"{imported_ref.prefix}:"
+                            f"{imported_ref.relative_path.with_suffix('').as_posix()}"
+                        )
+                resolved_imports[target] = tuple(edges)
+                pending.extend(edges)
+            if module_target in reachable:
+                owners.append(candidate)
+        if _rulespec_checkout_root_for_active_path(self.policy_repo_path) != root:
+            raise UnsafeRulespecContextPath(
+                "Program ownership root changed during discovery"
+            )
+        for checkout in admitted_roots:
+            _reject_rulespec_checkout_symlinks(
+                checkout, label="Program ownership checkout"
+            )
+        capture_audits()
+        # Freeze first-observed evidence; resolver caches may refresh on mutation.
+        for directory, stamp in directory_stamps.items():
+            if _path_mutation_stamp(directory) != stamp:
+                raise UnsafeRulespecContextPath(
+                    "Program ownership checkout changed during discovery"
+                )
+        for path, stamp in file_stamps.items():
+            if path.is_symlink() or _path_mutation_stamp(path) != stamp:
+                raise UnsafeRulespecContextPath(
+                    "Program ownership file changed during discovery"
+                )
+        result = tuple(owners)
+        cache.program_owners[cache_key] = _CachedProgramOwners(
+            owners=result,
+            directory_stamps=tuple(directory_stamps.items()),
+            file_stamps=tuple(file_stamps.items()),
+            admitted_roots=tuple(sorted(admitted_roots)),
+        )
+        return result
 
     def _rulespec_compile_success_output(self, payload: Any) -> str:
         """Return a concise successful compile summary for validator output."""
@@ -35582,6 +37242,10 @@ class ValidatorPipeline:
         legal_ids_by_friendly_name: dict[str, list[str]] | None = None,
         module_target: str | None = None,
         declared_relation_names: set[str] | None = None,
+        declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
+        executable_directions: dict[str, tuple[int, str | None]] | None = None,
+        input_entities: dict[str, str] | None = None,
+        table_entity_ids: dict[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Build an Axiom rules engine dataset from compact RuleSpec test inputs."""
         if case_input in (None, ""):
@@ -35592,8 +37256,20 @@ class ValidatorPipeline:
         interval = {"start": period["start"], "end": period["end"]}
         inputs: list[dict[str, Any]] = []
         relations: list[dict[str, Any]] = []
+        flat_input_records: list[dict[str, Any]] = []
+        generated_relation_rows: list[
+            tuple[str, list[str], int, list[dict[str, Any]]]
+        ] = []
+        generated_table_rows: list[
+            tuple[str, list[str], int, list[dict[str, Any]]]
+        ] = []
+        table_id_containers: dict[str, list[list[str]]] = {}
+        occupied_entity_ids = {query_entity_id: {query_entity}}
         legal_ids_by_friendly_name = legal_ids_by_friendly_name or {}
         declared_relation_names = declared_relation_names or set()
+        declared_relation_slots = declared_relation_slots or {}
+        executable_directions = executable_directions or {}
+        input_entities = input_entities or {}
 
         for name, value in case_input.items():
             input_key = str(name)
@@ -35621,25 +37297,69 @@ class ValidatorPipeline:
                     and relation_name not in relation_request_names
                 ):
                     relation_request_names.append(relation_name)
-                related_entity = self._related_entity_from_relation(relation_name)
+                slots = declared_relation_slots.get(
+                    relation_request_name
+                ) or declared_relation_slots.get(relation_name)
+                current_slot = None
+                if slots is not None:
+                    matching_slots = [
+                        index
+                        for index, entity in enumerate(slots)
+                        if entity == query_entity
+                    ]
+                    if not matching_slots:
+                        raise ValueError(
+                            f"relation `{name}` has declared slots {slots!r}, "
+                            f"neither of which matches query entity `{query_entity}`"
+                        )
+                    if len(matching_slots) == 1:
+                        current_slot = matching_slots[0]
+                related_entity = (
+                    slots[1 - current_slot]
+                    if slots is not None and current_slot is not None
+                    else query_entity
+                    if slots is not None
+                    else self._related_entity_from_relation(relation_name)
+                )
+                matches = {
+                    executable_directions[name]
+                    for name in relation_request_names
+                    if name in executable_directions
+                }
+                if len(matches) > 1:
+                    raise ValueError(
+                        f"conflicting executable relation aliases for {input_key}"
+                    )
+                direction = next(iter(matches), None)
+                if direction is not None:
+                    current_slot, executable_entity = direction
+                    if executable_entity is not None:
+                        related_entity = executable_entity
                 for item_index, item in enumerate(value, 1):
                     if not isinstance(item, dict):
                         raise ValueError(
                             f"relation `{name}` item #{item_index} must be a mapping"
                         )
+                    explicit_id = item.get("id") or item.get("entity_id")
                     related_id = str(
-                        item.get("id")
-                        or item.get("entity_id")
-                        or f"{query_entity_id}-{name}-{item_index}"
+                        explicit_id or f"{query_entity_id}-{name}-{item_index}"
                     )
+                    if explicit_id:
+                        occupied_entity_ids.setdefault(related_id, set()).add(
+                            related_entity
+                        )
+                    relation_tuple = [related_id, query_entity_id]
+                    if current_slot == 0:
+                        relation_tuple.reverse()
                     for current_relation_name in relation_request_names:
                         relations.append(
                             {
                                 "name": current_relation_name,
-                                "tuple": [related_id, query_entity_id],
+                                "tuple": relation_tuple,
                                 "interval": interval,
                             }
                         )
+                    input_start = len(inputs)
                     for child_name, child_value in item.items():
                         if child_name in {"id", "entity_id"}:
                             continue
@@ -35674,6 +37394,15 @@ class ValidatorPipeline:
                                 "value": self._rulespec_scalar_value(child_value),
                             }
                         )
+                    if not explicit_id:
+                        generated_relation_rows.append(
+                            (
+                                related_entity,
+                                relation_tuple,
+                                1 if current_slot == 0 else 0,
+                                inputs[input_start:],
+                            )
+                        )
                 continue
 
             if isinstance(value, dict):
@@ -35696,15 +37425,16 @@ class ValidatorPipeline:
                 require_legal_input_keys=require_legal_input_keys,
                 policy_repo_path=self.policy_repo_path,
             )
-            inputs.append(
-                {
-                    "name": input_request_name,
-                    "entity": query_entity,
-                    "entity_id": query_entity_id,
-                    "interval": interval,
-                    "value": self._rulespec_scalar_value(value),
-                }
-            )
+            input_entity = input_entities.get(input_key, query_entity)
+            record = {
+                "name": input_request_name,
+                "entity": input_entity,
+                "entity_id": query_entity_id,
+                "interval": interval,
+                "value": self._rulespec_scalar_value(value),
+            }
+            inputs.append(record)
+            flat_input_records.append(record)
 
         if case_tables not in (None, ""):
             if not isinstance(case_tables, dict):
@@ -35730,6 +37460,12 @@ class ValidatorPipeline:
                         row,
                         row_index,
                     )
+                    row_ids = [row_id]
+                    table_id_containers.setdefault(table_entity, []).append(row_ids)
+                    explicit_id = any(key in row for key in row_id_keys)
+                    if explicit_id:
+                        occupied_entity_ids.setdefault(row_id, set()).add(table_entity)
+                    input_start = len(inputs)
                     for child_name, child_value in row.items():
                         child_key = str(child_name)
                         if child_key in row_id_keys:
@@ -35764,6 +37500,38 @@ class ValidatorPipeline:
                                 "value": self._rulespec_scalar_value(child_value),
                             }
                         )
+                    if not explicit_id:
+                        generated_table_rows.append(
+                            (table_entity, row_ids, 0, inputs[input_start:])
+                        )
+
+        require_distinct_entity_ids(occupied_entity_ids)
+        assign_generated_fixture_ids(generated_table_rows, occupied_entity_ids)
+        assign_generated_fixture_ids(generated_relation_rows, occupied_entity_ids)
+        if table_entity_ids is not None:
+            table_entity_ids.update(
+                {
+                    entity: [row_ids[0] for row_ids in containers]
+                    for entity, containers in table_id_containers.items()
+                }
+            )
+        flat_entity_ids: dict[str, str] = {}
+        for record in flat_input_records:
+            input_entity = record["entity"]
+            if input_entity not in flat_entity_ids:
+                entity_id = flat_input_entity_id(
+                    input_entity,
+                    query_entity,
+                    query_entity_id,
+                    reserved_entity_ids=(
+                        entity_id
+                        for entity_id, entities in occupied_entity_ids.items()
+                        if entities - {input_entity}
+                    ),
+                )
+                flat_entity_ids[input_entity] = entity_id
+                occupied_entity_ids.setdefault(entity_id, set()).add(input_entity)
+            record["entity_id"] = flat_entity_ids[input_entity]
 
         return {"inputs": inputs, "relations": relations}
 
@@ -36105,13 +37873,26 @@ class ValidatorPipeline:
         legal_ids_by_friendly_name: dict[str, list[str]],
         module_target: str | None,
         declared_relation_names: set[str],
+        declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
+        compiled_relations: list[dict] | None = None,
+        input_entities: dict[str, str] | None = None,
+        execution_capture: ExecutionCapture | None = None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
         """Execute one compact RuleSpec test case through `run-compiled`."""
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
         query_entity_id = self._rulespec_case_query_entity_id(
             case, query_entity, case_index
         )
+        table_entity_ids: dict[str, list[str]] = {}
         try:
+            executable_directions = executable_relation_directions(
+                derived_by_key,
+                output_names,
+                period,
+                query_entity,
+                declared_relation_slots or {},
+                compiled_relations,
+            )
             dataset = self._build_rulespec_dataset(
                 case.get("input", {}),
                 case_tables=case.get("tables"),
@@ -36122,6 +37903,10 @@ class ValidatorPipeline:
                 legal_ids_by_friendly_name=legal_ids_by_friendly_name,
                 module_target=module_target,
                 declared_relation_names=declared_relation_names,
+                declared_relation_slots=declared_relation_slots,
+                executable_directions=executable_directions,
+                input_entities=input_entities,
+                table_entity_ids=table_entity_ids,
             )
         except ValueError as exc:
             return None, [f"Test case `{case_name}` input invalid: {exc}"]
@@ -36168,7 +37953,9 @@ class ValidatorPipeline:
                         f"{len(expected_value)} row value(s), but "
                         f"`tables.{query_entity}` has {expected_row_count} row(s)."
                     ]
-            query_entity_ids = [row_id for row_id, _row in table_rows]
+            query_entity_ids = table_entity_ids.get(query_entity) or [
+                row_id for row_id, _row in table_rows
+            ]
 
         request = {
             "mode": "explain",
@@ -36216,20 +38003,62 @@ class ValidatorPipeline:
                 compiled_path.parent,
                 placeholder=_VALIDATION_TEMP_ROOT_PLACEHOLDER,
             )
-            return None, [f"Test case `{case_name}` execution failed: {detail}"]
+            output_entities = {
+                str(output): str(derived_by_key[runtime_key].get("entity") or "Case")
+                for output in output_map
+                if (runtime_key := output_runtime_keys.get(str(output), str(output)))
+                in output_names
+            }
+            findings = cross_entity_input_findings(
+                detail,
+                case.get("input") or {},
+                input_entities or {},
+                output_entities,
+                declared_relation_slots or {},
+            )
+            return None, [
+                f"Test case `{case_name}` execution failed: {detail}",
+                *(f"Test case `{case_name}` {finding}" for finding in findings),
+            ]
+
+        def unique_response_object(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError(f"duplicate response key `{key}`")
+                result[key] = value
+            return result
+
         try:
-            response = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
+            response = json.loads(
+                result.stdout, object_pairs_hook=unique_response_object
+            )
+        except ValueError as exc:
             return None, [f"Test case `{case_name}` response JSON parse failed: {exc}"]
         results = response.get("results") if isinstance(response, dict) else None
         if not isinstance(results, list) or not results:
             return None, [f"Test case `{case_name}` returned no results."]
-        if row_ordered_outputs:
-            if len(results) != len(query_entity_ids):
+        if len(results) != len(query_entity_ids):
+            return None, [
+                f"Test case `{case_name}` returned {len(results)} row result(s), "
+                f"expected {len(query_entity_ids)}."
+            ]
+        if any(not isinstance(row, dict) for row in results):
+            return None, [f"Test case `{case_name}` returned a malformed result row."]
+        for row_index, (row, query) in enumerate(
+            zip(results, request["queries"], strict=True), 1
+        ):
+            if (
+                row.get("entity_id") != query["entity_id"]
+                or row.get("period") != query["period"]
+                or row.get("assessment_date") != query.get("assessment_date")
+            ):
                 return None, [
-                    f"Test case `{case_name}` returned {len(results)} row result(s), "
-                    f"expected {len(query_entity_ids)}."
+                    f"Test case `{case_name}` row #{row_index} returned an "
+                    "entity, period, or assessment date that does not match "
+                    "its execution query."
                 ]
+        if row_ordered_outputs:
             aggregated_outputs: dict[str, list[Any]] = {
                 output_name: [] for output_name in output_names
             }
@@ -36240,7 +38069,10 @@ class ValidatorPipeline:
                         f"Test case `{case_name}` row #{row_index} returned no "
                         "output map."
                     ]
-                row_outputs = self._rulespec_outputs_by_reference(outputs)
+                try:
+                    row_outputs = self._rulespec_outputs_by_reference(outputs)
+                except ValueError as exc:
+                    return None, [f"Test case `{case_name}` row #{row_index}: {exc}"]
                 for output_name in output_names:
                     actual_output = row_outputs.get(output_name)
                     if actual_output is None:
@@ -36253,17 +38085,37 @@ class ValidatorPipeline:
         outputs = results[0].get("outputs")
         if not isinstance(outputs, dict):
             return None, [f"Test case `{case_name}` returned no output map."]
-        return self._rulespec_outputs_by_reference(outputs), []
+        try:
+            mapped = self._rulespec_outputs_by_reference(outputs)
+            if execution_capture is not None:
+                execution_capture.stage(
+                    case,
+                    request,
+                    response,
+                    binary,
+                    compiled_path,
+                    case_index=case_index,
+                )
+            return mapped, []
+        except ValueError as exc:
+            return None, [f"Test case `{case_name}`: {exc}"]
 
     def _rulespec_outputs_by_reference(self, outputs: dict[str, Any]) -> dict[str, Any]:
         """Index runtime outputs by response key and durable id only."""
         outputs_by_reference: dict[str, Any] = {}
+        owners: dict[str, str] = {}
         for output_key, output in outputs.items():
-            outputs_by_reference[str(output_key)] = output
-            if not isinstance(output, dict):
-                continue
-            reference = str(output.get("id") or "").strip()
-            if reference:
+            references = {str(output_key)}
+            if isinstance(output, dict):
+                reference = str(output.get("id") or "").strip()
+                if reference:
+                    references.add(reference)
+            for reference in sorted(references):
+                if reference in owners and owners[reference] != output_key:
+                    raise ValueError(
+                        f"ambiguous runtime output reference `{reference}`"
+                    )
+                owners[reference] = output_key
                 outputs_by_reference[reference] = output
         return outputs_by_reference
 
@@ -36282,6 +38134,7 @@ class ValidatorPipeline:
             and str(item.get("name") or "") == self.policyengine_rule_hint
         )
 
+    @timed_tool(TOOL_CI_TEST_CASES)
     def _run_rulespec_test_cases(
         self,
         *,
@@ -36289,6 +38142,7 @@ class ValidatorPipeline:
         compiled_path: Path,
         compiled_payload: dict[str, Any],
         cases: list[Any],
+        execution_capture: ExecutionCapture | None = None,
     ) -> list[str]:
         """Run compact RuleSpec `.test.yaml` cases against the compiled artifact."""
         issues: list[str] = []
@@ -36300,6 +38154,7 @@ class ValidatorPipeline:
         require_legal_input_keys = _rulespec_program_has_legal_ids(compiled_payload)
         module_target = _rulespec_module_target(compiled_payload)
         declared_relation_names = _rulespec_declared_relation_names(compiled_payload)
+        declared_relation_slots = _rulespec_declared_relation_slots(compiled_payload)
 
         for index, case in enumerate(cases, 1):
             if not isinstance(case, dict):
@@ -36435,11 +38290,23 @@ class ValidatorPipeline:
                         "test cases."
                     )
                     continue
+                try:
+                    input_entities = self._rulespec_companion_input_entities(
+                        rules_file, case.get("input", {})
+                    )
+                except (OSError, ValueError, yaml.YAMLError) as exc:
+                    issues.append(f"Test case `{case_name}` input invalid: {exc}")
+                    continue
                 if binary is None:
                     binary = self._axiom_rules_binary()
                 response_outputs, execution_issues = (
                     self._run_rulespec_derived_test_case(
                         binary=binary,
+                        **(
+                            {"execution_capture": execution_capture}
+                            if execution_capture is not None
+                            else {}
+                        ),
                         compiled_path=compiled_path,
                         case=case,
                         case_name=case_name,
@@ -36452,6 +38319,11 @@ class ValidatorPipeline:
                         legal_ids_by_friendly_name=legal_ids_by_friendly_name,
                         module_target=module_target,
                         declared_relation_names=declared_relation_names,
+                        declared_relation_slots=declared_relation_slots,
+                        compiled_relations=compiled_payload.get("program", {}).get(
+                            "relations", []
+                        ),
+                        input_entities=input_entities,
                     )
                 )
                 issues.extend(execution_issues)
@@ -36499,9 +38371,70 @@ class ValidatorPipeline:
                 if mismatch:
                     issues.append(mismatch)
 
+        if issues and execution_capture is not None:
+            execution_capture.records.clear()
         return issues
 
+    def _rulespec_companion_input_entities(
+        self,
+        rules_file: Path,
+        case_input: Any,
+    ) -> dict[str, str]:
+        """Bind flat facts to declarations through the authorized source roots."""
+        if not isinstance(case_input, dict) or not case_input:
+            return {}
+        # Direct compiled-artifact callers may omit source files; production
+        # validation always supplies the original module alongside its artifact.
+        if not rules_file.exists() and not rules_file.is_symlink():
+            return {}
+        source_root = self._validation_source_root(rules_file)
+
+        def resolve_reference(reference: str) -> Path | None:
+            target = _parse_rulespec_target(reference)
+            if target is None:
+                return None
+            return _resolve_rulespec_target_file(
+                target,
+                source_root,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
+            )
+
+        return declared_input_entities(
+            rules_file,
+            (
+                str(key)
+                for key, value in case_input.items()
+                if not isinstance(value, (dict, list))
+            ),
+            resolve_reference=resolve_reference,
+            resolve_import=lambda imported, current: (
+                _resolve_rulespec_import_file_static(
+                    imported,
+                    rules_file=current,
+                    policy_repo_path=(
+                        source_root
+                        if _rulespec_import_prefix_static(imported)
+                        else find_policy_repo_root(current) or source_root
+                    ),
+                    rulespec_dependency_roots=self.rulespec_dependency_roots,
+                )
+            ),
+        )
+
     def _run_rulespec_ci(self, rules_file: Path) -> ValidationResult:
+        with compilation_snapshot(self, rules_file) as capture:
+            result = self._run_rulespec_ci_impl(rules_file, execution_capture=capture)
+            if capture is not None:
+                result.details["same_case_snapshot"] = {
+                    "clone_seconds": capture.clone_seconds,
+                    "closure_files": len(capture.files),
+                    "executed_cases": len(capture.records),
+                }
+            return result
+
+    def _run_rulespec_ci_impl(
+        self, rules_file: Path, *, execution_capture: ExecutionCapture | None = None
+    ) -> ValidationResult:
         """Run RuleSpec compile, executable tests, and source-grounding checks."""
         start = time.time()
         issues: list[str] = []
@@ -36510,6 +38443,17 @@ class ValidatorPipeline:
         raw_output: str | None = None
         compiled_payload: dict[str, Any] | None = None
         compiled_path: Path | None = None
+        execution_pipeline = self
+        execution_file = rules_file
+        if execution_capture is not None:
+            execution_pipeline = copy.copy(self)
+            execution_pipeline.policy_repo_path = (
+                execution_capture.snapshot_root / self.policy_repo_path.name
+            )
+            execution_pipeline.rulespec_dependency_roots = ()
+            execution_file = (
+                execution_capture.snapshot_root / execution_capture.root_relative
+            )
 
         issues.extend(find_source_table_row_scalar_parameter_issues(content))
         issues.extend(find_interval_table_reencoding_issues(content))
@@ -36520,8 +38464,8 @@ class ValidatorPipeline:
         self._register_validation_temporary_root(tmpdir)
         try:
             compiled_path = tmpdir / "compiled.json"
-            compile_result, payload = self._compile_rulespec_to_artifact(
-                rules_file, compiled_path
+            compile_result, payload = execution_pipeline._compile_rulespec_to_artifact(
+                execution_file, compiled_path
             )
             raw_output = compile_result.stdout + compile_result.stderr
             if compile_result.returncode != 0:
@@ -36529,6 +38473,8 @@ class ValidatorPipeline:
                 issues.append(f"Axiom rules engine compile failed: {detail}")
             elif isinstance(payload, dict):
                 compiled_payload = payload
+                if execution_capture is not None:
+                    execution_capture.compiled(compiled_path)
                 raw_output = self._rulespec_compile_success_output(payload)
             else:
                 issues.append(
@@ -36805,7 +38751,14 @@ class ValidatorPipeline:
                                 policy_repo_path=self.policy_repo_path,
                             )
                         )
-                    issues.extend(find_test_input_assignment_issues(content, payload))
+                    # Static unions include facts on unselected branches. For
+                    # recognized strict-read IR, ordinary execution below is
+                    # authoritative about reached missing facts. Unknown/default-
+                    # bearing compiled programs retain the conservative check.
+                    if not compiled_program_has_strict_input_reads(compiled_payload):
+                        issues.extend(
+                            find_test_input_assignment_issues(content, payload)
+                        )
                     issues.extend(find_tax_filing_status_test_input_issues(payload))
                     issues.extend(find_exception_test_coverage_issues(content, payload))
                     issues.extend(
@@ -36813,11 +38766,16 @@ class ValidatorPipeline:
                     )
                     if len(issues) == pre_test_issue_count:
                         issues.extend(
-                            self._run_rulespec_test_cases(
-                                rules_file=rules_file,
+                            execution_pipeline._run_rulespec_test_cases(
+                                rules_file=execution_file,
                                 compiled_path=compiled_path,
                                 compiled_payload=compiled_payload,
                                 cases=payload,
+                                **(
+                                    {"execution_capture": execution_capture}
+                                    if execution_capture is not None
+                                    else {}
+                                ),
                             )
                         )
         elif not issues and not self._is_nonassertable_rulespec_artifact(rules_file):
@@ -36827,9 +38785,17 @@ class ValidatorPipeline:
             self._complete_source_unit_issues(
                 content,
                 validation_source_texts=validation_source_texts,
+                proof_source_texts=proof_source_texts,
                 test_cases=complete_source_unit_test_cases,
+                execution_evidence=execution_capture.evidence()
+                if execution_capture
+                else None,
                 rules_file=rules_file,
             )
+        )
+        manual_advice = self._manual_outcome_exception_advice(
+            content,
+            validation_source_texts=validation_source_texts,
         )
 
         duration = int((time.time() - start) * 1000)
@@ -36841,6 +38807,11 @@ class ValidatorPipeline:
                 duration_ms=duration,
                 error=issues[0] if issues else None,
                 raw_output=raw_output,
+                details=(
+                    {"manual_outcome_exception_advice": list(manual_advice)}
+                    if manual_advice
+                    else {}
+                ),
             )
         finally:
             tmpdir_cm.cleanup()
@@ -36874,6 +38845,7 @@ class ValidatorPipeline:
             "rules"
         )
 
+    @timed_tool(TOOL_CI_STATIC_CHECKS)
     def _run_ci(self, rulespec_file: Path) -> ValidationResult:
         """Run CI checks for RuleSpec artifacts."""
         with (
@@ -39038,6 +41010,7 @@ class ValidatorPipeline:
                 return Path(parts[statutes_idx + 2]).stem
         return None
 
+    @timed_phase(PHASE_REVIEW_MODEL_CALL)
     def _run_reviewer(
         self,
         reviewer_type: str,
@@ -39347,6 +41320,7 @@ Output ONLY valid JSON:
                 return stripped[:200]
         return "unknown error"
 
+    @timed_tool(TOOL_POLICYENGINE_ORACLE)
     def _run_policyengine(self, rulespec_file: Path) -> ValidationResult:
         """Run PolicyEngine and reject any runtime mutation across the execution."""
 
@@ -42178,8 +44152,9 @@ print(f'RESULT:{{float(value)}}')
             household_state = adapter.default_state_code
         if adapter is not None and adapter.state_code_from_boolean_input is not None:
             input_key, true_state, false_state = adapter.state_code_from_boolean_input
-            if input_key in inputs:
-                household_state = true_state if bool(inputs[input_key]) else false_state
+            state_selection = self._rulespec_test_input_value(inputs, input_key)
+            if state_selection is not None:
+                household_state = true_state if bool(state_selection) else false_state
         utility_region = None
         if "snap_utility_region" in inputs:
             utility_region = str(inputs["snap_utility_region"])
@@ -42254,6 +44229,30 @@ print(f'RESULT:{{float(value)}}')
                 )
         household_extra = ", ".join(household_extra_parts)
 
+        parameter_check_script = ""
+        if adapter is not None and adapter.boolean_input_parameter_check is not None:
+            input_key, parameter_path, value_mode = (
+                adapter.boolean_input_parameter_check
+            )
+            requested_value = self._rulespec_test_input_value(inputs, input_key)
+            if requested_value is not None:
+                parameter_period = self._normalize_monthly_pe_period(
+                    inputs.get("period"), year, "01"
+                )
+                parameter_expr = (
+                    f"bool(_check_params.{parameter_path}[{household_state!r}])"
+                )
+                if value_mode == "inverted_bool":
+                    parameter_expr = f"not {parameter_expr}"
+                parameter_check_script = f"""
+from policyengine_us import CountryTaxBenefitSystem
+
+_check_params = CountryTaxBenefitSystem().parameters({parameter_period!r})
+if {bool(requested_value)!r} != ({parameter_expr}):
+    print({("AXIOM_ORACLE_UNSUPPORTED: state parameter " + parameter_path + " disagrees with RuleSpec input " + input_key + " for " + household_state)!r})
+    raise SystemExit(86)
+"""
+
         if adapter is not None and adapter.parameter_path is not None:
             parameter_period = self._normalize_monthly_pe_period(
                 inputs.get("period"), year, "01"
@@ -42262,18 +44261,25 @@ print(f'RESULT:{{float(value)}}')
             if adapter.parameter_value_mode == "float":
                 return f"""
 from policyengine_us import CountryTaxBenefitSystem
+{parameter_check_script}
 
 system = CountryTaxBenefitSystem()
 params = system.parameters('{parameter_period}')
 val = float({value_expr})
 print(f'RESULT:{{val}}')
 """
+            boolean_expr = (
+                f"not bool({value_expr})"
+                if adapter.parameter_value_mode == "inverted_bool"
+                else f"bool({value_expr})"
+            )
             return f"""
 from policyengine_us import CountryTaxBenefitSystem
+{parameter_check_script}
 
 system = CountryTaxBenefitSystem()
 params = system.parameters('{parameter_period}')
-val = 1.0 if bool({value_expr}) else 0.0
+val = 1.0 if {boolean_expr} else 0.0
 print(f'RESULT:{{val}}')
 """
 
@@ -42285,6 +44291,7 @@ print(f'RESULT:{{val}}')
 
         script = f"""
 from policyengine_us import Simulation
+{parameter_check_script}
 
 situation = {{
     'people': {people_str},

@@ -183,10 +183,26 @@ def _row_weight(path: Path) -> int:
     return corpus_resolver._RESIDENT_BYTES_PER_ARTIFACT_BYTE * path.stat().st_size
 
 
-def _entry_weight(identifier: str) -> int:
-    """Memo weight of an exact-row outcome, whose body the bucket already holds."""
+def _metadata_weight(metadata: object) -> int:
+    """Bytes of the dicts and lists in metadata, sized as fresh containers."""
 
-    return 1024 + sys.getsizeof(identifier)
+    if isinstance(metadata, dict):
+        return sys.getsizeof(dict(metadata)) + sum(
+            _metadata_weight(value) for value in metadata.values()
+        )
+    if isinstance(metadata, list):
+        return sys.getsizeof(list(metadata)) + sum(map(_metadata_weight, metadata))
+    return 0
+
+
+def _entry_weight(identifier: str, metadata: dict[str, object] | None = None) -> int:
+    """Memo weight of an exact-row outcome, whose body the bucket already holds.
+
+    The outcome keeps its selected row with a private copy of that row's
+    metadata containers: 512 bytes plus those containers.
+    """
+
+    return 1024 + sys.getsizeof(identifier) + 512 + _metadata_weight(metadata or {})
 
 
 @pytest.fixture
@@ -407,7 +423,11 @@ def test_copies_and_unpickled_releases_start_with_an_empty_cache(tmp_path: Path)
         assert not _cache(clone).buckets
         assert resolve_local_corpus_source("us/statute/42/9", clone) == expected
     assert "_resolution_cache" not in repr(release)
-    assert "_resolution_cache" not in dataclasses.asdict(release)
+    # Not ``asdict``: the ``unplaced`` field is a mapping proxy, which
+    # ``asdict`` cannot deep-copy, with or without the cache.
+    assert "_resolution_cache" not in {
+        field.name for field in dataclasses.fields(release)
+    }
 
 
 def test_first_read_failure_is_not_cached(tmp_path: Path):
@@ -1424,14 +1444,17 @@ def test_memo_weights_pin_every_charged_term(tmp_path: Path):
     resolve_local_corpus_source("us/statute/26/1", release)
     history = resolve_local_corpus_source("us/statute/7/2014", _fresh(release))
     assert delta(lambda: resolve_local_corpus_source("us/statute/7/2014", release)) == (
-        _entry_weight("us/statute/7/2014")
+        _entry_weight("us/statute/7/2014", {"source_history": ["Amended 2025."]})
         + sum(map(sys.getsizeof, history.source_history))
     )
     sliced = resolve_local_corpus_source("us/statute/7/2014/e", _fresh(release))
     assert sliced.slice_required and not sliced.component_rows
     assert delta(
         lambda: resolve_local_corpus_source("us/statute/7/2014/e", release)
-    ) == (_entry_weight("us/statute/7/2014/e") + sys.getsizeof(sliced.body))
+    ) == (
+        _entry_weight("us/statute/7/2014/e", {"source_history": ["Amended 2025."]})
+        + sys.getsizeof(sliced.body)
+    )
     for identifier in ("us/statute/5/5", "us/statute/10/1"):
         with pytest.raises(CorpusResolutionError) as info:
             resolve_local_corpus_source(identifier, _fresh(release))

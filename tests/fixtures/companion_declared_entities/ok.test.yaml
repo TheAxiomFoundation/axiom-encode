@@ -1,0 +1,12 @@
+- name: qualifying_claimant_has_eligible_household
+  period: 2026-01
+  input:
+    us-ok:statutes/68-2906#input.claimant_is_resident: true
+    us-ok:statutes/68-2906#input.claimant_meets_age_requirement: true
+    us-ok:statutes/68-2906#input.claimant_owns_homestead: true
+    us-ok:statutes/68-2906#input.claimant_occupies_homestead: true
+    us-ok:statutes/68-2906#input.claimant_meets_income_requirement: true
+    us-ok:statutes/68-2906#input.claimant_paid_property_tax: true
+    us-ok:statutes/68-2906#input.claimant_filed_timely_claim: true
+  output:
+    us-ok:statutes/68-2906#ok_property_tax_relief_eligible: holds
