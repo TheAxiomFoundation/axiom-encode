@@ -11,6 +11,7 @@ fixed strip must return exactly what main returned on every input.
 from __future__ import annotations
 
 import calendar
+import math
 import re
 from datetime import date
 from pathlib import Path
@@ -274,6 +275,78 @@ def test_work_meter_catches_the_quadratic_path(build, monkeypatch):
     _result, work = _measured_work(_legacy_strip, text, monkeypatch)
 
     assert work > WORK_PER_CHARACTER * len(text) * 50, (len(text), work)
+
+
+class _CountingList(list):
+    """A list that counts element reads, whether by index or by iteration.
+
+    `bisect` reads a list subclass through ``__getitem__``; a linear scan reads
+    it through ``__iter__``. Both go to the same counter.
+    """
+
+    def __init__(self, items, meter: dict[str, int]):
+        super().__init__(items)
+        self._meter = meter
+
+    def __getitem__(self, index):
+        self._meter["reads"] += 1
+        return super().__getitem__(index)
+
+    def __iter__(self):
+        for item in super().__iter__():
+            self._meter["reads"] += 1
+            yield item
+
+
+# The index lists `_SessionLawSuffixIndex.summary` searches or reads by index.
+SEARCHED_INDEX_LISTS = (
+    "_separator_starts",
+    "_separator_ends",
+    "_shifts",
+    "_semicolons",
+)
+
+
+def _index_reads_per_lookup(text: str, monkeypatch) -> tuple[float, int]:
+    """Element reads of the searched index lists per `summary` call.
+
+    The regex meter cannot see Python-level searches, so a linear scan in
+    place of `bisect` would be quadratic without failing the bound above.
+    This counts reads, never time.
+    """
+
+    meter = {"reads": 0, "lookups": 0, "longest": 0}
+    original_init = sc._SessionLawSuffixIndex.__init__
+    original_summary = sc._SessionLawSuffixIndex.summary
+
+    def counting_init(self, text):
+        original_init(self, text)
+        for name in SEARCHED_INDEX_LISTS:
+            items = getattr(self, name)
+            meter["longest"] = max(meter["longest"], len(items))
+            setattr(self, name, _CountingList(items, meter))
+
+    def counting_summary(self, start):
+        meter["lookups"] += 1
+        return original_summary(self, start)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(sc._SessionLawSuffixIndex, "__init__", counting_init)
+        patch.setattr(sc._SessionLawSuffixIndex, "summary", counting_summary)
+        sc._strip_terminal_session_law_history(text)
+    assert meter["lookups"], "the input must reach the suffix index"
+    return meter["reads"] / meter["lookups"], meter["longest"]
+
+
+@pytest.mark.parametrize("build", ADVERSARIAL)
+def test_suffix_index_lookups_read_logarithmically_many_entries(build, monkeypatch):
+    """Each `summary` call reads O(log n) index entries: two binary searches
+    plus a constant number of direct reads."""
+
+    for size in (1_000, 4_000):
+        per_lookup, longest = _index_reads_per_lookup(build(size), monkeypatch)
+        bound = 2 * (math.log2(longest + 1) + 1) + 8
+        assert per_lookup <= bound, (size, longest, per_lookup, bound)
 
 
 @pytest.mark.parametrize("build", ADVERSARIAL)

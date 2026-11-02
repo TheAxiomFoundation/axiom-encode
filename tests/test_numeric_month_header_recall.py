@@ -89,11 +89,31 @@ def test_dates_with_their_own_evidence_stay_dates(text):
 
 
 @pytest.mark.parametrize("month", ["May", "Jan", "Feb", "Mai"])
-@pytest.mark.parametrize("indent", ["", "  ", "\t"])
+@pytest.mark.parametrize(
+    "indent",
+    ["", "  ", "\t", " " * 16, "\t" * 16, " \t" * 8],
+    ids=["none", "2-spaces", "tab", "16-spaces", "16-tabs", "16-mixed"],
+)
 def test_indented_month_header_keeps_the_row_value(month, indent):
+    """Up to `_MAX_MONTH_HEADER_INDENT` (16) spaces or tabs still mark a header."""
+
     text = f"Benefit amounts, in dollars:\n{indent}{month}\n7.65 Monthly Allowance"
 
     assert _values(text) == [7.65]
+
+
+@pytest.mark.parametrize("month", ["May", "Jan"])
+@pytest.mark.parametrize("indent", [" " * 17, "\t" * 17], ids=["17-spaces", "17-tabs"])
+def test_month_header_indented_past_the_limit_behaves_as_main(month, indent):
+    """Past 16 columns the guard does not apply, so the head matches main."""
+
+    text = f"Benefit amounts, in dollars:\n{indent}{month}\n7.65 Monthly Allowance"
+    head = _values(text)
+    with _main_patterns():
+        main = _values(text)
+
+    assert head == main
+    assert head != [7.65]
 
 
 WRAPPED_PROSE_DATES = [
@@ -168,12 +188,39 @@ def test_header_year_removed_as_a_line_label_is_still_grounded(
 
     text = f"Betrag\n{month}{separator}2026. Weiter"
 
-    assert 2026.0 in _grounding(text, profile)
+    def occurrences():
+        pipeline_module._tokenize_numeric_occurrences_from_text.cache_clear()
+        return [
+            (occurrence.value, occurrence.has_temporal_context)
+            for occurrence in extract_typed_numeric_occurrences_from_text(
+                text, profile=profile
+            )
+        ]
+
+    head = occurrences()
     with _main_patterns():
-        assert 2026.0 in _grounding(text, profile)
+        main = occurrences()
+
+    # The restored year is the temporal year main read, flag included: the
+    # completeness gate reads has_temporal_context downstream.
+    assert head == main
+    assert (2026.0, True) in head
 
 
-LINE_SEPARATORS = ["\n", "\r\n", "\r", "\v", "\f", "\x1c", "\x85", "\u2028", "\u2029"]
+# Every separator `str.splitlines` recognises.
+LINE_SEPARATORS = [
+    "\n",
+    "\r\n",
+    "\r",
+    "\v",
+    "\f",
+    "\x1c",
+    "\x1d",
+    "\x1e",
+    "\x85",
+    "\u2028",
+    "\u2029",
+]
 
 
 @pytest.mark.parametrize("separator", LINE_SEPARATORS, ids=repr)
