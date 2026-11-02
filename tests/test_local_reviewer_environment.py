@@ -258,6 +258,36 @@ def test_local_reviewer_child_process_keeps_only_the_allowlist(
         assert value not in output
 
 
+def test_shebang_word_collision_keeps_the_caller_interpreter(
+    tmp_path, monkeypatch, local_context
+):
+    """An option operand that resolves elsewhere cannot reorder the PATH."""
+    first = tmp_path / "first-bin"
+    second = tmp_path / "second-bin"
+    for directory, marker in ((first, "first"), (second, "second")):
+        directory.mkdir()
+        interpreter = directory / "fake-node"
+        interpreter.write_text(f"#!/bin/sh\necho MARKER={marker}\nexec /usr/bin/env\n")
+        interpreter.chmod(0o755)
+    decoy = second / "decoy"
+    decoy.write_text("#!/bin/sh\n")
+    decoy.chmod(0o755)
+    launcher = _fake_bin(
+        tmp_path, "claude", "#!/usr/bin/env -S -u decoy fake-node\nconsole.log(1)\n"
+    )
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join([str(launcher.parent), str(first), str(second), "/usr/bin"]),
+    )
+
+    output, returncode = validator_pipeline.run_claude_code("review", cwd=tmp_path)
+
+    assert returncode == 0, output
+    assert "MARKER=first" in output
+    child_path = _child_environment(output)["PATH"].split(os.pathsep)
+    assert child_path.index(str(first)) < child_path.index(str(second))
+
+
 def test_env_shebang_interpreter_directory_is_load_bearing(
     tmp_path, monkeypatch, local_context
 ):

@@ -504,11 +504,10 @@ def _shebang_env_program_names(executable: str) -> tuple[str, ...]:
 def _local_reviewer_runtime_directories(executable: str) -> list[str]:
     """Return the PATH directories one resolved reviewer CLI needs to start.
 
-    These are the directories of the programs that its ``env`` shebang chain
-    names and the caller's PATH resolves, then the launcher's own directory
-    and its real-path directory. The interpreter directories come first, so
-    the child's ``env`` finds the same interpreter that the caller's PATH
-    gives.
+    These are the launcher's own directory and real-path directory, and the
+    directories of the programs that its ``env`` shebang chain names and the
+    caller's PATH resolves. ``_local_reviewer_path`` puts them in the caller's
+    PATH order.
     """
     interpreter_directories: list[str] = []
     pending = [os.path.realpath(executable)]
@@ -530,13 +529,46 @@ def _local_reviewer_runtime_directories(executable: str) -> list[str]:
             pending.append(real)
     directories: list[str] = []
     for directory in (
-        *interpreter_directories,
         os.path.dirname(executable),
         os.path.dirname(os.path.realpath(executable)),
+        *interpreter_directories,
     ):
         if directory and directory not in directories:
             directories.append(directory)
     return directories
+
+
+def _local_reviewer_path(executables: Sequence[str]) -> str:
+    """Return the child PATH for the local reviewer, in caller PATH order.
+
+    It holds only the directories the reviewer executables need plus the
+    system directories. The directories that are on the caller's PATH keep
+    the caller's order, and the others follow. So for every program name the
+    caller's PATH resolves to one of these directories, the child's PATH
+    resolves the same program: a directory that comes earlier in the child
+    PATH also comes earlier in the caller's PATH, where that name was not
+    found.
+    """
+    needed: list[str] = []
+    for executable in executables:
+        for directory in _local_reviewer_runtime_directories(executable):
+            directory = os.path.normpath(directory)
+            if directory not in needed:
+                needed.append(directory)
+    for directory in _LOCAL_REVIEWER_SYSTEM_PATH:
+        if directory not in needed:
+            needed.append(directory)
+    ordered: list[str] = []
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if not entry or not os.path.isabs(entry):
+            continue
+        directory = os.path.normpath(entry)
+        if directory in needed and directory not in ordered:
+            ordered.append(directory)
+    for directory in needed:
+        if directory not in ordered:
+            ordered.append(directory)
+    return os.pathsep.join(ordered)
 
 
 def _local_reviewer_environment(executables: Sequence[str]) -> dict[str, str]:
@@ -548,8 +580,9 @@ def _local_reviewer_environment(executables: Sequence[str]) -> dict[str, str]:
     macOS keychain are keyed on them), the per-user TMPDIR, explicit CLI config
     directories, and a PATH limited to the directories the resolved reviewer
     executables need (their own directories and the interpreter that an
-    ``env`` shebang names) plus the system directories. No other ambient
-    variable, such as an API key or token, is forwarded.
+    ``env`` shebang names) plus the system directories, in the caller's PATH
+    order. No other ambient variable, such as an API key or token, is
+    forwarded.
     """
     import pwd
 
@@ -567,15 +600,7 @@ def _local_reviewer_environment(executables: Sequence[str]) -> dict[str, str]:
         value = os.environ.get(name, "")
         if value and os.path.isabs(value):
             environment[name] = value
-    path_entries: list[str] = []
-    for executable in executables:
-        for directory in _local_reviewer_runtime_directories(executable):
-            if directory not in path_entries:
-                path_entries.append(directory)
-    for directory in _LOCAL_REVIEWER_SYSTEM_PATH:
-        if directory not in path_entries:
-            path_entries.append(directory)
-    environment["PATH"] = os.pathsep.join(path_entries)
+    environment["PATH"] = _local_reviewer_path(executables)
     return environment
 
 
