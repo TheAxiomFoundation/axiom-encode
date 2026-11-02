@@ -728,7 +728,7 @@ jobs:
              ! jq -e 'type == "array" and length == 0' \
                <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" \
                > /dev/null; then
-            echo "repair replay is limited to an authenticated target with at most two fresh direct dependents; legacy replay also requires its exact target path, one dependent, and prior boundary tests" >&2
+            echo "repair replay is limited to an authenticated target with at most two fresh direct dependents; legacy replay also requires its exact target path, one dependent, and prior boundary tests; queue authorization, canonical refreshes, invalid signed imports, and conflicting source bundles are not allowed" >&2
             exit 1
           fi
 
@@ -832,6 +832,10 @@ jobs:
               cp "$RUNNER_TEMP/repair-primary-candidate.json" \
                 "$RUNNER_TEMP/repair-candidate.json"
             else
+              if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ]; then
+                cat "$RUNNER_TEMP/repair-primary-probe.log" >&2
+                exit 1
+              fi
               REPAIR_RUN_LANE=dependent
               repair_citation="$dependent_repair_citation"
               repair_rulespec_path="$dependent_repair_rulespec_path"
