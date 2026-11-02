@@ -1414,9 +1414,9 @@ def _read_descendant_records(
     return records
 
 
-# Metadata that makes a row amendment or commencement evidence. Such a row
-# must carry its own body; its heading never stands in for it.
-_HEADING_ONLY_EXCLUDED_METADATA = frozenset(
+# Metadata that makes a row amendment or commencement evidence. Such a row is
+# never classed as a part heading; it keeps main's refusals.
+_PART_HEADING_EXCLUDED_METADATA = frozenset(
     {
         "amendment_target",
         "commencement_citation_path",
@@ -1426,33 +1426,35 @@ _HEADING_ONLY_EXCLUDED_METADATA = frozenset(
 )
 
 
-def _heading_only_text(record: _StoredRecord) -> str | None:
-    """The heading a flat-numbered regulation part-heading row contributes.
+def _is_part_heading_row(record: _StoredRecord) -> bool:
+    """A bodyless, current row that looks like a flat-numbered part heading.
 
     Flat-numbered regulations such as Colorado's CCR print a part heading as
-    its own row, with no body and no rows under its path (#1825). Only such a
-    row, as a leaf under a parent being composed, contributes its heading:
+    its own row, with a heading, no body and no rows under its path (#1825).
+    Callers pass only bodyless, non-repealed rows, so this checks what remains:
+    the document class is ``regulation``, the heading is not blank, and the
+    metadata names no amendment or commencement routing field.
 
-    * its document class is ``regulation``;
-    * it has no body, nothing under its path, and a non-blank heading;
-    * it is not repealed;
-    * its metadata names no amendment or commencement routing field.
-
-    Everything else keeps main's contract: a bodyless target still refuses,
-    and a bodyless leaf that is not such a row is still an uncovered branch.
+    Such a row is refused, never composed. Its row identity has no body digest,
+    and `_source_attestation_structure_issues` requires one for every
+    component row, so a source composed from it could be generated but never
+    signed, applied or admitted by the guard.
     """
 
-    if (
-        record.body is not None
-        or record.status == "repealed"
-        or record.row.document_class != "regulation"
-        or _HEADING_ONLY_EXCLUDED_METADATA & set(record.metadata)
-    ):
-        return None
-    heading = record.heading
-    if heading is None or not heading.strip():
-        return None
-    return heading
+    return (
+        record.row.document_class == "regulation"
+        and bool(record.heading and record.heading.strip())
+        and not _PART_HEADING_EXCLUDED_METADATA & set(record.metadata)
+    )
+
+
+def _part_heading_refusal(citation_path: str, row_path: str) -> str:
+    return (
+        f"Active corpus source {citation_path!r} has heading-only descendant "
+        f"{row_path!r}: a part heading with no body has no body digest, so a "
+        "source composed from it could not be signed, applied or admitted "
+        "after generation; it is refused before generation instead (#1825)"
+    )
 
 
 def _compose_descendant_text(
@@ -1483,10 +1485,19 @@ def _compose_descendant_text(
             ambiguous[0].row.citation_path,
             tuple(record.row for record in ambiguous),
         )
-    if not any(
-        record.body is not None or _heading_only_text(record) is not None
-        for record in records
-    ):
+    if not any(record.body is not None for record in records):
+        part_heading = next(
+            (
+                record
+                for record in records
+                if record.status != "repealed" and _is_part_heading_row(record)
+            ),
+            None,
+        )
+        if part_heading is not None:
+            raise CorpusDescendantStructureError(
+                _part_heading_refusal(citation_path, part_heading.row.citation_path)
+            )
         raise CorpusDescendantStructureError(
             f"Active corpus source {citation_path!r} has no body-bearing descendants"
         )
@@ -1570,15 +1581,11 @@ def _compose_descendant_text(
         }
         if raw_child_paths and not child_paths:
             return
-        if (
-            not raw_child_paths
-            and record is not None
-            and _heading_only_text(record) is not None
-        ):
-            # A heading-only leaf, such as a part heading printed as its own
-            # row in a flat-numbered regulation, contributes its heading.
-            ordered.append(record)
-            return
+        if not raw_child_paths and record is not None and _is_part_heading_row(record):
+            # Repealed and body-bearing rows returned above.
+            raise CorpusDescendantStructureError(
+                _part_heading_refusal(citation_path, path)
+            )
         if not child_paths:
             raise CorpusDescendantStructureError(
                 f"Active corpus source {citation_path!r} has uncovered "
@@ -1607,12 +1614,11 @@ def _compose_descendant_text(
     chunks: list[str] = []
     composed_bytes = 0
     for record in ordered:
-        if record.body is None:
-            chunk = _heading_only_text(record) or ""
-        else:
-            chunk = (
-                f"{record.heading}\n\n{record.body}" if record.heading else record.body
-            )
+        chunk = (
+            f"{record.heading}\n\n{record.body}"
+            if record.heading
+            else record.body or ""
+        )
         composed_bytes += len(chunk.encode("utf-8"))
         if chunks:
             composed_bytes += 2
