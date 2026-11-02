@@ -210,16 +210,44 @@ the check. When neither is present `encode` stops with a clear error before
 starting a run. Other backends stay available explicitly with
 `--backend claude` or `--backend openai`.
 
+`encode` verifies the pinned corpus release before it starts a run. A protected
+run gets the trust roots from its attached signing broker. Without a broker,
+pass the public roots on the command line for a verification-only local run,
+as `axiom-encode ci` does:
+
+```bash
+uv run axiom-encode encode us/statute/26/1 \
+  --corpus-path ../axiom-corpus \
+  --axiom-rules-engine-path ../axiom-rules-engine \
+  --policy-repo-path ../rulespec-us \
+  --corpus-release-public-key "$AXIOM_CORPUS_RELEASE_PUBLIC_KEY" \
+  --apply-public-key "$AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY" \
+  --eval-public-key "$AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY" \
+  --no-sync
+```
+
+The three values are the public keys in the repository's Actions variables of
+the same names; the encoder never reads them from the environment itself.
+This run conveys no signing capability. It refuses `--apply`, and it refuses
+to start when a signing broker is attached or `AXIOM_ENCODE_TRUSTED_RUNTIME=1`
+is set. Without a broker and without these keys, `encode` stops with
+`A protected signing broker is required to verify the pinned corpus release
+object`.
+
 The generalist reviewer runs the `claude` CLI (or the `codex` CLI fallback) on
-the signed-in subscription. In a local run (no signing broker attached, not in
-CI) the encoder resolves the reviewer binary from your `PATH` and starts it
-with a small allowlisted environment: your account home and user name, the
-per-user `TMPDIR`, `CODEX_HOME`/`CLAUDE_CONFIG_DIR` when set, and a `PATH` of
-only the reviewer binary's directory plus the system directories. API keys and
-other ambient variables are not forwarded. Protected and CI runs keep the
-sandboxed reviewer environment unchanged. If no reviewer CLI can start, the
-run prints `generalist_review=error reviewer_unavailable: ...` and records a
-failed review; it does not skip the review silently. Run `claude` or
+the signed-in subscription. Only in the verification-only local run above (or
+`axiom-encode ci`), and only when no signing broker is attached, the trusted
+runtime is off and the run is not in CI, the encoder resolves the reviewer
+binary from your `PATH` and starts it with a small allowlisted environment:
+your account home and user name, the per-user `TMPDIR`,
+`CODEX_HOME`/`CLAUDE_CONFIG_DIR` when set, and a `PATH` of only the directories
+that the reviewer binary needs (its own directory, and the interpreter that
+an `#!/usr/bin/env` launcher names, such as `node`) plus the system
+directories. API keys and other ambient variables are not forwarded. Every
+other run, including a run under the verification supervisor of #1622, keeps
+the sandboxed reviewer environment unchanged. If no reviewer CLI can start,
+the run prints `generalist_review=error reviewer_unavailable: ...` and records
+a failed review; it does not skip the review silently. Run `claude` or
 `codex login` once before a local encode. Broader local setup is tracked in
 #1622.
 

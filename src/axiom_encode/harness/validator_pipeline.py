@@ -425,15 +425,21 @@ _LOCAL_REVIEWER_SYSTEM_PATH: tuple[str, ...] = (
 )
 _LOCAL_REVIEWER_CONFIG_DIR_NAMES: tuple[str, ...] = ("CODEX_HOME", "CLAUDE_CONFIG_DIR")
 _REVIEWER_UNAVAILABLE = "reviewer_unavailable"
+# A launcher whose shebang is ``#!/usr/bin/env <interpreter>`` (an npm-installed
+# ``claude`` or ``codex``, for example) needs that interpreter on the child
+# PATH. Follow at most this many such launchers and read at most this much of
+# each first line.
+_LOCAL_REVIEWER_MAX_SHEBANG_HOPS = 3
+_LOCAL_REVIEWER_SHEBANG_READ_BYTES = 512
 
 
 def _protected_reviewer_context_active() -> bool:
-    """Return true when the reviewer must keep the sandboxed environment.
+    """Return true when a protected signal is present.
 
     A protected run has a signing broker attached (which also pins the trusted
     subprocess base environment), runs under the trusted supervisor runtime, or
     runs in CI. Those runs keep the existing scrubbed reviewer environment
-    unchanged; only a local run with none of these gets the local environment.
+    unchanged.
     """
     from axiom_encode import signing_broker
 
@@ -447,6 +453,78 @@ def _protected_reviewer_context_active() -> bool:
     )
 
 
+def _local_reviewer_context_active() -> bool:
+    """Return true only for a verification-only local run.
+
+    The local reviewer environment is selected only inside the in-process
+    verification-only trust context (``encode --corpus-release-public-key``
+    or ``axiom-encode ci``). That context conveys no signing capability and
+    is never populated from the environment. Even inside it, any protected
+    signal (an attached signing broker, the trusted runtime, CI) keeps the
+    protected reviewer environment. Every other run keeps the protected
+    environment too, so the default is the existing sandboxed reviewer call.
+    """
+    from axiom_encode.toolchain import local_verification_active
+
+    return local_verification_active() and not _protected_reviewer_context_active()
+
+
+def _shebang_env_interpreter(executable: str) -> str | None:
+    """Return the bare program name an ``env`` shebang looks up on PATH."""
+    try:
+        with open(executable, "rb") as handle:
+            first_line = handle.readline(_LOCAL_REVIEWER_SHEBANG_READ_BYTES)
+    except OSError:
+        return None
+    if not first_line.startswith(b"#!"):
+        return None
+    try:
+        words = first_line[2:].decode("utf-8").split()
+    except UnicodeDecodeError:
+        return None
+    if not words or os.path.basename(words[0]) != "env":
+        return None
+    for word in words[1:]:
+        # Skip env options (``-S``) and VAR=value assignments.
+        if word.startswith("-") or "=" in word:
+            continue
+        return None if "/" in word else word
+    return None
+
+
+def _local_reviewer_runtime_directories(executable: str) -> list[str]:
+    """Return the PATH directories one resolved reviewer CLI needs to start.
+
+    These are the interpreter directories that its ``env`` shebang chain
+    resolves to on the caller's PATH, then the launcher's own directory and
+    its real-path directory. The interpreter directories come first, so the
+    child's ``env`` finds the same interpreter that the caller's PATH gives.
+    """
+    interpreter_directories: list[str] = []
+    launcher_directories = [
+        os.path.dirname(executable),
+        os.path.dirname(os.path.realpath(executable)),
+    ]
+    current = os.path.realpath(executable)
+    for _hop in range(_LOCAL_REVIEWER_MAX_SHEBANG_HOPS):
+        interpreter = _shebang_env_interpreter(current)
+        if interpreter is None:
+            break
+        resolved = shutil.which(interpreter)
+        if resolved is None:
+            break
+        resolved = os.path.abspath(resolved)
+        interpreter_directories.extend(
+            (os.path.dirname(resolved), os.path.dirname(os.path.realpath(resolved)))
+        )
+        current = os.path.realpath(resolved)
+    directories: list[str] = []
+    for directory in (*interpreter_directories, *launcher_directories):
+        if directory and directory not in directories:
+            directories.append(directory)
+    return directories
+
+
 def _local_reviewer_environment(executables: Sequence[str]) -> dict[str, str]:
     """Build the explicit-allowlist reviewer environment for a local run.
 
@@ -454,9 +532,10 @@ def _local_reviewer_environment(executables: Sequence[str]) -> dict[str, str]:
     adds only what a subscription-authenticated reviewer CLI needs to start:
     the account's real home directory and user name (the CLI logins and the
     macOS keychain are keyed on them), the per-user TMPDIR, explicit CLI config
-    directories, and a PATH limited to the resolved reviewer executables'
-    directories plus the system directories. No other ambient variable, such
-    as an API key or token, is forwarded.
+    directories, and a PATH limited to the directories the resolved reviewer
+    executables need (their own directories and the interpreter that an
+    ``env`` shebang names) plus the system directories. No other ambient
+    variable, such as an API key or token, is forwarded.
     """
     import pwd
 
@@ -476,11 +555,8 @@ def _local_reviewer_environment(executables: Sequence[str]) -> dict[str, str]:
             environment[name] = value
     path_entries: list[str] = []
     for executable in executables:
-        for directory in (
-            os.path.dirname(executable),
-            os.path.dirname(os.path.realpath(executable)),
-        ):
-            if directory and directory not in path_entries:
+        for directory in _local_reviewer_runtime_directories(executable):
+            if directory not in path_entries:
                 path_entries.append(directory)
     for directory in _LOCAL_REVIEWER_SYSTEM_PATH:
         if directory not in path_entries:
@@ -517,10 +593,9 @@ def run_claude_code(
     if reviewer_cli_preference == "codex":
         return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
 
-    protected = _protected_reviewer_context_active()
     claude_executable = "claude"
     local_environment: dict[str, str] | None = None
-    if not protected:
+    if _local_reviewer_context_active():
         resolved_claude = _resolve_local_reviewer_executable("claude")
         if resolved_claude is None:
             return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
@@ -590,7 +665,7 @@ def _run_codex_reviewer_cli(
     """Run reviewer prompts through Codex CLI and return assistant text."""
     codex_executable = resolve_codex_cli()
     local_environment: dict[str, str] | None = None
-    if not _protected_reviewer_context_active():
+    if _local_reviewer_context_active():
         if not os.path.isabs(codex_executable):
             resolved_codex = _resolve_local_reviewer_executable(codex_executable)
             if resolved_codex is None:

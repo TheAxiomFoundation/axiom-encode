@@ -1,10 +1,12 @@
-"""Reviewer CLI environment for local runs versus protected runs."""
+"""Reviewer CLI environment for verification-only local runs versus protected runs."""
 
 from __future__ import annotations
 
 import os
 import pwd
+import sys
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -13,22 +15,45 @@ from axiom_encode.cli import (
     _print_eval_metrics,
     _review_results_from_eval_metrics,
 )
+from axiom_encode.cli import main as cli_main
 from axiom_encode.harness import validator_pipeline
 from axiom_encode.harness.eval_evidence import scrub_attestation_signing_keys
+from axiom_encode.toolchain import (
+    RuleSpecToolchainError,
+    local_corpus_release_verification,
+    local_verification_active,
+)
+from tests.release_object_fixtures import TEST_RELEASE_PUBLIC_KEY
+from tests.test_cli import _bind_test_corpus_release
 
+# Credential sentinels: none of these names or values may reach a local
+# reviewer child.
 _AMBIENT_SECRETS = {
     "OPENAI_API_KEY": "sk-ambient-openai",
+    "CODEX_API_KEY": "sk-ambient-codex",
     "ANTHROPIC_API_KEY": "sk-ambient-anthropic",
     "GITHUB_TOKEN": "ghp-ambient",
     "AXIOM_ENCODE_EVAL_SIGNING_PRIVATE_KEY": "private-eval",
     "AXIOM_ENCODE_APPLY_SIGNING_PRIVATE_KEY": "private-apply",
     "SUPABASE_SERVICE_ROLE_KEY": "service-role",
+    "AXIOM_ENCODE_SUPABASE_SECRET_KEY": "supabase-secret",
+    "AXIOM_ENCODE_SUPABASE_URL": "https://supabase.invalid",
+    "R2_ACCESS_KEY_ID": "r2-access-id",
+    "R2_SECRET_ACCESS_KEY": "r2-secret",
+    "R2_ENDPOINT": "https://r2.invalid",
 }
+_PROTECTED_SIGNALS = (
+    "broker_base",
+    "active_broker",
+    "trusted_runtime",
+    "github_actions",
+    "ci",
+)
 
 
 @pytest.fixture
-def local_context(monkeypatch):
-    """No broker, no trusted runtime, no CI: a plain local run."""
+def plain_process(monkeypatch):
+    """No broker, no trusted runtime, no CI, and credential sentinels set."""
     monkeypatch.setattr(signing_broker, "_trusted_subprocess_base_environment", None)
     monkeypatch.setattr(signing_broker, "_active_broker", None)
     for name in ("AXIOM_ENCODE_TRUSTED_RUNTIME", "GITHUB_ACTIONS", "CI"):
@@ -39,13 +64,42 @@ def local_context(monkeypatch):
         monkeypatch.setenv(name, value)
 
 
-def _fake_bin(tmp_path, name):
+@pytest.fixture
+def local_context(plain_process):
+    """A verification-only local run: the context encode and ci enter."""
+    with local_corpus_release_verification(TEST_RELEASE_PUBLIC_KEY):
+        yield
+
+
+def _fake_bin(tmp_path, name, body="#!/bin/sh\n"):
     directory = tmp_path / f"{name}-bin"
     directory.mkdir()
     executable = directory / name
-    executable.write_text("#!/bin/sh\n")
+    executable.write_text(body)
     executable.chmod(0o755)
     return executable
+
+
+def _env_shebang_reviewer(tmp_path):
+    """Return a ``claude`` launcher whose ``env`` shebang names an interpreter.
+
+    The interpreter lives in another directory, as with an npm-installed CLI
+    whose Node runtime is elsewhere. It prints the environment it received.
+    """
+    interpreter = _fake_bin(tmp_path, "fake-node", "#!/bin/sh\nexec /usr/bin/env\n")
+    launcher = _fake_bin(
+        tmp_path, "claude", "#!/usr/bin/env fake-node\nconsole.log('cli')\n"
+    )
+    return launcher, interpreter
+
+
+def _child_environment(output: str) -> dict[str, str]:
+    environment = {}
+    for line in output.splitlines():
+        name, separator, value = line.partition("=")
+        if separator:
+            environment[name] = value
+    return environment
 
 
 def _capture_runs(monkeypatch):
@@ -63,6 +117,36 @@ def _capture_runs(monkeypatch):
     return calls
 
 
+def _set_protected_signal(monkeypatch, protect):
+    if protect == "broker_base":
+        monkeypatch.setattr(
+            signing_broker,
+            "_trusted_subprocess_base_environment",
+            {"HOME": "/trusted-home", "PATH": "/trusted/bin"},
+        )
+    elif protect == "active_broker":
+        monkeypatch.setattr(signing_broker, "_active_broker", object())
+    elif protect == "trusted_runtime":
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_RUNTIME", "1")
+    elif protect == "github_actions":
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    else:
+        monkeypatch.setenv("CI", "true")
+
+
+def _assert_local_environment_allowlist(env):
+    account = pwd.getpwuid(os.getuid())
+    assert env["HOME"] == account.pw_dir
+    assert env["USER"] == account.pw_name
+    for name in _AMBIENT_SECRETS:
+        assert name not in env
+    assert all(value not in env.values() for value in _AMBIENT_SECRETS.values())
+    assert env["GIT_CONFIG_GLOBAL"] == os.devnull
+    assert env["GIT_CONFIG_NOSYSTEM"] == "1"
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
+    assert "XDG_CONFIG_HOME" not in env
+
+
 def test_local_claude_reviewer_gets_allowlisted_environment(
     tmp_path, monkeypatch, local_context
 ):
@@ -77,20 +161,13 @@ def test_local_claude_reviewer_gets_allowlisted_environment(
     assert cmd[0] == str(claude)
     assert kwargs["env_is_final"] is True
     env = kwargs["env"]
-    account = pwd.getpwuid(os.getuid())
-    assert env["HOME"] == account.pw_dir
-    assert env["USER"] == account.pw_name
+    _assert_local_environment_allowlist(env)
     assert env["PATH"].split(os.pathsep)[0] == str(claude.parent)
     assert set(env["PATH"].split(os.pathsep)) <= {
         str(claude.parent),
         os.path.dirname(os.path.realpath(claude)),
         *validator_pipeline._LOCAL_REVIEWER_SYSTEM_PATH,
     }
-    for name in _AMBIENT_SECRETS:
-        assert name not in env
-    assert all(value not in env.values() for value in _AMBIENT_SECRETS.values())
-    assert env["GIT_CONFIG_NOSYSTEM"] == "1"
-    assert "XDG_CONFIG_HOME" not in env
     allowed = set(scrub_attestation_signing_keys()) | {
         "USER",
         "LOGNAME",
@@ -154,29 +231,87 @@ def test_missing_reviewer_is_a_failed_unscored_review(
     assert "reviewer_unavailable" in (result.error or "")
 
 
+def test_local_reviewer_child_process_keeps_only_the_allowlist(
+    tmp_path, monkeypatch, local_context
+):
+    """A real child (no mocked subprocess helper) sees only the allowlist."""
+    launcher, interpreter = _env_shebang_reviewer(tmp_path)
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join([str(launcher.parent), str(interpreter.parent), "/usr/bin"]),
+    )
+
+    output, returncode = validator_pipeline.run_claude_code("review", cwd=tmp_path)
+
+    assert returncode == 0, output
+    child = _child_environment(output)
+    _assert_local_environment_allowlist(child)
+    child_path = child["PATH"].split(os.pathsep)
+    assert str(interpreter.parent) in child_path
+    assert str(launcher.parent) in child_path
+    for value in _AMBIENT_SECRETS.values():
+        assert value not in output
+
+
+def test_env_shebang_interpreter_directory_is_load_bearing(
+    tmp_path, monkeypatch, local_context
+):
+    """Without the shebang interpreter's directory the launcher cannot start."""
+    launcher, interpreter = _env_shebang_reviewer(tmp_path)
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join([str(launcher.parent), str(interpreter.parent), "/usr/bin"]),
+    )
+    monkeypatch.setattr(
+        validator_pipeline, "_shebang_env_interpreter", lambda _executable: None
+    )
+
+    _output, returncode = validator_pipeline.run_claude_code("review", cwd=tmp_path)
+
+    assert returncode != 0
+
+
 @pytest.mark.parametrize(
-    "protect",
-    ["broker_base", "active_broker", "trusted_runtime", "github_actions", "ci"],
+    ("first_line", "expected"),
+    [
+        ("#!/usr/bin/env node\n", "node"),
+        ("#!/usr/bin/env -S node --no-warnings\n", "node"),
+        ("#!/usr/bin/env NODE_OPTIONS=--x node\n", "node"),
+        ("#!/bin/sh\n", None),
+        ("#!/usr/bin/env ./relative\n", None),
+        ("not a shebang\n", None),
+    ],
 )
+def test_shebang_interpreter_names(tmp_path, first_line, expected):
+    script = tmp_path / "launcher"
+    script.write_text(first_line)
+    assert validator_pipeline._shebang_env_interpreter(str(script)) == expected
+
+
+def test_no_verification_context_keeps_the_protected_environment(
+    tmp_path, monkeypatch, plain_process
+):
+    """Fail closed: without the verification-only context nothing changes."""
+    claude = _fake_bin(tmp_path, "claude")
+    monkeypatch.setenv("PATH", str(claude.parent))
+    expected_env = scrub_attestation_signing_keys()
+    calls = _capture_runs(monkeypatch)
+
+    validator_pipeline.run_claude_code("review", cwd=tmp_path)
+
+    cmd, kwargs = calls[0]
+    assert cmd[0] == "claude"
+    assert "env_is_final" not in kwargs
+    assert kwargs["env"] == expected_env
+
+
+@pytest.mark.parametrize("protect", _PROTECTED_SIGNALS)
 def test_protected_reviewer_environment_is_unchanged(
     tmp_path, monkeypatch, local_context, protect
 ):
     claude = _fake_bin(tmp_path, "claude")
     monkeypatch.setenv("PATH", str(claude.parent))
-    if protect == "broker_base":
-        monkeypatch.setattr(
-            signing_broker,
-            "_trusted_subprocess_base_environment",
-            {"HOME": "/trusted-home", "PATH": "/trusted/bin"},
-        )
-    elif protect == "active_broker":
-        monkeypatch.setattr(signing_broker, "_active_broker", object())
-    elif protect == "trusted_runtime":
-        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_RUNTIME", "1")
-    elif protect == "github_actions":
-        monkeypatch.setenv("GITHUB_ACTIONS", "true")
-    else:
-        monkeypatch.setenv("CI", "true")
+    _set_protected_signal(monkeypatch, protect)
     expected_env = scrub_attestation_signing_keys()
     calls = _capture_runs(monkeypatch)
 
@@ -207,6 +342,173 @@ def test_unscrubbed_environment_requires_explicit_env():
         validator_pipeline._run_subprocess_with_idle_timeout(
             ["true"], timeout=1, idle_timeout=1, env_is_final=True
         )
+
+
+# ---------------------------------------------------------------------------
+# The documented local entry point: encode --corpus-release-public-key
+# ---------------------------------------------------------------------------
+
+_CITATION = "us/statute/26/1"
+
+
+class _ReachedModelEval(Exception):
+    """Raised by the stubbed model eval once the reviewer probe has run."""
+
+
+def _encode_argv(tmp_path, *extra):
+    policy_repo = tmp_path / "rulespec-us"
+    (policy_repo / "us").mkdir(parents=True, exist_ok=True)
+    corpus = tmp_path / "axiom-corpus"
+    corpus.mkdir(exist_ok=True)
+    engine = tmp_path / "axiom-rules-engine"
+    engine.mkdir(exist_ok=True)
+    _bind_test_corpus_release(policy_repo, corpus, citation_path=_CITATION)
+    return [
+        "axiom-encode",
+        "encode",
+        _CITATION,
+        "--corpus-path",
+        str(corpus),
+        "--axiom-rules-engine-path",
+        str(engine),
+        "--policy-repo-path",
+        str(policy_repo),
+        "--output",
+        str(tmp_path / "out"),
+        "--db",
+        str(tmp_path / "encodings.db"),
+        "--no-sync",
+        *extra,
+    ]
+
+
+def _run_encode_to_reviewer_probe(monkeypatch, argv, cwd):
+    """Run the real encode entry point; probe the reviewer at model eval."""
+    seen = {}
+
+    def probe_reviewer(**kwargs):
+        seen["corpus_release"] = kwargs["corpus_release"]
+        seen["local_verification_active"] = local_verification_active()
+        seen["reviewer"] = validator_pipeline.run_claude_code("review", cwd=cwd)
+        raise _ReachedModelEval
+
+    monkeypatch.setattr(sys, "argv", argv)
+    with (
+        patch("axiom_encode.cli.codex_auth_error", return_value=None),
+        patch("axiom_encode.cli.run_model_eval", side_effect=probe_reviewer),
+        pytest.raises(_ReachedModelEval),
+    ):
+        cli_main()
+    return seen
+
+
+def test_local_encode_entry_reaches_local_reviewer_environment(
+    tmp_path, monkeypatch, plain_process
+):
+    """encode --corpus-release-public-key loads the corpus, then reviews locally."""
+    launcher, interpreter = _env_shebang_reviewer(tmp_path)
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join(
+            [str(launcher.parent), str(interpreter.parent), "/usr/bin", "/bin"]
+        ),
+    )
+    argv = _encode_argv(
+        tmp_path, "--corpus-release-public-key", TEST_RELEASE_PUBLIC_KEY
+    )
+
+    seen = _run_encode_to_reviewer_probe(monkeypatch, argv, tmp_path)
+
+    assert seen["local_verification_active"] is True
+    assert tuple(seen["corpus_release"].public_key) == (TEST_RELEASE_PUBLIC_KEY,)
+    output, returncode = seen["reviewer"]
+    assert returncode == 0, output
+    _assert_local_environment_allowlist(_child_environment(output))
+    # The context ends with the command.
+    assert local_verification_active() is False
+
+
+def test_plain_encode_without_broker_stops_before_model_eval(
+    tmp_path, monkeypatch, plain_process
+):
+    """Without the flag or a broker, corpus loading fails closed as before."""
+    argv = _encode_argv(tmp_path)
+    monkeypatch.setattr(sys, "argv", argv)
+    with (
+        patch("axiom_encode.cli.codex_auth_error", return_value=None),
+        patch("axiom_encode.cli.run_model_eval") as model_eval,
+        pytest.raises(RuleSpecToolchainError, match="protected signing broker"),
+    ):
+        cli_main()
+    model_eval.assert_not_called()
+
+
+def test_encode_under_broker_keeps_the_protected_reviewer_environment(
+    tmp_path, monkeypatch
+):
+    """With the verification broker the conftest attaches, nothing changes."""
+    for name in ("AXIOM_ENCODE_TRUSTED_RUNTIME", "GITHUB_ACTIONS", "CI"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("AXIOM_ENCODE_REVIEWER_CLI", raising=False)
+    claude = _fake_bin(tmp_path, "claude")
+    monkeypatch.setenv("PATH", os.pathsep.join([str(claude.parent), "/usr/bin"]))
+    calls = _capture_runs(monkeypatch)
+    expected_env = scrub_attestation_signing_keys()
+
+    seen = _run_encode_to_reviewer_probe(monkeypatch, _encode_argv(tmp_path), tmp_path)
+
+    assert seen["local_verification_active"] is False
+    cmd, kwargs = calls[0]
+    assert cmd[0] == "claude"
+    assert "env_is_final" not in kwargs
+    assert kwargs["env"] == expected_env
+
+
+def test_local_encode_entry_refuses_apply(tmp_path, monkeypatch, plain_process):
+    argv = _encode_argv(
+        tmp_path,
+        "--corpus-release-public-key",
+        TEST_RELEASE_PUBLIC_KEY,
+        "--apply",
+    )
+    monkeypatch.setattr(sys, "argv", argv)
+    with (
+        patch("axiom_encode.cli.run_model_eval") as model_eval,
+        pytest.raises(ValueError, match="cannot --apply"),
+    ):
+        cli_main()
+    model_eval.assert_not_called()
+
+
+@pytest.mark.parametrize("protect", ["active_broker", "broker_base", "trusted_runtime"])
+def test_local_encode_entry_refuses_a_protected_process(
+    tmp_path, monkeypatch, plain_process, protect
+):
+    _set_protected_signal(monkeypatch, protect)
+    argv = _encode_argv(
+        tmp_path, "--corpus-release-public-key", TEST_RELEASE_PUBLIC_KEY
+    )
+    monkeypatch.setattr(sys, "argv", argv)
+    with (
+        patch("axiom_encode.cli.run_model_eval") as model_eval,
+        pytest.raises(ValueError, match="verification-only local run"),
+    ):
+        cli_main()
+    model_eval.assert_not_called()
+    assert local_verification_active() is False
+
+
+def test_local_roots_require_the_corpus_release_key(
+    tmp_path, monkeypatch, plain_process
+):
+    argv = _encode_argv(tmp_path, "--apply-public-key", TEST_RELEASE_PUBLIC_KEY)
+    monkeypatch.setattr(sys, "argv", argv)
+    with (
+        patch("axiom_encode.cli.run_model_eval") as model_eval,
+        pytest.raises(ValueError, match="require --corpus-release-public-key"),
+    ):
+        cli_main()
+    model_eval.assert_not_called()
 
 
 def _metrics(**overrides):

@@ -296,10 +296,11 @@ def local_signing_public_key(kind: str) -> bytes | None:
 
 
 def local_verification_active() -> bool:
-    """True inside ``axiom-encode ci``'s verification-only trust context.
+    """True inside a verification-only trust context.
 
-    There, ci's own roots are the only apply and eval trust: a root it was not
-    given verifies nothing, and no attached signing broker stands in for it
+    ``axiom-encode ci`` and ``encode --corpus-release-public-key`` enter it.
+    There, the run's own roots are the only apply and eval trust: a root it
+    was not given verifies nothing, and no attached signing broker stands in for it
     (a broker's retired roots would judge historical manifests unlike the
     pinned CI).
     """
@@ -317,8 +318,9 @@ def local_corpus_release_verification(
 ):
     """Temporarily provide verification-only public trust roots.
 
-    This exists solely for ``axiom-encode ci``.  It conveys no signing
-    capability, is never populated from the environment, and keeps the trusted
+    This exists for ``axiom-encode ci`` and for the verification-only local
+    ``encode --corpus-release-public-key`` run, which refuses ``--apply`` and
+    an attached signing broker.  It conveys no signing capability, is never populated from the environment, and keeps the trusted
     bootstrap's prohibition on environment-supplied public roots intact.  The
     corpus keyring is the current key followed by any retired keys, in the
     order the protected verification supervisor provisions them; the optional
