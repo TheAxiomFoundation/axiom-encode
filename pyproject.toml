@@ -4,7 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "axiom-encode"
+<<<<<<< HEAD
 version = "0.2.2300"
+=======
+version = "0.2.2298"
+>>>>>>> origin/main
 description = "AI-assisted RuleSpec encoding infrastructure - fully self-contained"
 readme = "README.md"
 requires-python = ">=3.13"
