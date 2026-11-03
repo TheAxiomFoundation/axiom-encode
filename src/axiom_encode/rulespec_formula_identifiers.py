@@ -5,9 +5,7 @@ This collector makes that distinction without evaluating or repairing formulas.
 Compilation remains responsible for rejecting unknown functions and syntax.
 """
 
-import ast
 import re
-import textwrap
 
 # These are Expr::Call names accepted by the Rust RuleSpec formula lowerer,
 # plus abs and round, which the validator's builtin list has always treated
@@ -61,114 +59,6 @@ _RESERVED = frozenset(
 _NON_CODE = re.compile(r""""(?:\\.|[^"\\])*"|'(?:''|\\.|[^'\\])*'|\#[^\n]*""")
 _IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 _PERIOD_SYMBOLS = frozenset({"period_start", "period_end"})
-_ONE_LINE_CONDITIONAL = re.compile(
-    r"\s*if\s+(?P<test>.+?):\s*(?P<body>.+?)\s+(?P<rest>(?:elif|else)\b.*)",
-    re.DOTALL,
-)
-
-
-def _one_line_conditional_as_python(formula: str) -> str | None:
-    """Rewrite one-line ``if c: a elif d: b else: e`` as a Python expression.
-
-    Multi-line RuleSpec conditionals already parse as Python statements; the
-    one-line form does not. Returns None for anything else.
-    """
-    match = _ONE_LINE_CONDITIONAL.fullmatch(formula)
-    if match is None or "\n" in formula.strip():
-        return None
-    rest = match["rest"]
-    if rest.startswith("elif"):
-        orelse = _one_line_conditional_as_python("if" + rest[len("elif") :])
-    elif rest.startswith("else:"):
-        orelse = rest[len("else:") :].strip() or None
-    else:
-        orelse = None
-    if orelse is None:
-        return None
-    return f"({match['body']}) if ({match['test']}) else ({orelse})"
-
-
-def _period_references(formula: str, *, judgment: bool | None) -> set[str]:
-    """Distinguish scalar date constants from judgment/relation input names.
-
-    Python's expression/if syntax covers these local reference contexts without
-    evaluating them. RuleSpec-only syntax (such as match arrows) falls back to
-    retaining possible references; only the Rust compiler admits semantics.
-    """
-    source = textwrap.dedent(formula).strip()
-    try:
-        tree = ast.parse(source)
-    except (SyntaxError, ValueError, RecursionError):
-        rewritten = _one_line_conditional_as_python(source)
-        if rewritten is None:
-            return set(_PERIOD_SYMBOLS)
-        try:
-            tree = ast.parse(rewritten)
-        except (SyntaxError, ValueError, RecursionError):
-            return set(_PERIOD_SYMBOLS)
-    references = set()
-
-    def walk(node: ast.AST, is_judgment: bool) -> None:
-        if isinstance(node, ast.Name):
-            if is_judgment and node.id in _PERIOD_SYMBOLS:
-                references.add(node.id)
-        elif isinstance(node, ast.Module):
-            for statement in node.body:
-                walk(statement, is_judgment)
-        elif isinstance(node, ast.Expr):
-            walk(node.value, is_judgment)
-        elif isinstance(node, (ast.If, ast.IfExp)):
-            walk(node.test, True)
-            for branch in (node.body, node.orelse):
-                for item in branch if isinstance(branch, list) else [branch]:
-                    walk(item, is_judgment)
-        elif isinstance(node, ast.BoolOp):
-            for item in node.values:
-                walk(item, True)
-        elif isinstance(node, ast.UnaryOp):
-            walk(node.operand, isinstance(node.op, ast.Not))
-        elif isinstance(node, ast.Compare):
-            for item in [node.left, *node.comparators]:
-                walk(item, False)
-        elif isinstance(node, ast.BinOp):
-            walk(node.left, False)
-            walk(node.right, False)
-        elif isinstance(node, ast.Call):
-            name = node.func.id if isinstance(node.func, ast.Name) else None
-            if name not in _CALLABLES:
-                walk(node.func, True)
-            # Relation names, predicate arguments and selected relation fields
-            # are references, not scalar expressions in the Rust lowerer.
-            named_arguments = {"len", "sum", "count_where", "sum_where", "only_related"}
-            argument_judgment = (
-                name == "exactly_one"
-                or name in named_arguments
-                or name not in _CALLABLES
-            )
-            for item in node.args:
-                walk(item, argument_judgment)
-            for item in node.keywords:
-                walk(item.value, True)
-        elif isinstance(node, ast.Subscript):
-            walk(node.value, True)  # named parameter-table reference
-            walk(node.slice, False)
-        elif isinstance(node, ast.Attribute):
-            if node.attr in _PERIOD_SYMBOLS:
-                references.add(node.attr)
-            walk(node.value, True)
-        elif not isinstance(node, ast.Constant):
-            # Unsupported syntax must not erase a possible input dependency.
-            for item in ast.walk(node):
-                if isinstance(item, ast.Name) and item.id in _PERIOD_SYMBOLS:
-                    references.add(item.id)
-                elif isinstance(item, ast.Attribute) and item.attr in _PERIOD_SYMBOLS:
-                    references.add(item.attr)
-
-    try:
-        walk(tree, judgment is not False)
-    except RecursionError:
-        return set(_PERIOD_SYMBOLS)
-    return references
 
 
 def formula_reference_identifiers(
@@ -176,24 +66,25 @@ def formula_reference_identifiers(
 ) -> set[str]:
     """Keep references and unknown calls, omitting known call occurrences.
 
-    Full-rule callers provide the rule's judgment/scalar position. With no root
-    context, a bare period symbol remains a possible input; nested scalar/date
-    arguments still resolve their own context.
+    A bare ``period_start`` or ``period_end`` is the engine's date for the
+    period being computed, in every position: the engine refuses to test one
+    as a judgment, so it is never a factual input. Only a field access such as
+    ``members.period_start`` names a reference. ``judgment`` is accepted for
+    callers that know the rule's dtype; no current rule depends on it.
     """
+    del judgment
     scrubbed = _NON_CODE.sub(lambda match: " " * len(match.group()), formula)
     references = set()
-    period_references = None
     for match in _IDENTIFIER.finditer(scrubbed):
         name = match.group()
         if name in _RESERVED:
             continue
         if name in _CALLABLES and scrubbed[match.end() :].lstrip().startswith("("):
             continue
-        if name in _PERIOD_SYMBOLS:
-            if period_references is None:
-                period_references = _period_references(formula, judgment=judgment)
-            if name not in period_references:
-                continue
+        if name in _PERIOD_SYMBOLS and not scrubbed[: match.start()].rstrip().endswith(
+            "."
+        ):
+            continue
         references.add(name)
     return references
 

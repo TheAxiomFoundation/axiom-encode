@@ -44,11 +44,9 @@ def test_cli_context_and_validation_collectors_preserve_only_actual_arguments(
     assert (
         cli._local_factual_input_names_from_rules_content(rules.read_text()) == expected
     )
-    # A context-free bare period name may also be a Boolean input. The full
-    # scalar rule above, and nested date-call arguments, supply exact context.
-    generic_expected = expected | (
-        {formula} if formula in {"period_start", "period_end"} else set()
-    )
+    # A bare period name is the engine's date in every context, so the
+    # context-free collectors agree with the full-rule ones.
+    generic_expected = expected
     assert cli._formula_identifiers(formula) == generic_expected
     assert (
         cli._generated_rule_formula_identifiers({"versions": [{"formula": formula}]})

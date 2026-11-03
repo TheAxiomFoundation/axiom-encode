@@ -154,6 +154,13 @@ def test_terminal_exports_distinguish_bare_helper_dependencies_from_calls(
 
 @pytest.fixture
 def actual_engine(real_engine):
+    """Any real engine: these tests only compile and run scalar programs."""
+    return real_engine.binary
+
+
+@pytest.fixture
+def calendar_engine(real_engine):
+    """An engine with the calendar-unit conversion that ships with run-lifetime."""
     return lifetime_capable_binary(real_engine)
 
 
@@ -269,11 +276,6 @@ def run_scalar(binary, compiled, facts):
     "formula, facts, expected",
     [
         (
-            "calendar_years_to_months(calendar_years_to_months) + calendar_years_to_months",
-            {"calendar_years_to_months": 2},
-            "26",
-        ),
-        (
             "days_between(period_start, date_add_days(period_start, date_add_days)) + date_add_days",
             {"date_add_days": 7},
             "14",
@@ -292,6 +294,23 @@ def test_actual_rust_mixed_call_and_bare_argument(
     assert run_scalar(actual_engine, compiled, facts) == {
         "kind": "decimal",
         "value": expected,
+    }
+
+
+def test_actual_rust_calendar_call_and_bare_argument(calendar_engine, tmp_path):
+    formula = (
+        "calendar_years_to_months(calendar_years_to_months) + calendar_years_to_months"
+    )
+    facts = {"calendar_years_to_months": 2}
+    root, rules = write_rules(tmp_path, formula)
+    assert cli._local_factual_input_names_from_rules_content(rules.read_text()) == set(
+        facts
+    )
+    compiled = tmp_path / "compiled.json"
+    compile_actual(calendar_engine, root, rules, compiled)
+    assert run_scalar(calendar_engine, compiled, facts) == {
+        "kind": "decimal",
+        "value": "26",
     }
 
 
@@ -323,22 +342,23 @@ def test_actual_rust_unknown_call_is_not_silently_dropped(actual_engine, tmp_pat
 @pytest.mark.parametrize(
     "formula, expected",
     [
-        (
-            "if period_start and not period_end:\n    1\nelse:\n    0",
-            {"period_start", "period_end"},
-        ),
+        ("if period_start and not period_end:\n    1\nelse:\n    0", set()),
         ("if period_start < cutoff_date:\n    1\nelse:\n    0", {"cutoff_date"}),
-        (
-            "if exactly_one(period_start, period_end):\n    1\nelse:\n    0",
-            {"period_start", "period_end"},
-        ),
+        ("if exactly_one(period_start, period_end):\n    1\nelse:\n    0", set()),
         ("sum_over_periods(period_start)", set()),
         ("sum(members.period_start)", {"members", "period_start"}),
-        ("count_where(members, period_end)", {"members", "period_end"}),
-        ("period_start[lookup_key]", {"period_start", "lookup_key"}),
+        ("count_where(members, period_end)", {"members"}),
+        ("period_start[lookup_key]", {"lookup_key"}),
+        ("if period_start: 1 else: 0", set()),
     ],
 )
 def test_period_names_follow_reference_context(tmp_path, formula, expected):
+    """A bare period name is the engine's date; only a field access is a fact.
+
+    Every engine refuses to test ``period_start`` or ``period_end`` as a
+    judgment ("is a date, so it cannot be tested as a judgment"), so no
+    collector may report one as an input to supply.
+    """
     _, rules = write_rules(tmp_path, formula)
     assert cli._formula_identifiers(formula) == expected
     assert (
@@ -348,17 +368,18 @@ def test_period_names_follow_reference_context(tmp_path, formula, expected):
     assert validator_pipeline._rulespec_reference_summary(rules).input_slots == expected
 
 
-def test_unsupported_syntax_conservatively_retains_possible_period_inputs():
-    formula = "match selector:\n    0 => period_start\n    _ => period_end"
-    assert {"period_start", "period_end"} <= formula_reference_identifiers(formula)
+def test_unsupported_syntax_keeps_field_access_but_not_bare_period_names():
+    formula = "match selector:\n    0 => period_start\n    _ => members.period_end"
+    references = formula_reference_identifiers(formula)
+    assert {"selector", "members", "period_end"} <= references
+    assert "period_start" not in references
 
 
 @pytest.mark.parametrize("name", ["period_start", "period_end"])
-def test_unknown_root_context_and_judgment_repairs_preserve_period_facts(name):
-    assert formula_reference_identifiers(name) == {name}
-    assert formula_reference_identifiers(name, judgment=False) == set()
-    assert formula_reference_identifiers(f"  {name} \n", judgment=False) == set()
-    assert formula_reference_identifiers(name, judgment=True) == {name}
+@pytest.mark.parametrize("judgment", [None, False, True])
+def test_bare_period_names_are_never_facts_to_supply(name, judgment):
+    assert formula_reference_identifiers(name, judgment=judgment) == set()
+    assert formula_reference_identifiers(f"  {name} \n", judgment=judgment) == set()
     payload = {
         "rules": [
             {
@@ -369,7 +390,7 @@ def test_unknown_root_context_and_judgment_repairs_preserve_period_facts(name):
             }
         ]
     }
-    assignments, protected = (
+    assignments, _protected = (
         cli._positive_judgment_formula_input_assignments_for_formula(
             formula=name,
             rules_payload=payload,
@@ -378,55 +399,46 @@ def test_unknown_root_context_and_judgment_repairs_preserve_period_facts(name):
             seen_rules=set(),
         )
     )
-    assert assignments == {name: True}
-    assert protected == {name}
-    assert cli._negated_expression_false_assignments(
+    assert name not in assignments
+    assert name not in cli._negated_expression_false_assignments(
         expression=name,
         rules_payload=payload,
         rules_by_name={},
         imported_outputs=set(),
         protected_positive_inputs=set(),
-    ) == {name: False}
-    assert cli._neutral_unassigned_formula_input_assignments(
+    )
+    assert name not in cli._neutral_unassigned_formula_input_assignments(
         formula=name,
         rules_payload=payload,
         rules_by_name={},
         imported_outputs=set(),
         assigned_inputs=set(),
-    ) == {name: False}
+    )
 
 
 @pytest.mark.parametrize("name", ["period_start", "period_end"])
-def test_declared_judgment_period_name_is_an_input(tmp_path, name):
+def test_declared_judgment_period_name_is_not_an_input(tmp_path, name):
     _, rules = write_rules(tmp_path, name)
     payload = yaml.safe_load(rules.read_text())
     rule = payload["rules"][0]
     rule["dtype"] = "Judgment"
     rules.write_text(yaml.safe_dump(payload))
-    assert cli._generated_rule_formula_identifiers(rule) == {name}
-    assert cli._local_factual_input_names_from_rules_content(rules.read_text()) == {
-        name
-    }
-    assert evals._context_file_local_inputs(str(rules)) == {name}
-    assert validator_pipeline._rulespec_reference_summary(rules).input_slots == {name}
+    assert cli._generated_rule_formula_identifiers(rule) == set()
+    assert cli._local_factual_input_names_from_rules_content(rules.read_text()) == set()
+    assert evals._context_file_local_inputs(str(rules)) == set()
+    assert validator_pipeline._rulespec_reference_summary(rules).input_slots == set()
 
 
 @pytest.mark.parametrize(
     "formula, facts",
     [
-        ("if period_start:\n    1\nelse:\n    0", {"period_start": True}),
-        ("if period_end:\n    1\nelse:\n    0", {"period_end": True}),
         (
             "if exactly_one(exactly_one, other):\n    1\nelse:\n    0",
             {"exactly_one": True, "other": False},
         ),
-        (
-            "if period_start and not period_end:\n    1\nelse:\n    0",
-            {"period_start": True, "period_end": False},
-        ),
     ],
 )
-def test_actual_fixture_pipeline_preserves_boolean_period_inputs_and_exactly_one(
+def test_actual_fixture_pipeline_preserves_boolean_inputs_named_like_calls(
     actual_engine, tmp_path, monkeypatch, formula, facts
 ):
     root, rules = write_rules(tmp_path, formula)

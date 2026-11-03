@@ -110,10 +110,17 @@ def test_pipeline_reports_exact_decimal_mismatch(execution):
 
 
 def test_pipeline_cannot_supply_a_computed_output_as_history_input(execution):
+    """The validator refuses the stub before the engine sees it.
+
+    The engine would also refuse it (``unknown public input``), but the
+    pipeline's computed-output check runs first, so that is what is reported.
+    """
     case, run = execution
     case["lifetime"]["batches"][0]["inputs"]["us:statutes/99/1#total"] = {
         "kind": "decimal",
         "values": ["3", "7.5"],
     }
     issues = run()
-    assert len(issues) == 1 and "unknown public input" in issues[0]
+    assert len(issues) == 1
+    assert "assigns computed RuleSpec output(s) as input" in issues[0]
+    assert "`us:statutes/99/1#total`" in issues[0]
