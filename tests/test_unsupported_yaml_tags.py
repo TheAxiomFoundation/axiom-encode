@@ -450,6 +450,14 @@ def test_null_tag_hides_the_strict_proof_requirement_from_pyyaml():
     ]
 
 
+def _written_at(content, token):
+    """`line L, column C` where ``token`` first appears in ``content``."""
+
+    index = content.index(token)
+    line = content.count("\n", 0, index) + 1
+    return f"line {line}, column {index - (content.rfind(chr(10), 0, index) + 1) + 1}"
+
+
 def test_interpretation_guard_keeps_the_root_and_module_mapping_tags():
     """Nodes the interpretation scan checks are reported once, by that scan."""
 
@@ -458,8 +466,9 @@ def test_interpretation_guard_keeps_the_root_and_module_mapping_tags():
 
     for content, label in ((root, "RuleSpec root"), (module, "module")):
         interpretation_issue = (
-            f"{label} has unsupported YAML tag `tag:yaml.org,2002:set`; only an "
-            "untagged mapping or `!!map` is supported."
+            f"{label} has unsupported YAML tag `tag:yaml.org,2002:set` at "
+            f"{_written_at(content, '!!set')}; only an untagged mapping or `!!map` "
+            "is supported."
         )
         assert find_interpretation_yaml_issues(content) == [interpretation_issue]
         assert _gate(content).issues == [interpretation_issue]
@@ -488,8 +497,8 @@ def test_interpretation_tags_are_reported_once_by_the_interpretation_scan():
     content = UNTAGGED.replace("module:\n", "module:\n" + INTERPRETATIONS, 1)
     interpretation_issue = (
         "module.interpretations[0].question has unsupported YAML tag "
-        "`tag:yaml.org,2002:binary`; only the canonical string tag `!!str` "
-        "(`tag:yaml.org,2002:str`) is supported."
+        f"`tag:yaml.org,2002:binary` at {_written_at(content, '!!binary')}; only the "
+        "canonical string tag `!!str` (`tag:yaml.org,2002:str`) is supported."
     )
 
     assert find_interpretation_yaml_issues(content) == [interpretation_issue]

@@ -52,7 +52,10 @@ than `!!map` or the non-specific `!` (PyYAML loads a `!!set` mapping as a set,
 which the engine reads as the mapping). Interpretation strings must not contain
 UTF-16 surrogate code points: PyYAML decodes escapes such as `"\uD800"` to lone
 surrogates, which the engine rejects. YAML merge keys follow the rule for
-the whole document, below.
+the whole document, below. Interpretation mapping keys must be plain strings: a
+collection key is refused, with what it holds still checked. Each refusal names
+the line and column it refers to. Text nested too deeply for the check to finish
+is reported as such and is never rewritten.
 
 Duplicate mapping keys are rejected anywhere in a generated module or its
 companion test before any step writes the file back from a loaded payload:

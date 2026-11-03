@@ -40566,10 +40566,16 @@ def test_rulespec_ci_checks_raw_numeric_interpretation_strings_without_engine_su
             if field == "effect"
             else f"module.interpretations[0].{field}"
         )
-        assert (
-            f"{location} must be a quoted string when YAML reads this scalar as a number."
-            in interpretation_issues[0]
+        line_number, line = next(
+            (number, line)
+            for number, line in enumerate(content.splitlines(), start=1)
+            if line.strip() == f"{field}: {scalar}"
         )
+        position = f"line {line_number}, column {line.index(scalar) + 1}"
+        assert (
+            f"{location} must be a quoted string when YAML reads this scalar as a "
+            f"number at {position}."
+        ) in interpretation_issues[0]
     else:
         assert interpretation_issues == []
 
