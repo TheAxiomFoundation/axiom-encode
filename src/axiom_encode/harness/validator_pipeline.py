@@ -1526,11 +1526,11 @@ _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
 # hundred of something ("2 pour cent kilogrammes" is two per hundred
 # kilograms), so it is a percent only where no count can follow:
 # - before the end of the text, ";", ")", "]", "|" or a full stop;
-# - before more rates after ",", "et", "ou" or "à", when the list's last
-#   figure is a rate by itself ("%", "p.c.", "procent") or takes a "pour
-#   cent" that closes by these rules ("5 pour cent, 10 pour cent et 15 pour
-#   cent du montant"); a count at the end makes counts of the whole list
-#   ("2 pour cent et 3 pour cent kilogrammes");
+# - before more rates after ",", "et", "ou" or "à", each marked "pour cent",
+#   "%", "p.c." or "procent", when the last marker closes by these rules
+#   ("5 pour cent, 10 pour cent et 15 % du montant"); a count at the end
+#   makes counts of the whole list, whatever its markers ("2 pour cent et 3
+#   pour cent kilogrammes", "2 pour cent et 3 p.c. kilogrammes");
 # - before a soft closer (",", ":", "»", "”", or a quotation mark set against
 #   "cent") or one of the phrases below, unless a figure, a number word,
 #   "quelques", "plusieurs" or "demi" (behind "et" or "ou" too) or an opening
@@ -1545,10 +1545,12 @@ _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
 # So "28 pour cent du montant", "5 pour cent l'an", "5 pour cent, à compter
 # du" and "20 pour cent pour chaque enfant" are rates, while "2 pour cent et
 # quelques kilogrammes", "5 pour cent mille habitants", "2 pour cent (100)
-# kilogrammes" and '2 pour cent "kilogrammes"' are not. Real rates are
-# dropped with them ("5 pour cent applicable aux revenus", "5 pour cent de
+# kilogrammes" and '2 pour cent "kilogrammes"' are not. The rules drop real
+# rates with them ("5 pour cent applicable aux revenus", "5 pour cent de
 # 1000 euros", "5 pour cent, 200 euros", "5 pour cent en tout", "5 pour cent
-# — "); main grounds none of them either. "pour mille" is per mille and never
+# — ", "2 pour cent et 3 p.c. de 200 euros", and "2 pour cent et 3 p.c. Le
+# taux", where the abbreviation's full stop ends the sentence); main grounds
+# none of them either. "pour mille" is per mille and never
 # matches. "pct" and "v. H." match in their own case only: "28 PCT
 # applications" and Dutch "v.h." (formerly) are no rates.
 _FRENCH_COUNT_AFTER_POUR_CENT_BODY = (
@@ -1586,19 +1588,25 @@ _POUR_CENT_CLOSING_BODY = (
     rf"(?!\s*{_FRENCH_COUNT_AFTER_POUR_CENT_BODY})"
 )
 # The next figure of a list of rates: ",", "et", "ou" or "à", then a figure,
-# grouped by dots or no-break spaces.
+# which dots or no-break spaces may group.
 _FRENCH_RATE_LIST_MEMBER_BODY = (
     r"\s*(?:,|(?:et|ou|à)(?!\w))\s*"
     r"\d+(?:[.,\u00a0\u202f]\d+)*[ \t\u00a0\u202f]*"
 )
-# The rest of a list of rates after "pour cent": figures marked "pour cent",
-# then a last figure whose marker is a rate by itself or a "pour cent" that
-# closes.
+# The marker on a later figure of a list of rates: "%", "p.c.",
+# "procent(en)", "procentpunt(en)" or "pour cent".
+_FRENCH_RATE_LIST_MARKER_BODY = (
+    rf"(?:%|p\.[ \t]?c\.|procent(?:en|punt(?:en)?)?\b|{_POUR_CENT_WORD_BODY})"
+)
+# The rest of a list of rates after "pour cent": more marked figures, the
+# last marker closing as "pour cent" does, whichever marker it is. So a count
+# at the end leaves the list's "pour cent" unread whatever marks its last
+# figure ("2 pour cent et 3 p.c. kilogrammes", "2 pour cent et 3 %
+# kilogrammes").
 _FRENCH_RATE_LIST_AFTER_POUR_CENT_BODY = (
-    rf"(?:{_FRENCH_RATE_LIST_MEMBER_BODY}{_POUR_CENT_WORD_BODY})*"
-    rf"{_FRENCH_RATE_LIST_MEMBER_BODY}"
-    r"(?:%|p\.[ \t]?c\.|procent(?:en|punt(?:en)?)?\b|"
-    rf"{_POUR_CENT_WORD_BODY}(?:{_POUR_CENT_CLOSING_BODY}))"
+    rf"(?:{_FRENCH_RATE_LIST_MEMBER_BODY}{_FRENCH_RATE_LIST_MARKER_BODY})*"
+    rf"{_FRENCH_RATE_LIST_MEMBER_BODY}{_FRENCH_RATE_LIST_MARKER_BODY}"
+    rf"(?:{_POUR_CENT_CLOSING_BODY})"
 )
 # The Belgian words that spell a percent out: "pour cent" where it closes or
 # opens a list of rates, and Dutch "procent(en)" and "procentpunt(en)".
@@ -1623,10 +1631,12 @@ _RATE_MARKER_AFTER_FIGURE_BODY = (
 # The word right before a figure that Belgian texts restate in parentheses
 # ahead of their own rate marker: a French, Dutch or German preposition or
 # copula ("pour (75) pour cent", "tarief van (9) procent", "Satz von (15)
-# Prozent"). After any other word the parenthesis stays the label it looks
-# like, as on main: after a structural word ("article 5 bis (2) pour cent"),
-# a spelled number ("vingt-huit (28) pour cent", "l'article six (12)
-# procent") or a figure ("5 (2) pour cent").
+# Prozent", "taux de (101) %"). After any other word a whole or dotted
+# figure in parentheses restates no rate, and a label-shaped one stays the
+# label it looks like, as on main: after a structural word ("article 5 bis
+# (2) pour cent", "Item (117) Percent"), a spelled number ("vingt-huit (28)
+# pour cent", "l'article six (112) procent") or a figure ("5 (2) pour
+# cent"). The label cleaner and the parenthesized reader both read it.
 _RATE_RESTATEMENT_PREPOSITION_PATTERN = re.compile(
     r"(?<![^\W\d_])(?:"
     r"pour|de|du|des|à|sur|soit|est|sont|sera|seront|était|étaient|"
@@ -13412,7 +13422,13 @@ def _clean_source_text_for_numeric_extraction_tracked(
     tracked = tracked.sub(_MONTH_DAY_OF_MONTH_PATTERN, _blank_match)
     tracked = tracked.sub(
         _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN,
-        _blank_subdivision_label if profile == "be-BE" else _blank_match,
+        (
+            functools.partial(
+                _blank_subdivision_label, source=text, offsets=tracked.offsets
+            )
+            if profile == "be-BE"
+            else _blank_match
+        ),
     )
     tracked = tracked.sub(
         _SCHEDULE_SIZE_CAP_RESTATEMENT_PATTERN,
@@ -13442,7 +13458,12 @@ def _blank_match(match: re.Match[str]) -> str:
     return " " * len(match.group(0))
 
 
-def _blank_subdivision_label(match: re.Match[str]) -> str:
+def _blank_subdivision_label(
+    match: re.Match[str],
+    *,
+    source: str,
+    offsets: Sequence[int | None],
+) -> str:
     """Blank a Belgian subdivision label unless it restates a rate figure.
 
     ``pour (75) pour cent`` restates the rate 75 percent: a French, Dutch or
@@ -13452,13 +13473,23 @@ def _blank_subdivision_label(match: re.Match[str]) -> str:
     ``pour (17) p.c.``, ``l'article six (12) procent``, ``apply. (17)
     procent``, ``5 (2) pour cent``): an abbreviation may stand for anything
     its source defines, so it licenses no restatement.
+
+    ``source`` is the text before cleaning and ``offsets`` place each
+    character of the matched text in it. This reads the label in ``source``,
+    as the readers read its figure: an edit before this one may have
+    blanked what follows the marker ("pour cent 2026-01-01." closes at the
+    full stop once the date is blank), and a label kept for a rate the
+    readers then decline would ground its bare figure.
     """
     start, end = match.span()
-    text = match.string
-    if _BELGIAN_RESTATED_RATE_MARKER_PATTERN.match(
-        text, end
-    ) and _RATE_RESTATEMENT_PREPOSITION_PATTERN.search(
-        text[max(0, start - 64) : start]
+    opening, closing = offsets[start], offsets[end - 1]
+    if (
+        opening is not None
+        and closing is not None
+        and _BELGIAN_RESTATED_RATE_MARKER_PATTERN.match(source, closing + 1)
+        and _RATE_RESTATEMENT_PREPOSITION_PATTERN.search(
+            source[max(0, opening - 64) : opening]
+        )
     ):
         return match.group(0)
     return _blank_match(match)
@@ -14283,13 +14314,15 @@ def _parenthesized_figure_rate_context(
     is no restatement. Only Belgian sources read it; elsewhere the parenthesis
     is a label or a note, as on main.
 
-    The percent sign and the words that spell a percent out make any figure a
-    rate. An abbreviation ("p.c.", "pct.", "v. H.") may stand for whatever
-    its source defines, and a whole number in parentheses may count or cite
-    ("(101) p.c. applicants"), so an abbreviation makes a rate of a fraction
-    with a decimal comma ("(14,75) p.c.") and of nothing else: a fraction
-    neither counts nor cites, and main reads "14,75 p.c." as a rate.
-    ``value`` is the figure's own value.
+    A whole or dotted figure in parentheses may count, cite or label ("(101)
+    p.c. applicants", "(101.5)", "Item (117) Percent"), so it restates a
+    rate only after the lead-in a label needs, a preposition or copula and
+    one space ("taux de (101) % du montant"), and only before the percent
+    sign or a word that spells a percent out: an abbreviation ("p.c.",
+    "pct.", "v. H.") may stand for whatever its source defines. A fraction
+    with a decimal comma neither counts nor cites, so any marker makes it a
+    rate, an abbreviation too, after any word ("(14,75) p.c."): main reads
+    "14,75 p.c." as a rate. ``value`` is the figure's own value.
     """
     if profile != "be-BE":
         return False
@@ -14307,11 +14340,16 @@ def _parenthesized_figure_rate_context(
     closing = _PARENTHESIZED_FIGURE_CLOSE_PATTERN.match(text, end)
     if closing is None:
         return False
+    fraction = not float(value).is_integer() and bool(
+        _DECIMAL_COMMA_FRACTION_END_PATTERN.search(text, start, end)
+    )
+    if not fraction and not _RATE_RESTATEMENT_PREPOSITION_PATTERN.search(
+        text[max(0, opening - 64) : opening]
+    ):
+        return False
     if _PARENTHESIZED_FIGURE_RATE_MARKER_PATTERN.match(text, closing.end()):
         return True
-    if float(value).is_integer() or not _DECIMAL_COMMA_FRACTION_END_PATTERN.search(
-        text, start, end
-    ):
+    if not fraction:
         return False
     return _local_rate_context_after_number(
         text,
