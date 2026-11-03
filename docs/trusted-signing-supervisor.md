@@ -340,7 +340,11 @@ Generation runs Codex in a temporary home whose `auth.json` symlinks or copies
 the encoder's own. A token refresh that writes through the symlink updates the
 encoder's file. A refresh that replaces the file, or any refresh of a copy,
 stays in the temporary home and is discarded with it, so the encoder's file
-keeps the older token. The reviewer runs in the supervisor's home directly.
+keeps the older token. Under the supervisor, the encoder's file is the
+`auth.json` in the supervisor's scratch home, and at teardown the supervisor
+copies that file to the `--codex-auth-outbox` path whether or not the child
+succeeded. The outbox then receives the older token, which the provider may
+already have rotated out. The reviewer runs in the supervisor's home directly.
 
 ### ChatGPT subscription generation
 

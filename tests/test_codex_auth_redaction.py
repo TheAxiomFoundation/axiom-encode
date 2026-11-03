@@ -7,6 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -255,3 +256,38 @@ def test_generation_output_carries_no_auth_token(tmp_path, monkeypatch):
         # Only the Codex home itself may hold the credentials.
         if path.is_file() and source_home not in path.parents:
             assert_clean(path.read_text(errors="replace"), ACCESS, ROTATED)
+
+
+def test_unreadable_last_message_file_is_still_deleted(tmp_path, monkeypatch):
+    """A read that raises must not leave the raw file in the workspace."""
+    source_home = tmp_path / "source-home"
+    write_auth(source_home, access_token=ACCESS, refresh_token=REFRESH)
+    workspace = evals.EvalWorkspace(
+        root=tmp_path / "workspace",
+        source_text_file=tmp_path / "source.txt",
+        manifest_file=tmp_path / "manifest.json",
+    )
+    workspace.root.mkdir()
+    last_message = workspace.root / ".codex-last-message.txt"
+
+    class FakePopen:
+        returncode = 0
+
+        def __init__(self, cmd, **kwargs):
+            # Not valid UTF-8, with a token in it: the text read raises.
+            Path(cmd[cmd.index("-o") + 1]).write_bytes(
+                b"\xff\xfe " + ACCESS.encode() + b" \xc3\x28"
+            )
+
+    monkeypatch.setenv("CODEX_HOME", str(source_home))
+    monkeypatch.setattr(evals, "resolve_codex_cli", lambda: "/explicit/codex")
+    monkeypatch.setattr(evals, "_codex_prompt_timeouts", lambda _: (20, 10))
+    monkeypatch.setattr(evals.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(evals, "_wait_for_codex_process", lambda *a, **kw: False)
+
+    with pytest.raises(UnicodeDecodeError):
+        evals._run_codex_prompt_eval(
+            evals.parse_runner_spec("codex:test-model"), workspace, "encode source"
+        )
+
+    assert not last_message.exists()
