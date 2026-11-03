@@ -24929,8 +24929,7 @@ def _in_place_replacement_post_waiver_dependent_manifests(
             or source not in changed
             or not _is_protected_rulespec_yaml_path(Path(source), roots=roots)
             or path != _applied_encoding_manifest_path(Path(source))
-            or payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD)
-            != current_waiver_sha256
+            or payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != current_waiver_sha256
         ):
             continue
         scheduled = replacement.get("scheduled_dependents")
@@ -24944,8 +24943,7 @@ def _in_place_replacement_post_waiver_dependent_manifests(
             not isinstance(primary, str)
             or primary not in protected
             or primary not in changed
-            or _applied_encoding_manifest_path(Path(primary)).as_posix()
-            not in changed
+            or _applied_encoding_manifest_path(Path(primary)).as_posix() not in changed
             or not isinstance(dependent.get("source_citation"), str)
             or not dependent["source_citation"]
         ):
@@ -29813,9 +29811,7 @@ def _load_verified_applied_encoding_manifest_payload(
                 None,
                 [f"{manifest_label} has no post-migration waiver identity"],
             )
-        expected_waiver_set_sha256 = (
-            expected_legacy_replacement_waiver_set_sha256
-        )
+        expected_waiver_set_sha256 = expected_legacy_replacement_waiver_set_sha256
 
     relative = Path(manifest_path)
     if relative.is_absolute() or any(

@@ -45760,9 +45760,7 @@ class TestGuardGenerated:
         dependent = "us/regulations/dependent.yaml"
         repo, base_ref = self._waiver_retirement_repo(
             tmp_path,
-            base_waiver_text=(
-                "validate_failures:\n" + self._waiver_entry_text(target)
-            ),
+            base_waiver_text=("validate_failures:\n" + self._waiver_entry_text(target)),
         )
         base_waiver = _git(
             repo, "show", f"{base_ref}:known-validation-gaps.yaml"
@@ -45796,18 +45794,16 @@ class TestGuardGenerated:
             },
         }
         if mutation == "wrong_waiver_transition":
-            receipt["replacement"]["metadata_reconciliations"][0][
-                "after_sha256"
-            ] = "0" * 64
+            receipt["replacement"]["metadata_reconciliations"][0]["after_sha256"] = (
+                "0" * 64
+            )
         elif mutation == "wrong_toolchain_transition":
-            receipt["replacement"]["metadata_reconciliations"][1][
-                "after_sha256"
-            ] = "0" * 64
+            receipt["replacement"]["metadata_reconciliations"][1]["after_sha256"] = (
+                "0" * 64
+            )
         elif mutation == "not_in_place":
             receipt["replacement"]["destination"] = dependent
-        target_manifest = (
-            repo / ".axiom/encoding-manifests/us/regulations/example.json"
-        )
+        target_manifest = repo / ".axiom/encoding-manifests/us/regulations/example.json"
         target_manifest.write_text(json.dumps(receipt) + "\n")
         changed = [
             target,
@@ -45817,9 +45813,7 @@ class TestGuardGenerated:
             target_manifest.relative_to(repo).as_posix(),
         ]
         if mutation != "missing_dependent_manifest":
-            changed.append(
-                ".axiom/encoding-manifests/us/regulations/dependent.json"
-            )
+            changed.append(".axiom/encoding-manifests/us/regulations/dependent.json")
         expected, issues = _guard_manifest_waiver_set_identity(
             repo,
             base_ref=base_ref,
@@ -45831,15 +45825,13 @@ class TestGuardGenerated:
         )
         assert issues == []
         assert expected == base_sha256
-        post_waiver_manifests = (
-            _in_place_replacement_post_waiver_dependent_manifests(
-                repo,
-                changed=set(changed),
-                protected={target, dependent},
-                roots=("regulations",),
-                base_waiver_sha256=base_sha256,
-                current_waiver_sha256=current_sha256,
-            )
+        post_waiver_manifests = _in_place_replacement_post_waiver_dependent_manifests(
+            repo,
+            changed=set(changed),
+            protected={target, dependent},
+            roots=("regulations",),
+            base_waiver_sha256=base_sha256,
+            current_waiver_sha256=current_sha256,
         )
         assert post_waiver_manifests == (
             frozenset({".axiom/encoding-manifests/us/regulations/dependent.json"})
