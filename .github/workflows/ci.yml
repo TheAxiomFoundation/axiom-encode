@@ -250,7 +250,12 @@ jobs:
           git rev-parse --verify --quiet 'HEAD^2' > /dev/null
           # Added, changed or renamed (not deleted) files, as the base sees them.
           files=$(git diff --name-only --diff-filter=d 'HEAD^1' HEAD)
-          mapfile -t changed < <(grep -E '^tests/test_[^/]+[.]py$' <<< "$files" || true)
+          changed=()
+          while IFS= read -r file; do
+            if [[ "$file" =~ ^tests/test_[^/]+[.]py$ ]]; then
+              changed+=("$file")
+            fi
+          done <<< "$files"
           if [ "${#changed[@]}" -eq 0 ]; then
             echo "The pull request changes no tests/test_*.py file; the full suite runs when it is marked ready."
             exit 0

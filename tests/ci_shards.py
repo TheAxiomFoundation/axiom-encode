@@ -5,12 +5,24 @@ CI runs the suite as several parallel jobs. Each one sets
 keeps only the tests this module assigns to shard ``k``. Unset, nothing here
 runs and pytest behaves as it always has.
 
-The unit of assignment is the test function (a parametrized function's cases
-stay together), because a few functions take most of the suite's time and
-their files must be split. ``assign`` is a pure function of the collected
-functions, how many cases each has, and ``ci_shard_seconds.json``; every shard
-collects the same suite, so every shard computes the same assignment and each
-function runs in exactly one of them.
+The unit of assignment is the test function: a parametrized function's cases
+stay together, and a few functions take most of the suite's time, so their
+files are split. Two rules change the unit (``unit_for``):
+
+- Tests that use a module- or class-scoped fixture form one unit per module
+  or class. Such a fixture is set up once per shard that runs one of its
+  tests, so splitting them would repeat the setup.
+- Otherwise each case of a parametrized function whose ``ci_shard_seconds.json``
+  entry is at least ``SPLIT_FUNCTION_SECONDS`` is its own unit, and weighs an
+  equal share of that entry, so the slowest function does not set the floor.
+  A case is told by its node id, so this needs pytest to give each case the
+  same id in every shard (``test_ci_shards.py`` lists the functions the
+  table splits, each checked for that).
+
+``assign`` is a pure function of the collected tests (node id, function, the
+module or class they share a fixture with) and ``ci_shard_seconds.json``;
+every shard collects the same suite, so every shard computes the same units
+and assignment and each test runs in exactly one of them.
 
 That argument needs every shard to see the same collection and the same
 table, and each shard to run what it kept. So a shard publishes a report only
@@ -27,7 +39,7 @@ and run::
 
     python -m tests.ci_shards seconds shard-1.log shard-2.log ... > tests/ci_shard_seconds.json
 
-No shard can be shorter than the slowest single test function.
+No shard can be shorter than the slowest unit.
 """
 
 from __future__ import annotations
@@ -40,6 +52,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
+from typing import Any, NamedTuple
 
 SHARD_ENV = "AXIOM_ENCODE_TEST_SHARD"
 REPORT_ENV = "AXIOM_ENCODE_TEST_SHARD_REPORT"
@@ -48,6 +61,9 @@ SECONDS_PATH = Path(__file__).with_name("ci_shard_seconds.json")
 DEFAULT_FILE_MILLISECONDS = 1_000
 # A function gets its own entry in a refreshed table once its listed tests take this long.
 FUNCTION_ENTRY_SECONDS = 20
+# A parametrized function whose entry is this long runs as separate cases: about a
+# quarter of a shard's time when the suite took eight shards of 12 to 14 minutes.
+SPLIT_FUNCTION_SECONDS = 180
 
 _SHARD = re.compile(r"([1-9][0-9]{0,2})/([1-9][0-9]{0,2})")
 _REPORT = re.compile(
@@ -89,6 +105,36 @@ def unit_of(nodeid: str, name: str, originalname: str | None) -> str:
     return nodeid
 
 
+class Collected(NamedTuple):
+    """A collected test as the split sees it.
+
+    ``function`` is its test function (``unit_of``). ``shares`` is the module
+    (``tests/x.py``) or class (``tests/x.py::TestK``) whose module- or
+    class-scoped fixture it uses, or ``None``. (A module outside pytest's
+    rootdir has the empty node id.)
+    """
+
+    nodeid: str
+    function: str
+    shares: str | None = None
+
+
+def collected(item: Any) -> Collected:
+    """A pytest item as the split sees it."""
+    function = unit_of(item.nodeid, item.name, getattr(item, "originalname", None))
+    # pytest has no public API for the fixture definitions an item uses; the
+    # last definition of each name is the one that serves this item.
+    info = getattr(item, "_fixtureinfo", None)
+    definitions = info.name2fixturedefs.values() if info is not None else ()
+    scopes = {str(defs[-1].scope) for defs in definitions if defs}
+    if "module" in scopes:
+        return Collected(item.nodeid, function, _file_of(item.nodeid))
+    # A class-scoped fixture serves a function outside a class once per test.
+    if "class" in scopes and getattr(item, "cls", None) is not None:
+        return Collected(item.nodeid, function, function.rsplit("::", 1)[0])
+    return Collected(item.nodeid, function)
+
+
 def _file_of(unit: str) -> str:
     return unit.split("::", 1)[0]
 
@@ -97,65 +143,95 @@ def _milliseconds(seconds: float) -> int:
     return max(0, round(seconds * 1000))
 
 
-def weights(
-    unit_cases: Mapping[str, int], seconds: Mapping[str, float]
-) -> dict[str, int]:
+def _has_entry(function: str, seconds: Mapping[str, float]) -> bool:
+    return "::" in function and function in seconds
+
+
+def unit_for(test: Collected, cases: int, seconds: Mapping[str, float]) -> str:
+    """The unit ``test`` is assigned with; ``cases`` counts its function's tests.
+
+    The module or class it shares a scoped fixture with; otherwise the test
+    itself if its function is parametrized and its entry reaches
+    ``SPLIT_FUNCTION_SECONDS``; otherwise its function.
+    """
+    if test.shares is not None:
+        return test.shares
+    if (
+        cases > 1
+        and _has_entry(test.function, seconds)
+        and seconds[test.function] >= SPLIT_FUNCTION_SECONDS
+    ):
+        return test.nodeid
+    return test.function
+
+
+def units_for(tests: Sequence[Collected], seconds: Mapping[str, float]) -> list[str]:
+    """The unit of each test, in order."""
+    cases = Counter(test.function for test in tests)
+    return [unit_for(test, cases[test.function], seconds) for test in tests]
+
+
+def weights(tests: Sequence[Collected], seconds: Mapping[str, float]) -> dict[str, int]:
     """Each unit's expected time in whole microseconds (at least 1).
 
     ``seconds`` maps test files, and some test functions, to seconds. A function
     with its own entry weighs that. The others share what is left of their
-    file's time in proportion to their case counts.
+    file's time in proportion to their case counts. A unit weighs the share of
+    each function's time that its tests are of that function's tests.
     """
+    cases = Counter(test.function for test in tests)
     shared_cases: Counter[str] = Counter()
     own_milliseconds: Counter[str] = Counter()
-    for unit, cases in unit_cases.items():
-        if cases < 1:
-            raise ValueError(f"{unit} has {cases} cases")
-        if "::" in unit and unit in seconds:
-            own_milliseconds[_file_of(unit)] += _milliseconds(seconds[unit])
+    for function, count in cases.items():
+        if _has_entry(function, seconds):
+            own_milliseconds[_file_of(function)] += _milliseconds(seconds[function])
         else:
-            shared_cases[_file_of(unit)] += cases
-    result = {}
-    for unit, cases in unit_cases.items():
-        file = _file_of(unit)
-        if "::" in unit and unit in seconds:
-            microseconds = _milliseconds(seconds[unit]) * 1000
+            shared_cases[_file_of(function)] += count
+    held = Counter(zip(units_for(tests, seconds), (test.function for test in tests)))
+    result: Counter[str] = Counter()
+    for (unit_name, function), count in held.items():
+        file = _file_of(function)
+        if _has_entry(function, seconds):
+            microseconds = (
+                _milliseconds(seconds[function]) * 1000 * count // cases[function]
+            )
         else:
             shared = (
                 DEFAULT_FILE_MILLISECONDS
                 if file not in seconds
                 else max(0, _milliseconds(seconds[file]) - own_milliseconds[file])
             )
-            microseconds = shared * 1000 * cases // shared_cases[file]
-        result[unit] = max(1, microseconds)
-    return result
+            microseconds = shared * 1000 * count // shared_cases[file]
+        result[unit_name] += microseconds
+    return {unit_name: max(1, weight) for unit_name, weight in result.items()}
 
 
 def assign(
-    unit_cases: Mapping[str, int], seconds: Mapping[str, float], shards: int
+    tests: Sequence[Collected], seconds: Mapping[str, float], shards: int
 ) -> dict[str, int]:
     """Shard (1-based) of every unit: heaviest first, each to the lightest shard.
 
-    Depends only on the mappings' contents, never on their order. Ties go to
-    the lower shard and, between units, to the lexically smaller one.
+    Depends only on which tests were collected and the table's contents, never
+    on their order. Ties go to the lower shard and, between units, to the
+    lexically smaller one.
     """
     if shards < 1:
         raise ValueError(f"cannot split into {shards} shards")
-    unit_weights = weights(unit_cases, seconds)
+    unit_weights = weights(tests, seconds)
     loads = [0] * shards
     assignment = {}
-    for unit in sorted(unit_weights, key=lambda u: (-unit_weights[u], u)):
+    for name in sorted(unit_weights, key=lambda u: (-unit_weights[u], u)):
         lightest = min(range(shards), key=lambda index: (loads[index], index))
-        loads[lightest] += unit_weights[unit]
-        assignment[unit] = lightest + 1
+        loads[lightest] += unit_weights[name]
+        assignment[name] = lightest + 1
     return assignment
 
 
 def digest(unit_cases: Mapping[str, int], assignment: Mapping[str, int]) -> str:
     """Identifies a collection and its split: each unit, its cases and its shard.
 
-    Two shards with equal digests collected the same functions with the same
-    case counts and assigned them the same way, so they hold the same table.
+    Two shards with equal digests collected the same units with the same case
+    counts and assigned them the same way.
     """
     lines = "".join(
         json.dumps([unit, cases, assignment[unit]]) + "\n"
@@ -178,27 +254,28 @@ def load_seconds(path: Path = SECONDS_PATH) -> dict[str, float]:
 
 
 def select(
-    units: Sequence[str],
+    tests: Sequence[Collected],
     shard: int,
     shards: int,
     seconds: Mapping[str, float],
 ) -> tuple[list[bool], str]:
-    """Which collected items (given as their units, in order) shard ``k`` keeps.
+    """Which collected tests (in order) shard ``k`` keeps.
 
     Returns the keep flags and the report line the shard publishes.
     """
     if not 1 <= shard <= shards:
         raise ValueError(f"shard {shard} is not one of 1..{shards}")
-    unit_cases = Counter(units)
-    assignment = assign(unit_cases, seconds, shards)
-    keep = [assignment[unit] == shard for unit in units]
-    kept_units = sum(1 for unit in unit_cases if assignment[unit] == shard)
+    test_units = units_for(tests, seconds)
+    unit_cases = Counter(test_units)
+    assignment = assign(tests, seconds, shards)
+    keep = [assignment[unit_name] == shard for unit_name in test_units]
+    kept_units = sum(1 for unit_name in unit_cases if assignment[unit_name] == shard)
     return keep, report(
         shard=shard,
         shards=shards,
         units=len(unit_cases),
         kept_units=kept_units,
-        cases=len(units),
+        cases=len(tests),
         kept_cases=sum(keep),
         collection=digest(unit_cases, assignment),
     )
@@ -214,7 +291,7 @@ def report(
     kept_cases: int,
     collection: str,
 ) -> str:
-    """``k/N:functions:kept functions:tests:kept tests:collection digest``."""
+    """``k/N:units:kept units:tests:kept tests:collection digest``."""
     return f"{shard}/{shards}:{units}:{kept_units}:{cases}:{kept_cases}:{collection}"
 
 
@@ -254,7 +331,7 @@ def check_reports(reports: Sequence[str]) -> list[str]:
     kept_units = sum(row[1] for row in parsed)
     kept_cases = sum(row[3] for row in parsed)
     if kept_units != units:
-        problems.append(f"shards kept {kept_units} test functions of {units}")
+        problems.append(f"shards kept {kept_units} units of {units}")
     if kept_cases != cases:
         problems.append(f"shards kept {kept_cases} tests of {cases}")
     if cases == 0:
