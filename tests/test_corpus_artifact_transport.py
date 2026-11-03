@@ -21,6 +21,7 @@ from axiom_encode.corpus_materialize import LockEntry, _canonical_lock_bytes
 from axiom_encode.corpus_release import canonical_release_object_bytes
 from axiom_encode.prepare_signed_backfill import (
     immutable_atomic_source_contract,
+    repair_execution_metadata,
     resolve_atomic_repair_mode,
     split_atomic_source_input,
 )
@@ -326,6 +327,41 @@ def test_transport_admits_one_reviewed_source_bound_dependent():
         "mode": "full_artifact",
         "tests_only": False,
     }
+
+    repair_wrapper = copy.deepcopy(WRAPPER)
+    repair_wrapper["transaction"]["primary_required_test_cases"] = [
+        {
+            "name": "March boundary",
+            "period": {
+                "period_kind": "month",
+                "start": "2026-03-01",
+                "end": "2026-03-31",
+            },
+            "input": {"us-az:test#input": 1000},
+            "required_output": {"us-az:test#output": 2.0},
+        }
+    ]
+    raw_repair = json.dumps(repair_wrapper)
+    repair_dispatch = {**dispatch, "REPAIR_RUN_ID": "456", "GITHUB_RUN_ID": "789"}
+    assert transport.request_run_id(raw_repair, repair_dispatch) == "123"
+    assert resolve_atomic_repair_mode(raw_repair, repair_dispatch) == {
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
+    assert repair_execution_metadata(raw_repair, "456", "full_artifact", "false") == {
+        "requested_mode": "legacy_inference",
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
+    for changed in (
+        {"REPAIR_RUN_ID": "789"},
+        {"REPLACE_LEGACY_RULESPEC_PATH": ""},
+        {"DEPENDENT_CITATION": ""},
+    ):
+        with pytest.raises(ValueError):
+            transport.request_run_id(raw_repair, {**repair_dispatch, **changed})
+    with pytest.raises(ValueError, match="bound boundary tests"):
+        transport.request_run_id(json.dumps(WRAPPER), repair_dispatch)
 
     with pytest.raises(ValueError, match="reviewed in-place"):
         transport.request_run_id(
