@@ -145,6 +145,19 @@ jobs:
         with:
           path: axiom-encode
           persist-credentials: false
+          # Full history: the version check below walks back to the latest bump.
+          fetch-depth: 0
+
+      # The encoder version is assigned after merge (axiom-encode#2048), so
+      # main can briefly hold encoder changes that no bump covers yet. The
+      # provisioner refuses that head inside the encode job, after the
+      # production-signing approval, and the budget below would count the run.
+      # Refusing it here skips the encode job instead: no approval is used and
+      # enforce_attempt_budget.py treats the run as neutral.
+      - name: Refuse an encoder head that no version bump covers
+        run: |
+          python3 -I "$GITHUB_WORKSPACE/axiom-encode/src/axiom_encode/version_provenance.py" \
+            check --repo "$GITHUB_WORKSPACE/axiom-encode" --ref HEAD
 
       - name: Enforce failed-attempt budget
         env:

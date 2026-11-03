@@ -1200,6 +1200,13 @@ rules: []
 
 
 def test_current_encoder_affecting_changes_are_behind_version_bump():
+    # PRs no longer carry a version bump: the encoder-version-bump workflow
+    # assigns it after merge (axiom-encode#2048), so a PR head and main between
+    # a merge and its bump are legitimately unversioned. `--apply`, the
+    # provisioner and the re-encode workflow's early check still refuse such a
+    # head. The bump workflow sets this variable to verify its own commit.
+    if os.environ.get("AXIOM_ENCODE_REQUIRE_VERSION_BUMP") != "1":
+        pytest.skip("version bump is assigned after merge (axiom-encode#2048)")
     repo = Path(__file__).parents[1]
     try:
         _git(repo, "rev-parse", "--is-inside-work-tree")
