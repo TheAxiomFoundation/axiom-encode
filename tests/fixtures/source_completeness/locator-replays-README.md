@@ -30,6 +30,9 @@ hashes. The metadata names corpus release
 `us-rulespec-2026-08-08-obbb-alien-snap` and encoder version `0.2.2154`; those
 are recorded labels. Replay checks run `analyze_complete_source_unit` with the
 `en-US` numeric inventory and grounding extractors, matching these U.S. sources.
+Production reads U.S. citations with the `legacy` profile, so the totals are
+also pinned under it (#1831): 0, 68 and 114 for Oklahoma, Arizona and Virginia
+(main gave 0, 68 and 117).
 
 The replays run without a caption mask or caption heading metadata. Direct
 completeness-only replay totals are recorded separately from `issues.json`,
