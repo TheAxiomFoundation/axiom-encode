@@ -254,9 +254,11 @@ from .harness.evals import (
     _validate_eval_suite_run_identity,
     _validate_signed_eval_result_verdict_evidence,
     evaluate_artifact,
+    is_rulemaking_source_identifier,
     load_eval_suite_manifest,
     parse_runner_spec,
     resolve_corpus_source_unit,
+    rulemaking_explicit_output_required_message,
     run_eval_suite,
     run_model_eval,
     run_source_eval,
@@ -35409,6 +35411,21 @@ def _run_encode_attempt(
         source_unit=source_unit,
         corpus_release=corpus_release,
     )
+    if replacement_target is None and is_rulemaking_source_identifier(
+        source_unit.requested
+    ):
+        singular_modules, other_citing_modules = _rulespec_modules_citing_source(
+            policy_repo_path,
+            source_unit.requested,
+            checkout_path=policy_checkout_path,
+        )
+        raise ValueError(
+            rulemaking_explicit_output_required_message(
+                source_unit.requested,
+                singular_modules,
+                other_citing_modules=other_citing_modules,
+            )
+        )
     if (
         replacement_target is not None
         and replacement_target.retired_source_admission is not None
@@ -39433,6 +39450,10 @@ def _relative_output_to_child_corpus_citation_path(
     }.get(source_root)
     if corpus_source_root is None or not tail:
         return None
+    if source_root == "policies" and tail[0] == "rulemaking" and len(tail) >= 2:
+        # policies/rulemaking/ is the reserved output namespace for
+        # <jurisdiction>/rulemaking/... (Federal Register) sources.
+        return f"{jurisdiction}/rulemaking/{Path(*tail[1:]).as_posix()}"
     return f"{jurisdiction}/{corpus_source_root}/{Path(*tail).as_posix()}"
 
 
@@ -57013,6 +57034,74 @@ def _source_attestation_structure_issues(
             seen_components.add(component_identity)
 
     return issues
+
+
+def _rulespec_modules_citing_source(
+    policy_repo_path: Path,
+    citation: str,
+    *,
+    checkout_path: Path,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Checkout-relative primary modules under ``policies/`` that cite ``citation``.
+
+    Returns ``(singular, other)``. ``singular`` modules have this document as
+    their ``source_verification.corpus_citation_path``. ``other`` modules cite
+    the document in ``corpus_citation_paths``, or cite one of its pages (a
+    citation path under ``<document>/``), in either field. The lists make no
+    claim about which modules ``--replace-rulespec-path`` accepts; that flag
+    decides. Read-only and best effort: companions, unreadable and malformed
+    files are skipped, so the lists only help the operator pick the module to
+    re-encode.
+    """
+    try:
+        wanted = normalize_corpus_identifier(citation)
+    except CorpusResolutionError:
+        return (), ()
+    policies_root = policy_repo_path / "policies"
+    if not policies_root.is_dir():
+        return (), ()
+
+    def normalized(value: object) -> str | None:
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            return normalize_corpus_identifier(value)
+        except (CorpusResolutionError, ValueError):
+            return None
+
+    def names_document(cited: str | None) -> bool:
+        return cited is not None and (cited == wanted or cited.startswith(f"{wanted}/"))
+
+    singular_modules: list[str] = []
+    other: list[str] = []
+    for path in sorted(policies_root.rglob("*.yaml")):
+        if path.name.endswith(RULESPEC_TEST_FILE_SUFFIX) or not path.is_file():
+            continue
+        if path.stat().st_size > 10 * 1024 * 1024:
+            continue
+        try:
+            payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, yaml.YAMLError, RecursionError):
+            continue
+        module = payload.get("module") if isinstance(payload, dict) else None
+        verification = (
+            module.get("source_verification") if isinstance(module, dict) else None
+        )
+        if not isinstance(verification, dict):
+            continue
+        singular = normalized(verification.get("corpus_citation_path"))
+        plural_raw = verification.get("corpus_citation_paths")
+        plural = (
+            [normalized(item) for item in plural_raw]
+            if isinstance(plural_raw, list)
+            else []
+        )
+        relative = path.relative_to(checkout_path).as_posix()
+        if singular == wanted:
+            singular_modules.append(relative)
+        elif names_document(singular) or any(names_document(item) for item in plural):
+            other.append(relative)
+    return tuple(singular_modules), tuple(other)
 
 
 def _source_verification_citation_paths(

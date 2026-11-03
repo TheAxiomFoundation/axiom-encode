@@ -363,6 +363,121 @@ _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN = {
     "statute": "statutes",
     "statutes": "statutes",
 }
+# Federal Register instruments live under <jurisdiction>/rulemaking/... in the
+# corpus. RuleSpec has no rulemaking filesystem root, so their outputs land in
+# a reserved ``policies/rulemaking/`` namespace. A dot-free tail maps back to
+# the same citation; a dotted leaf is written nested and maps back to the
+# nested path (cli._relative_output_to_child_corpus_citation_path,
+# validator_pipeline._corpus_citation_to_normalized_target and
+# dependency_stubs._corpus_kind_and_rest keep the same contract).
+_RULEMAKING_SOURCE_TOKEN = "rulemaking"
+_RULEMAKING_OUTPUT_ROOT = "policies"
+
+
+def is_rulemaking_source_identifier(identifier: str) -> bool:
+    """Whether ``identifier`` is a corpus ``<jurisdiction>/rulemaking/...`` path.
+
+    Only the corpus form matches. RuleSpec-form ids return False here: the
+    RuleSpec name of a Federal Register document
+    (``[<j>:]policies|policy/rulemaking/...``) is caught by the eval backstop
+    after normalization (``_eval_target_names_rulemaking_source``), and other
+    roots such as ``us:statutes/rulemaking/...`` keep main's mapping.
+    """
+    parts = [part for part in identifier.strip().strip("/").split("/") if part]
+    return (
+        len(parts) >= 3
+        and parts[1] == _RULEMAKING_SOURCE_TOKEN
+        and ":" not in parts[0]
+        and parts[0] not in _RULESPEC_SOURCE_ROOT_TOKENS
+    )
+
+
+def _eval_target_names_rulemaking_source(citation: str, source_unit: object) -> bool:
+    """Whether an eval target names a Federal Register document in any form.
+
+    Covers the corpus form, the document's RuleSpec names
+    ``[<j>:]policies|policy/rulemaking/...`` (which the resolver aliases to the
+    document), and the resolver-normalized id of the citation and of the
+    resolved source unit. ``us:statutes/rulemaking/...`` matches none of these
+    and keeps main's mapping.
+    """
+    candidates = [citation, str(getattr(source_unit, "requested", "") or "")]
+    with contextlib.suppress(_corpus_resolver.CorpusResolutionError, ValueError):
+        candidates.append(_corpus_resolver.normalize_corpus_identifier(citation))
+    return any(
+        is_rulemaking_source_identifier(candidate)
+        for candidate in candidates
+        if candidate
+    ) or _names_rulemaking_output(citation)
+
+
+def _rulemaking_document_id(citation: str, source_unit: object) -> str:
+    """The corpus ``<j>/rulemaking/...`` id an eval target resolves to.
+
+    Prefers the resolved source unit, then the resolver-normalized citation;
+    falls back to the citation itself.
+    """
+    candidates = [str(getattr(source_unit, "requested", "") or "")]
+    with contextlib.suppress(_corpus_resolver.CorpusResolutionError, ValueError):
+        candidates.append(_corpus_resolver.normalize_corpus_identifier(citation))
+    for candidate in candidates:
+        if candidate and is_rulemaking_source_identifier(candidate):
+            return candidate
+    return citation
+
+
+def rulemaking_explicit_output_required_message(
+    citation: str,
+    existing_modules: Sequence[str] = (),
+    *,
+    other_citing_modules: Sequence[str] = (),
+) -> str:
+    """Explain why a Federal Register target needs an explicit module path.
+
+    RuleSpec repositories file each Federal Register module under the agency
+    and subject it amends (``us/policies/cbp/...``), and one document can back
+    several modules, so no default path is safe: the encoder would put a
+    re-encode of an existing module in a second place.
+
+    ``existing_modules`` cite this document as their
+    ``source_verification.corpus_citation_path``. ``other_citing_modules``
+    cite it in ``corpus_citation_paths`` or cite one of its pages. The message
+    lists both and leaves to ``--replace-rulespec-path`` whether it accepts a
+    given module.
+    """
+    jurisdiction = citation.strip().strip("/").split("/", 1)[0]
+    message = (
+        f"{citation} is a Federal Register (rulemaking) source, which has no "
+        "default RuleSpec path: modules built from it live under the agency and "
+        f"subject they amend in {jurisdiction}/policies/. Pass that module's "
+        "path with --replace-rulespec-path "
+        f"(for example {jurisdiction}/policies/<agency>/<subject>.yaml, with "
+        "--apply and --mode repo-augmented)."
+    )
+    if existing_modules:
+        message += (
+            " Modules whose source_verification corpus_citation_path is this "
+            f"document: {', '.join(existing_modules)}."
+        )
+    if other_citing_modules:
+        message += (
+            " Modules that cite this document in corpus_citation_paths or cite "
+            f"one of its pages: {', '.join(other_citing_modules)}."
+        )
+    if existing_modules or other_citing_modules:
+        message += (
+            " --replace-rulespec-path checks each module's source_verification "
+            "and decides whether it accepts that module."
+        )
+    else:
+        message += (
+            f" A scan of {jurisdiction}/policies/ in this checkout found no "
+            "module whose source_verification corpus_citation_path or "
+            "corpus_citation_paths names this document or one of its pages."
+        )
+    return message
+
+
 _UK_LEGISLATION_DOMAIN_TOKEN = "legislation.gov.uk"
 _UK_LEGISLATION_SECTION_TOKENS = {"article", "regulation", "section"}
 _CLAUDE_DEFAULT_TIMEOUT_SECONDS = 1800
@@ -7632,6 +7747,13 @@ def _looks_like_corpus_citation_path(identifier: str) -> bool:
         "policy",
         "regulation",
         "regulations",
+        # Federal Register instruments (proclamations, executive orders,
+        # notices) live under us/rulemaking/... in the corpus; without this
+        # token the CLI mangles such citations via citation_to_citation_path
+        # into us/statute/us/rulemaking/... and the provisions lookup fails.
+        # Validate-time source verification already resolves these paths
+        # verbatim.
+        "rulemaking",
         "statute",
         "statutes",
     }
@@ -10034,6 +10156,16 @@ def _run_single_eval(
     # the requested identifier keeps each subsection in its own file.
     #
     is_corpus_path = _looks_like_corpus_citation_path(citation)
+    if target_relative_output is None and _eval_target_names_rulemaking_source(
+        citation, source_unit
+    ):
+        # Name the document by its resolved corpus id, as encode does, so an
+        # alias citation still gets the right <jurisdiction>/policies/ hint.
+        raise ValueError(
+            rulemaking_explicit_output_required_message(
+                _rulemaking_document_id(citation, source_unit)
+            )
+        )
     relative_output = (
         Path(target_relative_output)
         if target_relative_output is not None
@@ -10940,6 +11072,47 @@ def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
 def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
     """Map a canonical source identifier to its RuleSpec artifact path.
 
+    See ``_mapped_relative_rulespec_path``. Only a rulemaking source may land
+    in the reserved ``policies/rulemaking/`` namespace: a corpus
+    ``<j>/rulemaking/...`` path, or the output's own RuleSpec name
+    ``[<j>:]policies/rulemaking/...``. Anything else that maps there (a policy,
+    form, guidance or manual source whose tail or dotted leaf starts with
+    ``rulemaking``, in any letter case) would overwrite a rulemaking output
+    and is refused.
+    """
+    relative = _mapped_relative_rulespec_path(source_id)
+    out = relative.parts
+    if (
+        len(out) >= 3
+        and out[0] == _RULEMAKING_OUTPUT_ROOT
+        and out[1].casefold() == _RULEMAKING_SOURCE_TOKEN
+        and not _names_rulemaking_output(source_id)
+    ):
+        raise ValueError(
+            "Source collides with the reserved rulemaking output namespace: "
+            f"{source_id!r}"
+        )
+    return relative
+
+
+def _names_rulemaking_output(source_id: str) -> bool:
+    """Whether ``source_id`` is a rulemaking source or its output's own name."""
+    parts = [part for part in source_id.strip().strip("/").split("/") if part]
+    if len(parts) < 3 or parts[1] != _RULEMAKING_SOURCE_TOKEN:
+        return False
+    head = parts[0]
+    if ":" in head:
+        # RuleSpec form: only the policies root names the rulemaking output.
+        return head.split(":", 1)[1] in {"policies", "policy"}
+    if head in _RULESPEC_SOURCE_ROOT_TOKENS:
+        return head in {"policies", "policy"}
+    # Corpus form <jurisdiction>/rulemaking/...
+    return True
+
+
+def _mapped_relative_rulespec_path(source_id: str) -> Path:
+    """Map a canonical source identifier to its RuleSpec artifact path.
+
     Unicode dash punctuation is normalized only in the returned filesystem
     path; the authoritative source identifier remains unchanged. Each path
     segment is treated as a directory and a dot inside the leaf segment is
@@ -10987,6 +11160,10 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
             if tail and tail[0] == _UK_LEGISLATION_DOMAIN_TOKEN:
                 tail = _canonical_uk_legislation_tail(tail)
             return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
+    if len(parts) >= 3 and parts[1] == _RULEMAKING_SOURCE_TOKEN:
+        return Path(_RULEMAKING_OUTPUT_ROOT) / _dotted_leaf_to_nested_yaml_path(
+            [_RULEMAKING_SOURCE_TOKEN, *parts[2:]]
+        )
     if len(parts) >= 3:
         root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[1])
         if root is not None:

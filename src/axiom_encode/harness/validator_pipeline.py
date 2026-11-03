@@ -9349,6 +9349,13 @@ def _corpus_citation_to_normalized_target(citation: str) -> tuple[str, ...] | No
         return None
     class_part = parts[1]
     tail = parts[2:]
+    if class_part == "rulemaking":
+        # Federal Register instruments land in the reserved
+        # policies/rulemaking/ namespace (evals._RULEMAKING_OUTPUT_ROOT).
+        return (
+            "policies",
+            *_normalized_corpus_tail_parts(parts[0], "policies", ["rulemaking", *tail]),
+        )
     if class_part in {"statute", "statutes"}:
         return tuple(
             ["statutes", *_normalized_corpus_tail_parts(parts[0], "statutes", tail)]
@@ -9363,9 +9370,16 @@ def _corpus_citation_to_normalized_target(citation: str) -> tuple[str, ...] | No
             ]
         )
     if class_part in {"policy", "policies"}:
-        return tuple(
-            ["policies", *_normalized_corpus_tail_parts(parts[0], "policies", tail)]
+        target = (
+            "policies",
+            *_normalized_corpus_tail_parts(parts[0], "policies", tail),
         )
+        if len(target) >= 3 and target[1] == "rulemaking":
+            # The encoder refuses a policy source that lands in the reserved
+            # rulemaking namespace (dotted leaves included), so it must never
+            # match a rulemaking output file.
+            return None
+        return target
     return None
 
 
@@ -26250,6 +26264,16 @@ def _rulespec_base_parts_for_corpus_path(citation_path: str) -> tuple[str, ...]:
         normalize_rulespec_path_segment(part)
         for part in citation_path.strip("/").split("/")
     ]
+    if len(parts) >= 3 and parts[1] == "rulemaking":
+        return ("policies", "rulemaking", *parts[2:])
+    if (
+        len(parts) >= 4
+        and parts[1] in {"policy", "policies"}
+        and parts[2].casefold() == "rulemaking"
+    ):
+        # The encoder refuses this source (it would overwrite a rulemaking
+        # output), so it has no coverage base inside that namespace.
+        return ()
     if (
         len(parts) >= 4
         and parts[1] == "statute"
