@@ -495,11 +495,24 @@ def test_diamond_imports_resolve_each_module_once(tmp_path, monkeypatch):
         return real(target_ref, repo_path)
 
     monkeypatch.setattr(cli, "_resolve_rulespec_target_file", counting)
+    classified = []
+    real_classify = cli._classify_lifetime_dependent_outputs
+
+    def counting_classify(payload, **kwargs):
+        classified.append(tuple(r["name"] for r in payload["rules"]))
+        return real_classify(payload, **kwargs)
+
+    # The recursion looks the classifier up by name, so this sees every call.
+    monkeypatch.setattr(cli, "_classify_lifetime_dependent_outputs", counting_classify)
 
     assert cli._non_scalar_fixture_output_names(rules_payload, repo_path=root) == {
         "result"
     }
     assert len(resolved) == len(set(resolved)) == 4
+    # The top module, B, C, and the shared D and E once each.
+    assert sorted(classified) == sorted(
+        [("result", "plain"), ("b",), ("c",), ("d",), ("e",)]
+    )
 
 
 def test_scalar_import_beside_an_unrelated_lifetime_rule_keeps_repairs(tmp_path):
@@ -547,30 +560,86 @@ def _unmemoized_reference(payload, repo_path, seen=frozenset()):
     )
 
 
-@pytest.mark.parametrize("seed", range(40))
-def test_memoized_classification_matches_the_unmemoized_recursion(tmp_path, seed):
-    """Random import graphs, cycles and diamonds included, classify the same
-    with and without the memo."""
-    import random
-
-    rng = random.Random(seed)
-    root = tmp_path / "rulespec-us" / "us"
-    count = 6
+def _random_import_graph(root, rng, count=5):
+    """Modules with several rules each: some lifetime, some local, some that
+    read one or two imported names. Cycles and diamonds are common, and a
+    module's other rules let a cut in one branch hide a reduction that a
+    sibling rule or a later path would see."""
     for number in range(1, count + 1):
+        names = [f"r{number}_{index}" for index in range(rng.randint(2, 4))]
         targets = rng.sample(
             [n for n in range(1, count + 1) if n != number], rng.randint(0, 3)
         )
-        imports = [f"us:statutes/99/{n}#m{n}" for n in targets]
-        operands = [f"m{n}" for n in targets] or ["amount"]
-        formula = (
-            "count_over_periods(credit)" if rng.random() < 0.2 else " + ".join(operands)
+        imported = []
+        for target in targets:
+            for index in rng.sample(range(4), rng.randint(1, 2)):
+                imported.append(f"r{target}_{index}")
+        imports = sorted(
+            {f"us:statutes/99/{name[1:].split('_')[0]}#{name}" for name in imported}
         )
-        _write_module(root, number, [rule(f"m{number}", formula)], imports=imports)
-    for number in range(1, count + 1):
-        payload = yaml.safe_load((root / f"statutes/99/{number}.yaml").read_text())
+        rules = []
+        for position, name in enumerate(names):
+            roll = rng.random()
+            if roll < 0.15:
+                formula = "count_over_periods(credit)"
+            elif roll < 0.6 and imported:
+                formula = " + ".join(rng.sample(imported, min(2, len(imported))))
+            elif position:
+                formula = f"{rng.choice(names[:position])} + 1"
+            else:
+                formula = "amount"
+            rules.append(rule(name, formula))
+        _write_module(root, number, rules, imports=imports)
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_memoized_classification_matches_the_unmemoized_recursion(tmp_path, seed):
+    """Random multi-rule import graphs, cycles and diamonds included, classify
+    the same with and without the memo, from every module.
+
+    Seed 38 builds a graph where a module whose child cut a cycle is later
+    imported on a path without that cycle, so storing it would reuse a
+    path-dependent answer."""
+    import random
+
+    root = tmp_path / "rulespec-us" / "us"
+    _random_import_graph(root, random.Random(seed))
+    for module in sorted((root / "statutes/99").glob("*.yaml")):
+        payload = yaml.safe_load(module.read_text())
         assert cli._non_scalar_fixture_output_names(
             payload, repo_path=root
-        ) == _unmemoized_reference(payload, root)
+        ) == _unmemoized_reference(payload, root), module.name
+
+
+def test_a_childs_cut_is_propagated_to_its_parent(tmp_path):
+    """X holds a reduction and imports P; P reads C; C reads X. Classifying
+    X first reaches P with X on the path, so C's import of X is cut and P
+    looks scalar. P must then not be reused when the top module imports it
+    directly, where C reaches X's reduction."""
+    root = tmp_path / "rulespec-us" / "us"
+    _write_module(
+        root,
+        1,
+        [rule("x", "count_over_periods(credit)"), rule("x_uses_p", "p + 1")],
+        imports=["us:statutes/99/2#p"],
+    )
+    _write_module(
+        root,
+        2,
+        [rule("p", "c + 1"), rule("p_local", "amount + 1")],
+        imports=["us:statutes/99/3#c"],
+    )
+    _write_module(root, 3, [rule("c", "x * 2")], imports=["us:statutes/99/1#x"])
+    rules_payload = {
+        "format": "rulespec/v1",
+        "imports": ["us:statutes/99/1#x", "us:statutes/99/2#p"],
+        "rules": [rule("from_p", "p + 1"), rule("plain", "amount + 1")],
+    }
+    expected = _unmemoized_reference(rules_payload, root)
+    assert expected == {"from_p"}
+    assert (
+        cli._non_scalar_fixture_output_names(rules_payload, repo_path=root) == expected
+    )
 
 
 def test_result_computed_across_a_cut_cycle_is_not_reused(tmp_path):
