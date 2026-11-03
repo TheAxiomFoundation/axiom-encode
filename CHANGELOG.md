@@ -1,4 +1,4 @@
-## 0.2.2295
+## 0.2.2297
 
 - Preserve the original checkout identity when validating staged eval and apply overlays, so same-case source witnesses execute against the candidate closure while retaining exact Git, file, and engine binding checks.
 

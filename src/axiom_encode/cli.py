@@ -533,6 +533,7 @@ from .signing_broker import (
     reject_direct_private_signing_environment,
 )
 from .toolchain import (
+    VALIDATION_WAIVER_SET_PATH,
     VALIDATION_WAIVER_SET_SHA256_FIELD,
     load_rulespec_local_corpus_release,
     load_rulespec_toolchain,
@@ -2534,6 +2535,15 @@ def main():
     _add_expected_encoder_checkout_argument(guard_generated_parser)
     guard_generated_parser.add_argument(
         "--json", action="store_true", help="Output guard result as JSON"
+    )
+    guard_generated_parser.add_argument(
+        "--candidate-status",
+        action="store_true",
+        help=(
+            "Also report, from Git metadata only, whether the change set is an "
+            "unadmitted reviewed candidate, admitted, or invalid; the guard's "
+            "checks and exit code do not change"
+        ),
     )
 
     stage_signed_backfill_parser = subparsers.add_parser(
@@ -8204,6 +8214,26 @@ def cmd_guard_generated(args):
     )
     roots = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
     all_files = bool(getattr(args, "all", False))
+    candidate_status = None
+    if getattr(args, "candidate_status", False):
+        # Classify before any corpus, broker, or manifest work, and print it
+        # first in text mode so a later guard failure cannot hide it.
+        try:
+            candidate_status = guard_candidate_status_report(
+                repo_path,
+                base_ref=args.base_ref,
+                head_ref=args.head_ref,
+                roots=roots,
+            )
+        except Exception as exc:  # the report must never change the guard
+            candidate_status = _guard_candidate_status_skeleton(repo_path)
+            _guard_candidate_reason(
+                candidate_status["reasons"],
+                "report_failed",
+                f"candidate status failed: {type(exc).__name__}: {exc}",
+            )
+        if not args.json:
+            print(json.dumps(candidate_status, indent=2, sort_keys=True), flush=True)
     issues = guard_generated_change_issues(
         repo_path,
         corpus_path=Path(args.corpus_path),
@@ -8215,6 +8245,8 @@ def cmd_guard_generated(args):
         expected_encoder_checkout=getattr(args, "expected_encoder_checkout", None),
     )
     payload = {"repo": str(repo_path), "passed": not issues, "issues": issues}
+    if candidate_status is not None and args.json:
+        payload["candidate_status"] = candidate_status
     if args.json:
         print(json.dumps(payload, indent=2))
     elif issues:
@@ -8227,6 +8259,622 @@ def cmd_guard_generated(args):
         else:
             print("All changed RuleSpec files have encoder apply manifests.")
     sys.exit(0 if not issues else 1)
+
+
+GUARD_CANDIDATE_STATUS_SCHEMA = "axiom-encode/guard-candidate-status/v1"
+GUARD_CANDIDATE_STATUS_UNADMITTED = "unadmitted_reviewed_candidate"
+GUARD_CANDIDATE_STATUS_ADMITTED = "admitted"
+GUARD_CANDIDATE_STATUS_INVALID = "invalid"
+GUARD_CANDIDATE_STATUS_NO_RULESPEC_CHANGE = "no_rulespec_change"
+_GUARD_CANDIDATE_MAX_BLOB_BYTES = 10 * 1024 * 1024
+# Every reason has a stable ``code`` and one ``category``:
+# - ``rulespec``: the changed modules, companions, or manifests do not form an
+#   unadmitted candidate or an admitted change set;
+# - ``maintenance``: a non-RuleSpec file changed (waiver set, provenance
+#   metadata, any other file);
+# - ``environment``: the report could not trust the checkout or did not run.
+GUARD_CANDIDATE_REASON_CATEGORIES: dict[str, str] = {
+    "module_count": "rulespec",
+    "companion_missing": "rulespec",
+    "companion_of_other_module": "rulespec",
+    "module_not_regular": "rulespec",
+    "citation_missing": "rulespec",
+    "citation_noncanonical": "rulespec",
+    "citation_outside_jurisdiction": "rulespec",
+    "module_path_noncanonical": "rulespec",
+    "manifest_only": "rulespec",
+    "manifest_missing": "rulespec",
+    "manifest_unmatched": "rulespec",
+    "manifest_not_regular": "rulespec",
+    "noncanonical_yml_changed": "rulespec",
+    "waiver_changed": "maintenance",
+    "metadata_changed": "maintenance",
+    "other_file_changed": "maintenance",
+    "base_ref_missing": "environment",
+    "git_inspection_failed": "environment",
+    "checkout_dirty": "environment",
+    "report_failed": "environment",
+}
+# Repository or user Git configuration can make the stat cache vouch for a
+# modified file: fsmonitor answers, ``core.checkStat=minimal`` with
+# ``core.trustctime=false`` (mtime and size only), ``core.ignoreStat``, or a
+# stale untracked cache. Override them so Git compares content whenever the
+# full stat data cannot prove a file unchanged.
+_GUARD_CANDIDATE_WORKTREE_GIT_CONFIG = (
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.checkStat=default",
+    "-c",
+    "core.trustctime=true",
+    "-c",
+    "core.ignoreStat=false",
+    "-c",
+    "core.untrackedCache=false",
+)
+
+
+def _guard_candidate_reason(
+    reasons: list[dict[str, str]], code: str, message: str
+) -> None:
+    reasons.append(
+        {
+            "code": code,
+            "category": GUARD_CANDIDATE_REASON_CATEGORIES[code],
+            "message": message,
+        }
+    )
+
+
+def _guard_candidate_status_skeleton(repo_path: Path) -> dict[str, Any]:
+    """Return an ``invalid`` report that carries every schema key."""
+
+    try:
+        repo_path = Path(repo_path).resolve()
+    except (OSError, RuntimeError, TypeError):
+        repo_path = Path(str(repo_path))
+    country_match = re.fullmatch(r"rulespec-([a-z]{2}(?:-[a-z0-9_]+)*)", repo_path.name)
+    return {
+        "schema": GUARD_CANDIDATE_STATUS_SCHEMA,
+        "status": GUARD_CANDIDATE_STATUS_INVALID,
+        "reasons": [],
+        "repository": repo_path.name,
+        "country": country_match.group(1) if country_match else None,
+        "base_sha": None,
+        "head_sha": None,
+        "changed_files": [],
+        "candidate": None,
+    }
+
+
+def _guard_candidate_committed_changes(
+    repo_path: Path, base_sha: str, head_sha: str
+) -> list[tuple[str, str, str]]:
+    """Return ``(path, head mode, head object id)`` for each committed change.
+
+    One ``git diff --raw`` lists every changed path with its head mode and
+    object id, so the cost does not grow by a Git process per path.
+    """
+
+    listing = _rulespec_migration_git_bytes(
+        repo_path,
+        "diff",
+        "--raw",
+        "-z",
+        "--no-abbrev",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-relative",
+        "--ignore-submodules=none",
+        "--diff-filter=ACDMRT",
+        "--end-of-options",
+        base_sha,
+        head_sha,
+        "--",
+    )
+    fields = listing.split(b"\0")
+    if fields[-1] != b"" or len(fields) % 2 != 1:
+        raise RuntimeError("git diff --raw returned a malformed listing")
+    changes: dict[str, tuple[str, str]] = {}
+    for metadata, encoded_path in zip(fields[0:-1:2], fields[1:-1:2]):
+        parts = metadata.decode("ascii").split(" ")
+        if len(parts) != 5 or not parts[0].startswith(":") or not encoded_path:
+            raise RuntimeError("git diff --raw returned a malformed record")
+        path = os.fsdecode(encoded_path)
+        if path in changes:
+            raise RuntimeError(f"git diff --raw listed {path} twice")
+        changes[path] = (parts[1], parts[3])
+    return [(path, *changes[path]) for path in sorted(changes)]
+
+
+def _guard_candidate_git_input(
+    repo_path: Path, arguments: tuple[str, ...], request: bytes
+) -> bytes:
+    completed = subprocess.run(
+        ["git", "-C", str(repo_path), *arguments],
+        input=request,
+        capture_output=True,
+        env=_rulespec_migration_git_environment(),
+        check=False,
+    )
+    if completed.returncode != 0:
+        stderr = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            f"Cannot inspect RuleSpec Git objects ({' '.join(arguments)}): {stderr}"
+        )
+    return completed.stdout
+
+
+def _guard_candidate_blob_sizes(
+    repo_path: Path, object_ids: list[str]
+) -> dict[str, int]:
+    """Size every requested blob with one ``git cat-file --batch-check``."""
+
+    if not object_ids:
+        return {}
+    listing = _guard_candidate_git_input(
+        repo_path,
+        ("cat-file", "--batch-check"),
+        "".join(f"{object_id}\n" for object_id in object_ids).encode("ascii"),
+    )
+    lines = listing.decode("ascii").splitlines()
+    sizes: dict[str, int] = {}
+    for object_id, line in zip(object_ids, lines, strict=True):
+        fields = line.split(" ")
+        if len(fields) != 3 or fields[0] != object_id or fields[1] != "blob":
+            raise RuntimeError(f"Cannot size RuleSpec Git blob {object_id}: {line}")
+        sizes[object_id] = int(fields[2])
+    return sizes
+
+
+def _guard_candidate_hash_blobs(
+    repo_path: Path, object_ids: list[str], *, keep: set[str]
+) -> tuple[dict[str, str], dict[str, bytes]]:
+    """Stream blobs through one ``git cat-file --batch`` into sha256 digests.
+
+    Only blobs in ``keep`` stay in memory; every other blob is hashed in
+    bounded chunks and dropped.
+    """
+
+    digests: dict[str, str] = {}
+    kept: dict[str, bytes] = {}
+    if not object_ids:
+        return digests, kept
+    with tempfile.TemporaryFile() as request, tempfile.TemporaryFile() as errors:
+        request.write("".join(f"{object_id}\n" for object_id in object_ids).encode())
+        request.seek(0)
+        process = subprocess.Popen(
+            ["git", "-C", str(repo_path), "cat-file", "--batch"],
+            stdin=request,
+            stdout=subprocess.PIPE,
+            stderr=errors,
+            env=_rulespec_migration_git_environment(),
+        )
+        stream = process.stdout
+        assert stream is not None
+        read_all = False
+        try:
+            for object_id in object_ids:
+                header = stream.readline().decode("ascii").rstrip("\n").split(" ")
+                if len(header) != 3 or header[0] != object_id or header[1] != "blob":
+                    raise RuntimeError(f"Cannot read RuleSpec Git blob {object_id}")
+                remaining = int(header[2])
+                digest = hashlib.sha256()
+                chunks: list[bytes] | None = [] if object_id in keep else None
+                while remaining:
+                    chunk = stream.read(min(remaining, 1024 * 1024))
+                    if not chunk:
+                        raise RuntimeError(f"Truncated RuleSpec Git blob {object_id}")
+                    digest.update(chunk)
+                    if chunks is not None:
+                        chunks.append(chunk)
+                    remaining -= len(chunk)
+                if stream.read(1) != b"\n":
+                    raise RuntimeError(f"Malformed RuleSpec Git blob {object_id}")
+                digests[object_id] = digest.hexdigest()
+                if chunks is not None:
+                    kept[object_id] = b"".join(chunks)
+            # Git exits on its own at the end of the request file; wait for
+            # that end of output instead of racing its exit.
+            if stream.read(1):
+                raise RuntimeError("git cat-file --batch wrote unexpected output")
+            read_all = True
+        finally:
+            if not read_all:
+                process.kill()
+            returncode = process.wait()
+            stream.close()
+        if returncode != 0:
+            errors.seek(0)
+            stderr = errors.read().decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"Cannot read RuleSpec Git blobs: {stderr}")
+    return digests, kept
+
+
+def _guard_candidate_uncommitted_paths(repo_path: Path, head_sha: str) -> set[str]:
+    """Name every staged, unstaged, untracked, or flag-hidden checkout change."""
+
+    # Staged, unstaged, and untracked state all bind other bytes than the head
+    # commit, including staged edits undone in the worktree.
+    listing = _rulespec_migration_git_bytes(
+        repo_path,
+        *_GUARD_CANDIDATE_WORKTREE_GIT_CONFIG,
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-relative",
+        "--ignore-submodules=none",
+        "--diff-filter=ACDMRT",
+        "-z",
+        "--end-of-options",
+        head_sha,
+        "--",
+    )
+    uncommitted = {os.fsdecode(path) for path in listing.split(b"\0") if path}
+    status = _rulespec_migration_git_bytes(
+        repo_path,
+        *_GUARD_CANDIDATE_WORKTREE_GIT_CONFIG,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--no-renames",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+    )
+    from_status = {
+        os.fsdecode(record[3:])
+        for record in status.split(b"\0")
+        if len(record) > 3 and record[2:3] == b" "
+    }
+    uncommitted |= from_status
+    if status and not from_status:
+        uncommitted.add("<git status>")
+    # assume-unchanged (lowercase tag) and skip-worktree (S) entries hide
+    # worktree edits from diff and status, so refuse them.
+    flags = _rulespec_migration_git_bytes(repo_path, "ls-files", "-v", "-z")
+    uncommitted.update(
+        os.fsdecode(record[2:]) + " (index flag hides worktree changes)"
+        for record in flags.split(b"\0")
+        if len(record) > 2 and (record[:1].islower() or record[:1] in {b"S", b"s"})
+    )
+    return uncommitted
+
+
+def _guard_candidate_change_kind(path: str, *, roots: tuple[str, ...]) -> str:
+    relative = Path(path)
+    if _guard_provenance_path_case_issue(relative) is not None or any(
+        part.casefold() == ".axiom" and part != ".axiom" for part in relative.parts
+    ):
+        return "metadata"
+    if _is_applied_encoding_manifest_path(relative, roots=roots):
+        return "manifest"
+    if _is_protected_rulespec_yaml_path(relative, roots=roots):
+        return (
+            "companion"
+            if relative.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+            else "module"
+        )
+    if path == VALIDATION_WAIVER_SET_PATH:
+        return "waiver"
+    if ".axiom" in relative.parts:
+        return "metadata"
+    if _is_noncanonical_rulespec_yml_path(relative, roots=roots):
+        return "noncanonical_yml"
+    return "other"
+
+
+def _guard_candidate_module_path(path: str) -> str:
+    """Map a companion test path to its module path."""
+
+    relative = Path(path)
+    if relative.name.endswith(RULESPEC_TEST_FILE_SUFFIX):
+        stem = relative.name[: -len(RULESPEC_TEST_FILE_SUFFIX)]
+        return relative.with_name(f"{stem}{RULESPEC_FILE_SUFFIX}").as_posix()
+    return path
+
+
+def _guard_candidate_citation(blob: bytes, path: str) -> tuple[str | None, str]:
+    """Return the module's corpus citation, or why its YAML was rejected.
+
+    Size, token, depth, alias, and node budgets apply before any value is
+    constructed, and merge keys are refused before PyYAML can expand them
+    (RuleSpec refuses merge keys everywhere), so hostile YAML stays cheap.
+    """
+
+    from .source_hash import (
+        _MAX_RULESPEC_YAML_BYTES,
+        RuleSpecScanError,
+        _validate_yaml_node_graph,
+        _validate_yaml_tokens,
+    )
+
+    if len(blob) > _MAX_RULESPEC_YAML_BYTES:
+        return None, f"larger than the {_MAX_RULESPEC_YAML_BYTES}-byte RuleSpec limit"
+    try:
+        source = blob.decode("utf-8")
+        _validate_yaml_tokens(source, Path(path))
+        root_node = yaml.compose(source, Loader=yaml.SafeLoader)
+        _validate_yaml_node_graph(root_node, Path(path), reject_merges=True)
+        document = yaml.load(  # noqa: S506 - unique-key safe loader
+            source, Loader=_LegacyReplacementYamlLoader
+        )
+    except RuleSpecScanError as exc:
+        return None, exc.reason
+    except (
+        UnicodeDecodeError,
+        ValueError,
+        TypeError,
+        RecursionError,
+        yaml.YAMLError,
+    ) as exc:
+        return None, f"{type(exc).__name__}: {exc}".splitlines()[0]
+    module = document.get("module") if isinstance(document, dict) else None
+    verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    value = (
+        verification.get("corpus_citation_path")
+        if isinstance(verification, dict)
+        else None
+    )
+    if isinstance(value, str) and value.strip() == value and value:
+        return value, ""
+    return None, ""
+
+
+def guard_candidate_status_report(
+    repo_path: Path,
+    *,
+    base_ref: str | None,
+    head_ref: str = "HEAD",
+    roots: tuple[str, ...] = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+) -> dict[str, Any]:
+    """Classify a change set for local-contribution admission (#1628, B3).
+
+    This is a structural report from Git metadata and head blobs only: it
+    loads no corpus, runs no engine, attaches no signing broker, and verifies
+    no manifest. ``admitted`` means every changed module and companion is a
+    regular 0644 file carrying its manifest, and every changed manifest
+    belongs to a changed module or companion; ``guard_generated_change_issues``
+    stays the only authority on whether those manifests verify.
+    """
+
+    from .prepare_signed_backfill import citation_rulespec_path
+
+    report = _guard_candidate_status_skeleton(repo_path)
+    repo_path = Path(repo_path).resolve()
+    reasons: list[dict[str, str]] = report["reasons"]
+
+    def reason(code: str, message: str) -> None:
+        _guard_candidate_reason(reasons, code, message)
+
+    if base_ref is None:
+        reason("base_ref_missing", "candidate status requires --base-ref")
+        return report
+    try:
+        with _rulespec_migration_clean_ambient_git():
+            base_sha, head_sha = _resolve_guard_git_refs(
+                repo_path, base_ref=base_ref, head_ref=head_ref
+            )
+            if base_sha is None:
+                raise ValueError("candidate status requires a Git repository")
+            report["base_sha"], report["head_sha"] = base_sha, head_sha
+            committed = _guard_candidate_committed_changes(
+                repo_path, base_sha, head_sha
+            )
+            uncommitted = _guard_candidate_uncommitted_paths(repo_path, head_sha)
+            changed: list[dict[str, Any]] = [
+                {
+                    "path": path,
+                    "kind": _guard_candidate_change_kind(path, roots=roots),
+                    "sha256": None,
+                    "head_state": (
+                        "deleted"
+                        if set(mode) == {"0"}
+                        else "regular"
+                        if mode == "100644"
+                        else f"not a regular 0644 file (mode {mode})"
+                    ),
+                    "_object_id": object_id,
+                }
+                for path, mode, object_id in committed
+            ]
+            regular = list(
+                dict.fromkeys(
+                    entry["_object_id"]
+                    for entry in changed
+                    if entry["head_state"] == "regular"
+                )
+            )
+            sizes = _guard_candidate_blob_sizes(repo_path, regular)
+            for entry in changed:
+                if sizes.get(entry["_object_id"], 0) > _GUARD_CANDIDATE_MAX_BLOB_BYTES:
+                    entry["head_state"] = "larger than 10 MiB"
+            module_entries = [entry for entry in changed if entry["kind"] == "module"]
+            keep = (
+                {module_entries[0]["_object_id"]}
+                if len(module_entries) == 1
+                and module_entries[0]["head_state"] == "regular"
+                else set()
+            )
+            digests, blobs = _guard_candidate_hash_blobs(
+                repo_path,
+                [
+                    object_id
+                    for object_id in regular
+                    if sizes[object_id] <= _GUARD_CANDIDATE_MAX_BLOB_BYTES
+                ],
+                keep=keep,
+            )
+            for entry in changed:
+                if entry["head_state"] == "regular":
+                    entry["sha256"] = digests[entry["_object_id"]]
+    except (OSError, ValueError, RuntimeError, UnicodeDecodeError) as exc:
+        reason("git_inspection_failed", f"cannot inspect the change set: {exc}")
+        return report
+    report["changed_files"] = [
+        {key: value for key, value in entry.items() if key != "_object_id"}
+        for entry in changed
+    ]
+    if uncommitted:
+        reason(
+            "checkout_dirty",
+            "checkout has uncommitted or untracked changes: "
+            + ", ".join(sorted(uncommitted)),
+        )
+
+    by_kind: dict[str, list[dict[str, Any]]] = {}
+    for entry in changed:
+        by_kind.setdefault(entry["kind"], []).append(entry)
+    modules = by_kind.get("module", [])
+    companions = by_kind.get("companion", [])
+    manifests = by_kind.get("manifest", [])
+    if not modules and not companions and not manifests:
+        for kind, code, label in (
+            ("waiver", "waiver_changed", "validation waiver set changed"),
+            ("metadata", "metadata_changed", "provenance metadata changed"),
+            (
+                "noncanonical_yml",
+                "noncanonical_yml_changed",
+                "noncanonical .yml RuleSpec changed",
+            ),
+        ):
+            for entry in by_kind.get(kind, []):
+                reason(code, f"{label} without a RuleSpec change: {entry['path']}")
+        if not reasons:
+            report["status"] = GUARD_CANDIDATE_STATUS_NO_RULESPEC_CHANGE
+        return report
+
+    if manifests:
+        if not modules and not companions:
+            reason(
+                "manifest_only",
+                "manifest-only change set: manifests changed without any "
+                "RuleSpec change (#1531)",
+            )
+            return report
+        expected_manifests: dict[str, list[str]] = {}
+        for entry in modules + companions:
+            if entry["head_state"] != "regular":
+                reason(
+                    "module_not_regular",
+                    f"{entry['path']} is {entry['head_state']} at head",
+                )
+            module_path = _guard_candidate_module_path(entry["path"])
+            expected = _applied_encoding_manifest_path(Path(module_path)).as_posix()
+            expected_manifests.setdefault(expected, []).append(entry["path"])
+        regular_manifests = set()
+        for entry in manifests:
+            if entry["head_state"] == "regular":
+                regular_manifests.add(entry["path"])
+            else:
+                reason(
+                    "manifest_not_regular",
+                    f"manifest {entry['path']} is {entry['head_state']} at head",
+                )
+            if entry["path"] not in expected_manifests:
+                reason(
+                    "manifest_unmatched",
+                    f"manifest {entry['path']} changed without a change to its "
+                    "RuleSpec module or companion",
+                )
+        for expected, paths in expected_manifests.items():
+            if expected not in regular_manifests:
+                for path in paths:
+                    reason(
+                        "manifest_missing",
+                        f"{path} changed without its matching manifest {expected}",
+                    )
+        if not reasons:
+            report["status"] = GUARD_CANDIDATE_STATUS_ADMITTED
+        return report
+
+    for kind, code, label in (
+        ("waiver", "waiver_changed", "validation waiver set changed"),
+        ("metadata", "metadata_changed", "provenance metadata changed"),
+        (
+            "noncanonical_yml",
+            "noncanonical_yml_changed",
+            "noncanonical .yml RuleSpec changed",
+        ),
+        ("other", "other_file_changed", "non-RuleSpec file changed"),
+    ):
+        for entry in by_kind.get(kind, []):
+            reason(code, f"{label}: {entry['path']}")
+    if len(modules) != 1:
+        reason(
+            "module_count",
+            f"expected exactly one RuleSpec module, found {len(modules)}: "
+            + ", ".join(entry["path"] for entry in modules),
+        )
+        return report
+    module = modules[0]
+    companion_path = _rulespec_test_path(Path(module["path"])).as_posix()
+    companion = next(
+        (entry for entry in companions if entry["path"] == companion_path), None
+    )
+    for entry in companions:
+        if entry["path"] != companion_path:
+            reason(
+                "companion_of_other_module",
+                f"companion test of another module changed: {entry['path']}",
+            )
+    if companion is None:
+        reason("companion_missing", f"companion test {companion_path} did not change")
+    for entry in (module, companion):
+        if entry is not None and entry["head_state"] != "regular":
+            reason(
+                "module_not_regular",
+                f"{entry['path']} is {entry['head_state']} at head",
+            )
+    citation = None
+    module_blob = blobs.get(module["_object_id"])
+    if module_blob is not None:
+        citation, rejected = _guard_candidate_citation(module_blob, module["path"])
+        if citation is None:
+            reason(
+                "citation_missing",
+                f"{module['path']} declares no module.source_verification."
+                "corpus_citation_path"
+                + (f" (YAML rejected: {rejected})" if rejected else ""),
+            )
+    if citation is not None:
+        jurisdiction = citation.split("/", 1)[0]
+        country = report["country"]
+        try:
+            require_canonical_corpus_citation_path(citation)
+            canonical = citation_rulespec_path(citation).as_posix()
+        except (ValueError, CorpusResolutionError) as exc:
+            reason(
+                "citation_noncanonical",
+                f"citation {citation} has no canonical path: {exc}",
+            )
+        else:
+            if country is None or (
+                jurisdiction != country and not jurisdiction.startswith(f"{country}-")
+            ):
+                reason(
+                    "citation_outside_jurisdiction",
+                    f"citation {citation} is outside the {repo_path.name} jurisdiction",
+                )
+            if canonical != module["path"]:
+                reason(
+                    "module_path_noncanonical",
+                    f"{module['path']} is not at the canonical path {canonical} "
+                    f"of citation {citation}",
+                )
+    if reasons:
+        return report
+    report["status"] = GUARD_CANDIDATE_STATUS_UNADMITTED
+    report["candidate"] = {
+        "citation": citation,
+        "rulespec_path": module["path"],
+        "rulespec_sha256": module["sha256"],
+        "companion_path": companion["path"],
+        "companion_sha256": companion["sha256"],
+    }
+    return report
 
 
 def cmd_stage_signed_backfill(args):
