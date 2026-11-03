@@ -18842,7 +18842,6 @@ def _non_scalar_fixture_output_names(
     payload: dict[str, object],
     *,
     repo_path: Path,
-    _seen_modules: frozenset[Path] = frozenset(),
 ) -> set[str]:
     """Refuse scalar repair for outputs that depend on a lifetime reduction.
 
@@ -18854,39 +18853,81 @@ def _non_scalar_fixture_output_names(
     cannot invent a history, calculation date, or expected reduction to fill
     missing test coverage.
     """
+    names, _cut = _classify_lifetime_dependent_outputs(
+        payload,
+        repo_path=repo_path,
+        seen_modules=frozenset(),
+        resolved_imports={},
+        finished_modules={},
+    )
+    return names
+
+
+def _classify_lifetime_dependent_outputs(
+    payload: dict[str, object],
+    *,
+    repo_path: Path,
+    seen_modules: frozenset[Path],
+    resolved_imports: dict[str, tuple[str, Path] | None],
+    finished_modules: dict[Path, set[str]],
+) -> tuple[set[str], bool]:
+    """Classify one module; also report whether an import cycle was cut.
+
+    Within one top-level classification, each import base resolves once and
+    each module is classified once. A module's result is stored only when its
+    classification never cut a cycle: a cut result depends on the path that
+    reached it, so reusing it could change an answer elsewhere. Every result
+    is therefore identical to the unmemoized recursion.
+    """
     rules = payload.get("rules")
     if not isinstance(rules, list):
-        return set()
+        return set(), False
     by_name = {
         str(rule.get("name") or "").strip(): rule
         for rule in rules
         if isinstance(rule, dict) and str(rule.get("name") or "").strip()
     }
     unsafe_imports: set[str] = set()
+    cut = False
     imports = payload.get("imports")
     for raw_import in imports if isinstance(imports, list) else ():
         if not isinstance(raw_import, str) or "#" not in raw_import:
             continue
         name = raw_import.rsplit("#", 1)[-1].strip()
-        resolved = _same_repo_import_base_and_file(raw_import, repo_path=repo_path)
+        import_base = raw_import.split("#", 1)[0]
+        if import_base not in resolved_imports:
+            resolved_imports[import_base] = _same_repo_import_base_and_file(
+                raw_import, repo_path=repo_path
+            )
+        resolved = resolved_imports[import_base]
         if resolved is None:
             continue
         module_file = resolved[1].resolve()
-        if module_file in _seen_modules:
+        if module_file in seen_modules:
+            cut = True
             continue
-        try:
-            imported = yaml.safe_load(module_file.read_text())
-        except (OSError, ValueError, yaml.YAMLError):
-            continue
-        if not isinstance(imported, dict):
-            continue
+        imported_names = finished_modules.get(module_file)
+        if imported_names is None:
+            try:
+                imported = yaml.safe_load(module_file.read_text())
+            except (OSError, ValueError, yaml.YAMLError):
+                continue
+            if not isinstance(imported, dict):
+                continue
+            imported_names, imported_cut = _classify_lifetime_dependent_outputs(
+                imported,
+                repo_path=repo_path,
+                seen_modules=seen_modules | {module_file},
+                resolved_imports=resolved_imports,
+                finished_modules=finished_modules,
+            )
+            if imported_cut:
+                cut = True
+            else:
+                finished_modules[module_file] = imported_names
         # Any import of this local name that depends on a reduction makes
         # the name unsafe, whatever its other imported identities are.
-        if name in _non_scalar_fixture_output_names(
-            imported,
-            repo_path=repo_path,
-            _seen_modules=_seen_modules | {module_file},
-        ):
+        if name in imported_names:
             unsafe_imports.add(name)
     seeds = set()
     for name, rule in by_name.items():
@@ -18902,8 +18943,11 @@ def _non_scalar_fixture_output_names(
             for version in versions
         ):
             seeds.add(name)
-    return _expand_affected_generated_rule_dependencies(
-        rules_by_name=by_name, seed_rules=seeds
+    return (
+        _expand_affected_generated_rule_dependencies(
+            rules_by_name=by_name, seed_rules=seeds
+        ),
+        cut,
     )
 
 

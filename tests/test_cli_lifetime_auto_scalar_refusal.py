@@ -472,3 +472,126 @@ def test_positive_judgment_repair_refuses_an_imported_lifetime_operand(tmp_path)
 
     assert repaired == []
     assert yaml.safe_load(test.read_text()) == [scalar_case]
+
+
+def test_diamond_imports_resolve_each_module_once(tmp_path, monkeypatch):
+    """B and C both import D, which imports E: each import base resolves once
+    within one classification, and the shared module is classified once."""
+    root = tmp_path / "rulespec-us" / "us"
+    _write_module(root, 5, [rule("e", "count_over_periods(credit)")])
+    _write_module(root, 4, [rule("d", "e + 1")], imports=["us:statutes/99/5#e"])
+    _write_module(root, 2, [rule("b", "d + 1")], imports=["us:statutes/99/4#d"])
+    _write_module(root, 3, [rule("c", "d * 2")], imports=["us:statutes/99/4#d"])
+    rules_payload = {
+        "format": "rulespec/v1",
+        "imports": ["us:statutes/99/2#b", "us:statutes/99/3#c"],
+        "rules": [rule("result", "b + c"), rule("plain", "amount + 1")],
+    }
+    resolved = []
+    real = cli._resolve_rulespec_target_file
+
+    def counting(target_ref, repo_path):
+        resolved.append(str(target_ref))
+        return real(target_ref, repo_path)
+
+    monkeypatch.setattr(cli, "_resolve_rulespec_target_file", counting)
+
+    assert cli._non_scalar_fixture_output_names(rules_payload, repo_path=root) == {
+        "result"
+    }
+    assert len(resolved) == len(set(resolved)) == 4
+
+
+def test_scalar_import_beside_an_unrelated_lifetime_rule_keeps_repairs(tmp_path):
+    """Only the imported name's own dependencies count, not its module's."""
+    root = tmp_path / "rulespec-us" / "us"
+    _write_module(
+        root,
+        2,
+        [rule("history", "credit * 2"), rule("other", "count_over_periods(credit)")],
+    )
+    rules_payload = {
+        "format": "rulespec/v1",
+        "imports": ["us:statutes/99/2#history"],
+        "rules": [rule("result", "history + 1")],
+    }
+    assert cli._non_scalar_fixture_output_names(rules_payload, repo_path=root) == set()
+
+
+def _unmemoized_reference(payload, repo_path, seen=frozenset()):
+    """The pre-memo recursion, kept as the differential reference."""
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+    by_name = {r["name"]: r for r in rules if isinstance(r, dict) and r.get("name")}
+    unsafe = set()
+    for raw in payload.get("imports") or ():
+        name = raw.rsplit("#", 1)[-1].strip()
+        resolved = cli._same_repo_import_base_and_file(raw, repo_path=repo_path)
+        if resolved is None:
+            continue
+        module_file = resolved[1].resolve()
+        if module_file in seen:
+            continue
+        imported = yaml.safe_load(module_file.read_text())
+        if name in _unmemoized_reference(imported, repo_path, seen | {module_file}):
+            unsafe.add(name)
+    seeds = {
+        name
+        for name, r in by_name.items()
+        if cli._generated_rule_formula_identifiers(r) & unsafe
+        or any(formula_calls_lifetime_reduction(v["formula"]) for v in r["versions"])
+    }
+    return cli._expand_affected_generated_rule_dependencies(
+        rules_by_name=by_name, seed_rules=seeds
+    )
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_memoized_classification_matches_the_unmemoized_recursion(tmp_path, seed):
+    """Random import graphs, cycles and diamonds included, classify the same
+    with and without the memo."""
+    import random
+
+    rng = random.Random(seed)
+    root = tmp_path / "rulespec-us" / "us"
+    count = 6
+    for number in range(1, count + 1):
+        targets = rng.sample(
+            [n for n in range(1, count + 1) if n != number], rng.randint(0, 3)
+        )
+        imports = [f"us:statutes/99/{n}#m{n}" for n in targets]
+        operands = [f"m{n}" for n in targets] or ["amount"]
+        formula = (
+            "count_over_periods(credit)" if rng.random() < 0.2 else " + ".join(operands)
+        )
+        _write_module(root, number, [rule(f"m{number}", formula)], imports=imports)
+    for number in range(1, count + 1):
+        payload = yaml.safe_load((root / f"statutes/99/{number}.yaml").read_text())
+        assert cli._non_scalar_fixture_output_names(
+            payload, repo_path=root
+        ) == _unmemoized_reference(payload, root)
+
+
+def test_result_computed_across_a_cut_cycle_is_not_reused(tmp_path):
+    """Reached through A, module B sees A as a cut cycle and looks scalar.
+    Reached directly, B sees A's reduction. The memo must not reuse the
+    first answer for the second import."""
+    root = tmp_path / "rulespec-us" / "us"
+    _write_module(
+        root,
+        1,
+        [rule("a", "count_over_periods(credit)"), rule("a_plus", "b + 1")],
+        imports=["us:statutes/99/2#b"],
+    )
+    _write_module(root, 2, [rule("b", "a * 2")], imports=["us:statutes/99/1#a"])
+    rules_payload = {
+        "format": "rulespec/v1",
+        "imports": ["us:statutes/99/1#a", "us:statutes/99/2#b"],
+        "rules": [rule("from_b", "b + 1"), rule("plain", "amount + 1")],
+    }
+    expected = _unmemoized_reference(rules_payload, root)
+    assert expected == {"from_b"}
+    assert (
+        cli._non_scalar_fixture_output_names(rules_payload, repo_path=root) == expected
+    )
