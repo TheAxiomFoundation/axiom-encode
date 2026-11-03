@@ -16527,15 +16527,35 @@ class TestOpenAIEvalRequest:
 
     def test_post_openai_eval_request_returns_at_case_wall_deadline(self):
         release_request = threading.Event()
+        real_remaining = evals_module._remaining_eval_case_budget_seconds
+        first_budget = True
+
+        def remaining_request_budget():
+            nonlocal first_budget
+            if first_budget:
+                first_budget = False
+                # Always enter the request's wall-deadline helper. Queueing
+                # before the attempt must not satisfy the test by expiring
+                # the case budget before the blocked request is attempted.
+                return 0.05
+            # Keep the real post-request budget check: without the helper's
+            # deadline it raises only after the blocked request returns.
+            return real_remaining()
 
         def block_beyond_deadline(*_args, **_kwargs):
-            release_request.wait(timeout=1)
+            # 120s remains well beyond the 30s assertion even when the
+            # deadline is broken; finally releases any fallback request thread.
+            release_request.wait(timeout=120)
             return Mock(status_code=200)
 
         started = evals_module.time.monotonic()
         try:
             with (
                 evals_module._active_eval_case_budget(0.05),
+                patch(
+                    "axiom_encode.harness.evals._remaining_eval_case_budget_seconds",
+                    side_effect=remaining_request_budget,
+                ),
                 patch(
                     "axiom_encode.harness.evals.requests.post",
                     side_effect=block_beyond_deadline,
@@ -16550,7 +16570,9 @@ class TestOpenAIEvalRequest:
         finally:
             release_request.set()
 
-        assert evals_module.time.monotonic() - started < 0.5
+        # The correct path has a 0.05s deadline: even the observed 81x
+        # scheduling inflation is 4.05s, comfortably below this 30s limit.
+        assert evals_module.time.monotonic() - started < 30
         assert exc_info.value.timeout_stage == "case_budget"
 
     def test_post_openai_eval_request_rejects_response_after_case_deadline(

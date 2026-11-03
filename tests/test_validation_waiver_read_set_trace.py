@@ -13,6 +13,7 @@ import pytest
 from axiom_encode.harness.validator_pipeline import _rulespec_resolution_cache_scope
 from axiom_encode.repo_routing import _rulespec_routing_cache_scope
 from axiom_encode.validation_waiver_scope import _ReadSets
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 _SAMPLE = json.loads(
     (
@@ -39,7 +40,7 @@ def recorded_trace_evidence():
         check=True,
         capture_output=True,
         text=True,
-        timeout=15,
+        timeout=HANG_TIMEOUT_SECONDS,
     ).stdout.strip()
     assert revision == _SAMPLE["source"]["revision"], "trace checkout revision differs"
     # Incremental selection shares the same production reader and caches
