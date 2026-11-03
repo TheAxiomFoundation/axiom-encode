@@ -8,6 +8,7 @@ import io
 import json
 import stat
 import subprocess
+import sys
 import zipfile
 from base64 import b64encode
 
@@ -37,6 +38,11 @@ WRAPPER = {
     "transaction": INNER,
     "corpus_artifact_run_id": "123",
 }
+PREFETCH = {
+    "schema": "axiom-encode/corpus-provision-prefetch/v1",
+    "transaction": INNER,
+    "provision_export_run_ids": ["123", "456", "789"],
+}
 DISPATCH = {
     "CITATION": "us/regulation/7/273/4",
     "REPLACE_RULESPEC_PATH": "us/regulations/7-cfr/273/4.yaml",
@@ -50,6 +56,153 @@ def test_wrapper_projects_only_source_contract():
         json.dumps(INNER)
     )
     assert json.loads(raw)["corpus_artifact_run_id"] == "123"
+
+
+def test_transport_can_prefetch_distinct_signed_provisions():
+    wrapper = {**WRAPPER, "provision_export_run_ids": ["456", "789"]}
+    raw = json.dumps(wrapper)
+    assert transport.request_run_id(raw, DISPATCH) == "123"
+    assert transport.provision_run_ids(raw) == ["456", "789"]
+    assert immutable_atomic_source_contract(raw) == split_atomic_source_input(
+        json.dumps(INNER)
+    )
+
+
+@pytest.mark.parametrize(
+    "ids",
+    [
+        [],
+        ["0"],
+        ["01"],
+        ["123"],
+        ["456", "456"],
+        [456],
+        ["1" * 21],
+        [str(i) for i in range(1, 12)],
+    ],
+)
+def test_transport_rejects_invalid_prefetch_run_ids(ids):
+    wrapper = {**WRAPPER, "provision_export_run_ids": ids}
+    with pytest.raises(ValueError, match="prefetch"):
+        transport.provision_run_ids(json.dumps(wrapper))
+
+
+def test_transport_accepts_ten_distinct_prefetch_runs_plus_primary():
+    wrapper = {**WRAPPER, "provision_export_run_ids": [str(i) for i in range(2, 12)]}
+    assert transport.provision_run_ids(json.dumps(wrapper)) == [
+        str(i) for i in range(2, 12)
+    ]
+
+
+def test_provision_prefetch_projects_only_source_contract():
+    raw = json.dumps(PREFETCH)
+    assert transport.request_run_id(raw, DISPATCH) == ""
+    assert transport.provision_run_ids(raw) == ["123", "456", "789"]
+    assert immutable_atomic_source_contract(raw) == split_atomic_source_input(
+        json.dumps(INNER)
+    )
+
+
+def test_provision_run_ids_cli_emits_no_blank_run(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["corpus_artifact_transport", "provision-run-ids"])
+    monkeypatch.setenv("ATOMIC_SOURCE_JSON", "[]")
+    transport.main()
+    assert capsys.readouterr().out == ""
+    monkeypatch.setenv("ATOMIC_SOURCE_JSON", json.dumps(PREFETCH))
+    transport.main()
+    assert capsys.readouterr().out == "123\n456\n789\n"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "[]",
+        json.dumps(INNER),
+        json.dumps(
+            {"schema_version": "axiom-encode/retired-source-metadata-migration-plan/v1"}
+        ),
+    ],
+)
+def test_old_inputs_select_no_provision_runs(raw, monkeypatch, capsys):
+    assert transport.provision_run_ids(raw) == []
+    monkeypatch.setattr(sys, "argv", ["corpus_artifact_transport", "provision-run-ids"])
+    monkeypatch.setenv("ATOMIC_SOURCE_JSON", raw)
+    transport.main()
+    assert capsys.readouterr().out == ""
+
+
+def test_provision_materialization_rejects_unlisted_run_before_any_io(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["corpus_artifact_transport", "materialize", "--provision-run-id", "999"],
+    )
+    monkeypatch.setenv("ATOMIC_SOURCE_JSON", json.dumps(PREFETCH))
+    with pytest.raises(ValueError, match="not authorized"):
+        transport.main()
+
+
+def test_provision_run_id_is_rejected_in_request_mode(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["corpus_artifact_transport", "request", "--provision-run-id", "123"],
+    )
+    monkeypatch.setenv("ATOMIC_SOURCE_JSON", json.dumps(PREFETCH))
+    with pytest.raises(ValueError, match="not valid for this mode"):
+        transport.main()
+
+
+@pytest.mark.parametrize(
+    "ids",
+    [
+        [],
+        ["0"],
+        ["01"],
+        ["123", "123"],
+        [123],
+        ["1" * 21],
+        [str(i) for i in range(1, 13)],
+    ],
+)
+def test_provision_prefetch_rejects_invalid_run_ids(ids):
+    with pytest.raises(ValueError, match="run IDs"):
+        transport.provision_run_ids(
+            json.dumps({**PREFETCH, "provision_export_run_ids": ids})
+        )
+
+
+def test_provision_prefetch_accepts_eleven_distinct_runs():
+    runs = [str(i) for i in range(1, 12)]
+    assert (
+        transport.provision_run_ids(
+            json.dumps({**PREFETCH, "provision_export_run_ids": runs})
+        )
+        == runs
+    )
+
+
+@pytest.mark.parametrize(
+    "change", ["extra", "nested", "repair", "not_object", "v4", "v5"]
+)
+def test_provision_prefetch_rejects_mixed_or_unknown_envelopes(change):
+    wrapper = copy.deepcopy(PREFETCH)
+    if change == "extra":
+        wrapper["unknown"] = True
+    elif change == "nested":
+        wrapper["transaction"] = copy.deepcopy(WRAPPER)
+    elif change == "repair":
+        wrapper["transaction"]["schema"] = "axiom-encode/atomic-source-transaction/v6"
+    elif change in {"v4", "v5"}:
+        wrapper["transaction"]["schema"] = (
+            f"axiom-encode/atomic-source-transaction/{change}"
+        )
+        if change == "v4":
+            wrapper["transaction"]["manifest_only_refresh"] = True
+    else:
+        wrapper["transaction"] = []
+    with pytest.raises(ValueError):
+        transport.provision_run_ids(json.dumps(wrapper))
 
 
 @pytest.mark.parametrize(
@@ -787,6 +940,66 @@ def test_reviewed_exporter_ancestry_and_exact_blobs(signed, monkeypatch, changed
     transport.git(repo, "update-ref", "refs/remotes/origin/main", "HEAD~2")
     with pytest.raises(subprocess.CalledProcessError):
         transport.validate_run(run, "123", repo)
+
+
+def test_reviewed_exporter_runtime_pairs_are_atomic(signed, monkeypatch):
+    repo = signed["corpus"]
+    for path in transport.REVIEWED_BLOBS:
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("reviewed fixture " + path)
+    transport.git(repo, "add", ".")
+    transport.git(repo, "-c", "commit.gpgsign=false", "commit", "-qm", "reviewed")
+    reviewed_head = transport.git(repo, "rev-parse", "HEAD")
+    original_lock = (repo / "uv.lock").read_text()
+    baseline_blobs = {
+        path: transport.git(repo, "rev-parse", f"HEAD:{path}")
+        for path in transport.REVIEWED_BLOBS
+    }
+    transport.git(
+        repo,
+        "remote",
+        "add",
+        "origin",
+        f"https://github.com/{transport.REPOSITORY}.git",
+    )
+    monkeypatch.setattr(transport, "REVIEWED_EXPORTER", reviewed_head)
+    monkeypatch.setattr(transport, "REVIEWED_BLOBS", baseline_blobs)
+    run = {
+        "id": 123,
+        "event": "workflow_dispatch",
+        "status": "completed",
+        "conclusion": "success",
+        "path": transport.WORKFLOW,
+        "head_branch": "main",
+        "repository": {"full_name": transport.REPOSITORY},
+        "head_repository": {"full_name": transport.REPOSITORY},
+        "head_sha": reviewed_head,
+        "run_attempt": 1,
+    }
+    transport.git(repo, "update-ref", "refs/remotes/origin/main", reviewed_head)
+    transport.validate_run(run, "123", repo)
+
+    (repo / "pyproject.toml").write_text("second reviewed pyproject")
+    (repo / "uv.lock").write_text("second reviewed lock")
+    transport.git(repo, "add", "pyproject.toml", "uv.lock")
+    transport.git(repo, "-c", "commit.gpgsign=false", "commit", "-qm", "second pair")
+    second_head = transport.git(repo, "rev-parse", "HEAD")
+    second_pair = (
+        transport.git(repo, "rev-parse", "HEAD:pyproject.toml"),
+        transport.git(repo, "rev-parse", "HEAD:uv.lock"),
+    )
+    monkeypatch.setattr(transport, "REVIEWED_PYMUPDF_RUNTIME_BLOB_PAIR", second_pair)
+    transport.git(repo, "update-ref", "refs/remotes/origin/main", second_head)
+    transport.validate_run({**run, "head_sha": second_head}, "123", repo)
+
+    (repo / "uv.lock").write_text(original_lock)
+    transport.git(repo, "add", "uv.lock")
+    transport.git(repo, "-c", "commit.gpgsign=false", "commit", "-qm", "mixed pair")
+    mixed_head = transport.git(repo, "rev-parse", "HEAD")
+    transport.git(repo, "update-ref", "refs/remotes/origin/main", mixed_head)
+    with pytest.raises(ValueError, match="reviewed blobs"):
+        transport.validate_run({**run, "head_sha": mixed_head}, "123", repo)
 
 
 def test_destination_link_rejected(signed, tmp_path):

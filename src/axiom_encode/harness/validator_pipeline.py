@@ -37,6 +37,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from dataclasses import replace as dataclass_replace
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
@@ -1467,14 +1468,47 @@ _MONTH_NAME_BODY = (
     r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
     r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?"
 )
+# Every separator `str.splitlines` treats as a line boundary, not only `\n`.
+_LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
+_LINE_BREAK_CLASS = rf"[{_LINE_BREAK_CHARS}]"
+# Indentation the standalone-month guard recognises before a header line.
+_MAX_MONTH_HEADER_INDENT = 16
+
+
+def _standalone_month_line_guard(month_body: str) -> str:
+    """A lookahead refusing a month name that stands alone on its own line.
+
+    A table column header such as ``May`` printed on its own line is followed by
+    row values, not by a day or year (#1822). A month inside wrapped prose
+    (``in May\n2026``, ``ab Januar\n2026``) still reads as a date. ``re`` has no
+    variable-width lookbehind, so "start of line" is the start of the text or a
+    line break followed by up to `_MAX_MONTH_HEADER_INDENT` spaces or tabs.
+    """
+
+    line_starts = "|".join(
+        # The start of the text, or a line break, immediately before.
+        [rf"(?<![^{_LINE_BREAK_CHARS}])"]
+        + [
+            rf"(?<={_LINE_BREAK_CLASS}[ \t]{{{indent}}})"
+            for indent in range(1, _MAX_MONTH_HEADER_INDENT + 1)
+        ]
+    )
+    return rf"(?!(?:{line_starts}){month_body}[ \t]*(?:\r\n|{_LINE_BREAK_CLASS}))"
+
+
+_STANDALONE_MONTH_LINE_GUARD = _standalone_month_line_guard(_MONTH_NAME_BODY)
 _MONTH_NAME_PATTERN = re.compile(rf"\b{_MONTH_NAME_BODY}(?=$|[\s,.;:])", re.IGNORECASE)
 _MONTH_NAME_DATE_PATTERN = re.compile(
     rf"\b{_MONTH_NAME_BODY}\s+\d{{1,2}},\s+\d{{4}}\b",
     re.IGNORECASE,
 )
 _SLASH_DATE_PATTERN = re.compile(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b")
+# A month name alone on its line is a column header, not the first half of a
+# date: the number on the next line is a table value (#1822). Elsewhere, a
+# month and a following day pair across any whitespace, as on main, so a date
+# wrapped mid-sentence still reads as a date.
 _MONTH_NAME_DAY_PATTERN = re.compile(
-    rf"\b{_MONTH_NAME_BODY}\s+\d{{1,2}}\b",
+    rf"\b{_STANDALONE_MONTH_LINE_GUARD}{_MONTH_NAME_BODY}\s+\d{{1,2}}\b",
     re.IGNORECASE,
 )
 _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
@@ -7745,8 +7779,11 @@ _GERMAN_DAY_MONTH_YEAR_PATTERN = re.compile(
     rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
+# A German month alone on its line is a column header too (#1822); see
+# `_MONTH_NAME_DAY_PATTERN`.
 _GERMAN_MONTH_YEAR_PATTERN = re.compile(
-    rf"\b{_GERMAN_MONTH_NAME_BODY}\s+(?:des\s+Jahres\s+)?"
+    rf"\b{_standalone_month_line_guard(_GERMAN_MONTH_NAME_BODY)}"
+    rf"{_GERMAN_MONTH_NAME_BODY}\s+(?:des\s+Jahres\s+)?"
     rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
@@ -7762,8 +7799,11 @@ _ENGLISH_DAY_MONTH_YEAR_PATTERN = re.compile(
     rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
+# Like `_MONTH_NAME_DAY_PATTERN`, a month alone on its line does not pair with
+# the year on the next line (#1822).
 _ENGLISH_MONTH_YEAR_PATTERN = re.compile(
-    rf"\b{_MONTH_NAME_BODY}\s+(?P<year>{_TEMPORAL_YEAR_BODY})"
+    rf"\b{_STANDALONE_MONTH_LINE_GUARD}{_MONTH_NAME_BODY}\s+"
+    rf"(?P<year>{_TEMPORAL_YEAR_BODY})"
     rf"{_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
@@ -14759,6 +14799,7 @@ class _LegacyNumericCollector:
     rate_table_cell_prefix_max_ends: tuple[int, ...] = field(init=False)
     shared_rate_spans: tuple[tuple[int, int], ...] = field(init=False)
     temporal_component_spans: tuple[tuple[int, int], ...] = field(init=False)
+    standalone_month_header_year_spans: tuple[tuple[int, int], ...] = field(init=False)
     structural_component_spans: tuple[tuple[int, int], ...] = field(init=False)
     structural_component_span_starts: tuple[int, ...] = field(init=False)
     structural_component_prefix_max_ends: tuple[int, ...] = field(init=False)
@@ -14791,6 +14832,9 @@ class _LegacyNumericCollector:
             self.rate_table_cell_prefix_max_ends,
         ) = _span_containment_index(self.rate_table_cell_spans)
         self.temporal_component_spans = _temporal_numeric_component_spans(
+            self.context_text
+        )
+        self.standalone_month_header_year_spans = _standalone_month_header_year_spans(
             self.context_text
         )
         self.structural_component_spans = _structural_numeric_component_spans(
@@ -15819,6 +15863,49 @@ def _locale_numeric_envelope_has_token_boundaries(
     )
 
 
+# main's month-year readings, which also pair a month standing alone on its
+# line with the year below it. Used only by
+# `_standalone_month_header_year_spans`.
+_ANY_LINE_MONTH_YEAR_PATTERNS = (
+    re.compile(
+        rf"\b{_GERMAN_MONTH_NAME_BODY}\s+(?:des\s+Jahres\s+)?"
+        rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"\b{_MONTH_NAME_BODY}\s+(?P<year>{_TEMPORAL_YEAR_BODY})"
+        rf"{_TEMPORAL_YEAR_END}",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _standalone_month_header_year_spans(text: str) -> tuple[tuple[int, int], ...]:
+    """Year tokens main read as dates after a month standing alone on its line.
+
+    #1822 stops these from being temporal components, so a table value below a
+    month column header stays a demand. They are kept only so that typed-year
+    recovery can restore one that structural cleaning removed (``Mai\n2026.``
+    reads as a ``2026.`` line label), exactly as main restored it.
+    """
+
+    guarded = {
+        match.span("year")
+        for pattern in (_GERMAN_MONTH_YEAR_PATTERN, _ENGLISH_MONTH_YEAR_PATTERN)
+        for match in pattern.finditer(text)
+    }
+    return tuple(
+        sorted(
+            {
+                match.span("year")
+                for pattern in _ANY_LINE_MONTH_YEAR_PATTERNS
+                for match in pattern.finditer(text)
+            }
+            - guarded
+        )
+    )
+
+
 def _temporal_numeric_component_spans(
     text: str,
 ) -> tuple[tuple[int, int], ...]:
@@ -16167,6 +16254,27 @@ def _complete_typed_year_occurrences(
         )
         if _TEMPORAL_YEAR_TOKEN_PATTERN.fullmatch(collector.source[span[0] : span[1]])
     }
+    occurrences = tuple(occurrences)
+    present_spans = {occurrence.span for occurrence in occurrences}
+    # A year below a month header that cleaning removed is restored as the
+    # temporal year main read it as; one that survived stays a demand (#1822).
+    header_year_spans = {
+        span
+        for span in collector.standalone_month_header_year_spans
+        if span not in present_spans
+        if _locale_numeric_envelope_has_token_boundaries(
+            collector.source,
+            span,
+            profile=collector.profile,
+        )
+        if not (
+            span[1] + 1 < len(collector.source)
+            and collector.source[span[1]] in ".,"
+            and collector.source[span[1] + 1].isdigit()
+        )
+        if _TEMPORAL_YEAR_TOKEN_PATTERN.fullmatch(collector.source[span[0] : span[1]])
+    }
+    typed_year_spans |= header_year_spans
     normalized = [
         occurrence
         for occurrence in occurrences
@@ -16185,6 +16293,12 @@ def _complete_typed_year_occurrences(
             continue
         raw = collector.source[span[0] : span[1]]
         occurrence = collector.occurrence(source_view, span, float(raw))
+        if (
+            span in header_year_spans
+            and not occurrence.has_rate_context
+            and not occurrence.has_temporal_context
+        ):
+            occurrence = dataclass_replace(occurrence, has_temporal_context=True)
         insertion_index = next(
             (
                 index
@@ -36130,6 +36244,9 @@ class ValidatorPipeline:
         rules = payload.get("rules")
         if not isinstance(rules, list):
             return resolved
+        # Generated modules repeat one provision across thousands of atoms;
+        # the fetch is deterministic within this call, so fetch each path once.
+        fetched: set[str] = set()
         for rule in rules:
             if not isinstance(rule, dict):
                 continue
@@ -36149,7 +36266,8 @@ class ValidatorPipeline:
                 if not isinstance(source, dict):
                     continue
                 citation_path = str(source.get("corpus_citation_path") or "").strip()
-                if citation_path:
+                if citation_path and citation_path not in fetched:
+                    fetched.add(citation_path)
                     try:
                         resolved[citation_path] = fetch_source(citation_path)
                     except InvalidCorpusCitationError:
