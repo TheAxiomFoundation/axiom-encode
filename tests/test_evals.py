@@ -3547,6 +3547,24 @@ def test_resolve_corpus_source_unit_accepts_form_citation_path(tmp_path):
     assert source_unit.body == "CMS Medicaid, CHIP, and BHP eligibility levels table"
 
 
+def test_resolve_corpus_source_unit_accepts_rulemaking_citation_path(tmp_path):
+    # Federal Register instruments live under us/rulemaking/...; the citation
+    # must resolve verbatim instead of being mangled through
+    # citation_to_citation_path into us/statute/us/rulemaking/...
+    citation = "us/rulemaking/fr/2026-03829"
+    corpus_release = _write_test_corpus_provision(
+        tmp_path,
+        citation_path=citation,
+        body="Termination of certain IEEPA tariff actions",
+    )
+
+    source_unit = resolve_corpus_source_unit(citation, corpus_release)
+
+    assert source_unit.citation_path == citation
+    assert source_unit.source == "local"
+    assert source_unit.body == "Termination of certain IEEPA tariff actions"
+
+
 def test_resolve_corpus_source_unit_slices_before_bracketed_sibling(tmp_path):
     corpus_release = _write_test_corpus_provision(
         tmp_path,
@@ -16549,15 +16567,35 @@ class TestOpenAIEvalRequest:
 
     def test_post_openai_eval_request_returns_at_case_wall_deadline(self):
         release_request = threading.Event()
+        real_remaining = evals_module._remaining_eval_case_budget_seconds
+        first_budget = True
+
+        def remaining_request_budget():
+            nonlocal first_budget
+            if first_budget:
+                first_budget = False
+                # Always enter the request's wall-deadline helper. Queueing
+                # before the attempt must not satisfy the test by expiring
+                # the case budget before the blocked request is attempted.
+                return 0.05
+            # Keep the real post-request budget check: without the helper's
+            # deadline it raises only after the blocked request returns.
+            return real_remaining()
 
         def block_beyond_deadline(*_args, **_kwargs):
-            release_request.wait(timeout=1)
+            # 120s remains well beyond the 30s assertion even when the
+            # deadline is broken; finally releases any fallback request thread.
+            release_request.wait(timeout=120)
             return Mock(status_code=200)
 
         started = evals_module.time.monotonic()
         try:
             with (
                 evals_module._active_eval_case_budget(0.05),
+                patch(
+                    "axiom_encode.harness.evals._remaining_eval_case_budget_seconds",
+                    side_effect=remaining_request_budget,
+                ),
                 patch(
                     "axiom_encode.harness.evals.requests.post",
                     side_effect=block_beyond_deadline,
@@ -16572,7 +16610,9 @@ class TestOpenAIEvalRequest:
         finally:
             release_request.set()
 
-        assert evals_module.time.monotonic() - started < 0.5
+        # The correct path has a 0.05s deadline: even the observed 81x
+        # scheduling inflation is 4.05s, comfortably below this 30s limit.
+        assert evals_module.time.monotonic() - started < 30
         assert exc_info.value.timeout_stage == "case_budget"
 
     def test_post_openai_eval_request_rejects_response_after_case_deadline(
@@ -24620,3 +24660,72 @@ def test_openai_generation_gates_cover_gpt_6_models(model, extended, explicit_ca
         evals_module._openai_model_supports_explicit_prompt_cache(model)
         is explicit_cache
     )
+
+
+_ARMENIAN_LEDGER_SOURCE = (
+    "Հայաստանի Հանրապետությունում նվազագույն ամսական աշխատավարձը "
+    "սահմանել 75000 դրամ:\n"
+    "(1-ին հոդվածը փոփ. 11.11.05 ՀՕ-221-Ն, 07.12.22 ՀՕ-501-Ն)"
+)
+
+
+def _armenian_minimum_wage_metrics(tmp_path, source_text, *, complete):
+    citation = "am/statute/act-172160/article-1"
+    corpus_release = _write_test_corpus_provision(
+        tmp_path, citation_path=citation, body=source_text
+    )
+    rulespec_file = tmp_path / "statutes" / "act-172160" / "article-1.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(
+        f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {citation}
+rules:
+  - name: minimum_monthly_wage
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2023-01-01'
+        formula: 75000
+"""
+    )
+    compile_result = ValidationResult("compile", True, issues=[])
+    ci_result = ValidationResult("ci", True, issues=[])
+    with (
+        patch.object(
+            ValidatorPipeline, "_run_compile_check", return_value=compile_result
+        ),
+        patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+    ):
+        return evaluate_artifact(
+            rulespec_file=rulespec_file,
+            policy_repo_root=_canonical_rulespec_content_root(tmp_path, "am"),
+            axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+            source_text=source_text,
+            local_corpus_release=corpus_release,
+            source_citation_path=citation,
+            require_complete_source_unit=complete,
+        )
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_eval_numeric_coverage_skips_validated_armenian_ledger(tmp_path, complete):
+    # The prompt tells the encoder not to encode a recognized ledger's numbers,
+    # so the eval coverage metric must not demand them either.
+    metrics = _armenian_minimum_wage_metrics(
+        tmp_path, _ARMENIAN_LEDGER_SOURCE, complete=complete
+    )
+
+    assert metrics.numeric_occurrence_issues == []
+    assert metrics.source_numeric_occurrence_count == 1
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_eval_numeric_coverage_keeps_unrecognized_armenian_parenthetical(
+    tmp_path, complete
+):
+    source = _ARMENIAN_LEDGER_SOURCE.removesuffix(")") + ", լրացուցիչ 500 դրամ)"
+    metrics = _armenian_minimum_wage_metrics(tmp_path, source, complete=complete)
+
+    assert any("500" in issue for issue in metrics.numeric_occurrence_issues)

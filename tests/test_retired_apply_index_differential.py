@@ -26,6 +26,7 @@ from hypothesis import strategies as st
 
 from axiom_encode import retired_apply as indexed_admission
 from tests.environment_assertions import Names
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 RETIRED_APPLY_INVENTORY_SCHEMA = "axiom-encode/retired-apply-inventory/v1"
 _REPOSITORY = re.compile(r"TheAxiomFoundation/rulespec-[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -211,7 +212,7 @@ def _git(repo: Path, *arguments: str, ancestry: bool = False) -> bytes | bool:
         [executable, "-C", str(repo), *arguments],
         capture_output=True,
         env=Names(_git_environment()),
-        timeout=30,
+        timeout=HANG_TIMEOUT_SECONDS,
         check=False,
     )
     if ancestry and result.returncode in {0, 1}:

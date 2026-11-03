@@ -38,6 +38,7 @@ from axiom_encode.corpus_resolver import (
     resolve_local_corpus_source,
 )
 from tests.environment_assertions import Names, changed_names, hides_environment
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 from tests.release_object_fixtures import (
     TEST_RELEASE_PUBLIC_KEY,
     write_test_release_object,
@@ -1073,7 +1074,7 @@ def test_a_killed_placement_leaves_its_temporary_only_in_staging(tmp_path, monke
         assert child.stdout.readline() == b"streaming\n"
     finally:
         child.kill()
-        child.wait(timeout=60)
+        child.wait(timeout=HANG_TIMEOUT_SECONDS)
         child.stdin.close()
         child.stdout.close()
     assert child.returncode == -signal.SIGKILL
@@ -2839,9 +2840,9 @@ def test_eight_processes_place_each_file_exactly_once(tmp_path):
     ]
     for process in processes:
         process.start()
-    reports = [queue.get(timeout=120) for _ in processes]
+    reports = [queue.get(timeout=HANG_TIMEOUT_SECONDS) for _ in processes]
     for process in processes:
-        process.join(timeout=60)
+        process.join(timeout=HANG_TIMEOUT_SECONDS)
         assert process.exitcode == 0
 
     assert all(not report["failed"] for report in reports)

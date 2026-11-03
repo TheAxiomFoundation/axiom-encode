@@ -7,24 +7,30 @@ of the exact corpus text and provenance used for an encoding.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
 import re
 import stat
 import sys
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+import threading
+import weakref
+from bisect import bisect_left
+from collections import OrderedDict
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from itertools import accumulate, islice
 from pathlib import Path
 from types import MappingProxyType
-from typing import AbstractSet, Any, Literal
+from typing import AbstractSet, Any, Literal, TypeVar
 
 from axiom_encode.bare_structure import bare_outline, slice_bare_path
 from axiom_encode.corpus_materialize import (
     CorpusMaterializationError,
     corpus_uses_lock_files,
     fetch_disabled,
+    lock_path_for,
     materialize_release_artifacts,
     present_file_note,
     release_sources,
@@ -56,6 +62,14 @@ MAX_CORPUS_CITATION_SEGMENTS = 64
 MAX_CORPUS_CITATION_LENGTH = 4_096
 MAX_LEGAL_MARKER_TOKEN_LENGTH = 32
 MAX_GENERIC_PARENT_SLICE_CHARACTER_WORK = 64 * 1024 * 1024
+# Bounds on what one LocalCorpusRelease retains between calls. Cached buckets
+# are weighed by estimated resident memory: parsed rows and citation indexes
+# take about _RESIDENT_BYTES_PER_ARTIFACT_BYTE times their artifact bytes.
+# Memoized outcomes are weighed by what only they keep alive.
+MAX_CACHED_CORPUS_BYTES = 1024 * 1024 * 1024
+MAX_CACHED_CORPUS_BUCKETS = 128
+MAX_CACHED_CORPUS_MEMO_BYTES = 64 * 1024 * 1024
+_RESIDENT_BYTES_PER_ARTIFACT_BYTE = 4
 _MAX_INTERNAL_MARK_EVIDENCE_CHARS = 64
 _MAX_DELIMITER_REPLAY_TOKENS = 1_000_000
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -175,6 +189,11 @@ def normalize_corpus_identifier(identifier: str) -> str:
     if parts and ":" in parts[0]:
         jurisdiction, source_root = parts[0].split(":", 1)
         document_class = _RULESPEC_DOCUMENT_CLASS.get(source_root, source_root)
+        if document_class == "policy" and len(parts) >= 3 and parts[1] == "rulemaking":
+            # ``policies/rulemaking/`` is the RuleSpec output namespace for
+            # ``<jurisdiction>/rulemaking/...`` (Federal Register) sources.
+            document_class = "rulemaking"
+            parts = [parts[0], *parts[2:]]
         if jurisdiction and document_class:
             return _normalize_citation_path(
                 "/".join((jurisdiction, document_class, *parts[1:]))
@@ -328,7 +347,13 @@ class ReleaseScope:
 
 @dataclass(frozen=True)
 class LocalCorpusRelease:
-    """One local checkout bound to one verified immutable release object."""
+    """One local checkout bound to one verified immutable release object.
+
+    Each instance owns a private resolution cache (see
+    :func:`_verified_corpus_bucket`). It is not a dataclass field, so equality,
+    hashing, ``repr``, ``asdict``, and ``replace`` ignore it, and copies or
+    unpickled instances start with an empty cache.
+    """
 
     root: Path
     name: str
@@ -429,6 +454,32 @@ class LocalCorpusRelease:
         object.__setattr__(self, "unplaced", MappingProxyType(dict(unplaced)))
         object.__setattr__(self, "uses_corpus_locks", uses_corpus_locks)
         object.__setattr__(self, "release_commit", verified.git_commit)
+        object.__setattr__(self, "_resolution_cache", _LocalCorpusResolutionCache())
+
+    def with_fresh_reads(self) -> LocalCorpusRelease:
+        """Return an equal release that re-reads provisions on first use.
+
+        This instance verifies and parses each bucket once and then serves it
+        from memory. Operations that must observe the checkout as it is now,
+        such as staleness checks, start from a copy without that cache.
+        """
+
+        return copy.copy(self)
+
+    def __getstate__(self) -> dict[str, Any]:
+        state = dict(self.__dict__)
+        state.pop("_resolution_cache", None)
+        if "unplaced" in state:
+            # A mapping proxy cannot be pickled; it is rebuilt on load.
+            state["unplaced"] = dict(state["unplaced"])
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        for key, value in state.items():
+            if key == "unplaced":
+                value = MappingProxyType(dict(value))
+            object.__setattr__(self, key, value)
+        object.__setattr__(self, "_resolution_cache", _LocalCorpusResolutionCache())
 
 
 @dataclass(frozen=True)
@@ -561,6 +612,177 @@ class _LocalCorpusReadBudget:
     row_count: int = 0
 
 
+_CorpusRow = tuple[int, dict[str, Any]]
+_Memoized = TypeVar("_Memoized")
+
+
+@dataclass(frozen=True)
+class _CorpusCitationIndex:
+    """Exact and prefix ``citation_path`` lookup over one parsed artifact.
+
+    Only string values are indexed: lookups compare against normalized string
+    paths, which never equal any other JSON value.
+    """
+
+    rows_by_citation: Mapping[str, tuple[_CorpusRow, ...]]
+    sorted_citations: tuple[str, ...]
+
+    @classmethod
+    def build(cls, artifact: _ParsedCorpusArtifact) -> _CorpusCitationIndex:
+        grouped: dict[str, list[_CorpusRow]] = {}
+        for row in artifact.rows:
+            citation_path = row[1].get("citation_path")
+            if isinstance(citation_path, str):
+                grouped.setdefault(citation_path, []).append(row)
+        return cls(
+            rows_by_citation={path: tuple(rows) for path, rows in grouped.items()},
+            sorted_citations=tuple(sorted(grouped)),
+        )
+
+    def rows_for(self, citation_path: str) -> tuple[_CorpusRow, ...]:
+        """Rows whose citation path equals ``citation_path``, in file order."""
+
+        return self.rows_by_citation.get(citation_path, ())
+
+    def rows_under(self, prefix: str) -> list[_CorpusRow]:
+        """Rows whose citation path starts with ``prefix``, in file order."""
+
+        citations = self.sorted_citations
+        rows: list[_CorpusRow] = []
+        # Strings sharing a prefix are contiguous in code-point order, starting
+        # at the first string not less than the prefix itself.
+        for position in range(bisect_left(citations, prefix), len(citations)):
+            citation_path = citations[position]
+            if not citation_path.startswith(prefix):
+                break
+            rows.extend(self.rows_by_citation[citation_path])
+        rows.sort(key=lambda row: row[0])
+        return rows
+
+
+@dataclass
+class _VerifiedCorpusBucket:
+    """Release-verified provisions of one jurisdiction/document-class bucket."""
+
+    scopes: tuple[ReleaseScope, ...]
+    artifacts: tuple[_ParsedCorpusArtifact, ...]
+    artifact_bytes: int
+    indexes: tuple[_CorpusCitationIndex, ...] | None = None
+    # Deterministic outcomes keyed by ("source", identifier, exact_only) or
+    # ("descendants", citation_path, scope); failures are stored as errors.
+    memo: dict[tuple[object, ...], object] = field(default_factory=dict)
+    memo_bytes: int = 0
+    # File identities of the provisions read and, in a lock-file checkout,
+    # of the locks that pin them, taken before the read.
+    disk_fingerprint: tuple[object, ...] = ()
+
+    @property
+    def row_bytes(self) -> int:
+        return _RESIDENT_BYTES_PER_ARTIFACT_BYTE * self.artifact_bytes
+
+    def citation_indexes(self) -> tuple[_CorpusCitationIndex, ...]:
+        # Built on first resolution; concurrent builders produce equal values.
+        indexes = self.indexes
+        if indexes is None:
+            indexes = tuple(
+                _CorpusCitationIndex.build(artifact) for artifact in self.artifacts
+            )
+            self.indexes = indexes
+        return indexes
+
+
+@dataclass(eq=False)
+class _LocalCorpusResolutionCache:
+    """Verified buckets and memoized resolutions owned by one release object.
+
+    Everything retained is a deterministic function of release-verified bytes
+    and the resolver limits in force, and only work that succeeded is
+    retained, so reuse cannot change an outcome. ``lock`` guards every field.
+    """
+
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    buckets: OrderedDict[tuple[str, str], _VerifiedCorpusBucket] = field(
+        default_factory=OrderedDict
+    )
+    row_bytes: int = 0
+    memo_bytes: int = 0
+    limits: tuple[object, ...] = ()
+    # Bumped whenever the limits change, so outcomes computed under the old
+    # limits by a call still in flight are not stored afterwards.
+    generation: int = 0
+
+    def __post_init__(self) -> None:
+        _LIVE_RESOLUTION_CACHES.add(self)
+
+    def reset_after_fork(self) -> None:
+        """Start a forked child with a fresh lock and an empty cache.
+
+        Another parent thread may have held the lock, or been changing the
+        cache, at the moment of the fork; the child has neither that thread
+        nor a way to release the lock.
+        """
+
+        self.lock = threading.Lock()
+        self.buckets = OrderedDict()
+        self.row_bytes = 0
+        self.memo_bytes = 0
+        self.limits = ()
+        self.generation += 1
+
+    def evict_buckets(self) -> None:
+        """Drop least-recently-used buckets; the most recent one always stays."""
+
+        while len(self.buckets) > 1 and (
+            self.row_bytes > MAX_CACHED_CORPUS_BYTES
+            or len(self.buckets) > MAX_CACHED_CORPUS_BUCKETS
+        ):
+            _key, evicted = self.buckets.popitem(last=False)
+            self.row_bytes -= evicted.row_bytes
+            self.memo_bytes -= evicted.memo_bytes
+
+    def drop_bucket(self, key: tuple[str, str]) -> None:
+        dropped = self.buckets.pop(key)
+        self.row_bytes -= dropped.row_bytes
+        self.memo_bytes -= dropped.memo_bytes
+
+    def clear_memo(self, bucket: _VerifiedCorpusBucket) -> None:
+        self.memo_bytes -= bucket.memo_bytes
+        bucket.memo.clear()
+        bucket.memo_bytes = 0
+
+    def make_memo_room(self, weight: int, *, keep: _VerifiedCorpusBucket) -> bool:
+        """Clear least-recently-used memos until ``weight`` more fits.
+
+        Returns False when ``keep``'s own memo had to be cleared: an outcome
+        can share rows with a composition in that memo, so it is not stored
+        into the restarted memo.
+        """
+
+        for bucket in list(self.buckets.values()):
+            if self.memo_bytes + weight <= MAX_CACHED_CORPUS_MEMO_BYTES:
+                return True
+            if bucket is not keep:
+                self.clear_memo(bucket)
+        if self.memo_bytes + weight <= MAX_CACHED_CORPUS_MEMO_BYTES:
+            return True
+        self.clear_memo(keep)
+        return False
+
+
+_LIVE_RESOLUTION_CACHES: weakref.WeakSet[_LocalCorpusResolutionCache] = (
+    weakref.WeakSet()
+)
+
+
+def _reset_resolution_caches_after_fork() -> None:
+    for cache in list(_LIVE_RESOLUTION_CACHES):
+        cache.reset_after_fork()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_resolution_caches_after_fork)
+
+
 @dataclass
 class _ParentheticalSliceBudget:
     """Cumulative character work for generic parent-body fallback slicing."""
@@ -625,6 +847,7 @@ def local_corpus_row_is_repealed(identifier: str, release: LocalCorpusRelease) -
         records.extend(
             _read_matching_records(
                 artifact,
+                rows=artifact.rows,
                 citation_path=citation_path,
                 active_scopes=frozenset(scopes),
                 provisions_root=release.provisions_root,
@@ -643,45 +866,98 @@ def resolve_local_corpus_source(
     *,
     _exact_only: bool = False,
 ) -> ResolvedCorpusSource:
-    """Resolve exactly one active local provision row, or fail closed."""
+    """Resolve exactly one active local provision row, or fail closed.
+
+    Outcomes, including resolution failures, are memoized on ``release`` per
+    ``(identifier, _exact_only)``: each is a pure function of the identifier and
+    the release-verified bytes of its jurisdiction/document-class bucket.
+    Invalid identifiers and artifact read or verification failures are never
+    memoized, and every call still charges the bucket to a fresh read budget.
+    """
 
     citation_path = _normalize_citation_path(identifier)
     if not isinstance(release, LocalCorpusRelease):
         raise TypeError("release must be a validated LocalCorpusRelease")
-    provisions_root = release.provisions_root
-
     parts = citation_path.split("/")
-    jurisdiction, document_class = parts[0], parts[1]
-    scopes = tuple(
-        scope
-        for scope in release.scopes
-        if scope.jurisdiction == jurisdiction and scope.document_class == document_class
-    )
-
-    files = _candidate_provision_files(
-        release=release,
-        jurisdiction=jurisdiction,
-        document_class=document_class,
-        scopes=scopes,
-    )
-    artifacts = _read_corpus_artifacts(
-        files,
-        release=release,
+    bucket_key = (parts[0], parts[1])
+    bucket = _verified_corpus_bucket(
+        release,
+        *bucket_key,
         budget=_LocalCorpusReadBudget(),
     )
-    active_scopes = frozenset(scopes)
+
+    def resolve() -> ResolvedCorpusSource:
+        return _resolve_in_verified_bucket(
+            identifier,
+            citation_path,
+            release,
+            bucket_key,
+            bucket,
+            exact_only=bool(_exact_only),
+        )
+
+    # The result echoes ``identifier``, so only exact ``str`` keys are reused.
+    if type(identifier) is not str:
+        return resolve()
+    return _with_private_metadata(
+        _memoized(
+            release,
+            bucket_key,
+            bucket,
+            ("source", identifier, bool(_exact_only)),
+            resolve,
+        )
+    )
+
+
+def _with_private_metadata(source: ResolvedCorpusSource) -> ResolvedCorpusSource:
+    """Give each caller its own copy of nested selected-row metadata.
+
+    A memoized outcome is shared by every later call. Its fields are immutable
+    except nested lists or objects inside ``selected_record.metadata``, which
+    an uncached call builds afresh; copy those so no caller's mutation reaches
+    another call's result.
+    """
+
+    record = source.selected_record
+    if record is None or not any(
+        isinstance(value, (dict, list)) for value in record.metadata.values()
+    ):
+        return source
+    return replace(
+        source,
+        selected_record=replace(
+            record, metadata=MappingProxyType(_copy_json_value(dict(record.metadata)))
+        ),
+    )
+
+
+def _resolve_in_verified_bucket(
+    identifier: str,
+    citation_path: str,
+    release: LocalCorpusRelease,
+    bucket_key: tuple[str, str],
+    bucket: _VerifiedCorpusBucket,
+    *,
+    exact_only: bool,
+) -> ResolvedCorpusSource:
+    provisions_root = release.provisions_root
+    artifacts = bucket.artifacts
+    indexes = bucket.citation_indexes()
+    active_scopes = frozenset(bucket.scopes)
     inactive_match = False
     lookup_groups = _citation_lookup_groups(citation_path)
-    if _exact_only:
+    if exact_only:
         lookup_groups = lookup_groups[:1]
     for group in lookup_groups:
         records: list[_StoredRecord] = []
         by_path = {candidate.citation_path: candidate for candidate in group}
-        for artifact in artifacts:
+        for artifact, index in zip(artifacts, indexes, strict=True):
             for candidate in group:
                 records.extend(
                     _read_matching_records(
                         artifact,
+                        rows=index.rows_for(candidate.citation_path),
                         citation_path=candidate.citation_path,
                         active_scopes=active_scopes,
                         provisions_root=provisions_root,
@@ -689,9 +965,8 @@ def resolve_local_corpus_source(
                 )
         if not records:
             inactive_match = inactive_match or any(
-                record.get("citation_path") == candidate.citation_path
-                for artifact in artifacts
-                for _line, record in artifact.rows
+                candidate.citation_path in index.rows_by_citation
+                for index in indexes
                 for candidate in group
             )
             continue
@@ -713,25 +988,42 @@ def resolve_local_corpus_source(
                 selected.row.document_class,
                 selected.row.version,
             )
-            descendants: list[_StoredRecord] = []
-            for artifact in artifacts:
-                descendants.extend(
-                    _read_descendant_records(
-                        artifact,
-                        citation_path=selected.row.citation_path,
-                        active_scopes=active_scopes,
-                        provisions_root=provisions_root,
+
+            def compose(
+                selected: _StoredRecord = selected,
+                selected_scope: ReleaseScope = selected_scope,
+            ) -> tuple[str, tuple[CorpusRowIdentity, ...]]:
+                descendants: list[_StoredRecord] = []
+                descendant_prefix = f"{selected.row.citation_path}/"
+                for artifact, index in zip(artifacts, indexes, strict=True):
+                    descendants.extend(
+                        _read_descendant_records(
+                            artifact,
+                            rows=index.rows_under(descendant_prefix),
+                            citation_path=selected.row.citation_path,
+                            active_scopes=active_scopes,
+                            provisions_root=provisions_root,
+                        )
                     )
+                    if len(descendants) > MAX_CORPUS_DESCENDANT_ROWS:
+                        raise CorpusDescendantStructureError(
+                            f"Local descendants for {selected.row.citation_path!r} "
+                            f"exceed the {MAX_CORPUS_DESCENDANT_ROWS}-row safety "
+                            "limit"
+                        )
+                return _compose_descendant_text(
+                    selected.row.citation_path,
+                    descendants,
+                    expected_scope=selected_scope,
                 )
-                if len(descendants) > MAX_CORPUS_DESCENDANT_ROWS:
-                    raise CorpusDescendantStructureError(
-                        f"Local descendants for {selected.row.citation_path!r} "
-                        f"exceed the {MAX_CORPUS_DESCENDANT_ROWS}-row safety limit"
-                    )
-            stored_body, component_rows = _compose_descendant_text(
-                selected.row.citation_path,
-                descendants,
-                expected_scope=selected_scope,
+
+            # Every child that falls back to this parent shares its composition.
+            stored_body, component_rows = _memoized(
+                release,
+                bucket_key,
+                bucket,
+                ("descendants", selected.row.citation_path, selected_scope),
+                compose,
             )
         body = stored_body
         if candidate.slice_required:
@@ -776,7 +1068,9 @@ def resolve_local_corpus_dependency_artifacts(
     root = release.root
     repository_root = release.root
     artifacts: list[Path] = []
-    seen: set[Path] = set()
+    # Composed sources can draw thousands of rows from one artifact; hash the
+    # current on-disk bytes of each artifact once per call.
+    disk_sha256: dict[Path, str] = {}
     for row in (source.row, *source.component_rows):
         if not row.provision_file_sha256:
             raise CorpusResolutionError(
@@ -797,19 +1091,22 @@ def resolve_local_corpus_dependency_artifacts(
             raise CorpusResolutionError(
                 f"Resolved corpus artifact changed after resolution: {row.provision_file}"
             )
-        artifact_bytes = read_bounded_regular_file(
-            root,
-            artifact,
-            label="resolved corpus provision",
-            max_bytes=MAX_CORPUS_PROVISION_BYTES,
-        )
-        if hashlib.sha256(artifact_bytes).hexdigest() != row.provision_file_sha256:
+        current_sha256 = disk_sha256.get(artifact)
+        if current_sha256 is None:
+            current_sha256 = hashlib.sha256(
+                read_bounded_regular_file(
+                    root,
+                    artifact,
+                    label="resolved corpus provision",
+                    max_bytes=MAX_CORPUS_PROVISION_BYTES,
+                )
+            ).hexdigest()
+            disk_sha256[artifact] = current_sha256
+            artifacts.append(artifact)
+        if current_sha256 != row.provision_file_sha256:
             raise CorpusResolutionError(
                 f"Resolved corpus artifact changed after resolution: {row.provision_file}"
             )
-        if artifact not in seen:
-            seen.add(artifact)
-            artifacts.append(artifact)
     return tuple(artifacts)
 
 
@@ -863,17 +1160,14 @@ def iter_active_local_corpus_rows(
         scopes_by_bucket.items()
     ):
         active_scopes = frozenset(bucket_scopes)
-        files = _candidate_provision_files(
-            release=release,
-            jurisdiction=scope_jurisdiction,
-            document_class=scope_document_class,
-            scopes=tuple(bucket_scopes),
-        )
-        for artifact in _read_corpus_artifacts(
-            files,
-            release=release,
+        bucket = _verified_corpus_bucket(
+            release,
+            scope_jurisdiction,
+            scope_document_class,
             budget=read_budget,
-        ):
+        )
+        for artifact in bucket.artifacts:
+            relative_file: str | None = None
             for line_number, record in artifact.rows:
                 row_scope = _record_scope(
                     record,
@@ -917,8 +1211,9 @@ def iter_active_local_corpus_rows(
                     path=artifact.path,
                     line_number=line_number,
                 )
-                artifact_root = _repository_root_for_provisions(provisions_root)
-                relative_file = artifact.path.relative_to(artifact_root).as_posix()
+                if relative_file is None:
+                    artifact_root = _repository_root_for_provisions(provisions_root)
+                    relative_file = artifact.path.relative_to(artifact_root).as_posix()
                 identity = CorpusRowIdentity(
                     provision_file=relative_file,
                     provision_file_sha256=artifact.sha256,
@@ -944,7 +1239,7 @@ def iter_active_local_corpus_rows(
                         body=body if body is not None else "",
                         heading=_optional_string(record.get("heading")),
                         citation_label=_optional_string(record.get("citation_label")),
-                        metadata=MappingProxyType(dict(metadata)),
+                        metadata=MappingProxyType(_copy_json_value(metadata)),
                         release_name=release.name,
                         release_content_sha256=release.content_sha256,
                         release_selector_sha256=release.selector_sha256,
@@ -970,6 +1265,330 @@ def iter_active_local_corpus_rows(
         )
     )
     return iter(tuple(body_rows))
+
+
+def _copy_json_value(value: Any) -> Any:
+    """Deep-copy parsed JSON so callers never share cached artifact rows.
+
+    Iterative, so any nesting ``json.loads`` accepted is copied.
+    """
+
+    if not isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, dict) and not any(
+        isinstance(item, (dict, list)) for item in value.values()
+    ):
+        return dict(value)
+    root: dict[Any, Any] | list[Any] = {} if isinstance(value, dict) else []
+    pending: list[tuple[dict[Any, Any] | list[Any], dict[Any, Any] | list[Any]]] = [
+        (value, root)
+    ]
+    while pending:
+        source, target = pending.pop()
+        items = source.items() if isinstance(source, dict) else enumerate(source)
+        for key, item in items:
+            copied = item
+            if isinstance(item, (dict, list)):
+                copied = {} if isinstance(item, dict) else []
+                pending.append((item, copied))
+            if isinstance(target, dict):
+                target[key] = copied
+            else:
+                target.append(copied)
+    return root
+
+
+def _verified_corpus_bucket(
+    release: LocalCorpusRelease,
+    jurisdiction: str,
+    document_class: str,
+    *,
+    budget: _LocalCorpusReadBudget,
+) -> _VerifiedCorpusBucket:
+    """Return one bucket's parsed provisions, reading them once per disk state.
+
+    The first request takes the disk fingerprint of the bucket's files, then
+    selects, reads, sha256-hashes, byte-counts, and parses every provisions
+    artifact of the bucket against the verified release exactly as an uncached
+    read would, charging ``budget`` as it goes. Any failure propagates and
+    nothing is cached. Later requests fingerprint the files again and re-run
+    the uncached path checks. While the files and their locks keep the
+    identities they had before the read, they reuse the parsed rows, whose
+    bytes are bound to the immutable release object, and replay the same
+    budget charges so per-call limits still fail closed. When an identity
+    changes, the bucket is dropped and read from disk again. The fingerprint
+    does not hash: an in-place rewrite that keeps every identity field is not
+    seen, so checks that must observe the current bytes, such as
+    :func:`resolve_local_corpus_dependency_artifacts`, hash them themselves.
+    """
+
+    cache = release._resolution_cache
+    key = (jurisdiction, document_class)
+    limits = _resolution_limits()
+    with cache.lock:
+        if cache.limits != limits:
+            # Outcomes depend on the limits in force; rows are replayed below.
+            for cached in cache.buckets.values():
+                cache.clear_memo(cached)
+            cache.limits = limits
+            cache.generation += 1
+        bucket = cache.buckets.get(key)
+        if bucket is not None:
+            # Take the fingerprint of the files the bucket was read from, then
+            # select the files exactly as an uncached read does: every path
+            # component is checked again, so a parent directory swapped for a
+            # symlink, before or during this call, fails with the uncached
+            # error. Both steps only stat.
+            fingerprint = _bucket_disk_fingerprint(
+                release, tuple(artifact.path for artifact in bucket.artifacts)
+            )
+            files = _candidate_provision_files(
+                release=release,
+                jurisdiction=jurisdiction,
+                document_class=document_class,
+                scopes=bucket.scopes,
+            )
+            if (
+                files == tuple(artifact.path for artifact in bucket.artifacts)
+                and fingerprint == bucket.disk_fingerprint
+            ):
+                cache.buckets.move_to_end(key)
+                _charge_local_corpus_read_budget(bucket.artifacts, budget=budget)
+                return bucket
+            # A provisions file or its lock changed on disk: read the bucket
+            # again, exactly as an uncached call does.
+            cache.drop_bucket(key)
+        scopes = tuple(
+            scope
+            for scope in release.scopes
+            if scope.jurisdiction == jurisdiction
+            and scope.document_class == document_class
+        )
+        files = _candidate_provision_files(
+            release=release,
+            jurisdiction=jurisdiction,
+            document_class=document_class,
+            scopes=scopes,
+        )
+        fingerprint = _bucket_disk_fingerprint(release, files)
+        artifacts = _read_corpus_artifacts(files, release=release, budget=budget)
+        bucket = _VerifiedCorpusBucket(
+            scopes=scopes,
+            artifacts=artifacts,
+            artifact_bytes=sum(artifact.byte_size for artifact in artifacts),
+            disk_fingerprint=fingerprint,
+        )
+        cache.buckets[key] = bucket
+        cache.row_bytes += bucket.row_bytes
+        cache.evict_buckets()
+        return bucket
+
+
+def _file_identity(path: Path) -> tuple[int, ...] | None:
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return None
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_mode,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+    )
+
+
+def _bucket_disk_fingerprint(
+    release: LocalCorpusRelease, paths: Iterable[Path]
+) -> tuple[object, ...]:
+    """Identify the files a bucket read depends on, without reading them.
+
+    One ``lstat`` per provisions file and, in a lock-file checkout, one per
+    lock that pins it. Replacing, rewriting, or touching any of them changes
+    the fingerprint, so a cached bucket is never served for files or locks
+    other than the ones it was read from.
+    """
+
+    identities: list[object] = []
+    for path in paths:
+        identities.append((path, _file_identity(path)))
+        if release.uses_corpus_locks:
+            lock = lock_path_for(path.relative_to(release.root).as_posix())
+            if lock is not None:
+                lock_path = release.root / lock
+                identities.append((lock_path, _file_identity(lock_path)))
+    return tuple(identities)
+
+
+def _memoized(
+    release: LocalCorpusRelease,
+    bucket_key: tuple[str, str],
+    bucket: _VerifiedCorpusBucket,
+    memo_key: tuple[object, ...],
+    compute: Callable[[], _Memoized],
+) -> _Memoized:
+    """Return, or re-raise, the one outcome of ``compute`` for ``memo_key``.
+
+    ``compute`` must be a pure function of the bucket's verified rows; only
+    :class:`CorpusResolutionError` failures are remembered.
+    """
+
+    generation = release._resolution_cache.generation
+    remembered = bucket.memo.get(memo_key)
+    if isinstance(remembered, CorpusResolutionError):
+        if sys.exception() is None:
+            raise _detached_error_chain(remembered)
+        # Inside a handler Python chains any raise to the handled exception;
+        # recompute so the chain is exactly the one an uncached call builds.
+        return compute()
+    if remembered is not None:
+        return remembered  # type: ignore[return-value]
+    try:
+        outcome = compute()
+    except CorpusResolutionError as exc:
+        try:
+            snapshot = _detached_error_chain(exc)
+        except _UnreplayableError:
+            pass  # recomputed on every call, exactly as without the cache
+        else:
+            _remember(release, bucket_key, bucket, memo_key, snapshot, generation)
+        raise
+    _remember(release, bucket_key, bucket, memo_key, outcome, generation)
+    return outcome
+
+
+def _remember(
+    release: LocalCorpusRelease,
+    bucket_key: tuple[str, str],
+    bucket: _VerifiedCorpusBucket,
+    memo_key: tuple[object, ...],
+    outcome: object,
+    generation: int,
+) -> None:
+    cache = release._resolution_cache
+    with cache.lock:
+        if cache.generation != generation:
+            return  # computed under limits that have since changed
+        if cache.buckets.get(bucket_key) is not bucket:
+            return  # evicted while resolving
+        if memo_key in bucket.memo:
+            return  # a concurrent caller stored the same deterministic outcome
+        weight = _memo_weight(bucket, memo_key, outcome)
+        if weight > MAX_CACHED_CORPUS_MEMO_BYTES:
+            return
+        cache.buckets.move_to_end(bucket_key)
+        if not cache.make_memo_room(weight, keep=bucket):
+            return
+        bucket.memo[memo_key] = outcome
+        bucket.memo_bytes += weight
+        cache.memo_bytes += weight
+
+
+def _memo_weight(
+    bucket: _VerifiedCorpusBucket,
+    memo_key: tuple[object, ...],
+    outcome: object,
+) -> int:
+    """Estimate the bytes only this memo entry keeps alive.
+
+    Memos are dropped with their bucket, so text shared with the bucket's rows
+    or with a composition entry in the same memo is not charged again.
+    """
+
+    weight = 512 + sys.getsizeof(memo_key[1])
+    if isinstance(outcome, ResolvedCorpusSource):
+        # The result, its own row identity and their digest strings: measured
+        # at about 1,000 bytes per exact-row outcome.
+        weight += 512 + sum(map(sys.getsizeof, outcome.source_history))
+        if outcome.selected_record is not None:
+            # The selected row object and its own copy of the row's metadata
+            # containers; strings inside are shared with the bucket's rows.
+            weight += 512 + _json_container_bytes(
+                dict(outcome.selected_record.metadata)
+            )
+        composition = None
+        if outcome.component_rows:
+            scope = ReleaseScope(
+                outcome.row.jurisdiction,
+                outcome.row.document_class,
+                outcome.row.version,
+            )
+            composition = bucket.memo.get(("descendants", outcome.citation_path, scope))
+        if isinstance(composition, tuple) and (
+            composition[1] is outcome.component_rows
+        ):
+            if outcome.body is not composition[0]:
+                weight += sys.getsizeof(outcome.body)
+        else:
+            weight += 512 * len(outcome.component_rows)
+            if outcome.slice_required or outcome.component_rows:
+                weight += sys.getsizeof(outcome.body)
+    elif isinstance(outcome, BaseException):
+        error: BaseException | None = outcome
+        while error is not None:
+            rows = getattr(error, "rows", ())
+            weight += 512 + sys.getsizeof(str(error)) + 512 * len(rows or ())
+            error = error.__cause__
+    else:
+        stored_body, component_rows = outcome  # type: ignore[misc]
+        weight += sys.getsizeof(stored_body) + 512 * len(component_rows)
+    return weight
+
+
+def _json_container_bytes(value: Any) -> int:
+    """Return the size of the dicts and lists in a parsed JSON value."""
+
+    total = 0
+    pending: list[Any] = [value]
+    while pending:
+        item = pending.pop()
+        # Sized as freshly built containers, so the charge depends only on
+        # the value, not on how a copy happened to grow.
+        if isinstance(item, dict):
+            total += sys.getsizeof(dict(item))
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            total += sys.getsizeof(list(item))
+            pending.extend(item)
+    return total
+
+
+class _UnreplayableError(Exception):
+    """A failure chain the memo cannot reproduce exactly, so it is not kept."""
+
+
+# Built-in exceptions whose whole state is ``args``; resolver failures chain
+# only to these and to CorpusResolutionError subclasses.
+_REPLAYABLE_BUILTIN_ERRORS = (ValueError, TypeError, KeyError, IndexError)
+_MAX_REPLAYED_ERROR_CHAIN = 16
+
+
+def _detached_error_chain(error: BaseException, depth: int = 0) -> BaseException:
+    """Copy a failure and its causes without tracebacks or caller context.
+
+    Memoized failures are stored this way and copied again for every raise, so
+    no traceback frame (and nothing a caller's frame holds) is retained, no
+    raise extends another's traceback, and mutating a raised error cannot
+    change a later one. ``__context__`` is kept only where it is the explicit
+    cause; any other context is the caller's in-flight exception.
+    """
+
+    if depth > _MAX_REPLAYED_ERROR_CHAIN or not (
+        isinstance(error, CorpusResolutionError)
+        or type(error) in _REPLAYABLE_BUILTIN_ERRORS
+    ):
+        raise _UnreplayableError(type(error).__name__)
+    detached = type(error).__new__(type(error), *error.args)
+    for name, value in vars(error).items():
+        setattr(detached, name, list(value) if isinstance(value, list) else value)
+    cause = error.__cause__
+    if cause is not None:
+        detached.__cause__ = _detached_error_chain(cause, depth + 1)
+    if error.__context__ is not None and error.__context__ is cause:
+        detached.__context__ = detached.__cause__
+    detached.__suppress_context__ = error.__suppress_context__
+    return detached
 
 
 def _resolved_source(
@@ -1214,11 +1833,7 @@ def _read_corpus_artifact(
                 f"Corpus row must be an object: {path}:{line_number}"
             )
         rows.append((line_number, record))
-        if len(rows) > MAX_LOCAL_CORPUS_ROWS:
-            raise CorpusResolutionError(
-                f"Corpus artifact exceeds the {MAX_LOCAL_CORPUS_ROWS}-row "
-                f"safety limit: {path}"
-            )
+        _check_corpus_artifact_row_count(len(rows), path=path)
     return _ParsedCorpusArtifact(
         path=path,
         sha256=file_sha256,
@@ -1233,41 +1848,85 @@ def _read_corpus_artifacts(
     release: LocalCorpusRelease,
     budget: _LocalCorpusReadBudget,
 ) -> tuple[_ParsedCorpusArtifact, ...]:
-    if budget.file_count + len(paths) > MAX_LOCAL_CORPUS_FILES:
+    _charge_local_corpus_file_count(len(paths), budget=budget)
+    artifacts: list[_ParsedCorpusArtifact] = []
+    for path in paths:
+        artifact = _read_corpus_artifact(path, release=release)
+        _charge_local_corpus_artifact(artifact, budget=budget)
+        artifacts.append(artifact)
+    return tuple(artifacts)
+
+
+def _charge_local_corpus_read_budget(
+    artifacts: tuple[_ParsedCorpusArtifact, ...],
+    *,
+    budget: _LocalCorpusReadBudget,
+) -> None:
+    """Replay, in order, the limit checks an uncached read applies to these rows."""
+
+    for artifact in artifacts:
+        if artifact.byte_size > MAX_CORPUS_PROVISION_BYTES:
+            raise UnsafeCorpusPathError(
+                "corpus provision file exceeds the "
+                f"{MAX_CORPUS_PROVISION_BYTES}-byte safety limit: {artifact.path}"
+            )
+    _charge_local_corpus_file_count(len(artifacts), budget=budget)
+    for artifact in artifacts:
+        _check_corpus_artifact_row_count(len(artifact.rows), path=artifact.path)
+        _charge_local_corpus_artifact(artifact, budget=budget)
+
+
+def _check_corpus_artifact_row_count(row_count: int, *, path: Path) -> None:
+    if row_count > MAX_LOCAL_CORPUS_ROWS:
+        raise CorpusResolutionError(
+            f"Corpus artifact exceeds the {MAX_LOCAL_CORPUS_ROWS}-row "
+            f"safety limit: {path}"
+        )
+
+
+def _charge_local_corpus_file_count(
+    file_count: int,
+    *,
+    budget: _LocalCorpusReadBudget,
+) -> None:
+    if budget.file_count + file_count > MAX_LOCAL_CORPUS_FILES:
         raise CorpusResolutionError(
             "Local corpus resolution exceeds the "
             f"{MAX_LOCAL_CORPUS_FILES}-file safety limit"
         )
-    artifacts: list[_ParsedCorpusArtifact] = []
-    for path in paths:
-        artifact = _read_corpus_artifact(path, release=release)
-        budget.file_count += 1
-        budget.byte_count += artifact.byte_size
-        budget.row_count += len(artifact.rows)
-        if budget.byte_count > MAX_LOCAL_CORPUS_AGGREGATE_BYTES:
-            raise CorpusResolutionError(
-                "Local corpus resolution exceeds the "
-                f"{MAX_LOCAL_CORPUS_AGGREGATE_BYTES}-byte aggregate safety limit"
-            )
-        if budget.row_count > MAX_LOCAL_CORPUS_ROWS:
-            raise CorpusResolutionError(
-                "Local corpus resolution exceeds the "
-                f"{MAX_LOCAL_CORPUS_ROWS}-row aggregate safety limit"
-            )
-        artifacts.append(artifact)
-    return tuple(artifacts)
+
+
+def _charge_local_corpus_artifact(
+    artifact: _ParsedCorpusArtifact,
+    *,
+    budget: _LocalCorpusReadBudget,
+) -> None:
+    budget.file_count += 1
+    budget.byte_count += artifact.byte_size
+    budget.row_count += len(artifact.rows)
+    if budget.byte_count > MAX_LOCAL_CORPUS_AGGREGATE_BYTES:
+        raise CorpusResolutionError(
+            "Local corpus resolution exceeds the "
+            f"{MAX_LOCAL_CORPUS_AGGREGATE_BYTES}-byte aggregate safety limit"
+        )
+    if budget.row_count > MAX_LOCAL_CORPUS_ROWS:
+        raise CorpusResolutionError(
+            "Local corpus resolution exceeds the "
+            f"{MAX_LOCAL_CORPUS_ROWS}-row aggregate safety limit"
+        )
 
 
 def _read_matching_records(
     artifact: _ParsedCorpusArtifact,
     *,
+    rows: Iterable[_CorpusRow],
     citation_path: str,
     active_scopes: frozenset[ReleaseScope],
     provisions_root: Path,
 ) -> list[_StoredRecord]:
     path = artifact.path
     records: list[_StoredRecord] = []
-    for line_number, record in artifact.rows:
+    for line_number, record in rows:
         if record.get("citation_path") != citation_path:
             continue
         citation_parts = citation_path.split("/")
@@ -1315,8 +1974,9 @@ def _read_matching_records(
                 file_path=path,
                 file_sha256=artifact.sha256,
                 source_history=_record_source_history(record),
+                # Deep-copied: the parsed row may be a cached bucket row.
                 metadata=MappingProxyType(
-                    dict(record["metadata"])
+                    _copy_json_value(record["metadata"])
                     if isinstance(record.get("metadata"), dict)
                     else {}
                 ),
@@ -1329,6 +1989,7 @@ def _read_matching_records(
 def _read_descendant_records(
     artifact: _ParsedCorpusArtifact,
     *,
+    rows: Iterable[_CorpusRow],
     citation_path: str,
     active_scopes: frozenset[ReleaseScope],
     provisions_root: Path,
@@ -1336,7 +1997,8 @@ def _read_descendant_records(
     path = artifact.path
     prefix = f"{citation_path}/"
     records: list[_StoredRecord] = []
-    for line_number, record in artifact.rows:
+    relative_file: str | None = None
+    for line_number, record in rows:
         record_path = record.get("citation_path")
         if not isinstance(record_path, str) or not record_path.startswith(prefix):
             continue
@@ -1369,8 +2031,9 @@ def _read_descendant_records(
             )
         _validate_release_row_metadata(record, path=path, line_number=line_number)
         body = _record_body(record, path=path, line_number=line_number)
-        artifact_root = _repository_root_for_provisions(provisions_root)
-        relative_file = path.relative_to(artifact_root).as_posix()
+        if relative_file is None:
+            artifact_root = _repository_root_for_provisions(provisions_root)
+            relative_file = path.relative_to(artifact_root).as_posix()
         row = CorpusRowIdentity(
             provision_file=relative_file,
             provision_file_sha256=artifact.sha256,
@@ -1403,8 +2066,9 @@ def _read_descendant_records(
                 file_path=path,
                 file_sha256=artifact.sha256,
                 source_history=_record_source_history(record),
+                # Deep-copied: the parsed row may be a cached bucket row.
                 metadata=MappingProxyType(
-                    dict(record["metadata"])
+                    _copy_json_value(record["metadata"])
                     if isinstance(record.get("metadata"), dict)
                     else {}
                 ),
@@ -4264,3 +4928,21 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+# Every limit a memoized outcome can depend on. A change (tests patch them)
+# clears the memos so a cached outcome always equals an uncached one.
+_RESOLUTION_LIMIT_NAMES = tuple(
+    sorted(
+        name
+        for name, value in globals().items()
+        if name.lstrip("_").startswith("MAX_")
+        and not name.startswith("MAX_CACHED_")
+        and isinstance(value, int)
+    )
+)
+
+
+def _resolution_limits() -> tuple[object, ...]:
+    namespace = globals()
+    return tuple(namespace[name] for name in _RESOLUTION_LIMIT_NAMES)

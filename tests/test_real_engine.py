@@ -38,6 +38,7 @@ from axiom_encode.engine_binding import (
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 from tests import real_engine
 from tests.environment_assertions import Names, hides_environment
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 REPO = Path(__file__).resolve().parents[1]
 ENGINE_ENV = (
@@ -575,7 +576,7 @@ def _run_sample(
         ),
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=HANG_TIMEOUT_SECONDS,
         check=False,
     )
     outcomes = {}
