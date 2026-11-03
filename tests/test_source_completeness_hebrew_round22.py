@@ -229,9 +229,9 @@ ROUND_22_REPRODUCERS = (
         "f4-reports-first",
         "(א) דוחות חישוב יוגשו בהתאם לסעיף 2.",
         "(a) Calculation reports shall be filed in accordance with section 2.",
+        False,
         True,
-        True,
-        "(א) דוחות חישוב יוגשו בהתאם לסעיף 2.",
+        "(א) יוגשו דוחות חישוב בהתאם לסעיף 2.",
         "(a) Calculation reports shall be filed in accordance with section 2.",
     ),
     (
@@ -314,6 +314,8 @@ def test_every_round_22_divergence_is_hebrew_stricter():
     assert {row[0] for row in ROUND_22_REPRODUCERS if row[3] != row[4]} == {
         "f2-relative-in-accordance",
         "f2-content-under",
+        # Round 24 removes the clause-head noun context; guarded snapshot 0.
+        "f4-reports-first",
     }
 
 

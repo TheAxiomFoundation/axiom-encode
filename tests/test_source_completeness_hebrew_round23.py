@@ -42,7 +42,8 @@ def _pair(hebrew_source: str, english_source: str) -> tuple[bool, bool]:
 
 
 # B2 and N4: the guarded ``דוחות`` and the verb-first ``דוחות … את`` are the
-# verb; the noun contexts accept. B3: the relative's own ``under`` citation,
+# verb; retained noun contexts accept. Three noun rows are intentionally
+# stricter in Round 24 (clause head and present forms; guarded snapshot count 0). B3: the relative's own ``under`` citation,
 # then anything but the denial, opens content. ``r11-*`` rows are every row
 # of review r11's linguistic sweeps (r11/ling.py, ling2.py) that round 22
 # accepted while English refused, but the two left open below.
@@ -159,9 +160,9 @@ ROUND_23_REPRODUCERS = (
         "b2-noun-clause-head",
         "(א) דוחות חישוב יוגשו בהתאם לסעיף 2.",
         "(a) Calculation reports shall be filed in accordance with section 2.",
+        False,
         True,
-        True,
-        "(א) דוחות חישוב יוגשו בהתאם לסעיף 2.",
+        "(א) יוגשו דוחות חישוב בהתאם לסעיף 2.",
         "(a) Calculation reports shall be filed in accordance with section 2.",
     ),
     (
@@ -177,19 +178,19 @@ ROUND_23_REPRODUCERS = (
         "b2-noun-authorities-file",
         "(א) הרשויות מגישות דוחות חישוב בהתאם לסעיף 2.",
         "(a) The authorities file calculation reports in accordance with section 2.",
+        False,
         True,
-        True,
-        "(א) הרשויות מגישות דוחות חישוב בהתאם לסעיף 2.",
-        "(a) The authorities file calculation reports in accordance with section 2.",
+        "(א) יוגשו דוחות חישוב בהתאם לסעיף 2.",
+        "(a) Calculation reports shall be filed in accordance with section 2.",
     ),
     (
         "b2-noun-funds-prepare",
         "(א) הקופות מכינות דוחות חישוב בהתאם לסעיף 2.",
         "(a) The funds prepare calculation reports in accordance with section 2.",
+        False,
         True,
-        True,
-        "(א) הקופות מכינות דוחות חישוב בהתאם לסעיף 2.",
-        "(a) The funds prepare calculation reports in accordance with section 2.",
+        "(א) יוגשו דוחות חישוב בהתאם לסעיף 2.",
+        "(a) Calculation reports shall be filed in accordance with section 2.",
     ),
     (
         "r10-rejects-singular",
@@ -1672,14 +1673,10 @@ def _links(source: str) -> bool:
         *sorted(negators.REPORTS_CONSTRUCTS),
         "ולהגשת",
         "יוגשו",
-        "מגישות",
         "להכין",
-        "נערכים",
-        "מכינות",
         "פורסמו",
         "שקיבלו",
         "יתקבלו",
-        "נמסרים",
         "תוכנה",
     ),
 )
@@ -1713,31 +1710,28 @@ def test_every_other_context_reads_reject(before):
     assert not _links(source), source
 
 
-def test_a_clause_head_reads_reports_only_before_a_filing_verb():
-    assert _links("(א) דוחות חישוב יוגשו בהתאם לסעיף 2.")
-    assert _links("(8) דוחות שיגישו החברה בהתאם לסעיף 2.")
-    assert _links("דוחות חישוב יוגשו בהתאם לסעיף 2.")
-    assert not _links("(א) דוחות חישוב בהתאם לסעיף 2.")
-    assert not _links("(א) דוחות חישוב בהתאם לסעיף 2 יוגשו.")
-    assert not _links("(א) דוחות חישוב יוגשה בהתאם לסעיף 2.")
+@pytest.mark.parametrize(
+    "source",
+    (
+        "(א) דוחות חישוב יוגשו בהתאם לסעיף 2.",
+        "(8) דוחות שיגישו החברה בהתאם לסעיף 2.",
+        "דוחות חישוב יוגשו בהתאם לסעיף 2.",
+        "(א) דוחות חישוב בהתאם לסעיף 2.",
+        "(א) דוחות חישוב בהתאם לסעיף 2 יוגשו.",
+        "(א) דוחות חישוב יוגשה בהתאם לסעיף 2.",
+    ),
+)
+def test_clause_head_reads_reject_intended_stricter(source):
+    """Round 24 removes clause-head parsing; guarded snapshot count is zero."""
+
+    assert not _links(source)
 
 
-def test_a_clause_head_reads_a_bounded_window():
-    """A clause-initial ``דוחות`` reads a constant window, not the rest of the text."""
+@pytest.mark.parametrize("before", ("מגישות", "נערכים", "מכינות", "נמסרים"))
+def test_present_filing_context_intended_stricter(before):
+    """Agent-noun homographs no longer open reports; guarded snapshot count 0."""
 
-    reads = []
-
-    class Recording(str):
-        def __getitem__(self, key):
-            if isinstance(key, slice):
-                start, stop, _ = key.indices(len(self))
-                reads.append(stop - start)
-            return str.__getitem__(self, key)
-
-    text = Recording("(1) דוחות חישוב יוגשו בהתאם לסעיף 2; " + "מילה " * 20000)
-    start = text.index("דוחות")
-    assert negators._reports_clause_subject(text, start, start + len("דוחות"))
-    assert reads and max(reads) <= negators._REPORTS_SUBJECT_WINDOW
+    assert not _links(f"(א) {before} דוחות חישוב בהתאם לסעיף 2.")
 
 
 def test_the_filing_paradigms_are_generated():

@@ -1349,10 +1349,15 @@ def build_source_negation_language(
         rf"{before}(?P<source_prefix>{_NEGATION_PREFIX})(?:"
         rf"(?:{compact_alternation(SOURCE_CLAUSE_NEGATORS)}){after}"
         rf"|{clause_phrases}"
-        # Verb first, then its subject, then the object marker: ``דוחות
-        # הרשויות את החישוב`` ("the authorities reject the calculation").
+        # Verb first, then its subject and definite or indefinite computation
+        # object. The object marker is optional (``דוחות הרשויות חישובים``).
+        # An immediately following filing form also keeps the stricter verb
+        # reading (``דוחות שיגישו``); it no longer opens a noun context. This
+        # uses the existing paradigms and prefix-joint reader, with no scan
+        # for a later relative that might belong to the object instead.
         rf"|(?P<reports_head>דוחות){after}"
-        rf"(?=(?:{gap}[{_H}]+{after}){{1,3}}{gap}את{after}{gap}{computation()})"
+        rf"(?=(?:{gap}[{_H}]+{after}){{1,3}}{gap}(?:את{after}{gap})?{computation()}"
+        rf"|{gap}{_NEGATION_PREFIX}(?:{source_head_language(form for verb in REPORTS_FILING_VERBS for form in verb.forms)}){after})"
         rf"|(?P<guarded>)(?:"
         rf"(?:{privative}){after}(?={gap}{computation()})"
         rf"|(?P<lack>מחוסר){after}(?={gap}{computation(rf'(?P<lack_article>{article})')})"
@@ -1414,29 +1419,31 @@ def _lack_is_causal(match: re.Match[str]) -> bool:
     return True
 
 
-# Present feminine plural ``דוחות`` ("reject") is also the noun ``דוחות``
-# ("reports"): ``יוגשו דוחות חישוב``, "calculation reports shall be filed".
-# A false accept blocks and a labelled false refusal does not, so the source
-# reader takes the verb by default (round 23) and the noun only in a closed
-# list of contexts where the verb is ungrammatical. Each context reads the
-# word as written directly before ``דוחות``; a mark, maqaf or punctuation
-# there leaves no previous word (`_previous_word`), so a joint never opens
-# the noun. A prefixed ``בדוחות``, ``לדוחות``, ``מדוחות``, ``כדוחות`` or
-# ``הדוחות`` and a suffixed ``דוחותיו`` never match: no source prefix ends in
-# those letters, and the next letter must end the word.
-#
-# A preposition takes a noun, never a finite verb: ``לענין דוחות``,
-# ``לעניין דוחות``, ``בדבר דוחות``, ``לגבי דוחות``, ``על דוחות``, ``של דוחות``,
-# ``אודות דוחות``, with an ordinary prefix chain (``ולענין``).
+# Present feminine plural ``דוחות`` ("reject") is also the noun "reports".
+# The source reader takes the verb by default. Round 24's 1,633-record snapshot
+# has 25 occurrences; removing the clause-head and present-filing contexts,
+# separately and together, preserves all 878 dependency entries and senses.
+# The noun is read only after the listed prepositions, filing constructs, or
+# filing past/future/infinitive spellings that are not also present forms.
+# Present forms can be agent nouns, including definite forms (``המוסר``), so
+# even a spelling shared with a past form cannot safely open the noun.
+# Clause-initial reports and reports after present filing forms intentionally
+# refuse before a guarded link (zero such snapshot occurrences in each class).
+# Each context reads the word directly before ``דוחות``; a mark, maqaf or
+# punctuation leaves no previous word (`_previous_word`). Prefixed ``בדוחות``,
+# ``לדוחות``, ``מדוחות``, ``כדוחות``, ``הדוחות`` and suffixed ``דוחותיו`` never
+# match the rejection head: its source prefix and word boundary exclude them.
+# A preposition takes the noun: ``לענין דוחות``, with ordinary prefix chains.
 REPORTS_PREPOSITIONS = frozenset(
     ("לענין", "לעניין", "בדבר", "לגבי", "על", "של", "אודות")
 )
 # A construct noun of filing takes the noun as its genitive: ``הגשת דוחות``
 # ("filing of reports"), with any prefix chain (``ולהגשת``).
 REPORTS_CONSTRUCTS = frozenset(("הגשת", "הכנת", "עריכת", "מסירת", "קבלת"))
-# A filing verb takes the noun as its object or subject; two finite verbs
-# cannot stand side by side (``יוגשו דוחות``, ``מגישות דוחות``, ``להכין
-# דוחות``, ``נערכים דוחות``). Every third-person slot and infinitive.
+# Finite filing forms and infinitives can take reports as their object or
+# subject (``יוגשו דוחות``, ``להכין דוחות``). Keep their spellings only when
+# no present paradigm also supplies the spelling; present agent nouns do not
+# establish a filing predicate. Every third-person slot is generated below.
 REPORTS_FILING_VERBS = (
     verb_paradigm("הגיש", "מגיש", "יגיש", feminine="he", infinitive="להגיש"),
     verb_paradigm("הוגש", "מוגש", "יוגש"),
@@ -1465,57 +1472,35 @@ REPORTS_FILING_VERBS = (
     verb_paradigm("פרסם", "מפרסם", "יפרסם", infinitive="לפרסם"),
     verb_paradigm("פורסם", "מפורסם", "יפורסם"),
 )
-_REPORTS_NOUN_WORDS = frozenset(
-    (
-        *(
-            prefix + word
-            for prefix in ORDINARY_PREFIX_CHAINS
-            for word in REPORTS_PREPOSITIONS
-        ),
-        *(
-            prefix + word
-            for prefix in LEXICAL_PREFIX_CHAINS
-            for word in REPORTS_CONSTRUCTS
-        ),
-        *(
-            prefix + form
-            for prefix in LEXICAL_PREFIX_CHAINS
-            for verb in REPORTS_FILING_VERBS
-            for form in verb.forms
-        ),
-    )
-)
-# At the head of a clause (after an outline label or nothing), ``דוחות`` is
-# the subject of a filing verb that agrees with it, masculine plural, before
-# the link: ``(א) דוחות חישוב יוגשו בהתאם לסעיף 2``, ``(8) דוחות שיגישו``.
-_REPORTS_MASCULINE_PLURAL_VERBS = frozenset(
+_REPORTS_PRESENT_WORDS = frozenset(
     prefix + form
-    for prefix in ORDINARY_PREFIX_CHAINS
+    for prefix in LEXICAL_PREFIX_CHAINS
     for verb in REPORTS_FILING_VERBS
-    for form in (verb.past[2], verb.present[2], verb.future[2])
+    for form in verb.present
 )
-_REPORTS_CLAUSE_HEAD = re.compile(r"(?:\A|\([^()\s]{1,8}\))\s*\Z")
-_REPORTS_SUBJECT_TOKENS = 4
-# The subject check reads at most this many characters after ``דוחות``, so a
-# clause-initial ``דוחות`` costs constant time however long the text is; a
-# fourth token past it reads as no filing verb, the verb reading.
-_REPORTS_SUBJECT_WINDOW = 160
-_REPORTS_LINK_WORDS = frozenset(("בהתאם", "לפי", "כאמור", "מכוח", "בכפוף", "כמפורט"))
-
-
-def _reports_clause_subject(text: str, start: int, end: int) -> bool:
-    """Whether a clause-initial ``דוחות`` is the subject of a filing verb."""
-
-    if not _REPORTS_CLAUSE_HEAD.search(text, max(0, start - 16), start):
-        return False
-    window = text[end : end + _REPORTS_SUBJECT_WINDOW]
-    for token in window.split()[:_REPORTS_SUBJECT_TOKENS]:
-        word = token.strip(".,;:")
-        if word in _REPORTS_LINK_WORDS or word != token:
-            return word in _REPORTS_MASCULINE_PLURAL_VERBS
-        if word in _REPORTS_MASCULINE_PLURAL_VERBS:
-            return True
-    return False
+_REPORTS_NOUN_WORDS = (
+    frozenset(
+        (
+            *(
+                prefix + word
+                for prefix in ORDINARY_PREFIX_CHAINS
+                for word in REPORTS_PREPOSITIONS
+            ),
+            *(
+                prefix + word
+                for prefix in LEXICAL_PREFIX_CHAINS
+                for word in REPORTS_CONSTRUCTS
+            ),
+            *(
+                prefix + form
+                for prefix in LEXICAL_PREFIX_CHAINS
+                for verb in REPORTS_FILING_VERBS
+                for form in (*verb.past, *verb.future, *verb.infinitive)
+            ),
+        )
+    )
+    - _REPORTS_PRESENT_WORDS
+)
 
 
 def _reports_noun(match: re.Match[str]) -> bool:
@@ -1530,9 +1515,7 @@ def _reports_noun(match: re.Match[str]) -> bool:
         return False
     text = match.string
     previous = _previous_word(text, match.start())
-    if previous:
-        return previous in _REPORTS_NOUN_WORDS
-    return _reports_clause_subject(text, match.start(), match.end())
+    return previous in _REPORTS_NOUN_WORDS
 
 
 # The explicit complement disambiguates "exclude from" even after a modal
