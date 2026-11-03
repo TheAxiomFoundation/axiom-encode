@@ -314,6 +314,33 @@ def test_the_same_numbers_in_operative_positions_stay_demanded(
     assert kept <= _resolved_demands(resolved)
 
 
+def test_a_computation_the_caption_states_stays_demanded(tmp_path):
+    """Only the identifier's hyphen stops reading as arithmetic."""
+
+    caption = "43-1072 - Credit equal to 10 percent of rent"
+    _release_, resolved = _composed(
+        tmp_path,
+        parent_heading=caption,
+        child_heading=caption,
+        child_body="43-1072 . Credit equal to 10 percent of rent\n\n" + OPERATIVE,
+    )
+    issues = _issues(EMPTY_MODULE, resolved.body, resolved.rendered_row_headings)
+    assert not {"43", "1072"} & _demands(issues)
+    caption_outputs = [
+        issue
+        for issue in issues
+        if issue.startswith("[complete-source-unit:formula-output]")
+        and "10 percent of rent" in issue
+    ]
+    assert caption_outputs
+    assert caption_outputs == [
+        issue
+        for issue in _issues(EMPTY_MODULE, resolved.body)
+        if issue.startswith("[complete-source-unit:formula-output]")
+        and "10 percent of rent" in issue
+    ]
+
+
 # --- Genuine locator captions --------------------------------------------------
 
 

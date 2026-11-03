@@ -5451,18 +5451,31 @@ _OWN_SECTION_CAPTION_BACK_REFERENCE = re.compile(
 
 @dataclass(frozen=True)
 class _OwnSectionCaption:
-    """A verified caption line and the identifier digits it restates."""
+    """A verified caption line and the identifier it restates."""
 
     line_start: int
     line_end: int
+    identifier_start: int
+    identifier_end: int
     digit_spans: tuple[tuple[int, int], ...]
+
+    def shifted(self, delta: int) -> _OwnSectionCaption:
+        return _OwnSectionCaption(
+            self.line_start + delta,
+            self.line_end + delta,
+            self.identifier_start + delta,
+            self.identifier_end + delta,
+            tuple((start + delta, end + delta) for start, end in self.digit_spans),
+        )
 
 
 def _own_section_caption(offset: int, match: re.Match[str]) -> _OwnSectionCaption:
     identifier_start = offset + match.start("identifier")
     return _OwnSectionCaption(
-        offset,
+        offset + match.start(),
         offset + match.end(),
+        identifier_start,
+        offset + match.end("identifier"),
         tuple(
             (identifier_start + digits.start(), identifier_start + digits.end())
             for digits in re.finditer(r"\d+", match.group("identifier"))
@@ -5553,17 +5566,40 @@ def _caption_line_within(
     )
 
 
-def _blank_caption_lines(
+def _blank_caption_identifiers(
     source_text: str, captions: Sequence[_OwnSectionCaption]
 ) -> str:
-    """Blank verified caption lines in place, keeping every offset."""
+    """Blank verified caption identifiers in place, keeping every offset.
 
+    Only the identifier goes: a computation the caption's title states (`Credit
+    equal to 10 percent of rent`) still reads as one.
+    """
+
+    if not captions:
+        return source_text
     characters = list(source_text)
     for caption in captions:
-        characters[caption.line_start : caption.line_end] = " " * (
-            caption.line_end - caption.line_start
+        characters[caption.identifier_start : caption.identifier_end] = " " * (
+            caption.identifier_end - caption.identifier_start
         )
     return "".join(characters)
+
+
+def _caption_identifier_computation(
+    branch: SourceStructureBranch,
+    captions: Sequence[_OwnSectionCaption],
+    *,
+    blanked_source_text: str,
+    corpus_citation_path: str,
+) -> bool:
+    """Whether a branch's computation is only a caption identifier's hyphen."""
+
+    return _caption_line_within(
+        branch.start, branch.end, captions
+    ) and not source_states_explicit_computation(
+        blanked_source_text[branch.start : branch.end],
+        corpus_citation_path=corpus_citation_path,
+    )
 
 
 def analyze_complete_source_unit(
@@ -5601,14 +5637,7 @@ def analyze_complete_source_unit(
             authoritative_source_text.lstrip()
         )
         own_section_captions = tuple(
-            _OwnSectionCaption(
-                caption.line_start - leading,
-                caption.line_end - leading,
-                tuple(
-                    (start - leading, end - leading)
-                    for start, end in caption.digit_spans
-                ),
-            )
+            caption.shifted(-leading)
             for caption in _own_section_captions(
                 authoritative_source_text,
                 rendered_row_headings,
@@ -6084,18 +6113,32 @@ def _analyze_rulespec_payload(
         active_branches=active_branches,
         deferred_paths=deferred_paths,
     )
+    caption_blanked_source_text = _blank_caption_identifiers(
+        source_text, own_section_captions
+    )
     if own_section_captions:
-        # A verified own-section caption states no computation: its identifier
-        # hyphen (`43-1072 - Earned credit ...`) is not a subtraction (#1827).
+        # A verified own-section caption's identifier hyphen (`43-1072 - Earned
+        # credit ...`) is not a subtraction (#1827). A clause in the caption
+        # line goes only if blanking the identifier leaves no computation.
         all_formula_branches = tuple(
             branch
             for branch in all_formula_branches
-            if not _caption_line_within(branch.start, branch.end, own_section_captions)
+            if not _caption_identifier_computation(
+                branch,
+                own_section_captions,
+                blanked_source_text=caption_blanked_source_text,
+                corpus_citation_path=corpus_citation_path,
+            )
         )
         formula_branches = tuple(
             branch
             for branch in formula_branches
-            if not _caption_line_within(branch.start, branch.end, own_section_captions)
+            if not _caption_identifier_computation(
+                branch,
+                own_section_captions,
+                blanked_source_text=caption_blanked_source_text,
+                corpus_citation_path=corpus_citation_path,
+            )
         )
     control_branches = _source_control_branches(
         source_text,
@@ -6121,7 +6164,7 @@ def _analyze_rulespec_payload(
         deferred_paths=deferred_paths,
     )
     source_has_computation = source_states_explicit_computation(
-        _blank_caption_lines(source_text, own_section_captions),
+        caption_blanked_source_text,
         corpus_citation_path=corpus_citation_path,
     )
     if source_has_computation:
