@@ -10,8 +10,9 @@ stay together, and a few functions take most of the suite's time, so their
 files are split. Two rules change the unit (``unit_for``):
 
 - Tests that use a module- or class-scoped fixture form one unit per module
-  or class. Such a fixture is set up once per shard that runs one of its
-  tests, so splitting them would repeat the setup.
+  or class (per module, where the module has a module-scoped fixture). Such a
+  fixture is set up once per shard that runs one of its tests, so splitting
+  them would repeat the setup.
 - Otherwise each case of a parametrized function whose ``ci_shard_seconds.json``
   entry is at least ``SPLIT_FUNCTION_SECONDS`` is its own unit, and weighs an
   equal share of that entry, so the slowest function does not set the floor.
@@ -20,7 +21,7 @@ files are split. Two rules change the unit (``unit_for``):
   table splits, each checked for that).
 
 ``assign`` is a pure function of the collected tests (node id, function, the
-module or class they share a fixture with) and ``ci_shard_seconds.json``;
+scope of the fixtures they share) and ``ci_shard_seconds.json``;
 every shard collects the same suite, so every shard computes the same units
 and assignment and each test runs in exactly one of them.
 
@@ -108,15 +109,15 @@ def unit_of(nodeid: str, name: str, originalname: str | None) -> str:
 class Collected(NamedTuple):
     """A collected test as the split sees it.
 
-    ``function`` is its test function (``unit_of``). ``shares`` is the module
-    (``tests/x.py``) or class (``tests/x.py::TestK``) whose module- or
-    class-scoped fixture it uses, or ``None``. (A module outside pytest's
-    rootdir has the empty node id.)
+    ``function`` is its test function (``unit_of``). ``scope`` is ``"module"``
+    if it uses a module-scoped fixture, else ``"class"`` if it is a method that
+    uses a class-scoped fixture, else ``None``. pytest builds one fixture
+    closure per function, so all of a function's cases have the same scope.
     """
 
     nodeid: str
     function: str
-    shares: str | None = None
+    scope: str | None = None
 
 
 def collected(item: Any) -> Collected:
@@ -128,10 +129,10 @@ def collected(item: Any) -> Collected:
     definitions = info.name2fixturedefs.values() if info is not None else ()
     scopes = {str(defs[-1].scope) for defs in definitions if defs}
     if "module" in scopes:
-        return Collected(item.nodeid, function, _file_of(item.nodeid))
+        return Collected(item.nodeid, function, "module")
     # A class-scoped fixture serves a function outside a class once per test.
     if "class" in scopes and getattr(item, "cls", None) is not None:
-        return Collected(item.nodeid, function, function.rsplit("::", 1)[0])
+        return Collected(item.nodeid, function, "class")
     return Collected(item.nodeid, function)
 
 
@@ -147,15 +148,30 @@ def _has_entry(function: str, seconds: Mapping[str, float]) -> bool:
     return "::" in function and function in seconds
 
 
-def unit_for(test: Collected, cases: int, seconds: Mapping[str, float]) -> str:
-    """The unit ``test`` is assigned with; ``cases`` counts its function's tests.
+def unit_for(
+    test: Collected,
+    cases: int,
+    seconds: Mapping[str, float],
+    fixture_modules: frozenset[str] = frozenset(),
+) -> str:
+    """The unit ``test`` is assigned with.
 
-    The module or class it shares a scoped fixture with; otherwise the test
-    itself if its function is parametrized and its entry reaches
-    ``SPLIT_FUNCTION_SECONDS``; otherwise its function.
+    ``cases`` counts its function's tests, and ``fixture_modules`` holds the
+    modules (``tests/x.py``; the empty string outside pytest's rootdir) where
+    some test uses a module-scoped fixture.
+
+    A test that uses a module- or class-scoped fixture in one of those modules
+    is in the module's unit, since one of its class's tests may also use the
+    module's fixture. One that uses a class-scoped fixture elsewhere is in its
+    class's unit (``tests/x.py::TestK``). Otherwise the test is its own unit if
+    its function is parametrized and its entry reaches
+    ``SPLIT_FUNCTION_SECONDS``, and else its function is.
     """
-    if test.shares is not None:
-        return test.shares
+    module = _file_of(test.nodeid)
+    if test.scope == "module" or (test.scope == "class" and module in fixture_modules):
+        return module
+    if test.scope == "class":
+        return test.function.rsplit("::", 1)[0]
     if (
         cases > 1
         and _has_entry(test.function, seconds)
@@ -168,7 +184,12 @@ def unit_for(test: Collected, cases: int, seconds: Mapping[str, float]) -> str:
 def units_for(tests: Sequence[Collected], seconds: Mapping[str, float]) -> list[str]:
     """The unit of each test, in order."""
     cases = Counter(test.function for test in tests)
-    return [unit_for(test, cases[test.function], seconds) for test in tests]
+    fixture_modules = frozenset(
+        _file_of(test.nodeid) for test in tests if test.scope == "module"
+    )
+    return [
+        unit_for(test, cases[test.function], seconds, fixture_modules) for test in tests
+    ]
 
 
 def weights(tests: Sequence[Collected], seconds: Mapping[str, float]) -> dict[str, int]:
@@ -227,15 +248,20 @@ def assign(
     return assignment
 
 
-def digest(unit_cases: Mapping[str, int], assignment: Mapping[str, int]) -> str:
-    """Identifies a collection and its split: each unit, its cases and its shard.
+def digest(
+    memberships: Mapping[tuple[str, str], int], assignment: Mapping[str, int]
+) -> str:
+    """Identifies a collection and its split.
 
-    Two shards with equal digests collected the same units with the same case
-    counts and assigned them the same way.
+    ``memberships`` counts the tests of each (unit, function) pair. The digest
+    covers each pair, its count and the unit's shard, so two shards with equal
+    digests put the same number of each function's tests in each unit and
+    assigned the units the same way. All of a function's tests share a unit
+    unless the function is split, and then each unit is one test's node id.
     """
     lines = "".join(
-        json.dumps([unit, cases, assignment[unit]]) + "\n"
-        for unit, cases in sorted(unit_cases.items())
+        json.dumps([unit, function, cases, assignment[unit]]) + "\n"
+        for (unit, function), cases in sorted(memberships.items())
     )
     return hashlib.sha256(lines.encode("utf-8")).hexdigest()
 
@@ -266,18 +292,20 @@ def select(
     if not 1 <= shard <= shards:
         raise ValueError(f"shard {shard} is not one of 1..{shards}")
     test_units = units_for(tests, seconds)
-    unit_cases = Counter(test_units)
+    memberships = Counter(zip(test_units, (test.function for test in tests)))
     assignment = assign(tests, seconds, shards)
     keep = [assignment[unit_name] == shard for unit_name in test_units]
-    kept_units = sum(1 for unit_name in unit_cases if assignment[unit_name] == shard)
+    kept_units = sum(
+        1 for unit_name in set(test_units) if assignment[unit_name] == shard
+    )
     return keep, report(
         shard=shard,
         shards=shards,
-        units=len(unit_cases),
+        units=len(set(test_units)),
         kept_units=kept_units,
         cases=len(tests),
         kept_cases=sum(keep),
-        collection=digest(unit_cases, assignment),
+        collection=digest(memberships, assignment),
     )
 
 

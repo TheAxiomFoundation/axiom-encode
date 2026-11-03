@@ -248,8 +248,9 @@ jobs:
           set -euo pipefail
           # HEAD merges the pull request (second parent) into its base (first).
           git rev-parse --verify --quiet 'HEAD^2' > /dev/null
-          # Added, changed or renamed (not deleted) files, as the base sees them.
-          files=$(git diff --name-only --diff-filter=d 'HEAD^1' HEAD)
+          # Added, changed or renamed (not deleted) files. -z, so git does not
+          # quote a name with non-ASCII characters.
+          files=$(git diff -z --name-only --diff-filter=d 'HEAD^1' HEAD | tr '\000' '\n')
           changed=()
           while IFS= read -r file; do
             if [[ "$file" =~ ^tests/test_[^/]+[.]py$ ]]; then

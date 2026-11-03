@@ -50,14 +50,12 @@ def _tests(function_cases, seed: int = 0) -> list[ci_shards.Collected]:
     """The collected tests, in a shuffled collection order."""
     tests = []
     for function, (cases, scope) in function_cases.items():
-        shares = {
-            "": None,
-            "module": function.split("::", 1)[0],
-            "class": function.split("::", 1)[0] + "::TestShared",
-        }[scope]
+        if scope == "class":
+            # A method: class-scoped fixtures are per class only inside one.
+            function = function.replace("::", "::TestShared::", 1)
         for case in range(cases):
             nodeid = function if cases == 1 else f"{function}[{case}]"
-            tests.append(Collected(nodeid, function, shares))
+            tests.append(Collected(nodeid, function, scope or None))
     random.Random(seed).shuffle(tests)
     return tests
 
@@ -108,13 +106,13 @@ def test_assignment_ignores_collection_and_table_order(
     items = _tests(function_cases, seed)
     first = ci_shards.assign(_tests(function_cases, other_seed), seconds, shards)
     second = ci_shards.assign(items, reordered(seconds, other_seed), shards)
-    unit_cases = Counter(ci_shards.units_for(items, seconds))
+    units = ci_shards.units_for(items, seconds)
+    memberships = Counter(zip(units, (test.function for test in items)))
 
     assert first == second
-    assert ci_shards.digest(unit_cases, first) == ci_shards.digest(
-        reordered(unit_cases, seed), reordered(second, other_seed)
+    assert ci_shards.digest(memberships, first) == ci_shards.digest(
+        reordered(memberships, seed), reordered(second, other_seed)
     )
-    units = ci_shards.units_for(items, seconds)
     for shard in range(1, shards + 1):
         keep, _ = ci_shards.select(items, shard, shards, seconds)
         assert keep == [first[unit] == shard for unit in units]
@@ -182,6 +180,64 @@ def test_gate_rejects_a_missing_or_disagreeing_shard(
     assert ci_shards.check_reports(reports) == []
     for candidate in broken:
         assert ci_shards.check_reports(candidate) != []
+
+
+_METHODS = st.tuples(_FILES, _NAMES).map(
+    lambda pair: f"{pair[0]}::TestK::test_{pair[1]}"
+)
+_METHOD_SECONDS = st.dictionaries(
+    st.one_of(_FILES, _METHODS),
+    st.floats(min_value=0, max_value=5000, allow_nan=False, allow_infinity=False),
+    max_size=14,
+)
+_SCOPES = st.sampled_from([None, "module", "class"])
+
+
+@given(
+    st.dictionaries(
+        _METHODS,
+        st.tuples(st.integers(min_value=1, max_value=6), _SCOPES, _SCOPES),
+        max_size=12,
+    ),
+    _METHOD_SECONDS,
+    _METHOD_SECONDS,
+    st.lists(st.integers(min_value=0, max_value=1), min_size=1, max_size=6),
+)
+def test_shards_that_see_different_scopes_or_tables_pass_only_if_each_test_runs_once(
+    methods, seconds_one, seconds_two, picks
+):
+    # Two views of one collection: the same tests, but each function's fixture
+    # scope and the table may differ between them. Each shard holds one view.
+    # Whenever the gate passes, every test must have run exactly once.
+    nodeids = [
+        (method if cases == 1 else f"{method}[{case}]", method)
+        for method, (cases, _, _) in sorted(methods.items())
+        for case in range(cases)
+    ]
+    views = [
+        (
+            [
+                Collected(nodeid, method, methods[method][1 + view])
+                for nodeid, method in nodeids
+            ],
+            (seconds_one, seconds_two)[view],
+        )
+        for view in (0, 1)
+    ]
+    kept = Counter()
+    reports = []
+    for shard, pick in enumerate(picks, start=1):
+        tests, seconds = views[pick]
+        keep, line = ci_shards.select(tests, shard, len(picks), seconds)
+        reports.append(line)
+        kept.update(
+            test.nodeid
+            for test, kept_here in zip(tests, keep, strict=True)
+            if kept_here
+        )
+
+    if ci_shards.check_reports(reports) == []:
+        assert kept == Counter(nodeid for nodeid, _ in nodeids)
 
 
 def test_shards_holding_different_tables_cannot_pass_the_gate():
@@ -275,33 +331,60 @@ def test_tests_sharing_a_scoped_fixture_stay_one_unit():
     tests = [
         # Both use a module-scoped fixture, so they form the module's unit,
         # even the slow parametrized one that would otherwise split.
-        Collected(f"{module}::test_slow[0]", f"{module}::test_slow", module),
-        Collected(f"{module}::test_slow[1]", f"{module}::test_slow", module),
-        Collected(f"{module}::test_other", f"{module}::test_other", module),
+        Collected(f"{module}::test_slow[0]", f"{module}::test_slow", "module"),
+        Collected(f"{module}::test_slow[1]", f"{module}::test_slow", "module"),
+        Collected(f"{module}::test_other", f"{module}::test_other", "module"),
         Collected(f"{module}::test_alone", f"{module}::test_alone"),
+        Collected(f"{module}::TestK::test_x", f"{module}::TestK::test_x", "class"),
+        Collected(f"{module}::TestK::test_y", f"{module}::TestK::test_y", "class"),
         Collected(
-            f"{module}::TestK::test_x", f"{module}::TestK::test_x", f"{module}::TestK"
+            "tests/test_b.py::TestK::test_x", "tests/test_b.py::TestK::test_x", "class"
         ),
         Collected(
-            f"{module}::TestK::test_y", f"{module}::TestK::test_y", f"{module}::TestK"
+            "tests/test_b.py::TestK::test_y", "tests/test_b.py::TestK::test_y", "class"
         ),
     ]
-    seconds = {module: 1000, f"{module}::test_slow": 600, f"{module}::test_other": 100}
+    seconds = {
+        module: 1000,
+        f"{module}::test_slow": 600,
+        f"{module}::test_other": 100,
+        "tests/test_b.py": 10,
+    }
 
+    # In a module with a module-scoped fixture, class-fixture tests join the
+    # module's unit too: TestK's methods might also use the module's fixture.
+    # Elsewhere a class's fixture users form the class's unit.
     assert ci_shards.units_for(tests, seconds) == [
         module,
         module,
         module,
         f"{module}::test_alone",
-        f"{module}::TestK",
-        f"{module}::TestK",
+        module,
+        module,
+        "tests/test_b.py::TestK",
+        "tests/test_b.py::TestK",
     ]
-    # The module's unit weighs its functions' entries; the rest share the file's.
+    # The module's unit weighs its functions' entries and its share of the
+    # rest of the file's time; test_alone has the other share.
     assert ci_shards.weights(tests, seconds) == {
-        module: 700_000_000,
+        module: 900_000_000,
         f"{module}::test_alone": 100_000_000,
-        f"{module}::TestK": 200_000_000,
+        "tests/test_b.py::TestK": 10_000_000,
     }
+
+
+def test_a_method_using_both_scopes_stays_with_one_using_only_its_class():
+    # test_a uses the module's fixture and its class's; test_b only the class's.
+    module = "tests/test_a.py"
+    tests = [
+        Collected(f"{module}::TestK::test_a", f"{module}::TestK::test_a", "module"),
+        Collected(f"{module}::TestK::test_b", f"{module}::TestK::test_b", "class"),
+    ]
+
+    assert ci_shards.units_for(tests, {}) == [module, module]
+    for shard in (1, 2):
+        keep, _ = ci_shards.select(tests, shard, 2, {})
+        assert keep in ([True, True], [False, False])
 
 
 @given(_FUNCTION_CASES, _SECONDS)
@@ -310,9 +393,17 @@ def test_units_follow_the_fixture_scope_then_the_split_rule(function_cases, seco
     units = ci_shards.units_for(tests, seconds)
     cases = Counter(test.function for test in tests)
 
+    fixture_modules = {
+        test.nodeid.split("::")[0] for test in tests if test.scope == "module"
+    }
     for test, unit in zip(tests, units, strict=True):
-        if test.shares is not None:
-            assert unit == test.shares
+        module = test.nodeid.split("::")[0]
+        if test.scope == "module" or (
+            test.scope == "class" and module in fixture_modules
+        ):
+            assert unit == module
+        elif test.scope == "class":
+            assert unit == test.function.rsplit("::", 1)[0]
         elif (
             cases[test.function] > 1
             and seconds.get(test.function, 0) >= ci_shards.SPLIT_FUNCTION_SECONDS
@@ -410,11 +501,10 @@ def test_this_sessions_real_tests_split_without_loss(request):
 
     assert any(test.nodeid == request.node.nodeid for test in tests)
     assert all(test.nodeid.startswith(test.function) for test in tests)
-    assert all(
-        test.function.startswith(test.shares + "::")
-        for test in tests
-        if test.shares is not None
-    )
+    assert {test.scope for test in tests} <= {None, "module", "class"}
+    # pytest builds one fixture closure per function: its cases share a scope.
+    scopes = {(test.function, test.scope) for test in tests}
+    assert len(scopes) == len({test.function for test in tests})
     for shards in (1, 2, 8):
         selections = [
             ci_shards.select(tests, shard, shards, seconds)
@@ -476,28 +566,28 @@ class _Item:
 
 
 @pytest.mark.parametrize(
-    "scopes,cls,shares",
+    "scopes,cls,scope",
     [
         ([], None, None),
         ([("function",), ("session",), ("package",)], None, None),
-        ([("module",)], None, "tests/test_a.py"),
+        ([("module",)], None, "module"),
         # The last definition of a name is the one that serves the test.
-        ([("function", "module")], None, "tests/test_a.py"),
+        ([("function", "module")], None, "module"),
         ([("module", "function")], None, None),
-        ([("class",)], object, "tests/test_a.py::TestK"),
-        ([("class",), ("module",)], object, "tests/test_a.py"),
+        ([("class",)], object, "class"),
+        ([("class",), ("module",)], object, "module"),
         # Outside a class, pytest sets a class-scoped fixture up per test.
         ([("class",)], None, None),
     ],
 )
-def test_collected_reads_the_fixture_scopes(scopes, cls, shares):
+def test_collected_reads_the_fixture_scopes(scopes, cls, scope):
     nodeid = (
         "tests/test_a.py::TestK::test_x[1]" if cls else "tests/test_a.py::test_x[1]"
     )
     item = _Item(nodeid, "test_x[1]", "test_x", scopes, cls)
 
     assert ci_shards.collected(item) == Collected(
-        nodeid, nodeid.removesuffix("[1]"), shares
+        nodeid, nodeid.removesuffix("[1]"), scope
     )
 
 
@@ -660,7 +750,9 @@ def test_each_test_runs_in_exactly_one_shard_and_unsharded_runs_all(tmp_path):
     ]
     assert ci_shards.check_reports(reports) == []
     # A parametrized function's cases stay in one shard, and so do the tests
-    # that share a module- or class-scoped fixture: 14 functions, 12 units.
+    # that share a module- or class-scoped fixture. The module has a
+    # module-scoped fixture, so TestShared's users join the module's unit:
+    # 14 functions, 11 units.
     for together in (
         {f"test_many[{n}]" for n in range(4)},
         {"test_uses_the_module_fixture", "test_also_uses_the_module_fixture"},
@@ -668,7 +760,7 @@ def test_each_test_runs_in_exactly_one_shard_and_unsharded_runs_all(tmp_path):
     ):
         owners = [results for _, results, _, _ in shards if together & results.keys()]
         assert len(owners) == 1 and together <= owners[0].keys()
-    assert {report.split(":")[1] for report in reports} == {"12"}
+    assert {report.split(":")[1] for report in reports} == {"11"}
 
 
 def test_a_shard_whose_tests_fail_publishes_no_report(tmp_path):
@@ -800,8 +892,8 @@ def test_seconds_come_from_a_run_tests_log():
 
 def test_command_line_checks_reports(capsys):
     tests = _tests({"tests/test_a.py::test_x": (2, "")})
-    unit_cases = {"tests/test_a.py::test_x": 2}
-    collection = ci_shards.digest(unit_cases, ci_shards.assign(tests, {}, 2))
+    memberships = {("tests/test_a.py::test_x", "tests/test_a.py::test_x"): 2}
+    collection = ci_shards.digest(memberships, ci_shards.assign(tests, {}, 2))
     good = [f"1/2:1:1:2:2:{collection}", f"2/2:1:0:2:0:{collection}"]
 
     assert ci_shards.main(["check", *good]) == 0
@@ -1174,6 +1266,8 @@ def test_quick_tests_run_only_the_test_files_the_pull_request_changes(tmp_path):
         {
             "tests/test_kept.py": "changed\n",
             "tests/test_new.py": "new\n",
+            # git quotes this name in --name-only output unless given -z.
+            "tests/test_\u00e9t\u00e9.py": "unicode\n",
             "tests/test_gone.py": None,
             "tests/fixtures/test_data.py": "fixture\n",
             "tests/helper.py": "helper\n",
@@ -1191,6 +1285,7 @@ def test_quick_tests_run_only_the_test_files_the_pull_request_changes(tmp_path):
         "not real_engine",
         "tests/test_kept.py",
         "tests/test_new.py",
+        "tests/test_\u00e9t\u00e9.py",
     ]
 
 
