@@ -1,0 +1,1 @@
+Treat a source as a single-amount table row only for a structured table row or a one-sentence amount leaf, so a statute that states one amount keeps its branch guidance and alternate companion cases. When single-row staging separates a mixed case, the amount outputs keep the case's name and every other assertion moves to a twin case with the same facts instead of being dropped.

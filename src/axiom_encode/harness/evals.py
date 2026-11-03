@@ -12933,7 +12933,13 @@ def _build_eval_prompt(
 
 
 def _is_single_amount_table_slice(source_text: str) -> bool:
-    """Return True when source text is a single amount-bearing table row slice."""
+    """Return True for one amount-bearing table row or atomic amount leaf.
+
+    A structured table row qualifies on its own. Without table structure,
+    only a one-sentence leaf such as "£22,020 for joint claimants not resident
+    in Greater London." qualifies: a statute with several sentences or
+    branches that happens to state one amount is not a table row.
+    """
     marker = "Structured table:"
     if marker in source_text:
         table_section = source_text.split(marker, 1)[1]
@@ -12948,12 +12954,11 @@ def _is_single_amount_table_slice(source_text: str) -> bool:
     if _CONDITIONAL_AMOUNT_SLICE_PATTERN.search(source_text):
         return False
 
-    money_lines = [
-        line.strip()
-        for line in source_text.splitlines()
-        if re.search(r"[£$€]\s*\d[\d,]*(?:\.\d+)?", line)
-    ]
-    return len(money_lines) == 1
+    lines = [line.strip() for line in source_text.splitlines() if line.strip()]
+    if len(lines) != 1:
+        return False
+    # A sentence end followed by more text means a second sentence.
+    return re.search(r"[.;:!?](?=\s+\S)", lines[0]) is None
 
 
 def _source_identifier_requests_percentage_rate_boundary(
@@ -17426,11 +17431,29 @@ def _normalize_single_amount_row_test_content(
             return False
         return True
 
-    def normalize_case(case: object) -> object:
+    cases = _coerce_test_payload_to_case_list(payload)
+    used_names = {
+        case["name"]
+        for case in cases or ()
+        if isinstance(case, dict) and isinstance(case.get("name"), str)
+    }
+
+    def twin_name(name: object) -> object:
+        if not isinstance(name, str):
+            return name
+        candidate = f"{name} (non-amount outputs)"
+        suffix = 2
+        while candidate in used_names:
+            candidate = f"{name} (non-amount outputs {suffix})"
+            suffix += 1
+        used_names.add(candidate)
+        return candidate
+
+    def normalize_case(case: object) -> list[object]:
         if not isinstance(case, dict):
-            return case
+            return [case]
         if _is_exact_repair_removal_marker(case):
-            return case
+            return [case]
         normalized_case = dict(case)
         if annual_period and effective_date is not None:
             normalized_case["period"] = _normalize_annual_test_period_value(
@@ -17451,20 +17474,29 @@ def _normalize_single_amount_row_test_content(
                 if value is None
                 or (isinstance(value, (int, float)) and not isinstance(value, bool))
             }
-            if numeric_output:
+            other_output = {
+                key: value for key, value in output.items() if key not in numeric_output
+            }
+            if numeric_output and other_output:
+                # The amount case stays comparable with an amount oracle. Every
+                # other assertion moves to a twin with the same facts, never away.
+                twin = {**normalized_case, "output": other_output}
+                if "name" in normalized_case:
+                    twin["name"] = twin_name(normalized_case["name"])
                 normalized_case["output"] = numeric_output
-        return normalized_case
+                return [normalized_case, twin]
+        return [normalized_case]
 
-    cases = _coerce_test_payload_to_case_list(payload)
     if cases is not None:
         filtered = [
-            normalize_case(case)
+            normalized
             for case in cases
             if (
                 not isinstance(case, dict)
                 or _is_exact_repair_removal_marker(case)
                 or should_keep(case.get("name"))
             )
+            for normalized in normalize_case(case)
         ]
         return safe_dump_yaml(filtered, sort_keys=False).strip() + "\n"
 
