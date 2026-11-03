@@ -124,6 +124,60 @@ NEGATIVE_CONTROLS = (
         "$4,000 and the contribution is deducted.",
         2,
     ),
+    # Review inputs. A condition inside the exhausted amount's words.
+    (
+        "If the contribution exceeds the annual limit, the remainder may be "
+        "carried forward and subtracted in future taxable years until the "
+        "contribution, so long as the contributor remains a resident, has been "
+        "fully deducted.",
+        2,
+    ),
+    (
+        "If the credit exceeds the tax liability, the unused portion of the credit "
+        "may be carried forward and applied in future taxable years until the "
+        "credit of a taxpayer residing in an enterprise zone has been fully used.",
+        2,
+    ),
+    (
+        "If the purchase price or annual contribution to a college savings trust "
+        "account exceeds $ 4,000, the remainder may be carried forward and "
+        "subtracted in future taxable years until the purchase price or "
+        "contribution of a purchaser under age 70 has been fully deducted.",
+        2,
+    ),
+    # An antecedent condition with no gate of its own, whose only demand was
+    # main's consequent gate.
+    (
+        "If the credit exceeds the tax liability and the taxpayer continues to "
+        "operate the facility in the Commonwealth, the unused portion of the "
+        "credit may be carried forward and applied in future taxable years until "
+        "the credit for the facility has been fully used.",
+        2,
+    ),
+    (
+        "If the purchase price exceeds $ 4,000 and the taxpayer elects, "
+        + CARRYFORWARD,
+        2,
+    ),
+    (
+        "If the household's allotment is not used and the household remains "
+        "certified, the balance may be carried over and used until the balance "
+        "has been fully used.",
+        2,
+    ),
+    # Two conditions in one segment: a relative clause or a nested conditional.
+    (
+        "If an individual, who is a resident, contributes more than the annual "
+        "limit, the remainder may be carried forward and subtracted in future "
+        "taxable years until the contribution has been fully deducted.",
+        2,
+    ),
+    (
+        "If the taxpayer is a resident, then if the contribution exceeds the annual "
+        "limit, the remainder may be carried forward and subtracted in future "
+        "taxable years until the contribution has been fully deducted.",
+        2,
+    ),
 )
 
 
@@ -203,6 +257,50 @@ def test_carryforward_consequent_never_changes_antecedent_gates(conditions, cons
     assert sc._source_conjunctive_fact_gates(
         f"If {antecedent}, {consequent}"
     ) == sc._source_conjunctive_fact_gates(f"If {antecedent}")
+
+
+UNGATED = (
+    "the taxpayer elects",
+    "the taxpayer continues to operate the facility",
+    "the household remains certified",
+)
+RESTRICTIONS = (
+    ", so long as the contributor remains a resident,",
+    " of a purchaser under age 70",
+    " of a taxpayer residing in an enterprise zone",
+    " for taxpayers age 65 or older",
+    ", where the purchaser is a resident,",
+    " that the taxpayer elects to carry",
+)
+
+
+@given(
+    gated=st.lists(st.sampled_from(CONDITIONS), min_size=1, max_size=2),
+    ungated=st.lists(st.sampled_from(UNGATED), min_size=1, max_size=2),
+    order=st.permutations(range(4)),
+)
+@settings(max_examples=120, deadline=None)
+def test_an_ungated_antecedent_condition_keeps_mains_gates(gated, ungated, order):
+    """A condition the splitter cannot gate keeps main's consequent demand."""
+
+    conditions = [*gated, *ungated]
+    conditions = [conditions[index] for index in order if index < len(conditions)]
+    text = f"If {' and '.join(conditions)}, {CARRYFORWARD}"
+    assert sc._source_conjunctive_fact_gates(text) == _main_gates(text)
+
+
+@given(
+    conditions=st.lists(st.sampled_from(CONDITIONS), min_size=1, max_size=2),
+    restriction=st.sampled_from(RESTRICTIONS),
+)
+@settings(max_examples=80, deadline=None)
+def test_a_restricted_exhausted_amount_keeps_mains_gates(conditions, restriction):
+    text = (
+        f"If {' and '.join(conditions)}, the remainder may be carried forward and "
+        f"subtracted in future taxable years until the contribution{restriction} "
+        "has been fully deducted"
+    )
+    assert sc._source_conjunctive_fact_gates(text) == _main_gates(text)
 
 
 @given(
@@ -426,4 +524,16 @@ def test_consequent_scan_is_one_anchored_match_per_top_level_comma(monkeypatch, 
     )
     sc._source_conjunctive_fact_gates(clause)
     assert meter["fullmatch"] == copies + 1
+    # A comma-listed antecedent keeps main's gates, so the antecedent's own
+    # gates are never computed.
+    assert meter["segment_gates"] == 1
+    meter.update(fullmatch=0, segment_gates=0)
+    clean = (
+        "If the purchase price exceeds $ 4,000"
+        + " and the spouse is blind" * copies
+        + ", "
+        + CARRYFORWARD
+    )
+    sc._source_conjunctive_fact_gates(clean)
+    assert meter["fullmatch"] == 1
     assert meter["segment_gates"] == 2

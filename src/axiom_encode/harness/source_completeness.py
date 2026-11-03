@@ -17872,28 +17872,52 @@ def _source_conjunctive_fact_gates(
     care_text = text if care_source_text is None else care_source_text
     segment_gates = _source_gate_segment_gates(segments, care_source_text=care_text)
     antecedent = _carryforward_consequent_antecedent(body)
-    if antecedent is not None:
+    if antecedent is not None and not _CARRYFORWARD_UNSPLIT_ANTECEDENT.search(
+        _without_digit_group_commas(antecedent)
+    ):
         # The consequent coordinates effects, so its `and` splits no condition.
-        # Cut it off only if no antecedent segment loses its gate: a segment
-        # may read as a condition only through words the consequent supplies
-        # (`... and the taxpayer elects, ... until ... has been fully deducted`).
+        # Cut it off only if every antecedent segment keeps a gate of its own.
+        # Main's consequent gate is the only demand behind a condition the
+        # splitter cannot see: a verb outside its predicate words (`and the
+        # taxpayer elects`), a relative clause or a nested conditional. So any
+        # ungated antecedent segment, top-level comma, relative pronoun or
+        # condition cue keeps main's gates.
         antecedent_segments = _source_gate_split_conjunctive_conditions(antecedent)
         boundary = len(antecedent_segments) - 1
         antecedent_gates = _source_gate_segment_gates(
             antecedent_segments, care_source_text=care_text
         )
         if antecedent_segments[:boundary] == segments[:boundary] and all(
-            original is None or truncated is not None
-            for original, truncated in zip(segment_gates, antecedent_gates)
+            gate is not None for gate in antecedent_gates
         ):
             segment_gates = antecedent_gates
     gates = [gate for gate in segment_gates if gate is not None]
     return tuple(gates) if len(gates) >= 2 else ()
 
 
+# Words that put a second condition, or a restriction on whose amount is
+# carried, into a clause: relative pronouns, condition cues, prepositions,
+# coordinators that split gates, and status predicates.
+_CARRYFORWARD_RESTRICTING_WORDS = (
+    r"who|whom|whose|which|that|if|when|whenever|where|wherever|while|unless|"
+    r"except|provided|until|once|because|after|before|since|then|so|as|long|"
+    r"and|nor|of|for|in|by|with|to|at|from|under|over|on|within|without|during|"
+    r"resident|residents|nonresident|blind|married|disabled|elderly|age|aged|"
+    r"insured|eligible|qualified|qualifying|dependent|employed"
+)
+_CARRYFORWARD_UNSPLIT_ANTECEDENT = re.compile(
+    r",|\b(?:who|whom|whose|which|that|if|when|whenever|where|wherever|while|"
+    r"unless|except|provided|once|because|after|before|since|then)\b|"
+    r"\b(?:so|as)\s+long\s+as\b",
+    flags=re.IGNORECASE,
+)
+# The exhausted amount: plain words only (`the purchase price or college
+# savings trust contribution`), with no restricting word or participle.
+_CARRYFORWARD_EXHAUSTED_AMOUNT_WORD = (
+    rf"(?!(?:{_CARRYFORWARD_RESTRICTING_WORDS})\b)(?![A-Za-z]+ing\b)[A-Za-z]+"
+)
 # A carried amount, what may be done with it in later years, and until when.
-# Every word is fixed except the exhaustion clause's subject, which can name no
-# condition cue, relative pronoun or gate conjunction.
+# Every word is fixed except the exhausted amount's plain words.
 _CARRYFORWARD_CONSEQUENT = re.compile(
     r"\s*(?:then\s+)?(?:the|such|any)\s+"
     r"(?:remainder|excess|balance|"
@@ -17905,14 +17929,19 @@ _CARRYFORWARD_CONSEQUENT = re.compile(
     r"(?:\s+(?:in|to|into|for)\s+(?:the\s+)?"
     r"(?:future|succeeding|subsequent|following)\s+taxable\s+years?)?"
     r"(?:\s+until\s+(?:(?:the|such)\s+"
-    r"(?:(?!(?:and|nor|who|whom|whose|which|that|if|when|unless|except|"
-    r"provided|until|while)\b)[\w'’$,.-]+\s+){1,10}?"
+    rf"(?:{_CARRYFORWARD_EXHAUSTED_AMOUNT_WORD}\s+){{1,8}}?"
     r"(?:has|have)\s+been\s+)?"
     r"(?:fully|completely|entirely)\s+"
     r"(?:deducted|used|claimed|applied|subtracted|exhausted|recovered))?"
     r"\s*[;.]?\s*",
     flags=re.IGNORECASE,
 )
+
+
+def _without_digit_group_commas(text: str) -> str:
+    """`$ 4,000` keeps its digits but loses the comma that is no boundary."""
+
+    return re.sub(r"(?<=\d),(?=\d)", "", text)
 
 
 def _carryforward_consequent_antecedent(body: str) -> str | None:
