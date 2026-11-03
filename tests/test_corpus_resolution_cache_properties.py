@@ -595,9 +595,17 @@ def test_a_child_forked_while_the_cache_lock_is_held_still_resolves(tmp_path: Pa
             status = 1
             try:
                 cache = _cache(release)
-                if not cache.buckets and cache.lock.acquire(timeout=5):
+                # The reset also zeroes the byte counters, so the child's
+                # accounting matches the buckets it holds before and after it
+                # loads one.
+                if (
+                    not cache.buckets
+                    and cache.row_bytes == cache.memo_bytes == 0
+                    and cache.lock.acquire(timeout=5)
+                ):
                     cache.lock.release()
                     resolved = resolve_local_corpus_source("us/statute/1", release)
+                    _assert_accounting(release)
                     status = 0 if resolved.body == "One." else 1
             finally:
                 os._exit(status)

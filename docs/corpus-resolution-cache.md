@@ -200,10 +200,14 @@ loads.
 Each of these mutations of the cache fails at least one of these tests:
 dropping the change time from the file identity; staleness checks without
 `with_fresh_reads()`; taking the cold-path fingerprint after the read; a
-shallow metadata copy where rows are read; rebuilding the citation index on
+shallow metadata copy in `_read_matching_records`; rebuilding the citation index on
 every call; trusting the fingerprint without comparing it; leaving locks out
 of it; one cache shared by every release; no per-caller metadata copy; the
-path checks before the fingerprint; and no fork handler.
+path checks before the fingerprint; no fork handler; and a fork reset that
+keeps the parent's byte counters. A shallow copy in `_read_descendant_records`
+is an equivalent mutation that no test can tell apart: a descendant row's
+metadata only feeds the part-heading check during composition and never
+reaches a caller, whose selected row comes from `_read_matching_records`.
 
 ## Other changes
 
@@ -236,8 +240,10 @@ The uncached row runs this change's cold path, which takes the fingerprint
 before it reads; the resolver before this change made the same reads and
 parses and took no fingerprint. In general, N resolutions in a bucket of R
 rows over A artifacts go from N × A reads and N × R parses to A reads and R
-parses. Every call, cached or not, takes A fingerprint `lstat` calls (2A in a
-lock-file checkout) and the path checks an uncached read makes.
+parses. A cold call or a warm call that reuses the bucket takes A
+fingerprint `lstat` calls (2A in a lock-file checkout) and the path checks an
+uncached read makes. A warm call that finds the fingerprint changed takes it
+twice, once to compare and once before it reads again: 2A, or 4A with locks.
 
 Wall-clock figures for real US releases need a benchmark run against the
 signed release objects and corpus checkouts, which live outside this
