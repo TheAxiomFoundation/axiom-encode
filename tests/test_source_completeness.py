@@ -3,13 +3,14 @@ from __future__ import annotations
 import dataclasses
 import functools
 import hashlib
-import time
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode.harness import source_completeness as completeness_module
 from axiom_encode.harness import validator_pipeline as validator_pipeline_module
@@ -31,7 +32,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_ungrounded_numeric_issues_scoped,
     numeric_value_is_grounded,
 )
-from tests.scaling import assert_grows_linearly, fastest_cpu_seconds
+from tests.scaling import assert_linear_growth, lowest_work
 
 CORPUS_CITATION_PATH = "de/statute/estg/32a"
 DE_NUMERIC_OCCURRENCE_EXTRACTOR = functools.partial(
@@ -8835,30 +8836,81 @@ def test_ordered_dotted_labels_are_structural_without_semantic_guessing():
     ]
 
 
+@given(rows=st.integers(min_value=1, max_value=40))
+@settings(deadline=None)
+def test_structure_growth_fixtures_preserve_rejected_and_nested_outputs(rows):
+    assert recognize_source_structure("A. prose\nQ. prose\n" * rows) == ()
+    source = (
+        "A. Start.\n"
+        + "".join(f"({index}) Row {index}.\n" for index in range(1, rows + 1))
+        + "B. End."
+    )
+    assert [branch.path for branch in recognize_source_structure(source)] == [
+        ("a",),
+        *(("a", str(index)) for index in range(1, rows + 1)),
+        ("b",),
+    ]
+
+
 def test_rejected_dotted_candidates_are_scanned_with_bounded_runtime():
-    source = "A. prose\nQ. prose\n" * 40_000
+    def recognition_work(repeats, *, sample=True):
+        source = "A. prose\nQ. prose\n" * repeats
 
-    started = time.perf_counter()
-    branches = recognize_source_structure(source)
-    elapsed = time.perf_counter() - started
+        def check(branches):
+            assert branches == ()
 
-    assert branches == ()
-    assert elapsed < 1.5
+        if not sample:
+            check(recognize_source_structure(source))
+            return None
+        return lowest_work(
+            lambda: recognize_source_structure(source),
+            check,
+            setup=completeness_module.re.purge,
+        )
+
+    # A native suffix copy at each candidate costs a few percent of the
+    # recognizer's scan at a few thousand repeats, so it needs a 128x pair to
+    # outgrow the linear work, including under coverage. Correct code stays
+    # near a CPU second at the large size. A Python-level quadratic would take
+    # hours at that size, so a short first step fails it first: the scan
+    # without its break took 41-47 CPU seconds plain and 151-163 under
+    # coverage on a 4-vCPU Linux machine.
+    assert_linear_growth(recognition_work(250), recognition_work(2_500), input_ratio=10)
+    assert_linear_growth(
+        recognition_work(1_000), recognition_work(128_000), input_ratio=128
+    )
+    recognition_work(40_000, sample=False)
 
 
 def test_accepted_nested_markers_are_closed_with_bounded_runtime():
-    source = (
-        "A. Start.\n"
-        + "".join(f"({index}) Row {index}.\n" for index in range(1, 20_001))
-        + "B. End."
-    )
+    def recognition_work(rows, *, sample=True):
+        source = (
+            "A. Start.\n"
+            + "".join(f"({index}) Row {index}.\n" for index in range(1, rows + 1))
+            + "B. End."
+        )
 
-    started = time.perf_counter()
-    branches = recognize_source_structure(source)
-    elapsed = time.perf_counter() - started
+        def check(branches):
+            assert len(branches) == rows + 2
+            assert [branch.path for branch in branches] == [
+                ("a",),
+                *(("a", str(index)) for index in range(1, rows + 1)),
+                ("b",),
+            ]
 
-    assert len(branches) == 20_002
-    assert elapsed < 1.5
+        if not sample:
+            check(recognize_source_structure(source))
+            return None
+        return lowest_work(
+            lambda: recognize_source_structure(source),
+            check,
+            setup=completeness_module.re.purge,
+        )
+
+    # The old closer searched all following markers for every row. Check a
+    # finite pair before retaining the original large output fixture.
+    assert_linear_growth(recognition_work(500), recognition_work(8_000), input_ratio=16)
+    recognition_work(20_000, sample=False)
 
 
 @pytest.mark.parametrize(
@@ -9277,7 +9329,7 @@ rules: []
 
 
 def test_parenthesized_cfr_outline_is_recognized_with_bounded_runtime():
-    def outline_seconds(items):
+    def outline_work(items, *, sample=True):
         source = (
             "(a) Start.\n"
             + "".join(f"({index}) Item {index}.\n" for index in range(1, items + 1))
@@ -9289,9 +9341,18 @@ def test_parenthesized_cfr_outline_is_recognized_with_bounded_runtime():
             assert branches[-2].path == ("a", str(items))
             assert branches[-1].path == ("b",)
 
-        return fastest_cpu_seconds(lambda: recognize_source_structure(source), check)
+        if not sample:
+            check(recognize_source_structure(source))
+            return None
+        return lowest_work(lambda: recognize_source_structure(source), check)
 
-    assert_grows_linearly(outline_seconds(5_000), outline_seconds(20_000))
+    # A per-marker scan of the markers found so far costs a small share of
+    # a short outline, so its quadratic term needs a 64x pair to clear the
+    # bound. Check growth before the original outlines, so quadratic failure
+    # cases stay finite.
+    assert_linear_growth(outline_work(250), outline_work(16_000), input_ratio=64)
+    outline_work(5_000, sample=False)
+    outline_work(20_000, sample=False)
 
 
 def test_parenthesized_nonoutline_without_root_sequence_remains_flat():
@@ -11179,20 +11240,76 @@ def test_formula_interval_uses_controlled_comparison_as_stronger_lower_bound(
 
 
 def test_formula_interval_rejects_long_nonmatching_upper_gap_with_bounded_runtime():
-    source = "income greater than 1" + (" " * 10_000) + "x 2"
+    def interval_for(width):
+        return completeness_module._formula_interval_from_text(
+            "income greater than 1" + " " * width + "x 2",
+            extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        )
 
-    started = time.perf_counter()
-    interval = completeness_module._formula_interval_from_text(
-        source,
-        extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
-    )
-    elapsed = time.perf_counter() - started
+    def check(interval):
+        assert interval is not None
+        assert interval.lower is not None
+        assert interval.lower.value == 1
+        assert interval.upper is None
 
-    assert interval is not None
-    assert interval.lower is not None
-    assert interval.lower.value == 1
-    assert interval.upper is None
-    assert elapsed < 0.5
+    def work(width):
+        def check_batch(intervals):
+            for interval in intervals:
+                check(interval)
+
+        # One batch size for both widths keeps the narrow sample above the
+        # CPU floor without changing the ratio.
+        return lowest_work(lambda: [interval_for(width) for _ in range(8)], check_batch)
+
+    # A regex scanning the raw space run from every position is quadratic in
+    # the gap. Correct code is not linear beyond a few hundred spaces either:
+    # an existing optional-currency pattern backtracks across the run, so the
+    # pairs stay narrow. The first step stops a cubic scan before it reaches
+    # widths where it runs for minutes; the second catches a quadratic one in
+    # plain runs. Under coverage the fixed cost of each call can hide a
+    # quadratic gap scan here, so the next test measures the gap parser alone.
+    assert_linear_growth(work(32), work(256), input_ratio=8)
+    assert_linear_growth(work(64), work(1_024), input_ratio=16)
+    # Keep the original 10,000-space rejection, once and untimed.
+    check(interval_for(10_000))
+
+
+def test_formula_upper_gap_parser_stays_linear_on_wide_space_runs(monkeypatch):
+    original = completeness_module._formula_conjoined_bound
+
+    def arguments(width):
+        seen = []
+
+        def spy(text, occurrences):
+            seen.append((text, occurrences))
+            return original(text, occurrences)
+
+        monkeypatch.setattr(completeness_module, "_formula_conjoined_bound", spy)
+        completeness_module._formula_interval_from_text(
+            "income greater than 1" + " " * width + "x 2",
+            extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        )
+        monkeypatch.undo()
+        (called,) = seen
+        return called
+
+    def work(width):
+        text, occurrences = arguments(width)
+
+        def check(bounds):
+            assert bounds == [None] * 8
+
+        return lowest_work(
+            lambda: [original(text, occurrences) for _ in range(8)], check
+        )
+
+    # The interval parser's own patterns cap the test above at 1,024 spaces.
+    # Called alone with the arguments that parser passes it, the gap parser
+    # stays linear far wider, where a quadratic scan of the gap outgrows the
+    # fixed cost of each call even under coverage. The short first step fails
+    # a cubic scan before the wide pair would run it for minutes.
+    assert_linear_growth(work(125), work(500), input_ratio=4)
+    assert_linear_growth(work(500), work(8_000), input_ratio=16)
 
 
 def test_formula_interval_skips_arithmetic_from_before_real_comparator():
