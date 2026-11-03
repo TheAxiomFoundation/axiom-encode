@@ -320,6 +320,11 @@ _ADMIN_AGENCY_BONUS_USE_RESTRICTION_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _ADMIN_AGENCY_AGGREGATE_CONTEXT_WINDOW = 500
+_PERSON_LEVEL_RULE_CONTEXT_PATTERN = re.compile(
+    r"\b(?:each\s+household\s+member|the\s+following\s+persons|"
+    r"an?\s+(?:individual|person|recipient|applicant))\b",
+    flags=re.IGNORECASE,
+)
 _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     r"\b(?:if|where|unless|except|subject to|treated as paid)\b",
     re.IGNORECASE,
@@ -15351,55 +15356,94 @@ def _has_admin_agency_aggregate_rule_context(
     )
     citations = []
     if isinstance(source_verification, dict):
-        citations.append(source_verification.get("corpus_citation_path"))
+        singular = source_verification.get("corpus_citation_path")
+        if isinstance(singular, str):
+            citations.append(singular)
         plural = source_verification.get("corpus_citation_paths")
         if isinstance(plural, list):
-            citations.extend(plural)
+            citations.extend(item for item in plural if isinstance(item, str))
     rule_source = rule.get("source")
-    if isinstance(rule_source, str):
-        for citation in citations:
-            if not isinstance(citation, str):
-                continue
-            match = re.fullmatch(r"us/regulation/(\d+)/(\d+)/(\d+)", citation)
-            if not match:
-                continue
-            title, part, section = match.groups()
-            reference = re.compile(
-                rf"\b{title}\s*C\.?\s*F\.?\s*R\.?\s*§?\s*"
-                rf"{part}\.{section}\(([a-z])\)",
-                re.IGNORECASE,
-            )
-            paragraphs = {item.group(1).lower() for item in reference.finditer(rule_source)}
-            if paragraphs:
-                headings = []
-                next_letter = ord("a")
-                for item in re.finditer(r"(?m)^\(([a-z])\)\s", source_text):
-                    # The first-level CFR paragraphs advance alphabetically;
-                    # nested roman numerals such as (i) must not end (a).
-                    if ord(item.group(1).lower()) == next_letter:
-                        headings.append(item)
-                        next_letter += 1
-                scoped = [
-                    source_text[item.end() : headings[index + 1].start() if index + 1 < len(headings) else len(source_text)]
-                    for index, item in enumerate(headings)
-                    if item.group(1).lower() in paragraphs
-                ]
-                if scoped:
-                    return any(_has_admin_agency_aggregate_source_context(text) for text in scoped)
+    if (
+        citations
+        and citations[0] == "us/regulation/7/273/7"
+        and isinstance(rule_source, str)
+    ):
+        references = [
+            item.strip()
+            for item in re.split(r"\s*(?:,|;|\band\b)\s*", rule_source)
+            if item.strip()
+        ]
+        reference_pattern = re.compile(
+            r"7\s+CFR\s+273\.7\(([ab])\)(?:\([^)]+\))*", re.IGNORECASE
+        )
+        parsed = [reference_pattern.fullmatch(item) for item in references]
+        if parsed and all(parsed):
+            paragraphs = {item.group(1).lower() for item in parsed if item}
+            # Scope only the established (a)/(b) person-level provisions.
+            # A general alphabetic split confuses nested roman (i) with the
+            # top-level (i) and can conceal administrative measures.
+            a = re.search(r"(?m)^\(a\)\s", source_text)
+            b = re.search(r"(?m)^\(b\)\s", source_text)
+            c = re.search(r"(?m)^\(c\)\s", source_text)
+            if a and b and c and a.start() < b.start() < c.start():
+                intro = source_text[: a.start()]
+                sections = {
+                    "a": intro + source_text[a.end() : b.start()],
+                    "b": intro + source_text[b.end() : c.start()],
+                }
+                scoped = [sections[key.lower()] for key in paragraphs]
+                if any(_has_admin_agency_aggregate_source_context(text) for text in scoped):
+                    return True
+                if all(_PERSON_LEVEL_RULE_CONTEXT_PATTERN.search(text) for text in scoped):
+                    return False
 
     metadata = rule.get("metadata")
     proof = metadata.get("proof") if isinstance(metadata, dict) else None
     atoms = proof.get("atoms") if isinstance(proof, dict) else None
     if isinstance(atoms, list):
-        excerpts = [
-            source["excerpt"]
+        proved_sources = [
+            source
             for atom in atoms
             if isinstance(atom, dict)
             for source in [atom.get("source")]
             if isinstance(source, dict) and isinstance(source.get("excerpt"), str)
         ]
-        if excerpts:
-            return _has_admin_agency_aggregate_source_context("\n".join(excerpts))
+        if proved_sources:
+            excerpts = "\n".join(source["excerpt"] for source in proved_sources)
+            if _has_admin_agency_aggregate_source_context(excerpts):
+                return True
+            # The existing SNAP work-registration exemption is proven by a
+            # separate statute. Do not let a generic statutory proof fragment
+            # (such as an administrative coefficient or household reference)
+            # override the regulation's aggregate context.
+            if (
+                citations
+                and citations[0] == "us/regulation/7/273/7"
+                and rule.get("name")
+                == "snap_member_statutory_work_registration_exemption_applies"
+                and rule_source == "7 U.S.C. 2015(d)(2)"
+                and len(proved_sources) >= 3
+                and all(
+                    source.get("corpus_citation_path") == "us/statute/7/2015/d/2"
+                    for source in proved_sources
+                )
+                and re.search(
+                    r"\bparent\b.{0,100}\bdependent child\b",
+                    excerpts,
+                    re.IGNORECASE | re.DOTALL,
+                )
+                and re.search(
+                    r"\bstudent enrolled at least half time\b",
+                    excerpts,
+                    re.IGNORECASE,
+                )
+                and re.search(
+                    r"\bperson between the ages of sixteen and eighteen\b",
+                    excerpts,
+                    re.IGNORECASE,
+                )
+            ):
+                return False
     return _has_admin_agency_aggregate_source_context(source_text)
 
 

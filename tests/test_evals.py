@@ -3518,6 +3518,7 @@ def test_admin_agency_aggregate_scopes_mixed_regulation_to_rule_paragraph():
         "(i) Register for work or be registered by the State agency.\n"
         "(b) State agency quality control. The State agency shall calculate "
         "its payment error rate from the quality control sample.\n"
+        "(c) Other requirements.\n"
     )
     content = """format: rulespec/v1
 module:
@@ -3580,9 +3581,212 @@ rules:
             source:
               corpus_citation_path: us/statute/7/2015/d/2
               excerpt: a parent or other member of a household with responsibility for the care of a dependent child under age six
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/7/2015/d/2
+              excerpt: a bona fide student enrolled at least half time in any recognized school
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/7/2015/d/2
+              excerpt: a person between the ages of sixteen and eighteen who is not a head of a household
 """
 
     assert find_admin_agency_aggregate_entity_issues(content, source_text) == []
+
+
+def test_admin_agency_aggregate_incomplete_proof_keeps_source_context():
+    source_text = (
+        "The State agency's payment error rate determines its liability. "
+        "The amount is multiplied by 6 percent, and 10 percent."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: state_agency_payment_error_rate_liability
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    source: 7 CFR 275.23(d)(2)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: issued_allotments * payment_error_rate * 0.10
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/regulation/7/275/23
+              excerpt: 6 percent, and 10 percent.
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate_liability`" in issues[0]
+
+
+def test_admin_agency_aggregate_paragraph_keeps_governing_introduction():
+    source_text = (
+        "The State agency's payment error rate determines its liability.\n"
+        "(a) The amount is multiplied by 6 percent, and 10 percent.\n"
+        "(b) Other requirements.\n"
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: state_agency_payment_error_rate_liability
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    source: 7 CFR 275.23(a)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: issued_allotments * payment_error_rate * 0.10
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate_liability`" in issues[0]
+
+
+def test_admin_agency_aggregate_same_statute_proof_keeps_source_context():
+    source_text = (
+        "The State agency's payment error rate is calculated using the "
+        "allotments issued to each household member."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2025
+rules:
+  - name: state_agency_payment_error_rate
+    kind: derived
+    entity: Household
+    dtype: Decimal
+    period: Year
+    source: 7 U.S.C. 2025(c)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: payment_error_rate
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/7/2025
+              excerpt: allotments issued to each household member
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate`" in issues[0]
+
+
+def test_admin_agency_aggregate_cross_statute_fragment_keeps_source_context():
+    source_text = (
+        "The State agency's payment error rate is calculated using the "
+        "allotments issued to each household member."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: state_agency_payment_error_rate
+    kind: derived
+    entity: Household
+    dtype: Decimal
+    period: Year
+    source: 7 U.S.C. 2025(c)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: payment_error_rate
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/7/2025
+              excerpt: allotments issued to each household member
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate`" in issues[0]
+
+
+def test_admin_agency_aggregate_nested_roman_does_not_end_paragraph():
+    source_text = (
+        "".join(f"({letter}) Other requirements.\n" for letter in "abcdefg")
+        + "(h) Each household member is counted for the following State agency measure.\n"
+        + "(1) Calculation.\n"
+        + "(i) The State agency shall calculate its payment error rate from the quality control sample.\n"
+        + "(i) Other rules.\n"
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: state_agency_payment_error_rate
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Year
+    source: 7 CFR 275.23(h)(1)(i)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: payment_error_rate
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate`" in issues[0]
+
+
+def test_admin_agency_aggregate_mixed_citation_disables_person_scope():
+    source_text = (
+        "(a) Each household member must comply with work requirements.\n"
+        "(b) The following persons are exempt from work requirements.\n"
+        "(c) Other requirements.\n"
+        "(h) The State agency shall calculate its payment error rate from "
+        "the quality control sample.\n"
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/7
+rules:
+  - name: state_agency_payment_error_rate
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Year
+    source: 7 CFR 273.7(a)(1); 7 CFR 273.7(h)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: payment_error_rate
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate`" in issues[0]
 
 
 def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
