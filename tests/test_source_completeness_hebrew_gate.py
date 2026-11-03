@@ -435,9 +435,13 @@ class GateChecker:
                         and len(call.args) >= 2
                         and isinstance(call.args[1], ast.Constant)
                         and isinstance(call.args[1].value, str)
+                        and call.args[1].value
+                        not in forbidden | {"importlib", "getattr"}
                     ):
                         found.append(
-                            self._violation(node, "getattr requires a literal name")
+                            self._violation(
+                                node, "getattr requires a permitted literal name"
+                            )
                         )
                 if (
                     node.id
@@ -492,9 +496,13 @@ class GateChecker:
                         and len(call.args) >= 2
                         and isinstance(call.args[1], ast.Constant)
                         and isinstance(call.args[1].value, str)
+                        and call.args[1].value
+                        not in forbidden | {"importlib", "getattr"}
                     ):
                         found.append(
-                            self._violation(node, "getattr requires a literal name")
+                            self._violation(
+                                node, "getattr requires a permitted literal name"
+                            )
                         )
         return found
 
@@ -883,6 +891,11 @@ def test_removing_a_gate_fails_the_check(function):
         'builtins.__import__("axiom_encode.harness.hebrew_source_text")',
         "getattr(text, name)",
         "builtins.getattr(text, name)",
+        'getattr(builtins, "globals")()["hebrew_source_text"].fold_marks(text)',
+        'getattr(builtins, "__import__")("axiom_encode.harness.hebrew_source_text", fromlist=["fold_marks"]).fold_marks(text)',
+        'builtins.getattr(builtins, "locals")()',
+        'getattr(builtins, "vars")()',
+        'getattr(builtins, "getattr")(text, name)',
         "getter = getattr",
         "reader = hebrew_source_text.fold_marks",
         "use(hebrew_source_text.fold_marks)",
