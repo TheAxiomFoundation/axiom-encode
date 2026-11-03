@@ -1,6 +1,6 @@
-## 0.2.2300
+## 0.2.2301
 
-- Assign the encoder version after merge, not in each pull request (#2048). The new `Encoder version bump` workflow runs on every push to `main`. When encoder-affecting files changed after the latest bump, it writes the next version into `pyproject.toml`, `src/axiom_encode/__init__.py` and `uv.lock`, compiles the `changelog.d/` fragments into `CHANGELOG.md`, and opens a bump pull request with auto-merge on. The workflow needs the `ENCODER_VERSION_BUMP_TOKEN` secret.
+- Assign the encoder version after merge, not in each pull request (#2048). The new `Encoder version bump` workflow runs on every push to `main`. When encoder-affecting files changed after the latest bump, it writes the next version into `pyproject.toml`, `src/axiom_encode/__init__.py` and `uv.lock`, adds a `CHANGELOG.md` header that lists the commits merged since the previous bump, and opens a bump pull request with auto-merge on. It leaves the towncrier fragments in `changelog.d/` alone. The workflow needs the `ENCODER_VERSION_BUMP_TOKEN` secret.
 - Add `axiom_encode.version_provenance`, a standard-library check of the version rule at any git ref. It applies the same rule as the `--apply` guard: no encoder-affecting file may change after the latest version bump.
 - Refuse an encoder head that no bump covers in the re-encode workflow's attempt-budget job. The encode job is then skipped, so a dispatch made before the bump lands uses no production-signing approval and does not count against the attempt budget.
 - `ci_parity.encoder_version_at_pin` refuses a pin whose encoder files changed after its version bump, so that one version never names two encoder states.
