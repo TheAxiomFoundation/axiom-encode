@@ -37120,6 +37120,18 @@ class ValidatorPipeline:
                 _authenticated_same_act_aliases_from_metadata(self.source_metadata)
             ),
         )
+        # Reported beside the CI result for the admission score; a result that
+        # carries no counts (a stubbed analyzer) records none.
+        recall = {
+            key: getattr(completeness, attribute, None)
+            for key, attribute in (
+                ("total", "source_numeric_occurrence_count"),
+                ("covered", "covered_source_numeric_occurrence_count"),
+                ("missing", "missing_source_numeric_occurrence_count"),
+            )
+        }
+        if all(type(value) is int for value in recall.values()):
+            self._complete_source_unit_recall = recall
         return list(completeness.issues)
 
     def _complete_source_unit_deferred_outputs(
@@ -37412,6 +37424,7 @@ class ValidatorPipeline:
             "validation_ci_start", f"Starting CI validation for {rulespec_file.name}"
         )
         ci_start = time.time()
+        self._complete_source_unit_recall = None
         try:
             results["ci"] = self._run_ci(rulespec_file)
         except Exception as e:
@@ -37420,6 +37433,10 @@ class ValidatorPipeline:
                 passed=False,
                 error=str(e),
                 issues=[str(e)],
+            )
+        if self._complete_source_unit_recall is not None:
+            results["ci"].details["complete_source_unit_recall"] = dict(
+                self._complete_source_unit_recall
             )
         self._log_event(
             "validation_ci_end",
