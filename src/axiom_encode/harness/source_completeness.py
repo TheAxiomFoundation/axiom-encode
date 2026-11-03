@@ -13689,6 +13689,11 @@ def _rulespec_target_base(corpus_citation_path: str) -> str:
         "policy": "policies",
         "form": "forms",
     }.get(document_class, f"{document_class}s")
+    if document_class == "rulemaking":
+        # Federal Register instruments land in the reserved
+        # policies/rulemaking/ output namespace (evals._RULEMAKING_OUTPUT_ROOT).
+        plural = "policies"
+        tail = ["rulemaking", *tail]
     if jurisdiction == "us-la" and plural == "statutes" and tail:
         title_section = tail[0].split(":")
         if len(title_section) == 2 and all(title_section):
