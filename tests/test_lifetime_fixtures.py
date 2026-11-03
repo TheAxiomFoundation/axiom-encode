@@ -48,7 +48,7 @@ def response_for(case):
     return {
         "schema": RESPONSE_SCHEMA,
         "engine_version": "synthetic-transport-test",
-        "artifact_format_version": 2,
+        "artifact_format_version": 3,
         "entity": request["entity"],
         "arithmetic": "decimal",
         "row_count": 2,
@@ -170,6 +170,33 @@ def test_run_uses_real_cli_contract_without_calculation(case, monkeypatch, tmp_p
     assert request["outputs"] == [OUTPUT]
 
 
+@pytest.mark.parametrize(
+    ("stdout", "stderr", "expected"),
+    [
+        ("", "", "(exit 3): the engine printed no diagnostic"),
+        ("", "unknown command `run-lifetime`", "(exit 3): unknown command"),
+    ],
+)
+def test_failed_engine_run_reports_exit_and_diagnostic(
+    case, monkeypatch, tmp_path, stdout, stderr, expected
+):
+    monkeypatch.setattr(
+        "axiom_encode.harness.lifetime_fixtures.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess([], 3, stdout, stderr),
+    )
+    with pytest.raises(ValueError) as raised:
+        run_lifetime_fixture(
+            binary=Path("/test/engine"),
+            compiled_path=tmp_path / "compiled.json",
+            case=case,
+            period=case["period"],
+            cwd=tmp_path,
+            env={},
+        )
+    assert str(raised.value).startswith("lifetime execution failed (exit 3)")
+    assert expected in str(raised.value)
+
+
 def test_duplicate_response_keys_fail_closed(case, monkeypatch, tmp_path):
     monkeypatch.setattr(
         "axiom_encode.harness.lifetime_fixtures.subprocess.run",
@@ -189,12 +216,17 @@ def test_duplicate_response_keys_fail_closed(case, monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "mutation", ["version", "engine", "dtype", "unit", "name", "id"]
+    "mutation",
+    ["version_2", "version_4", "version_text", "engine", "dtype", "unit", "name", "id"],
 )
 def test_response_metadata_must_match_the_wire(case, mutation):
     response = response_for(case)
-    if mutation == "version":
-        response["artifact_format_version"] = 3
+    if mutation.startswith("version"):
+        response["artifact_format_version"] = {
+            "version_2": 2,
+            "version_4": 4,
+            "version_text": "3",
+        }[mutation]
     elif mutation == "engine":
         response["engine_version"] = ""
     elif mutation == "id":

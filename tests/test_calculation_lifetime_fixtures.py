@@ -50,7 +50,7 @@ def response_for(case):
     return {
         "schema": CALCULATION_RESPONSE_SCHEMA,
         "engine_version": "synthetic-wire-test",
-        "artifact_format_version": 2,
+        "artifact_format_version": 3,
         "arithmetic": "decimal",
         "entity": "Person",
         "row_count": 1,

@@ -19,6 +19,12 @@ CALCULATION_RESPONSE_SCHEMA = "axiom-rules-engine/lifetime-response/v2"
 MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
 
+# The response echoes the compiled artifact's format version. The engine that
+# implements ``run-lifetime`` (axiom-rules-engine#180) compiles and loads only
+# artifact format 3.
+SUPPORTED_LIFETIME_ARTIFACT_FORMAT_VERSIONS = frozenset({3})
+
+
 def _keys(value: Any, allowed: set[str], required: set[str], label: str) -> dict:
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be a mapping")
@@ -247,7 +253,8 @@ def compare_lifetime_response(
         not isinstance(response["engine_version"], str)
         or not response["engine_version"]
         or type(response["artifact_format_version"]) is not int
-        or response["artifact_format_version"] != 2
+        or response["artifact_format_version"]
+        not in SUPPORTED_LIFETIME_ARTIFACT_FORMAT_VERSIONS
     ):
         raise ValueError("lifetime response has unsupported version metadata")
     batch = request["batches"][-1]
@@ -339,12 +346,36 @@ def run_lifetime_fixture(
         env=env,
     )
     if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip()
         raise ValueError(
-            "lifetime execution failed: "
-            + (result.stderr.strip() or result.stdout.strip())
+            f"lifetime execution failed (exit {result.returncode}): "
+            + (detail or "the engine printed no diagnostic")
         )
     try:
         response = json.loads(result.stdout, object_pairs_hook=_unique_object)
     except json.JSONDecodeError as exc:
         raise ValueError("lifetime response is not valid JSON") from exc
     return compare_lifetime_response(request, case["output"], response)
+
+
+LIFETIME_SUBCOMMAND = "run-lifetime"
+
+
+def engine_supports_lifetime(binary: Path) -> bool:
+    """Whether the engine CLI lists the ``run-lifetime`` subcommand.
+
+    The encoder asks for lifetime fixtures and calendar-unit conversion only
+    when the bound engine can execute them. Any failure to probe reads as
+    unsupported, so the prompt never steers toward an unavailable feature.
+    """
+    try:
+        probe = subprocess.run(
+            [str(binary), "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+    return LIFETIME_SUBCOMMAND in (probe.stdout or "") + (probe.stderr or "")
