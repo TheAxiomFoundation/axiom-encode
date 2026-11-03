@@ -1,0 +1,38 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "37936331759",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37936331759",
+  "bundle_citation": "us-ok/statute/68-2906",
+  "citation": "us-ok/statute/68-2906",
+  "lane": "target",
+  "runner": "openai-gpt-6-luna",
+  "module_path": "statutes/68-2906.yaml",
+  "policy_prefix": "us-ok",
+  "encoder_commit": "b736433902f0a232d52421e5ea3c52900d1c5db5",
+  "encoder_version": "0.2.2154",
+  "attempt_count": 4,
+  "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "rulespec_ref": "16a6677190194da2431a78fcaa5b6548cd0e2845",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "proof:excerpt-not-found": 2
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "expected_class": "encoder",
+  "class_evidence": "Candidate encodes history-note years as rules and wraps their proof excerpts in curly quotes that do not appear in the source.",
+  "class_source": "hand",
+  "files": {
+    "candidate.test.yaml": "aba8ab0ba8a8f953f75aaf1fac2d150a709ecd6cf4c927c0403bd8f8279b7790",
+    "candidate.yaml": "8094b65fa51b1ab11078df86b6f4a60bb50850ca30e8bf459fb2289f6f89cae7",
+    "issues.json": "2d412b70b6901ee4b6d8a69c8e01134fe5f0b1d9d2e1b86af7d8fbc7f0de9279",
+    "source-metadata.json": "1ac23328c08ee365aa860b446eeb384487c698b28138a590454912307ffd4c9b",
+    "source.txt": "f52351ec888d2a131c77819abf5917d005a17b9bbc6123f22d62c8a9881633c2"
+  }
+}

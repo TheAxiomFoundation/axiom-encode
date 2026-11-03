@@ -1,0 +1,40 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "37983156312",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37983156312",
+  "bundle_citation": "us/statute/42/1382c/f/2",
+  "citation": "us/statute/42/1382c/f/2",
+  "lane": "target",
+  "runner": "openai-gpt-6-sol",
+  "module_path": "statutes/42/1382c/f/2.yaml",
+  "policy_prefix": "us",
+  "encoder_commit": "70f6eec7deacc49537a6c7f96a913263d96d2f27",
+  "encoder_version": "0.2.2155",
+  "attempt_count": 4,
+  "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "rulespec_ref": "16a6677190194da2431a78fcaa5b6548cd0e2845",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:deferral": 1,
+    "complete-source-unit:tests": 1
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "expected_class": "encoder",
+  "expected_subclass": "test",
+  "class_evidence": "Paired positive and blocking cases for the 1382c(f)(2)(B) exception are missing; adjudication rates this citation encoder.",
+  "class_source": "hand",
+  "files": {
+    "candidate.test.yaml": "19ef0ac37b71d96ca58417daab8f608eb5a2e4c7d43f9163846c4d79365bdf59",
+    "candidate.yaml": "92217209ff0c0accd1df9361437177315ad206eea3ed068fdd7dbc398698439a",
+    "issues.json": "5b50c40c56612a04039a6df234dc266d86411362c6484379baa50c02c8ac530d",
+    "source-metadata.json": "f914da4194662b65cb487342c484dbb9c88a2e799c6ae74c0c093252c9302248",
+    "source.txt": "fc004185f51e5616c560538a53770fef3e966cf3191a89f0d1614d90a74bf1bb"
+  }
+}

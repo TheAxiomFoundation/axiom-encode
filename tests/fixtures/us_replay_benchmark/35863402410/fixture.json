@@ -1,0 +1,41 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "35863402410",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/35863402410",
+  "bundle_citation": "us/statute/26/219",
+  "citation": "us/guidance/irs/notice-2025-67/page-4",
+  "lane": "source-01",
+  "runner": "openai-gpt-5.6-sol",
+  "module_path": "policies/irs/notice-2025-67/page-4.yaml",
+  "policy_prefix": "us",
+  "encoder_commit": "5d80d753f1ad54bc4b6a0686522ae9aa69e47bb9",
+  "encoder_version": "0.2.2015",
+  "attempt_count": 4,
+  "corpus_ref": "942e138e7a8250c9814e774ac9b8e63008148106",
+  "rulespec_ref": "f43dec520dd392bc5333934f56dad7498363e704",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "compile": 2,
+    "complete-source-unit:deferral": 6,
+    "complete-source-unit:formula-output": 1,
+    "complete-source-unit:numeric-recall": 6
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "expected_class": "dependency",
+  "class_evidence": "IRA phase-out branches deferred because shared filing-status classifications are not encoded; the empty imports and 25B omissions are secondary.",
+  "class_source": "hand",
+  "files": {
+    "candidate.test.yaml": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "candidate.yaml": "797e39dbab17457752a7e1adb3752b7300bfa74f90ba05a3439953a00b224028",
+    "issues.json": "527b5ea280412bdd1d278605826ddf26bccbfa3b853f046044cef52a06a3cabb",
+    "source-metadata.json": "b5f031d8e0bb990759da7d89f5f1380bc5a40f784ec7076c0b8a0312a98bef80",
+    "source.txt": "a6f556f7c314ad5fa09e243656441b641471d825fcd12a7a2abecfe3f91d7a5f"
+  }
+}

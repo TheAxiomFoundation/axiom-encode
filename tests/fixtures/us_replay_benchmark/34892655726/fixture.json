@@ -1,0 +1,40 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "34892655726",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/34892655726",
+  "bundle_citation": "us/guidance/irs/rev-proc-2025-32/page-15",
+  "citation": "us/guidance/irs/rev-proc-2025-32/page-15",
+  "lane": "target",
+  "runner": "openai-gpt-5.6-sol",
+  "module_path": "policies/irs/rev-proc-2025-32/page-15.yaml",
+  "policy_prefix": "us",
+  "encoder_commit": "9f7b97203118e5f93d0aaf43623234f2e30a5621",
+  "encoder_version": "0.2.1982",
+  "attempt_count": 4,
+  "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "rulespec_ref": "3b4db6fe5358a196b79141a51a322736ab9105f7",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:numeric-recall": 21,
+    "complete-source-unit:tests": 2
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "expected_class": "encoder",
+  "expected_subclass": "omission",
+  "class_evidence": "Real EITC table omissions ($4,427, $58,863, $12,200 and others); hand adjudication of this citation rates it encoder.",
+  "class_source": "hand",
+  "files": {
+    "candidate.test.yaml": "e4e04d78addbf5a1ed45532f806cc207f470da41c37f48661f1ceaf8d9cc895c",
+    "candidate.yaml": "555c0254e77248dc8e016e8ae729ae5fbe28fcda2e737f1670232fe089c7b31a",
+    "issues.json": "77e729a14f6e28fec33327ba5339331d9ddc1570bf403b98b8fcd21473a90d9c",
+    "source-metadata.json": "9fd60b9f942b4143d2b618aefdb54a186b096f15438240947b1704a8ac7d38d6",
+    "source.txt": "b48dc019bca26a248de96d991ee68655d0aae255a8929c0953447a6ce29affec"
+  }
+}

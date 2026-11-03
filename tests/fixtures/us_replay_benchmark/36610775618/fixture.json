@@ -1,0 +1,40 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "36610775618",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/36610775618",
+  "bundle_citation": "us-md/guidance/dhs/fia/snap-manual-214/page-5",
+  "citation": "us-md/guidance/dhs/fia/snap-manual-214/page-5",
+  "lane": "target",
+  "runner": "openai-gpt-6-sol",
+  "module_path": "policies/dhs/fia/snap-manual-214/page-5.yaml",
+  "policy_prefix": "us-md",
+  "encoder_commit": "e5a355164c50984e619168703b4f1a6e413a2647",
+  "encoder_version": "0.2.2070",
+  "attempt_count": 4,
+  "corpus_ref": "c65b2ca15ba4a789f547eb323728a7aadcfc1f9d",
+  "rulespec_ref": "5f7a38c20a3ed4dd217d9c5505a73cddd9152d9c",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:deferral": 2,
+    "complete-source-unit:numeric-recall": 3,
+    "complete-source-unit:tests": 2
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "expected_class": "validator_fp",
+  "class_evidence": "Numeric recall demands section numbers 214.2-214.4; the deferred telephone and SUA amounts exist in us-md standard-utility-allowances at the rulespec_ref.",
+  "class_source": "hand",
+  "files": {
+    "candidate.test.yaml": "1883f317be030b2e08b38b24e0809d17c5a7ab04a897fd4052242ba560e86386",
+    "candidate.yaml": "4e1e5448944a1c29030ba05eff76d38c41313e55c4920844b5bb5526786b15a4",
+    "issues.json": "1509587ce4e1bc55d6b70186fa78a5a2db8045b0faf1acbf6e29c4fc91612af5",
+    "source-metadata.json": "0d5af6ac0c9f4adbe62ed20abdbc7f52752430932b51c24b1f3ca70782c8e294",
+    "source.txt": "a5ef1766f3edd9b8f82191b8cfbef6cb1da36f8e8eb7501531da63380e4a3c96"
+  }
+}

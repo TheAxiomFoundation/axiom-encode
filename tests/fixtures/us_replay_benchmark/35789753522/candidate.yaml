@@ -1,0 +1,260 @@
+format: rulespec/v1
+imports:
+- us:statutes/42/416/l#retirement_age_total_months
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/42/402/a
+    source_sha256: c2212dde94b40bbb9ee85a4a78375aceecba97652af6512e360f74a9d3054c8a
+  summary: Every fully insured individual who has attained age 62 and has filed an
+    application for old-age insurance benefits, or was entitled to disability insurance
+    benefits for the month preceding attainment of retirement age, is entitled to
+    an old-age insurance benefit. Entitlement begins under the retirement-age and
+    pre-retirement-age branches, ends with the month preceding death, and is generally
+    equal to the primary insurance amount, subject to subsections (q) and (w).
+  deferred_outputs:
+  - output: us:statutes/42/402/a#old_age_insurance_benefit_amount
+    reason: 42 USC 402(a), sentence beginning "Except as provided in subsection (q)
+      and subsection (w)", cannot select the monthly primary-insurance amount, early-claiming-reduction
+      amount, or delayed-retirement-credit amount because this source supplies no
+      source-stated selector identifying which subsection (q) or subsection (w) modification
+      controls the month.
+    source_values:
+    - us:statutes/42/415/a#primary_insurance_amount
+    - us:statutes/42/402/q#old_age_insurance_benefit_after_early_claiming_reduction
+    - us:statutes/42/402/w#old_age_insurance_benefit_after_delayed_retirement_credit
+inputs:
+- name: age
+  entity: Person
+  dtype: Integer
+  period: Month
+- name: age_total_months
+  entity: Person
+  dtype: Integer
+  period: Month
+- name: individual_is_fully_insured
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: individual_has_filed_application_for_old_age_insurance_benefits
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: individual_was_entitled_to_disability_insurance_benefits_for_month_before_attaining_retirement_age
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: individual_is_alive_for_month
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: month_is_first_month_individual_meets_all_entitlement_criteria
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: month_is_first_month_throughout_which_individual_meets_insurance_and_age_criteria
+  entity: Person
+  dtype: Boolean
+  period: Month
+rules:
+- name: old_age_insurance_benefit_minimum_age_years
+  kind: parameter
+  dtype: Integer
+  unit: years
+  source: 42 USC 402(a)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/statute/42/402/a/2
+          excerpt: has attained age 62
+  versions:
+  - effective_from: '1961-01-01'
+    formula: '62'
+- name: filing_or_disability_conversion_requirement_met
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 42 USC 402(a)(3)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/42/402/a/3
+          excerpt: has filed application for old-age insurance benefits
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/42/402/a/3
+          excerpt: was entitled to disability insurance benefits for the month preceding
+            the month
+  versions:
+  - effective_from: '1961-01-01'
+    formula: 'individual_has_filed_application_for_old_age_insurance_benefits
+
+      or individual_was_entitled_to_disability_insurance_benefits_for_month_before_attaining_retirement_age'
+- name: retirement_age_entitlement_begins
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 42 USC 402(a)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/42/402/a
+          excerpt: in the case of an individual who has attained retirement age
+      - path: versions[0].formula
+        kind: ordering
+        source:
+          corpus_citation_path: us/statute/42/402/a
+          excerpt: the first month in which such individual meets the criteria specified
+            in paragraphs (1), (2), and (3)
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/416/l#retirement_age_total_months
+          output: retirement_age_total_months
+          hash: sha256:c49ec29f4805607b10cceb210c1dc444f63efd37e0f692c51ac534855f44820a
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/402/a#old_age_insurance_benefit_minimum_age_years
+          output: old_age_insurance_benefit_minimum_age_years
+          hash: sha256:local
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/402/a#filing_or_disability_conversion_requirement_met
+          output: filing_or_disability_conversion_requirement_met
+          hash: sha256:local
+  versions:
+  - effective_from: '1961-01-01'
+    formula: 'month_is_first_month_individual_meets_all_entitlement_criteria
+
+      and individual_is_fully_insured
+
+      and age >= old_age_insurance_benefit_minimum_age_years
+
+      and filing_or_disability_conversion_requirement_met
+
+      and age_total_months >= retirement_age_total_months'
+- name: early_retirement_age_entitlement_begins
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 42 USC 402(a)(B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/42/402/a
+          excerpt: has attained age 62, but has not attained retirement age
+      - path: versions[0].formula
+        kind: ordering
+        source:
+          corpus_citation_path: us/statute/42/402/a
+          excerpt: the first month throughout which such individual meets the criteria
+            specified in paragraphs (1) and (2)
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/42/402/a
+          excerpt: if in that month he meets the criterion specified in paragraph
+            (3)
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/416/l#retirement_age_total_months
+          output: retirement_age_total_months
+          hash: sha256:c49ec29f4805607b10cceb210c1dc444f63efd37e0f692c51ac534855f44820a
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/402/a#old_age_insurance_benefit_minimum_age_years
+          output: old_age_insurance_benefit_minimum_age_years
+          hash: sha256:local
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/402/a#filing_or_disability_conversion_requirement_met
+          output: filing_or_disability_conversion_requirement_met
+          hash: sha256:local
+  versions:
+  - effective_from: '1961-01-01'
+    formula: 'month_is_first_month_throughout_which_individual_meets_insurance_and_age_criteria
+
+      and individual_is_fully_insured
+
+      and age >= old_age_insurance_benefit_minimum_age_years
+
+      and filing_or_disability_conversion_requirement_met
+
+      and age_total_months < retirement_age_total_months'
+- name: individual_is_entitled_to_old_age_insurance_benefit
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 42 USC 402(a)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/42/402/a/1
+          excerpt: is a fully insured individual
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/42/402/a/2
+          excerpt: has attained age 62
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/42/402/a/3
+          excerpt: has filed application for old-age insurance benefits
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: us/statute/42/402/a
+          excerpt: shall be entitled to an old-age insurance benefit for each month
+      - path: versions[0].formula
+        kind: ordering
+        source:
+          corpus_citation_path: us/statute/42/402/a
+          excerpt: ending with the month preceding the month in which he dies
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/402/a#old_age_insurance_benefit_minimum_age_years
+          output: old_age_insurance_benefit_minimum_age_years
+          hash: sha256:local
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/42/402/a#filing_or_disability_conversion_requirement_met
+          output: filing_or_disability_conversion_requirement_met
+          hash: sha256:local
+  versions:
+  - effective_from: '1961-01-01'
+    formula: 'individual_is_fully_insured
+
+      and age >= old_age_insurance_benefit_minimum_age_years
+
+      and filing_or_disability_conversion_requirement_met
+
+      and individual_is_alive_for_month'

@@ -1,0 +1,38 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "36596173514",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/36596173514",
+  "bundle_citation": "us-wv/manual/bfa/income-maintenance-manual/page-3",
+  "citation": "us-wv/manual/bfa/income-maintenance-manual/page-3",
+  "lane": "target",
+  "runner": null,
+  "module_path": "policies/bfa/income-maintenance-manual/page-3.yaml",
+  "policy_prefix": "us-wv",
+  "encoder_commit": "a1a306094d4050122d386b83a024d4273fb99d57",
+  "encoder_version": "0.2.2068",
+  "attempt_count": 4,
+  "corpus_ref": "c65b2ca15ba4a789f547eb323728a7aadcfc1f9d",
+  "rulespec_ref": "5f7a38c20a3ed4dd217d9c5505a73cddd9152d9c",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:source-explicit-conditions": 1
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "expected_class": "selection",
+  "class_evidence": "Source is the manual introduction listing programs, with no operative rule; adjudication rates this citation target-selection.",
+  "class_source": "hand",
+  "files": {
+    "candidate.test.yaml": "5959d96bedf1ca72abe7ad29edbfba22ef2998011803a3361ad8446d626d99e8",
+    "candidate.yaml": "c921b3815f3c0a18026c682d09c607f6271755b9424d8df8720815f521fd5bea",
+    "issues.json": "aedb9b2bfa2db6492fb7a06533c28dfd95102339a25d387a72058a6cca389b8e",
+    "source-metadata.json": "a43058cec96c6ab6349e42ee8297d2a6b33e1143022d077e2df23d31b0d011c8",
+    "source.txt": "a8790de8fc383e8c5af5391b89982aeef50a1f549bf5337eb842708a5020123f"
+  }
+}

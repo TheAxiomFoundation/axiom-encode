@@ -1,0 +1,13 @@
+{
+  "attempt_count": 4,
+  "citation": "us/regulation/42/457/800",
+  "encoder_version": "0.2.2075",
+  "issues": [
+    "regulations/42-cfr/457/800.yaml: ci: [complete-source-unit:structure] Source branch (a) at us/regulation/42/457/800(a) [Absatz a] is neither encoded nor precisely deferred.",
+    "regulations/42-cfr/457/800.yaml: ci: [complete-source-unit:structure] Source branch (b) at us/regulation/42/457/800(b) [Absatz b] is neither encoded nor precisely deferred."
+  ],
+  "path": "regulations/42-cfr/457/800.yaml",
+  "rulespec_sha256": "95c1b024b5d2f6a810e54e71d526befbf73ee6fd342874c06a5df8fc84045dd6",
+  "schema": "axiom-encode/failed-encode-candidate/v1",
+  "tests_sha256": "a131f5865ae428ba6f0d3e8fd87278971ce7abed12c1e50edac16f006aa4b743"
+}
