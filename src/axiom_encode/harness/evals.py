@@ -17094,6 +17094,19 @@ def _normalize_main_eval_content(
     return normalized
 
 
+def _test_rewrite_duplicate_key_issues(content: str) -> list[str]:
+    """Why normalizing companion-test ``content`` could erase case entries.
+
+    The test normalizers strip thousands separators before they load and dump
+    the cases, so keys that differ only by a separator, such as `12,500` and
+    `12500`, collide only after that step. Both texts are checked.
+    """
+
+    return _rewrite_duplicate_key_issues(content) or _rewrite_duplicate_key_issues(
+        _normalize_comma_numeric_literals(content)
+    )
+
+
 def _rewrite_duplicate_key_issues(content: str) -> list[str]:
     """Why rewriting ``content`` through a YAML load could erase entries.
 
@@ -18365,7 +18378,7 @@ def _materialize_eval_artifact(
                 content = normalized_main_content
             # Normalization loads and dumps the cases; keep raw duplicate keys.
             elif target_path == expected_test_path and not (
-                _rewrite_duplicate_key_issues(content)
+                _test_rewrite_duplicate_key_issues(content)
             ):
                 if single_amount_table_slice:
                     content = _normalize_single_amount_row_test_content(
@@ -19236,7 +19249,7 @@ def _materialize_workspace_artifacts(
     if workspace_test.exists():
         test_content = workspace_test.read_text()
         # Normalization loads and dumps the cases; keep raw duplicate keys.
-        if not _rewrite_duplicate_key_issues(test_content):
+        if not _test_rewrite_duplicate_key_issues(test_content):
             if single_amount_table_slice:
                 test_content = _normalize_single_amount_row_test_content(
                     test_content,
