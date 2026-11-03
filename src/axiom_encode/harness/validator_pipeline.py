@@ -8069,17 +8069,135 @@ _DECIMAL_COMMA_FRACTION_END_PATTERN = re.compile(r",\d+\Z")
 # The spaces print puts between groups of three digits: an ordinary,
 # no-break, figure, thin or narrow no-break space ("12 345").
 _PRINTED_FIGURE_GROUPING_SPACES = " \u00a0\u2007\u2009\u202f"
-# The fraction of a mixed number ("1/2" in "16 1/2", "½" in "16 ½").
-_PRINTED_FRACTION_START_PATTERN = re.compile(
-    "[0-9]+[/\u2044][0-9]|[\u00bc-\u00be\u2150-\u215e]"
+# The slashes of a printed fraction: the solidus, the fraction slash, the
+# division slash and the fullwidth solidus.
+_PRINTED_FRACTION_SLASHES = "/\u2044\u2215\uff0f"
+# A slash with any spaces around it joins two figures into one fraction
+# ("1/2", "1    /    2"), as main reads "1    /    2 %" (0.5 percent).
+_SPACED_FRACTION_SLASH_BEFORE_PATTERN = re.compile(
+    rf"[0-9]\s*[{_PRINTED_FRACTION_SLASHES}]\s*\Z"
 )
-# A slash or a fraction slash with up to three spaces on each side joins two
-# figures into one fraction ("1/2", "1 / 2"), as main reads "1 / 2 %" (0.5
-# percent).
-_SPACED_FRACTION_SLASH_BEFORE_PATTERN = re.compile(r"[0-9]\s{0,3}[/\u2044]\s{0,3}\Z")
-_SPACED_FRACTION_SLASH_AFTER_PATTERN = re.compile(r"\s{0,3}[/\u2044]\s{0,3}[0-9]")
-# A digit, a slash and three spaces on each side.
-_SPACED_FRACTION_SLASH_REACH = 8
+_SPACED_FRACTION_SLASH_AFTER_PATTERN = re.compile(
+    rf"\s*[{_PRINTED_FRACTION_SLASHES}]\s*[0-9]"
+)
+# The spaces that join a mixed number's whole to its fraction, as main reads
+# "16 1/2 %" and "16\t1/2 %" (16.5 percent): horizontal spaces, no line
+# break.
+_MIXED_NUMBER_SPACE_BODY = "[ \t\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]+"
+# The fraction of a mixed number ("1/2" of "16 1/2", "1 / 2" of "16 1 / 2",
+# "½" of "16 ½").
+_PRINTED_FRACTION_BODY = (
+    rf"[0-9]+\s*[{_PRINTED_FRACTION_SLASHES}]\s*[0-9]|"
+    "[\u00bc-\u00be\u2150-\u215e]"
+)
+_PRINTED_FRACTION_START_PATTERN = re.compile(_PRINTED_FRACTION_BODY)
+# The whole of a mixed number before its fraction, and the fraction after
+# its whole.
+_MIXED_NUMBER_WHOLE_BEFORE_PATTERN = re.compile(
+    rf"[0-9]{_MIXED_NUMBER_SPACE_BODY}\Z"
+)
+_MIXED_NUMBER_FRACTION_AFTER_PATTERN = re.compile(
+    rf"{_MIXED_NUMBER_SPACE_BODY}(?:{_PRINTED_FRACTION_BODY})"
+)
+# The words that spell a number in French, Dutch, German and English: the
+# units, teens and tens, the hundreds and larger scales, the decimal words
+# "virgule" and "komma", and the fraction words ("quart", "kwart",
+# "Viertel").
+_FRENCH_FRACTION_WORD_BODY = (
+    r"demie?s?|tiers|quarts?|"
+    r"(?:deux|trois|quatr|cinqu|six|sept|huit|neuv|dix|onz|douz|treiz|"
+    r"quatorz|quinz|seiz|vingt|trent|quarant|cinquant|soixant|septant|"
+    r"octant|huitant|nonant|cent|mill)i[eè]mes?"
+)
+_DUTCH_TENS_WORD_BODY = r"\w*(?:twin|der|veer|vijf|zes|zeven|tach|negen)tig"
+_DUTCH_FRACTION_WORD_BODY = (
+    r"half|halve|kwart(?:en)?|(?:der|vier|vijf|zes|zeven|negen|tien)den?|"
+    r"\w*(?:acht|honderd|duizend)sten?"
+)
+_GERMAN_TENS_WORD_BODY = (
+    r"\w*(?:zwanzig|drei(?:ß|ss)ig|vierzig|f(?:ü|ue)nfzig|sechzig|siebzig|"
+    r"achtzig|neunzig)"
+)
+_GERMAN_FRACTION_WORD_BODY = (
+    r"halbe?[mnrs]?|drittel|viertel|f(?:ü|ue)nftel|sechstel|siebtel|achtel|"
+    r"neuntel|zehntel|hundertstel|tausendstel"
+)
+_SPELLED_NUMBER_SCALE_WORD_BODY = (
+    r"cents?|mille|\w*honderd(?:en)?|\w*duizend(?:en)?|\w*hundert|"
+    r"\w*tausend|hundred|thousand"
+)
+_SPELLED_NUMBER_WORD_BODY = (
+    # French, with the Belgian "septante", "octante", "huitante", "nonante".
+    r"z[ée]ro|une?|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|"
+    r"douze|treize|quatorze|quinze|seize|vingts?|trente|quarante|cinquante|"
+    r"soixante|septante|octante|huitante|nonante|milli(?:on|ard)s?|virgule|"
+    rf"{_FRENCH_FRACTION_WORD_BODY}|"
+    # Dutch.
+    r"nul|een|één|eén|twee|drie|vier|vijf|zes|zeven|acht|negen|tien|elf|"
+    r"twaalf|\w*(?:der|veer|vijf|zes|zeven|acht|negen)tien|"
+    rf"{_DUTCH_TENS_WORD_BODY}|miljoen(?:en)?|miljard(?:en)?|komma|"
+    rf"{_DUTCH_FRACTION_WORD_BODY}|"
+    # German.
+    r"null|eins?|eine[mnrs]?|zwei|zwo|drei|f(?:ü|ue)nf|sechs|sieben|neun|"
+    r"zehn|zw(?:ö|oe)lf|(?:drei|vier|f(?:ü|ue)nf|sech|sieb|acht|neun)zehn|"
+    rf"{_GERMAN_TENS_WORD_BODY}|millionen?|milliarden?|"
+    rf"{_GERMAN_FRACTION_WORD_BODY}|"
+    # English.
+    r"zero|one|two|three|four|five|seven|eight|nine|ten|eleven|twelve|"
+    r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+    r"thirty|forty|fifty|sixty|seventy|eighty|ninety|million|billion|"
+    r"halves|quarters?|thirds?|"
+    rf"{_SPELLED_NUMBER_SCALE_WORD_BODY}"
+)
+# What joins the words of one spelled number: a hyphen ("vingt-huit") or a
+# space ("cent cinq", "deux virgule cinq", "twee komma vijf").
+_SPELLED_NUMBER_JOIN_BODY = "\\s*[-\u00ad\u2010\u2011]\\s*|\\s+"
+# The conjunction a spelled number goes on after ("vingt et un", "vijf en
+# twintig", "fünf und zwanzig", "deux et un quart"), and the words it goes
+# on with: French "un" and "onze", a Dutch or German ten, or a fraction.
+# Before any other word the conjunction joins two members of a list ("cinq
+# et deux pour cent").
+_SPELLED_NUMBER_CONJUNCTION_BODY = (
+    "(?:\\s+|\\s*[-\u00ad\u2010\u2011]\\s*)(?:et|en|und)"
+    "(?:\\s+|\\s*[-\u00ad\u2010\u2011]\\s*)"
+)
+_SPELLED_NUMBER_CONJOINED_WORD_BODY = (
+    rf"une?|onze|{_DUTCH_TENS_WORD_BODY}|{_GERMAN_TENS_WORD_BODY}|"
+    rf"(?:(?:{_SPELLED_NUMBER_WORD_BODY})[-\s]+)*"
+    rf"(?:{_FRENCH_FRACTION_WORD_BODY}|{_DUTCH_FRACTION_WORD_BODY}|"
+    rf"{_GERMAN_FRACTION_WORD_BODY}|halves|quarters?|thirds?)"
+)
+# A number word or a digit of the same number before a reading, and after
+# it.
+_SPELLED_NUMBER_PART_BEFORE_PATTERN = re.compile(
+    rf"(?:\b(?P<word>{_SPELLED_NUMBER_WORD_BODY})|[0-9])"
+    rf"(?:(?P<conjunction>{_SPELLED_NUMBER_CONJUNCTION_BODY})|"
+    rf"{_SPELLED_NUMBER_JOIN_BODY})\Z",
+    re.IGNORECASE,
+)
+_SPELLED_NUMBER_PART_AFTER_PATTERN = re.compile(
+    rf"(?:{_SPELLED_NUMBER_CONJUNCTION_BODY})"
+    rf"(?:{_SPELLED_NUMBER_CONJOINED_WORD_BODY})\b|"
+    rf"(?:{_SPELLED_NUMBER_JOIN_BODY})"
+    rf"(?:(?:{_SPELLED_NUMBER_WORD_BODY})\b|[0-9])",
+    re.IGNORECASE,
+)
+_SPELLED_NUMBER_CONJOINED_WORD_PATTERN = re.compile(
+    rf"(?:{_SPELLED_NUMBER_CONJOINED_WORD_BODY})\b",
+    re.IGNORECASE,
+)
+_SPELLED_NUMBER_SCALE_WORD_PATTERN = re.compile(
+    _SPELLED_NUMBER_SCALE_WORD_BODY,
+    re.IGNORECASE,
+)
+# The word before a scale word that makes the scale word a percent or
+# per-mille marker ("pour cent", "pour-cent", "per cent", "vom Hundert",
+# "pour mille"). Such a marker ends its number and joins it to no next one:
+# "deux pour cent et trois pour cent" is a list.
+_PERCENT_SCALE_WORD_LEAD_PATTERN = re.compile(
+    r"\b(?:pour|per|vom|von|ten|op)[ \t-]*\Z",
+    re.IGNORECASE,
+)
 # Groups of three that grouping spaces join into one figure ("12 345").
 _SPACE_GROUPED_FIGURE_PATTERN = re.compile(
     r"(?<![0-9])[1-9][0-9]{0,2}(?P<join>[ \u00a0\u2007\u2009\u202f])[0-9]{3}"
@@ -8141,6 +8259,13 @@ _TABLE_LOCALE_RATE_HEADER_PATTERNS = {
     ),
     "de-DE": re.compile(_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY),
 }
+# A body cell whose own marker follows its figure ("2,5 procent", "(14,75)
+# pour cent") holds a value in its source's own words.
+_TABLE_LOCALE_VALUE_CELL_RATE_PATTERN = re.compile(
+    rf"\d(?:\s*\))?\s*(?:{_BELGIAN_PERCENT_WORD_BODY}|"
+    rf"{_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY})",
+    re.IGNORECASE,
+)
 # A body cell whose marker follows a figure ("28 percent", "(14,75) p.c.")
 # holds a value, not a header: it types itself and declares nothing about the
 # rest of its column.
@@ -13952,13 +14077,16 @@ def _clean_source_text_for_numeric_extraction_tracked(
     text: str,
     *,
     profile: str = "legacy",
+    belgian_restatements: list[tuple[int, int]] | None = None,
 ) -> _TrackedText:
     """Strip structural source scaffolding, carrying each character's source offset.
 
     Edits that remove text blank it in place; the few that insert (a space
     after a currency glyph glued to its amount) mark only the inserted
     character as having no source. Line terminators are kept, so a CRLF
-    or a trailing newline moves nothing.
+    or a trailing newline moves nothing. ``belgian_restatements`` collects
+    the span in ``text`` of each label the be-BE cleaner keeps as a restated
+    rate where main blanks it ("Satz von (1.250) Prozent").
     """
     if profile == "da-DK":
         masked = _danish_equal_length_numeric_mask(text).text
@@ -14252,7 +14380,10 @@ def _clean_source_text_for_numeric_extraction_tracked(
         _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN,
         (
             functools.partial(
-                _blank_subdivision_label, source=text, offsets=tracked.offsets
+                _blank_subdivision_label,
+                source=text,
+                offsets=tracked.offsets,
+                kept=belgian_restatements,
             )
             if profile == "be-BE"
             else _blank_match
@@ -14291,6 +14422,7 @@ def _blank_subdivision_label(
     *,
     source: str,
     offsets: Sequence[int | None],
+    kept: list[tuple[int, int]] | None = None,
 ) -> str:
     """Blank a Belgian subdivision label unless it restates a rate figure.
 
@@ -14307,7 +14439,8 @@ def _blank_subdivision_label(
     as the readers read its figure: an edit before this one may have
     blanked what follows the marker ("pour cent 2026-01-01." closes at the
     full stop once the date is blank), and a label kept for a rate the
-    readers then decline would ground its bare figure.
+    readers then decline would ground its bare figure. ``kept`` collects the
+    span in ``source`` of each label kept.
     """
     start, end = match.span()
     opening, closing = offsets[start], offsets[end - 1]
@@ -14319,6 +14452,8 @@ def _blank_subdivision_label(
             source[max(0, opening - 64) : opening]
         )
     ):
+        if kept is not None:
+            kept.append((opening, closing + 1))
         return match.group(0)
     return _blank_match(match)
 
@@ -15249,18 +15384,66 @@ def _belgian_figure_value(figure: str) -> float | None:
     return None
 
 
+def _ascii_digit_text(text: str) -> str:
+    """Return ``text`` with every decimal digit printed in ASCII ("２,５" as "2,5").
+
+    Each digit stays one character, so every span holds.
+    """
+    table = {
+        ord(character): str(unicodedata.decimal(character))
+        for character in set(text)
+        if character.isdecimal() and not "0" <= character <= "9"
+    }
+    return text.translate(table) if table else text
+
+
+def _joins_spelled_number(text: str, start: int, end: int) -> bool:
+    """Return whether a reading is one part of a longer spelled-out number.
+
+    Main's readers read a spelled number word by word where their tables
+    lack it: "vingt-huit" as 20 and 8, "cent cinq" as 5, "deux virgule cinq"
+    as 2 and 5, "twee komma vijf" as 5. A part joins a number word or a digit
+    of its number by a hyphen or a space, or by the "et", "en" or "und" a
+    number goes on after: before "un" or "onze" ("vingt et un"), a Dutch or
+    German ten ("vijf en veertig") or a fraction ("cinq et un quart"). The
+    scale word of a percent marker ("pour cent", "vom Hundert") ends its
+    number: "deux pour cent et trois pour cent" is a list.
+    """
+    before = _SPELLED_NUMBER_PART_BEFORE_PATTERN.search(
+        text, max(0, start - _PRINTED_FIGURE_MAX_LENGTH), start
+    )
+    if (
+        before is not None
+        and not (
+            before["word"] is not None
+            and _SPELLED_NUMBER_SCALE_WORD_PATTERN.fullmatch(before["word"])
+            and _PERCENT_SCALE_WORD_LEAD_PATTERN.search(
+                text, max(0, before.start("word") - 16), before.start("word")
+            )
+        )
+        and (
+            before["conjunction"] is None
+            or _SPELLED_NUMBER_CONJOINED_WORD_PATTERN.match(text, start, end)
+        )
+    ):
+        return True
+    return bool(_SPELLED_NUMBER_PART_AFTER_PATTERN.match(text, end))
+
+
 def _reads_belgian_figure(text: str, span: tuple[int, int], value: float) -> bool:
-    """Return whether a reading takes its printed figure the Belgian way.
+    """Return whether a reading takes its whole figure the Belgian way.
 
     Main's readers read a figure the English way: one drops its commas ("2,5"
     as 25, "1,250" as 1250), one takes a grouping dot for a decimal point
-    ("1.250" as 1.25), and some read a part of it (the "5" of "1.250,5", the
-    "345,5" of "12 345,5", the "2" of "1/2" or "1 / 2", the "½" of "16½", the
-    "1⁄2" of "1.250 1⁄2"). A Belgian source states none of those values. A
-    grouping space joins a figure only where it groups three digits ("12 345,5",
-    not "2025 125,5"). A reading with no comma or dot in its span ("28",
-    "16 1/2", a number spelled out) has no other value to mistake; any other
-    reading must take its figure's Belgian value.
+    ("1.250" as 1.25), and some read a part of it: the "5" of "1.250,5" or of
+    ",5", the "345,5" of "12 345,5", the "2" of "1/2" or "1    /    2", the
+    "16" and the "½" of "16 ½", the "1⁄2" of "1.250 1⁄2", the "huit" of
+    "vingt-huit". A Belgian source states none of those values. A grouping
+    space joins a figure only where it groups three digits ("12 345,5", not
+    "2025 125,5"). A whole figure with no comma or dot ("28", "16 1/2") and a
+    whole spelled number ("vingt-cinq") have no other value to mistake; any
+    other figure must take its Belgian value. ``text`` prints its digits in
+    ASCII (``_ascii_digit_text``), so "２,５" reads as "2,5" does.
     """
     start, end = span
     first = next(
@@ -15272,7 +15455,7 @@ def _reads_belgian_figure(text: str, span: tuple[int, int], value: float) -> boo
         None,
     )
     if first is None:
-        return True
+        return not _joins_spelled_number(text, start, end)
     last = 1 + next(
         index
         for index in range(end - 1, first - 1, -1)
@@ -15282,21 +15465,32 @@ def _reads_belgian_figure(text: str, span: tuple[int, int], value: float) -> boo
         return False
     if _widen_printed_figure(text, first, last, ".,") != (first, last):
         return False
+    # A comma or a dot right before the figure, after a space or a bracket,
+    # leaves it the tail of another ("taux de ,5", "2 ,5", "(,5)"); after a
+    # word it parts a list ("1 pour cent,2 pour cent").
+    if (
+        first > 0
+        and text[first - 1] in ".,"
+        and (first == 1 or text[first - 2].isspace() or text[first - 2] in "([")
+    ):
+        return False
     if _SPACED_FRACTION_SLASH_BEFORE_PATTERN.search(
-        text, max(0, first - _SPACED_FRACTION_SLASH_REACH), first
+        text, max(0, first - _PRINTED_FIGURE_MAX_LENGTH), first
     ) or _SPACED_FRACTION_SLASH_AFTER_PATTERN.match(
-        text, last, last + _SPACED_FRACTION_SLASH_REACH
+        text, last, last + _PRINTED_FIGURE_MAX_LENGTH
     ):
         return False
     if (
-        first > 1
-        and text[first - 1] in _PRINTED_FIGURE_GROUPING_SPACES
-        and _is_printed_figure_character(text[first - 2])
+        _MIXED_NUMBER_WHOLE_BEFORE_PATTERN.search(
+            text, max(0, first - _PRINTED_FIGURE_MAX_LENGTH), first
+        )
         and _PRINTED_FRACTION_START_PATTERN.match(text, first)
+    ) or _MIXED_NUMBER_FRACTION_AFTER_PATTERN.match(
+        text, last, last + _PRINTED_FIGURE_MAX_LENGTH
     ):
         return False
     wide = _widen_printed_figure(
-        text, first, last, ".,/\u2044" + _PRINTED_FIGURE_GROUPING_SPACES
+        text, first, last, ".,/⁄" + _PRINTED_FIGURE_GROUPING_SPACES
     )
     if wide is None:
         return False
@@ -15341,6 +15535,18 @@ def _table_rate_header_matches(
     if row == "body":
         text = _TABLE_VALUE_CELL_RATE_PATTERN.sub(" ", text)
     return bool(_TABLE_RATE_HEADER_PATTERN.search(text))
+
+
+def _table_repeats_locale_rate_header(text: str, *, profile: str) -> bool:
+    """Return whether a body cell names its column in its source's own words.
+
+    A cell whose own marker follows its figure ("2,5 procent") is a value.
+    """
+    locale_header = _TABLE_LOCALE_RATE_HEADER_PATTERNS.get(profile)
+    return bool(
+        locale_header
+        and locale_header.search(_TABLE_LOCALE_VALUE_CELL_RATE_PATTERN.sub(" ", text))
+    )
 
 
 def _pipe_table_is_delimiter_row(line: str) -> bool:
@@ -15505,8 +15711,8 @@ def _pipe_table_rate_cell_spans(
 
             # A header that names its column only in its source's own words
             # types the cells below it, not the figures beside those words
-            # ("Tarief (procent) 2026"). A header in main's words types its
-            # own cell as on main.
+            # ("Tarief (procent) 2026"), nor does a body row that repeats it.
+            # A header in main's words types its own cell as on main.
             locale_headers: set[int] = set()
             for column, (start, end) in enumerate(cells):
                 cell = line[start:end]
@@ -15514,6 +15720,10 @@ def _pipe_table_rate_cell_spans(
                     rate_columns.add(column)
                     if not _table_rate_header_matches(cell, profile="legacy", row=row):
                         locale_headers.add(column)
+                elif row != "header" and _table_repeats_locale_rate_header(
+                    cell, profile=profile
+                ):
+                    locale_headers.add(column)
             for column in rate_columns - locale_headers:
                 if column >= len(cells):
                     continue
@@ -15867,6 +16077,13 @@ class _LegacyNumericCollector:
     context_text: str = field(init=False)
     context_boundaries: _NumericContextBoundaries = field(init=False)
     money_spans: tuple[tuple[int, int], ...] = field(init=False)
+    # The figures the be-BE cleaner keeps as restated rates where main
+    # blanks them as labels ("Satz von (1.250) Prozent"), set by the
+    # tokenizer once it has cleaned the source.
+    belgian_restatement_spans: tuple[tuple[int, int], ...] = ()
+    # The source with its digits in ASCII, which the Belgian figure check
+    # reads.
+    belgian_figure_text: str = field(init=False)
 
     def __post_init__(self) -> None:
         # Context is classified on the text with its line ends and the wrap
@@ -15879,6 +16096,9 @@ class _LegacyNumericCollector:
             self.source
             if self.profile == "da-DK"
             else _bind_hebrew_source_text(self.source)
+        )
+        self.belgian_figure_text = (
+            _ascii_digit_text(self.source) if self.profile == "be-BE" else self.source
         )
         self.rate_table_cell_spans = (
             ()
@@ -16025,7 +16245,7 @@ class _LegacyNumericCollector:
         # percent" states no rate here.
         rate_profile = self.profile
         if self.profile == "be-BE" and not _reads_belgian_figure(
-            self.source,
+            self.belgian_figure_text,
             source_span,
             reading_value,
         ):
@@ -16120,6 +16340,27 @@ class _LegacyNumericCollector:
             requires_month_context=requires_month_context,
         )
 
+    def reads_on_main(self, occurrence: NumericOccurrence) -> bool:
+        """Return whether main makes a reading, or the Belgian one stands for it.
+
+        The be-BE cleaner keeps a figure restated in parentheses before a
+        word that spells a percent out ("Satz von (1.250) Prozent"), which
+        main blanks as a label. Only the reading that takes it whole and the
+        Belgian way (1250) reads there. Main makes no other (1.25, the
+        "250"), so none grounds anything, a rate or an amount.
+        """
+        return not (
+            any(
+                occurrence.start >= restated_start and occurrence.end <= restated_end
+                for restated_start, restated_end in self.belgian_restatement_spans
+            )
+            and not _reads_belgian_figure(
+                self.belgian_figure_text,
+                (occurrence.start, occurrence.end),
+                occurrence.source_value,
+            )
+        )
+
     def add_grounding(
         self,
         view: _NumericTextView,
@@ -16127,7 +16368,9 @@ class _LegacyNumericCollector:
         value: float,
         **kwargs: Any,
     ) -> None:
-        self.grounding.append(self.occurrence(view, span, value, **kwargs))
+        occurrence = self.occurrence(view, span, value, **kwargs)
+        if self.reads_on_main(occurrence):
+            self.grounding.append(occurrence)
 
     def add_inventory(
         self,
@@ -16136,7 +16379,9 @@ class _LegacyNumericCollector:
         value: float,
         **kwargs: Any,
     ) -> None:
-        self.inventory.append(self.occurrence(view, span, value, **kwargs))
+        occurrence = self.occurrence(view, span, value, **kwargs)
+        if self.reads_on_main(occurrence):
+            self.inventory.append(occurrence)
 
 
 _NUMERIC_EXTRACTION_PROFILES = frozenset(
@@ -17607,8 +17852,9 @@ def _tokenize_numeric_occurrences_from_text(
     # ends and maqaf wrap space read as the cleaner reads them, each
     # character carrying its offset into text; offsets carried through the
     # cleaning of raw_text are offsets into raw_text, composed here.
+    belgian_restatements: list[tuple[int, int]] = []
     cleaned_tracked = _clean_source_text_for_numeric_extraction_tracked(
-        raw_text, profile=profile
+        raw_text, profile=profile, belgian_restatements=belgian_restatements
     )
     cleaned_tracked = _TrackedText(
         cleaned_tracked.text,
@@ -17616,6 +17862,12 @@ def _tokenize_numeric_occurrences_from_text(
             None if offset is None else raw_tracked.offsets[offset]
             for offset in cleaned_tracked.offsets
         ],
+    )
+    collector.belgian_restatement_spans = tuple(
+        (raw_tracked.offsets[start], raw_tracked.offsets[end - 1] + 1)
+        for start, end in belgian_restatements
+        if raw_tracked.offsets[start] is not None
+        and raw_tracked.offsets[end - 1] is not None
     )
     cleaned_before_schedule = cleaned_tracked.text
     cleaned_before_schedule_view = _NumericTextView.tracked(text, cleaned_tracked)
