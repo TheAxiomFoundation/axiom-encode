@@ -163,6 +163,7 @@ from .validator_pipeline import (
     _parse_rulespec_target,
     _resolve_rulespec_target_file,
     _source_text_looks_like_table,
+    bound_engine_binary,
     build_existing_target_oracle_contract,
     evaluate_numeric_grounding_values_scoped,
     extract_embedded_source_text,
@@ -13003,20 +13004,17 @@ def _engine_supports_lifetime_fixtures(
     axiom_rules_path: Path,
     axiom_rules_engine_ref: str | None = None,
 ) -> bool:
-    """Probe the engine binary that validation will bind for ``run-lifetime``."""
+    """Probe the engine binary that validation will bind for ``run-lifetime``.
+
+    Resolving a declared pin may build the pinned engine when no receipt
+    exists; validation would build it later anyway.
+    """
     try:
-        pipeline = ValidatorPipeline(
+        binary = bound_engine_binary(
             policy_repo_path=policy_path,
             axiom_rules_path=axiom_rules_path,
-            local_corpus_release=None,
-            enable_oracles=False,
-            **(
-                {"axiom_rules_engine_ref": axiom_rules_engine_ref}
-                if axiom_rules_engine_ref is not None
-                else {}
-            ),
+            axiom_rules_engine_ref=axiom_rules_engine_ref,
         )
-        binary = pipeline._axiom_rules_binary()
     except Exception:
         return False
     return engine_supports_lifetime(binary)

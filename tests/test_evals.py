@@ -2916,6 +2916,72 @@ def test_run_source_eval_accepts_fresh_resolver_owned_child_slice(tmp_path):
     assert "Second child source" not in source_text
 
 
+@pytest.mark.parametrize("capable", [False, True])
+def test_run_source_eval_gates_lifetime_guidance_on_the_probed_engine(
+    tmp_path, capable
+):
+    """Source evals ask the bound engine too, rather than hard-wiring the gate."""
+    corpus_release, source_unit = _write_test_source_unit(
+        tmp_path, "(a) First child source."
+    )
+    engine = tmp_path / "axiom-rules-engine"
+    policy_root = _canonical_rulespec_content_root(tmp_path, "us")
+    response = EvalPromptResponse(
+        text="=== FILE: a.yaml ===\nformat: rulespec/v1\nrules: []\n",
+        duration_ms=10,
+        trace={},
+    )
+
+    with (
+        patch("axiom_encode.harness.evals._run_prompt_eval", return_value=response),
+        patch("axiom_encode.harness.evals.evaluate_artifact", return_value=None),
+        patch(
+            "axiom_encode.harness.evals._engine_supports_lifetime_fixtures",
+            return_value=capable,
+        ) as probe,
+        patch(
+            "axiom_encode.harness.evals._build_eval_prompt",
+            wraps=evals_module._build_eval_prompt,
+        ) as mock_prompt,
+    ):
+        run_source_eval(
+            source_unit=source_unit,
+            runner_specs=["openai:gpt-5.4"],
+            output_root=tmp_path / "out",
+            policy_path=policy_root,
+            local_corpus_release=corpus_release,
+            runtime_axiom_rules_path=engine,
+            mode="cold",
+        )
+
+    assert probe.call_args.kwargs["axiom_rules_path"] == engine
+    assert mock_prompt.call_args.kwargs["engine_supports_lifetime"] is capable
+
+
+def test_lifetime_probe_resolves_the_explicit_engine_ref(tmp_path, monkeypatch):
+    """The probe binds the same pinned binary validation would, ref included."""
+    ref = "a" * 40
+    binary = tmp_path / "engine-bin"
+    binary.write_text("#!/bin/sh\necho 'Commands: compile run-lifetime'\n")
+    binary.chmod(0o755)
+    seen = []
+
+    def resolve(checkout, pin):
+        seen.append((checkout, pin.sha))
+        return binary
+
+    monkeypatch.setattr(validator_pipeline, "resolve_pinned_engine_binary", resolve)
+    policy = tmp_path / "rulespec-us" / "us"
+    policy.mkdir(parents=True)
+
+    assert evals_module._engine_supports_lifetime_fixtures(
+        policy_path=policy,
+        axiom_rules_path=tmp_path / "engine",
+        axiom_rules_engine_ref=ref,
+    )
+    assert seen == [(tmp_path / "engine", ref)]
+
+
 def test_run_source_eval_rejects_removed_source_id_override(tmp_path):
     corpus_release, source_unit = _write_test_source_unit(
         tmp_path,

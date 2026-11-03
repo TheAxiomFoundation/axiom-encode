@@ -35693,6 +35693,45 @@ def _rulespec_declared_relation_slots(
     return slots_by_name
 
 
+def _unpinned_engine_binary_candidates(axiom_rules_path: Path) -> list[Path]:
+    """Engine binaries in a checkout, in binding order: release, debug, bare."""
+    return [
+        axiom_rules_path / "target" / "release" / "axiom-rules-engine",
+        axiom_rules_path / "target" / "debug" / "axiom-rules-engine",
+        axiom_rules_path / "axiom-rules-engine",
+    ]
+
+
+def bound_engine_binary(
+    *,
+    policy_repo_path: Path,
+    axiom_rules_path: Path,
+    axiom_rules_engine_ref: str | None = None,
+) -> Path:
+    """Resolve the binary a ValidatorPipeline would bind, without building one.
+
+    An explicit ref wins, then the policy repository's declared pin, as in
+    ``ValidatorPipeline._axiom_rules_binary``; a pin may build the engine when
+    no receipt exists. Unpinned, the first existing release/debug/bare binary.
+    """
+    pin = (
+        EnginePin(
+            sha=require_engine_ref_sha(
+                axiom_rules_engine_ref, description="axiom_rules_engine_ref"
+            ),
+            source=Path("<engine-probe>"),
+        )
+        if axiom_rules_engine_ref is not None
+        else load_declared_engine_pin(Path(policy_repo_path))
+    )
+    if pin is not None:
+        return resolve_pinned_engine_binary(Path(axiom_rules_path), pin)
+    for candidate in _unpinned_engine_binary_candidates(Path(axiom_rules_path)):
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(f"axiom-rules-engine binary not found: {axiom_rules_path}")
+
+
 class ValidatorPipeline:
     """Runs validators in 3 tiers with session event logging."""
 
@@ -36719,11 +36758,7 @@ class ValidatorPipeline:
 
     def _unverified_axiom_rules_binary(self) -> Path:
         """Resolve without a declared pin: prefer release, then debug, then bare."""
-        candidates = [
-            self.axiom_rules_path / "target" / "release" / "axiom-rules-engine",
-            self.axiom_rules_path / "target" / "debug" / "axiom-rules-engine",
-            self.axiom_rules_path / "axiom-rules-engine",
-        ]
+        candidates = _unpinned_engine_binary_candidates(self.axiom_rules_path)
         existing = [candidate for candidate in candidates if candidate.exists()]
         if not existing:
             raise FileNotFoundError(
