@@ -2370,8 +2370,17 @@ _ENGLISH_SUBDIVISION_CLAUSE_CUE = re.compile(
     r"relat(?:ed|ing)[ \t]+to|pertaining[ \t]+to)[ \t]+[A-Za-z]",
     flags=re.IGNORECASE,
 )
+# `allowed pursuant to this `: a past participle governs the reference, so
+# the clause's verb phrase is complete before it.
 _ENGLISH_SUBDIVISION_SELF_REFERENCE = re.compile(
-    r"(?<![A-Za-z])pursuant[ \t]+to[ \t]+this[ \t]+\Z", flags=re.IGNORECASE
+    r"(?<![A-Za-z])[A-Za-z]+(?:ed|en)[ \t]+pursuant[ \t]+to[ \t]+this[ \t]+\Z",
+    flags=re.IGNORECASE,
+)
+# `there shall be added to ... pursuant to this subdivision 1 if`: the
+# existential clause's subject follows the reference, so the number can be it.
+_ENGLISH_SUBDIVISION_EXISTENTIAL_CLAUSE = re.compile(
+    r"\bthere[ \t]+(?:shall|may|must|will|is|are|was|were)\b",
+    flags=re.IGNORECASE,
 )
 # The enclosing item's label at the start of its line (`7. a. ...`).
 _ENGLISH_SUBDIVISION_ENCLOSING_ITEM = re.compile(r"[ \t]*(?P<item>\d+)\.[ \t]")
@@ -15614,7 +15623,7 @@ def _english_subdivision_reference_ends_at_clause_cue(
     ``subdivision B 10 of § 58.1-301 related to ...`` qualifies through its
     statutory object, and ``pursuant to this subdivision 7 if ...`` inside item
     ``7.`` through self-reference. Every read is anchored or bounded: at most
-    24 characters before the keyword, and at most a fixed window back to the
+    48 characters before the keyword, and at most a fixed window back to the
     start of the enclosing line.
     """
 
@@ -15633,11 +15642,17 @@ def _english_subdivision_reference_ends_at_clause_cue(
 def _english_subdivision_self_reference(
     source_text: str, citation: re.Match[str]
 ) -> bool:
-    """`pursuant to this subdivision 7`, in item `7.`, modifying a full clause."""
+    """`allowed pursuant to this subdivision 7`, in item `7.`, in a full clause.
+
+    The clause has its own verb before the reference and is not existential,
+    and a past participle governs `pursuant to`. In a gapped clause, or in
+    `there shall be added to ... pursuant to this subdivision 1 if`, the
+    number after the reference can be the elided value or the subject.
+    """
 
     start = citation.start()
     if not _ENGLISH_SUBDIVISION_SELF_REFERENCE.search(
-        source_text[max(0, start - 24) : start]
+        source_text[max(0, start - 48) : start]
     ):
         return False
     label = re.fullmatch(r"\d+", citation.group("labels"), flags=re.ASCII)
@@ -15657,7 +15672,10 @@ def _english_subdivision_self_reference(
     # number can be the elided value.
     clause = source_text[item.end() : start]
     clause = re.split(r"[.;:]", clause)[-1]
-    return _ENGLISH_SUBDIVISION_CLAUSE_VERB.search(clause) is not None
+    return (
+        _ENGLISH_SUBDIVISION_CLAUSE_VERB.search(clause) is not None
+        and _ENGLISH_SUBDIVISION_EXISTENTIAL_CLAUSE.search(clause) is None
+    )
 
 
 def _english_subdivision_numeric_recall_spans(

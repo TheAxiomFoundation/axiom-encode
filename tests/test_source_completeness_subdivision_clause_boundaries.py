@@ -175,6 +175,34 @@ NEGATIVE_CONTROLS = (
         "subdivision 24 if the employee is paid semimonthly.",
         ("12", "24"),
     ),
+    # A postposed subject or object can follow the reference, even inside the
+    # item the reference names.
+    (
+        "There shall be added to the household size determined under this "
+        "subdivision 1 if a household member is pregnant.",
+        ("1",),
+    ),
+    (
+        "1. There shall be added to the household size determined pursuant to "
+        "this subdivision 1 if a household member is pregnant.",
+        ("1",),
+    ),
+    (
+        "6. For a household with earned income, there shall be substituted for "
+        "the number of months specified pursuant to this subdivision 6 unless the "
+        "household is elderly or disabled.",
+        ("6",),
+    ),
+    (
+        "65. The qualifying age shall be pursuant to this subdivision 65 unless "
+        "the individual is blind.",
+        ("65",),
+    ),
+    (
+        "The credit equals the amount determined under this subdivision x 2 if "
+        "the taxpayer files a joint return.",
+        ("2",),
+    ),
     ("A county may approve a subdivision 5 if the lots are platted.", ("5",)),
     ("the portion of subdivision B 10 related to loans", ("10",)),
     # A suffix letter can be a unit; coordinated labels keep main's demand.
