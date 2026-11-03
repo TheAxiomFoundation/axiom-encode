@@ -2,10 +2,9 @@
 
 `corpus_resolver.resolve_local_corpus_source` used to re-read, sha256-hash and
 `json.loads` every provisions file of the requested jurisdiction/document-class
-bucket on every call. With the wave-4-lineage US unions that cost grows with
-the bucket (us/statute is 32.9 MB on the current rulespec-us pin, 60.5 MB on
-wave4-r2 and 100.6 MB in the projected HTS full-schedule union), and
-validation calls the resolver many times per module. This note records the
+bucket on every call. That cost grows with the bucket, which for US statutes
+runs to tens of megabytes, and validation calls the resolver many times per
+module. This note records the
 design that makes resolution cheap, the invariants it keeps, and how much
 work it saves, counted in reads and parses.
 
@@ -67,13 +66,27 @@ empty. Nothing is shared between release objects.
 
 Two LRU budgets bound what one release object retains:
 
-- **Rows.** Buckets are weighed at `_RESIDENT_BYTES_PER_ARTIFACT_BYTE` (4)
-  times their artifact bytes; measured parsed rows plus indexes are 2.7 to
-  3.0 times (292 MiB for the 100.6 MB HTS us/statute bucket, 232 MiB for the
-  91.6 MB us/manual bucket). `MAX_CACHED_CORPUS_BYTES` (1 GiB) holds the HTS
-  union's us/statute, us/manual and us/regulation buckets together, and
-  `MAX_CACHED_CORPUS_BUCKETS` is 128. The most recently used bucket always
-  stays; evicting a bucket drops its memo.
+- **Rows.** Buckets are charged `_RESIDENT_BYTES_PER_ARTIFACT_BYTE` (4)
+  times their artifact bytes against `MAX_CACHED_CORPUS_BYTES` (1 GiB), and
+  `MAX_CACHED_CORPUS_BUCKETS` is 128. Evicting a bucket drops its memo. The
+  charge is an estimate, so 1 GiB is not a hard bound on resident memory:
+  - What a bucket really keeps depends on row length.
+    `scripts/measure_corpus_cache_memory.py` binds synthetic buckets and
+    measures them with `tracemalloc`. On 20,000 rows it reports, retained
+    after one cold resolution as a multiple of the file's bytes:
+
+    | Body chars | File MiB | Retained / file | Peak / file | Charged (4×) MiB |
+    |---:|---:|---:|---:|---:|
+    | 40 | 7.6 | 5.40× | 8.33× | 30.3 |
+    | 200 | 10.6 | 4.14× | 7.09× | 42.6 |
+    | 1,200 | 29.7 | 2.12× | 5.11× | 118.8 |
+
+    Short rows keep more than they are charged, so a cache of short-row
+    buckets can pass 1 GiB; long rows keep less. The load itself peaks at 5
+    to 8 times the file's bytes.
+  - The most recently used bucket always stays, however large: one bucket
+    can exceed the budget on its own, up to what a single call's read limits
+    allow.
 - **Memo.** `MAX_CACHED_CORPUS_MEMO_BYTES` (64 MiB) across all buckets'
   memos. An entry is weighed by what only it keeps alive: a 512-byte base
   (1 KiB for a resolved source, which also holds its own row identity and
@@ -86,10 +99,12 @@ Two LRU budgets bound what one release object retains:
   least recently used buckets' memos are cleared first, then the bucket's
   own memo, and an entry that fits only into a restarted memo is not stored.
 
-`validation-waivers audit` runs one worker per CI shard; locally it defaults
-to up to eight worker processes, each with its own release object, so the
-worst-case steady state there is eight times the per-release bound. A
-`threading.Lock` guards the cache; bucket loads happen under it.
+Nothing bounds the total across release objects. `validation-waivers audit`
+runs one worker per CI shard; locally it defaults to up to eight worker
+processes, and each task binds its own release object, so up to eight caches
+are live at once. A `threading.Lock` guards each cache, and bucket loads
+happen under it, so threads sharing one release wait for each other's first
+loads.
 
 ## Invariants
 
@@ -112,12 +127,20 @@ worst-case steady state there is eight times the per-release bound. A
 4. **Release isolation.** Each release object owns its cache, so a release
    never serves another release's entries, and binding a release after the
    release object or the lock changed starts empty.
-5. **Partition invariance.** `validation-waivers audit` validates many
-   modules against one shared release per worker. Because of (1), a module's
-   waiver fingerprint is identical whether or not its neighbors warmed the
-   cache. `_fingerprint_validation_waiver_modules` still opens a fresh
+5. **Partition invariance.** With one worker, `validation-waivers audit`
+   fingerprints every module in one serial call that binds one release and
+   shares it across the modules. With two or more, each task covers one
+   module, and `_fingerprint_waiver_chunk` binds a new `LocalCorpusRelease`
+   for it, so nothing is shared. Because of (1), a module's waiver
+   fingerprint is the same either way, whether or not its neighbors warmed
+   the cache. `_fingerprint_validation_waiver_modules` still opens a fresh
    `_rulespec_resolution_cache_scope` per module for filesystem admissions,
    which are not pure.
+6. **Forks.** A child process forked while another thread holds a cache's
+   lock would inherit a held lock that no thread of its own can release. A
+   handler registered with `os.register_at_fork` gives every cache in the
+   child a fresh lock and empties it, so a forked child starts as a spawned
+   one does. The parent's caches are untouched.
 
 ## Tests
 
@@ -147,10 +170,21 @@ worst-case steady state there is eight times the per-release bound. A
   warm release returns exactly what a freshly bound release returns, and the
   first call after each change reads the checkout again; interleaved calls on
   two releases over the same citation paths each match their own release,
-  uncached, and attest their own release; a replaced or deleted lock drops the
-  bucket; an in-place rewrite with a new timestamp is read again; a parent
-  directory swapped for a symlink is refused on a warm call; and the
+  uncached, and attest their own release. Example tests cover a replaced or
+  deleted lock; an in-place rewrite with a new modification time; an in-place
+  same-size rewrite with restored times, which only the change time reveals;
+  a file swapped after the cold read; a parent directory swapped for a
+  symlink, before or during a warm call; caller mutations of nested metadata,
+  memoized or not; a child forked while the cache lock is held; and the
   operation counts quoted below.
+
+  The freshly bound release these properties compare with runs the same
+  bucket, index and resolution code cold, so they show the cache is
+  consistent with its own cold path, not that it agrees with the linear scan
+  the resolver used before. `test_indexed_cached_resolution_matches_linear_uncached_reference`
+  in `tests/test_corpus_resolution_cache.py` compares with a linear-scan
+  reference index, and `tests/test_corpus_resolver.py`, which this change
+  leaves as it was, carries the resolver's own expectations.
 - `tests/test_validator_corpus_cache.py`: waiver fingerprints of seven modules
   (resolved, missing, ambiguous, sliced, composed, mixed, invalid citations)
   computed standalone with fresh releases equal those computed in a batch
@@ -160,14 +194,16 @@ worst-case steady state there is eight times the per-release bound. A
   per-scope reference scan on 3,000 random cases covering every error;
   canonical bytes exclude the signature without mutating the payload.
 - `tests/test_source_hash.py`: staleness checks observe on-disk changes made
-  after another operation warmed the same release.
+  after another operation warmed the same release, including when the disk
+  fingerprint is blind to the change.
 
-Before main was merged in and disk-change invalidation added, a mutation
-matrix over 62 mutations of the new code (budget
-replay, memo keys, error replay, eviction and accounting guards, memo weights,
-limit invalidation, index, composition memo, metadata copy, staleness,
-dependency re-hashing, validator dedup, membership grouping, canonical bytes)
-fails at least one of these tests for each.
+Each of these mutations of the cache fails at least one of these tests:
+dropping the change time from the file identity; staleness checks without
+`with_fresh_reads()`; taking the cold-path fingerprint after the read; a
+shallow metadata copy where rows are read; rebuilding the citation index on
+every call; trusting the fingerprint without comparing it; leaving locks out
+of it; one cache shared by every release; no per-caller metadata copy; the
+path checks before the fingerprint; and no fork handler.
 
 ## Other changes
 
@@ -191,14 +227,17 @@ fails at least one of these tests for each.
 `test_operation_count_of_repeated_resolution` counts the work of 100
 resolutions of distinct citations in one 200-row bucket:
 
-| | provisions reads (each also hashed) | rows parsed | `lstat` calls for the fingerprint |
-|---|---:|---:|---:|
-| uncached (a fresh release per call, as before this change) | 100 | 20,000 | none |
-| cached (one release) | 1 | 200 | 100 |
+| | provisions reads (each also hashed) | rows parsed | fingerprint `lstat` calls | citation-index builds |
+|---|---:|---:|---:|---:|
+| uncached (a fresh release per call) | 100 | 20,000 | 100 | 100 |
+| cached (one release) | 1 | 200 | 100 | 1 |
 
-In general, N resolutions in a bucket of R rows over A artifacts go from
-N × A reads and N × R parses to A reads and R parses, plus N × A `lstat`
-calls (N × 2A in a lock-file checkout).
+The uncached row runs this change's cold path, which takes the fingerprint
+before it reads; the resolver before this change made the same reads and
+parses and took no fingerprint. In general, N resolutions in a bucket of R
+rows over A artifacts go from N × A reads and N × R parses to A reads and R
+parses. Every call, cached or not, takes A fingerprint `lstat` calls (2A in a
+lock-file checkout) and the path checks an uncached read makes.
 
 Wall-clock figures for real US releases need a benchmark run against the
 signed release objects and corpus checkouts, which live outside this
