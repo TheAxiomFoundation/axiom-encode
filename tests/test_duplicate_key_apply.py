@@ -902,3 +902,72 @@ def test_real_nesting_between_the_scan_and_load_limits_keeps_raw_tests(tmp_path)
     _main, tests = _materialize(tmp_path, BASE, "bundle", raw_tests)
 
     assert tests == raw_tests
+
+
+# --- findings from the round-1 independent review ------------------------------
+
+# `? !!str {=: rules}` is a mapping key, but PyYAML's string constructor reads a
+# mapping's `=` entry as its scalar value, so the key loads as the plain string
+# `rules` and collapses with the other `rules` block.
+TAGGED_COLLECTION_KEY = BASE + "? !!str {=: rules}\n:\n" + SHADOW_RULES
+
+
+def test_a_collection_key_that_loads_as_a_string_is_compared():
+    assert [
+        rule["name"] for rule in yaml.safe_load(TAGGED_COLLECTION_KEY)["rules"]
+    ] == ["shadow_rate"]
+    with pytest.raises(yaml.constructor.ConstructorError, match="duplicate key"):
+        _safe_load_unique_keys(TAGGED_COLLECTION_KEY)
+
+    issues = find_duplicate_mapping_key_issues(TAGGED_COLLECTION_KEY)
+
+    assert issues == [
+        "document root has duplicate key `rules` at line 17, column 3 "
+        "(first at line 4, column 1)."
+    ]
+
+
+def test_real_stamping_refuses_a_collection_key_that_loads_as_a_string(tmp_path):
+    result, generated, _ = _candidate(tmp_path, TAGGED_COLLECTION_KEY)
+    original = generated.read_bytes()
+
+    with pytest.raises(RuntimeError, match="duplicate mapping keys"):
+        _stamp_generated_source_attestation_for_apply(result, generated)
+
+    assert generated.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "key", ["!!bool maybe", "!!int ''", "!!float ''", "!!timestamp soon"]
+)
+def test_keys_that_cannot_be_constructed_do_not_crash_the_scan(key):
+    # PyYAML raises KeyError, IndexError or AttributeError constructing these;
+    # loading reports them with its own error, so the scan leaves them alone.
+    content = f"cases:\n  - {key}: 1\n    name: a\n"
+
+    assert find_duplicate_mapping_key_issues(content) == []
+
+
+SEPARATOR_KEYS_TESTS = """- name: first_rate_applies
+  period: 2024-01-01
+  input:
+    review_band:
+      12,500: low
+      12500: high
+      40000: top
+  output:
+    first_rate: 0.1
+"""
+
+
+@pytest.mark.parametrize("delivery", ["bundle", "workspace"])
+def test_materialization_keeps_test_keys_that_collide_after_separator_stripping(
+    tmp_path, delivery
+):
+    # Test normalization strips thousands separators before it loads and dumps
+    # the cases, so `12,500` and `12500` would collapse into one entry.
+    assert find_duplicate_mapping_key_issues(SEPARATOR_KEYS_TESTS) == []
+
+    _main, tests = _materialize(tmp_path, BASE, delivery, SEPARATOR_KEYS_TESTS)
+
+    assert tests == SEPARATOR_KEYS_TESTS

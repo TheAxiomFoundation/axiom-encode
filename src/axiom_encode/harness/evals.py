@@ -17066,10 +17066,15 @@ def _normalize_main_eval_content(
         # resolve these; keep the raw text so validation reports them.
         if find_interpretation_yaml_issues(content):
             return content
-    except (yaml.YAMLError, RecursionError, ValueError):
+    except (yaml.YAMLError, ValueError):
         # The check below also covers PyYAML's plain ValueError, raised for
         # example on a double-quoted escape beyond U+10FFFF.
         pass
+    except RecursionError:
+        # The scan composes with one more frame per nesting level than loading,
+        # so the repairs below could still load and dump text it could not
+        # check. Normalize the text only; validation reports the nesting.
+        return _normalize_rulespec_content(content)
     if _rewrite_would_change_yaml(content):
         # Textual normalization only: it keeps every key and tag and still
         # refuses text that is not RuleSpec.
@@ -17105,6 +17110,20 @@ _UNLOADABLE_YAML_ISSUE = (
     "YAML text cannot be loaded: PyYAML raises ValueError on it, for example on "
     "a double-quoted escape beyond U+10FFFF or an impossible date"
 )
+
+
+def _test_rewrite_would_change_yaml(content: str) -> bool:
+    """Whether normalizing companion-test ``content`` would lose, change or fail
+    on what it says.
+
+    The test normalizers strip thousands separators before they load and dump
+    the cases, so keys that differ only by a separator, such as `12,500` and
+    `12500`, collide only after that step; the stripped text is checked too.
+    """
+
+    return _rewrite_would_change_yaml(content) or bool(
+        _rewrite_duplicate_key_issues(_normalize_comma_numeric_literals(content))
+    )
 
 
 def _rewrite_duplicate_key_issues(content: str) -> list[str]:
@@ -18434,7 +18453,7 @@ def _materialize_eval_artifact(
             # Normalization loads and dumps the cases; keep raw duplicate keys,
             # tags and text that cannot be loaded.
             elif target_path == expected_test_path and not (
-                _rewrite_would_change_yaml(content)
+                _test_rewrite_would_change_yaml(content)
             ):
                 if single_amount_table_slice:
                     content = _normalize_single_amount_row_test_content(
@@ -18738,8 +18757,15 @@ def _overlay_validation_retry_candidate(
         preserved_interpretation_issues = find_interpretation_yaml_issues(
             candidate.rulespec
         )
-    except (yaml.YAMLError, RecursionError):
+    except yaml.YAMLError:
         preserved_interpretation_issues = []
+    except RecursionError:
+        # The overlay is written back through a YAML load and dump, which could
+        # still succeed on text too deeply nested for the scan to check.
+        raise _PreservedRepairOverlayError(
+            "preserved repair overlay YAML nesting is too deep to check its "
+            "interpretation syntax"
+        ) from None
     if preserved_interpretation_issues:
         raise _PreservedRepairOverlayError(
             "preserved repair overlay has invalid interpretation syntax: "
@@ -19341,7 +19367,7 @@ def _materialize_workspace_artifacts(
         test_content = workspace_test.read_text()
         # Normalization loads and dumps the cases; keep raw duplicate keys,
         # tags and text that cannot be loaded.
-        if not _rewrite_would_change_yaml(test_content):
+        if not _test_rewrite_would_change_yaml(test_content):
             if single_amount_table_slice:
                 test_content = _normalize_single_amount_row_test_content(
                     test_content,

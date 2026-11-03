@@ -121,23 +121,29 @@ def _duplicate_mapping_key_issues(
             ]
         elif isinstance(node, yaml.MappingNode):
             marks = loader.key_marks.get(id(node), [])
-            first_keys: dict[Any, tuple[yaml.ScalarNode, Any]] = {}
+            first_keys: dict[Any, tuple[str, Any]] = {}
             for entry, (key_node, value_node) in enumerate(node.value):
-                if not isinstance(key_node, yaml.ScalarNode):
-                    # safe_load rejects collection keys as unhashable.
+                key = _constructed_mapping_key(loader, key_node)
+                if isinstance(key_node, yaml.ScalarNode):
+                    text = key_node.value
+                    label = _duplicate_key_label(text)
+                    children.append(
+                        (_child_location(location, f".{label}"), value_node)
+                    )
+                else:
+                    # safe_load rejects a collection key as unhashable unless a
+                    # scalar tag makes it load as a scalar: `? !!str {=: rules}`
+                    # loads as `rules`. Its contents are checked either way.
+                    text = "?" if key is _UNCOMPARABLE_KEY else str(key)
                     children.append((_child_location(location, " key"), key_node))
                     children.append((_child_location(location, ".?"), value_node))
-                    continue
-                label = _duplicate_key_label(key_node.value)
-                children.append((_child_location(location, f".{label}"), value_node))
-                key = _constructed_mapping_key(loader, key_node)
                 if key is _UNCOMPARABLE_KEY:
                     continue
                 mark = marks[entry] if entry < len(marks) else key_node.start_mark
                 try:
                     first = first_keys.get(key)
                     if first is None:
-                        first_keys[key] = (key_node, mark)
+                        first_keys[key] = (text, mark)
                         continue
                 except TypeError:
                     continue
@@ -145,7 +151,7 @@ def _duplicate_mapping_key_issues(
                     (
                         mark.line,
                         mark.column,
-                        _duplicate_key_issue(location, (key_node, mark), first),
+                        _duplicate_key_issue(location, (text, mark), first),
                     )
                 )
         stack.extend(reversed(children))
@@ -159,38 +165,48 @@ def _duplicate_mapping_key_issues(
     return issues
 
 
-def _constructed_mapping_key(loader: yaml.SafeLoader, key_node: yaml.ScalarNode) -> Any:
+def _constructed_mapping_key(loader: yaml.SafeLoader, key_node: yaml.Node) -> Any:
     """Construct a key the way ``safe_load`` would, or mark it uncomparable."""
 
     if key_node.tag == _YAML_MERGE_TAG:
         return _UNCOMPARABLE_KEY
-    if key_node.tag == _YAML_VALUE_TAG:
+    if isinstance(key_node, yaml.ScalarNode) and key_node.tag == _YAML_VALUE_TAG:
         # PyYAML retags a plain `=` key as a string before construction.
         return key_node.value
     try:
         return loader.construct_object(key_node, deep=True)
-    except (yaml.YAMLError, ValueError, TypeError, OverflowError):
-        # safe_load reports a key it cannot construct with its own error.
+    except (
+        yaml.YAMLError,
+        ValueError,
+        TypeError,
+        OverflowError,
+        KeyError,
+        IndexError,
+        AttributeError,
+    ):
+        # safe_load reports a key it cannot construct with its own error; the
+        # scalar constructors raise KeyError, IndexError or AttributeError on
+        # some tagged text, such as `!!bool maybe` or `!!int ''`.
         return _UNCOMPARABLE_KEY
 
 
 def _duplicate_key_issue(
     location: str,
-    duplicate: tuple[yaml.ScalarNode, Any],
-    first: tuple[yaml.ScalarNode, Any],
+    duplicate: tuple[str, Any],
+    first: tuple[str, Any],
 ) -> str:
-    (key_node, mark), (first_node, first_mark) = duplicate, first
-    label = _duplicate_key_label(key_node.value)
+    (text, mark), (first_text, first_mark) = duplicate, first
+    label = _duplicate_key_label(text)
     position = _mark_position(mark)
     first_position = _mark_position(first_mark)
-    if key_node.value == first_node.value:
+    if text == first_text:
         return (
             f"{location} has duplicate key `{label}` at {position} "
             f"(first at {first_position})."
         )
     return (
         f"{location} has key `{label}` at {position}, which loads as the same "
-        f"key as `{_duplicate_key_label(first_node.value)}` at {first_position}."
+        f"key as `{_duplicate_key_label(first_text)}` at {first_position}."
     )
 
 
