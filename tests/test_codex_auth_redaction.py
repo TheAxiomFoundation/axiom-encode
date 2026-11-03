@@ -5,7 +5,9 @@ import logging
 import sys
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -75,12 +77,31 @@ def test_no_form_of_a_secret_survives_redaction(secret, before, after):
         redacted = redact_codex_auth_secrets(before + form + after, secrets)
         assert secret not in redacted
         assert json.dumps(secret)[1:-1] not in redacted
+        assert json.dumps(secret, ensure_ascii=False)[1:-1] not in redacted
 
 
-def test_reviewer_output_and_logs_carry_no_auth_token(tmp_path, monkeypatch, caplog):
-    """A real child prints the token and rotates it; neither form survives."""
-    home = tmp_path / "supervisor-home"
-    write_auth(home, access_token=ACCESS, refresh_token=REFRESH)
+def test_unicode_json_form_is_redacted():
+    """JSON written without ASCII escaping keeps non-ASCII characters raw but
+    still escapes quotes and backslashes; that form is neither verbatim nor
+    ASCII-escaped, so it needs its own replacement."""
+    secret = 'tok\u00e9n-"quoted"\\-value-0123'
+    form = json.dumps(secret, ensure_ascii=False)[1:-1]
+    assert form not in (secret, json.dumps(secret)[1:-1])
+    assert redact_codex_auth_secrets(f"x {form} y", frozenset({secret})) == (
+        f"x {CODEX_AUTH_REDACTION} y"
+    )
+
+
+def test_a_secret_containing_another_is_replaced_whole():
+    """An account ID inside a longer token must not split the longer one."""
+    inner = "acct-0123456789abcdef"
+    outer = f"eyJ.{inner}.signature-part"
+    redacted = redact_codex_auth_secrets(f"[{outer}]", frozenset({inner, outer}))
+    assert redacted == f"[{CODEX_AUTH_REDACTION}]"
+
+
+def _token_printing_child(tmp_path: Path) -> Path:
+    """A real child that rotates the refresh token and prints every token."""
     child = tmp_path / "codex"
     child.write_text(
         f"#!{sys.executable}\n"
@@ -97,19 +118,83 @@ def test_reviewer_output_and_logs_carry_no_auth_token(tmp_path, monkeypatch, cap
         "sys.stderr.write('stderr ' + old + '\\n')\n"
     )
     child.chmod(0o755)
+    return child
+
+
+def test_reviewer_output_and_logs_carry_no_auth_token(tmp_path, monkeypatch, caplog):
+    """Through the real review path: the reply isn't JSON, so _run_reviewer
+    logs 500 characters of it. Neither that warning nor the result may carry
+    a token, including one rotated during the run."""
+    home = tmp_path / "supervisor-home"
+    write_auth(home, access_token=ACCESS, refresh_token=REFRESH)
+    child = _token_printing_child(tmp_path)
     monkeypatch.setattr(signing_broker, "_trusted_codex_home", str(home))
     monkeypatch.setattr(validator_pipeline, "resolve_codex_cli", lambda: str(child))
+    monkeypatch.setenv("AXIOM_ENCODE_REVIEWER_CLI", "codex")
+    policy = tmp_path / "rulespec-us" / "us"
+    rules = policy / "statutes" / "1.yaml"
+    rules.parent.mkdir(parents=True)
+    rules.write_text("format: rulespec/v1\nrules: []\n")
+    pipeline = validator_pipeline.ValidatorPipeline(
+        policy_repo_path=policy,
+        axiom_rules_path=tmp_path / "missing-engine",
+        local_corpus_release=None,
+        enable_oracles=False,
+    )
 
-    with caplog.at_level(logging.DEBUG):
-        text, returncode = validator_pipeline._run_codex_reviewer_cli(
-            "review this", timeout=30
-        )
+    with caplog.at_level(logging.WARNING):
+        result = pipeline._run_reviewer("generalist-reviewer", rules)
 
+    assert "failed to parse as JSON" in caplog.text
+    assert "leaked" in caplog.text and CODEX_AUTH_REDACTION in caplog.text
+    assert "reviewer_parse_failed" in result.issues
+    kept = json.dumps(
+        {"raw": result.raw_output, "issues": result.issues, "error": result.error}
+    )
+    for text in (caplog.text, result.raw_output, kept):
+        assert_clean(text, ACCESS, REFRESH, ROTATED)
+
+
+def _fake_reviewer_run(monkeypatch, tmp_path, *, output, extractor):
+    home = tmp_path / "supervisor-home"
+    write_auth(home, access_token=ACCESS, refresh_token=REFRESH)
+    monkeypatch.setattr(signing_broker, "_trusted_codex_home", str(home))
+    monkeypatch.setattr(validator_pipeline, "resolve_codex_cli", lambda: "codex")
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_run_subprocess_with_idle_timeout",
+        lambda *a, **k: SimpleNamespace(output=output, returncode=0),
+    )
+    monkeypatch.setattr(validator_pipeline, "_extract_codex_text_output", extractor)
+    return validator_pipeline._run_codex_reviewer_cli("review", timeout=30)
+
+
+def test_raw_event_stream_is_redacted_before_extraction(tmp_path, monkeypatch):
+    """Layer one, on its own: the extractor never sees a token, verbatim or
+    JSON-escaped, so nothing it might log or keep can carry one."""
+    seen = []
+    raw = json.dumps({"text": f"{ACCESS} {REFRESH}"})
+    _fake_reviewer_run(
+        monkeypatch,
+        tmp_path,
+        output=raw,
+        extractor=lambda text: seen.append(text) or "clean",
+    )
+    assert seen and CODEX_AUTH_REDACTION in seen[0]
+    assert_clean(seen[0], ACCESS, REFRESH)
+
+
+def test_extracted_text_is_redacted_again(tmp_path, monkeypatch):
+    """Layer two, on its own: whatever extraction yields is redacted too, so
+    a token the extractor assembles from parts can't be returned."""
+    text, returncode = _fake_reviewer_run(
+        monkeypatch,
+        tmp_path,
+        output="nothing secret here",
+        extractor=lambda _text: f"reassembled {ACCESS}",
+    )
     assert returncode == 0
-    assert "leaked" in text
-    assert CODEX_AUTH_REDACTION in text
-    assert_clean(text, ACCESS, REFRESH, ROTATED)
-    assert_clean(caplog.text, ACCESS, REFRESH, ROTATED)
+    assert text == f"reassembled {CODEX_AUTH_REDACTION}"
 
 
 def test_generation_output_carries_no_auth_token(tmp_path, monkeypatch):
@@ -164,3 +249,90 @@ def test_generation_output_carries_no_auth_token(tmp_path, monkeypatch):
     )
     assert CODEX_AUTH_REDACTION in kept
     assert_clean(kept, ACCESS, REFRESH, ROTATED)
+    # The raw last-message file holds the unredacted text and sits in the
+    # workspace under --output, which failure diagnostics upload. It must go.
+    assert not (tmp_path / ".codex-last-message.txt").exists()
+    for path in tmp_path.rglob("*"):
+        # Only the Codex home itself may hold the credentials.
+        if path.is_file() and source_home not in path.parents:
+            assert_clean(path.read_text(errors="replace"), ACCESS, ROTATED)
+
+
+def _run_generation_with_refresh(tmp_path, monkeypatch, refresh):
+    source_home = tmp_path / "source-home"
+    write_auth(source_home, access_token=ACCESS, refresh_token=REFRESH)
+    (source_home / "auth.json").chmod(0o600)
+    workspace = evals.EvalWorkspace(
+        root=tmp_path / "workspace",
+        source_text_file=tmp_path / "source.txt",
+        manifest_file=tmp_path / "manifest.json",
+    )
+    workspace.root.mkdir()
+
+    class FakePopen:
+        returncode = 0
+
+        def __init__(self, cmd, **kwargs):
+            refresh(Path(kwargs["env"]["CODEX_HOME"]))
+            kwargs["stdout"].write(
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {"type": "agent_message", "text": "ok"},
+                    }
+                )
+                + "\n"
+            )
+            kwargs["stdout"].flush()
+
+    monkeypatch.setenv("CODEX_HOME", str(source_home))
+    monkeypatch.setattr(evals, "resolve_codex_cli", lambda: "/explicit/codex")
+    monkeypatch.setattr(evals, "_codex_prompt_timeouts", lambda _: (20, 10))
+    monkeypatch.setattr(evals.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(evals, "_wait_for_codex_process", lambda *a, **kw: False)
+    evals._run_codex_prompt_eval(
+        evals.parse_runner_spec("codex:test-model"), workspace, "encode source"
+    )
+    return source_home / "auth.json"
+
+
+def _rotated(home: Path) -> str:
+    data = json.loads((home / "auth.json").read_text())
+    data["tokens"]["refresh_token"] = ROTATED
+    return json.dumps(data)
+
+
+def test_atomically_replaced_auth_is_carried_back_to_the_source_home(
+    tmp_path, monkeypatch
+):
+    """A refresh that replaces the linked file must not leave the source stale."""
+
+    def atomic_refresh(home: Path) -> None:
+        staged = home / "auth.json.tmp"
+        staged.write_text(_rotated(home))
+        staged.replace(home / "auth.json")
+
+    source = _run_generation_with_refresh(tmp_path, monkeypatch, atomic_refresh)
+
+    assert json.loads(source.read_text())["tokens"]["refresh_token"] == ROTATED
+    assert not source.is_symlink()
+    assert source.stat().st_mode & 0o777 == 0o600
+    assert [path.name for path in source.parent.iterdir()] == ["auth.json"]
+
+
+@pytest.mark.parametrize("replacement", ["not json", "[]"])
+def test_invalid_replacement_auth_is_not_carried_back(
+    tmp_path, monkeypatch, replacement
+):
+    def broken_refresh(home: Path) -> None:
+        (home / "auth.json").unlink()
+        (home / "auth.json").write_text(replacement)
+
+    source = _run_generation_with_refresh(tmp_path, monkeypatch, broken_refresh)
+
+    assert json.loads(source.read_text())["tokens"]["refresh_token"] == REFRESH
+
+
+def test_unchanged_linked_auth_is_left_alone(tmp_path, monkeypatch):
+    source = _run_generation_with_refresh(tmp_path, monkeypatch, lambda home: None)
+    assert json.loads(source.read_text())["tokens"]["refresh_token"] == REFRESH
