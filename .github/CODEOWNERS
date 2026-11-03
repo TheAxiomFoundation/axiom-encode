@@ -8,9 +8,10 @@
 # per-run human approval.
 
 # The workflow that signs with the apply key, and the reviewed-candidate
-# allowlists it admits.
+# allowlist code and admission records it admits.
 /.github/workflows/targeted-signed-reencode.yml @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/prepare_signed_backfill.py @PavelMakarchuk @MaxGhenis
+/data/reviewed-rulespec-refs/ @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/corpus_artifact_transport.py @PavelMakarchuk @MaxGhenis
 
 # The signer, the signing supervisor, the broker and the trust bootstrap.
