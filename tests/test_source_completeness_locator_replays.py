@@ -49,7 +49,7 @@ def _inventory(source: str, citation: str) -> set[float]:
 
 
 @functools.lru_cache(maxsize=None)
-def _replay(run_id: str):
+def _replay(run_id: str, profile: str = "en-US"):
     fixture = FIXTURES / f"signed_reencode_{run_id}"
     recorded = json.loads((fixture / "issues.json").read_text())
     content = (fixture / "candidate.yaml").read_text()
@@ -68,10 +68,10 @@ def _replay(run_id: str):
         corpus_citation_path=recorded["citation"],
         test_cases=yaml.safe_load(tests),
         extract_numeric_occurrences=functools.partial(
-            extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
+            extract_typed_numeric_inventory_occurrences_from_text, profile=profile
         ),
         extract_numeric_grounding_occurrences=functools.partial(
-            extract_typed_numeric_occurrences_from_text, profile="en-US"
+            extract_typed_numeric_occurrences_from_text, profile=profile
         ),
         extract_named_scalars=extract_named_scalar_occurrences,
         numeric_value_is_grounded=numeric_value_is_grounded,
@@ -117,10 +117,26 @@ def test_real_candidates_no_longer_demand_locator_scalars(
 
 @pytest.mark.parametrize(
     ("run_id", "current_count"),
-    (("37936331759", 0), ("37936338132", 51), ("37936341740", 116)),
+    # Virginia: the subdivision clause-cue mask (#1831) removes the demand for
+    # 7 from `this subdivision 7 if such payments ...`, and the carryforward
+    # consequent (#1832) no longer splits into a second condition (116 -> 114).
+    (("37936331759", 0), ("37936338132", 51), ("37936341740", 114)),
 )
 def test_replay_diagnostic_totals(run_id, current_count):
     _recorded, _source, issues = _replay(run_id)
+    assert len(issues) == current_count
+
+
+@pytest.mark.parametrize(
+    ("run_id", "current_count"),
+    # Production reads U.S. citations with the `legacy` numeric profile
+    # (#1831). Main gave 0, 68 and 117. Virginia loses the locator demands for
+    # 7 and 10 (the operative `10 percent` is 0.1 under this profile) and the
+    # carryforward conditions diagnostic (#1832).
+    (("37936331759", 0), ("37936338132", 68), ("37936341740", 114)),
+)
+def test_replay_diagnostic_totals_under_the_production_profile(run_id, current_count):
+    _recorded, _source, issues = _replay(run_id, "legacy")
     assert len(issues) == current_count
 
 

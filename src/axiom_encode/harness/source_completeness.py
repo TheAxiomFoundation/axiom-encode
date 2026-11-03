@@ -87,6 +87,7 @@ from axiom_encode.statute import (
 from .same_case_execution import SameCaseEvidence, formula_witnesses
 
 if TYPE_CHECKING:
+    from axiom_encode.corpus_resolver import RenderedRowHeading
     from axiom_encode.harness.worksheet_composition_evidence import (
         BoundWorksheetComposition,
     )
@@ -2348,6 +2349,46 @@ _ENGLISH_SUBDIVISION_SINGLE_REFERENCE_PREDICATE = re.compile(
     r"appl(?:y|ies)|provides?|authorizes?|governs?|requires?)\b(?!-)",
     flags=re.IGNORECASE,
 )
+# A single subdivision reference can also end where a subordinate clause or a
+# participial modifier begins (`subdivision B 10 of § 58.1-301 related to
+# loans`, `pursuant to this subdivision 7 if such payments`). The cue alone
+# proves nothing about the label, so the reference must carry evidence of its
+# own. Either a statutory object directly follows the label, or the reference
+# names the item it sits in: `pursuant to this subdivision 7` inside item
+# `7.`, in a clause whose own verb precedes it. A bare `this subdivision N if`
+# is not enough: in gapped English (`the qualifying age is 65; under this
+# subdivision 62 if ...`) the number is a value. A unit word, a suffix letter
+# or a coordinated label keeps the number demanded.
+_ENGLISH_SUBDIVISION_STATUTORY_OBJECT = re.compile(
+    r"[ \t]+of[ \t]+(?:(?:this|the|that)[ \t]+"
+    r"(?:section|subsection|paragraph|subdivision|act|code|chapter)\b|"
+    r"§[ \t]*\d+(?:[.-]\d+)*(?:\([A-Za-z0-9]+\))*)",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_SUBDIVISION_CLAUSE_CUE = re.compile(
+    r"[ \t]+(?:if|unless|when|whenever|where|except|provided[ \t]+that|"
+    r"relat(?:ed|ing)[ \t]+to|pertaining[ \t]+to)[ \t]+[A-Za-z]",
+    flags=re.IGNORECASE,
+)
+# `allowed pursuant to this `: a past participle governs the reference, so
+# the clause's verb phrase is complete before it.
+_ENGLISH_SUBDIVISION_SELF_REFERENCE = re.compile(
+    r"(?<![A-Za-z])[A-Za-z]+(?:ed|en)[ \t]+pursuant[ \t]+to[ \t]+this[ \t]+\Z",
+    flags=re.IGNORECASE,
+)
+# `there shall be added to ... pursuant to this subdivision 1 if`: the
+# existential clause's subject follows the reference, so the number can be it.
+_ENGLISH_SUBDIVISION_EXISTENTIAL_CLAUSE = re.compile(
+    r"\bthere[ \t]+(?:shall|may|must|will|is|are|was|were)\b",
+    flags=re.IGNORECASE,
+)
+# The enclosing item's label at the start of its line (`7. a. ...`).
+_ENGLISH_SUBDIVISION_ENCLOSING_ITEM = re.compile(r"[ \t]*(?P<item>\d+)\.[ \t]")
+_ENGLISH_SUBDIVISION_CLAUSE_VERB = re.compile(
+    r"\b(?:shall|may|must|will|is|are|was|were|be|been|has|have|had)\b",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_SUBDIVISION_SELF_REFERENCE_WINDOW = 4096
 # The exact phrase can identify poverty-guideline geography. The span helper
 # also requires bare or definite reference syntax, retaining unknown units.
 _CONTIGUOUS_STATES_NUMERIC_RECALL_IDENTIFIER = re.compile(
@@ -5383,6 +5424,184 @@ def _has_substantive_arithmetic_expression(source_text: str) -> bool:
     return False
 
 
+# An own-section caption such as `43-1072 - Earned credit for property taxes;
+# ...` restates the section's identity (#1827). Its identifier is a locator
+# only on evidence beyond its position and a matching heading: composition
+# rendered it as the first body-bearing row's own heading, the row lies in the
+# requested section, and the identifier is that section's own citation leaf.
+# Any text that points back at printed material (`the bounds printed above`)
+# gives the numbers a possible computational role, so it keeps every demand.
+_OWN_SECTION_CAPTION = re.compile(
+    r"(?P<identifier>\d+[A-Za-z]?(?:[.-]\d+[A-Za-z]?)*)[ \t]*(?:[-–—]|\.)[ \t]+"
+    r"(?P<title>[^\n]*[A-Za-z][^\n]*)"
+)
+_OWN_SECTION_CAPTION_BACK_REFERENCE = re.compile(
+    r"\b(?:above|aforesaid|aforementioned|foregoing|herein(?:above|before)|supra|"
+    r"printed|headings?|captions?|catchlines?|headnotes?|previously|earlier)\b"
+    r"|\b(?:first|opening|top|initial)\s+(?:lines?|rows?|entr(?:y|ies))\b"
+    r"|\bat\s+the\s+(?:top|head|beginning|start)\b"
+    r"|\bpreceding\b(?!\s+(?:(?:calendar|taxable|tax|fiscal|income|plan|"
+    r"benefit|program)\s+)?(?:years?|months?|quarters?|periods?)\b)"
+    r"|\bsection(?:'s|\s+)(?:numbers?|designation|identifier|title)\b"
+    r"|\b(?:numbers?|title|designation|identifier)\s+of\s+(?:this|the)\s+section\b"
+    r"|\b(?:opens?|begins?|starts?|heads?)\s+this\s+(?:section|provision|text)\b",
+    flags=re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class _OwnSectionCaption:
+    """A verified caption line and the identifier it restates."""
+
+    line_start: int
+    line_end: int
+    identifier_start: int
+    identifier_end: int
+    digit_spans: tuple[tuple[int, int], ...]
+
+    def shifted(self, delta: int) -> _OwnSectionCaption:
+        return _OwnSectionCaption(
+            self.line_start + delta,
+            self.line_end + delta,
+            self.identifier_start + delta,
+            self.identifier_end + delta,
+            tuple((start + delta, end + delta) for start, end in self.digit_spans),
+        )
+
+
+def _own_section_caption(offset: int, match: re.Match[str]) -> _OwnSectionCaption:
+    identifier_start = offset + match.start("identifier")
+    return _OwnSectionCaption(
+        offset + match.start(),
+        offset + match.end(),
+        identifier_start,
+        offset + match.end("identifier"),
+        tuple(
+            (identifier_start + digits.start(), identifier_start + digits.end())
+            for digits in re.finditer(r"\d+", match.group("identifier"))
+        ),
+    )
+
+
+def _own_section_captions(
+    source_text: str,
+    rendered_row_headings: Sequence[RenderedRowHeading],
+    *,
+    corpus_citation_path: str,
+) -> tuple[_OwnSectionCaption, ...]:
+    """Verify the composed body's opening heading as its own-section caption.
+
+    Only the first rendered heading can qualify, and only when its offsets
+    match the text, it is followed by the blank line composition writes, its
+    row lies in the requested section, and its identifier equals the
+    section's own citation leaf. The row's own body may then repeat the
+    caption on its first line. A bodyless parent's heading is never rendered,
+    so it can never authenticate a child's opening. A back-reference anywhere
+    in the source keeps every number demanded.
+    """
+
+    section_path = corpus_citation_path.strip("/")
+    section = section_path.rsplit("/", 1)[-1]
+    if not section or not rendered_row_headings:
+        return ()
+    heading = rendered_row_headings[0]
+    if not (
+        heading.start == 0
+        and heading.start < heading.end
+        and heading.end + 2 <= heading.chunk_end <= len(source_text)
+        and source_text[heading.start : heading.end] == heading.heading
+        and source_text[heading.end : heading.end + 2] == "\n\n"
+        and (
+            heading.citation_path == section_path
+            or heading.citation_path.startswith(section_path + "/")
+        )
+    ):
+        return ()
+    caption = _OWN_SECTION_CAPTION.fullmatch(heading.heading)
+    if caption is None or caption.group("identifier") != section:
+        return ()
+    if _OWN_SECTION_CAPTION_BACK_REFERENCE.search(source_text):
+        return ()
+    captions = [_own_section_caption(heading.start, caption)]
+    body_start = heading.end + 2
+    line_end = source_text.find("\n", body_start, heading.chunk_end)
+    repeat = _OWN_SECTION_CAPTION.fullmatch(
+        source_text,
+        body_start,
+        heading.chunk_end if line_end < 0 else line_end,
+    )
+    if (
+        repeat is not None
+        and repeat.group("identifier") == section
+        and repeat.group("title").split() == caption.group("title").split()
+    ):
+        captions.append(_own_section_caption(0, repeat))
+    return tuple(captions)
+
+
+def may_open_with_own_section_caption(
+    source_text: str, *, corpus_citation_path: str
+) -> bool:
+    """Whether the body's first line could be its own-section caption.
+
+    A cheap text-only screen: callers fetch the resolver's rendered headings,
+    which alone can verify a caption, only when this holds.
+    """
+
+    section = corpus_citation_path.strip("/").rsplit("/", 1)[-1]
+    first_line = source_text.split("\n", 1)[0]
+    caption = _OWN_SECTION_CAPTION.fullmatch(first_line)
+    return (
+        bool(section)
+        and caption is not None
+        and (caption.group("identifier") == section)
+    )
+
+
+def _caption_line_within(
+    start: int, end: int, captions: Sequence[_OwnSectionCaption]
+) -> bool:
+    return any(
+        caption.line_start <= start and end <= caption.line_end for caption in captions
+    )
+
+
+def _blank_caption_identifiers(
+    source_text: str, captions: Sequence[_OwnSectionCaption]
+) -> str:
+    """Blank verified caption identifiers in place, keeping every offset.
+
+    Only the identifier goes: a computation the caption's title states (`Credit
+    equal to 10 percent of rent`) still reads as one.
+    """
+
+    if not captions:
+        return source_text
+    characters = list(source_text)
+    for caption in captions:
+        characters[caption.identifier_start : caption.identifier_end] = " " * (
+            caption.identifier_end - caption.identifier_start
+        )
+    return "".join(characters)
+
+
+def _caption_identifier_computation(
+    branch: SourceStructureBranch,
+    captions: Sequence[_OwnSectionCaption],
+    *,
+    blanked_source_text: str,
+    corpus_citation_path: str,
+) -> bool:
+    """Whether a branch's computation is only a caption identifier's hyphen."""
+
+    return _caption_line_within(
+        branch.start, branch.end, captions
+    ) and not source_states_explicit_computation(
+        blanked_source_text[branch.start : branch.end],
+        corpus_citation_path=corpus_citation_path,
+    )
+
+
 def analyze_complete_source_unit(
     content: str,
     authoritative_source_text: str,
@@ -5403,11 +5622,28 @@ def analyze_complete_source_unit(
     source_context: Mapping[str, str | None] | None = None,
     execution_evidence: SameCaseEvidence | None = None,
     referral_context: Any = None,
+    rendered_row_headings: Sequence[RenderedRowHeading] = (),
 ) -> CompleteSourceUnitAnalysis:
-    """Analyze one artifact against its authoritative, resolver-owned body."""
+    """Analyze one artifact against its authoritative, resolver-owned body.
+
+    ``rendered_row_headings`` are the resolver's headings for this exact body
+    (``ResolvedCorpusSource.rendered_row_headings``); they only ever let a
+    verified own-section caption's identifier stop being demanded.
+    """
 
     with _us_manual_prose_scope(corpus_citation_path):
         source_text = authoritative_source_text.strip()
+        leading = len(authoritative_source_text) - len(
+            authoritative_source_text.lstrip()
+        )
+        own_section_captions = tuple(
+            caption.shifted(-leading)
+            for caption in _own_section_captions(
+                authoritative_source_text,
+                rendered_row_headings,
+                corpus_citation_path=corpus_citation_path,
+            )
+        )
         if not source_text:
             issue = (
                 "[complete-source-unit:authoritative-source] "
@@ -5453,6 +5689,7 @@ def analyze_complete_source_unit(
                 imported_proof_source_context=imported_proof_source_context,
                 resolved_dependency_outputs=resolved_dependency_outputs,
                 source_context=source_context,
+                own_section_captions=own_section_captions,
             )
         except (yaml.YAMLError, TypeError, ValueError) as exc:
             # A gate that cannot read its input must report it, never pass it.
@@ -5600,6 +5837,7 @@ def _analyze_rulespec_payload(
     raw_source_text: str | None = None,
     execution_evidence: SameCaseEvidence | None = None,
     referral_context: Any = None,
+    own_section_captions: Sequence[_OwnSectionCaption] = (),
 ) -> CompleteSourceUnitAnalysis:
     if execution_evidence is not None and not execution_evidence.bound(
         content, imported_export_bindings
@@ -5875,6 +6113,33 @@ def _analyze_rulespec_payload(
         active_branches=active_branches,
         deferred_paths=deferred_paths,
     )
+    caption_blanked_source_text = _blank_caption_identifiers(
+        source_text, own_section_captions
+    )
+    if own_section_captions:
+        # A verified own-section caption's identifier hyphen (`43-1072 - Earned
+        # credit ...`) is not a subtraction (#1827). A clause in the caption
+        # line goes only if blanking the identifier leaves no computation.
+        all_formula_branches = tuple(
+            branch
+            for branch in all_formula_branches
+            if not _caption_identifier_computation(
+                branch,
+                own_section_captions,
+                blanked_source_text=caption_blanked_source_text,
+                corpus_citation_path=corpus_citation_path,
+            )
+        )
+        formula_branches = tuple(
+            branch
+            for branch in formula_branches
+            if not _caption_identifier_computation(
+                branch,
+                own_section_captions,
+                blanked_source_text=caption_blanked_source_text,
+                corpus_citation_path=corpus_citation_path,
+            )
+        )
     control_branches = _source_control_branches(
         source_text,
         raw_source_text=raw_source_text,
@@ -5899,7 +6164,8 @@ def _analyze_rulespec_payload(
         deferred_paths=deferred_paths,
     )
     source_has_computation = source_states_explicit_computation(
-        source_text, corpus_citation_path=corpus_citation_path
+        caption_blanked_source_text,
+        corpus_citation_path=corpus_citation_path,
     )
     if source_has_computation:
         if formula_branches:
@@ -6052,8 +6318,13 @@ def _analyze_rulespec_payload(
             )
         )
 
+    # A verified own-section caption's identifier digits are locators (#1827).
+    caption_digit_spans = {
+        span for caption in own_section_captions for span in caption.digit_spans
+    }
     numeric_recall_text = authoritative_numeric_recall_text(
-        source_text, corpus_citation_path=corpus_citation_path
+        _mask_numeric_spans(source_text, caption_digit_spans),
+        corpus_citation_path=corpus_citation_path,
     )
     source_occurrences = tuple(
         occurrence
@@ -6067,7 +6338,10 @@ def _analyze_rulespec_payload(
     if represented_annual_spans or represented_measurement_spans:
         unrepresented_recall_text = authoritative_numeric_recall_text(
             _mask_numeric_spans(
-                source_text, represented_annual_spans | represented_measurement_spans
+                source_text,
+                represented_annual_spans
+                | represented_measurement_spans
+                | caption_digit_spans,
             ),
             corpus_citation_path=corpus_citation_path,
         )
@@ -15384,6 +15658,69 @@ class _NumericRecallSourceMap:
         return origin, origin + end - start
 
 
+def _english_subdivision_reference_ends_at_clause_cue(
+    source_text: str, citation: re.Match[str]
+) -> bool:
+    """Prove a single reference by its own evidence and a following clause cue.
+
+    ``subdivision B 10 of § 58.1-301 related to ...`` qualifies through its
+    statutory object, and ``pursuant to this subdivision 7 if ...`` inside item
+    ``7.`` through self-reference. Every read is anchored or bounded: at most
+    48 characters before the keyword, and at most a fixed window back to the
+    start of the enclosing line.
+    """
+
+    statutory_object = _ENGLISH_SUBDIVISION_STATUTORY_OBJECT.match(
+        source_text, citation.end()
+    )
+    if statutory_object is not None:
+        cue_start = statutory_object.end()
+    elif _english_subdivision_self_reference(source_text, citation):
+        cue_start = citation.end()
+    else:
+        return False
+    return _ENGLISH_SUBDIVISION_CLAUSE_CUE.match(source_text, cue_start) is not None
+
+
+def _english_subdivision_self_reference(
+    source_text: str, citation: re.Match[str]
+) -> bool:
+    """`allowed pursuant to this subdivision 7`, in item `7.`, in a full clause.
+
+    The clause has its own verb before the reference and is not existential,
+    and a past participle governs `pursuant to`. In a gapped clause, or in
+    `there shall be added to ... pursuant to this subdivision 1 if`, the
+    number after the reference can be the elided value or the subject.
+    """
+
+    start = citation.start()
+    if not _ENGLISH_SUBDIVISION_SELF_REFERENCE.search(
+        source_text[max(0, start - 48) : start]
+    ):
+        return False
+    label = re.fullmatch(r"\d+", citation.group("labels"), flags=re.ASCII)
+    if label is None:
+        return False
+    window_start = max(0, start - _ENGLISH_SUBDIVISION_SELF_REFERENCE_WINDOW)
+    line_break = source_text.rfind("\n", window_start, start)
+    if line_break < 0 and window_start:
+        return False
+    line_start = line_break + 1
+    item = _ENGLISH_SUBDIVISION_ENCLOSING_ITEM.match(source_text, line_start)
+    if item is None or item.group("item") != label.group(0):
+        return False
+    # In `No deduction shall be allowed pursuant to this subdivision 7 if`
+    # the clause has its own verb before the reference. A gapped clause
+    # (`...; pursuant to this subdivision 7 if`) has none, and there the
+    # number can be the elided value.
+    clause = source_text[item.end() : start]
+    clause = re.split(r"[.;:]", clause)[-1]
+    return (
+        _ENGLISH_SUBDIVISION_CLAUSE_VERB.search(clause) is not None
+        and _ENGLISH_SUBDIVISION_EXISTENTIAL_CLAUSE.search(clause) is None
+    )
+
+
 def _english_subdivision_numeric_recall_spans(
     source_text: str,
 ) -> Iterable[tuple[int, int]]:
@@ -15448,6 +15785,13 @@ def _english_subdivision_numeric_recall_spans(
             and _ENGLISH_SUBDIVISION_SINGLE_REFERENCE_PREDICATE.match(
                 source_text, citation.end()
             )
+        ):
+            selected = labels
+        elif (
+            len(labels) == 1
+            and not ambiguous_labels
+            and citation.group("keyword").lower() == "subdivision"
+            and _english_subdivision_reference_ends_at_clause_cue(source_text, citation)
         ):
             selected = labels
         else:
@@ -17525,7 +17869,135 @@ def _source_conjunctive_fact_gates(
     segments = _source_gate_split_conjunctive_conditions(body)
     if len(segments) < 2:
         return ()
-    gates: list[tuple[frozenset[str], frozenset[str]]] = []
+    care_text = text if care_source_text is None else care_source_text
+    segment_gates = _source_gate_segment_gates(segments, care_source_text=care_text)
+    antecedent = _carryforward_consequent_antecedent(body)
+    if antecedent is not None and not _CARRYFORWARD_UNSPLIT_ANTECEDENT.search(
+        _without_digit_group_commas(antecedent)
+    ):
+        # The consequent coordinates effects, so its `and` splits no condition.
+        # Cut it off only if every antecedent segment keeps a gate of its own.
+        # Main's consequent gate is the only demand behind a condition the
+        # splitter cannot see: a verb outside its predicate words (`and the
+        # taxpayer elects`), a relative clause or a nested conditional. So any
+        # ungated antecedent segment, top-level comma, relative pronoun or
+        # condition cue keeps main's gates.
+        antecedent_segments = _source_gate_split_conjunctive_conditions(antecedent)
+        boundary = len(antecedent_segments) - 1
+        antecedent_gates = _source_gate_segment_gates(
+            antecedent_segments, care_source_text=care_text
+        )
+        if antecedent_segments[:boundary] == segments[:boundary] and all(
+            gate is not None for gate in antecedent_gates
+        ):
+            segment_gates = antecedent_gates
+    gates = [gate for gate in segment_gates if gate is not None]
+    return tuple(gates) if len(gates) >= 2 else ()
+
+
+# Words that put a second condition, or a restriction on whose amount is
+# carried, into a clause: relative pronouns, condition cues, prepositions,
+# coordinators that split gates, and status predicates.
+_CARRYFORWARD_RESTRICTING_WORDS = (
+    r"who|whom|whose|which|that|if|when|whenever|where|wherever|while|unless|"
+    r"except|provided|until|once|because|after|before|since|then|so|as|long|"
+    r"and|nor|of|for|in|by|with|to|at|from|under|over|on|within|without|during|"
+    r"resident|residents|nonresident|blind|married|disabled|elderly|age|aged|"
+    r"insured|eligible|qualified|qualifying|dependent|employed"
+)
+_CARRYFORWARD_UNSPLIT_ANTECEDENT = re.compile(
+    r",|\b(?:who|whom|whose|which|that|if|when|whenever|where|wherever|while|"
+    r"unless|except|provided|once|because|after|before|since|then)\b|"
+    r"\b(?:so|as)\s+long\s+as\b",
+    flags=re.IGNORECASE,
+)
+# The exhausted amount: plain words only (`the purchase price or college
+# savings trust contribution`), with no restricting word or participle.
+_CARRYFORWARD_EXHAUSTED_AMOUNT_WORD = (
+    rf"(?!(?:{_CARRYFORWARD_RESTRICTING_WORDS})\b)(?![A-Za-z]+ing\b)[A-Za-z]+"
+)
+# A carried amount, what may be done with it in later years, and until when.
+# Every word is fixed except the exhausted amount's plain words.
+_CARRYFORWARD_CONSEQUENT = re.compile(
+    r"\s*(?:then\s+)?(?:the|such|any)\s+"
+    r"(?:remainder|excess|balance|"
+    r"unused\s+(?:portion|amount|balance|credit|deduction))"
+    r"(?:\s+of\s+(?:the|such)\s+"
+    r"(?:credit|deduction|subtraction|amount|contribution|payment))?"
+    r"\s+may\s+be\s+carried\s+(?:forward|over)"
+    r"(?:\s+and\s+(?:subtracted|deducted|claimed|applied|used|taken))?"
+    r"(?:\s+(?:in|to|into|for)\s+(?:the\s+)?"
+    r"(?:future|succeeding|subsequent|following)\s+taxable\s+years?)?"
+    r"(?:\s+until\s+(?:(?:the|such)\s+"
+    rf"(?:{_CARRYFORWARD_EXHAUSTED_AMOUNT_WORD}\s+){{1,8}}?"
+    r"(?:has|have)\s+been\s+)?"
+    r"(?:fully|completely|entirely)\s+"
+    r"(?:deducted|used|claimed|applied|subtracted|exhausted|recovered))?"
+    r"\s*[;.]?\s*",
+    flags=re.IGNORECASE,
+)
+
+
+def _without_digit_group_commas(text: str) -> str:
+    """`$ 4,000` keeps its digits but loses the comma that is no boundary."""
+
+    return re.sub(r"(?<=\d),(?=\d)", "", text)
+
+
+def _carryforward_consequent_antecedent(body: str) -> str | None:
+    """Return the antecedent before a closed carryforward consequent, if any.
+
+    In ``If X exceeds $ 4,000, the remainder may be carried forward and
+    subtracted ... until ... has been fully deducted`` the consequent says what
+    happens to an amount, and its ``and`` joins effects (#1832). The consequent
+    must match the closed grammar through the end of the body, so a further
+    condition, a relative clause or a factual ``until`` keeps the whole body.
+    Each top-level comma costs one anchored match.
+    """
+
+    depth = 0
+    quote: str | None = None
+    commas: list[int] = []
+    for index, character in enumerate(body):
+        if quote is not None:
+            if character == quote:
+                quote = None
+        elif character in {'"', "“"}:
+            quote = '"' if character == '"' else "”"
+        elif character == "”":
+            return None
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            if depth == 0:
+                return None
+            depth -= 1
+        elif (
+            character == ","
+            and depth == 0
+            and not (
+                0 < index < len(body) - 1
+                and body[index - 1].isdigit()
+                and body[index + 1].isdigit()
+            )
+        ):
+            commas.append(index)
+    if quote is not None or depth:
+        return None
+    for index in commas:
+        if body[:index].strip() and _CARRYFORWARD_CONSEQUENT.fullmatch(body, index + 1):
+            return body[:index]
+    return None
+
+
+def _source_gate_segment_gates(
+    segments: Sequence[tuple[str | None, str]],
+    *,
+    care_source_text: str,
+) -> list[tuple[frozenset[str], frozenset[str]] | None]:
+    """Return each conjunctive segment's entity/predicate gate, or None."""
+
+    gates: list[tuple[frozenset[str], frozenset[str]] | None] = []
     inherited_entities: frozenset[str] = frozenset()
     for connector, segment in segments:
         if re.search(
@@ -17533,10 +18005,11 @@ def _source_conjunctive_fact_gates(
             segment,
             flags=re.IGNORECASE,
         ):
+            gates.append(None)
             continue
         tokens = _source_gate_semantic_tokens(
             segment,
-            care_source_text=text if care_source_text is None else care_source_text,
+            care_source_text=care_source_text,
         )
         if (
             connector == "and"
@@ -17564,6 +18037,7 @@ def _source_conjunctive_fact_gates(
         )
         predicates = tokens - _SOURCE_GATE_ENTITIES - _SOURCE_GATE_SUBJECT_PRONOUNS
         if not predicates:
+            gates.append(None)
             continue
         if not (
             _SOURCE_GATE_PREDICATE_LANGUAGE.search(segment)
@@ -17579,9 +18053,10 @@ def _source_conjunctive_fact_gates(
                 | _SOURCE_GATE_UNKNOWN_POLARITY_PREDICATES
             )
         ):
+            gates.append(None)
             continue
         gates.append((entities, predicates))
-    return tuple(gates) if len(gates) >= 2 else ()
+    return gates
 
 
 def _source_conjunctive_fact_gate_count(text: str) -> int:
