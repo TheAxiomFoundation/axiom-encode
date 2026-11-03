@@ -20,6 +20,8 @@ jobs:
     # test-gate runs even in a cancelled run (`if: always()`): a workflow-level
     # group would keep the new run waiting until the old gate found a runner.
     # Each push to main keys its own groups, so nothing cancels it or makes it wait.
+    # When a cancel stops a shard, the older run's test-gate still runs and fails,
+    # so that superseded head shows a failed `test (3.13)` check.
     concurrency:
       group: ${{ github.workflow }}-test-${{ matrix.python-version }}-${{ matrix.shard }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}

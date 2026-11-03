@@ -695,6 +695,9 @@ def test_concurrency_groups_sit_on_the_jobs_that_do_the_work():
     legs = "${{ matrix.python-version }}-${{ matrix.shard }}"
     assert "concurrency" not in CI
     assert "concurrency" not in CI["jobs"]["test-gate"]
+    assert all(
+        "concurrency" in job for key, job in CI["jobs"].items() if key != "test-gate"
+    )
     assert {
         key: job["concurrency"]
         for key, job in CI["jobs"].items()
