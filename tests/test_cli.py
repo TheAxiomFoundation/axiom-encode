@@ -2070,6 +2070,14 @@ def test_promote_reviewed_candidate_refuses_record_binding_mismatch_before_signe
     record_root = _write_reviewed_rulespec_records(
         tmp_path / "reviewed-rulespec-refs", ("us", reviewed_ref, binding)
     )
+    # Move the module's mtime so that a plain `git status` would refresh the
+    # index; the refusal must leave .git/index byte-identical.
+    module = repo / "us/statutes/7/2015/f.yaml"
+    module_stat = module.stat()
+    os.utime(
+        module, ns=(module_stat.st_atime_ns, module_stat.st_mtime_ns + 5_000_000_000)
+    )
+    index_before = (repo / ".git" / "index").read_bytes()
 
     with (
         patch(
@@ -2086,6 +2094,7 @@ def test_promote_reviewed_candidate_refuses_record_binding_mismatch_before_signe
     overlay.assert_not_called()
     recover.assert_not_called()
     assert not (repo / ".axiom").exists()
+    assert (repo / ".git" / "index").read_bytes() == index_before
 
 
 def test_promote_reviewed_candidate_rejects_unallowlisted_ref(tmp_path):

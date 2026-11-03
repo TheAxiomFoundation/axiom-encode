@@ -9368,9 +9368,12 @@ def cmd_promote_reviewed_candidate(args):
     ):
         raise ValueError("reviewed candidate path is not a protected RuleSpec module")
 
+    # --no-optional-locks keeps this preflight read-only: a plain status may
+    # refresh stat data and rewrite .git/index before a binding refusal.
     status = subprocess.check_output(
         [
             "git",
+            "--no-optional-locks",
             "-C",
             str(repo_path),
             "status",
