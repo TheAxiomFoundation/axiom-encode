@@ -60,6 +60,8 @@ from axiom_oracles.bridges.registry import (
 
 from axiom_encode.bare_structure import bare_outline, mask_bare_labels
 from axiom_encode.codex_cli import (
+    codex_auth_secrets,
+    redact_codex_auth_secrets,
     resolve_codex_cli,
     with_codex_model_availability_hint,
 )
@@ -141,6 +143,7 @@ from axiom_encode.repo_routing import (
     monorepo_checkout_name,
 )
 from axiom_encode.rules_engine_compat import run_rulespec_compile
+from axiom_encode.signing_broker import supervisor_codex_home
 from axiom_encode.statute import (
     citation_to_citation_path,
     normalize_rulespec_path_segment,
@@ -516,13 +519,26 @@ def _run_codex_reviewer_cli(
                 ),
             ),
         )
+        # The read-only sandbox still lets the reviewer read auth.json in its
+        # home. Collect the credential strings before and after the run (a
+        # refresh can rotate them) and strip them from everything kept.
+        codex_home = supervisor_codex_home()
+        secrets = codex_auth_secrets(codex_home)
         result = _run_subprocess_with_idle_timeout(
             cmd,
             timeout=timeout,
             idle_timeout=idle_timeout,
             cwd=cwd,
+            # Codex cannot initialize without a home directory. Under the
+            # signing supervisor only its captured, isolated home is forwarded;
+            # the sandbox above keeps the review read-only.
+            include_supervisor_codex_home=True,
         )
-        return _extract_codex_text_output(result.output), result.returncode
+        secrets |= codex_auth_secrets(codex_home)
+        text = _extract_codex_text_output(
+            redact_codex_auth_secrets(result.output, secrets)
+        )
+        return redact_codex_auth_secrets(text, secrets), result.returncode
     except subprocess.TimeoutExpired:
         return f"Timeout after {timeout}s", 1
     except FileNotFoundError:
@@ -553,6 +569,7 @@ def _run_subprocess_with_idle_timeout(
     idle_timeout: int,
     cwd: Optional[Path] = None,
     env: Mapping[str, str] | None = None,
+    include_supervisor_codex_home: bool = False,
     poll_interval: float = 0.5,
 ) -> _SubprocessRunResult:
     """Run a subprocess, aborting if it stops emitting output for too long."""
@@ -576,10 +593,9 @@ def _run_subprocess_with_idle_timeout(
                     stderr=stderr_file,
                     text=True,
                     cwd=cwd,
-                    env=(
-                        scrub_attestation_signing_keys()
-                        if env is None
-                        else scrub_attestation_signing_keys(env)
+                    env=scrub_attestation_signing_keys(
+                        env,
+                        include_supervisor_codex_home=include_supervisor_codex_home,
                     ),
                 )
 

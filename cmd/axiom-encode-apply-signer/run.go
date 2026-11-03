@@ -25,6 +25,9 @@ type runOptions struct {
 	pythonRuntimeRoots []string
 	pythonImportRoots  []string
 	pythonPackageRoot  string
+	codexCLIConfigPath string
+	codexAuthPath      string
+	codexAuthOutbox    string
 	binding            contextBinding
 	command            []string
 }
@@ -49,6 +52,24 @@ func runLauncher(options runOptions, environment func(string) string) (int, erro
 	// exposed through /proc/self/environ while it is being read and cleared.
 	if !isKnownScope(options.scope) {
 		return 0, fmt.Errorf("--scope must be one of %q or %q", scopeApply, scopeEval)
+	}
+	if err := options.validateCodexSubscription(); err != nil {
+		return 0, err
+	}
+	// The supervisor inherits this environment and refuses an ambient
+	// CODEX_HOME in subscription mode. Refuse it here, before the key is read.
+	if options.codexAuthPath != "" && environment("CODEX_HOME") != "" {
+		return 0, errors.New("ambient CODEX_HOME is outside supervisor custody; unset it and pass --codex-subscription-auth explicitly")
+	}
+	// The supervisor keeps OPENAI_API_KEY for its child, so in subscription
+	// mode an ambient API key would sit beside the subscription home and could
+	// be billed by the encoder's OpenAI paths. Refuse both names up front.
+	if options.codexAuthPath != "" {
+		for _, name := range []string{"OPENAI_API_KEY", "CODEX_API_KEY"} {
+			if environment(name) != "" {
+				return 0, fmt.Errorf("ambient %s conflicts with Codex subscription auth; unset it so the supervised encoder cannot bill an API key", name)
+			}
+		}
 	}
 	// Fail fast with a clear message before touching key material. The signer
 	// re-validates independently as the single source of truth.
@@ -144,6 +165,18 @@ func runLauncher(options runOptions, environment func(string) string) (int, erro
 	return exitCode, nil
 }
 
+// Match the supervisor's all-or-none contract before consuming the signing key.
+// The supervisor retains custody of opening and validating these paths.
+func (options runOptions) validateCodexSubscription() error {
+	if options.codexAuthPath == "" && (options.codexAuthOutbox != "" || options.codexCLIConfigPath != "") {
+		return errors.New("Codex outbox/config requires --codex-subscription-auth")
+	}
+	if options.codexAuthPath != "" && (options.codexAuthOutbox == "" || options.codexCLIConfigPath == "") {
+		return errors.New("Codex subscription auth requires --codex-auth-outbox and --trusted-codex-cli-config")
+	}
+	return nil
+}
+
 func readAndClearKeyEnvironment(name string) ([]byte, error) {
 	if name == "" {
 		return nil, errors.New("--key-env is required")
@@ -229,6 +262,13 @@ func startSupervisor(options runOptions, supervisorSocket *os.File) (*exec.Cmd, 
 	}
 	if options.pythonPackageRoot != "" {
 		arguments = append(arguments, "--trusted-python-package-root", options.pythonPackageRoot)
+	}
+	if options.codexAuthPath != "" {
+		arguments = append(arguments,
+			"--trusted-codex-cli-config", options.codexCLIConfigPath,
+			"--codex-subscription-auth", options.codexAuthPath,
+			"--codex-auth-outbox", options.codexAuthOutbox,
+		)
 	}
 	arguments = append(arguments, "--")
 	arguments = append(arguments, options.command...)

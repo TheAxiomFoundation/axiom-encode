@@ -128,6 +128,9 @@ func parseRunOptions(arguments []string) (runOptions, error) {
 	supervisor := flags.String("supervisor", "", "path to the compiled axiom-encode-signing-supervisor")
 	trustRoots := flags.String("trusted-signing-roots", "", "protected three-root trust config for the supervisor")
 	packageRoot := flags.String("trusted-python-package-root", "", "supervisor --trusted-python-package-root")
+	codexCLIConfig := flags.String("trusted-codex-cli-config", "", "supervisor --trusted-codex-cli-config")
+	codexAuth := flags.String("codex-subscription-auth", "", "supervisor --codex-subscription-auth")
+	codexAuthOutbox := flags.String("codex-auth-outbox", "", "supervisor --codex-auth-outbox")
 	repository := flags.String("expected-github-repository", "", "required GITHUB_REPOSITORY value")
 	var runtimeRoots multiFlag
 	var importRoots multiFlag
@@ -150,7 +153,7 @@ func parseRunOptions(arguments []string) (runOptions, error) {
 	if *trustRoots == "" {
 		return runOptions{}, fmt.Errorf("--trusted-signing-roots is required")
 	}
-	return runOptions{
+	parsed := runOptions{
 		scope:              *scope,
 		keyEnv:             *keyEnv,
 		supervisor:         *supervisor,
@@ -158,6 +161,9 @@ func parseRunOptions(arguments []string) (runOptions, error) {
 		pythonRuntimeRoots: runtimeRoots,
 		pythonImportRoots:  importRoots,
 		pythonPackageRoot:  *packageRoot,
+		codexCLIConfigPath: *codexCLIConfig,
+		codexAuthPath:      *codexAuth,
+		codexAuthOutbox:    *codexAuthOutbox,
 		binding: contextBinding{
 			expectedRepository:  *repository,
 			allowedWorkflowRefs: refs,
@@ -166,5 +172,9 @@ func parseRunOptions(arguments []string) (runOptions, error) {
 			allowLocalDev: false,
 		},
 		command: command,
-	}, nil
+	}
+	if err := parsed.validateCodexSubscription(); err != nil {
+		return runOptions{}, err
+	}
+	return parsed, nil
 }
