@@ -225,6 +225,7 @@ def test_near_markers_do_not_ground_the_rate(source_text, value):
         ("us/statute/example/1", "The office received 28 PCT applications.", "0.28"),
         ("uk/statute/example/1", "The office received 28 PCT applications.", "0.28"),
         ("ca/statute/example/1", "The office received 28 PCT applications.", "0.28"),
+        (BE_CITATION, "The office received 28 PCT applications.", "0.28"),
         ("us/statute/example/1", "officers of the 28 Pct. shall", "0.28"),
         # Outside Belgium "pct." is no marker at all, as on main: it may name
         # a police precinct.
