@@ -39,7 +39,7 @@ def repo(tmp_path: Path) -> Path:
     repo = tmp_path / "axiom-encode"
     (repo / "src/axiom_encode").mkdir(parents=True)
     (repo / "changelog.d").mkdir()
-    (repo / "changelog.d/README.md").write_text("# Changelog fragments\n")
+    (repo / "changelog.d/.gitkeep").write_text("")
     (repo / "CHANGELOG.md").write_text("## 0.2.10\n\n- Older entry.\n")
     (repo / "src/axiom_encode/cli.py").write_text("MARKER = 0\n")
     _write_version(repo, "0.2.10")
@@ -86,11 +86,9 @@ def test_non_encoder_change_needs_no_bump(repo: Path):
     assert _run_script("check", "--repo", str(repo)).returncode == 0
 
 
-def test_bump_covers_the_change_and_compiles_fragments(repo: Path):
+def test_bump_covers_the_change_and_writes_all_version_files(repo: Path):
     _change_encoder(repo, 1)
-    (repo / "changelog.d/typed-checks.md").write_text("- Type validator issues.\n")
-    (repo / "changelog.d/numeric-recall.md").write_text("- Keep page numbers out.\n")
-    _commit(repo, "fragments")
+    _change_encoder(repo, 2)
 
     assert version_provenance.bump(repo) == "0.2.11"
     _commit(repo, "Bump encoder version to 0.2.11")
@@ -102,27 +100,24 @@ def test_bump_covers_the_change_and_compiles_fragments(repo: Path):
     }
     assert version_provenance.unversioned_changes(repo) == []
     assert (repo / "CHANGELOG.md").read_text() == (
-        "## 0.2.11\n\n- Keep page numbers out.\n- Type validator issues.\n\n"
+        "## 0.2.11\n\n- encoder change 2\n- encoder change 1\n\n"
         "## 0.2.10\n\n- Older entry.\n"
     )
-    assert sorted(path.name for path in (repo / "changelog.d").iterdir()) == [
-        "README.md"
-    ]
 
 
-def test_bump_without_fragments_lists_merged_subjects(repo: Path):
+def test_bump_leaves_towncrier_fragments_alone(repo: Path):
+    # changelog.d/ holds towncrier fragments that CI checks with
+    # `towncrier build --draft` and that nothing compiles yet.
+    fragment = repo / "changelog.d/1120.added.md"
+    fragment.write_text("Add a runner.\n")
+    _commit(repo, "fragment")
     _change_encoder(repo, 1)
-    _change_encoder(repo, 2)
 
     version_provenance.bump(repo)
 
-    assert (
-        (repo / "CHANGELOG.md")
-        .read_text()
-        .startswith(
-            "## 0.2.11\n\n- encoder change 2\n- encoder change 1\n\n## 0.2.10\n"
-        )
-    )
+    assert fragment.read_text() == "Add a runner.\n"
+    assert _git(repo, "status", "--porcelain", "--", "changelog.d") == ""
+    assert "Add a runner." not in (repo / "CHANGELOG.md").read_text()
 
 
 def test_github_output_mode_reports_instead_of_failing(repo: Path, tmp_path: Path):

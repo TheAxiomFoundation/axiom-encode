@@ -2,10 +2,12 @@ name: Encoder version bump
 
 # Pull requests no longer pick an encoder version (axiom-encode#2048). After an
 # encoder-affecting change reaches main, this workflow writes the next version
-# into pyproject.toml, src/axiom_encode/__init__.py and uv.lock, compiles the
-# changelog.d/ fragments into CHANGELOG.md, and opens a bump pull request with
-# auto-merge on. Until that pull request merges, `--apply`, the provisioner and
-# the re-encode workflow's early check refuse the unversioned head.
+# into pyproject.toml, src/axiom_encode/__init__.py and uv.lock, adds a
+# CHANGELOG.md header that lists the commits merged since the previous bump,
+# and opens a bump pull request with auto-merge on. It leaves the towncrier
+# fragments in changelog.d/ alone. Until that pull request merges, `--apply`,
+# the provisioner and the re-encode workflow's early check refuse the
+# unversioned head.
 #
 # The pull request is opened with ENCODER_VERSION_BUMP_TOKEN, not GITHUB_TOKEN:
 # GitHub does not run workflows for pull requests that GITHUB_TOKEN opens, so
@@ -64,7 +66,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git switch -c "automation/encoder-version-${version}-${base_sha:0:12}"
-          git add -A pyproject.toml src/axiom_encode/__init__.py uv.lock CHANGELOG.md changelog.d
+          git add pyproject.toml src/axiom_encode/__init__.py uv.lock CHANGELOG.md
           git commit -m "Bump encoder version to ${version}"
           # The new commit must satisfy the same rule --apply enforces.
           python3 -I src/axiom_encode/version_provenance.py check --repo . --ref HEAD
@@ -84,7 +86,7 @@ jobs:
         run: |
           set -euo pipefail
           # A newer main supersedes any bump pull request still open: this one
-          # compiles every fragment still on main, so close the older ones.
+          # covers every commit since the last bump, so close the older ones.
           gh pr list --repo "$GITHUB_REPOSITORY" --state open --json number,headRefName \
             --jq '.[] | select(.headRefName | startswith("automation/encoder-version-")) | .number' |
             while read -r number; do
@@ -94,5 +96,5 @@ jobs:
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${BRANCH}"
           url="$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
             --title "Bump encoder version to ${VERSION}" \
-            --body "Automated encoder version bump for main at ${BASE_SHA} (axiom-encode#2048). It changes only the version files, CHANGELOG.md and changelog.d/. Re-encodes refuse main until this merges.")"
+            --body "Automated encoder version bump for main at ${BASE_SHA} (axiom-encode#2048). It changes only the version files and CHANGELOG.md. Re-encodes refuse main until this merges.")"
           gh pr merge "$url" --auto --merge

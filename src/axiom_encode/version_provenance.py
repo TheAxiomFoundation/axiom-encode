@@ -11,6 +11,9 @@ This module checks the same rule at any ref, so that
 - the post-merge bump workflow can tell whether ``main`` needs a bump, and make
   it (axiom-encode#2048).
 
+The bump leaves ``changelog.d/`` alone: those are towncrier fragments, which
+CI checks with ``towncrier build --draft`` and nothing compiles yet.
+
 It uses only the standard library, so a workflow can run it as a script with a
 bare ``python3`` before any dependency is installed.
 """
@@ -31,7 +34,6 @@ VERSION_FILES = (
 VERSIONED_PREFIXES = ("src/axiom_encode/",)
 VERSIONED_FILES = frozenset({"pyproject.toml", "uv.lock"})
 CHANGELOG = "CHANGELOG.md"
-CHANGELOG_FRAGMENTS = "changelog.d"
 
 _PYPROJECT_VERSION = re.compile(r'(?m)^version\s*=\s*"([^"]+)"\s*$')
 _PACKAGE_VERSION = re.compile(r'(?m)^__version__\s*=\s*"([^"]+)"')
@@ -160,24 +162,15 @@ def _replace_once(path: Path, pattern: re.Pattern[str], version: str) -> None:
     path.write_text(text[:start] + version + text[end:])
 
 
-def _changelog_entry(repo: Path, ref: str, bump: str | None) -> tuple[str, list[Path]]:
-    fragment_dir = repo / CHANGELOG_FRAGMENTS
-    fragments = sorted(
-        path
-        for path in fragment_dir.glob("*.md")
-        if path.is_file() and path.name.lower() != "readme.md"
-    )
-    lines = [path.read_text().strip() for path in fragments]
-    lines = [line for line in lines if line]
-    if not lines:
-        span = f"{bump}..{ref}" if bump else ref
-        subjects = _git(repo, "log", "--first-parent", "--format=%s", span)
-        lines = [f"- {subject}" for subject in subjects.splitlines() if subject]
-    return "\n".join(lines), fragments
+def _changelog_entry(repo: Path, ref: str, bump_commit: str | None) -> str:
+    """One bullet per commit merged to ``ref`` since the previous bump."""
+    span = f"{bump_commit}..{ref}" if bump_commit else ref
+    subjects = _git(repo, "log", "--first-parent", "--format=%s", span)
+    return "\n".join(f"- {subject}" for subject in subjects.splitlines() if subject)
 
 
 def bump(repo: Path, ref: str = "HEAD") -> str:
-    """Write the next version into the version files and compile the changelog.
+    """Write the next version into the version files and a changelog header.
 
     Changes the working tree only; the caller commits it. Returns the version.
     """
@@ -188,12 +181,10 @@ def bump(repo: Path, ref: str = "HEAD") -> str:
     _replace_once(repo / "pyproject.toml", _PYPROJECT_VERSION, version)
     _replace_once(repo / "src/axiom_encode/__init__.py", _PACKAGE_VERSION, version)
     _replace_once(repo / "uv.lock", _LOCK_VERSION, version)
-    entry, fragments = _changelog_entry(repo, ref, latest_version_commit(repo, ref))
+    entry = _changelog_entry(repo, ref, latest_version_commit(repo, ref))
     changelog = repo / CHANGELOG
     previous = changelog.read_text() if changelog.exists() else ""
     changelog.write_text(f"## {version}\n\n{entry}\n\n{previous}")
-    for fragment in fragments:
-        fragment.unlink()
     return version
 
 
@@ -210,7 +201,9 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="write needs_bump=true|false here and exit 0 instead of failing",
     )
-    do_bump = sub.add_parser("bump", help="write the next version and changelog")
+    do_bump = sub.add_parser(
+        "bump", help="write the next version and a changelog header"
+    )
     do_bump.add_argument("--repo", type=Path, default=Path("."))
     do_bump.add_argument("--ref", default="HEAD")
     args = parser.parse_args(argv)
