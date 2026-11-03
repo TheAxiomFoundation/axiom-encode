@@ -1878,7 +1878,8 @@ EXCERPT_UNDEMONSTRATED = (
     "not a legal paragraph number."
 )
 # Main's arrays (5d40209bc, unchanged at a86a37e71), from review r11's
-# r11/excerpt_repro.py.
+# r11/excerpt_repro.py. Round 24 pins the current main comparison in the wall
+# module; malformed-format channel arrays there now follow b314efc8b.
 EXCERPT_VARIANTS = (
     (
         "control-plain-prefix-other-unit",
