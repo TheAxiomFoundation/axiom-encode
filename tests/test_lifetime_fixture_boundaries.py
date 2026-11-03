@@ -413,7 +413,7 @@ def test_lifetime_batch_cannot_assign_a_computed_output_as_history(
 
     assert issues == [
         "Test case `history_stubs_computed_amount` assigns computed RuleSpec "
-        "output(s) as input: `us:statutes/99/1#amount`, `us:statutes/99/1#amount`. "
+        "output(s) as input: `us:statutes/99/1#amount`. "
         "Imported parameters and derived outputs are computed by the compiled "
         "program; assign their upstream `#input.*` or `#relation.*` facts instead."
     ]

@@ -38284,11 +38284,15 @@ class ValidatorPipeline:
 
             # This holds for lifetime batches too: a history fact cannot
             # stand in for an output the compiled program computes.
-            computed_input_keys = [
-                input_name
-                for input_name in _test_case_assignment_keys(case)
-                if input_name in derived_by_key or input_name in parameter_by_key
-            ]
+            # One key per name: a history assigns the same key in each batch,
+            # and the display shows only the first four names.
+            computed_input_keys = list(
+                dict.fromkeys(
+                    input_name
+                    for input_name in _test_case_assignment_keys(case)
+                    if input_name in derived_by_key or input_name in parameter_by_key
+                )
+            )
             if computed_input_keys:
                 key_display = ", ".join(f"`{key}`" for key in computed_input_keys[:4])
                 if len(computed_input_keys) > 4:
