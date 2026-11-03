@@ -1305,6 +1305,52 @@ def test_pipeline_ci_accepts_merged_companion_tests(tmp_path, monkeypatch):
     result = pipeline._run_rulespec_ci(rules_file)
 
     assert not any("merge key" in issue for issue in result.issues), result.issues
+    # The strict loader must read the companion test, overrides and all (#1943).
+    assert not any("YAML parse failed" in issue for issue in result.issues), (
+        result.issues
+    )
+
+
+@pytest.mark.parametrize(
+    "case", ["proof-source-merge-with-override", "nested-merge-in-metadata"]
+)
+def test_pipeline_preflight_admits_metadata_merges_that_override(tmp_path, case):
+    """Merges stay allowed inside rule metadata, overrides included (#1943)."""
+
+    rules_file = _pipeline_module(tmp_path, ACCEPTED[case])
+
+    assert _pipeline(tmp_path)._rulespec_yaml_preflight_issue(rules_file) is None
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "rule-copies-another-rule",
+        "version-copies-another-version",
+        "rule-merge-overridden-by-every-key",
+    ],
+)
+def test_pipeline_preflight_names_the_merge_key_not_a_duplicate(tmp_path, case):
+    """An explicit key that overrides a merged one is not a duplicate key."""
+
+    entry = REJECTED.get(case) or REJECTED_ALTHOUGH_INERT[case]
+    content = entry[0] if isinstance(entry, tuple) else entry
+    rules_file = _pipeline_module(tmp_path, content)
+
+    issue = _pipeline(tmp_path)._rulespec_yaml_preflight_issue(rules_file)
+
+    assert issue is not None
+    assert issue.startswith("1.yaml has YAML merge keys the engine does not apply: ")
+    assert "duplicate key" not in issue
+
+
+def test_the_rewrite_merge_check_reports_yaml_too_deep_to_scan():
+    deep = (
+        "format: rulespec/v1\nmodule:\n  x: " + "[" * 400 + "{<<: {a: 1}}" + "]" * 400
+    )
+    deep += "\nrules: []\n"
+
+    assert _rewrite_merge_key_issues(deep) != []
 
 
 def test_the_rewrite_merge_check_reports_text_pyyaml_cannot_load():
@@ -1315,3 +1361,66 @@ def test_the_rewrite_merge_check_reports_text_pyyaml_cannot_load():
     ]
     assert _rewrite_merge_key_issues("rules: [\n") == []
     assert _rewrite_merge_key_issues(APPLY_METADATA_MERGE) == []
+
+
+# --- the strict loader and the duplicate scan agree on merge documents --------
+#
+# Both compare each mapping's own keys before any merge is applied and leave
+# merge precedence to PyYAML (#1943). They are separate implementations, so a
+# differential over documents with merges, overrides and planted duplicates
+# checks that they reject exactly the same documents.
+
+_DIFF_KEYS = ("a", "b", "c")
+_DIFF_SPELLINGS = {"a": ("a", "'a'"), "b": ("b", '"b"'), "c": ("c", "!!str c")}
+
+
+@st.composite
+def _merge_override_documents(draw):
+    planted = False
+
+    def mapping_body(indent, anchors):
+        nonlocal planted
+        body = []
+        if anchors and draw(st.booleans()):
+            chosen = draw(st.lists(st.sampled_from(anchors), min_size=1, max_size=3))
+            body.append(f"{indent}<<: [{', '.join('*' + a for a in chosen)}]")
+        keys = draw(st.lists(st.sampled_from(_DIFF_KEYS), max_size=3, unique=True))
+        written = list(keys)
+        if keys and draw(st.integers(0, 4)) == 0:
+            written.append(draw(st.sampled_from(keys)))
+            planted = True
+        for index, key in enumerate(written):
+            body.append(
+                f"{indent}{draw(st.sampled_from(_DIFF_SPELLINGS[key]))}: {index}"
+            )
+        return body or [f"{indent}d: 0"]
+
+    lines, anchors = ["sources:"], []
+    for index in range(draw(st.integers(0, 3))):
+        lines.append(f"  - &s{index}")
+        lines.extend(mapping_body("    ", anchors))
+        anchors.append(f"s{index}")
+    if not anchors:
+        lines[-1] = "sources: []"
+    lines.append("cases:")
+    for _case in range(draw(st.integers(1, 3))):
+        lines.append("  - input:")
+        lines.extend(mapping_body("      ", anchors))
+    return "\n".join(lines) + "\n", planted
+
+
+@settings(max_examples=400, deadline=None)
+@given(_merge_override_documents())
+def test_the_strict_loader_and_the_duplicate_scan_agree_on_merge_documents(document):
+    from axiom_encode.harness.validator_pipeline import _safe_load_unique_keys
+    from axiom_encode.yaml_serialization import find_duplicate_mapping_key_issues
+
+    content, planted = document
+    issues = find_duplicate_mapping_key_issues(content)
+
+    assert bool(issues) == planted
+    if planted:
+        with pytest.raises(yaml.constructor.ConstructorError, match="duplicate key"):
+            _safe_load_unique_keys(content)
+    else:
+        assert _safe_load_unique_keys(content) == yaml.safe_load(content)

@@ -201,6 +201,9 @@ _TAG_SCAN_RESOURCE_ISSUE = (
     "YAML nesting is too deep to check for unsupported tags, so the file is "
     "not rewritten."
 )
+_MERGE_KEY_SCAN_RESOURCE_ISSUE = (
+    "YAML nesting is too deep to check for merge keys, so the file is not rewritten."
+)
 
 
 class _PreservedRepairOverlayError(ValueError):
@@ -17173,9 +17176,12 @@ def _rewrite_merge_key_issues(content: str) -> list[str]:
 
     try:
         return find_yaml_merge_key_issues(content)
-    except (yaml.YAMLError, RecursionError):
+    except yaml.YAMLError:
         # Callers keep their own handling of unparseable text.
         return []
+    except RecursionError:
+        # Like its sibling checks: text it cannot scan is not rewritten.
+        return [_MERGE_KEY_SCAN_RESOURCE_ISSUE]
     except ValueError:
         return [_UNLOADABLE_YAML_ISSUE]
 
