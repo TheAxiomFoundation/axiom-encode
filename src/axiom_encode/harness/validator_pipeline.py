@@ -37,6 +37,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from dataclasses import replace as dataclass_replace
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
@@ -417,6 +418,125 @@ def _yaml_parse_issue(path: Path, exc: BaseException) -> str:
     return f"{path.name} YAML parse failed: {exc}"
 
 
+_LOCAL_REVIEWER_SYSTEM_PATH: tuple[str, ...] = (
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+)
+_LOCAL_REVIEWER_CONFIG_DIR_NAMES: tuple[str, ...] = ("CODEX_HOME", "CLAUDE_CONFIG_DIR")
+_REVIEWER_UNAVAILABLE = "reviewer_unavailable"
+
+
+def _protected_reviewer_context_active() -> bool:
+    """Return true when a protected signal is present.
+
+    A protected run has a signing broker attached (which also pins the trusted
+    subprocess base environment), runs under the trusted supervisor runtime, or
+    runs in CI. Those runs keep the existing scrubbed reviewer environment
+    unchanged.
+    """
+    from axiom_encode.toolchain import protected_process_signal_active
+
+    return protected_process_signal_active()
+
+
+def _local_reviewer_context_active() -> bool:
+    """Return true only for a verification-only local run.
+
+    The local reviewer environment is selected only inside the in-process
+    verification-only trust context (``encode --corpus-release-public-key``
+    or ``axiom-encode ci``). That context conveys no signing capability and
+    is never populated from the environment. Even inside it, any protected
+    signal (an attached signing broker, the trusted runtime, CI) keeps the
+    protected reviewer environment. Every other run keeps the protected
+    environment too, so the default is the existing sandboxed reviewer call.
+    """
+    from axiom_encode.toolchain import local_verification_active
+
+    return local_verification_active() and not _protected_reviewer_context_active()
+
+
+def _absolute_path_entry(entry: str) -> str:
+    """Return a PATH entry as an absolute directory with the same meaning.
+
+    The child runs in another directory, so a relative or empty entry is
+    joined to the current directory. It is not normalized: ``..`` after a
+    symlink keeps its filesystem meaning, as in the caller's own lookup.
+    """
+    if os.path.isabs(entry):
+        return entry
+    cwd = os.getcwd()
+    return os.path.join(cwd, entry) if entry else cwd
+
+
+def _local_reviewer_path(executables: Sequence[str]) -> str:
+    """Return the child PATH for the local reviewer.
+
+    It is the caller's PATH, entry by entry and in the same order (relative
+    entries made absolute without normalizing), so the child resolves every
+    program, such as the ``node`` that an ``#!/usr/bin/env node`` launcher
+    names, exactly as the caller's shell does. PATH carries no credential.
+    The reviewer executables' own directories and the system directories
+    follow, so they cannot change a lookup that the caller's PATH answers.
+    """
+    entries: list[str] = []
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        directory = _absolute_path_entry(entry)
+        if directory not in entries:
+            entries.append(directory)
+    for directory in (
+        *(os.path.dirname(executable) for executable in executables),
+        *_LOCAL_REVIEWER_SYSTEM_PATH,
+    ):
+        if directory and directory not in entries:
+            entries.append(directory)
+    return os.pathsep.join(entries)
+
+
+def _local_reviewer_environment(executables: Sequence[str]) -> dict[str, str]:
+    """Build the explicit-allowlist reviewer environment for a local run.
+
+    The scrubbed base (Git neutralizers, locale, Python isolation) is kept. It
+    adds only what a subscription-authenticated reviewer CLI needs to start:
+    the account's real home directory and user name (the CLI logins and the
+    macOS keychain are keyed on them), the per-user TMPDIR, explicit CLI config
+    directories, and the caller's PATH (see ``_local_reviewer_path``) followed
+    by the reviewer executables' directories and the system directories. No
+    other ambient variable, such as an API key or token, is forwarded.
+    """
+    import pwd
+
+    account = pwd.getpwuid(os.getuid())
+    environment = scrub_attestation_signing_keys()
+    for name in ("XDG_CONFIG_HOME", "XDG_DATA_HOME"):
+        environment.pop(name, None)
+    environment["HOME"] = account.pw_dir
+    environment["USER"] = account.pw_name
+    environment["LOGNAME"] = account.pw_name
+    tmpdir = os.environ.get("TMPDIR", "")
+    if tmpdir and os.path.isabs(tmpdir) and os.path.isdir(tmpdir):
+        environment["TMPDIR"] = tmpdir
+    for name in _LOCAL_REVIEWER_CONFIG_DIR_NAMES:
+        value = os.environ.get(name, "")
+        if value and os.path.isabs(value):
+            environment[name] = value
+    environment["PATH"] = _local_reviewer_path(executables)
+    return environment
+
+
+def _resolve_local_reviewer_executable(name: str) -> str | None:
+    """Resolve one reviewer CLI to an absolute path from the caller's PATH.
+
+    A relative result is joined to the current directory without
+    normalizing, so it names the same file.
+    """
+    resolved = shutil.which(name)
+    if resolved is None:
+        return None
+    return _absolute_path_entry(resolved)
+
+
 def run_claude_code(
     prompt: str,
     model: str = REVIEWER_CLI_MODEL,
@@ -437,8 +557,17 @@ def run_claude_code(
     if reviewer_cli_preference == "codex":
         return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
 
+    claude_executable = "claude"
+    local_environment: dict[str, str] | None = None
+    if _local_reviewer_context_active():
+        resolved_claude = _resolve_local_reviewer_executable("claude")
+        if resolved_claude is None:
+            return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
+        claude_executable = resolved_claude
+        local_environment = _local_reviewer_environment([resolved_claude])
+
     cmd = [
-        "claude",
+        claude_executable,
         "--print",
         "--permission-mode",
         "dontAsk",
@@ -466,13 +595,23 @@ def run_claude_code(
         idle_timeout = timeout
         if idle_timeout_env is not None:
             idle_timeout = min(timeout, max(0, int(idle_timeout_env)))
-        result = _run_subprocess_with_idle_timeout(
-            cmd,
-            timeout=timeout,
-            idle_timeout=idle_timeout,
-            cwd=cwd,
-            env=scrub_attestation_signing_keys(),
-        )
+        if local_environment is None:
+            result = _run_subprocess_with_idle_timeout(
+                cmd,
+                timeout=timeout,
+                idle_timeout=idle_timeout,
+                cwd=cwd,
+                env=scrub_attestation_signing_keys(),
+            )
+        else:
+            result = _run_subprocess_with_idle_timeout(
+                cmd,
+                timeout=timeout,
+                idle_timeout=idle_timeout,
+                cwd=cwd,
+                env=local_environment,
+                env_is_final=True,
+            )
         return result.output, result.returncode
     except subprocess.TimeoutExpired as exc:
         return f"Timeout after {exc.timeout}s", 1
@@ -488,8 +627,21 @@ def _run_codex_reviewer_cli(
     cwd: Optional[Path] = None,
 ) -> tuple[str, int]:
     """Run reviewer prompts through Codex CLI and return assistant text."""
+    codex_executable = resolve_codex_cli()
+    local_environment: dict[str, str] | None = None
+    if _local_reviewer_context_active():
+        if not os.path.isabs(codex_executable):
+            resolved_codex = _resolve_local_reviewer_executable(codex_executable)
+            if resolved_codex is None:
+                return (
+                    f"{_REVIEWER_UNAVAILABLE}: no reviewer CLI could start "
+                    "(claude and codex were not found on PATH)",
+                    1,
+                )
+            codex_executable = resolved_codex
+        local_environment = _local_reviewer_environment([codex_executable])
     cmd = [
-        resolve_codex_cli(),
+        codex_executable,
         "exec",
         "--json",
         "--skip-git-repo-check",
@@ -515,17 +667,31 @@ def _run_codex_reviewer_cli(
                 ),
             ),
         )
-        result = _run_subprocess_with_idle_timeout(
-            cmd,
-            timeout=timeout,
-            idle_timeout=idle_timeout,
-            cwd=cwd,
-        )
+        if local_environment is None:
+            result = _run_subprocess_with_idle_timeout(
+                cmd,
+                timeout=timeout,
+                idle_timeout=idle_timeout,
+                cwd=cwd,
+            )
+        else:
+            result = _run_subprocess_with_idle_timeout(
+                cmd,
+                timeout=timeout,
+                idle_timeout=idle_timeout,
+                cwd=cwd,
+                env=local_environment,
+                env_is_final=True,
+            )
         return _extract_codex_text_output(result.output), result.returncode
     except subprocess.TimeoutExpired:
         return f"Timeout after {timeout}s", 1
     except FileNotFoundError:
-        return "Reviewer CLIs not found (missing claude and codex)", 1
+        return (
+            f"{_REVIEWER_UNAVAILABLE}: Reviewer CLIs not found "
+            "(missing claude and codex)",
+            1,
+        )
     except Exception as e:
         return f"Error: {e}", 1
 
@@ -552,9 +718,16 @@ def _run_subprocess_with_idle_timeout(
     idle_timeout: int,
     cwd: Optional[Path] = None,
     env: Mapping[str, str] | None = None,
+    env_is_final: bool = False,
     poll_interval: float = 0.5,
 ) -> _SubprocessRunResult:
-    """Run a subprocess, aborting if it stops emitting output for too long."""
+    """Run a subprocess, aborting if it stops emitting output for too long.
+
+    ``env`` is scrubbed again unless ``env_is_final`` is set; only the local
+    reviewer passes an already-built explicit-allowlist environment.
+    """
+    if env_is_final and env is None:
+        raise ValueError("env_is_final requires an explicit environment")
     capture_root: Path | None = None
     try:
         with tempfile.TemporaryDirectory(
@@ -576,7 +749,9 @@ def _run_subprocess_with_idle_timeout(
                     text=True,
                     cwd=cwd,
                     env=(
-                        scrub_attestation_signing_keys()
+                        dict(env)
+                        if env_is_final and env is not None
+                        else scrub_attestation_signing_keys()
                         if env is None
                         else scrub_attestation_signing_keys(env)
                     ),
@@ -1467,14 +1642,47 @@ _MONTH_NAME_BODY = (
     r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
     r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?"
 )
+# Every separator `str.splitlines` treats as a line boundary, not only `\n`.
+_LINE_BREAK_CHARS = r"\n\r\v\f\x1c-\x1e\x85\u2028\u2029"
+_LINE_BREAK_CLASS = rf"[{_LINE_BREAK_CHARS}]"
+# Indentation the standalone-month guard recognises before a header line.
+_MAX_MONTH_HEADER_INDENT = 16
+
+
+def _standalone_month_line_guard(month_body: str) -> str:
+    """A lookahead refusing a month name that stands alone on its own line.
+
+    A table column header such as ``May`` printed on its own line is followed by
+    row values, not by a day or year (#1822). A month inside wrapped prose
+    (``in May\n2026``, ``ab Januar\n2026``) still reads as a date. ``re`` has no
+    variable-width lookbehind, so "start of line" is the start of the text or a
+    line break followed by up to `_MAX_MONTH_HEADER_INDENT` spaces or tabs.
+    """
+
+    line_starts = "|".join(
+        # The start of the text, or a line break, immediately before.
+        [rf"(?<![^{_LINE_BREAK_CHARS}])"]
+        + [
+            rf"(?<={_LINE_BREAK_CLASS}[ \t]{{{indent}}})"
+            for indent in range(1, _MAX_MONTH_HEADER_INDENT + 1)
+        ]
+    )
+    return rf"(?!(?:{line_starts}){month_body}[ \t]*(?:\r\n|{_LINE_BREAK_CLASS}))"
+
+
+_STANDALONE_MONTH_LINE_GUARD = _standalone_month_line_guard(_MONTH_NAME_BODY)
 _MONTH_NAME_PATTERN = re.compile(rf"\b{_MONTH_NAME_BODY}(?=$|[\s,.;:])", re.IGNORECASE)
 _MONTH_NAME_DATE_PATTERN = re.compile(
     rf"\b{_MONTH_NAME_BODY}\s+\d{{1,2}},\s+\d{{4}}\b",
     re.IGNORECASE,
 )
 _SLASH_DATE_PATTERN = re.compile(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b")
+# A month name alone on its line is a column header, not the first half of a
+# date: the number on the next line is a table value (#1822). Elsewhere, a
+# month and a following day pair across any whitespace, as on main, so a date
+# wrapped mid-sentence still reads as a date.
 _MONTH_NAME_DAY_PATTERN = re.compile(
-    rf"\b{_MONTH_NAME_BODY}\s+\d{{1,2}}\b",
+    rf"\b{_STANDALONE_MONTH_LINE_GUARD}{_MONTH_NAME_BODY}\s+\d{{1,2}}\b",
     re.IGNORECASE,
 )
 _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
@@ -7595,8 +7803,11 @@ _GERMAN_DAY_MONTH_YEAR_PATTERN = re.compile(
     rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
+# A German month alone on its line is a column header too (#1822); see
+# `_MONTH_NAME_DAY_PATTERN`.
 _GERMAN_MONTH_YEAR_PATTERN = re.compile(
-    rf"\b{_GERMAN_MONTH_NAME_BODY}\s+(?:des\s+Jahres\s+)?"
+    rf"\b{_standalone_month_line_guard(_GERMAN_MONTH_NAME_BODY)}"
+    rf"{_GERMAN_MONTH_NAME_BODY}\s+(?:des\s+Jahres\s+)?"
     rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
@@ -7612,8 +7823,11 @@ _ENGLISH_DAY_MONTH_YEAR_PATTERN = re.compile(
     rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
+# Like `_MONTH_NAME_DAY_PATTERN`, a month alone on its line does not pair with
+# the year on the next line (#1822).
 _ENGLISH_MONTH_YEAR_PATTERN = re.compile(
-    rf"\b{_MONTH_NAME_BODY}\s+(?P<year>{_TEMPORAL_YEAR_BODY})"
+    rf"\b{_STANDALONE_MONTH_LINE_GUARD}{_MONTH_NAME_BODY}\s+"
+    rf"(?P<year>{_TEMPORAL_YEAR_BODY})"
     rf"{_TEMPORAL_YEAR_END}",
     re.IGNORECASE,
 )
@@ -8749,6 +8963,146 @@ _HEBREW_WEEKDAY_PATTERN = re.compile(
     "(?<![\u0590-\u05ff])[\u05d1\u05dc\u05de]?יום\\s+"
     "(?:ראשון|שני|שלישי|רביעי|חמישי|שישי)(?![\u0590-\u05ff])"
 )
+# A Hebrew statute names a calendar month by its Gregorian name ("ביום 1
+# בינואר", "ספטמבר 1939 עד אפריל 1940"), and an encoding that compares a
+# month of birth or of payment reads the name as its number, 1 to 12. National
+# Insurance Law schedule A1 part D sets a woman's pension age by her birth
+# month and prints no month number at all. The corpus spells March "מרס", and
+# "מרץ" in a few later amendments.
+_HEBREW_GREGORIAN_MONTH_NUMBERS = {
+    "ינואר": 1.0,
+    "פברואר": 2.0,
+    "מרס": 3.0,
+    "מרץ": 3.0,
+    "אפריל": 4.0,
+    "מאי": 5.0,
+    "יוני": 6.0,
+    "יולי": 7.0,
+    "אוגוסט": 8.0,
+    "ספטמבר": 9.0,
+    "אוקטובר": 10.0,
+    "נובמבר": 11.0,
+    "דצמבר": 12.0,
+}
+_HEBREW_GREGORIAN_MONTH_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_WORD_PREFIX_PATTERN
+    + "(?P<month>"
+    + "|".join(
+        re.escape(word)
+        for word in sorted(_HEBREW_GREGORIAN_MONTH_NUMBERS, key=len, reverse=True)
+    )
+    + ")"
+    "(?![\u0590-\u05ff])"
+)
+# The name is a month only where the text uses it as a date: a year after it
+# ("מאי 1942", "אפריל שנת 2011", "של כל שנה"), a day before it ("4 במאי",
+# "באחד באפריל"), the word month before it ("בחודש יולי", "מהחודשים אפריל,
+# יולי"), or another month beside it ("מאי עד דצמבר 1940"), all on the name's
+# own line and table cell. Elsewhere a homograph may be speaking: "הסובל מאי
+# ספיקת לב" (National Health Insurance Law, schedule 2) is "suffering from
+# heart failure", "במאי" is also a director and "מרץ" vigour.
+_HEBREW_MONTH_LIST_GAP_PATTERN = re.compile(
+    "[^\\S\\n]*(?:,|;|[\u05be\u2013\u2014-]|עד|ועד|או)?[^\\S\\n]*"
+)
+_HEBREW_MONTH_YEAR_AFTER_PATTERN = re.compile(
+    rf"[^\S\n]*,?[^\S\n]*(?:(?:ב|של[^\S\n]+)?שנת[^\S\n]+)?"
+    rf"{_TEMPORAL_YEAR_BODY}{_TEMPORAL_YEAR_END}"
+)
+_HEBREW_MONTH_YEAR_OF_AFTER_PATTERN = re.compile(
+    "[^\\S\\n]+(?:של|ב)[^\\S\\n]*(?:כל[^\\S\\n]+|אותה[^\\S\\n]+)?"
+    "(?:ה[\u05be-]?)?שנ[הת](?![\u05d0-\u05ea])"
+)
+_HEBREW_MONTH_DAY_BEFORE_PATTERN = re.compile(
+    "(?:(?<![\\d.,])(?:0?[1-9]|[12]\\d|3[01])"
+    "|(?<![\u0590-\u05ff])"
+    + _HEBREW_WORD_PREFIX_PATTERN
+    + "(?:"
+    + "|".join(
+        re.escape(word)
+        for word in sorted(
+            {*_HEBREW_NUMBER_WORD_VALUES, "עשרים", "שלושים", "שלשים"},
+            key=len,
+            reverse=True,
+        )
+    )
+    + "))(?:[^\\S\\n]|[\u05be-])*$"
+)
+_HEBREW_MONTH_WORD_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_WORD_PREFIX_PATTERN
+    # Singular, full spelling only: חדש is also "new", and the plural
+    # ("within 3 months") need not name the month that follows. A list of
+    # months after the plural dates itself.
+    + "חודש[^\\S\\n]*$"
+)
+# For the homographs only "in the month of" will do: bare singular חודש is
+# also a length of time ("בתוך חודש מאי תשלום", within a month of non-payment).
+_HEBREW_MONTH_IN_THE_MONTH_OF_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])[וש]?בחודש[^\\S\\n]*$"
+)
+# Names that are also ordinary words: מאי ("from whom", "of non-", the name
+# Shammai as ש+מאי) and מרץ ("vigour"). A group made only of these is dated
+# by a year after it or by "in the month of" before it ("בחודש מאי");
+# a day number or a second homograph beside it is too weak ("סעיף 7 מאי
+# ספיקה", "במרץ ובמרץ").
+_HEBREW_MONTH_HOMOGRAPHS = frozenset({"מאי", "מרץ"})
+# How far back a day or the word month can stand from the name it dates.
+_HEBREW_MONTH_CONTEXT_WINDOW = 40
+
+
+def _iter_hebrew_gregorian_month_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Read each Hebrew Gregorian month name the text uses as a date.
+
+    Month names side by side, joined by a comma, a dash, "עד" or "או" or by
+    the conjunction the next name carries, are one list or range, and it is
+    dated as a whole: "יולי ואוגוסט 1939" dates July by the year after August.
+    """
+    matches = list(_HEBREW_GREGORIAN_MONTH_PATTERN.finditer(text))
+    if not matches:
+        return []
+    groups: list[list[re.Match[str]]] = [[matches[0]]]
+    for previous, current in zip(matches, matches[1:]):
+        if _HEBREW_MONTH_LIST_GAP_PATTERN.fullmatch(
+            text, previous.end(), current.start()
+        ):
+            groups[-1].append(current)
+        else:
+            groups.append([current])
+    dated: list[tuple[tuple[int, int], float]] = []
+    for group in groups:
+        first, last = group[0].start(), group[-1].end()
+        window_start = max(
+            first - _HEBREW_MONTH_CONTEXT_WINDOW,
+            text.rfind("\n", 0, first) + 1,
+            text.rfind("|", 0, first) + 1,
+        )
+        before = text[window_start:first]
+        if all(
+            match.group("month") in _HEBREW_MONTH_HOMOGRAPHS for match in group
+        ) and not (
+            _HEBREW_MONTH_YEAR_AFTER_PATTERN.match(text, last)
+            or _HEBREW_MONTH_YEAR_OF_AFTER_PATTERN.match(text, last)
+            or _HEBREW_MONTH_IN_THE_MONTH_OF_BEFORE_PATTERN.search(before)
+        ):
+            continue
+        if not (
+            len(group) > 1
+            or _HEBREW_MONTH_YEAR_AFTER_PATTERN.match(text, last)
+            or _HEBREW_MONTH_YEAR_OF_AFTER_PATTERN.match(text, last)
+            or _HEBREW_MONTH_DAY_BEFORE_PATTERN.search(before)
+            or _HEBREW_MONTH_WORD_BEFORE_PATTERN.search(before)
+        ):
+            continue
+        dated.extend(
+            (match.span(), _HEBREW_GREGORIAN_MONTH_NUMBERS[match.group("month")])
+            for match in group
+        )
+    return dated
+
+
 _STRUCTURAL_LINE_MARKER_PATTERN = re.compile(
     r"(?m)^[ \t]*(?:"
     r"\(\d+[a-z]?\)(?:[ \t]+bis[ \t]+\(\d+[a-z]?\))?"
@@ -8884,6 +9238,10 @@ class NumericOccurrence:
     requires_rate_context: bool = False
     is_word_number: bool = False
     alternative_values: tuple[float, ...] = ()
+    # A month number read from a Hebrew month name. It grounds only a literal
+    # the module uses as a month (see ``_month_comparison_literal_values``),
+    # never an unrelated literal that happens to share its value.
+    requires_month_context: bool = False
 
     @property
     def span(self) -> tuple[int, int]:
@@ -9048,6 +9406,13 @@ def _corpus_citation_to_normalized_target(citation: str) -> tuple[str, ...] | No
         return None
     class_part = parts[1]
     tail = parts[2:]
+    if class_part == "rulemaking":
+        # Federal Register instruments land in the reserved
+        # policies/rulemaking/ namespace (evals._RULEMAKING_OUTPUT_ROOT).
+        return (
+            "policies",
+            *_normalized_corpus_tail_parts(parts[0], "policies", ["rulemaking", *tail]),
+        )
     if class_part in {"statute", "statutes"}:
         return tuple(
             ["statutes", *_normalized_corpus_tail_parts(parts[0], "statutes", tail)]
@@ -9062,9 +9427,16 @@ def _corpus_citation_to_normalized_target(citation: str) -> tuple[str, ...] | No
             ]
         )
     if class_part in {"policy", "policies"}:
-        return tuple(
-            ["policies", *_normalized_corpus_tail_parts(parts[0], "policies", tail)]
+        target = (
+            "policies",
+            *_normalized_corpus_tail_parts(parts[0], "policies", tail),
         )
+        if len(target) >= 3 and target[1] == "rulemaking":
+            # The encoder refuses a policy source that lands in the reserved
+            # rulemaking namespace (dotted leaves included), so it must never
+            # match a rulemaking output file.
+            return None
+        return target
     return None
 
 
@@ -9782,8 +10154,13 @@ def _rule_grounding_values(
     rule: Any,
     *,
     selector_table_keys: Mapping[str, Any] | None = None,
+    index_selectors: frozenset[str] = frozenset(),
+    month_flags: list[tuple[float, bool]] | None = None,
 ) -> list[tuple[int, str, float]]:
-    """Extract the grounding-required numeric literals declared by one rule."""
+    """Extract the grounding-required numeric literals declared by one rule.
+
+    ``month_flags`` receives ``(value, is_month_operand)`` for each literal.
+    """
     values: list[tuple[int, str, float]] = []
     if not isinstance(rule, dict):
         return values
@@ -9799,6 +10176,8 @@ def _rule_grounding_values(
             value = float(formula)
             if value not in GROUNDING_ALLOWED_VALUES:
                 values.append((1, str(formula), value))
+                if month_flags is not None:
+                    month_flags.append((value, False))
         elif isinstance(formula, str):
             values.extend(
                 _extract_formula_grounding_values(
@@ -9806,9 +10185,12 @@ def _rule_grounding_values(
                     formula,
                     structural_selector_keys=(
                         (selector_table_keys or {}).get(rule_name)
-                        if _is_structural_selector_rule(rule)
+                        if _is_structural_selector_rule(
+                            rule, index_selectors=index_selectors
+                        )
                         else None
                     ),
+                    month_flags=month_flags,
                 )
             )
         table_values = version.get("values")
@@ -9820,6 +10202,8 @@ def _rule_grounding_values(
                 raw, value = extracted
                 if value not in GROUNDING_ALLOWED_VALUES:
                     values.append((1, raw, value))
+                    if month_flags is not None:
+                        month_flags.append((value, False))
     return values
 
 
@@ -9827,6 +10211,7 @@ def _rule_grounding_values_by_path(
     rule: Any,
     *,
     selector_table_keys: Mapping[str, Any] | None = None,
+    index_selectors: frozenset[str] = frozenset(),
 ) -> list[tuple[str, str, float]]:
     """Like ``_rule_grounding_values`` but anchors each literal to its version path.
 
@@ -9857,7 +10242,9 @@ def _rule_grounding_values_by_path(
                 formula,
                 structural_selector_keys=(
                     (selector_table_keys or {}).get(rule_name)
-                    if _is_structural_selector_rule(rule)
+                    if _is_structural_selector_rule(
+                        rule, index_selectors=index_selectors
+                    )
                     else None
                 ),
             ):
@@ -10091,10 +10478,15 @@ def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
         ):
             values: list[tuple[int, str, float]] = []
             selector_table_keys = _rulespec_index_selector_keys(payload["rules"])
+            index_selectors = _rulespec_index_selectors(
+                payload["rules"], selector_table_keys
+            )
             for rule in payload["rules"]:
                 values.extend(
                     _rule_grounding_values(
-                        rule, selector_table_keys=selector_table_keys
+                        rule,
+                        selector_table_keys=selector_table_keys,
+                        index_selectors=index_selectors,
                     )
                 )
             return values
@@ -10118,8 +10510,14 @@ def _extract_formula_grounding_values(
     line_number: int,
     formula_text: str,
     structural_selector_keys: set[str] | None = None,
+    *,
+    month_flags: list[tuple[float, bool]] | None = None,
 ) -> list[tuple[int, str, float]]:
-    """Extract numeric literals from a formula expression or formula line."""
+    """Extract numeric literals from a formula expression or formula line.
+
+    When ``month_flags`` is given, it receives ``(value, is_month_operand)``
+    for each returned literal.
+    """
     cleaned = formula_text.split("#", 1)[0]
     cleaned = GROUNDING_DATE_PATTERN.sub(" ", cleaned)
 
@@ -10154,14 +10552,312 @@ def _extract_formula_grounding_values(
             value = float(raw)
             if value not in GROUNDING_ALLOWED_VALUES:
                 values.append((line_number, raw, value))
+                if month_flags is not None:
+                    month_flags.append(
+                        (value, _is_month_comparison_operand(cleaned, start, end))
+                    )
     return values
 
 
-def _is_structural_selector_rule(rule: dict[str, Any]) -> bool:
+# A comparison operand named as a calendar month: ``birth_month <= 6``,
+# ``9 > month_of_birth``. A count of months (``months_employed``,
+# ``month_count``) is a quantity, not a month.
+_MONTH_COMPARISON_OPERATOR = r"(?:<=|>=|==|!=|<|>)"
+_MONTH_OPERAND_BEFORE_PATTERN = re.compile(
+    rf"(?<![A-Za-z0-9_.])(?P<name>[A-Za-z_][A-Za-z0-9_.]*)[ \t]*"
+    rf"{_MONTH_COMPARISON_OPERATOR}[ \t]*$"
+)
+_MONTH_OPERAND_AFTER_PATTERN = re.compile(
+    rf"^[ \t]*{_MONTH_COMPARISON_OPERATOR}[ \t]*"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_.]*)(?![A-Za-z0-9_.(\[])"
+)
+# Words that make ``<word>_month`` a quantity or a span of months rather than
+# a calendar month: ``age_month``, ``elapsed_month``, ``insurance_period_month``.
+_MONTH_OPERAND_DISQUALIFYING_TOKENS = frozenset(
+    {
+        # quantities
+        "amount",
+        "cap",
+        "ceiling",
+        "count",
+        "fee",
+        "floor",
+        "limit",
+        "max",
+        "maximum",
+        "min",
+        "minimum",
+        "num",
+        "number",
+        "rate",
+        "required",
+        "sum",
+        "threshold",
+        "total",
+        "value",
+        # durations and ages
+        "age",
+        "duration",
+        "elapsed",
+        "insured",
+        "length",
+        "period",
+        "qualifying",
+        "span",
+        "waiting",
+    }
+)
+
+
+def _is_month_operand_name(name: str) -> bool:
+    """Whether a comparison operand names a calendar month.
+
+    An allowlist: the last token is ``month`` and no token before it is a
+    quantity, duration or age word (``birth_month``, ``payment_month``,
+    ``month``; not ``min_insured_month``), or the name is exactly
+    ``month_of_<x>`` (``month_of_birth``). Anything else is a quantity, so
+    ``month_cap``, ``month_index``, ``qualifying_month_threshold`` and
+    ``months_employed`` are not months.
+    """
+    tokens = name.rsplit(".", 1)[-1].lower().split("_")
+    if tokens[-1] == "month":
+        return not (set(tokens[:-1]) & _MONTH_OPERAND_DISQUALIFYING_TOKENS)
+    return (
+        len(tokens) == 3
+        and tokens[:2] == ["month", "of"]
+        and tokens[2] not in _MONTH_OPERAND_DISQUALIFYING_TOKENS
+    )
+
+
+def _is_month_comparison_operand(text: str, start: int, end: int) -> bool:
+    """Whether the literal at ``text[start:end]`` is compared with a month."""
+    # The literal must be the whole operand: ``birth_month >= 12 * 1`` compares
+    # the month with a product, not with 12.
+    arithmetic = "+-*/%"
+    before = _MONTH_OPERAND_BEFORE_PATTERN.search(text, 0, start)
+    if (
+        before is not None
+        and _is_month_operand_name(before.group("name"))
+        and not text[end:].lstrip(" \t").startswith(tuple(arithmetic))
+    ):
+        return True
+    after = _MONTH_OPERAND_AFTER_PATTERN.match(text[end:])
+    return (
+        after is not None
+        and _is_month_operand_name(after.group("name"))
+        and not text[:start].rstrip(" \t").endswith(tuple(arithmetic))
+    )
+
+
+def _month_comparison_literal_values(content: str) -> frozenset[float]:
+    """Values a month number read from a month name may ground in this module.
+
+    A value qualifies only when every grounding-required literal of that value
+    in the module is an operand of a comparison with a month-named operand.
+    Literal positions are not tracked past the module, so a value used once as
+    a month and once as anything else (``birth_month <= 12`` and ``x * 12``)
+    gets no month grounding at all.
+    """
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if (
+            isinstance(payload, dict)
+            and payload.get("format") == "rulespec/v1"
+            and isinstance(payload.get("rules"), list)
+        ):
+            flags: list[tuple[float, bool]] = []
+            selector_table_keys = _rulespec_index_selector_keys(payload["rules"])
+            index_selectors = _rulespec_index_selectors(
+                payload["rules"], selector_table_keys
+            )
+            for rule in payload["rules"]:
+                _rule_grounding_values(
+                    rule,
+                    selector_table_keys=selector_table_keys,
+                    index_selectors=index_selectors,
+                    month_flags=flags,
+                )
+            month_values = {value for value, is_month in flags if is_month}
+            other_values = {value for value, is_month in flags if not is_month}
+            return frozenset(month_values - other_values)
+    return frozenset()
+
+
+def _is_structural_selector_rule(
+    rule: dict[str, Any],
+    *,
+    index_selectors: frozenset[str] = frozenset(),
+) -> bool:
+    """Whether an integer rule only selects a row, by its name or its shape.
+
+    ``index_selectors`` names the rules ``_rulespec_index_selectors`` found to
+    be index selectors whatever they are called.
+    """
     if str(rule.get("dtype") or "").strip().lower() != "integer":
         return False
-    name = str(rule.get("name") or "").strip().lower()
-    return bool(re.search(r"(?:^|_)(?:band|bracket|tier|index)(?:_|$)", name))
+    name = str(rule.get("name") or "").strip()
+    if name and name in index_selectors:
+        return True
+    return bool(re.search(r"(?:^|_)(?:band|bracket|tier|index)(?:_|$)", name.lower()))
+
+
+def _rulespec_index_selectors(
+    rules: list[Any],
+    selector_table_keys: Mapping[str, set[str]] | None = None,
+) -> frozenset[str]:
+    """Name the rules that only pick a row of the tables indexed by them.
+
+    A rule is an index selector, whatever its name, when all of these hold:
+
+    * it is a derived Integer rule marked ``metadata.private``;
+    * its formula is a conditional with at least two branches, and every
+      branch returns a literal that is a key of a local parameter table
+      ``indexed_by`` it;
+    * every other local formula reads it only as ``table[rule]``, where
+      ``table`` is a local parameter ``indexed_by`` exactly this rule
+      (``pension_age_years[woman_birth_cohort]``).
+
+    Its results then label rows: renumbering them together with the table
+    keys changes the selector's own value but no other rule of this module,
+    so there is no number for the source to print. National Insurance Law
+    schedule A1 part D numbers none of its sixteen birth-month rows, and an
+    encoding that picks a row returns 0 to 15. Only labels from 0 to 20 are
+    exempt (``_is_structural_selector_result_literal``); a table may have
+    other integer keys, but a label outside that range stays under the check.
+    A rule whose value is also compared, counted or computed with is a
+    quantity, and its literals stay under the grounding check.
+
+    ``metadata.private`` marks the selector as an internal row index by
+    convention only. Neither this validator nor the rules engine refuses a
+    read of a private rule from another module
+    (https://github.com/TheAxiomFoundation/axiom-encode/issues/2044 tracks
+    that), so another module can still import the selector and read its row
+    labels as numbers, and those labels were exempted here. The exemption is
+    sound inside the defining module, where the conditions above hold.
+    """
+    if selector_table_keys is None:
+        selector_table_keys = _rulespec_index_selector_keys(rules)
+    if not selector_table_keys:
+        return frozenset()
+    selectors: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        keys = selector_table_keys.get(name)
+        if not keys:
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        if str(rule.get("dtype") or "").strip().lower() != "integer":
+            continue
+        metadata = rule.get("metadata")
+        if not (isinstance(metadata, Mapping) and metadata.get("private") is True):
+            # A convention, not a guarantee: nothing refuses a read of a
+            # private rule from another module (axiom-encode#2044 tracks that).
+            # It keeps public selectors, which other modules are expected to
+            # import, under the check; the local structural conditions below
+            # justify the exemption itself.
+            continue
+        formulas = _rulespec_rule_formula_strings(rule)
+        if not formulas or not all(
+            _formula_returns_only_selector_keys(formula, keys) for formula in formulas
+        ):
+            continue
+        tables = frozenset(
+            str(table.get("name") or "").strip()
+            for table in rules
+            if isinstance(table, dict)
+            and str(table.get("kind") or "").strip().lower() == "parameter"
+            and _rulespec_indexed_by_names(table.get("indexed_by")) == {name}
+        )
+        if not _rule_is_read_only_as_subscript(
+            name, rules, selector_rule=rule, tables=tables
+        ):
+            continue
+        selectors.add(name)
+    return frozenset(selectors)
+
+
+# One left-to-right pass over a formula: a string or a comment, each confined
+# to its line. Whichever starts first wins, so a `#` inside a string is not a
+# comment and a quote inside a comment (Hebrew abbreviations such as ש"ח or
+# ד') never pairs with a quote on a later line and hides the code between.
+_FORMULA_STRING_OR_COMMENT_PATTERN = re.compile(r"'[^'\n]*'|\"[^\"\n]*\"|#[^\n]*")
+
+
+def _formula_strings_are_plain(formula: str) -> bool:
+    """Whether every string is one line, unescaped, and every quote is paired."""
+    if len(formula.splitlines()) != formula.count("\n") + 1:
+        # A line break other than \n (\r, \x85, U+2028, ...) would end a
+        # comment or string for a line-splitting reader but not for the
+        # scrubber, so code after it could go unscanned.
+        return False
+    for match in _FORMULA_STRING_OR_COMMENT_PATTERN.finditer(formula):
+        if not match.group(0).startswith("#") and "\\" in match.group(0):
+            return False
+    scrubbed = _blank_formula_strings_and_comments(formula)
+    return "'" not in scrubbed and '"' not in scrubbed
+
+
+def _blank_formula_strings_and_comments(formula: str) -> str:
+    return _FORMULA_STRING_OR_COMMENT_PATTERN.sub(
+        lambda match: " " * len(match.group(0)), formula
+    )
+
+
+def _formula_returns_only_selector_keys(formula: str, keys: set[str]) -> bool:
+    """Whether every branch of a conditional returns a literal table key."""
+    uncommented = _blank_formula_strings_and_comments(formula)
+    # A chain written one "else: if" per line is one inline conditional; an
+    # indented block or an elif chain is read line by line.
+    for results in (
+        _split_inline_conditional_result_expressions(" ".join(uncommented.split())),
+        _formula_result_expressions(uncommented),
+    ):
+        if len(results) > 1 and all(
+            _structural_integer_key(result) in keys for result in results
+        ):
+            return True
+    return False
+
+
+def _rule_is_read_only_as_subscript(
+    name: str,
+    rules: list[Any],
+    *,
+    selector_rule: dict[str, Any],
+    tables: frozenset[str],
+) -> bool:
+    """Whether every other local formula reads ``name`` only as ``table[name]``.
+
+    ``table`` must be one of ``tables``: a local parameter ``indexed_by``
+    exactly this rule. Any other read, including a relation access such as
+    ``members.name``, a list literal ``[name]`` or a subscript into a table
+    keyed by something else, uses the value as a number.
+    """
+    reference = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
+    table_before = re.compile(
+        r"(?<![A-Za-z0-9_.])(?P<table>[A-Za-z_][A-Za-z0-9_]*)\s*\[\s*$"
+    )
+    for rule in rules:
+        if rule is selector_rule or not isinstance(rule, dict):
+            continue
+        for formula in _rulespec_rule_formula_strings(rule):
+            if not _formula_strings_are_plain(formula):
+                # An escape, a string spanning lines or a triple quote could
+                # make the line-bounded scrubber mistake code for a string.
+                return False
+            code = _blank_formula_strings_and_comments(formula)
+            for match in reference.finditer(code):
+                table = table_before.search(code, 0, match.start())
+                if not (
+                    table is not None
+                    and table.group("table") in tables
+                    and code[match.end() :].lstrip().startswith("]")
+                ):
+                    return False
+    return True
 
 
 def _rulespec_index_selector_keys(rules: list[Any]) -> dict[str, set[str]]:
@@ -10579,6 +11275,7 @@ def source_backed_half_up_rounding_helper_count(
         rules = payload.get("rules") if isinstance(payload, dict) else None
         if isinstance(rules, list):
             selector_table_keys = _rulespec_index_selector_keys(rules)
+            index_selectors = _rulespec_index_selectors(rules, selector_table_keys)
             for rule in rules:
                 rule_name = (
                     str(rule.get("name") or "").strip()
@@ -10588,6 +11285,7 @@ def source_backed_half_up_rounding_helper_count(
                 for anchor_path, _raw, value in _rule_grounding_values_by_path(
                     rule,
                     selector_table_keys=selector_table_keys,
+                    index_selectors=index_selectors,
                 ):
                     if not _is_direct_half_up_rounding_helper_value(
                         rule, anchor_path, value
@@ -14438,6 +15136,7 @@ class _LegacyNumericCollector:
     rate_table_cell_prefix_max_ends: tuple[int, ...] = field(init=False)
     shared_rate_spans: tuple[tuple[int, int], ...] = field(init=False)
     temporal_component_spans: tuple[tuple[int, int], ...] = field(init=False)
+    standalone_month_header_year_spans: tuple[tuple[int, int], ...] = field(init=False)
     structural_component_spans: tuple[tuple[int, int], ...] = field(init=False)
     structural_component_span_starts: tuple[int, ...] = field(init=False)
     structural_component_prefix_max_ends: tuple[int, ...] = field(init=False)
@@ -14470,6 +15169,9 @@ class _LegacyNumericCollector:
             self.rate_table_cell_prefix_max_ends,
         ) = _span_containment_index(self.rate_table_cell_spans)
         self.temporal_component_spans = _temporal_numeric_component_spans(
+            self.context_text
+        )
+        self.standalone_month_header_year_spans = _standalone_month_header_year_spans(
             self.context_text
         )
         self.structural_component_spans = _structural_numeric_component_spans(
@@ -14553,6 +15255,7 @@ class _LegacyNumericCollector:
         requires_rate_context: bool = False,
         is_word_number: bool = False,
         alternative_values: tuple[float, ...] = (),
+        requires_month_context: bool = False,
     ) -> NumericOccurrence:
         source_span = view.source_span(
             span,
@@ -14635,6 +15338,7 @@ class _LegacyNumericCollector:
             requires_rate_context=requires_rate_context,
             is_word_number=is_word_number,
             alternative_values=alternative_values,
+            requires_month_context=requires_month_context,
         )
 
     def add_grounding(
@@ -15483,6 +16187,49 @@ def _locale_numeric_envelope_has_token_boundaries(
     )
 
 
+# main's month-year readings, which also pair a month standing alone on its
+# line with the year below it. Used only by
+# `_standalone_month_header_year_spans`.
+_ANY_LINE_MONTH_YEAR_PATTERNS = (
+    re.compile(
+        rf"\b{_GERMAN_MONTH_NAME_BODY}\s+(?:des\s+Jahres\s+)?"
+        rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"\b{_MONTH_NAME_BODY}\s+(?P<year>{_TEMPORAL_YEAR_BODY})"
+        rf"{_TEMPORAL_YEAR_END}",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _standalone_month_header_year_spans(text: str) -> tuple[tuple[int, int], ...]:
+    """Year tokens main read as dates after a month standing alone on its line.
+
+    #1822 stops these from being temporal components, so a table value below a
+    month column header stays a demand. They are kept only so that typed-year
+    recovery can restore one that structural cleaning removed (``Mai\n2026.``
+    reads as a ``2026.`` line label), exactly as main restored it.
+    """
+
+    guarded = {
+        match.span("year")
+        for pattern in (_GERMAN_MONTH_YEAR_PATTERN, _ENGLISH_MONTH_YEAR_PATTERN)
+        for match in pattern.finditer(text)
+    }
+    return tuple(
+        sorted(
+            {
+                match.span("year")
+                for pattern in _ANY_LINE_MONTH_YEAR_PATTERNS
+                for match in pattern.finditer(text)
+            }
+            - guarded
+        )
+    )
+
+
 def _temporal_numeric_component_spans(
     text: str,
 ) -> tuple[tuple[int, int], ...]:
@@ -15518,6 +16265,7 @@ def _temporal_numeric_component_spans(
                 match.group("years")
             )
         )
+    spans.update(span for span, _value in _iter_hebrew_gregorian_month_matches(text))
     return tuple(sorted(spans))
 
 
@@ -15831,6 +16579,27 @@ def _complete_typed_year_occurrences(
         )
         if _TEMPORAL_YEAR_TOKEN_PATTERN.fullmatch(collector.source[span[0] : span[1]])
     }
+    occurrences = tuple(occurrences)
+    present_spans = {occurrence.span for occurrence in occurrences}
+    # A year below a month header that cleaning removed is restored as the
+    # temporal year main read it as; one that survived stays a demand (#1822).
+    header_year_spans = {
+        span
+        for span in collector.standalone_month_header_year_spans
+        if span not in present_spans
+        if _locale_numeric_envelope_has_token_boundaries(
+            collector.source,
+            span,
+            profile=collector.profile,
+        )
+        if not (
+            span[1] + 1 < len(collector.source)
+            and collector.source[span[1]] in ".,"
+            and collector.source[span[1] + 1].isdigit()
+        )
+        if _TEMPORAL_YEAR_TOKEN_PATTERN.fullmatch(collector.source[span[0] : span[1]])
+    }
+    typed_year_spans |= header_year_spans
     normalized = [
         occurrence
         for occurrence in occurrences
@@ -15849,6 +16618,12 @@ def _complete_typed_year_occurrences(
             continue
         raw = collector.source[span[0] : span[1]]
         occurrence = collector.occurrence(source_view, span, float(raw))
+        if (
+            span in header_year_spans
+            and not occurrence.has_rate_context
+            and not occurrence.has_temporal_context
+        ):
+            occurrence = dataclass_replace(occurrence, has_temporal_context=True)
         insertion_index = next(
             (
                 index
@@ -17026,6 +17801,12 @@ def _tokenize_numeric_occurrences_from_text(
         )
         grounding_spans.append(match.span(1))
 
+    # A Hebrew month name used as a date grounds its month number, and only
+    # grounds it: the encoding compares a month with it, but the statute sets
+    # no value there for the encoding to recall.
+    for span, value in _iter_hebrew_gregorian_month_matches(collector.context_text):
+        collector.add_grounding(source_view, span, value, requires_month_context=True)
+
     collector.grounding = list(
         _complete_typed_year_occurrences(collector, collector.grounding)
     )
@@ -17279,8 +18060,12 @@ def _numeric_value_grounded_in_source(
     value: float,
     source_occurrences: Sequence[NumericOccurrence],
     decimal_place_scale_values: set[float],
+    *,
+    month_context_values: frozenset[float] = frozenset(),
 ) -> bool:
-    if numeric_value_is_grounded(value, source_occurrences):
+    if numeric_value_is_grounded(
+        value, source_occurrences, month_context_values=month_context_values
+    ):
         return True
     return any(
         math.isclose(
@@ -17385,6 +18170,7 @@ def evaluate_numeric_grounding_values(
     grounding_values = extract_grounding_values(content)
     if not grounding_values:
         return []
+    month_context_values = _month_comparison_literal_values(content)
 
     source_profile = _numeric_profile_for_citation_path(source_citation_path)
     authoritative_source = (
@@ -17401,6 +18187,7 @@ def evaluate_numeric_grounding_values(
         rules = payload.get("rules") if isinstance(payload, dict) else None
         if isinstance(rules, list):
             selector_table_keys = _rulespec_index_selector_keys(rules)
+            index_selectors = _rulespec_index_selectors(rules, selector_table_keys)
             decisions: list[tuple[int, str, float, bool]] = []
             source_indexes: dict[
                 tuple[str, str],
@@ -17408,7 +18195,9 @@ def evaluate_numeric_grounding_values(
             ] = {}
             for rule in rules:
                 anchored_values = _rule_grounding_values_by_path(
-                    rule, selector_table_keys=selector_table_keys
+                    rule,
+                    selector_table_keys=selector_table_keys,
+                    index_selectors=index_selectors,
                 )
                 rule_name = (
                     str(rule.get("name") or "").strip()
@@ -17448,7 +18237,10 @@ def evaluate_numeric_grounding_values(
                             raw,
                             value,
                             _numeric_value_grounded_in_source(
-                                value, source_index[0], source_index[1]
+                                value,
+                                source_index[0],
+                                source_index[1],
+                                month_context_values=month_context_values,
                             ),
                         )
                     )
@@ -17466,7 +18258,10 @@ def evaluate_numeric_grounding_values(
             raw,
             value,
             _numeric_value_grounded_in_source(
-                value, source_occurrences, decimal_place_scale_values
+                value,
+                source_occurrences,
+                decimal_place_scale_values,
+                month_context_values=month_context_values,
             ),
         )
         for line, raw, value in grounding_values
@@ -17577,6 +18372,7 @@ def evaluate_numeric_grounding_values_scoped(
     grounding_values = extract_grounding_values(content)
     if not grounding_values:
         return []
+    month_context_values = _month_comparison_literal_values(content)
 
     module_source = (module_source_text or "").strip()
     try:
@@ -17609,6 +18405,7 @@ def evaluate_numeric_grounding_values_scoped(
         for rule in payload["rules"]
     ]
     selector_table_keys = _rulespec_index_selector_keys(payload["rules"])
+    index_selectors = _rulespec_index_selectors(payload["rules"], selector_table_keys)
     evidence_index_cache: dict[
         tuple[str, str],
         tuple[tuple[NumericOccurrence, ...], frozenset[float]],
@@ -17622,6 +18419,7 @@ def evaluate_numeric_grounding_values_scoped(
         anchored_values = _rule_grounding_values_by_path(
             rule,
             selector_table_keys=selector_table_keys,
+            index_selectors=index_selectors,
         )
         if not anchored_values:
             continue
@@ -17687,6 +18485,7 @@ def evaluate_numeric_grounding_values_scoped(
                         value,
                         source_occurrences,
                         decimal_place_scale_values,
+                        month_context_values=month_context_values,
                     ),
                 )
             )
@@ -25522,6 +26321,16 @@ def _rulespec_base_parts_for_corpus_path(citation_path: str) -> tuple[str, ...]:
         normalize_rulespec_path_segment(part)
         for part in citation_path.strip("/").split("/")
     ]
+    if len(parts) >= 3 and parts[1] == "rulemaking":
+        return ("policies", "rulemaking", *parts[2:])
+    if (
+        len(parts) >= 4
+        and parts[1] in {"policy", "policies"}
+        and parts[2].casefold() == "rulemaking"
+    ):
+        # The encoder refuses this source (it would overwrite a rulemaking
+        # output), so it has no coverage base inside that namespace.
+        return ()
     if (
         len(parts) >= 4
         and parts[1] == "statute"
@@ -34911,13 +35720,24 @@ def _embedded_integer_scale_selector(formula: str) -> str | None:
 def numeric_value_is_grounded(
     value: float,
     source_occurrences: Iterable[NumericOccurrence],
+    *,
+    month_context_values: frozenset[float] = frozenset(),
 ) -> bool:
     """Return whether a generated value is grounded by typed source evidence.
 
     Percentage scaling requires an occurrence whose own context supplies rate
-    evidence; an unrelated integer can never authorize the conversion.
+    evidence; an unrelated integer can never authorize the conversion. A month
+    number read from a month name grounds only a value listed in
+    ``month_context_values``: by default it grounds nothing.
     """
     for occurrence in source_occurrences:
+        if getattr(occurrence, "requires_month_context", False) and not any(
+            math.isclose(
+                value, month_value, rel_tol=0, abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE
+            )
+            for month_value in month_context_values
+        ):
+            continue
         source_values = (occurrence.value, *occurrence.alternative_values)
         if any(
             math.isclose(
@@ -35787,6 +36607,9 @@ class ValidatorPipeline:
         rules = payload.get("rules")
         if not isinstance(rules, list):
             return resolved
+        # Generated modules repeat one provision across thousands of atoms;
+        # the fetch is deterministic within this call, so fetch each path once.
+        fetched: set[str] = set()
         for rule in rules:
             if not isinstance(rule, dict):
                 continue
@@ -35806,7 +36629,8 @@ class ValidatorPipeline:
                 if not isinstance(source, dict):
                     continue
                 citation_path = str(source.get("corpus_citation_path") or "").strip()
-                if citation_path:
+                if citation_path and citation_path not in fetched:
+                    fetched.add(citation_path)
                     try:
                         resolved[citation_path] = fetch_source(citation_path)
                     except InvalidCorpusCitationError:
@@ -35991,6 +36815,18 @@ class ValidatorPipeline:
                 _authenticated_same_act_aliases_from_metadata(self.source_metadata)
             ),
         )
+        # Reported beside the CI result for the admission score; a result that
+        # carries no counts (a stubbed analyzer) records none.
+        recall = {
+            key: getattr(completeness, attribute, None)
+            for key, attribute in (
+                ("total", "source_numeric_occurrence_count"),
+                ("covered", "covered_source_numeric_occurrence_count"),
+                ("missing", "missing_source_numeric_occurrence_count"),
+            )
+        }
+        if all(type(value) is int for value in recall.values()):
+            self._complete_source_unit_recall = recall
         return list(completeness.issues)
 
     def _complete_source_unit_deferred_outputs(
@@ -36283,6 +37119,7 @@ class ValidatorPipeline:
             "validation_ci_start", f"Starting CI validation for {rulespec_file.name}"
         )
         ci_start = time.time()
+        self._complete_source_unit_recall = None
         try:
             results["ci"] = self._run_ci(rulespec_file)
         except Exception as e:
@@ -36291,6 +37128,10 @@ class ValidatorPipeline:
                 passed=False,
                 error=str(e),
                 issues=[str(e)],
+            )
+        if self._complete_source_unit_recall is not None:
+            results["ci"].details["complete_source_unit_recall"] = dict(
+                self._complete_source_unit_recall
             )
         self._log_event(
             "validation_ci_end",
@@ -40613,6 +41454,9 @@ class ValidatorPipeline:
         if not isinstance(payload, dict) or not isinstance(payload.get("rules"), list):
             return []
         selector_table_keys = _rulespec_index_selector_keys(payload["rules"])
+        index_selectors = _rulespec_index_selectors(
+            payload["rules"], selector_table_keys
+        )
         source_text = extract_embedded_source_text(content) or ""
         parameter_scalar_values = _source_backed_parameter_scalar_values(
             payload["rules"],
@@ -40646,7 +41490,9 @@ class ValidatorPipeline:
                     continue
                 structural_selector_keys = (
                     selector_table_keys.get(name)
-                    if _is_structural_selector_rule(rule)
+                    if _is_structural_selector_rule(
+                        rule, index_selectors=index_selectors
+                    )
                     else None
                 )
                 previous_stripped = ""
