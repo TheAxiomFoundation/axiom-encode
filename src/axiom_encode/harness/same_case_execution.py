@@ -389,11 +389,21 @@ class ExecutionCapture:
     ) -> None:
         if binary != self.binary or artifact != self.artifact or not self.fresh():
             return
-        if request.get("mode") != "explain" or response.get("metadata") != {
+        expected_metadata = {
             "requested_mode": "explain",
             "actual_mode": "explain",
             "fallback_reason": None,
-        }:
+        }
+        metadata = response.get("metadata")
+        # Historical engines omitted binding metadata. New engines echo the
+        # strict default; an explicit request must be corroborated by that echo.
+        if request.get("relation_binding", "strict") != "strict":
+            return
+        if isinstance(metadata, dict) and "relation_binding" in metadata:
+            expected_metadata["relation_binding"] = "strict"
+        elif "relation_binding" in request:
+            return
+        if request.get("mode") != "explain" or metadata != expected_metadata:
             return
         # Initially one Person query, no nested/table/assessment transport.
         queries = request.get("queries")

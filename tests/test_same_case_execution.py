@@ -503,6 +503,58 @@ def test_capture_requires_pinned_same_artifact_explain_and_matching_query(
     assert capture.evidence() is None
 
 
+@pytest.mark.parametrize(
+    "request_binding,response_binding,accepted",
+    [
+        ("absent", "absent", True),
+        ("absent", "strict", True),
+        ("strict", "strict", True),
+        ("strict", "absent", False),
+        ("lenient", "strict", False),
+        ("lenient", "lenient", False),
+        ("absent", "lenient", False),
+        (None, "strict", False),
+        ("absent", None, False),
+        ("unknown", "strict", False),
+        ("absent", "unknown", False),
+    ],
+)
+@pytest.mark.parametrize("invalid_metadata", [None, "extra", "fallback", "fast"])
+def test_capture_accepts_only_closed_strict_binding_metadata(
+    world, tmp_path, request_binding, response_binding, accepted, invalid_metadata
+):
+    binary = tmp_path / "binary"
+    binary.write_bytes(b"pinned executable")
+    artifact = tmp_path / "compiled.json"
+    artifact.write_bytes(world.evidence.artifact_bytes)
+    capture = e.ExecutionCapture(
+        tmp_path,
+        world.evidence.snapshot_root,
+        world.evidence.root_relative,
+        world.evidence.files,
+        binary,
+        e.digest(binary.read_bytes()),
+        "c" * 40,
+        0.0,
+        "a" * 40,
+    )
+    capture.compiled(artifact)
+    request = copy.deepcopy(world.request)
+    response = copy.deepcopy(world.response)
+    if request_binding != "absent":
+        request["relation_binding"] = request_binding
+    if response_binding != "absent":
+        response["metadata"]["relation_binding"] = response_binding
+    if invalid_metadata == "extra":
+        response["metadata"]["unknown"] = True
+    elif invalid_metadata == "fallback":
+        response["metadata"]["fallback_reason"] = "unsupported"
+    elif invalid_metadata == "fast":
+        response["metadata"]["actual_mode"] = "fast"
+    capture.stage(world.case, request, response, binary, artifact)
+    assert (capture.evidence() is not None) == (accepted and invalid_metadata is None)
+
+
 def test_any_companion_failure_clears_invocation_evidence(world, tmp_path):
     from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 
