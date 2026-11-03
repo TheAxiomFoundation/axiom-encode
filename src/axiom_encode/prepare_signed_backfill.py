@@ -662,10 +662,21 @@ def resolve_atomic_repair_mode(
     """Select execution mode; old envelopes retain historical inference."""
     normalized = split_atomic_source_input(atomic_source_json)
     if "corpus_artifact_run_id" in normalized:
+        repair_run_id = dispatch.get("REPAIR_RUN_ID", "")
+        if repair_run_id and (
+            re.fullmatch(r"[1-9][0-9]{0,19}", repair_run_id) is None
+            or repair_run_id == dispatch.get("GITHUB_RUN_ID")
+            or not normalized["primary_required_test_cases"]
+            or not dispatch.get("REPLACE_LEGACY_RULESPEC_PATH", "")
+            or not dispatch.get("DEPENDENT_CITATION", "")
+        ):
+            raise ValueError(
+                "corpus transport repair requires a distinct prior run, one "
+                "legacy target, one dependent, and bound boundary tests"
+            )
         if any(
             dispatch.get(field, "")
             for field in (
-                "REPAIR_RUN_ID",
                 "QUEUE_ID",
                 "QUEUE_ITEM_ID",
                 "QUEUE_MANIFEST_SHA256",
@@ -796,7 +807,11 @@ def repair_execution_metadata(
     normalized = split_atomic_source_input(atomic_source_json)
     requested = normalized.get("repair_mode")
     expected = requested or (
-        "tests_only" if normalized["primary_required_test_cases"] else "full_artifact"
+        "full_artifact"
+        if "corpus_artifact_run_id" in normalized
+        else "tests_only"
+        if normalized["primary_required_test_cases"]
+        else "full_artifact"
     )
     if mode != expected or tests_only != (
         "true" if expected == "tests_only" else "false"
