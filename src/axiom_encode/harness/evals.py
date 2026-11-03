@@ -15392,9 +15392,13 @@ def _has_admin_agency_aggregate_rule_context(
                     "b": intro + source_text[b.end() : c.start()],
                 }
                 scoped = [sections[key.lower()] for key in paragraphs]
-                if any(_has_admin_agency_aggregate_source_context(text) for text in scoped):
+                if any(
+                    _has_admin_agency_aggregate_source_context(text) for text in scoped
+                ):
                     return True
-                if all(_PERSON_LEVEL_RULE_CONTEXT_PATTERN.search(text) for text in scoped):
+                if all(
+                    _PERSON_LEVEL_RULE_CONTEXT_PATTERN.search(text) for text in scoped
+                ):
                     return False
 
     metadata = rule.get("metadata")
