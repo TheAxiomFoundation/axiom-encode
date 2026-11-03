@@ -57,3 +57,13 @@ The carryforward consequent in subdivision 7 a (#1832) no longer splits into
 a second condition, which removes the `source-explicit-conditions` diagnostic
 for `college_savings_account_carryforward`. The direct Virginia replay
 reports 114 diagnostics.
+
+The own-section caption check (#1827) uses only the resolver's rendered
+headings, which these replays do not pass, so the totals above stand.
+`tests/test_source_completeness_own_section_captions.py` authenticates
+Arizona's first line as block-1's rendered heading: the text after it hashes
+to the component row's committed `body_sha256`. With that heading, the
+Arizona replay drops exactly the numeric demands for 43 and 1072, the
+caption's apparent-computation output and its companion-test demand (51 to
+47). Virginia's first line also authenticates, but `§ 58.1-322.03 .` is no
+bare own-section identifier, so its diagnostics do not change.

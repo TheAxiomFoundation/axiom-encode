@@ -243,6 +243,10 @@ def scope_resolved_corpus_source(
             if source.selected_record is not None
             else None
         ),
+        # Heading offsets index the composed body; a slice invalidates them.
+        rendered_row_headings=(
+            source.rendered_row_headings if body == source.body else ()
+        ),
     )
 
 
@@ -464,6 +468,23 @@ class ActiveCorpusBodyRow:
 
 
 @dataclass(frozen=True)
+class RenderedRowHeading:
+    """A body-bearing component row's heading as composition rendered it.
+
+    Composition writes ``heading``, a blank line and then the row's body, so
+    ``body[start:end] == heading`` and the row's chunk ends at ``chunk_end``.
+    A bodyless parent's heading is never rendered and never appears here. The
+    offsets index the composed body; nothing here enters an attestation.
+    """
+
+    citation_path: str
+    heading: str
+    start: int
+    end: int
+    chunk_end: int
+
+
+@dataclass(frozen=True)
 class ResolvedCorpusSource:
     """Exact source text plus the release, artifact, and row that supplied it."""
 
@@ -483,6 +504,12 @@ class ResolvedCorpusSource:
     source_history: tuple[str, ...] = ()
     slice_required: bool = False
     selected_record: ActiveCorpusBodyRow | None = None
+    # Headings composition rendered into ``body``, with their offsets. Only a
+    # composed, unsliced body has them. They are in-memory evidence for the
+    # completeness gate and never enter ``to_attestation()``.
+    rendered_row_headings: tuple[RenderedRowHeading, ...] = field(
+        default=(), compare=False, repr=False
+    )
 
     @property
     def proof_evidence_segments(self) -> tuple[str, ...]:
@@ -706,6 +733,7 @@ def resolve_local_corpus_source(
                 f"Active corpus source {selected.row.citation_path!r} is repealed"
             )
         component_rows: tuple[CorpusRowIdentity, ...] = ()
+        rendered_row_headings: tuple[RenderedRowHeading, ...] = ()
         stored_body = selected.body
         if stored_body is None:
             selected_scope = ReleaseScope(
@@ -728,10 +756,12 @@ def resolve_local_corpus_source(
                         f"Local descendants for {selected.row.citation_path!r} "
                         f"exceed the {MAX_CORPUS_DESCENDANT_ROWS}-row safety limit"
                     )
-            stored_body, component_rows = _compose_descendant_text(
-                selected.row.citation_path,
-                descendants,
-                expected_scope=selected_scope,
+            stored_body, component_rows, rendered_row_headings = (
+                _compose_descendant_text_with_headings(
+                    selected.row.citation_path,
+                    descendants,
+                    expected_scope=selected_scope,
+                )
             )
         body = stored_body
         if candidate.slice_required:
@@ -749,6 +779,9 @@ def resolve_local_corpus_source(
             release=release,
             component_rows=component_rows,
             slice_required=candidate.slice_required,
+            rendered_row_headings=(
+                rendered_row_headings if body == stored_body else ()
+            ),
         )
     if inactive_match:
         raise InactiveCorpusSourceError(
@@ -982,6 +1015,7 @@ def _resolved_source(
     release: LocalCorpusRelease,
     component_rows: tuple[CorpusRowIdentity, ...] = (),
     slice_required: bool = False,
+    rendered_row_headings: tuple[RenderedRowHeading, ...] = (),
 ) -> ResolvedCorpusSource:
     return ResolvedCorpusSource(
         requested=requested,
@@ -1009,6 +1043,7 @@ def _resolved_source(
             release_content_sha256=release.content_sha256,
             release_selector_sha256=release.selector_sha256,
         ),
+        rendered_row_headings=rendered_row_headings,
     )
 
 
@@ -1463,6 +1498,18 @@ def _compose_descendant_text(
     *,
     expected_scope: ReleaseScope,
 ) -> tuple[str, tuple[CorpusRowIdentity, ...]]:
+    text, rows, _headings = _compose_descendant_text_with_headings(
+        citation_path, records, expected_scope=expected_scope
+    )
+    return text, rows
+
+
+def _compose_descendant_text_with_headings(
+    citation_path: str,
+    records: list[_StoredRecord],
+    *,
+    expected_scope: ReleaseScope,
+) -> tuple[str, tuple[CorpusRowIdentity, ...], tuple[RenderedRowHeading, ...]]:
     if not records:
         raise CorpusDescendantStructureError(
             f"Active corpus source {citation_path!r} has no body-bearing descendants"
@@ -1625,7 +1672,9 @@ def _compose_descendant_text(
             f"Active corpus source {citation_path!r} has no body-bearing descendants"
         )
     chunks: list[str] = []
+    rendered_headings: list[RenderedRowHeading] = []
     composed_bytes = 0
+    offset = 0
     for record in ordered:
         chunk = (
             f"{record.heading}\n\n{record.body}"
@@ -1635,13 +1684,29 @@ def _compose_descendant_text(
         composed_bytes += len(chunk.encode("utf-8"))
         if chunks:
             composed_bytes += 2
+            offset += 2
         if composed_bytes > MAX_COMPOSED_CORPUS_BYTES:
             raise CorpusDescendantStructureError(
                 "Composed corpus source exceeds the "
                 f"{MAX_COMPOSED_CORPUS_BYTES}-byte safety limit"
             )
+        if record.heading:
+            rendered_headings.append(
+                RenderedRowHeading(
+                    citation_path=record.row.citation_path,
+                    heading=record.heading,
+                    start=offset,
+                    end=offset + len(record.heading),
+                    chunk_end=offset + len(chunk),
+                )
+            )
         chunks.append(chunk)
-    return "\n\n".join(chunks), tuple(record.row for record in ordered)
+        offset += len(chunk)
+    return (
+        "\n\n".join(chunks),
+        tuple(record.row for record in ordered),
+        tuple(rendered_headings),
+    )
 
 
 def _descendant_sibling_order_key(

@@ -87,6 +87,7 @@ from axiom_encode.statute import (
 from .same_case_execution import SameCaseEvidence, formula_witnesses
 
 if TYPE_CHECKING:
+    from axiom_encode.corpus_resolver import RenderedRowHeading
     from axiom_encode.harness.worksheet_composition_evidence import (
         BoundWorksheetComposition,
     )
@@ -5404,6 +5405,148 @@ def _has_substantive_arithmetic_expression(source_text: str) -> bool:
     return False
 
 
+# An own-section caption such as `43-1072 - Earned credit for property taxes;
+# ...` restates the section's identity (#1827). Its identifier is a locator
+# only on evidence beyond its position and a matching heading: composition
+# rendered it as the first body-bearing row's own heading, the row lies in the
+# requested section, and the identifier is that section's own citation leaf.
+# Any text that points back at printed material (`the bounds printed above`)
+# gives the numbers a possible computational role, so it keeps every demand.
+_OWN_SECTION_CAPTION = re.compile(
+    r"(?P<identifier>\d+[A-Za-z]?(?:[.-]\d+[A-Za-z]?)*)[ \t]*(?:[-–—]|\.)[ \t]+"
+    r"(?P<title>[^\n]*[A-Za-z][^\n]*)"
+)
+_OWN_SECTION_CAPTION_BACK_REFERENCE = re.compile(
+    r"\b(?:above|aforesaid|aforementioned|foregoing|herein(?:above|before)|supra|"
+    r"printed|headings?|captions?|catchlines?|headnotes?|previously|earlier)\b"
+    r"|\b(?:first|opening|top|initial)\s+(?:lines?|rows?|entr(?:y|ies))\b"
+    r"|\bat\s+the\s+(?:top|head|beginning|start)\b"
+    r"|\bpreceding\b(?!\s+(?:(?:calendar|taxable|tax|fiscal|income|plan|"
+    r"benefit|program)\s+)?(?:years?|months?|quarters?|periods?)\b)"
+    r"|\bsection(?:'s|\s+)(?:numbers?|designation|identifier|title)\b"
+    r"|\b(?:numbers?|title|designation|identifier)\s+of\s+(?:this|the)\s+section\b"
+    r"|\b(?:opens?|begins?|starts?|heads?)\s+this\s+(?:section|provision|text)\b",
+    flags=re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class _OwnSectionCaption:
+    """A verified caption line and the identifier digits it restates."""
+
+    line_start: int
+    line_end: int
+    digit_spans: tuple[tuple[int, int], ...]
+
+
+def _own_section_caption(offset: int, match: re.Match[str]) -> _OwnSectionCaption:
+    identifier_start = offset + match.start("identifier")
+    return _OwnSectionCaption(
+        offset,
+        offset + match.end(),
+        tuple(
+            (identifier_start + digits.start(), identifier_start + digits.end())
+            for digits in re.finditer(r"\d+", match.group("identifier"))
+        ),
+    )
+
+
+def _own_section_captions(
+    source_text: str,
+    rendered_row_headings: Sequence[RenderedRowHeading],
+    *,
+    corpus_citation_path: str,
+) -> tuple[_OwnSectionCaption, ...]:
+    """Verify the composed body's opening heading as its own-section caption.
+
+    Only the first rendered heading can qualify, and only when its offsets
+    match the text, it is followed by the blank line composition writes, its
+    row lies in the requested section, and its identifier equals the
+    section's own citation leaf. The row's own body may then repeat the
+    caption on its first line. A bodyless parent's heading is never rendered,
+    so it can never authenticate a child's opening. A back-reference anywhere
+    in the source keeps every number demanded.
+    """
+
+    section_path = corpus_citation_path.strip("/")
+    section = section_path.rsplit("/", 1)[-1]
+    if not section or not rendered_row_headings:
+        return ()
+    heading = rendered_row_headings[0]
+    if not (
+        heading.start == 0
+        and heading.start < heading.end
+        and heading.end + 2 <= heading.chunk_end <= len(source_text)
+        and source_text[heading.start : heading.end] == heading.heading
+        and source_text[heading.end : heading.end + 2] == "\n\n"
+        and (
+            heading.citation_path == section_path
+            or heading.citation_path.startswith(section_path + "/")
+        )
+    ):
+        return ()
+    caption = _OWN_SECTION_CAPTION.fullmatch(heading.heading)
+    if caption is None or caption.group("identifier") != section:
+        return ()
+    if _OWN_SECTION_CAPTION_BACK_REFERENCE.search(source_text):
+        return ()
+    captions = [_own_section_caption(heading.start, caption)]
+    body_start = heading.end + 2
+    line_end = source_text.find("\n", body_start, heading.chunk_end)
+    repeat = _OWN_SECTION_CAPTION.fullmatch(
+        source_text,
+        body_start,
+        heading.chunk_end if line_end < 0 else line_end,
+    )
+    if (
+        repeat is not None
+        and repeat.group("identifier") == section
+        and repeat.group("title").split() == caption.group("title").split()
+    ):
+        captions.append(_own_section_caption(0, repeat))
+    return tuple(captions)
+
+
+def may_open_with_own_section_caption(
+    source_text: str, *, corpus_citation_path: str
+) -> bool:
+    """Whether the body's first line could be its own-section caption.
+
+    A cheap text-only screen: callers fetch the resolver's rendered headings,
+    which alone can verify a caption, only when this holds.
+    """
+
+    section = corpus_citation_path.strip("/").rsplit("/", 1)[-1]
+    first_line = source_text.split("\n", 1)[0]
+    caption = _OWN_SECTION_CAPTION.fullmatch(first_line)
+    return (
+        bool(section)
+        and caption is not None
+        and (caption.group("identifier") == section)
+    )
+
+
+def _caption_line_within(
+    start: int, end: int, captions: Sequence[_OwnSectionCaption]
+) -> bool:
+    return any(
+        caption.line_start <= start and end <= caption.line_end for caption in captions
+    )
+
+
+def _blank_caption_lines(
+    source_text: str, captions: Sequence[_OwnSectionCaption]
+) -> str:
+    """Blank verified caption lines in place, keeping every offset."""
+
+    characters = list(source_text)
+    for caption in captions:
+        characters[caption.line_start : caption.line_end] = " " * (
+            caption.line_end - caption.line_start
+        )
+    return "".join(characters)
+
+
 def analyze_complete_source_unit(
     content: str,
     authoritative_source_text: str,
@@ -5424,11 +5567,35 @@ def analyze_complete_source_unit(
     source_context: Mapping[str, str | None] | None = None,
     execution_evidence: SameCaseEvidence | None = None,
     referral_context: Any = None,
+    rendered_row_headings: Sequence[RenderedRowHeading] = (),
 ) -> CompleteSourceUnitAnalysis:
-    """Analyze one artifact against its authoritative, resolver-owned body."""
+    """Analyze one artifact against its authoritative, resolver-owned body.
+
+    ``rendered_row_headings`` are the resolver's headings for this exact body
+    (``ResolvedCorpusSource.rendered_row_headings``); they only ever let a
+    verified own-section caption's identifier stop being demanded.
+    """
 
     with _us_manual_prose_scope(corpus_citation_path):
         source_text = authoritative_source_text.strip()
+        leading = len(authoritative_source_text) - len(
+            authoritative_source_text.lstrip()
+        )
+        own_section_captions = tuple(
+            _OwnSectionCaption(
+                caption.line_start - leading,
+                caption.line_end - leading,
+                tuple(
+                    (start - leading, end - leading)
+                    for start, end in caption.digit_spans
+                ),
+            )
+            for caption in _own_section_captions(
+                authoritative_source_text,
+                rendered_row_headings,
+                corpus_citation_path=corpus_citation_path,
+            )
+        )
         if not source_text:
             issue = (
                 "[complete-source-unit:authoritative-source] "
@@ -5474,6 +5641,7 @@ def analyze_complete_source_unit(
                 imported_proof_source_context=imported_proof_source_context,
                 resolved_dependency_outputs=resolved_dependency_outputs,
                 source_context=source_context,
+                own_section_captions=own_section_captions,
             )
         except (yaml.YAMLError, TypeError, ValueError) as exc:
             # A gate that cannot read its input must report it, never pass it.
@@ -5621,6 +5789,7 @@ def _analyze_rulespec_payload(
     raw_source_text: str | None = None,
     execution_evidence: SameCaseEvidence | None = None,
     referral_context: Any = None,
+    own_section_captions: Sequence[_OwnSectionCaption] = (),
 ) -> CompleteSourceUnitAnalysis:
     if execution_evidence is not None and not execution_evidence.bound(
         content, imported_export_bindings
@@ -5896,6 +6065,19 @@ def _analyze_rulespec_payload(
         active_branches=active_branches,
         deferred_paths=deferred_paths,
     )
+    if own_section_captions:
+        # A verified own-section caption states no computation: its identifier
+        # hyphen (`43-1072 - Earned credit ...`) is not a subtraction (#1827).
+        all_formula_branches = tuple(
+            branch
+            for branch in all_formula_branches
+            if not _caption_line_within(branch.start, branch.end, own_section_captions)
+        )
+        formula_branches = tuple(
+            branch
+            for branch in formula_branches
+            if not _caption_line_within(branch.start, branch.end, own_section_captions)
+        )
     control_branches = _source_control_branches(
         source_text,
         raw_source_text=raw_source_text,
@@ -5920,7 +6102,8 @@ def _analyze_rulespec_payload(
         deferred_paths=deferred_paths,
     )
     source_has_computation = source_states_explicit_computation(
-        source_text, corpus_citation_path=corpus_citation_path
+        _blank_caption_lines(source_text, own_section_captions),
+        corpus_citation_path=corpus_citation_path,
     )
     if source_has_computation:
         if formula_branches:
@@ -6073,8 +6256,13 @@ def _analyze_rulespec_payload(
             )
         )
 
+    # A verified own-section caption's identifier digits are locators (#1827).
+    caption_digit_spans = {
+        span for caption in own_section_captions for span in caption.digit_spans
+    }
     numeric_recall_text = authoritative_numeric_recall_text(
-        source_text, corpus_citation_path=corpus_citation_path
+        _mask_numeric_spans(source_text, caption_digit_spans),
+        corpus_citation_path=corpus_citation_path,
     )
     source_occurrences = tuple(
         occurrence
@@ -6088,7 +6276,10 @@ def _analyze_rulespec_payload(
     if represented_annual_spans or represented_measurement_spans:
         unrepresented_recall_text = authoritative_numeric_recall_text(
             _mask_numeric_spans(
-                source_text, represented_annual_spans | represented_measurement_spans
+                source_text,
+                represented_annual_spans
+                | represented_measurement_spans
+                | caption_digit_spans,
             ),
             corpus_citation_path=corpus_citation_path,
         )

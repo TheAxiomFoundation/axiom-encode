@@ -193,6 +193,7 @@ from .source_completeness import (
     analyze_complete_source_unit,
     collect_artifact_numeric_bindings,
     manual_outcome_exception_advice,
+    may_open_with_own_section_caption,
     source_states_stated_conversion_result,
 )
 
@@ -36186,8 +36187,41 @@ class ValidatorPipeline:
             authenticated_same_act_aliases=(
                 _authenticated_same_act_aliases_from_metadata(self.source_metadata)
             ),
+            rendered_row_headings=self._complete_source_rendered_row_headings(
+                authoritative_source_text or ""
+            ),
         )
         return list(completeness.issues)
+
+    def _complete_source_rendered_row_headings(
+        self, authoritative_source_text: str
+    ) -> tuple[Any, ...]:
+        """Return the resolver's rendered headings for exactly this body.
+
+        They are in-memory resolver evidence for the completeness gate's
+        own-section caption check (#1827). Any other body, or any resolution
+        failure, yields none, so the gate keeps every demand.
+        """
+
+        if not (
+            self.source_citation_path
+            and authoritative_source_text
+            and isinstance(self.local_corpus_release, LocalCorpusRelease)
+            and may_open_with_own_section_caption(
+                authoritative_source_text,
+                corpus_citation_path=self.source_citation_path,
+            )
+        ):
+            return ()
+        try:
+            resolved = resolve_local_corpus_source(
+                self.source_citation_path, self.local_corpus_release
+            )
+        except (CorpusResolutionError, OSError):
+            return ()
+        if resolved.body != authoritative_source_text:
+            return ()
+        return resolved.rendered_row_headings
 
     def _complete_source_unit_deferred_outputs(
         self,
