@@ -11210,7 +11210,9 @@ companion test file required by the task and deterministic validation.
             "accepted only after no repaired rule or companion case references "
             "it as an input. A same-named derived or parameter rule is not an "
             "input reference, but companion `#input.<name>` assignments must "
-            "still be replaced with factual inputs. "
+            "still be replaced with factual inputs. A name is never both an "
+            "input and a rule: to replace a retained rule with a same-named "
+            "input, also emit that rule's removal marker. "
             "To remove an obsolete deferred output, emit an exact YAML item "
             "containing only `output: <existing output>` and "
             "`repair_remove: true`. Other deferred-output records may contain "
@@ -18429,6 +18431,78 @@ def _merge_named_yaml_items(
     return generated_items, restored, sorted(removed_names)
 
 
+def _reject_repair_overlay_declaration_collisions(
+    inputs: Sequence[object],
+    rules: Sequence[object],
+    *,
+    restored_inputs: Sequence[str],
+    restored_rules: Sequence[str],
+) -> None:
+    """Refuse a merged artifact that declares one name as an input and a rule.
+
+    Validation reads such a name as derived, so the input's supplied facts
+    would vanish from every companion case. Name both declarations and the
+    exact removal marker that makes a deliberate conversion explicit.
+    """
+
+    def declared(items: Sequence[object]) -> dict[str, dict[str, object]]:
+        return {
+            item["name"]: item
+            for item in items
+            if isinstance(item, dict) and isinstance(item.get("name"), str)
+        }
+
+    declared_inputs = declared(inputs)
+    declared_rules = declared(rules)
+    collisions = sorted(set(declared_inputs) & set(declared_rules))
+    if not collisions:
+        return
+    restored_input_names = set(restored_inputs)
+    restored_rule_names = set(restored_rules)
+    details: list[str] = []
+    retained_only = True
+    for name in collisions:
+        rule = declared_rules[name]
+        rule_kind = str(rule.get("kind") or "").strip() or "unkinded"
+        input_owner = (
+            "retained candidate's" if name in restored_input_names else "this repair's"
+        )
+        rule_owner = (
+            "retained candidate's" if name in restored_rule_names else "this repair's"
+        )
+        detail = (
+            f"`{name}` is both the {input_owner} input on "
+            f"{declared_inputs[name].get('entity') or 'an unstated entity'} and the "
+            f"{rule_owner} {rule_kind} rule on "
+            f"{rule.get('entity') or 'an unstated entity'}"
+        )
+        if name in restored_rule_names and name not in restored_input_names:
+            detail += (
+                f"; to replace the retained rule with this input, add "
+                f"`{{name: {name}, repair_remove: true}}` to `rules`, otherwise "
+                "drop the input"
+            )
+        elif name in restored_input_names and name not in restored_rule_names:
+            detail += (
+                f"; to replace the retained input with this rule, add "
+                f"`{{name: {name}, repair_remove: true}}` to `inputs`, otherwise "
+                "drop the rule"
+            )
+        else:
+            detail += "; declare it once"
+        retained_only = retained_only and (
+            name in restored_input_names and name in restored_rule_names
+        )
+        details.append(detail)
+    message = (
+        "repair overlay would declare a name as both an input and a rule: "
+        + "; ".join(details)
+    )
+    if retained_only:
+        raise _PreservedRepairOverlayError(message)
+    raise ValueError(message)
+
+
 def _repair_overlay_removed_input_references(
     payload: object,
     removed_inputs: Sequence[str],
@@ -18673,6 +18747,12 @@ def _overlay_validation_retry_candidate(
     }
     repairs.extend(f"rule:{name}" for name in restored_rules)
     repairs.extend(f"removed_rule:{name}" for name in removed_rules)
+    _reject_repair_overlay_declaration_collisions(
+        inputs,
+        rules,
+        restored_inputs=restored_inputs,
+        restored_rules=restored_rules,
+    )
 
     generated_module = generated.get("module")
     preserved_module = preserved.get("module")
