@@ -27,6 +27,10 @@ FAILED_CANDIDATE_KEYS = {
     "schema",
     "tests_sha256",
 }
+#: Optional ``issues.json`` field: the bundle's typed validator issues
+#: (``axiom-encode/validation-issue/v2``); bundles without typed issues omit it.
+FAILED_CANDIDATE_OPTIONAL_KEYS = frozenset({"typed_issues"})
+TYPED_ISSUES_SCHEMA = "axiom-encode/validation-issue/v2"
 ATOMIC_ROOTS = frozenset(
     {"guidance", "manuals", "policies", "programs", "regulations", "statutes"}
 )
@@ -203,7 +207,15 @@ def _retained_candidate(
         raise ValueError("retained repair candidate metadata is invalid") from exc
     if (
         not isinstance(metadata, dict)
-        or set(metadata) != FAILED_CANDIDATE_KEYS
+        or set(metadata) - FAILED_CANDIDATE_OPTIONAL_KEYS != FAILED_CANDIDATE_KEYS
+        or (
+            "typed_issues" in metadata
+            and (
+                not isinstance(metadata["typed_issues"], dict)
+                or metadata["typed_issues"].get("schema") != TYPED_ISSUES_SCHEMA
+                or not isinstance(metadata["typed_issues"].get("issues"), list)
+            )
+        )
         or metadata.get("schema") != FAILED_CANDIDATE_SCHEMA
         or metadata.get("citation") != citation
         or metadata.get("path") != expected_module
