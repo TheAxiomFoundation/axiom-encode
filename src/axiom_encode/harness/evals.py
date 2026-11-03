@@ -32,8 +32,14 @@ from axiom_oracles.bridges.registry import load_policyengine_registry
 
 from axiom_encode import __version__
 from axiom_encode import corpus_resolver as _corpus_resolver
+from axiom_encode.checks import (
+    ValidationIssue,
+    issue_fix_feedback,
+    typed_issue_document,
+)
 from axiom_encode.codex_cli import (
     DEFAULT_CODEX_REASONING_EFFORT,
+    codex_auth_error,
     resolve_codex_cli,
     validate_codex_reasoning_effort,
     with_codex_model_availability_hint,
@@ -85,6 +91,7 @@ from axiom_encode.repo_routing import (
     monorepo_checkout_name,
 )
 from axiom_encode.retry_feedback import (
+    VALIDATION_RETRY_CHECK_FIX_MAX_CHARS,
     VALIDATION_RETRY_FEEDBACK_MAX_ITEMS,
     VALIDATION_RETRY_FEEDBACK_MAX_TOTAL_CHARS,
     bounded_validation_retry_feedback_item,
@@ -142,6 +149,7 @@ from .proof_validator import find_interpretation_yaml_issues
 from .source_completeness import (
     _rulespec_target_base,
     collect_artifact_numeric_values,
+    mask_armenian_amendment_history,
 )
 from .validator_pipeline import (
     ExistingTargetOracleContract,
@@ -355,6 +363,121 @@ _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN = {
     "statute": "statutes",
     "statutes": "statutes",
 }
+# Federal Register instruments live under <jurisdiction>/rulemaking/... in the
+# corpus. RuleSpec has no rulemaking filesystem root, so their outputs land in
+# a reserved ``policies/rulemaking/`` namespace. A dot-free tail maps back to
+# the same citation; a dotted leaf is written nested and maps back to the
+# nested path (cli._relative_output_to_child_corpus_citation_path,
+# validator_pipeline._corpus_citation_to_normalized_target and
+# dependency_stubs._corpus_kind_and_rest keep the same contract).
+_RULEMAKING_SOURCE_TOKEN = "rulemaking"
+_RULEMAKING_OUTPUT_ROOT = "policies"
+
+
+def is_rulemaking_source_identifier(identifier: str) -> bool:
+    """Whether ``identifier`` is a corpus ``<jurisdiction>/rulemaking/...`` path.
+
+    Only the corpus form matches. RuleSpec-form ids return False here: the
+    RuleSpec name of a Federal Register document
+    (``[<j>:]policies|policy/rulemaking/...``) is caught by the eval backstop
+    after normalization (``_eval_target_names_rulemaking_source``), and other
+    roots such as ``us:statutes/rulemaking/...`` keep main's mapping.
+    """
+    parts = [part for part in identifier.strip().strip("/").split("/") if part]
+    return (
+        len(parts) >= 3
+        and parts[1] == _RULEMAKING_SOURCE_TOKEN
+        and ":" not in parts[0]
+        and parts[0] not in _RULESPEC_SOURCE_ROOT_TOKENS
+    )
+
+
+def _eval_target_names_rulemaking_source(citation: str, source_unit: object) -> bool:
+    """Whether an eval target names a Federal Register document in any form.
+
+    Covers the corpus form, the document's RuleSpec names
+    ``[<j>:]policies|policy/rulemaking/...`` (which the resolver aliases to the
+    document), and the resolver-normalized id of the citation and of the
+    resolved source unit. ``us:statutes/rulemaking/...`` matches none of these
+    and keeps main's mapping.
+    """
+    candidates = [citation, str(getattr(source_unit, "requested", "") or "")]
+    with contextlib.suppress(_corpus_resolver.CorpusResolutionError, ValueError):
+        candidates.append(_corpus_resolver.normalize_corpus_identifier(citation))
+    return any(
+        is_rulemaking_source_identifier(candidate)
+        for candidate in candidates
+        if candidate
+    ) or _names_rulemaking_output(citation)
+
+
+def _rulemaking_document_id(citation: str, source_unit: object) -> str:
+    """The corpus ``<j>/rulemaking/...`` id an eval target resolves to.
+
+    Prefers the resolved source unit, then the resolver-normalized citation;
+    falls back to the citation itself.
+    """
+    candidates = [str(getattr(source_unit, "requested", "") or "")]
+    with contextlib.suppress(_corpus_resolver.CorpusResolutionError, ValueError):
+        candidates.append(_corpus_resolver.normalize_corpus_identifier(citation))
+    for candidate in candidates:
+        if candidate and is_rulemaking_source_identifier(candidate):
+            return candidate
+    return citation
+
+
+def rulemaking_explicit_output_required_message(
+    citation: str,
+    existing_modules: Sequence[str] = (),
+    *,
+    other_citing_modules: Sequence[str] = (),
+) -> str:
+    """Explain why a Federal Register target needs an explicit module path.
+
+    RuleSpec repositories file each Federal Register module under the agency
+    and subject it amends (``us/policies/cbp/...``), and one document can back
+    several modules, so no default path is safe: the encoder would put a
+    re-encode of an existing module in a second place.
+
+    ``existing_modules`` cite this document as their
+    ``source_verification.corpus_citation_path``. ``other_citing_modules``
+    cite it in ``corpus_citation_paths`` or cite one of its pages. The message
+    lists both and leaves to ``--replace-rulespec-path`` whether it accepts a
+    given module.
+    """
+    jurisdiction = citation.strip().strip("/").split("/", 1)[0]
+    message = (
+        f"{citation} is a Federal Register (rulemaking) source, which has no "
+        "default RuleSpec path: modules built from it live under the agency and "
+        f"subject they amend in {jurisdiction}/policies/. Pass that module's "
+        "path with --replace-rulespec-path "
+        f"(for example {jurisdiction}/policies/<agency>/<subject>.yaml, with "
+        "--apply and --mode repo-augmented)."
+    )
+    if existing_modules:
+        message += (
+            " Modules whose source_verification corpus_citation_path is this "
+            f"document: {', '.join(existing_modules)}."
+        )
+    if other_citing_modules:
+        message += (
+            " Modules that cite this document in corpus_citation_paths or cite "
+            f"one of its pages: {', '.join(other_citing_modules)}."
+        )
+    if existing_modules or other_citing_modules:
+        message += (
+            " --replace-rulespec-path checks each module's source_verification "
+            "and decides whether it accepts that module."
+        )
+    else:
+        message += (
+            f" A scan of {jurisdiction}/policies/ in this checkout found no "
+            "module whose source_verification corpus_citation_path or "
+            "corpus_citation_paths names this document or one of its pages."
+        )
+    return message
+
+
 _UK_LEGISLATION_DOMAIN_TOKEN = "legislation.gov.uk"
 _UK_LEGISLATION_SECTION_TOKENS = {"article", "regulation", "section"}
 _CLAUDE_DEFAULT_TIMEOUT_SECONDS = 1800
@@ -979,21 +1102,29 @@ def summarize_validation_failures(
             if identity in seen:
                 continue
             seen.add(identity)
-            message_class = classify_validation_issue(detail)
+            # A typed issue is classed by its declared check id; an untyped
+            # one by the message classifier, as before.
+            check_id = issue.check if isinstance(issue, ValidationIssue) else None
+            message_class = check_id or classify_validation_issue(detail)
             counts[f"{gate_text}:{message_class}"] += 1
-            failures.append(
-                {
-                    "gate": gate_text,
-                    "message_class": message_class,
-                    "detail": detail[:240],
-                }
-            )
+            failure = {
+                "gate": gate_text,
+                "message_class": message_class,
+                "detail": detail[:240],
+            }
+            if check_id is not None:
+                failure["check"] = check_id
+                failure["fingerprint"] = issue.fingerprint
+            failures.append(failure)
     if not failures:
         return {}
     result: dict[str, object] = {
         "validation_failures": failures[:40],
         "validation_failure_counts": dict(counts),
     }
+    typed_issues = typed_issue_document(labeled_issues)
+    if typed_issues is not None:
+        result["validation_issues"] = typed_issues
     dropped = len(failures) - 40
     if dropped > 0:
         result["validation_failures_truncated"] = dropped
@@ -1239,6 +1370,7 @@ class EvalResult:
     retry_count: int = 0
     source_attestation: dict[str, object] | None = None
     admission: dict[str, object] | None = None
+    admission_score: dict[str, object] | None = None
     verdict_file: str = ""
     verdict_sha256: str | None = None
     require_complete_source_unit: bool = False
@@ -1250,6 +1382,8 @@ class EvalResult:
             data.pop("amendment_request", None)
         if not self.require_complete_source_unit:
             data.pop("require_complete_source_unit", None)
+        if self.admission_score is None:
+            data.pop("admission_score", None)
         if self.metrics is not None:
             data["metrics"] = asdict(self.metrics)
             if not self.metrics.manual_outcome_exception_advice:
@@ -3388,6 +3522,8 @@ def run_eval_suite(
     policyengine_runtime: PolicyEngineRuntime | None = None,
     suite_retry_attempts: int = _DEFAULT_SUITE_RETRY_ATTEMPTS,
     resume_existing: bool = False,
+    admission_score: bool = False,
+    axiom_compose_path: Path | None = None,
 ) -> list[EvalResult]:
     """Run a suite while keeping its evidence signer out of child environments."""
 
@@ -3401,6 +3537,8 @@ def run_eval_suite(
             policyengine_runtime=policyengine_runtime,
             suite_retry_attempts=suite_retry_attempts,
             resume_existing=resume_existing,
+            admission_score=admission_score,
+            axiom_compose_path=axiom_compose_path,
             evidence_signing_key=evidence_signing_key,
         )
 
@@ -3415,6 +3553,8 @@ def _run_eval_suite_with_signer(
     suite_retry_attempts: int,
     resume_existing: bool,
     evidence_signing_key: SigningBroker,
+    admission_score: bool = False,
+    axiom_compose_path: Path | None = None,
 ) -> list[EvalResult]:
     """Run every case using a parent-memory-only evidence signer."""
 
@@ -3458,6 +3598,10 @@ def _run_eval_suite_with_signer(
             suite_retry_attempts=suite_retry_attempts,
         )
     )
+    if admission_score:
+        execution_identity["admission_score"] = _eval_suite_admission_score_options(
+            axiom_compose_path
+        )
     results: list[EvalResult] = []
     run_id = str(uuid.uuid4())
     started_at = _utc_now_iso()
@@ -3667,6 +3811,17 @@ def _run_eval_suite_with_signer(
                 expected_source_attestation=expected_source_attestation,
                 source_unit=case_source_unit,
             )
+            if admission_score:
+                _score_eval_suite_case_admission(
+                    case,
+                    case_results,
+                    output_root=case_output_root,
+                    policy_repo_path=policy_repo_root,
+                    axiom_rules_path=axiom_rules_path,
+                    axiom_compose_path=axiom_compose_path,
+                    corpus_release=corpus_release,
+                    rulespec_dependency_roots=manifest.rulespec_dependency_roots,
+                )
             _append_eval_suite_case_results(
                 output_root,
                 index,
@@ -3860,7 +4015,7 @@ def _eval_result_verdict_evidence_payload(
         raise ValueError(
             "Eval result admission does not match the context being authenticated"
         )
-    return {
+    payload = {
         "schema": _EVAL_RESULT_VERDICT_SCHEMA,
         "admission": admission_context,
         "identity": {
@@ -3907,6 +4062,9 @@ def _eval_result_verdict_evidence_payload(
             "metrics": result_payload.get("metrics"),
         },
     }
+    if result.admission_score is not None:
+        payload["admission_score"] = result.admission_score
+    return payload
 
 
 _EVAL_SUITE_MANAGED_ROOT_NAMES = frozenset(
@@ -4390,6 +4548,8 @@ def _build_eval_suite_execution_identity(
     *,
     policyengine_runtime: PolicyEngineRuntime | None = None,
     suite_retry_attempts: int = _DEFAULT_SUITE_RETRY_ATTEMPTS,
+    admission_score: bool = False,
+    axiom_compose_path: Path | None = None,
 ) -> dict[str, object]:
     """Return every executable and RuleSpec input identity used by a suite."""
 
@@ -4399,7 +4559,7 @@ def _build_eval_suite_execution_identity(
         pathspecs=("src/axiom_encode", "pyproject.toml", "uv.lock"),
     )
     encoder_identity["version"] = __version__
-    return {
+    identity = {
         "schema": EVAL_EXECUTION_IDENTITY_SCHEMA,
         # Each case-runner receives this full deadline for artifact generation
         # and every retry. Deterministic validation and optional reviewers run
@@ -4430,6 +4590,143 @@ def _build_eval_suite_execution_identity(
             _rulespec_root_execution_identity(Path(root)) for root in rulespec_roots
         ],
     }
+    if admission_score:
+        identity["admission_score"] = _eval_suite_admission_score_options(
+            axiom_compose_path
+        )
+    return identity
+
+
+def _eval_suite_admission_score_options(
+    axiom_compose_path: Path | None,
+) -> dict[str, object]:
+    """Bind the opt-in and compose input without changing the four gates."""
+
+    compose_digest = (
+        _context_file_hash(str(axiom_compose_path))
+        if axiom_compose_path is not None
+        else None
+    )
+    return {
+        "enabled": True,
+        "axiom_compose": (
+            {
+                "path": str(Path(axiom_compose_path).resolve()),
+                "binary_sha256": (
+                    compose_digest.removeprefix("sha256:")
+                    if compose_digest is not None
+                    else None
+                ),
+            }
+            if axiom_compose_path is not None
+            else None
+        ),
+    }
+
+
+def _eval_result_generation_infrastructure_failure(result: EvalResult) -> str | None:
+    """Name the infrastructure class that ended a generation, when it is proven.
+
+    Only a failed row with no artifact and a backend error qualifies. The
+    evidence is the harness's own, never the wording of a model's output:
+
+    - ``authentication``: the row's backend had no credentials at all (no
+      ``OPENAI_API_KEY``, and for Codex no ``CODEX_API_KEY`` or auth file
+      either; ``encode`` refuses to start on the same Codex check) and the
+      row reports no model tokens, so nothing shows a model was reached.
+    - ``quota-exhaustion``: the usage-limit rule that already stops the suite.
+
+    Any other backend error, including a credential the provider rejects,
+    returns ``None`` and stays a scored failure. The fold's run-level
+    exclusion covers those.
+
+    The credential check reads the environment, so it is only evidence about
+    a generation that has just run. A resumed suite reuses the class recorded
+    then (``_recorded_generation_infrastructure_failure``).
+    """
+
+    if result.success or result.output_file or result.failure_kind != "error":
+        return None
+    backend = result.backend.strip().lower()
+    reports_model_tokens = any(
+        getattr(result, name, 0)
+        for name in (
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_creation_tokens",
+            "reasoning_output_tokens",
+        )
+    )
+    if not reports_model_tokens:
+        if (
+            backend == "codex"
+            and codex_auth_error() is not None
+            and not os.getenv("CODEX_API_KEY")
+        ):
+            return "authentication"
+        if backend == "openai" and not os.getenv("OPENAI_API_KEY"):
+            return "authentication"
+    if _eval_result_indicates_usage_limit(result):
+        return "quota-exhaustion"
+    return None
+
+
+def _recorded_generation_infrastructure_failure(score: object) -> str | None:
+    """Return the infrastructure class a persisted admission score recorded."""
+
+    from axiom_encode.harness.admission import GENERATION_INFRASTRUCTURE_FAILURES
+
+    categories = (
+        score.get("prerequisite_categories") if isinstance(score, dict) else None
+    )
+    if not isinstance(categories, list):
+        return None
+    for failure in GENERATION_INFRASTRUCTURE_FAILURES:
+        if f"generation-{failure}" in categories:
+            return failure
+    return None
+
+
+def _score_eval_suite_case_admission(
+    case: EvalSuiteCase,
+    case_results: list[EvalResult],
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    axiom_rules_path: Path,
+    axiom_compose_path: Path | None,
+    corpus_release: _corpus_resolver.LocalCorpusRelease,
+    rulespec_dependency_roots: Sequence[Path] = (),
+    recorded_scores: Sequence[object] | None = None,
+) -> None:
+    """Attach production admission after the four-gate result is finalized.
+
+    ``recorded_scores`` are the persisted scores of the same rows when a
+    resumed suite re-scores them. Their generation infrastructure class is
+    reused, because the evidence for it existed only when generation ran.
+    """
+
+    from axiom_encode.harness.admission import score_admission
+
+    citation = case.corpus_citation_path or case.citation or ""
+    for position, result in enumerate(case_results):
+        infrastructure_failure = (
+            _eval_result_generation_infrastructure_failure(result)
+            if recorded_scores is None
+            else _recorded_generation_infrastructure_failure(recorded_scores[position])
+        )
+        result.admission_score = score_admission(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo_path,
+            axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
+            local_corpus_release=corpus_release,
+            citation=citation,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+            generation_infrastructure_failure=infrastructure_failure,
+        ).to_dict()
 
 
 def _eval_timeout_retry_policy(suite_retry_attempts: int) -> dict[str, object]:
@@ -5420,6 +5717,18 @@ def _load_eval_suite_resume_state(
             expected_source_attestation=expected_source_attestation,
             source_unit=live_source_unit,
         )
+        admission_options = execution_identity.get("admission_score")
+        admission_enabled = isinstance(admission_options, dict) and (
+            admission_options.get("enabled") is True
+        )
+        if any(
+            (result.admission_score is not None) != admission_enabled
+            for result in case_results
+        ):
+            raise ValueError(
+                "Cannot resume eval suite: admission scoring presence does not "
+                "match the execution identity"
+            )
         if revalidate_persisted_results:
             _revalidate_persisted_eval_suite_case_results(
                 case,
@@ -5433,6 +5742,34 @@ def _load_eval_suite_resume_state(
                 policyengine_runtime=policyengine_runtime,
                 rulespec_dependency_roots=manifest.rulespec_dependency_roots,
             )
+            if admission_enabled:
+                persisted_scores = [result.admission_score for result in case_results]
+                compose_identity = admission_options.get("axiom_compose")
+                compose_path = (
+                    Path(compose_identity["path"])
+                    if isinstance(compose_identity, dict)
+                    else None
+                )
+                _score_eval_suite_case_admission(
+                    case,
+                    case_results,
+                    output_root=output_root / f"{case_index:02d}-{_slugify(case.name)}",
+                    policy_repo_path=_eval_suite_case_policy_repo_root(
+                        case, policy_repo_path
+                    ),
+                    axiom_rules_path=axiom_rules_path,
+                    axiom_compose_path=compose_path,
+                    corpus_release=corpus_release,
+                    rulespec_dependency_roots=manifest.rulespec_dependency_roots,
+                    recorded_scores=persisted_scores,
+                )
+                if persisted_scores != [
+                    result.admission_score for result in case_results
+                ]:
+                    raise ValueError(
+                        "Cannot resume eval suite: persisted admission score does "
+                        "not match fresh production validation"
+                    )
         completed_case_indexes.add(case_index)
         results.extend(case_results)
 
@@ -6051,6 +6388,11 @@ def _eval_result_from_payload(
         admission=(
             dict(payload["admission"])
             if isinstance(payload.get("admission"), dict)
+            else None
+        ),
+        admission_score=(
+            dict(payload["admission_score"])
+            if isinstance(payload.get("admission_score"), dict)
             else None
         ),
         verdict_file=str(payload.get("verdict_file", "")),
@@ -7428,6 +7770,13 @@ def _looks_like_corpus_citation_path(identifier: str) -> bool:
         "policy",
         "regulation",
         "regulations",
+        # Federal Register instruments (proclamations, executive orders,
+        # notices) live under us/rulemaking/... in the corpus; without this
+        # token the CLI mangles such citations via citation_to_citation_path
+        # into us/statute/us/rulemaking/... and the provisions lookup fails.
+        # Validate-time source verification already resolves these paths
+        # verbatim.
+        "rulemaking",
         "statute",
         "statutes",
     }
@@ -8469,10 +8818,13 @@ def _evaluate_artifact_in_scope(
     # but generated literals are grounded only in authoritative source text and
     # separately parsed proof evidence below — never in module.summary.
     numeric_validation_source_text = embedded_source or numeric_source_text or ""
-    numeric_recall_source_text = (
-        evaluation_source_text
-        if require_complete_source_unit
-        else numeric_validation_source_text
+    numeric_recall_source_text = mask_armenian_amendment_history(
+        (
+            evaluation_source_text
+            if require_complete_source_unit
+            else numeric_validation_source_text
+        )
+        or ""
     )
     # Complete-source recall deliberately inventories the whole authoritative
     # unit.  Generated-number grounding remains scoped exactly as it is in the
@@ -9827,6 +10179,16 @@ def _run_single_eval(
     # the requested identifier keeps each subsection in its own file.
     #
     is_corpus_path = _looks_like_corpus_citation_path(citation)
+    if target_relative_output is None and _eval_target_names_rulemaking_source(
+        citation, source_unit
+    ):
+        # Name the document by its resolved corpus id, as encode does, so an
+        # alias citation still gets the right <jurisdiction>/policies/ hint.
+        raise ValueError(
+            rulemaking_explicit_output_required_message(
+                _rulemaking_document_id(citation, source_unit)
+            )
+        )
     relative_output = (
         Path(target_relative_output)
         if target_relative_output is not None
@@ -10733,6 +11095,47 @@ def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
 def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
     """Map a canonical source identifier to its RuleSpec artifact path.
 
+    See ``_mapped_relative_rulespec_path``. Only a rulemaking source may land
+    in the reserved ``policies/rulemaking/`` namespace: a corpus
+    ``<j>/rulemaking/...`` path, or the output's own RuleSpec name
+    ``[<j>:]policies/rulemaking/...``. Anything else that maps there (a policy,
+    form, guidance or manual source whose tail or dotted leaf starts with
+    ``rulemaking``, in any letter case) would overwrite a rulemaking output
+    and is refused.
+    """
+    relative = _mapped_relative_rulespec_path(source_id)
+    out = relative.parts
+    if (
+        len(out) >= 3
+        and out[0] == _RULEMAKING_OUTPUT_ROOT
+        and out[1].casefold() == _RULEMAKING_SOURCE_TOKEN
+        and not _names_rulemaking_output(source_id)
+    ):
+        raise ValueError(
+            "Source collides with the reserved rulemaking output namespace: "
+            f"{source_id!r}"
+        )
+    return relative
+
+
+def _names_rulemaking_output(source_id: str) -> bool:
+    """Whether ``source_id`` is a rulemaking source or its output's own name."""
+    parts = [part for part in source_id.strip().strip("/").split("/") if part]
+    if len(parts) < 3 or parts[1] != _RULEMAKING_SOURCE_TOKEN:
+        return False
+    head = parts[0]
+    if ":" in head:
+        # RuleSpec form: only the policies root names the rulemaking output.
+        return head.split(":", 1)[1] in {"policies", "policy"}
+    if head in _RULESPEC_SOURCE_ROOT_TOKENS:
+        return head in {"policies", "policy"}
+    # Corpus form <jurisdiction>/rulemaking/...
+    return True
+
+
+def _mapped_relative_rulespec_path(source_id: str) -> Path:
+    """Map a canonical source identifier to its RuleSpec artifact path.
+
     Unicode dash punctuation is normalized only in the returned filesystem
     path; the authoritative source identifier remains unchanged. Each path
     segment is treated as a directory and a dot inside the leaf segment is
@@ -10780,6 +11183,10 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
             if tail and tail[0] == _UK_LEGISLATION_DOMAIN_TOKEN:
                 tail = _canonical_uk_legislation_tail(tail)
             return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
+    if len(parts) >= 3 and parts[1] == _RULEMAKING_SOURCE_TOKEN:
+        return Path(_RULEMAKING_OUTPUT_ROOT) / _dotted_leaf_to_nested_yaml_path(
+            [_RULEMAKING_SOURCE_TOKEN, *parts[2:]]
+        )
     if len(parts) >= 3:
         root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[1])
         if root is not None:
@@ -11012,8 +11419,11 @@ def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
     optional_items: list[str] = []
     rendered_chars = 0
     seen: set[str] = set()
+    typed_items: list[str] = []
     for raw_item in feedback[:VALIDATION_RETRY_FEEDBACK_MAX_ITEMS]:
-        item = bounded_validation_retry_feedback_item(str(raw_item))
+        item = bounded_validation_retry_feedback_item(
+            raw_item if isinstance(raw_item, str) else str(raw_item)
+        )
         if (
             not item
             or item in seen
@@ -11021,6 +11431,7 @@ def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
         ):
             continue
         seen.add(item)
+        typed_items.append(item)
         rendered = f"- {json.dumps(item, ensure_ascii=False)}"
         if item.startswith("[non-blocking] Manual outcome advisory:"):
             optional_items.append(rendered)
@@ -11074,7 +11485,34 @@ Deterministic validation feedback for the rejected candidate below:
 {chr(10).join(rendered_items)}
 === END PRIOR VALIDATION FEEDBACK ===
 """
+        + _format_check_fix_feedback(typed_items)
         + optional_section
+    )
+
+
+def _format_check_fix_feedback(items: Sequence[str]) -> str:
+    """Render each failed check's declared fix, with expected vs found per subject.
+
+    Only typed issues (``checks.ValidationIssue``) contribute; feedback made of
+    untyped strings renders nothing here, so its bytes are unchanged.
+    """
+
+    lines = issue_fix_feedback(items)
+    if not lines:
+        return ""
+    kept: list[str] = []
+    used = 0
+    for line in lines:
+        if used + len(line) + 1 > VALIDATION_RETRY_CHECK_FIX_MAX_CHARS:
+            break
+        kept.append(line)
+        used += len(line) + 1
+    if not kept:
+        return ""
+    return (
+        "\n=== BEGIN CHECK FIXES (declared by each failed check) ===\n"
+        + "\n".join(kept)
+        + "\n=== END CHECK FIXES ===\n"
     )
 
 

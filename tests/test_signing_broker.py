@@ -35,6 +35,7 @@ from axiom_encode.signing_broker import (
     reject_direct_private_signing_environment,
     scrub_private_signing_environment,
 )
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 from tests.signing_broker_fixtures import SigningBrokerFixture
 
 APPLY_MANIFEST_SIGNING_PUBLIC_KEY_ENV = "AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY"
@@ -177,7 +178,7 @@ def test_console_entrypoint_rejects_private_environment_before_cli_dispatch(
         env=environment,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=HANG_TIMEOUT_SECONDS,
     )
 
     assert completed.returncode != 0

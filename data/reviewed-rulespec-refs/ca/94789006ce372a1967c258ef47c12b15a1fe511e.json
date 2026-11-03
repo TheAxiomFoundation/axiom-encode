@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "ca",
+  "declared": null,
+  "pr_base_branch": null,
+  "purpose": "Reviewed Canada signed M/L and T1 Step 2 head for all protected artifact-only modes, including promotion (rulespec-ca#28); evidence in docs/review-evidence/ca-947890-reviewed-head.md. Migrated from the pre-record allowlist; admitted by axiom-encode#1984.",
+  "rulespec_pr": 28,
+  "rulespec_ref": "94789006ce372a1967c258ef47c12b15a1fe511e",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}

@@ -373,6 +373,7 @@ from tests.release_object_fixtures import (
     TEST_RELEASE_PUBLIC_KEY,
     bind_test_corpus_release,
 )
+from tests.scaling import assert_linear_growth, lowest_work
 from tests.signing_broker_fixtures import SigningBrokerFixture
 
 APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV = "AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY"
@@ -1785,6 +1786,31 @@ def test_manifest_refresh_rejects_unsigned_manifest_mutation(tmp_path):
         )
 
 
+def _write_reviewed_rulespec_records(
+    root: Path, *records: tuple[str, str, dict | None]
+) -> Path:
+    """Write strict admission records ``(country, sha, binding)`` below root."""
+
+    root.mkdir(parents=True, exist_ok=True)
+    for country, sha, binding in records:
+        path = root / country / f"{sha}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema": "axiom-encode/reviewed-rulespec-admission/v1",
+            "country": country,
+            "rulespec_ref": sha,
+            "pr_base_branch": None,
+            "base_sha": None,
+            "rulespec_pr": None,
+            "purpose": "Test admission.",
+            "binding": binding,
+            "declared": None,
+        }
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        path.chmod(0o644)
+    return root
+
+
 def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
     repo = tmp_path / "rulespec-us"
     _init_test_git_repo(repo)
@@ -1833,6 +1859,9 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
         reviewed_rulespec_ref=reviewed_ref,
         run_id="promotion-test-run",
     )
+    record_root = _write_reviewed_rulespec_records(
+        tmp_path / "reviewed-rulespec-refs", ("us", reviewed_ref, None)
+    )
     args.axiom_rules_path.mkdir()
     args.corpus_path.mkdir()
     validation_execution = {"schema": "axiom-encode/apply-validation-execution/v2"}
@@ -1862,8 +1891,8 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
     }
     with (
         patch(
-            "axiom_encode.prepare_signed_backfill.REVIEWED_RULESPEC_REFS",
-            frozenset({("us", reviewed_ref)}),
+            "axiom_encode.cli._promotion_reviewed_rulespec_record_root",
+            return_value=record_root,
         ),
         patch("axiom_encode.cli._recover_apply_transaction"),
         patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
@@ -1993,15 +2022,136 @@ def test_promote_reviewed_candidate_rejects_unallowlisted_ref(tmp_path):
         reviewed_rulespec_ref=reviewed_ref,
         run_id=None,
     )
+    # Admitted for another country and another commit only.
+    record_root = _write_reviewed_rulespec_records(
+        tmp_path / "reviewed-rulespec-refs",
+        ("ca", reviewed_ref, None),
+        ("us", "f" * 40, None),
+    )
 
     with (
         patch(
-            "axiom_encode.prepare_signed_backfill.REVIEWED_RULESPEC_REFS",
-            frozenset(),
+            "axiom_encode.cli._promotion_reviewed_rulespec_record_root",
+            return_value=record_root,
         ),
+        patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
         pytest.raises(ValueError, match="not explicitly allowlisted"),
     ):
         cmd_promote_reviewed_candidate(args)
+    signer_context.assert_not_called()
+
+
+@pytest.mark.parametrize("defect", ["none", "missing", "non-canonical", "symlink"])
+def test_promote_reviewed_candidate_refuses_unsafe_record_root(tmp_path, defect):
+    repo = tmp_path / "rulespec-us"
+    _init_test_git_repo(repo)
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "empty reviewed head"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    reviewed_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    root = _write_reviewed_rulespec_records(
+        tmp_path / "records", ("us", reviewed_ref, None)
+    )
+    if defect == "none":
+        root = None
+    elif defect == "missing":
+        shutil.rmtree(root)
+    elif defect == "non-canonical":
+        record = root / "us" / f"{reviewed_ref}.json"
+        record.write_text(json.dumps(json.loads(record.read_text())) + "\n")
+    else:
+        link = tmp_path / "linked-records"
+        link.symlink_to(root, target_is_directory=True)
+        root = link
+    args = SimpleNamespace(
+        repo=repo,
+        axiom_rules_path=tmp_path,
+        corpus_path=tmp_path,
+        rulespec_dependency_root=[],
+        rulespec_path="us/statutes/7/2015/f.yaml",
+        citation="us/statute/7/2015/f",
+        reviewed_rulespec_ref=reviewed_ref,
+        run_id=None,
+    )
+
+    with (
+        patch(
+            "axiom_encode.cli._promotion_reviewed_rulespec_record_root",
+            return_value=root,
+        ),
+        patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
+        pytest.raises(ValueError, match="record"),
+    ):
+        cmd_promote_reviewed_candidate(args)
+    signer_context.assert_not_called()
+
+
+def test_promote_reviewed_candidate_rejects_caller_supplied_record_root():
+    """Admission records are never taken from a command-line path."""
+
+    parser_args = [
+        "promote-reviewed-candidate",
+        "--repo",
+        "rulespec-us",
+        "--rulespec-path",
+        "us/statutes/7/2015/f.yaml",
+        "--citation",
+        "us/statute/7/2015/f",
+        "--reviewed-rulespec-ref",
+        "a" * 40,
+        "--reviewed-rulespec-refs-root",
+        "/tmp/caller-records",
+        "--axiom-rules-engine-path",
+        "engine",
+        "--corpus-path",
+        "corpus",
+    ]
+    with (
+        patch.object(sys, "argv", ["axiom-encode", *parser_args]),
+        patch("axiom_encode.cli.cmd_promote_reviewed_candidate") as command,
+        pytest.raises(SystemExit),
+    ):
+        main()
+    command.assert_not_called()
+
+
+def test_promotion_record_root_uses_attested_runtime_prefix(tmp_path, monkeypatch):
+    from axiom_encode.cli import _promotion_reviewed_rulespec_record_root
+
+    runtime = tmp_path / "opt" / "python"
+    monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_RUNTIME", "1")
+    with patch(
+        "axiom_encode.cli._load_trusted_runtime_attestation",
+        return_value={"path": str(runtime / "runtime-attestation.json")},
+    ):
+        assert _promotion_reviewed_rulespec_record_root() == (
+            runtime / "reviewed-rulespec-refs"
+        )
+    with (
+        patch(
+            "axiom_encode.cli._load_trusted_runtime_attestation",
+            side_effect=RuntimeError("runtime attestation is unreadable"),
+        ),
+        pytest.raises(RuntimeError, match="unreadable"),
+    ):
+        _promotion_reviewed_rulespec_record_root()
+
+
+def test_promotion_record_root_outside_runtime_is_checkout_or_none(monkeypatch):
+    from axiom_encode.cli import _promotion_reviewed_rulespec_record_root
+
+    monkeypatch.delenv("AXIOM_ENCODE_TRUSTED_RUNTIME", raising=False)
+    assert _promotion_reviewed_rulespec_record_root() == (
+        Path(__file__).resolve().parents[1] / "data" / "reviewed-rulespec-refs"
+    )
+    with patch(
+        "axiom_encode.prepare_signed_backfill._checkout_reviewed_rulespec_record_root",
+        return_value=None,
+    ):
+        assert _promotion_reviewed_rulespec_record_root() is None
 
 
 def test_apply_manifest_environment_public_key_cannot_replace_protected_broker(
@@ -14226,6 +14376,48 @@ class TestCmdEncode:
         # Neither attempt reported a provider-billed cost, so it stays unknown.
         assert persisted.actual_cost_usd is None
 
+    def test_final_try_records_overlay_rejection_typed_issues(self, tmp_path):
+        from axiom_encode.checks import IssueSubject, ValidationIssue
+        from axiom_encode.cli import _log_eval_result
+        from axiom_encode.harness.evals import EvalArtifactMetrics
+
+        # The standalone validators passed; the overlay then rejected the
+        # candidate with an issue the eval metrics never saw.
+        result = self._make_eval_result(True)
+        result.metrics = EvalArtifactMetrics(
+            compile_pass=True,
+            compile_issues=[],
+            ci_pass=True,
+            ci_issues=[],
+            embedded_source_present=True,
+            grounded_numeric_count=0,
+            ungrounded_numeric_count=0,
+            grounding=[],
+        )
+        overlay_issue = ValidationIssue(
+            "[complete-source-unit:tests] Principal output `x` is never "
+            "asserted by a companion test.",
+            check="complete-source-unit:tests/output-unasserted",
+            subject=IssueSubject(citation="us/statutes/26/1/j/2", rule="x"),
+            expected="at least one asserting companion case",
+            found="no case asserts it",
+        )
+        db_path = tmp_path / "encodings.db"
+
+        run = _log_eval_result(
+            result,
+            db_path=db_path,
+            log_issue=False,
+            final_attempt_success=False,
+            final_attempt_error=str(overlay_issue),
+            final_attempt_issues=(overlay_issue,),
+        )
+
+        final_try = EncodingDB(db_path).get_run(run.id).iterations[-1]
+        document = final_try.errors[0].issue_document
+        assert document is not None and document["typed"] == 1
+        assert document["issues"][0]["fingerprint"] == overlay_issue.fingerprint
+
     def test_attempt_cost_sum_requires_recorded_usage_and_finite_cost(self):
         from axiom_encode.cli import _sum_attempt_cost
 
@@ -14514,6 +14706,268 @@ class TestCmdEncode:
         binding.assert_not_called()
         generate.assert_not_called()
         assert signer.mock_calls == []
+
+    _FR_CITATION = "us/rulemaking/federal-register/2026-02-25/2026-03829"
+
+    def _write_policy_module(
+        self, args, relative: str, citation: str | None, *, plural=()
+    ) -> None:
+        path = args.policy_repo_path / "us" / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = ["format: rulespec/v1", "module:", "  source_verification:"]
+        if citation is not None:
+            lines.append(f"    corpus_citation_path: {citation}")
+        if plural:
+            lines.append("    corpus_citation_paths:")
+            lines.extend(f"    - {item}" for item in plural)
+        lines.append("rules: []")
+        path.write_text("\n".join(lines) + "\n")
+
+    def test_encode_federal_register_target_without_explicit_output_refuses(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path, citation=self._FR_CITATION)
+        self._write_policy_module(
+            args, "policies/cbp/de-minimis/postal-flat-rate.yaml", self._FR_CITATION
+        )
+        self._write_policy_module(
+            args,
+            "policies/usitc/overlays/termination.yaml",
+            "us/rulemaking/federal-register/2026-02-25/2026-03832",
+        )
+        with (
+            patch("axiom_encode.cli.run_model_eval") as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(ValueError) as refused:
+                cmd_encode(args)
+
+        message = str(refused.value)
+        assert "has no default RuleSpec path" in message
+        assert "--replace-rulespec-path" in message
+        assert "us/policies/<agency>/<subject>.yaml" in message
+        # Only the module whose own source is this document is listed.
+        assert (
+            "Modules whose source_verification corpus_citation_path is this "
+            "document: us/policies/cbp/de-minimis/postal-flat-rate.yaml."
+        ) in message
+        assert "termination.yaml" not in message
+        assert "decides whether it accepts that module" in message
+        # No claim about what the flag can or cannot take.
+        assert "can take" not in message and "cannot take" not in message
+        generate.assert_not_called()
+
+    def test_encode_federal_register_refusal_lists_list_and_page_citations(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path, citation=self._FR_CITATION)
+        # A composition module citing the document in its plural list.
+        self._write_policy_module(
+            args,
+            "policies/cbp/us-tariff-duty-composition.yaml",
+            None,
+            plural=(
+                "us/rulemaking/federal-register/2026-02-25/2026-03824",
+                self._FR_CITATION,
+            ),
+        )
+        # A module citing one page of the document.
+        self._write_policy_module(
+            args,
+            "policies/cbp/de-minimis/page-module.yaml",
+            f"{self._FR_CITATION}/page-3",
+        )
+        # A plural-only module, which --replace-rulespec-path can admit.
+        self._write_policy_module(
+            args,
+            "policies/cbp/plural-only.yaml",
+            None,
+            plural=(self._FR_CITATION,),
+        )
+        # A singular module whose plural list also names another document.
+        self._write_policy_module(
+            args,
+            "policies/cbp/singular-and-list.yaml",
+            self._FR_CITATION,
+            plural=("us/rulemaking/federal-register/2026-02-25/2026-03824",),
+        )
+        # A companion test file is never a module, whatever it carries.
+        self._write_policy_module(
+            args,
+            "policies/cbp/de-minimis/postal-flat-rate.test.yaml",
+            self._FR_CITATION,
+        )
+        with (
+            patch("axiom_encode.cli.run_model_eval") as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(ValueError) as refused:
+                cmd_encode(args)
+
+        message = str(refused.value)
+        assert (
+            "Modules whose source_verification corpus_citation_path is this "
+            "document: us/policies/cbp/singular-and-list.yaml."
+        ) in message
+        assert (
+            "Modules that cite this document in corpus_citation_paths or cite "
+            "one of its pages: us/policies/cbp/de-minimis/page-module.yaml, "
+            "us/policies/cbp/plural-only.yaml, "
+            "us/policies/cbp/us-tariff-duty-composition.yaml."
+        ) in message
+        assert "decides whether it accepts that module" in message
+        assert "can take" not in message and "cannot take" not in message
+        assert "exactly one citation path" not in message
+        assert "postal-flat-rate.test.yaml" not in message
+        assert "found no module" not in message
+        generate.assert_not_called()
+
+    def test_encode_federal_register_listing_ignores_sibling_prefixes(self, tmp_path):
+        page_1 = "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-1"
+        args = self._make_args(tmp_path, citation=page_1)
+        # page-10 shares page-1 as a string prefix but is a sibling, not a page.
+        self._write_policy_module(
+            args, "policies/cbp/annex-ii-page-10.yaml", page_1 + "0"
+        )
+        self._write_policy_module(
+            args, "policies/cbp/annex-ii-page-1-part.yaml", f"{page_1}/part-a"
+        )
+        with (
+            patch("axiom_encode.cli.run_model_eval") as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(ValueError) as refused:
+                cmd_encode(args)
+
+        message = str(refused.value)
+        assert "us/policies/cbp/annex-ii-page-1-part.yaml" in message
+        assert "annex-ii-page-10.yaml" not in message
+        generate.assert_not_called()
+
+    def test_encode_federal_register_refusal_says_when_no_module_names_it(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path, citation=self._FR_CITATION)
+        with (
+            patch("axiom_encode.cli.run_model_eval") as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(
+                ValueError,
+                match=r"A scan of us/policies/ in this checkout found no module",
+            ):
+                cmd_encode(args)
+        generate.assert_not_called()
+
+    def test_encode_federal_register_target_through_real_replace_flag(self, tmp_path):
+        # The real --replace-rulespec-path check, against an existing Federal
+        # Register module whose one citation is the requested document.
+        from axiom_encode import cli as cli_module
+
+        relative = "policies/cbp/de-minimis/postal-flat-rate.yaml"
+        args = self._make_args(
+            tmp_path,
+            citation=self._FR_CITATION,
+            apply=True,
+            replace_rulespec_path=Path("us") / relative,
+        )
+        self._write_policy_module(args, relative, self._FR_CITATION)
+
+        class _Stop(Exception):
+            pass
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", side_effect=_Stop) as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(_Stop):
+                cli_module._run_encode_attempt(
+                    args,
+                    model="test-model",
+                    apply_signing_broker=MagicMock(spec=cli_module.SigningBroker),
+                )
+
+        generate.assert_called_once()
+        assert generate.call_args.kwargs["target_relative_output"] == Path(relative)
+
+    def test_encode_federal_register_target_with_explicit_output_proceeds(
+        self, tmp_path
+    ):
+        from axiom_encode import cli as cli_module
+
+        args = self._make_args(tmp_path, citation=self._FR_CITATION)
+        explicit = Path("policies/cbp/de-minimis/postal-flat-rate.yaml")
+
+        class _Stop(Exception):
+            pass
+
+        with (
+            patch(
+                "axiom_encode.cli._resolve_encode_replacement_target",
+                return_value=cli_module._EncodeReplacementTarget(
+                    relative_output=explicit, context_paths=()
+                ),
+            ),
+            patch("axiom_encode.cli.run_model_eval", side_effect=_Stop) as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(_Stop):
+                cli_module._run_encode_attempt(args, model="test-model")
+
+        generate.assert_called_once()
+        assert generate.call_args.kwargs["target_relative_output"] == explicit
+
+    @pytest.mark.parametrize(
+        "citation",
+        ("26 USC 1(j)(2)", "us/statute/26/1/j/2", "us/regulation/7/273/4"),
+    )
+    def test_encode_statute_and_regulation_targets_keep_default_paths(
+        self, tmp_path, citation
+    ):
+        args = self._make_args(tmp_path, citation=citation)
+
+        class _Stop(Exception):
+            pass
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", side_effect=_Stop) as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            from axiom_encode import cli as cli_module
+
+            with pytest.raises(_Stop):
+                cli_module._run_encode_attempt(args, model="test-model")
+
+        generate.assert_called_once()
+        assert generate.call_args.kwargs["target_relative_output"] is None
 
     def test_encode_success(self, capsys, tmp_path):
         args = self._make_args(tmp_path)
@@ -25411,45 +25865,83 @@ rules:
         )
         assert target.read_text(encoding="utf-8") == original
 
-    def test_generated_yaml_unescape_compares_alias_graphs_in_linear_time(self):
-        # Each level aliases the previous one twice: a path-by-path comparison
-        # is exponential in the depth, a node-pair comparison is linear.
-        import time
-
+    @staticmethod
+    def _alias_graph_text(depth, tag=None):
+        # Each level aliases the previous one twice, so a path-by-path
+        # comparison is exponential in depth.
         lines = ["a0: &a0 [0]"]
-        for level in range(1, 33):
-            lines.append(f"a{level}: &a{level} [*a{level - 1}, *a{level - 1}]")
+        for level in range(1, depth + 1):
+            if tag is None:
+                lines.append(f"a{level}: &a{level} [*a{level - 1}, *a{level - 1}]")
+            else:
+                lines.append(
+                    f"a{level}: &a{level} {tag} "
+                    f"[{{x: *a{level - 1}}}, {{y: *a{level - 1}}}]"
+                )
         lines.append('summary: "\\u05d0"')
-        text = "\n".join(lines) + "\n"
-        started = time.perf_counter()
-        rewritten = _unescape_non_ascii_yaml_escapes(text)
-        assert time.perf_counter() - started < 2.0
+        return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _alias_rewrite_with_bounded_work(monkeypatch, text, depth):
+        import axiom_encode.cli as cli_module
+
+        calls = 0
+        compare = cli_module._yaml_documents_equivalent
+
+        def counted_compare(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            # Stop as soon as the work bound is crossed, so a missing memo
+            # cannot turn the deep case into an exponential suite hang.
+            assert calls <= 8 * (depth + 1)
+            return compare(*args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(cli_module, "_yaml_documents_equivalent", counted_compare)
+            rewritten = _unescape_non_ascii_yaml_escapes(text)
+        assert 0 < calls <= 8 * (depth + 1)
         assert rewritten is not None
         assert "א" in rewritten
+        return rewritten
+
+    def _assert_alias_rewrite_is_linear_in_depth(self, monkeypatch, tag=None):
+        # The call budget at a shallow depth stops a comparator without its
+        # memo first. Native equality inside C (a tuple's own ==, say) follows
+        # every alias path beyond that counter, so the whole rewrite of native
+        # SafeLoader output must grow linearly between two finite depths
+        # before the original depth 32 runs as an output check.
+        self._alias_rewrite_with_bounded_work(
+            monkeypatch, self._alias_graph_text(12, tag), 12
+        )
+
+        def work(depth):
+            text = self._alias_graph_text(depth, tag)
+
+            def check(rewritten):
+                assert rewritten is not None
+                assert "א" in rewritten
+
+            return lowest_work(lambda: _unescape_non_ascii_yaml_escapes(text), check)
+
+        assert_linear_growth(work(12), work(24), input_ratio=2)
+        self._alias_rewrite_with_bounded_work(
+            monkeypatch, self._alias_graph_text(32, tag), 32
+        )
+
+    def test_generated_yaml_unescape_compares_alias_graphs_in_linear_time(
+        self, monkeypatch
+    ):
+        self._assert_alias_rewrite_is_linear_in_depth(monkeypatch)
 
     @pytest.mark.parametrize("tag", ["!!omap", "!!pairs"])
     def test_generated_yaml_unescape_compares_tuple_alias_graphs_in_linear_time(
-        self, tag
+        self, monkeypatch, tag
     ):
         # The safe loader builds !!omap and !!pairs as lists of tuples. A
         # tuple compared by Python's own equality walks every alias path
         # again -- depths 22, 24 and 26 took 0.16, 0.67 and 2.68 seconds --
         # so it is a node of the memoized comparison like a list.
-        import time
-
-        lines = ["a0: &a0 [0]"]
-        for level in range(1, 33):
-            lines.append(
-                f"a{level}: &a{level} {tag} "
-                f"[{{x: *a{level - 1}}}, {{y: *a{level - 1}}}]"
-            )
-        lines.append('summary: "\\u05d0"')
-        text = "\n".join(lines) + "\n"
-        started = time.perf_counter()
-        rewritten = _unescape_non_ascii_yaml_escapes(text)
-        assert time.perf_counter() - started < 2.0
-        assert rewritten is not None
-        assert "א" in rewritten
+        self._assert_alias_rewrite_is_linear_in_depth(monkeypatch, tag)
 
     def test_generated_yaml_unescape_declines_a_document_its_constructor_rejects(self):
         # An unquoted date that does not exist raises ValueError from the

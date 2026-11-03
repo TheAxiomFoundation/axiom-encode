@@ -9,6 +9,7 @@ from the source-unit admission policy implemented here.
 from __future__ import annotations
 
 import ast
+import bisect
 import calendar
 import contextlib
 import contextvars
@@ -42,6 +43,7 @@ from axiom_encode.bare_structure import (
     bare_outline,
     mask_bare_labels,
 )
+from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check
 from axiom_encode.form_numeric_structure import form_numeric_locator_spans
 from axiom_encode.form_source_structure import mask_form_display
 from axiom_encode.harness.imported_export_evidence import ResolvedImportedExport
@@ -144,6 +146,9 @@ class _NumericOccurrenceView:
     requires_rate_context: bool
     is_word_number: bool
     alternative_values: tuple[float, ...]
+    # Carried through rebasing so a month number read from a month name keeps
+    # grounding only month comparisons (see validator_pipeline).
+    requires_month_context: bool = False
 
 
 NumericOccurrenceExtractor = Callable[[str], Sequence[NumericOccurrenceLike]]
@@ -2353,6 +2358,36 @@ _CONTIGUOUS_STATES_NUMERIC_RECALL_IDENTIFIER = re.compile(
     r"(?<![\w.,])48(?=[ \t]+contiguous[ \t]+states\b)",
     flags=re.IGNORECASE,
 )
+# A table column label that names a jurisdiction set, such as USDA's
+# `Household Size 48 States, District of Columbia, Guam, Virgin Islands`.
+# The capitalized `States` must be followed directly by a listed jurisdiction
+# (District of Columbia, D.C., DC, Guam or Virgin Islands); `48 States` alone,
+# `48 states` and `48 months` keep their demand. The span helper also requires
+# the column caption `Household Size` directly before it and the table's first
+# row (`1 $1,305`) after the column headers: in prose, even `The 48 States and
+# DC must approve ...` can state an operative count, and a row such as
+# `Maximum Household Size 48 States, ...` is not a header.
+_JURISDICTION_SET_LABEL_NUMERIC_RECALL_IDENTIFIER = re.compile(
+    r"(?<![\w.,])48(?= States[ \t]*(?:,|&|and\b)[ \t]*(?:the[ \t]+)?"
+    r"(?:District[ \t]+of[ \t]+Columbia\b|D\.[ \t]?C\.|DC\b|Guam\b|"
+    r"Virgin[ \t]+Islands\b))"
+)
+_JURISDICTION_SET_LABEL_CAPTION = re.compile(
+    r"(?<![\w$])Household[ \t]+Size\Z", re.IGNORECASE
+)
+# A qualifier before the caption (`Maximum Household Size 48 ...`, across any
+# whitespace) makes it a row label with an operative value.
+_JURISDICTION_SET_LABEL_CAPTION_QUALIFIER = re.compile(
+    r"\b(?:max(?:imum)?|min(?:imum)?|largest|smallest|total|average|eligible|"
+    r"limit|up[ \t]+to)\W*\Z",
+    re.IGNORECASE,
+)
+# Only column-header words (no digit, currency sign or second `Household`
+# caption, at most 200 characters) may separate the label from row
+# `1 $<amount>`.
+_JURISDICTION_SET_LABEL_FIRST_ROW = re.compile(
+    r"(?:(?!household)[^\d$]){0,200}?(?<!\S)1[ \t]+\$[ \t]*\d", re.IGNORECASE
+)
 _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
     r"\bWAC[ \t]+\d+-\d+-\d+[A-Za-z]?"
     r"(?:[ \t]*(?:,|and|or|through|to)[ \t]*\d+-\d+-\d+[A-Za-z]?)*"
@@ -2376,15 +2411,63 @@ _NUMBERED_MANUAL_HEADING_LABEL = re.compile(
     r"Business|Calendar|Working)\b)"
     r"(?P<title>[A-Z][A-Za-z'’&()/-]*(?:[ \t,]+[A-Za-z'’&()/-]+){1,15})[ \t]*$)"
 )
+# A ZIP+4 extension. PDF extraction can split it after its hyphen
+# (`22314-\n1500`) or space it on the same line (`20001 - 3710;`, only
+# before punctuation, a line end or a telephone number: `22902 -2964
+# 434-970-3160`). A hyphen that opens a new line is a bullet
+# (`22314\n- 1500, ...`), never an extension.
+_US_ZIP_PLUS_FOUR_EXTENSION = (
+    r"(?:-[ \t]*(?:\r?\n[ \t]*)?\d{4}"
+    r"|[ \t]+-[ \t]*\d{4}(?=[ \t]*(?:[;,)]|\.(?!\d)|\r?\n|\Z)"
+    r"|[ \t]+(?:\(\d{3}\)[ \t]*|\d{3}[-.])\d{3}-\d{4}\b))(?![\d-])"
+)
 # Telephone numbers, post-office boxes, ZIP+4 codes and letter-prefixed form
-# numbers (`Schedule K-210`) on US forms and notices. PDF extraction can split
-# a ZIP+4 code at its hyphen.
+# numbers (`Schedule K-210`) on US forms and notices.
 _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL = re.compile(
     r"(?:\(\d{3}\)\s*|\b(?:1-)?\d{3}[-.])\d{3}-\d{4}\b"
     r"|\bP\.?\s*O\.?\s*Box\s+\d+\b"
-    r"|\b[A-Z]{2}\s+\d{5}\s*-\s*\d{4}\b"
+    rf"|\b[A-Z]{{2}}\s+\d{{5}}{_US_ZIP_PLUS_FOUR_EXTENSION}"
     r"|\b(?:Schedule|Form)[ \t]+[A-Z]{1,3}-\d+[A-Z]*(?:-\d+[A-Z]*)*\b"
 )
+# A complete US postal address: house number, capitalized street name and
+# street suffix, an optional directional and suite/room, then `City, ST
+# 12345[-6789]` with a USPS state code. Only the whole address is removed, so
+# its house number and ZIP code are never demanded. A number after a digit,
+# sign, decimal point or comma, or after a currency sign or `USD` across any
+# whitespace (`$1,320 Braddock Place ...`, see `_us_street_address_or_amount`),
+# is not a house number, and an address without the city/state/ZIP tail keeps
+# every number demanded.
+_US_STREET_ADDRESS_NUMERIC_RECALL = re.compile(
+    r"(?<![\w.,$¢£¥€₹₩+\-−])\d{1,6}"
+    r"\s+[A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,4}\s+"
+    r"(?:Avenue|Ave\.?|Boulevard|Blvd\.?|Center|Drive|Dr\.?|Lane|Ln\.?|Parkway|"
+    r"Pkwy\.?|Place|Pl\.?|Plaza|Road|Rd\.?|Street|St\.?|Way)(?![\w'’-])"
+    r"(?:,?\s+[NS]\.?[EW]\.?(?![\w'’-]))?"
+    r"(?:,\s*(?:Suite|Ste\.?|Room|Rm\.?)\s+(?=[A-Z]*\d)[A-Z\d]{1,6}(?:-\d{1,6})?"
+    r"(?![\w'’-]))?"
+    r",\s*[A-Za-z .'-]+,\s*"
+    r"(?:A[KLRSZ]|C[AOT]|D[CE]|FL|G[AU]|HI|I[ADLN]|K[SY]|LA|M[ADEINOPST]|"
+    r"N[CDEHJMVY]|O[HKR]|P[AR]|RI|S[CD]|T[NX]|UT|V[AIT]|W[AIVY])"
+    rf"\s+\d{{5}}(?:{_US_ZIP_PLUS_FOUR_EXTENSION})?(?!\d)"
+)
+_US_STREET_ADDRESS_CURRENCY_PREFIX = re.compile(r"(?:[$¢£¥€₹₩]|\b(?i:usd))\Z")
+
+
+def _us_street_address_or_amount(match: re.Match[str]) -> str:
+    """Remove a postal address unless its first number reads as an amount."""
+
+    before = match.start()
+    while before > 0 and (
+        match.string[before - 1].isspace() or match.string[before - 1] in "+-−–"
+    ):
+        before -= 1
+    if _US_STREET_ADDRESS_CURRENCY_PREFIX.search(
+        match.string, max(0, before - 4), before
+    ):
+        return match.group(0)
+    return ""
+
+
 # Paginated US manuals open each page with its page number and a revision
 # stamp: the Oregon Programs Eligibility Notebook reads `93 (07/2026) Chapter
 # 2:Eligibility ...` or `26 Chapter 1: Introduction ... (07/2026)`. These
@@ -2574,6 +2657,8 @@ _SESSION_LAW_SENTENCE_SEPARATOR = re.compile(
     rf"(?:{_SESSION_LAW_PUBLICATION})?{_SESSION_LAW_YEAR_CHAPTER})",
     flags=re.IGNORECASE,
 )
+_SESSION_LAW_PARAGRAPH_BREAK = re.compile(r"\r?\n[ \t]*\r?\n")
+_SESSION_LAW_CONTINUATION_WRAPPER = re.compile(r"(?:[('\"“‘][ \t]*){0,2}")
 # A validated citation can introduce body prose in an earlier paragraph.
 # The opening must be ordinary prose, currency or a number with a unit or
 # arithmetic operator, with finite history continuations excluded. Dates,
@@ -2602,6 +2687,12 @@ _SESSION_LAW_OPERATIVE_CONTINUATION = re.compile(
     r"[A-Za-z]+\b|\d+\s*[-+*/]\s*\d+\b)",
     flags=re.IGNORECASE,
 )
+# The same predicate anchored at a ``pos`` rather than the string start, so a
+# caller can match inside the source without copying the remaining suffix.
+_SESSION_LAW_OPERATIVE_CONTINUATION_AT = re.compile(
+    _SESSION_LAW_OPERATIVE_CONTINUATION.pattern.removeprefix("^"),
+    flags=_SESSION_LAW_OPERATIVE_CONTINUATION.flags,
+)
 _ALABAMA_TERMINAL_ACT_HISTORY_ENTRY = re.compile(
     r"\s*Acts?\s+"
     r"(?:"
@@ -2625,6 +2716,58 @@ _ALABAMA_TERMINAL_CODE_HISTORY_ENTRY = re.compile(
     r"§{1,2}\s*\d+(?:\s*(?:,|and|through|to|[-–—])\s*\d+)*"
     r"\s*\.?\s*",
     flags=re.IGNORECASE,
+)
+_ARMENIAN_AMENDMENT_HISTORY_DASH = (
+    r"[-\u058a\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d]"
+)
+# The one dot class, used for the article label's decimal point, the action's
+# optional period and both date separators. The encoder prompt names exactly
+# these characters.
+_ARMENIAN_AMENDMENT_HISTORY_DOT = r"[.\u2024]"
+# ASCII digits only, as the prompt's `DD.MM.YY` spells them. Matched against
+# the stripped body: no lazy quantifier and no trailing
+# whitespace run, so a long whitespace run cannot make the match quadratic.
+_ARMENIAN_AMENDMENT_HISTORY_ARTICLE = re.compile(
+    rf"[0-9]+(?:{_ARMENIAN_AMENDMENT_HISTORY_DOT}[0-9]+)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}"
+    r"(?:ին|րդ)\s+հոդվածը\s+(?P<history>\S.*)",
+    flags=re.DOTALL,
+)
+# Amendment-action abbreviations are matched case-insensitively, but the paired
+# `ՀՕ-N[-N]-Ն` law identifier is not: scope the case folding to the action
+# alternation so recognizing an uppercase action cannot also fold the
+# identifier's casing and admit a citation the prompt contract does not permit.
+_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN = (
+    rf"(?i:փոփ|լրաց|խմբ)(?:{_ARMENIAN_AMENDMENT_HISTORY_DOT})?"
+)
+_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN = (
+    rf"[0-9]{{2}}{_ARMENIAN_AMENDMENT_HISTORY_DOT}[0-9]{{2}}"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DOT}[0-9]{{2}}(?:[0-9]{{2}})?\s+Հ(?:Օ)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}[0-9]+(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}[0-9]+)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}Ն"
+)
+_ARMENIAN_AMENDMENT_HISTORY_ACTION = re.compile(
+    _ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN,
+)
+_ARMENIAN_AMENDMENT_HISTORY_CITATION = re.compile(
+    _ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN,
+)
+# Possessive: no action or citation token can begin with a separator character,
+# so giving separator characters back never enables a match. Committing to the
+# longest run keeps the sequence scan linear on adversarial separator runs.
+_ARMENIAN_AMENDMENT_HISTORY_SEPARATOR = r"[\s,;]++"
+_ARMENIAN_AMENDMENT_HISTORY_SEQUENCE = re.compile(
+    rf"\s*(?:{_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN}|"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN})(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_SEPARATOR}(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN}|"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN}))*\s*",
+)
+# One parenthetical alone on its line. Any parenthesis inside the body fails
+# the candidate, so nested ledgers are never consumed whole.
+_ARMENIAN_AMENDMENT_HISTORY_CANDIDATE = re.compile(
+    r"(?:^|\r?\n)[ \t]*\((?P<body>[^()]*)\)(?=[ \t]*(?:\r?\n|$))"
 )
 _FORMULA_IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 
@@ -5296,6 +5439,113 @@ def _has_substantive_arithmetic_expression(source_text: str) -> bool:
     return False
 
 
+_SITE_ANALYZE = (
+    "axiom_encode/harness/source_completeness.py:analyze_complete_source_unit"
+)
+
+CHECK_STRUCTURE_BRANCH_UNENCODED = declare_check(
+    "complete-source-unit:structure/branch-unencoded",
+    title="Source branch neither encoded nor precisely deferred",
+    requires=(
+        "Every operative branch of the authoritative source unit is cited by a "
+        "rule's `source:` or proof atom, or is listed in "
+        "`module.deferred_outputs` with a reason that names the exact missing "
+        "dependency."
+    ),
+    why=(
+        "A complete-source encoding claims the whole unit. A branch that is "
+        "neither encoded nor deferred is silently dropped law: the module "
+        "computes a result the source does not support."
+    ),
+    fix=(
+        "Encode the branch in a rule that cites it (source path or proof "
+        "excerpt from its own text), or add a precise "
+        "`module.deferred_outputs` entry for that branch. Descendant citations "
+        "do not cover a substantive parent chapeau."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+CHECK_FORMULA_BRANCH_WITHOUT_OUTPUT = declare_check(
+    "complete-source-unit:formula-output/branch-without-output",
+    title="Explicit source computation has no principal output",
+    requires=(
+        "Each source branch that states a computation is implemented by a "
+        "principal `derived` or `derived_relation` rule bound to that branch."
+    ),
+    why=(
+        "A computation stated only as parameters cannot be executed or tested; "
+        "consumers of the module get no computed amount."
+    ),
+    fix=(
+        "Add a principal derived rule whose formula implements the branch and "
+        "whose source or formula proof cites the branch, or precisely defer "
+        "the branch."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+CHECK_FORMULA_UNIT_WITHOUT_OUTPUT = declare_check(
+    "complete-source-unit:formula-output/unit-without-output",
+    title="Source unit states a computation but has no principal output",
+    requires=(
+        "A source unit that states an explicit computation has at least one "
+        "principal `derived` or `derived_relation` output."
+    ),
+    why="A parameter-only module cannot compute what the source states.",
+    fix=(
+        "Add the principal derived output that computes the source-stated "
+        "amount from its inputs and parameters."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+CHECK_FORMULA_CONTROL_WITHOUT_OUTPUT = declare_check(
+    "complete-source-unit:formula-output/control-without-output",
+    title="Source-stated control has no principal output",
+    requires=(
+        "Each source-stated control (a condition, limit or selection) is "
+        "implemented by a principal `derived` or `derived_relation` rule that "
+        "covers the control's branch."
+    ),
+    why=(
+        "A control encoded only as a parameter does not change any computed "
+        "result, so the module ignores a condition the law imposes."
+    ),
+    fix=(
+        "Encode the control inside a principal derived rule that covers its "
+        "branch, or precisely defer the branch."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+CHECK_NUMERIC_RECALL_VALUE_UNNAMED = declare_check(
+    "complete-source-unit:numeric-recall/value-unnamed",
+    title="Source numeric value has no named scalar",
+    requires=(
+        "Every numeric value in the authoritative source text is represented "
+        "by a named scalar (a parameter or a named constant) in the module."
+    ),
+    why=(
+        "A number the source states but the module does not name is either "
+        "dropped law or hidden inside a formula, where it cannot be grounded "
+        "or updated."
+    ),
+    fix=(
+        "Add a parameter (or bind the value in an existing one) for the "
+        "missing value, grounded in the source text. `module.summary` does not "
+        "count."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+
+
 def analyze_complete_source_unit(
     content: str,
     authoritative_source_text: str,
@@ -5329,36 +5579,87 @@ def analyze_complete_source_unit(
             )
             return CompleteSourceUnitAnalysis((issue,), (), 0, 0, 0)
 
-        with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        try:
             payload = yaml.safe_load(content)
-            if isinstance(payload, dict) and payload.get("format") == "rulespec/v1":
-                return _analyze_rulespec_payload(
-                    payload,
-                    content=content,
-                    execution_evidence=execution_evidence,
-                    referral_context=referral_context,
-                    source_text=source_text,
-                    raw_source_text=authoritative_source_text,
-                    corpus_citation_path=corpus_citation_path,
-                    test_cases=test_cases,
-                    extract_numeric_occurrences=extract_numeric_occurrences,
-                    extract_numeric_grounding_occurrences=(
-                        extract_numeric_grounding_occurrences
-                        or extract_numeric_occurrences
-                    ),
-                    extract_named_scalars=extract_named_scalars,
-                    numeric_value_is_grounded=numeric_value_is_grounded,
-                    artifact_numeric_values=artifact_numeric_values,
-                    artifact_numeric_bindings=artifact_numeric_bindings,
-                    authenticated_same_act_aliases=authenticated_same_act_aliases,
-                    imported_symbol_contents=imported_symbol_contents,
-                    imported_export_bindings=imported_export_bindings,
-                    imported_proof_source_context=imported_proof_source_context,
-                    resolved_dependency_outputs=resolved_dependency_outputs,
-                    source_context=source_context,
-                )
+        except (yaml.YAMLError, TypeError, ValueError) as exc:
+            # PyYAML raises ValueError for an impossible timestamp such as
+            # `2026-02-30`, not a YAMLError.
+            return _unanalyzable_complete_source_unit(exc)
+        if not (isinstance(payload, dict) and payload.get("format") == "rulespec/v1"):
+            return _unanalyzable_complete_source_unit(
+                None, reason="the artifact is not a `format: rulespec/v1` mapping"
+            )
+        shape_problem = _rulespec_payload_shape_problem(payload)
+        if shape_problem is not None:
+            return _unanalyzable_complete_source_unit(None, reason=shape_problem)
+        try:
+            return _analyze_rulespec_payload(
+                payload,
+                content=content,
+                execution_evidence=execution_evidence,
+                referral_context=referral_context,
+                source_text=source_text,
+                raw_source_text=authoritative_source_text,
+                corpus_citation_path=corpus_citation_path,
+                test_cases=test_cases,
+                extract_numeric_occurrences=extract_numeric_occurrences,
+                extract_numeric_grounding_occurrences=(
+                    extract_numeric_grounding_occurrences or extract_numeric_occurrences
+                ),
+                extract_named_scalars=extract_named_scalars,
+                numeric_value_is_grounded=numeric_value_is_grounded,
+                artifact_numeric_values=artifact_numeric_values,
+                artifact_numeric_bindings=artifact_numeric_bindings,
+                authenticated_same_act_aliases=authenticated_same_act_aliases,
+                imported_symbol_contents=imported_symbol_contents,
+                imported_export_bindings=imported_export_bindings,
+                imported_proof_source_context=imported_proof_source_context,
+                resolved_dependency_outputs=resolved_dependency_outputs,
+                source_context=source_context,
+            )
+        except (yaml.YAMLError, TypeError, ValueError) as exc:
+            # A gate that cannot read its input must report it, never pass it.
+            return _unanalyzable_complete_source_unit(exc)
 
-        return CompleteSourceUnitAnalysis((), (), 0, 0, 0)
+
+def _rulespec_payload_shape_problem(payload: Mapping[str, Any]) -> str | None:
+    """Name a top-level shape this analysis cannot read, or return None.
+
+    Some malformed shapes do not raise: a bare string in `inputs` is skipped,
+    so the analysis would pass the artifact on what it could read (#1927).
+    Every RuleSpec file in this repository has `rules` as a list of mappings
+    and `inputs` as a list of mappings or one mapping; anything else is
+    reported instead of analysed.
+    """
+
+    if "rules" in payload:
+        rules = payload["rules"]
+        if not isinstance(rules, list) or not all(
+            isinstance(rule, dict) for rule in rules
+        ):
+            return "`rules` is not a list of mappings"
+    if "inputs" in payload:
+        inputs = payload["inputs"]
+        if not isinstance(inputs, dict) and (
+            not isinstance(inputs, list)
+            or not all(isinstance(item, dict) for item in inputs)
+        ):
+            return "`inputs` is not a mapping or a list of mappings"
+    return None
+
+
+def _unanalyzable_complete_source_unit(
+    exc: BaseException | None, *, reason: str | None = None
+) -> CompleteSourceUnitAnalysis:
+    """Fail closed when a payload cannot be analysed (issue #1927)."""
+
+    detail = reason or f"{type(exc).__name__}: {exc}"
+    issue = (
+        "[complete-source-unit:unanalyzable] The RuleSpec payload could not be "
+        f"analysed against its authoritative source ({detail}); fix the payload "
+        "shape before completeness can pass."
+    )
+    return CompleteSourceUnitAnalysis((issue,), (), 0, 0, 0)
 
 
 def _bind_currency_rounding_rules(payload: dict[str, Any]) -> dict[str, Any]:
@@ -5702,11 +6003,22 @@ def _analyze_rulespec_payload(
                     "precisely defer the parent; do not invent a dummy output."
                 )
         issues.append(
-            "[complete-source-unit:structure] "
-            f"Source branch {branch.label} at "
-            f"{_branch_citation(corpus_citation_path, branch)} is neither "
-            "encoded nor precisely deferred."
-            f"{covered_descendant_detail}"
+            ValidationIssue(
+                "[complete-source-unit:structure] "
+                f"Source branch {branch.label} at "
+                f"{_branch_citation(corpus_citation_path, branch)} is neither "
+                "encoded nor precisely deferred."
+                f"{covered_descendant_detail}",
+                check=CHECK_STRUCTURE_BRANCH_UNENCODED,
+                subject=_branch_subject(corpus_citation_path, branch),
+                expected="encoded or precisely deferred",
+                found=(
+                    "only descendants covered"
+                    if covered_descendant_detail
+                    else "neither encoded nor deferred"
+                ),
+                evidence=branch.text,
+            )
         )
 
     active_branches = tuple(
@@ -5782,45 +6094,65 @@ def _analyze_rulespec_payload(
                 if principal_formula_clause_rules[branch]:
                     continue
                 issues.append(
-                    "[complete-source-unit:formula-output] "
-                    f"Explicit source computation {branch.label} in "
-                    f"{_branch_citation(corpus_citation_path, branch)} has no "
-                    "principal derived/relation output (`derived` or "
-                    "`derived_relation`) and is not "
-                    "precisely deferred; parameter-only representation is invalid."
-                    + _formula_output_binding_feedback(
-                        branch,
-                        corpus_citation_path=corpus_citation_path,
-                        has_path_covering_principal=bool(
-                            _rules_covering_branch(
-                                branch,
-                                principal_rule_paths,
-                            )
+                    ValidationIssue(
+                        "[complete-source-unit:formula-output] "
+                        f"Explicit source computation {branch.label} in "
+                        f"{_branch_citation(corpus_citation_path, branch)} has no "
+                        "principal derived/relation output (`derived` or "
+                        "`derived_relation`) and is not "
+                        "precisely deferred; parameter-only representation is invalid."
+                        + _formula_output_binding_feedback(
+                            branch,
+                            corpus_citation_path=corpus_citation_path,
+                            has_path_covering_principal=bool(
+                                _rules_covering_branch(
+                                    branch,
+                                    principal_rule_paths,
+                                )
+                            ),
+                            same_owner_missing=missing_formula_branches_by_path[
+                                branch.path
+                            ],
                         ),
-                        same_owner_missing=missing_formula_branches_by_path[
-                            branch.path
-                        ],
+                        check=CHECK_FORMULA_BRANCH_WITHOUT_OUTPUT,
+                        subject=_branch_subject(corpus_citation_path, branch),
+                        expected="principal derived/relation output",
+                        found="no principal output bound to the branch",
+                        evidence=branch.text,
                     )
                 )
         elif not all_formula_branches and not _path_covered(
             (), principal_paths, deferred_paths
         ):
             issues.append(
-                "[complete-source-unit:formula-output] Explicit source computation "
-                "has no principal derived/relation output (`derived` or "
-                "`derived_relation`); "
-                "parameter-only representation is invalid."
+                ValidationIssue(
+                    "[complete-source-unit:formula-output] Explicit source computation "
+                    "has no principal derived/relation output (`derived` or "
+                    "`derived_relation`); "
+                    "parameter-only representation is invalid.",
+                    check=CHECK_FORMULA_UNIT_WITHOUT_OUTPUT,
+                    subject=IssueSubject(citation=corpus_citation_path),
+                    expected="principal derived/relation output",
+                    found="parameters only",
+                )
             )
     for branch in control_branches:
         if _rules_covering_branch(branch, principal_rule_paths):
             continue
         issues.append(
-            "[complete-source-unit:formula-output] Source-stated control "
-            f"{branch.label} in "
-            f"{_branch_citation(corpus_citation_path, branch)} has no "
-            "principal derived/relation output (`derived` or "
-            "`derived_relation`) and is not precisely deferred; "
-            "parameter-only representation is invalid."
+            ValidationIssue(
+                "[complete-source-unit:formula-output] Source-stated control "
+                f"{branch.label} in "
+                f"{_branch_citation(corpus_citation_path, branch)} has no "
+                "principal derived/relation output (`derived` or "
+                "`derived_relation`) and is not precisely deferred; "
+                "parameter-only representation is invalid.",
+                check=CHECK_FORMULA_CONTROL_WITHOUT_OUTPUT,
+                subject=_branch_subject(corpus_citation_path, branch),
+                expected="principal derived/relation output covering the control",
+                found="no principal output covers the branch",
+                evidence=branch.text,
+            )
         )
 
     represented_annual_spans: set[tuple[int, int]] = set(
@@ -5962,9 +6294,15 @@ def _analyze_rulespec_payload(
             missing_source_values.append(float(occurrence.value))
     for value in sorted(set(missing_source_values)):
         issues.append(
-            "[complete-source-unit:numeric-recall] Authoritative corpus numeric "
-            f"value {value:g} has no named scalar representation. "
-            "`module.summary` is not consulted."
+            ValidationIssue(
+                "[complete-source-unit:numeric-recall] Authoritative corpus numeric "
+                f"value {value:g} has no named scalar representation. "
+                "`module.summary` is not consulted.",
+                check=CHECK_NUMERIC_RECALL_VALUE_UNNAMED,
+                subject=IssueSubject(citation=corpus_citation_path),
+                expected=f"named scalar for {value:g}",
+                found="no named scalar",
+            )
         )
 
     issues.extend(companion_issues)
@@ -6582,6 +6920,80 @@ def _deferral_anchor_bases(corpus_citation_path: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys((base, module_root)))
 
 
+_SITE_DEFERRED_COVERAGE = (
+    "axiom_encode/harness/source_completeness.py:_deferred_coverage"
+)
+_DEFERRAL_REQUIRES = (
+    "Each `module.deferred_outputs` entry names its source branch by the "
+    "canonical source anchor and a reason that names the exact missing "
+    "dependency, input or runtime capability."
+)
+_DEFERRAL_WHY = (
+    "A deferral is a recorded gap in the encoding. A gap that is vague, or "
+    "rooted at the wrong place, cannot be audited or closed later, and it can "
+    "hide law that the module should encode."
+)
+CHECK_DEFERRAL_NON_SOURCE_ROOT = declare_check(
+    "complete-source-unit:deferral/non-source-root",
+    title="Deferral output uses a non-source root",
+    requires=_DEFERRAL_REQUIRES,
+    why=_DEFERRAL_WHY,
+    fix=(
+        "Rewrite `module.deferred_outputs[N].output` to the canonical source "
+        "anchor shown as expected, keeping the `#<output>` fragment."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_DEFERRED_COVERAGE,
+)
+CHECK_DEFERRAL_COMPUTATION_DEFERRED = declare_check(
+    "complete-source-unit:deferral/computation-deferred",
+    title="Deferral cites a branch that states an explicit computation",
+    requires=(
+        "A branch that states an explicit computation is encoded, not deferred "
+        "as a runtime gap."
+    ),
+    why=(
+        "The source gives everything needed to compute the branch, so a "
+        "deferral drops law the encoder can encode."
+    ),
+    fix=(
+        "Remove the deferral. Declare the source-stated operative facts as "
+        "local RuleSpec inputs and encode the principal derived output."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_DEFERRED_COVERAGE,
+)
+CHECK_DEFERRAL_BRANCH_DROPPED_FROM_OUTPUT = declare_check(
+    "complete-source-unit:deferral/branch-dropped-from-output",
+    title="Deferral output is rooted at the source unit, not at its branch",
+    requires=_DEFERRAL_REQUIRES,
+    why=_DEFERRAL_WHY,
+    fix=(
+        "Keep the cited branch in the deferral output path, as in the expected "
+        "value; the reason can stay."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_DEFERRED_COVERAGE,
+)
+CHECK_DEFERRAL_REASON_IMPRECISE = declare_check(
+    "complete-source-unit:deferral/reason-imprecise",
+    title="Deferral reason does not name an exact missing dependency",
+    requires=_DEFERRAL_REQUIRES,
+    why=_DEFERRAL_WHY,
+    fix=(
+        "Name the exact missing dependency (a citation of the provision that "
+        "is not yet encoded), input or runtime capability in the deferral "
+        "`reason`, or encode the branch instead."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_DEFERRED_COVERAGE,
+)
+
+
 def _deferred_coverage(
     payload: dict[str, Any],
     *,
@@ -6661,11 +7073,21 @@ def _deferred_coverage(
                     f"{preferred_anchor}/{'/'.join(display_branch)}#{fragment}"
                 )
                 issues.append(
-                    "[complete-source-unit:deferral] "
-                    f"`module.deferred_outputs[{index}].output` uses non-source "
-                    f"root `{output_path}` for source branch "
-                    f"(`{'/'.join(display_branch)}`). Use the canonical source "
-                    f"anchor, for example `{corrected_output}`."
+                    ValidationIssue(
+                        "[complete-source-unit:deferral] "
+                        f"`module.deferred_outputs[{index}].output` uses non-source "
+                        f"root `{output_path}` for source branch "
+                        f"(`{'/'.join(display_branch)}`). Use the canonical source "
+                        f"anchor, for example `{corrected_output}`.",
+                        check=CHECK_DEFERRAL_NON_SOURCE_ROOT,
+                        subject=IssueSubject(
+                            citation=corpus_citation_path,
+                            branch="/".join(display_branch),
+                            field=f"module.deferred_outputs[{index}].output",
+                        ),
+                        expected=corrected_output,
+                        found=output_path,
+                    )
                 )
             continue
         reason = str(record.get("reason") or "").strip()
@@ -6828,12 +7250,22 @@ def _deferred_coverage(
                     )
                 )
                 issues.append(
-                    "[complete-source-unit:deferral] "
-                    f"`module.deferred_outputs[{index}]` cites exact source branch "
-                    f"(`{rendered_branch}`), but that branch states an explicit "
-                    "computation and cannot be deferred as a runtime gap. Declare "
-                    "the source-stated operative facts as local RuleSpec inputs and "
-                    "encode the principal derived output."
+                    ValidationIssue(
+                        "[complete-source-unit:deferral] "
+                        f"`module.deferred_outputs[{index}]` cites exact source branch "
+                        f"(`{rendered_branch}`), but that branch states an explicit "
+                        "computation and cannot be deferred as a runtime gap. Declare "
+                        "the source-stated operative facts as local RuleSpec inputs and "
+                        "encode the principal derived output.",
+                        check=CHECK_DEFERRAL_COMPUTATION_DEFERRED,
+                        subject=IssueSubject(
+                            citation=corpus_citation_path,
+                            branch=rendered_branch,
+                            field=f"module.deferred_outputs[{index}]",
+                        ),
+                        expected="encoded principal derived output",
+                        found="deferred as a runtime gap",
+                    )
                 )
                 continue
             cited_branch = (
@@ -6862,12 +7294,22 @@ def _deferred_coverage(
                         reason=reason,
                     )
                     issues.append(
-                        "[complete-source-unit:deferral] "
-                        f"`module.deferred_outputs[{index}].output` is rooted at the "
-                        f"source unit (`{output}`), but its otherwise precise reason "
-                        f"cites exact source branch (`{rendered_branch}`). Preserve "
-                        f"that branch in the output path, for example "
-                        f"`{corrected_output}`.\n{retry_shape}"
+                        ValidationIssue(
+                            "[complete-source-unit:deferral] "
+                            f"`module.deferred_outputs[{index}].output` is rooted at the "
+                            f"source unit (`{output}`), but its otherwise precise reason "
+                            f"cites exact source branch (`{rendered_branch}`). Preserve "
+                            f"that branch in the output path, for example "
+                            f"`{corrected_output}`.\n{retry_shape}",
+                            check=CHECK_DEFERRAL_BRANCH_DROPPED_FROM_OUTPUT,
+                            subject=IssueSubject(
+                                citation=corpus_citation_path,
+                                branch=rendered_branch,
+                                field=f"module.deferred_outputs[{index}].output",
+                            ),
+                            expected=corrected_output,
+                            found=output,
+                        )
                     )
                     continue
         precise = reason_is_precise_for(source_scope_text, path)
@@ -6882,11 +7324,21 @@ def _deferred_coverage(
                 reason=reason,
             )
             issues.append(
-                "[complete-source-unit:deferral] "
-                f"`module.deferred_outputs[{index}]` identifies source branch "
-                f"({branch_label}) (`{rendered_path}`) but its deferral does not "
-                "name an exact missing dependency, input, or runtime capability.\n"
-                f"{retry_shape}"
+                ValidationIssue(
+                    "[complete-source-unit:deferral] "
+                    f"`module.deferred_outputs[{index}]` identifies source branch "
+                    f"({branch_label}) (`{rendered_path}`) but its deferral does not "
+                    "name an exact missing dependency, input, or runtime capability.\n"
+                    f"{retry_shape}",
+                    check=CHECK_DEFERRAL_REASON_IMPRECISE,
+                    subject=IssueSubject(
+                        citation=corpus_citation_path,
+                        branch=rendered_path,
+                        field=f"module.deferred_outputs[{index}].reason",
+                    ),
+                    expected="reason naming an exact missing dependency",
+                    found=reason or "<empty reason>",
+                )
             )
     return covered, issues
 
@@ -13496,6 +13948,11 @@ def _rulespec_target_base(corpus_citation_path: str) -> str:
         "policy": "policies",
         "form": "forms",
     }.get(document_class, f"{document_class}s")
+    if document_class == "rulemaking":
+        # Federal Register instruments land in the reserved
+        # policies/rulemaking/ output namespace (evals._RULEMAKING_OUTPUT_ROOT).
+        plural = "policies"
+        tail = ["rulemaking", *tail]
     if jurisdiction == "us-la" and plural == "statutes" and tail:
         title_section = tail[0].split(":")
         if len(title_section) == 2 and all(title_section):
@@ -13606,6 +14063,43 @@ def _branch_citation(
     return f"{citation}({branch.path[0]}) [{', '.join(components)}]"
 
 
+def _branch_subject(
+    corpus_citation_path: str,
+    branch: SourceStructureBranch,
+) -> IssueSubject:
+    """The typed-issue subject for a source branch.
+
+    Computations, rounding and exception clauses take their structural owner's
+    path, so two of them in one paragraph share ``branch`` and ``clause``. The
+    branch's character span in the authoritative source text keeps their
+    subjects (and fingerprints) distinct; it comes from the source, not the
+    artifact, so repairing one obligation leaves the other's identity as is.
+    """
+    return IssueSubject(
+        citation=corpus_citation_path,
+        branch="/".join(branch.path) or None,
+        clause=_branch_citation(corpus_citation_path, branch),
+        span=f"{branch.start}:{branch.end}",
+    )
+
+
+def _session_law_entry_dates_are_valid(entry: re.Match[str]) -> bool:
+    for qualifier in ("effective", "operative"):
+        month = entry.group(f"{qualifier}_month")
+        if month is None:
+            continue
+        month_number = tuple(calendar.month_abbr).index(month[:3].title())
+        try:
+            date(
+                int(entry.group(f"{qualifier}_year")),
+                month_number,
+                int(entry.group(f"{qualifier}_day")),
+            )
+        except ValueError:
+            return False
+    return True
+
+
 def _validated_session_law_history_entries(
     history: str,
 ) -> tuple[re.Match[str], ...] | None:
@@ -13615,27 +14109,123 @@ def _validated_session_law_history_entries(
     entries = []
     for part in normalized.split(";"):
         entry = _SESSION_LAW_ENTRY.fullmatch(part)
-        if entry is None:
+        if entry is None or not _session_law_entry_dates_are_valid(entry):
             return None
-        for qualifier in ("effective", "operative"):
-            month = entry.group(f"{qualifier}_month")
-            if month is None:
-                continue
-            month_number = tuple(calendar.month_abbr).index(month[:3].title())
-            try:
-                date(
-                    int(entry.group(f"{qualifier}_year")),
-                    month_number,
-                    int(entry.group(f"{qualifier}_day")),
-                )
-            except ValueError:
-                return None
         entries.append(entry)
     return tuple(entries)
 
 
+@dataclass(frozen=True)
+class _SessionLawSuffixSummary:
+    entry_count: int
+    has_action: bool
+
+
+class _SessionLawSuffixIndex:
+    """Validate the history suffix at any candidate start in linear total work.
+
+    ``summary(start)`` agrees with ``_validated_session_law_history_entries(
+    text[start:])`` (``None`` exactly when that is ``None``; otherwise its entry
+    count and whether any entry has an action). The text is normalized and split
+    once, and suffix validity is computed right to left, so each candidate costs
+    one bounded entry match instead of a pass over the remaining text (#1828).
+
+    The sentence separator consumes only a period and whitespace, and it needs a
+    digit before it, so no separator match can begin at or straddle a start
+    whose character is neither whitespace nor a period. Matches after such a
+    start are therefore the same in the whole text and in the suffix. A start
+    outside that shape falls back to validating its suffix directly.
+    """
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+        self._separator_starts: list[int] = []
+        self._separator_ends: list[int] = []
+        self._shifts: list[int] = []
+        pieces: list[str] = []
+        last = 0
+        shift = 0
+        for match in _SESSION_LAW_SENTENCE_SEPARATOR.finditer(text):
+            pieces.append(text[last : match.start()])
+            pieces.append("; ")
+            shift += 2 - (match.end() - match.start())
+            self._separator_starts.append(match.start())
+            self._separator_ends.append(match.end())
+            self._shifts.append(shift)
+            last = match.end()
+        pieces.append(text[last:])
+        normalized = "".join(pieces)
+        self._normalized = normalized
+        semicolons = [
+            index for index, character in enumerate(normalized) if character == ";"
+        ]
+        self._semicolons = semicolons
+        part_count = len(semicolons) + 1
+        # Suffix aggregates over whole parts k..end; index part_count is empty.
+        self._valid_from = [True] * (part_count + 1)
+        self._action_from = [False] * (part_count + 1)
+        for index in range(part_count - 1, -1, -1):
+            start = semicolons[index - 1] + 1 if index else 0
+            end = semicolons[index] if index < len(semicolons) else len(normalized)
+            entry = _SESSION_LAW_ENTRY.fullmatch(normalized, start, end)
+            valid = entry is not None and _session_law_entry_dates_are_valid(entry)
+            self._valid_from[index] = valid and self._valid_from[index + 1]
+            self._action_from[index] = (
+                bool(entry is not None and entry.group("action"))
+                or (self._action_from[index + 1])
+            )
+        self._part_count = part_count
+
+    def summary(self, start: int) -> _SessionLawSuffixSummary | None:
+        text = self._text
+        preceding = bisect.bisect_right(self._separator_ends, start)
+        straddles = preceding < len(self._separator_starts) and (
+            self._separator_starts[preceding] <= start
+        )
+        if (
+            start >= len(text)
+            or text[start].isspace()
+            or text[start] == "."
+            or (straddles)
+        ):
+            entries = _validated_session_law_history_entries(text[start:])
+            if entries is None:
+                return None
+            return _SessionLawSuffixSummary(
+                len(entries), any(entry.group("action") for entry in entries)
+            )
+        offset = start + (self._shifts[preceding - 1] if preceding else 0)
+        part = bisect.bisect_left(self._semicolons, offset)
+        end = (
+            self._semicolons[part]
+            if part < len(self._semicolons)
+            else len(self._normalized)
+        )
+        first = _SESSION_LAW_ENTRY.fullmatch(self._normalized, offset, end)
+        if (
+            first is None
+            or not _session_law_entry_dates_are_valid(first)
+            or not self._valid_from[part + 1]
+        ):
+            return None
+        return _SessionLawSuffixSummary(
+            1 + self._part_count - (part + 1),
+            bool(first.group("action")) or self._action_from[part + 1],
+        )
+
+
+def _whitespace_run_start(text: str, end: int, floor: int = 0) -> int:
+    """Where ``text[floor:end].rstrip()`` ends, without copying the prefix."""
+
+    while end > floor and text[end - 1].isspace():
+        end -= 1
+    return end
+
+
 def _operative_session_law_body_resume_offset(
-    source_text: str, candidate: re.Match[str]
+    source_text: str,
+    candidate: re.Match[str],
+    paragraph_break: re.Match[str] | None,
 ) -> int | None:
     """Keep a citation introducing body prose distinct from a later footer.
 
@@ -13644,35 +14234,48 @@ def _operative_session_law_body_resume_offset(
     history start or blank-line-delimited paragraph. The next candidate still
     owns validation of its entire suffix. A malformed first entry or explicit
     History chain cannot be bypassed this way.
+
+    ``paragraph_break`` is the first paragraph break at or after the candidate.
+    Every match below is bounded by the paragraph through ``pos``/``endpos``
+    instead of copying the suffix, so a candidate costs its own paragraph.
     """
 
     if (candidate.group("history_label") or "").lower() == "history":
         return None
-    suffix = source_text[candidate.start() :]
-    paragraph_break = re.search(r"\r?\n[ \t]*\r?\n", suffix)
-    paragraph = suffix[: paragraph_break.start()] if paragraph_break else suffix
-    entry = _SESSION_LAW_ENTRY.match(paragraph)
+    start = candidate.start()
+    paragraph_end = paragraph_break.start() if paragraph_break else len(source_text)
+    entry = _SESSION_LAW_ENTRY.match(source_text, start, paragraph_end)
     if entry is None or _validated_session_law_history_entries(entry.group()) is None:
         return None
-    continuation = paragraph[entry.end() :]
     # Structural markers inside parenthetical/quoted prose still fail the
     # predicate; the original body text, including its wrappers, is retained.
-    continuation = re.sub(r"^(?:[('\"“‘][ \t]*){0,2}", "", continuation)
-    if _SESSION_LAW_OPERATIVE_CONTINUATION.match(continuation) is None:
+    wrapper = _SESSION_LAW_CONTINUATION_WRAPPER.match(
+        source_text, entry.end(), paragraph_end
+    )
+    continuation_start = wrapper.end() if wrapper else entry.end()
+    if (
+        _SESSION_LAW_OPERATIVE_CONTINUATION_AT.match(
+            source_text, continuation_start, paragraph_end
+        )
+        is None
+    ):
         return None
-    for paragraph_candidate in _SESSION_LAW_TAIL_START.finditer(paragraph, entry.end()):
-        preceding = paragraph[: paragraph_candidate.start()].rstrip()
-        separator = paragraph[len(preceding) : paragraph_candidate.start()]
+    for paragraph_candidate in _SESSION_LAW_TAIL_START.finditer(
+        source_text, entry.end(), paragraph_end
+    ):
+        preceding_end = _whitespace_run_start(
+            source_text, paragraph_candidate.start(), start
+        )
         label = (paragraph_candidate.group("history_label") or "").lower()
         if (
             not label
-            and preceding
-            and "\n" not in separator
-            and preceding[-1] not in ".!?"
+            and preceding_end > start
+            and "\n" not in source_text[preceding_end : paragraph_candidate.start()]
+            and source_text[preceding_end - 1] not in ".!?"
         ):
             continue
-        return candidate.start() + paragraph_candidate.start()
-    return candidate.start() + paragraph_break.end() if paragraph_break else None
+        return paragraph_candidate.start()
+    return paragraph_break.end() if paragraph_break else None
 
 
 def _strip_terminal_session_law_history(source_text: str) -> str:
@@ -13681,6 +14284,9 @@ def _strip_terminal_session_law_history(source_text: str) -> str:
     A failed history entry cannot be bypassed by restarting at a later chapter
     or action in the same suffix. Source/provenance text itself is unchanged;
     this helper is used solely to construct computational recall text.
+
+    The text is normalized and scanned for paragraph breaks once, lazily, so the
+    work is linear in the text rather than text length times candidates (#1828).
     """
 
     terminal_parenthetical = re.search(
@@ -13699,24 +14305,40 @@ def _strip_terminal_session_law_history(source_text: str) -> str:
         ):
             return source_text[: terminal_parenthetical.start()].rstrip()
 
+    suffixes: _SessionLawSuffixIndex | None = None
+    paragraph_breaks: list[re.Match[str]] | None = None
+    paragraph_break_starts: list[int] = []
     retained_body_end = 0
     for candidate in _SESSION_LAW_TAIL_START.finditer(source_text):
-        if candidate.start() < retained_body_end:
+        start = candidate.start()
+        if start < retained_body_end:
             continue
-        prefix = source_text[: candidate.start()]
-        preceding = prefix.rstrip()
-        separator = prefix[len(preceding) :]
+        preceding_end = _whitespace_run_start(source_text, start)
         explicitly_labeled = candidate.group("history_label") is not None
-        strong_layout = not preceding or "\n" in separator
-        if not explicitly_labeled and not strong_layout and preceding[-1] not in ".!?":
+        strong_layout = not preceding_end or "\n" in source_text[preceding_end:start]
+        if (
+            not explicitly_labeled
+            and not strong_layout
+            and source_text[preceding_end - 1] not in ".!?"
+        ):
             continue
 
-        entries = _validated_session_law_history_entries(
-            source_text[candidate.start() :]
-        )
+        if suffixes is None:
+            suffixes = _SessionLawSuffixIndex(source_text)
+        entries = suffixes.summary(start)
         if entries is None:
+            if paragraph_breaks is None:
+                paragraph_breaks = list(
+                    _SESSION_LAW_PARAGRAPH_BREAK.finditer(source_text)
+                )
+                paragraph_break_starts = [match.start() for match in paragraph_breaks]
+            following = bisect.bisect_left(paragraph_break_starts, start)
             resume_offset = _operative_session_law_body_resume_offset(
-                source_text, candidate
+                source_text,
+                candidate,
+                paragraph_breaks[following]
+                if following < len(paragraph_breaks)
+                else None,
             )
             if resume_offset is not None:
                 retained_body_end = resume_offset
@@ -13728,14 +14350,82 @@ def _strip_terminal_session_law_history(source_text: str) -> str:
         if (
             not explicitly_labeled
             and not strong_layout
-            and (
-                len(entries) < 2 or not any(entry.group("action") for entry in entries)
-            )
+            and (entries.entry_count < 2 or not entries.has_action)
         ):
             continue
-        return prefix.rstrip()
+        return source_text[:preceding_end]
 
     return source_text
+
+
+def _armenian_amendment_history_numeric_recall_spans(
+    source_text: str,
+) -> Iterable[tuple[int, int]]:
+    """Yield spans of fully validated standalone ARLIS amendment-history ledgers.
+
+    Each span covers the body (the parentheses stay) of one parenthetical
+    that sits alone on its line at nesting depth zero and whose
+    body is an ordinal article label followed only by amendment actions and
+    paired ``DD.MM.YY[YY] Հ[Օ]-N[-N]-Ն`` citations. Every other parenthetical,
+    including nested, inline, operative or malformed ones, yields nothing and so
+    keeps all of its numbers as recall obligations. The spans are masked, never
+    deleted, so recall-text positions keep their source origins.
+    """
+
+    depth_before: list[int] | None = None
+
+    def parenthesis_depth_before(index: int) -> int:
+        # Built on the first candidate only: sources with no standalone
+        # parenthetical never pay to map the whole text.
+        nonlocal depth_before
+        if depth_before is None:
+            depth_before = []
+            depth = 0
+            for character in source_text:
+                depth_before.append(depth)
+                if character == "(":
+                    depth += 1
+                elif character == ")":
+                    depth = max(0, depth - 1)
+        return depth_before[index]
+
+    for candidate in _ARMENIAN_AMENDMENT_HISTORY_CANDIDATE.finditer(source_text):
+        opening = candidate.start("body") - 1
+        # A candidate whose opening parenthesis sits inside another
+        # parenthetical is nested, and the prompt contract keeps nested
+        # parentheticals as source content.
+        if parenthesis_depth_before(opening) != 0:
+            continue
+        article_history = _ARMENIAN_AMENDMENT_HISTORY_ARTICLE.fullmatch(
+            candidate.group("body").strip()
+        )
+        if article_history is None:
+            continue
+        history = article_history.group("history")
+        if (
+            _ARMENIAN_AMENDMENT_HISTORY_ACTION.search(history) is None
+            or _ARMENIAN_AMENDMENT_HISTORY_CITATION.search(history) is None
+            or _ARMENIAN_AMENDMENT_HISTORY_SEQUENCE.fullmatch(history) is None
+        ):
+            continue
+        # Blank the body only. Keeping both parentheses leaves the depth map
+        # unchanged and keeps a line break plus `(` between the lines around
+        # the ledger, so no later citation pattern that allows whitespace can
+        # join a reference word above to a number below.
+        yield candidate.start("body"), candidate.end("body")
+
+
+def mask_armenian_amendment_history(source_text: str) -> str:
+    """Mask fully validated standalone ARLIS ledgers in place with spaces.
+
+    The eval numeric-coverage metric uses this so it never demands a number
+    the encoder prompt tells the model to leave out. It applies only this
+    recognizer, so every other source number keeps its obligation.
+    """
+
+    return _mask_numeric_spans(
+        source_text, _armenian_amendment_history_numeric_recall_spans(source_text)
+    )
 
 
 def _spaced_german_sentence_label_spans(text: str) -> tuple[tuple[int, int], ...]:
@@ -15196,6 +15886,86 @@ def _contiguous_states_numeric_recall_spans(
             r"(?<!\w)the$", source_text[max(0, before - 4) : before], re.IGNORECASE
         ):
             yield identifier.span()
+    # The same geography as a table column label. Only the `Household Size`
+    # column caption may precede it (text start, `the`, a currency, sign,
+    # number or any other word keeps the 48 demanded), and the table's first
+    # household-size row must follow the column headers.
+    for identifier in _JURISDICTION_SET_LABEL_NUMERIC_RECALL_IDENTIFIER.finditer(
+        source_text
+    ):
+        before = identifier.start()
+        while before > 0 and source_text[before - 1].isspace():
+            before -= 1
+        caption = _JURISDICTION_SET_LABEL_CAPTION.search(
+            source_text, max(0, before - 32), before
+        )
+        if (
+            caption
+            and not _JURISDICTION_SET_LABEL_CAPTION_QUALIFIER.search(
+                source_text, max(0, caption.start() - 64), caption.start()
+            )
+            and _JURISDICTION_SET_LABEL_FIRST_ROW.match(source_text, identifier.end())
+        ):
+            yield identifier.span()
+
+
+_IRS_PAGED_GUIDANCE_CITATION = re.compile(
+    r"us/guidance/irs/(?:rev-proc|notice)-\d{4}-\d+/page-(?P<page>[1-9]\d{0,3})"
+)
+# The page number stands alone and a blank line separates it from the page
+# text. A single line break is not enough: an amount whose unit or qualifier
+# wraps onto the next line looks the same, so it stays demanded.
+_LEADING_PAGE_NUMBER_LINE = re.compile(
+    r"[ \t]*(?P<page>[0-9]{1,4})[ \t]*\r?\n[ \t]*\r?\n"
+)
+# Extra exclusion after the blank line: text that continues a quantity (`14\ndollars per
+# hour`, `14\r\npercent`, `14\ntaxable years`, `14\nto 18 years`) makes the
+# number an amount whose unit wrapped onto the next line, not a page number.
+# A unit may follow up to two modifier words (`U.S. dollars`, `consecutive
+# months`). A range or list word (`to`, `through`, `or`, `and`) counts only
+# before a number or a comparison word, so a page that opens with
+# `To qualify, ...` keeps its page number masked. A fraction glyph (`2\n½
+# months`, `9\n1/2 months`) completes a mixed number, and a hyphenated
+# duration (`3\nconsecutive 12-month periods`) counts as a unit.
+_LEADING_PAGE_NUMBER_QUANTITY_CONTINUATION = re.compile(
+    r"\s*(?:[%\u00a2\u00bc-\u00be\u2150-\u215e]"
+    r"|(?:[A-Za-z][A-Za-z.'\-]*\s+){0,2}"
+    r"(?:dollars?|cents?|usd|percent(?:age)?s?|per|seconds?|minutes?|hours?"
+    r"|days?|weeks?|months?|quarters?|years?|times|miles?)\b"
+    r"|(?:to|through|or|and)\s+"
+    r"(?:(?:(?:not|no)\s+)?(?:less|more|fewer|greater)\s+than\s+)?\$?\d"
+    r"|but\s+(?:(?:not|no)\s+)?(?:less|more|fewer|greater)\s+than\s+\$?\d"
+    r"|\d+\s*[/\u2044]\s*\d+"
+    r"|(?:[A-Za-z][A-Za-z.'\-]*\s+){0,2}\d+-(?:hour|day|week|month|quarter|year)s?\b"
+    r"|(?:or|and)\s+(?:more|less|fewer|greater|older|younger|over|under)\b)",
+    re.IGNORECASE,
+)
+
+
+def _irs_page_locator_numeric_recall_spans(
+    source_text: str, *, corpus_citation_path: str
+) -> Iterable[tuple[int, int]]:
+    """Prove an IRS PDF page's printed page number, never a leading amount.
+
+    Revenue procedure and notice pages start with the printed page number
+    alone on the first line, then a blank line. Only that exact shape, with
+    the number equal to the citation's own page index and the following text
+    not continuing a quantity, is a locator. Any other leading number,
+    including one followed by a single line break, stays demanded.
+    """
+
+    citation = _IRS_PAGED_GUIDANCE_CITATION.fullmatch(corpus_citation_path)
+    if citation is None:
+        return
+    line = _LEADING_PAGE_NUMBER_LINE.match(source_text)
+    if (
+        line is not None
+        and line.group("page") == citation.group("page")
+        and not _LEADING_PAGE_NUMBER_QUANTITY_CONTINUATION.match(
+            source_text, line.end()
+        )
+    ):
+        yield line.span("page")
 
 
 def authoritative_numeric_recall_text(
@@ -15216,6 +15986,15 @@ def authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path
     )
     source_text = mask(source_text, form_numeric_locator_spans(source_text))
+    # This mask runs before the context-sensitive recognizers below, so they
+    # see the text after the page number. For example, a page that starts with
+    # `48 contiguous states` after its page number is then read as geography.
+    source_text = mask(
+        source_text,
+        _irs_page_locator_numeric_recall_spans(
+            source_text, corpus_citation_path=corpus_citation_path
+        ),
+    )
     source_text = mask_bare_labels(source_text)
     source_text = mask(
         source_text, _english_subdivision_numeric_recall_spans(source_text)
@@ -15235,6 +16014,9 @@ def authoritative_numeric_recall_text(
         # The preceding masks preserve positions; history cleanup only drops
         # a terminal suffix. All subsequent deletions go through tracked sub.
         del _source_map.offsets[len(cleaned) :]
+    # After the history cleanup, so a masked ledger (now blank) can never make
+    # an earlier session-law history chain look terminal and drop it.
+    cleaned = mask(cleaned, _armenian_amendment_history_numeric_recall_spans(cleaned))
     if _GLUED_SECTION_SENTENCE_MARKER.search(cleaned):
         # Strip only authenticated sentence labels, before removing the section
         # citation that distinguishes `2§ 64` from a substantive number 2.
@@ -15354,11 +16136,7 @@ def authoritative_numeric_recall_text(
         cleaned,
     )
     cleaned = sub(
-        r"\b\d{1,6}\s+[A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,4}\s+"
-        r"(?:Avenue|Boulevard|Center|Drive|Lane|Place|Plaza|Road|Street|Way)\b"
-        r",\s*[A-Za-z .'-]+,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?",
-        "",
-        cleaned,
+        _US_STREET_ADDRESS_NUMERIC_RECALL, _us_street_address_or_amount, cleaned
     )
     if _US_CORPUS_CITATION_PATH.match(corpus_citation_path):
         # US-only: a German line such as `1.000 Euro Freibetrag` would
@@ -18438,6 +19216,33 @@ def _terminal_names_corroborate_source_gates(
     return all(augment(gate_index, set()) for gate_index in order)
 
 
+CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED = declare_check(
+    "complete-source-unit:source-explicit-conditions/gates-collapsed",
+    title="Source-stated conjunctive gates collapsed into too few inputs",
+    requires=(
+        "Each factual gate that the formula's own source clause states is a "
+        "distinct local input or canonical import, combined in a "
+        "source-proved derived Judgment."
+    ),
+    why=(
+        "An aggregate input that stands for several source-stated facts hides "
+        "the conditions from tests and from callers, so a wrong answer on one "
+        "gate cannot be seen."
+    ),
+    fix=(
+        "Declare each source-stated fact as its own document-root `inputs` "
+        "entry (a sibling of `module` and `rules`) or canonical import, combine "
+        "them in a derived Judgment with formula proof, and test each gate."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=(
+        "axiom_encode/harness/source_completeness.py:"
+        "_opaque_same_source_condition_input_issues"
+    ),
+)
+
+
 def _opaque_same_source_condition_input_issues(
     payload: Mapping[str, Any],
     *,
@@ -19116,16 +19921,27 @@ def _opaque_same_source_condition_input_issues(
             f"... ({len(findings) - _SOURCE_EXPLICIT_CONDITION_DIAGNOSTIC_LIMIT} "
             "additional formula versions omitted)"
         )
+    first_rule, first_version, first_gate_count, first_evidence = findings[0]
     return [
-        "[complete-source-unit:source-explicit-conditions] Derived formula "
-        "version(s) delegate multiple conjunctive factual gates stated in their "
-        "exact authoritative source clause to too few terminal local inputs or "
-        f"canonical imports: {'; '.join(rendered)}. Encode the source-stated facts "
-        "as distinct local inputs or canonical imports, declare every local fact "
-        "in the RuleSpec document-root `inputs` list (a sibling of `module` and "
-        "`rules`, never nested under `module`), combine them in a "
-        "source-proved derived Judgment, and test each gate. Reserve aggregate "
-        "boundary statuses for source-atomic or externally determined conditions."
+        ValidationIssue(
+            "[complete-source-unit:source-explicit-conditions] Derived formula "
+            "version(s) delegate multiple conjunctive factual gates stated in their "
+            "exact authoritative source clause to too few terminal local inputs or "
+            f"canonical imports: {'; '.join(rendered)}. Encode the source-stated facts "
+            "as distinct local inputs or canonical imports, declare every local fact "
+            "in the RuleSpec document-root `inputs` list (a sibling of `module` and "
+            "`rules`, never nested under `module`), combine them in a "
+            "source-proved derived Judgment, and test each gate. Reserve aggregate "
+            "boundary statuses for source-atomic or externally determined conditions.",
+            check=CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED,
+            subject=IssueSubject(
+                citation=corpus_citation_path,
+                rule=first_rule,
+                field=f"rules.{first_rule}.versions[{first_version}].formula",
+            ),
+            expected=f"{first_gate_count} distinct gate inputs",
+            found=f"{len(first_evidence)} terminal selectors",
+        )
     ]
 
 
@@ -19264,6 +20080,149 @@ def _selected_formula_structural_source_branches(
             for execution in executions
         )
     )
+
+
+_SITE_COMPANION_TESTS = (
+    "axiom_encode/harness/source_completeness.py:_companion_test_issues"
+)
+_COMPANION_TESTS_WHY = (
+    "Companion tests are the executed evidence that the encoding behaves as "
+    "the source says. A source-stated output, branch, boundary, exception or "
+    "rounding rule without a test can be wrong without any gate noticing."
+)
+
+
+def _declare_companion_test_check(
+    name: str,
+    *,
+    title: str,
+    requires: str,
+    fix: str,
+    site: str = _SITE_COMPANION_TESTS,
+):
+    return declare_check(
+        f"complete-source-unit:tests/{name}",
+        title=title,
+        requires=requires,
+        why=_COMPANION_TESTS_WHY,
+        fix=fix,
+        cause="encoder_output",
+        gate="ci",
+        site=site,
+    )
+
+
+CHECK_TESTS_NO_SUITE = _declare_companion_test_check(
+    "no-suite",
+    title="Complete source unit has no companion test suite",
+    requires=(
+        "A complete source-unit encoding ships a companion test suite covering "
+        "outputs, branches, boundaries, exceptions and rounding rules."
+    ),
+    fix="Write the companion `.test.yaml` cases for the module.",
+)
+CHECK_TESTS_INPUT_SHADOWS_OUTPUT = _declare_companion_test_check(
+    "input-shadows-output",
+    title="Companion case supplies a principal output as an input",
+    requires=(
+        "Companion cases compute and assert local principal outputs; they never "
+        "supply them as inputs."
+    ),
+    fix=(
+        "Remove the principal output from the case's `input` and assert it "
+        "under `output` instead; supply the facts it is computed from."
+    ),
+)
+CHECK_TESTS_OUTPUT_UNASSERTED = _declare_companion_test_check(
+    "output-unasserted",
+    title="Principal output is never asserted",
+    requires="Every principal output is asserted by at least one companion case.",
+    fix="Add a companion case whose `output` asserts the named principal output.",
+)
+CHECK_TESTS_NEGATIVE_CLAMP_UNWITNESSED = _declare_companion_test_check(
+    "negative-clamp-unwitnessed",
+    title="Nonnegative clamp has no below-zero companion case",
+    requires=(
+        "Each direct `max(0, input)` clamp has an executed companion case with "
+        "the input below zero in every distinct temporal owner context."
+    ),
+    fix=(
+        "Add a case with the clamped input below zero that asserts the clamped "
+        "rule (and the downstream principal output when one exists). A zero "
+        "input does not exercise the clamp."
+    ),
+    site="axiom_encode/harness/source_completeness.py:_negative_local_input_clamp_test_issues",
+)
+CHECK_TESTS_FORMULA_BRANCH_UNWITNESSED = _declare_companion_test_check(
+    "formula-branch-unwitnessed",
+    title="Formula branch has no executed companion evidence",
+    requires=(
+        "Each source formula branch has distinct executed test evidence that "
+        "reaches the branch's computation."
+    ),
+    fix=(
+        "Add a companion case whose inputs select the named branch and whose "
+        "asserted output depends on the branch's computation, in a period the "
+        "branch's formula version covers."
+    ),
+)
+CHECK_TESTS_BOUNDARY_UNEXERCISED = _declare_companion_test_check(
+    "boundary-unexercised",
+    title="Source-stated boundary input is not exercised",
+    requires="Every source-stated boundary value is exercised by a companion case.",
+    fix=(
+        "Add cases at each listed boundary value (and just across it) that "
+        "assert the affected principal output."
+    ),
+)
+CHECK_TESTS_EXCEPTION_PAIR_MISSING = _declare_companion_test_check(
+    "exception-pair-missing",
+    title="Source exception or condition has no positive/blocking case pair",
+    requires=(
+        "Each source-stated exception or applicability condition has a "
+        "same-period pair of cases that differ in exactly the controlling input "
+        "and assert the affected principal output."
+    ),
+    fix=(
+        "For each listed condition, add two same-period cases that differ only "
+        "in its controlling input: one where it applies and one where it blocks."
+    ),
+)
+CHECK_TESTS_NONAPPLICABILITY_UNWITNESSED = _declare_companion_test_check(
+    "nonapplicability-unwitnessed",
+    title="Unconditional non-applicability is not witnessed",
+    requires=(
+        "Unconditional source-stated non-applicability is a source-bound "
+        "principal Judgment output that executes to false and is asserted false."
+    ),
+    fix=(
+        "Encode the non-applicability as a principal Judgment output and add a "
+        "case that asserts it is false."
+    ),
+)
+CHECK_TESTS_ROUNDING_FORMULA_ABSENT = _declare_companion_test_check(
+    "rounding-formula-absent",
+    title="Source-stated rounding rule is absent from the principal formula",
+    requires="Every source-stated rounding rule is applied in the principal formula.",
+    fix=(
+        "Apply the stated rounding (direction and unit) in the principal "
+        "formula that computes the rounded amount."
+    ),
+)
+CHECK_TESTS_ROUNDING_UNWITNESSED = _declare_companion_test_check(
+    "rounding-unwitnessed",
+    title="Source-stated rounding rule has no fractional companion evidence",
+    requires=(
+        "Every source-stated rounding rule is demonstrated by companion cases "
+        "with distinct fractional inputs on the affected principal output."
+    ),
+    fix=(
+        "Add same-period paired cases that drive the pre-rounding amount to a "
+        "fraction on each side of the rounding point, asserting the unrounded "
+        "intermediate and the rounded output; or precisely defer the branch "
+        "when its inputs are not available."
+    ),
+)
 
 
 def _negative_local_input_clamp_test_issues(
@@ -19835,16 +20794,23 @@ def _negative_local_input_clamp_test_issues(
     )
     omitted = len(ordered_clamps) - len(shown_clamps)
     omission = f" ({omitted} additional clamps omitted)" if omitted else ""
+    first_owner, first_input = ordered_clamps[0]
     return [
-        "[complete-source-unit:tests] Direct nonnegative clamp companion "
-        f"evidence is missing for {rendered_clamps}{omission}. Each requires "
-        "an executed companion case in every distinct selected temporal "
-        "owner/downstream claimant context, with the input below zero, that "
-        "asserts the clamped rule and, when downstream consumers exist, an "
-        "unambiguous authoritative principal output with selected-version "
-        "formula proof whose matching assertion and selected formula path "
-        "reach it through a resolved dependency chain. A zero-valued case "
-        "does not exercise the negative clamp."
+        ValidationIssue(
+            "[complete-source-unit:tests] Direct nonnegative clamp companion "
+            f"evidence is missing for {rendered_clamps}{omission}. Each requires "
+            "an executed companion case in every distinct selected temporal "
+            "owner/downstream claimant context, with the input below zero, that "
+            "asserts the clamped rule and, when downstream consumers exist, an "
+            "unambiguous authoritative principal output with selected-version "
+            "formula proof whose matching assertion and selected formula path "
+            "reach it through a resolved dependency chain. A zero-valued case "
+            "does not exercise the negative clamp.",
+            check=CHECK_TESTS_NEGATIVE_CLAMP_UNWITNESSED,
+            subject=IssueSubject(citation=corpus_citation_path, rule=first_owner),
+            expected=f"case with {first_input} below zero",
+            found=f"{len(ordered_clamps)} clamp(s) without a below-zero case",
+        )
     ]
 
 
@@ -19908,9 +20874,15 @@ def _companion_test_issues(
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
     if not cases:
         return [
-            "[complete-source-unit:tests] Complete source-unit controls require "
-            "a companion test suite covering outputs, branches, boundaries, "
-            "exceptions, and rounding rules."
+            ValidationIssue(
+                "[complete-source-unit:tests] Complete source-unit controls require "
+                "a companion test suite covering outputs, branches, boundaries, "
+                "exceptions, and rounding rules.",
+                check=CHECK_TESTS_NO_SUITE,
+                subject=IssueSubject(citation=corpus_citation_path),
+                expected="companion test suite",
+                found="no test cases",
+            )
         ]
 
     colliding_cases = [
@@ -19928,10 +20900,19 @@ def _companion_test_issues(
             )
         )
         issues.append(
-            "[complete-source-unit:tests] Companion case "
-            f"`{case.get('name') or '<unnamed>'}` supplies local principal "
-            f"output(s) {collisions} as inputs; derived outputs must be "
-            "computed and asserted, not shadowed."
+            ValidationIssue(
+                "[complete-source-unit:tests] Companion case "
+                f"`{case.get('name') or '<unnamed>'}` supplies local principal "
+                f"output(s) {collisions} as inputs; derived outputs must be "
+                "computed and asserted, not shadowed.",
+                check=CHECK_TESTS_INPUT_SHADOWS_OUTPUT,
+                subject=IssueSubject(
+                    citation=corpus_citation_path,
+                    test_case=str(case.get("name") or "<unnamed>"),
+                ),
+                expected="principal outputs computed and asserted",
+                found=f"supplied as inputs: {collisions}",
+            )
         )
     cases = [case for case in cases if case not in colliding_cases]
 
@@ -19960,8 +20941,14 @@ def _companion_test_issues(
             and certified_transfers.owns_output(name, principal_rules[name])
         ):
             issues.append(
-                "[complete-source-unit:tests] Principal output "
-                f"`{name}` is never asserted by a companion test."
+                ValidationIssue(
+                    "[complete-source-unit:tests] Principal output "
+                    f"`{name}` is never asserted by a companion test.",
+                    check=CHECK_TESTS_OUTPUT_UNASSERTED,
+                    subject=IssueSubject(citation=corpus_citation_path, rule=name),
+                    expected="at least one asserting companion case",
+                    found="no case asserts it",
+                )
             )
 
     formula_dependency_cache: dict[int, dict[str, Any]] = {}
@@ -20120,15 +21107,22 @@ def _companion_test_issues(
             else " No asserted candidate principal-output case has a usable period."
         )
         issues.append(
-            "[complete-source-unit:tests] Companion tests do not demonstrate "
-            f"formula branch {branch.label} at "
-            f"{_branch_citation(corpus_citation_path, branch)}. Exact source "
-            f"computation ({source_location}): `{source_excerpt}`. "
-            f"{witness_requirement}{observed_period_detail}"
-            f"{source_binding_detail}{dependency_detail} Each formula branch "
-            "needs distinct executed "
-            "test evidence; an internal formula-clause ordinal is not a legal "
-            "paragraph number."
+            ValidationIssue(
+                "[complete-source-unit:tests] Companion tests do not demonstrate "
+                f"formula branch {branch.label} at "
+                f"{_branch_citation(corpus_citation_path, branch)}. Exact source "
+                f"computation ({source_location}): `{source_excerpt}`. "
+                f"{witness_requirement}{observed_period_detail}"
+                f"{source_binding_detail}{dependency_detail} Each formula branch "
+                "needs distinct executed "
+                "test evidence; an internal formula-clause ordinal is not a legal "
+                "paragraph number.",
+                check=CHECK_TESTS_FORMULA_BRANCH_UNWITNESSED,
+                subject=_branch_subject(corpus_citation_path, branch),
+                expected="executed case reaching the branch computation",
+                found="no executed case reaches it",
+                evidence=source_excerpt,
+            )
         )
 
     boundary_branches = _active_or_root_source_branches(
@@ -20194,8 +21188,20 @@ def _companion_test_issues(
             for branch, occurrence in missing_boundaries
         )
         issues.append(
-            "[complete-source-unit:tests] Companion tests do not exercise every "
-            f"source-stated boundary input; missing: {rendered}."
+            ValidationIssue(
+                "[complete-source-unit:tests] Companion tests do not exercise every "
+                f"source-stated boundary input; missing: {rendered}.",
+                check=CHECK_TESTS_BOUNDARY_UNEXERCISED,
+                subject=_branch_subject(corpus_citation_path, missing_boundaries[0][0]),
+                # Name only the subject's own boundary: the fingerprint must not
+                # change when a different boundary is repaired.
+                expected=(
+                    "case at "
+                    f"{missing_boundaries[0][0].label}="
+                    f"{missing_boundaries[0][1].value:g}"
+                ),
+                found=f"no case at {rendered}",
+            )
         )
 
     exception_branches = _source_exception_branches(
@@ -20476,13 +21482,22 @@ def _companion_test_issues(
                 for branch in missing_exception_branches
             )
             issues.append(
-                "[complete-source-unit:tests] Source-stated exceptions or "
-                "applicability conditions require paired positive/blocking cases "
-                "that assert the affected principal output and toggle its "
-                "controlling formula selector. Each listed condition needs its "
-                "own same-period case pair differing in exactly that one input; "
-                f"missing: {missing_conditions}.{recognized_pair_feedback}"
-                f"{row_output_feedback}"
+                ValidationIssue(
+                    "[complete-source-unit:tests] Source-stated exceptions or "
+                    "applicability conditions require paired positive/blocking cases "
+                    "that assert the affected principal output and toggle its "
+                    "controlling formula selector. Each listed condition needs its "
+                    "own same-period case pair differing in exactly that one input; "
+                    f"missing: {missing_conditions}.{recognized_pair_feedback}"
+                    f"{row_output_feedback}",
+                    check=CHECK_TESTS_EXCEPTION_PAIR_MISSING,
+                    subject=_branch_subject(
+                        corpus_citation_path, missing_exception_branches[0]
+                    ),
+                    expected="same-period positive/blocking case pair",
+                    found=f"{len(missing_exception_branches)} condition(s) unpaired",
+                    evidence=missing_exception_branches[0].text,
+                )
             )
         missing_unconditional_branches = _unmatched_evidence_obligations(
             {
@@ -20504,10 +21519,19 @@ def _companion_test_issues(
                 for branch in missing_unconditional_branches
             )
             issues.append(
-                "[complete-source-unit:tests] Unconditional source-stated "
-                "non-applicability requires a source-bound principal Judgment "
-                "output whose formula executes to false and is asserted false "
-                f"by a companion case; missing: {missing_conditions}."
+                ValidationIssue(
+                    "[complete-source-unit:tests] Unconditional source-stated "
+                    "non-applicability requires a source-bound principal Judgment "
+                    "output whose formula executes to false and is asserted false "
+                    f"by a companion case; missing: {missing_conditions}.",
+                    check=CHECK_TESTS_NONAPPLICABILITY_UNWITNESSED,
+                    subject=_branch_subject(
+                        corpus_citation_path, missing_unconditional_branches[0]
+                    ),
+                    expected="principal Judgment asserted false",
+                    found="no such output or assertion",
+                    evidence=missing_unconditional_branches[0].text,
+                )
             )
 
     rounding_obligations = _source_rounding_obligations(
@@ -20569,10 +21593,17 @@ def _companion_test_issues(
         )
     for branch, direction in missing_rounding_formula:
         issues.append(
-            "[complete-source-unit:tests] A source-stated "
-            f"{direction} rounding rule at "
-            f"{_branch_citation(corpus_citation_path, branch)} is absent from "
-            "the principal formula."
+            ValidationIssue(
+                "[complete-source-unit:tests] A source-stated "
+                f"{direction} rounding rule at "
+                f"{_branch_citation(corpus_citation_path, branch)} is absent from "
+                "the principal formula.",
+                check=CHECK_TESTS_ROUNDING_FORMULA_ABSENT,
+                subject=_branch_subject(corpus_citation_path, branch),
+                expected=f"{direction} rounding in the principal formula",
+                found="no rounding applied",
+                evidence=branch.text,
+            )
         )
     missing_rounding_tests = _unmatched_evidence_obligations(rounding_witnesses)
     if missing_rounding_tests:
@@ -20592,17 +21623,25 @@ def _companion_test_issues(
             else ""
         )
         issues.append(
-            "[complete-source-unit:tests] Companion tests do not demonstrate "
-            "every source-stated rounding rule with distinct fractional input "
-            f"evidence on its affected principal output; missing at {rendered}."
-            f"{nearest_guidance}"
-            " Alternative: when the rounded computation depends on outputs "
-            "that are not yet available (for example a cross-module base this "
-            "module cannot compute), a PRECISE typed deferral of that branch "
-            "removes this demand — declare `module.deferred_outputs: "
-            "[{output: <namespaced branch output>, reason: <names the exact "
-            "missing dependency citations>}]` instead of encoding a "
-            "speculative mechanism."
+            ValidationIssue(
+                "[complete-source-unit:tests] Companion tests do not demonstrate "
+                "every source-stated rounding rule with distinct fractional input "
+                f"evidence on its affected principal output; missing at {rendered}."
+                f"{nearest_guidance}"
+                " Alternative: when the rounded computation depends on outputs "
+                "that are not yet available (for example a cross-module base this "
+                "module cannot compute), a PRECISE typed deferral of that branch "
+                "removes this demand — declare `module.deferred_outputs: "
+                "[{output: <namespaced branch output>, reason: <names the exact "
+                "missing dependency citations>}]` instead of encoding a "
+                "speculative mechanism.",
+                check=CHECK_TESTS_ROUNDING_UNWITNESSED,
+                subject=_branch_subject(
+                    corpus_citation_path, missing_rounding_tests[0][0]
+                ),
+                expected="paired fractional cases on each side of the rounding point",
+                found=f"missing at {rendered}",
+            )
         )
     return issues
 
@@ -29318,6 +30357,7 @@ def _shift_numeric_occurrence(
         requires_rate_context=occurrence.requires_rate_context,
         is_word_number=occurrence.is_word_number,
         alternative_values=occurrence.alternative_values,
+        requires_month_context=getattr(occurrence, "requires_month_context", False),
     )
 
 
