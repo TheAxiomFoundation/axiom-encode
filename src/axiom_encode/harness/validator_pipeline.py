@@ -177,6 +177,7 @@ from .proof_validator import (
     find_plural_corpus_citation_path_issues,
     find_rulespec_proof_issues,
     find_unsupported_yaml_tag_issues,
+    find_yaml_merge_key_issues,
     interpretation_source_citation_paths,
     validate_rulespec_proofs,
 )
@@ -375,39 +376,75 @@ def _without_sensitive_environment(env: Mapping[str, str]) -> dict[str, str]:
     }
 
 
+_YAML_MERGE_TAG = "tag:yaml.org,2002:merge"
+_YAML_VALUE_TAG = "tag:yaml.org,2002:value"
+
+
+def _reject_keys_repeated_before_merging(
+    loader: yaml.SafeLoader, root: yaml.Node
+) -> None:
+    """Raise on two equal keys written in one mapping, merge sources included.
+
+    This runs on the composed document before construction, because applying
+    merge keys rewrites the nodes of the mappings it merges. Merge keys are
+    left to PyYAML, which applies them; every other key is compared as loading
+    constructs it, so `a`, `'a'` and `!!str a` collide, and so do `1` and
+    `1.0`.
+    """
+
+    visited: set[int] = set()
+    pending: list[yaml.Node] = [root]
+    while pending:
+        node = pending.pop()
+        if id(node) in visited:
+            continue
+        visited.add(id(node))
+        children: list[yaml.Node] = []
+        if isinstance(node, yaml.SequenceNode):
+            children = list(node.value)
+        elif isinstance(node, yaml.MappingNode):
+            keys: set[Any] = set()
+            for key_node, value_node in node.value:
+                children.extend((key_node, value_node))
+                if key_node.tag == _YAML_MERGE_TAG:
+                    continue
+                key = (
+                    key_node.value
+                    if isinstance(key_node, yaml.ScalarNode)
+                    and key_node.tag == _YAML_VALUE_TAG
+                    else loader.construct_object(key_node, deep=True)
+                )
+                try:
+                    duplicate = key in keys
+                except TypeError:
+                    # Loading rejects an unhashable collection key itself. A
+                    # collection key can also load as a string, as
+                    # `? !!str {=: rules}` loads as `rules`; that one is compared.
+                    continue
+                if duplicate:
+                    raise yaml.constructor.ConstructorError(
+                        "while constructing a mapping",
+                        node.start_mark,
+                        f"found duplicate key {key!r}",
+                        key_node.start_mark,
+                    )
+                keys.add(key)
+        pending.extend(reversed(children))
+
+
 class _UniqueKeySafeLoader(yaml.SafeLoader):
-    """PyYAML safe loader that rejects duplicate mapping keys."""
+    """PyYAML safe loader that rejects duplicate mapping keys.
 
+    Each mapping's own keys are compared before any merge key is applied, and
+    construction is then exactly ``yaml.safe_load``'s, so an explicit key may
+    override a merged one, as PyYAML allows (#1943). Whether a merge key may
+    appear at all is the merge-key scan's decision: the engine does not apply
+    merges, so they are refused in a module outside rule metadata.
+    """
 
-def _construct_mapping_without_duplicate_keys(
-    loader: yaml.SafeLoader,
-    node: yaml.nodes.MappingNode,
-    deep: bool = False,
-) -> dict[Any, Any]:
-    loader.flatten_mapping(node)
-    seen: set[Any] = set()
-    for key_node, _value_node in node.value:
-        key = loader.construct_object(key_node, deep=deep)
-        try:
-            duplicate = key in seen
-        except TypeError:
-            key = repr(key)
-            duplicate = key in seen
-        if duplicate:
-            raise yaml.constructor.ConstructorError(
-                "while constructing a mapping",
-                node.start_mark,
-                f"found duplicate key {key!r}",
-                key_node.start_mark,
-            )
-        seen.add(key)
-    return loader.construct_mapping(node, deep=deep)
-
-
-_UniqueKeySafeLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
-    _construct_mapping_without_duplicate_keys,
-)
+    def construct_document(self, node: yaml.Node) -> Any:
+        _reject_keys_repeated_before_merging(self, node)
+        return super().construct_document(node)
 
 
 def _safe_load_unique_keys(content: str) -> Any:
@@ -421,6 +458,12 @@ def _yaml_parse_issue(path: Path, exc: BaseException) -> str:
 
 def _yaml_tag_issue(path: Path, issues: list[str]) -> str:
     return f"{path.name} has unsupported YAML tags: " + "; ".join(issues)
+
+
+def _yaml_merge_key_issue(path: Path, issues: list[str]) -> str:
+    return f"{path.name} has YAML merge keys the engine does not apply: " + "; ".join(
+        issues
+    )
 
 
 def _yaml_nesting_issue(path: Path) -> str:
@@ -36579,6 +36622,11 @@ class ValidatorPipeline:
             tag_issues = find_unsupported_yaml_tag_issues(content)
             if tag_issues:
                 return _yaml_tag_issue(rules_file, tag_issues)
+            # The payload would hold merged keys the engine never reads; report
+            # the merge keys themselves, before loading.
+            merge_key_issues = find_yaml_merge_key_issues(content)
+            if merge_key_issues:
+                return _yaml_merge_key_issue(rules_file, merge_key_issues)
             payload = _safe_load_unique_keys(content)
         except OSError as exc:
             return f"RuleSpec YAML read failed: {exc}"

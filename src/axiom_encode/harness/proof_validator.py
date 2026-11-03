@@ -251,9 +251,13 @@ def validate_rulespec_proofs(
     When strict mode is off, any proof blocks that are present are still checked.
     """
     try:
-        payload, interpretation_yaml_issues, numeric_id_paths, tag_issues = (
-            _safe_load_with_raw_constraints(content)
-        )
+        (
+            payload,
+            interpretation_yaml_issues,
+            numeric_id_paths,
+            tag_issues,
+            merge_key_issues,
+        ) = _safe_load_with_raw_constraints(content)
     except RecursionError:
         # The raw scan composes with one more frame per level than loading,
         # and the engine rejects nesting this deep as well.
@@ -298,6 +302,15 @@ def validate_rulespec_proofs(
         return ProofValidationResult(
             passed=True,
             issues=[],
+            atoms_checked=0,
+            proof_required=False,
+        )
+    if merge_key_issues:
+        # The payload holds the merged keys, which the engine never reads, so
+        # checking it would validate a different module from the compiled one.
+        return ProofValidationResult(
+            passed=False,
+            issues=[*interpretation_yaml_issues, *merge_key_issues],
             atoms_checked=0,
             proof_required=False,
         )
@@ -429,6 +442,33 @@ def find_unsupported_yaml_tag_issues(content: str) -> list[str]:
         loader.dispose()
 
 
+def find_yaml_merge_key_issues(content: str) -> list[str]:
+    """Report YAML merge keys in a RuleSpec module that the engine does not apply.
+
+    PyYAML applies a merge key (a plain `<<`, or any key tagged `!!merge`) by
+    copying the merged mapping's keys into the mapping that holds it. Engine
+    ``1aabc8383`` never applies merges: `<<` is an ordinary key to it, ignored
+    in a rule or version and rejected in `module.source_verification`. So a
+    rule written ``- <<: *base`` passes the proof gate while the engine rejects
+    it or compiles it without the merged fields, and a load-and-dump rewrite
+    writes the merged fields out and changes what the engine compiles.
+
+    A rule's `metadata` is the exception. The engine never reads it, and real
+    modules merge shared proof sources there, so a merge key is reported only
+    in a mapping reached by some path from the document root that does not run
+    through `rules[i].metadata`. Companion tests are not modules: only PyYAML
+    reads them, so callers do not scan them.
+
+    YAML parse errors propagate so callers can keep their parser diagnostics.
+    """
+
+    loader = _ExplicitTagComposer(content)
+    try:
+        return _merge_key_issues(loader.get_single_node())
+    finally:
+        loader.dispose()
+
+
 _YAML_STR_TAG = "tag:yaml.org,2002:str"
 _YAML_MAP_TAG = "tag:yaml.org,2002:map"
 _YAML_SEQ_TAG = "tag:yaml.org,2002:seq"
@@ -476,15 +516,15 @@ class _ExplicitTagComposer(yaml.SafeLoader):
 
 def _safe_load_with_raw_constraints(
     content: str,
-) -> tuple[Any, list[str], dict[str, Any], list[str]]:
+) -> tuple[Any, list[str], dict[str, Any], list[str], list[str]]:
     """Safe-load once, inspecting the raw nodes before construction.
 
     Construction flattens merge keys in the composed nodes, so the raw scans
     run first. Returns the payload, the interpretation issues and numeric id
-    paths, and the unsupported-tag issues for nodes the interpretation scan
-    does not already check. A document with unsupported tags is not
-    constructed, because some of those tags make construction raise; otherwise
-    the payload is exactly what ``yaml.safe_load`` returns.
+    paths, the unsupported-tag issues for nodes the interpretation scan does
+    not already check, and the merge-key issues. A document with unsupported
+    tags is not constructed, because some of those tags make construction
+    raise; otherwise the payload is exactly what ``yaml.safe_load`` returns.
     """
 
     loader = _ExplicitTagComposer(content)
@@ -497,6 +537,7 @@ def _safe_load_with_raw_constraints(
         tag_issues = _unsupported_tag_issues(
             root, loader.explicit_tags, skip=interpretation_nodes
         )
+        merge_issues = _merge_key_issues(root)
         try:
             payload = (
                 loader.construct_document(root)
@@ -507,7 +548,7 @@ def _safe_load_with_raw_constraints(
             raise _RawConstraintConstructionError(issues) from exc
     finally:
         loader.dispose()
-    return payload, issues, numeric_id_paths, tag_issues
+    return payload, issues, numeric_id_paths, tag_issues, merge_issues
 
 
 class _RawConstraintConstructionError(ValueError):
@@ -558,48 +599,19 @@ def _mapping_tag_issue(
     )
 
 
-def _merge_key_supplying(node: yaml.MappingNode, name: str) -> yaml.Node | None:
-    """The merge key in ``node`` that would copy ``name`` into it on load.
-
-    PyYAML applies merge keys, including nested and sequence merges, whatever
-    kind of node the key is. The engine does not apply them, so a field
-    supplied this way is invisible to the engine until a load-and-dump rewrite
-    flattens it.
-    """
-
-    for merge_key, merge_value in node.value:
-        if merge_key.tag != _YAML_MERGE_TAG:
-            continue
-        pending = [merge_value]
-        seen: set[int] = set()
-        while pending:
-            source = pending.pop()
-            if id(source) in seen:
-                continue
-            seen.add(id(source))
-            if isinstance(source, yaml.SequenceNode):
-                pending.extend(source.value)
-            elif isinstance(source, yaml.MappingNode):
-                for key, value in source.value:
-                    if key.tag == _YAML_MERGE_TAG:
-                        pending.append(value)
-                    elif isinstance(key, yaml.ScalarNode) and key.value == name:
-                        return merge_key
-    return None
-
-
 def _interpretation_node_constraints(
     root: yaml.Node | None,
     explicit_tags: Mapping[int, str],
     *,
     inspected: set[int] | None = None,
-) -> tuple[list[str], set[str]]:
+) -> tuple[list[str], dict[str, Any]]:
     """Inspect raw interpretation nodes before PyYAML discards their spelling.
 
     The engine uses YAML 1.2 numeric resolution, whereas PyYAML leaves some
     plain exponent and octal scalars as strings. The composed nodes keep
-    quoting, explicit tags, duplicate mapping keys, and merge keys. Every
-    root `module` block is scanned, because loading keeps only the last one.
+    quoting, explicit tags and duplicate mapping keys; merge keys are left to
+    ``_merge_key_issues``. Every root `module` block is scanned, because
+    loading keeps only the last one.
     When given, ``inspected`` receives the identity of every node whose tag
     this scan checks.
     """
@@ -622,11 +634,6 @@ def _interpretation_node_constraints(
         issues.append(
             f"RuleSpec root has duplicate key `module`{_at(modules[1][0].start_mark)}."
         )
-    if (merge_key := _merge_key_supplying(root, "module")) is not None:
-        issues.append(
-            "RuleSpec root must not supply `module` through YAML merge keys"
-            f"{_at(merge_key.start_mark)}; the engine does not apply them."
-        )
     stack: list[tuple[str, yaml.Node]] = [
         ("RuleSpec root key `module`", key) for key, _module in modules
     ]
@@ -644,11 +651,6 @@ def _interpretation_node_constraints(
             issues.append(
                 "module has duplicate key `interpretations`"
                 f"{_at(interpretations[1][0].start_mark)}."
-            )
-        if (merge_key := _merge_key_supplying(module, "interpretations")) is not None:
-            issues.append(
-                "module must not supply `interpretations` through YAML merge keys"
-                f"{_at(merge_key.start_mark)}; the engine does not apply them."
             )
         stack.extend(
             ("module.interpretations", value) for _field, value in interpretations
@@ -677,15 +679,14 @@ def _interpretation_node_constraints(
             seen_keys: set[str] = set()
             for key, value in node.value:
                 if not isinstance(key, yaml.ScalarNode):
-                    # PyYAML applies a merge through any key tagged `!!merge`,
-                    # and a tagged collection key can load as a string, so
-                    # refuse the key and scan what it holds.
-                    issues.append(
-                        f"{location} must not use YAML merge keys{_at(key.start_mark)}."
-                        if key.tag == _YAML_MERGE_TAG
-                        else f"{location} must use plain string keys; the key"
-                        f"{_at(key.start_mark)} is a collection."
-                    )
+                    # A tagged collection key can load as a string, so refuse
+                    # it and scan what it holds. A `!!merge` key of any form is
+                    # left to `_merge_key_issues`, like `<<`.
+                    if key.tag != _YAML_MERGE_TAG:
+                        issues.append(
+                            f"{location} must use plain string keys; the key"
+                            f"{_at(key.start_mark)} is a collection."
+                        )
                     stack.append((f"{location} key", key))
                     stack.append((f"{location}.?", value))
                     continue
@@ -695,10 +696,6 @@ def _interpretation_node_constraints(
                         f"{_at(key.start_mark)}."
                     )
                 seen_keys.add(key.value)
-                if key.value == "<<":
-                    issues.append(
-                        f"{location} must not use YAML merge keys{_at(key.start_mark)}."
-                    )
                 child = f"{location}.{key.value}"
                 stack.append((f"{location} key `{key.value}`", key))
                 stack.append((child, value))
@@ -830,6 +827,88 @@ def _unsupported_tag_explanation(node: yaml.Node, tag: str) -> str | None:
         "`!!null` as null whatever the text, and PyYAML resolves `! '0.1'` as the "
         "number 0.1, while the engine reads the text or rejects it."
     )
+
+
+_MERGE_KEY_REASON = (
+    "PyYAML copies the merged keys into this mapping, but the engine does not "
+    "apply merge keys and reads only the keys written here. Write the merged "
+    "keys out; merge keys are allowed only inside a rule's `metadata`, which "
+    "the engine does not read."
+)
+
+
+def _merge_key_issues(root: yaml.Node | None) -> list[str]:
+    """Merge keys in ``root`` that PyYAML applies and the engine does not.
+
+    Each node is walked once per role: the document root, its `rules`
+    sequence, a rule, a rule's `metadata` with everything below it (where
+    merges are allowed), or any other node. A node reached in more than one
+    role is checked in each, so a mapping anchored in `metadata` and aliased
+    into `versions` is still reported. Each merge key is reported once.
+    """
+
+    found: dict[int, tuple[int, int, str]] = {}
+    seen: set[tuple[int, str]] = set()
+    stack: list[tuple[str, yaml.Node, str]] = (
+        [] if root is None else [("document root", root, "root")]
+    )
+    while stack:
+        location, node, role = stack.pop()
+        if (id(node), role) in seen:
+            continue
+        seen.add((id(node), role))
+        children: list[tuple[str, yaml.Node, str]] = []
+        if isinstance(node, yaml.SequenceNode):
+            item_role = {"rules": "rule", "metadata": "metadata"}.get(role, "other")
+            children = [
+                (_raw_child_location(location, f"[{index}]"), value, item_role)
+                for index, value in enumerate(node.value)
+            ]
+        elif isinstance(node, yaml.MappingNode):
+            for key, value in node.value:
+                label = (
+                    _raw_tag_label(key.value)
+                    if isinstance(key, yaml.ScalarNode)
+                    else "?"
+                )
+                if (
+                    key.tag == _YAML_MERGE_TAG
+                    and role != "metadata"
+                    and id(key) not in found
+                ):
+                    spelling = (
+                        "is a YAML merge key"
+                        if key.value == "<<"
+                        else "is tagged as a YAML merge key"
+                    )
+                    mark = key.start_mark
+                    found[id(key)] = (
+                        mark.line,
+                        mark.column,
+                        f"{location} key `{label}` {spelling} at line "
+                        f"{mark.line + 1}, column {mark.column + 1}: "
+                        f"{_MERGE_KEY_REASON}",
+                    )
+                field = key.value if key.tag == _YAML_STR_TAG else None
+                if role == "metadata" or (role == "rule" and field == "metadata"):
+                    value_role = "metadata"
+                elif role == "root" and field == "rules":
+                    value_role = "rules"
+                else:
+                    value_role = "other"
+                key_role = "metadata" if role == "metadata" else "other"
+                children.append((f"{location} key `{label}`", key, key_role))
+                children.append(
+                    (_raw_child_location(location, f".{label}"), value, value_role)
+                )
+        stack.extend(reversed(children))
+    ordered = sorted(found.values(), key=lambda item: (item[0], item[1]))
+    issues = [issue for _line, _column, issue in ordered[:_RAW_TAG_ISSUE_LIMIT]]
+    if len(ordered) > _RAW_TAG_ISSUE_LIMIT:
+        issues.append(
+            f"{len(ordered) - _RAW_TAG_ISSUE_LIMIT} more YAML merge key(s) not shown."
+        )
+    return issues
 
 
 def _short_yaml_tag(tag: str) -> str:

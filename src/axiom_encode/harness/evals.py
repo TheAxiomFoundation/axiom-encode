@@ -144,6 +144,7 @@ from .pricing import estimate_usage_cost_usd
 from .proof_validator import (
     find_interpretation_yaml_issues,
     find_unsupported_yaml_tag_issues,
+    find_yaml_merge_key_issues,
 )
 from .source_completeness import (
     _rulespec_target_base,
@@ -199,6 +200,9 @@ _DUPLICATE_KEY_SCAN_RESOURCE_ISSUE = (
 _TAG_SCAN_RESOURCE_ISSUE = (
     "YAML nesting is too deep to check for unsupported tags, so the file is "
     "not rewritten."
+)
+_MERGE_KEY_SCAN_RESOURCE_ISSUE = (
+    "YAML nesting is too deep to check for merge keys, so the file is not rewritten."
 )
 
 
@@ -8906,14 +8910,16 @@ def _apply_generated_eval_repairs(
     """Apply deterministic generated-artifact repairs before final eval scoring."""
     repairs: list[str] = []
     # Several repairs load and dump the module or its tests, which would erase
-    # all but the last of two equal keys, change type-changing tags, or raise;
-    # validation already rejects all three.
+    # all but the last of two equal keys, change type-changing tags, raise, or
+    # write out the module's merge keys; validation already rejects all four.
     for artifact in (rulespec_file, _rulespec_test_path(rulespec_file)):
         try:
             artifact_content = artifact.read_text() if artifact.is_file() else ""
         except (OSError, UnicodeError):
             continue
-        if _rewrite_would_change_yaml(artifact_content):
+        if _rewrite_would_change_yaml(artifact_content) or (
+            artifact == rulespec_file and _rewrite_merge_key_issues(artifact_content)
+        ):
             return repairs
     proof_repairs = _remove_unreferenced_proof_import_atoms(rulespec_file, issues)
     repairs.extend(f"proof_import:{name}" for name in proof_repairs)
@@ -17075,9 +17081,9 @@ def _normalize_main_eval_content(
         # so the repairs below could still load and dump text it could not
         # check. Normalize the text only; validation reports the nesting.
         return _normalize_rulespec_content(content)
-    if _rewrite_would_change_yaml(content):
-        # Textual normalization only: it keeps every key and tag and still
-        # refuses text that is not RuleSpec.
+    if _rewrite_would_change_yaml(content) or _rewrite_merge_key_issues(content):
+        # Textual normalization only: it keeps every key, tag and merge key and
+        # still refuses text that is not RuleSpec.
         return _normalize_rulespec_content(content)
     normalized = _normalize_rulespec_content(content)
     normalized, _lifted_inputs = _repair_misplaced_module_inputs(normalized)
@@ -17161,6 +17167,21 @@ def _rewrite_unsupported_tag_issues(content: str) -> list[str]:
         return []
     except RecursionError:
         return [_TAG_SCAN_RESOURCE_ISSUE]
+    except ValueError:
+        return [_UNLOADABLE_YAML_ISSUE]
+
+
+def _rewrite_merge_key_issues(content: str) -> list[str]:
+    """Merge keys that rewriting the module ``content`` would write out."""
+
+    try:
+        return find_yaml_merge_key_issues(content)
+    except yaml.YAMLError:
+        # Callers keep their own handling of unparseable text.
+        return []
+    except RecursionError:
+        # Like its sibling checks: text it cannot scan is not rewritten.
+        return [_MERGE_KEY_SCAN_RESOURCE_ISSUE]
     except ValueError:
         return [_UNLOADABLE_YAML_ISSUE]
 
@@ -18739,6 +18760,12 @@ def _generated_overlay_raw_issue(content: str) -> str | None:
         return "generated repair overlay has unsupported YAML tags: " + "; ".join(
             tag_issues
         )
+    merge_key_issues = find_yaml_merge_key_issues(content)
+    if merge_key_issues:
+        return (
+            "generated repair overlay has YAML merge keys the engine does not "
+            "apply: " + "; ".join(merge_key_issues)
+        )
     return None
 
 
@@ -18806,6 +18833,13 @@ def _overlay_validation_retry_candidate(
                 "preserved repair overlay tests have unsupported YAML tags: "
                 + "; ".join(preserved_tag_issues)
             )
+    # The engine does not apply merge keys; the rewrite would write them out.
+    preserved_merge_key_issues = _rewrite_merge_key_issues(candidate.rulespec)
+    if preserved_merge_key_issues:
+        raise _PreservedRepairOverlayError(
+            "preserved repair overlay has YAML merge keys the engine does not "
+            "apply: " + "; ".join(preserved_merge_key_issues)
+        )
     base_issue = _repair_overlay_candidate_base_issue(candidate)
     if base_issue is not None:
         raise _PreservedRepairOverlayError(base_issue)
