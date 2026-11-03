@@ -277,6 +277,12 @@ def test_the_companion_loader_applies_merges_as_pyyaml_does(content):
         ),
         pytest.param("case: {1: a, 1.0: b}\n", 1.0, 1, id="equal-loaded-keys"),
         pytest.param("case: {a: 1, 'a': 2}\n", "a", 1, id="quoted-spelling"),
+        pytest.param(
+            "case:\n  a: 1\n  ? !!str {=: a}\n  : 2\n",
+            "a",
+            3,
+            id="collection-key-that-loads-as-a-string",
+        ),
     ],
 )
 def test_the_companion_loader_rejects_two_equal_keys_in_one_mapping(content, key, line):

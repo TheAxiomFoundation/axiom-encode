@@ -450,17 +450,22 @@ def _reject_keys_repeated_before_merging(
             keys: set[Any] = set()
             for key_node, value_node in node.value:
                 children.extend((key_node, value_node))
-                if (
-                    not isinstance(key_node, yaml.ScalarNode)
-                    or key_node.tag == _YAML_MERGE_TAG
-                ):
+                if key_node.tag == _YAML_MERGE_TAG:
                     continue
                 key = (
                     key_node.value
-                    if key_node.tag == _YAML_VALUE_TAG
+                    if isinstance(key_node, yaml.ScalarNode)
+                    and key_node.tag == _YAML_VALUE_TAG
                     else loader.construct_object(key_node, deep=True)
                 )
-                if key in keys:
+                try:
+                    duplicate = key in keys
+                except TypeError:
+                    # Loading rejects an unhashable collection key itself. A
+                    # collection key can also load as a string, as
+                    # `? !!str {=: rules}` loads as `rules`; that one is compared.
+                    continue
+                if duplicate:
                     raise yaml.constructor.ConstructorError(
                         "while constructing a mapping",
                         node.start_mark,
