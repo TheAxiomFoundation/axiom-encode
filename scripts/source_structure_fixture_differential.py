@@ -21,8 +21,9 @@ longer than the limit and ``--max-sentences`` caps the sentences gated in one
 text; the output records every skipped input and every capped text.
 
 ``--root`` may name any directory, such as a checkout of a pinned corpus;
-``--glob`` then chooses its source texts. Paths in the output stay relative
-to that root.
+``--glob`` then chooses its source texts and ``--jsonl-glob`` its corpus row
+files, whose rows' ``body`` and ``citation_path`` become one input each.
+Paths in the output stay relative to that root.
 """
 
 from __future__ import annotations
@@ -189,16 +190,51 @@ def _selected(items: list[Path], shard: str | None) -> list[Path]:
     return items[index - 1 :: count]
 
 
+def _inputs(args: argparse.Namespace, root: Path) -> list[tuple[str, Path | None]]:
+    """Name every input: text files, then each row of the JSONL corpus files."""
+
+    globs = args.glob if args.glob or args.jsonl_glob else DEFAULT_GLOBS
+    texts = sorted({path for pattern in globs or () for path in root.glob(pattern)})
+    inputs: list[tuple[str, Path | None]] = [
+        (path.relative_to(root).as_posix(), path) for path in texts if path.is_file()
+    ]
+    rows = sorted(
+        {path for pattern in args.jsonl_glob or () for path in root.glob(pattern)}
+    )
+    for path in rows:
+        if not path.is_file():
+            continue
+        with path.open(encoding="utf-8") as handle:
+            for line_number, _ in enumerate(handle, start=1):
+                inputs.append(
+                    (f"{path.relative_to(root).as_posix()}:{line_number}", None)
+                )
+    return inputs
+
+
+def _input_text(root: Path, key: str, path: Path | None) -> tuple[str, str] | None:
+    """Return (text, citation) for one input, or None for a row without a body."""
+
+    if path is not None:
+        return path.read_text(errors="replace"), _citation_for(path, root)
+    relative, line_number = key.rsplit(":", 1)
+    lines = _jsonl_lines(root / relative)
+    record = json.loads(lines[int(line_number) - 1])
+    body = record.get("body") if isinstance(record, dict) else None
+    if not isinstance(body, str) or not body.strip():
+        return None
+    return body, str(record.get("citation_path") or "")
+
+
+@functools.lru_cache(maxsize=1)
+def _jsonl_lines(path: Path) -> tuple[str, ...]:
+    """Read one corpus file once; its rows are consecutive inputs."""
+
+    return tuple(path.read_text(encoding="utf-8").splitlines())
+
+
 def collect(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve()
-    texts = sorted(
-        {
-            path
-            for pattern in (args.glob or DEFAULT_GLOBS)
-            for path in root.glob(pattern)
-        }
-    )
-    texts = [path for path in texts if path.is_file()]
     output: dict[str, Any] = {
         "root_relative_inputs": True,
         "max_chars": args.max_chars,
@@ -209,13 +245,15 @@ def collect(args: argparse.Namespace) -> int:
         "capped": [],
         "errors": {},
     }
-    for path in _selected(texts, args.shard):
-        relative = path.relative_to(root).as_posix()
-        text = path.read_text(errors="replace")
+    for relative, path in _selected(_inputs(args, root), args.shard):
+        loaded = _input_text(root, relative, path)
+        if loaded is None:
+            output["skipped"][relative] = "no body"
+            continue
+        text, citation = loaded
         if len(text) > args.max_chars:
             output["skipped"][relative] = f"{len(text)} characters"
             continue
-        citation = _citation_for(path, root)
         try:
             verdicts, capped = text_verdicts(
                 text, citation=citation, max_sentences=args.max_sentences
@@ -226,7 +264,7 @@ def collect(args: argparse.Namespace) -> int:
         output["texts"][relative] = {"citation": citation, **verdicts}
         if capped:
             output["capped"].append(relative)
-        if args.skip_candidates:
+        if args.skip_candidates or path is None:
             continue
         for name in CANDIDATE_NAMES:
             candidate = path.with_name(name)
@@ -336,6 +374,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     collect_parser.add_argument("--root", default=str(Path(__file__).parents[1]))
     collect_parser.add_argument("--glob", action="append")
+    collect_parser.add_argument(
+        "--jsonl-glob",
+        action="append",
+        help="corpus JSONL files; each row's body is one input, named file:line",
+    )
     collect_parser.add_argument("--output", required=True)
     collect_parser.add_argument("--shard", help="k/N: every Nth input, from the kth")
     collect_parser.add_argument("--max-chars", type=int, default=200_000)

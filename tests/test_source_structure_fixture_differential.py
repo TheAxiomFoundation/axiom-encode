@@ -98,3 +98,34 @@ def test_counts_bound_the_work_and_every_skip_is_recorded(tmp_path):
         ]
     )
     assert json.loads(output.read_text())["skipped"] == {"long.txt": "50 characters"}
+
+
+def test_corpus_rows_are_inputs_with_their_own_citations(tmp_path):
+    root = tmp_path / "corpus"
+    root.mkdir()
+    rows = [
+        {"citation_path": "us-co/statute/39/39-22-2003", "body": SOURCE},
+        {"citation_path": "us-co/statute/39/39-22-2004", "body": " "},
+    ]
+    (root / "title-39.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows)
+    )
+    output = tmp_path / "rows.json"
+    DIFFERENTIAL.main(
+        [
+            "collect",
+            "--root",
+            str(root),
+            "--jsonl-glob",
+            "*.jsonl",
+            "--output",
+            str(output),
+        ]
+    )
+    collected = json.loads(output.read_text())
+    assert set(collected["texts"]) == {"title-39.jsonl:1"}
+    assert (
+        collected["texts"]["title-39.jsonl:1"]["citation"]
+        == "us-co/statute/39/39-22-2003"
+    )
+    assert collected["skipped"] == {"title-39.jsonl:2": "no body"}
