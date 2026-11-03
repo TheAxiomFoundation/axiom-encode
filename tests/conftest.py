@@ -24,6 +24,7 @@ from axiom_encode import (
 )
 from axiom_encode import signing_broker as _signing_broker
 from tests import ci_shards
+from tests import paired_condition_audit as _paired_condition_audit_plugin
 from tests import real_engine as _real_engine_plugin
 from tests.release_object_fixtures import TEST_RELEASE_PUBLIC_KEY
 from tests.signing_broker_fixtures import SigningBrokerFixture
@@ -35,6 +36,12 @@ def pytest_configure(config):
     # a module can hold only one function per hook name, so register it as a plugin.
     if not config.pluginmanager.is_registered(_real_engine_plugin):
         config.pluginmanager.register(_real_engine_plugin, "axiom-encode-real-engine")
+    # Every analyzer verdict the per-part condition witness changes must be
+    # reviewed; see tests/paired_condition_audit.py.
+    if not config.pluginmanager.is_registered(_paired_condition_audit_plugin):
+        config.pluginmanager.register(
+            _paired_condition_audit_plugin, "axiom-encode-paired-condition-audit"
+        )
 
 
 # This session's CI shard, once collection has chosen its tests; absent when unsharded.

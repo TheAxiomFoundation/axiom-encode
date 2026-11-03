@@ -20575,7 +20575,20 @@ def _companion_test_issues(
         # Manual procedure needs no paired witnesses either.
         numeric_limits_only=_is_us_manual_citation_path(corpus_citation_path),
     )
-    if exception_branches:
+    from . import paired_condition_witness as condition_parts
+
+    # The cues above omit ``provided``; read those clauses with the same filters.
+    proviso_branches = condition_parts.proviso_condition_branches(
+        source_text,
+        branches=branches,
+        active_branches=active_branches,
+        deferred_paths=deferred_paths,
+        deferred_clauses=deferred_clauses,
+        formula_branches=formula_branches,
+        numeric_limits_only=_is_us_manual_citation_path(corpus_citation_path),
+        exception_branches=exception_branches,
+    )
+    if exception_branches or proviso_branches:
         independently_covered_paths = {
             path
             for paths in principal_rule_paths.values()
@@ -20585,6 +20598,15 @@ def _companion_test_issues(
         paired_exception_branches = tuple(
             branch
             for branch in exception_branches
+            if _source_exception_requires_paired_witness(
+                branch.text,
+                branch_path=branch.path,
+                independently_covered_paths=independently_covered_paths,
+            )
+        )
+        paired_proviso_branches = tuple(
+            branch
+            for branch in proviso_branches
             if _source_exception_requires_paired_witness(
                 branch.text,
                 branch_path=branch.path,
@@ -20619,6 +20641,29 @@ def _companion_test_issues(
             asserted_by_rule=asserted_by_rule,
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
+        )
+        # One pair per clause lets one toggled part stand for a compound or
+        # inclusive condition. Each readable part must have its own pair; this
+        # only adds demands, so nothing the clause witness refused passes.
+        condition_part_gaps = condition_parts.condition_part_gaps(
+            (*paired_exception_branches, *paired_proviso_branches),
+            principal_rules=principal_rules,
+            principal_rule_paths=principal_rule_paths,
+            asserted_by_rule=asserted_by_rule,
+            formula_environment=formula_environment,
+            toggled_exception_selectors=toggled_exception_selectors,
+        )
+        missing_spans = {
+            (branch.start, branch.end) for branch in missing_exception_branches
+        }
+        added_condition_part_gaps = tuple(
+            gap
+            for gap in condition_part_gaps
+            if (gap.branch.start, gap.branch.end) not in missing_spans
+        )
+        missing_exception_branches = (
+            *missing_exception_branches,
+            *(gap.branch for gap in added_condition_part_gaps),
         )
         if execution_evidence is not None and partnership_content is not None:
             from .floor_retained_referral_evidence import (
@@ -20841,6 +20886,24 @@ def _companion_test_issues(
                 f"{_bounded_source_feedback_excerpt(branch.text, limit=220)}`"
                 for branch in missing_exception_branches
             )
+            refused_condition_parts = tuple(
+                gap
+                for gap in added_condition_part_gaps
+                if gap.branch in missing_exception_branches
+            )
+            condition_parts.note_refused_parts(refused_condition_parts)
+            condition_part_feedback = (
+                " Each part of a compound or inclusive condition needs its own "
+                "pair: "
+                + "; ".join(
+                    condition_parts.describe_part(part)
+                    for gap in refused_condition_parts
+                    for part in gap.parts
+                )
+                + "."
+                if refused_condition_parts
+                else ""
+            )
             issues.append(
                 "[complete-source-unit:tests] Source-stated exceptions or "
                 "applicability conditions require paired positive/blocking cases "
@@ -20848,7 +20911,7 @@ def _companion_test_issues(
                 "controlling formula selector. Each listed condition needs its "
                 "own same-period case pair differing in exactly that one input; "
                 f"missing: {missing_conditions}.{recognized_pair_feedback}"
-                f"{row_output_feedback}"
+                f"{condition_part_feedback}{row_output_feedback}"
             )
         missing_unconditional_branches = _unmatched_evidence_obligations(
             {
