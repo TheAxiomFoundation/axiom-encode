@@ -86,6 +86,30 @@ def test_statutes_at_large_mask_never_crosses_a_line(source):
     )
 
 
+@pytest.mark.parametrize(
+    "citation", ("(49\nStat. 620)", "(49 Stat.\n620)", "(49\r\nStat. 620)")
+)
+def test_line_broken_statutes_at_large_citation_keeps_its_values_in_recall(citation):
+    """A citation broken across lines is not masked by the recall text (#1828).
+
+    The same-line control shows the mask is live in this jurisdiction, so the
+    broken case keeps its values because the mask declines it, not because the
+    mask never runs.
+    """
+
+    prefix = "The Social Security Act "
+    suffix = " applies."
+    same_line = f"{prefix}(49 Stat. 620){suffix}"
+    broken = f"{prefix}{citation}{suffix}"
+
+    assert not _values(same_line, AZ_SECTION) & {49, 620}
+    recall_text = completeness.authoritative_numeric_recall_text(
+        broken, corpus_citation_path=AZ_SECTION
+    )
+    assert "49" in recall_text and "620" in recall_text
+    assert {49, 620} <= _values(broken, AZ_SECTION)
+
+
 def test_manual_page_and_revision_masks_keep_operative_values():
     assert _values(
         "93 (07/2026) Chapter 2: Eligibility\nThe payment is $93 and $2026.",

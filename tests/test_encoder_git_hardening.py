@@ -16,6 +16,7 @@ from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import cli
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 from tests.test_encoder_manifest_ancestry import (
     _expected,
     _git,
@@ -486,7 +487,7 @@ def test_guard_git_queries_leave_no_graft_deprecation_hint_on_stderr(
         [shutil.which("git") or "git", "-C", str(history.root), "rev-list", "HEAD"],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=HANG_TIMEOUT_SECONDS,
         env=control_environment,
     )
     assert control.returncode == 0, control.stderr
@@ -748,7 +749,7 @@ def test_shallow_encoder_history_cannot_admit_a_newer_producer(tmp_path, depth):
             str(shallow),
         ],
         check=True,
-        timeout=60,
+        timeout=HANG_TIMEOUT_SECONDS,
     )
 
     assert cli._encoder_git_history_admission_issue(
