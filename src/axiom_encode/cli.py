@@ -307,6 +307,8 @@ from .harness.validator_pipeline import (
     _filing_status_rule_source_context,
     _has_malformed_profiled_numeric_envelope,
     _is_executable_rulespec_rule,
+    _is_structural_selector_result_literal,
+    _is_structural_selector_rule,
     _matching_delegated_setting_rule_names,
     _normalize_rulespec_dependency_roots,
     _normalize_validation_staging_text,
@@ -319,6 +321,8 @@ from .harness.validator_pipeline import (
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
     _rulespec_import_prefix_static,
+    _rulespec_index_selector_keys,
+    _rulespec_index_selectors,
     _rulespec_payload_from_file,
     _rulespec_public_item_keys,
     _rulespec_repo_prefix,
@@ -1720,9 +1724,11 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     from .ci_parity import register_ci_parser
+    from .harness.admission_cli import register_admission_score_parser
     from .new_jurisdiction import register_new_jurisdiction_parser
 
     register_ci_parser(subparsers)
+    register_admission_score_parser(subparsers)
     register_new_jurisdiction_parser(subparsers)
 
     # validate command
@@ -3502,6 +3508,16 @@ def main():
         action="store_true",
         help="Emit machine-readable JSON summary",
     )
+    eval_suite_parser.add_argument(
+        "--admission-score",
+        action="store_true",
+        help="Record production admission beside the four readiness gates",
+    )
+    eval_suite_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for admission of compositions",
+    )
     _add_policyengine_runtime_root_argument(eval_suite_parser)
 
     eval_suite_revalidate_parser = subparsers.add_parser(
@@ -3923,6 +3939,10 @@ def main():
         cmd_eval_source(args)
     elif args.command == "eval-suite":
         cmd_eval_suite(args)
+    elif args.command == "admission-score":
+        from .harness.admission_cli import run_admission_score
+
+        sys.exit(run_admission_score(args))
     elif args.command == "eval-suite-revalidate":
         cmd_eval_suite_revalidate(args)
     elif args.command == "eval-suite-report":
@@ -4415,6 +4435,13 @@ def _fingerprint_validation_waiver_modules(
     `ValidatorPipeline.validate` opens its own fresh resolution scope, so
     every fingerprint equals the module's standalone value regardless of
     batch composition or worker fan-out.
+
+    The batch does share one `LocalCorpusRelease`, whose corpus resolution
+    cache persists across modules. Unlike the filesystem admissions above,
+    every value it retains is a pure function of release-verified bytes and
+    its lookup key, and nothing that failed to load is retained, so reuse
+    cannot change a message or a fingerprint
+    (tests/test_validator_corpus_cache.py).
     """
 
     with _rulespec_routing_cache_scope():
@@ -39752,6 +39779,43 @@ def _rule_mentions_assistance_group(rule: dict[str, Any]) -> bool:
     return "assistance_group" in haystack or "assistance group" in haystack
 
 
+def _embedded_scalar_record_is_selector_label(
+    rules: list[Any],
+    rule: dict[str, Any],
+    *,
+    literal: str,
+    expression: str,
+) -> bool:
+    """Whether the reported literal is, on that line, a selector's row label.
+
+    A selector's result labels a row of the tables it indexes. Lifted into a
+    named parameter it would claim a value the source never prints, and no
+    proof could ground it. The repair rewrites every occurrence of the literal
+    on the line, so one label occurrence is enough to leave the line alone; a
+    substantive twin of the label then stays reported instead of being lifted
+    together with it.
+    """
+    selector_table_keys = _rulespec_index_selector_keys(rules)
+    if not _is_structural_selector_rule(
+        rule,
+        index_selectors=_rulespec_index_selectors(rules, selector_table_keys),
+    ):
+        return False
+    selector_keys = selector_table_keys.get(str(rule.get("name") or "").strip())
+    return any(
+        _is_structural_selector_result_literal(
+            expression,
+            literal,
+            selector_keys,
+            span=match.span(),
+        )
+        for match in re.finditer(
+            rf"(?<![\w.]){re.escape(literal)}(?![\w.])",
+            expression,
+        )
+    )
+
+
 def _extract_embedded_scalar_literal_record(
     rules: list[Any],
     record: dict[str, str],
@@ -39769,6 +39833,10 @@ def _extract_embedded_scalar_literal_record(
             continue
         if str(rule.get("name") or "").strip() != rule_name:
             continue
+        if _embedded_scalar_record_is_selector_label(
+            rules, rule, literal=literal, expression=expression
+        ):
+            return None
         parameter_name = _embedded_scalar_parameter_name(
             rule_name,
             expression,
@@ -61493,8 +61561,100 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     amendment_source_texts: Mapping[str, str] | None = None,
     amendment_documents: Sequence[object] = (),
     retired_source_admission: dict[str, Any] | None = None,
+    validation_observer: Callable[[Sequence[tuple[Path, object]]], None] | None = None,
 ) -> tuple[bool, list[str], dict[Path, str]]:
-    """Validate generated artifacts in a temporary policy-repo overlay."""
+    """Validate and bind the successful overlay for the signed apply transaction.
+
+    The candidate check is shared with the admission scorer; only this entry
+    point records the apply validation snapshot, at the point it always has.
+    """
+
+    return _validate_generated_encoding_candidate_in_policy_overlay_with_release(
+        result,
+        output_root=output_root,
+        policy_repo_path=policy_repo_path,
+        axiom_rules_path=axiom_rules_path,
+        axiom_rules_engine_ref=axiom_rules_engine_ref,
+        axiom_compose_path=axiom_compose_path,
+        local_corpus_release=local_corpus_release,
+        validate_dependents=validate_dependents,
+        scheduled_dependent_rulespec_paths=scheduled_dependent_rulespec_paths,
+        rulespec_dependency_roots=rulespec_dependency_roots,
+        require_complete_source_unit=require_complete_source_unit,
+        deferred_output_review_contract=deferred_output_review_contract,
+        amendment_source_texts=amendment_source_texts,
+        amendment_documents=amendment_documents,
+        retired_source_admission=retired_source_admission,
+        validation_observer=validation_observer,
+        record_apply_snapshot=True,
+    )
+
+
+def _generated_artifact_guard_issue(
+    output_file: Path,
+    output_test: Path,
+    relative_output: Path,
+    generated_root: Path,
+) -> str | None:
+    """Why an artifact this generation wrote cannot be rewritten safely, if so.
+
+    Each artifact that is present must be a regular file with one name, inside
+    the generation output root. The checks stat paths and never open them.
+    """
+
+    for artifact in (output_file, output_test):
+        if not artifact.is_symlink() and not artifact.exists():
+            continue
+        if artifact.is_symlink() or not artifact.is_file():
+            return (
+                f"{relative_output}: generated artifact must be a regular "
+                f"file, not a link: {artifact.name}"
+            )
+        if _generated_artifact_is_multiply_linked(artifact):
+            return (
+                f"{relative_output}: generated artifact shares its bytes "
+                f"with another name (hard link); refusing to rewrite it: "
+                f"{artifact.name}"
+            )
+        if not _generated_artifact_is_contained_in(artifact, generated_root):
+            return (
+                f"{relative_output}: generated artifact resolves outside "
+                f"the generation output root: {artifact.name}"
+            )
+    return None
+
+
+def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    axiom_rules_path: Path,
+    axiom_rules_engine_ref: str | None = None,
+    axiom_compose_path: Path | None = None,
+    local_corpus_release: LocalCorpusRelease,
+    validate_dependents: bool = True,
+    scheduled_dependent_rulespec_paths: Sequence[Path] = (),
+    rulespec_dependency_roots: Sequence[Path] = (),
+    require_complete_source_unit: bool = False,
+    deferred_output_review_contract: _DeferredOutputReviewContract | None = None,
+    amendment_source_texts: Mapping[str, str] | None = None,
+    amendment_documents: Sequence[object] = (),
+    retired_source_admission: dict[str, Any] | None = None,
+    validation_observer: Callable[[Sequence[tuple[Path, object]]], None] | None = None,
+    normalize_staging_paths: bool = False,
+    record_apply_snapshot: bool = False,
+) -> tuple[bool, list[str], dict[Path, str]]:
+    """Validate generated artifacts in a temporary policy-repo overlay.
+
+    ``normalize_staging_paths`` replaces the temporary overlay root in the
+    returned issues with a fixed placeholder. The signed apply path leaves it
+    off, so its diagnostics (which also feed retry feedback) are unchanged;
+    the admission scorer turns it on so that its output is deterministic.
+
+    ``record_apply_snapshot`` records the signed apply transaction's
+    validation snapshot on success. Only the apply entry point sets it.
+    """
     amendment_documents = copy.deepcopy(tuple(amendment_documents))
     setattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
     expected_engine_binding = _pinned_apply_engine_binding(
@@ -61546,37 +61706,11 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     # changed.
     generated_root = Path(output_root) / str(getattr(result, "runner", "") or "")
     output_test = _rulespec_test_path(output_file)
-    for artifact in (output_file, output_test):
-        if not artifact.is_symlink() and not artifact.exists():
-            continue
-        if artifact.is_symlink() or not artifact.is_file():
-            return (
-                False,
-                [
-                    f"{relative_output}: generated artifact must be a regular "
-                    f"file, not a link: {artifact.name}"
-                ],
-                {},
-            )
-        if _generated_artifact_is_multiply_linked(artifact):
-            return (
-                False,
-                [
-                    f"{relative_output}: generated artifact shares its bytes "
-                    f"with another name (hard link); refusing to rewrite it: "
-                    f"{artifact.name}"
-                ],
-                {},
-            )
-        if not _generated_artifact_is_contained_in(artifact, generated_root):
-            return (
-                False,
-                [
-                    f"{relative_output}: generated artifact resolves outside "
-                    f"the generation output root: {artifact.name}"
-                ],
-                {},
-            )
+    artifact_issue = _generated_artifact_guard_issue(
+        output_file, output_test, relative_output, generated_root
+    )
+    if artifact_issue is not None:
+        return False, [artifact_issue], {}
     if vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None:
         _rewrite_generated_yaml_without_non_ascii_escapes(
             output_file,
@@ -61892,6 +62026,8 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             dependents=dependents,
         )
         for _ in range(_APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT):
+            if validation_observer is not None:
+                validation_observer(validations)
             if all(validation.all_passed for _, validation in validations):
                 exact_relative_paths = {
                     Path(*item.path.parts[1:])
@@ -62036,18 +62172,21 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                                 final_timing_issues,
                                 {},
                             )
-                    _record_successful_apply_validation(
-                        result,
-                        output_root=output_root,
-                        policy_repo_path=policy_repo_path,
-                        relative_output=relative_output,
-                        supplemental_files=supplemental_files,
-                        local_corpus_release=local_corpus_release,
-                        axiom_rules_path=axiom_rules_path,
-                        axiom_rules_engine_ref=axiom_rules_engine_ref,
-                        expected_engine_binding=expected_engine_binding,
-                        rulespec_dependency_roots=rulespec_dependency_roots,
-                    )
+                    if validation_observer is not None:
+                        validation_observer(validations)
+                    if record_apply_snapshot:
+                        _record_successful_apply_validation(
+                            result,
+                            output_root=output_root,
+                            policy_repo_path=policy_repo_path,
+                            relative_output=relative_output,
+                            supplemental_files=supplemental_files,
+                            local_corpus_release=local_corpus_release,
+                            axiom_rules_path=axiom_rules_path,
+                            axiom_rules_engine_ref=axiom_rules_engine_ref,
+                            expected_engine_binding=expected_engine_binding,
+                            rulespec_dependency_roots=rulespec_dependency_roots,
+                        )
                     return True, [], supplemental_files
             target_validation = next(
                 (
@@ -62403,6 +62542,8 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 overlay_target=overlay_target,
                 dependents=dependents,
             )
+        if validation_observer is not None:
+            validation_observer(validations)
         issues: list[str] = []
         for validated_file, validation in validations:
             if getattr(validation, "all_passed", False):
@@ -62433,6 +62574,15 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 + relative_output.as_posix(),
             )
         )
+        if normalize_staging_paths:
+            from .harness.validator_pipeline import (
+                _normalize_validation_staging_text,
+            )
+
+            issues = [
+                _normalize_validation_staging_text(issue, overlay_parent)
+                for issue in issues
+            ]
         return False, issues, {}
 
 
@@ -67239,6 +67389,8 @@ def _load_verified_eval_suite_artifacts(
     policyengine_runtime: PolicyEngineRuntime | None = None,
     revalidate_persisted_results: bool = True,
     suite_retry_attempts: int | None = None,
+    admission_score: bool | None = None,
+    axiom_compose_path: Path | None = None,
 ) -> dict[str, object]:
     """Load one suite output only after the harness validates every identity."""
 
@@ -67263,14 +67415,17 @@ def _load_verified_eval_suite_artifacts(
         max_bytes=256 * 1024 * 1024,
         required=False,
     )
-    if suite_retry_attempts is None:
+    if suite_retry_attempts is None or admission_score is None:
         try:
             persisted_run_state = json.loads((state_raw_before or b"").decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("suite-run.json is malformed") from exc
         if not isinstance(persisted_run_state, dict):
             raise ValueError("suite-run.json must contain a JSON object")
-        if persisted_run_state.get("status") != "completed":
+        if (
+            suite_retry_attempts is None
+            and persisted_run_state.get("status") != "completed"
+        ):
             raise ValueError(
                 "Incomplete eval-suite verification requires the current "
                 "suite_retry_attempts"
@@ -67286,10 +67441,20 @@ def _load_verified_eval_suite_artifacts(
             raise ValueError(
                 "suite-run.json has an inconsistent execution identity digest"
             )
-        suite_retry_attempts = _suite_retry_attempts_from_execution_identity(
-            persisted_identity,
-            artifact_name="suite-run.json execution identity",
-        )
+        if suite_retry_attempts is None:
+            suite_retry_attempts = _suite_retry_attempts_from_execution_identity(
+                persisted_identity,
+                artifact_name="suite-run.json execution identity",
+            )
+        if admission_score is None:
+            scoring_options = persisted_identity.get("admission_score")
+            admission_score = isinstance(scoring_options, dict) and (
+                scoring_options.get("enabled") is True
+            )
+            if admission_score and axiom_compose_path is None:
+                compose_identity = scoring_options.get("axiom_compose")
+                if isinstance(compose_identity, dict):
+                    axiom_compose_path = Path(compose_identity["path"])
     manifest_identity = _build_eval_suite_manifest_identity(manifest)
     rulespec_roots = _eval_suite_rulespec_roots(manifest, policy_repo_path)
     policyengine_cases = [
@@ -67312,6 +67477,14 @@ def _load_verified_eval_suite_artifacts(
         rulespec_roots,
         policyengine_runtime=policyengine_runtime if policyengine_cases else None,
         suite_retry_attempts=suite_retry_attempts,
+        **(
+            {
+                "admission_score": True,
+                "axiom_compose_path": axiom_compose_path,
+            }
+            if admission_score
+            else {}
+        ),
     )
     _run_id, _started_at, results, completed_case_indexes = (
         _load_eval_suite_resume_state(
@@ -67882,6 +68055,14 @@ def cmd_eval_suite(args):
                 corpus_release=corpus_release,
                 policyengine_runtime=policyengine_runtime,
                 resume_existing=resume_existing,
+                **(
+                    {
+                        "admission_score": True,
+                        "axiom_compose_path": getattr(args, "axiom_compose_path", None),
+                    }
+                    if getattr(args, "admission_score", False)
+                    else {}
+                ),
             )
         except KeyboardInterrupt:
             raise
@@ -67930,6 +68111,14 @@ def cmd_eval_suite(args):
             policyengine_runtime=policyengine_runtime,
             require_complete=False,
             suite_retry_attempts=_DEFAULT_SUITE_RETRY_ATTEMPTS,
+            admission_score=getattr(args, "admission_score", False),
+            **(
+                {
+                    "axiom_compose_path": getattr(args, "axiom_compose_path", None),
+                }
+                if getattr(args, "admission_score", False)
+                else {}
+            ),
         )
     except ValueError as exc:
         print(str(exc))
