@@ -23253,10 +23253,47 @@ def _mask_person_resource_type_description(text: str) -> str:
     return "".join(characters)
 
 
-def _classify_source_scope(text: str) -> str | None:
-    """Return a clear source scope, or None when the text is mixed/vague."""
+# `family Virginia adjusted gross income` (Va. Code § 58.1-339.8) is a defined
+# income aggregate over a return; its `family` names no eligibility unit
+# (#1842). Only the modifier of an adjusted-gross-income term is masked, and a
+# word between them must be a capitalized name (`Virginia`, `New York`),
+# `federal` or `modified`. `family income`, `the family's adjusted gross
+# income` and every other `family` keep their unit reading.
+_FAMILY_ADJUSTED_GROSS_INCOME_MODIFIER_PATTERN = re.compile(
+    r"\b(?P<modifier>(?i:family))\s+"
+    r"(?:(?:[A-Z][A-Za-z.'-]*\s+){1,3}|(?i:federal|modified)\s+)?"
+    r"(?i:adjusted\s+gross\s+income)\b"
+)
+
+
+def _mask_family_adjusted_gross_income_modifier(text: str) -> str:
+    """Hide the defined-term modifier without changing classification distances."""
+    characters = list(text)
+    for match in _FAMILY_ADJUSTED_GROSS_INCOME_MODIFIER_PATTERN.finditer(text):
+        start, end = match.span("modifier")
+        characters[start:end] = " " * (end - start)
+    return "".join(characters)
+
+
+def _source_scope_classification_text(
+    text: str, *, mask_defined_income_terms: bool
+) -> str:
     classification_text = _mask_person_resource_type_description(
         _mask_household_filing_statuses(text)
+    )
+    if mask_defined_income_terms:
+        classification_text = _mask_family_adjusted_gross_income_modifier(
+            classification_text
+        )
+    return classification_text
+
+
+def _classify_source_scope(
+    text: str, *, mask_defined_income_terms: bool = False
+) -> str | None:
+    """Return a clear source scope, or None when the text is mixed/vague."""
+    classification_text = _source_scope_classification_text(
+        text, mask_defined_income_terms=mask_defined_income_terms
     )
     person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(classification_text) is not None
     unit_scoped = (
@@ -23270,10 +23307,12 @@ def _classify_source_scope(text: str) -> str | None:
     return _SOURCE_SCOPE_PERSON if person_scoped else _SOURCE_SCOPE_UNIT
 
 
-def _classify_source_unit_entity(text: str) -> str | None:
+def _classify_source_unit_entity(
+    text: str, *, mask_defined_income_terms: bool = False
+) -> str | None:
     """Return a clear unit entity from source text, or None when generic/mixed."""
-    classification_text = _mask_person_resource_type_description(
-        _mask_household_filing_statuses(text)
+    classification_text = _source_scope_classification_text(
+        text, mask_defined_income_terms=mask_defined_income_terms
     )
     if _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(classification_text):
         return "taxunit"
@@ -23517,6 +23556,8 @@ def _rule_proof_source_contexts(rule: dict[str, Any]) -> list[tuple[str, str]]:
 def _rule_source_scope(
     rule: dict[str, Any],
     fallback_source_text: str,
+    *,
+    mask_defined_income_terms: bool = False,
 ) -> tuple[str, str | None] | None:
     source_texts = _rule_proof_source_excerpts(rule)
     if not source_texts and _rule_proof_source_contexts(rule):
@@ -23528,10 +23569,19 @@ def _rule_source_scope(
     classifications = [
         (
             scope,
-            _classify_source_unit_entity(text) if scope == _SOURCE_SCOPE_UNIT else None,
+            _classify_source_unit_entity(
+                text, mask_defined_income_terms=mask_defined_income_terms
+            )
+            if scope == _SOURCE_SCOPE_UNIT
+            else None,
         )
         for text in source_texts
-        if (scope := _classify_source_scope(text)) is not None
+        if (
+            scope := _classify_source_scope(
+                text, mask_defined_income_terms=mask_defined_income_terms
+            )
+        )
+        is not None
     ]
     scopes = {scope for scope, _unit_entity in classifications}
     if len(scopes) != 1:
@@ -23572,80 +23622,112 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
         kind = str(rule.get("kind") or "").strip().lower()
         if kind != "derived":
             continue
-        name = str(rule.get("name") or "").strip()
-        entity = str(rule.get("entity") or "").strip()
-        normalized_entity = entity.lower()
-        source_scope_record = _rule_source_scope(rule, source_text)
-        if source_scope_record is None:
-            continue
-        source_scope, source_unit_entity = source_scope_record
-        if (
-            source_scope == _SOURCE_SCOPE_PERSON
-            and normalized_entity in _UNIT_SCOPED_ENTITY_NAMES
-        ):
-            if _taxunit_money_rule_can_use_individual_tax_credit_amount_source(rule):
-                continue
-            issues.append(
-                "Source scope mismatch: "
-                f"`{name}` is declared on `{entity}`, but the embedded source "
-                "states an individual/person/member-scoped eligibility or "
-                "disqualification. Encode the rule at the person/member scope "
-                "or cite source text that states the unit-level test."
+
+        def scope_issue(mask_defined_income_terms: bool) -> str | None:
+            return _source_scope_issue(
+                rule,
+                _rule_source_scope(
+                    rule,
+                    source_text,
+                    mask_defined_income_terms=mask_defined_income_terms,
+                ),
+                source_text=source_text,
+                unit_relation_aggregate_helper_names=(
+                    unit_relation_aggregate_helper_names
+                ),
             )
-        elif source_scope == _SOURCE_SCOPE_UNIT and normalized_entity == "person":
-            if _person_rule_can_use_unit_scoped_medicaid_magi_source(
-                rule,
-                fallback_source_text=source_text,
-            ):
-                continue
-            if _person_rule_can_use_unit_scoped_chip_income_source(
-                rule,
-                fallback_source_text=source_text,
-            ):
-                continue
-            if _person_rule_can_use_unit_member_aggregate_source(
-                rule,
-                name=name,
-                fallback_source_text=source_text,
-                unit_relation_aggregate_helper_names=unit_relation_aggregate_helper_names,
-            ):
-                continue
-            if source_unit_entity is not None:
-                issues.append(
-                    "Source scope mismatch: "
-                    f"`{name}` is declared on `Person`, but the embedded source "
-                    f"states a `{_UNIT_SCOPED_ENTITY_LABELS[source_unit_entity]}` "
-                    "unit-scoped test. Encode the rule at the source-stated "
-                    "unit scope or cite source text that states the person-level "
-                    "test."
-                )
-                continue
-            issues.append(
+
+        issue = scope_issue(False)
+        # A defined income aggregate such as `family Virginia adjusted gross
+        # income` names no unit (#1842). Report an issue only when the masked
+        # reading supports it too, so the mask can only leave a scope
+        # unresolved; it never creates an issue main would not report.
+        if issue is not None and scope_issue(True) is not None:
+            issues.append(issue)
+    return issues
+
+
+def _source_scope_issue(
+    rule: dict[str, Any],
+    source_scope_record: tuple[str, str | None] | None,
+    *,
+    source_text: str,
+    unit_relation_aggregate_helper_names: set[str],
+) -> str | None:
+    """Return the source-scope mismatch for one derived rule, if any."""
+
+    if source_scope_record is None:
+        return None
+    name = str(rule.get("name") or "").strip()
+    entity = str(rule.get("entity") or "").strip()
+    normalized_entity = entity.lower()
+    source_scope, source_unit_entity = source_scope_record
+    if (
+        source_scope == _SOURCE_SCOPE_PERSON
+        and normalized_entity in _UNIT_SCOPED_ENTITY_NAMES
+    ):
+        if _taxunit_money_rule_can_use_individual_tax_credit_amount_source(rule):
+            return None
+        return (
+            "Source scope mismatch: "
+            f"`{name}` is declared on `{entity}`, but the embedded source "
+            "states an individual/person/member-scoped eligibility or "
+            "disqualification. Encode the rule at the person/member scope "
+            "or cite source text that states the unit-level test."
+        )
+    if source_scope == _SOURCE_SCOPE_UNIT and normalized_entity == "person":
+        if _person_rule_can_use_unit_scoped_medicaid_magi_source(
+            rule,
+            fallback_source_text=source_text,
+        ):
+            return None
+        if _person_rule_can_use_unit_scoped_chip_income_source(
+            rule,
+            fallback_source_text=source_text,
+        ):
+            return None
+        if _person_rule_can_use_unit_member_aggregate_source(
+            rule,
+            name=name,
+            fallback_source_text=source_text,
+            unit_relation_aggregate_helper_names=unit_relation_aggregate_helper_names,
+        ):
+            return None
+        if source_unit_entity is not None:
+            return (
                 "Source scope mismatch: "
                 f"`{name}` is declared on `Person`, but the embedded source "
-                "states a household/unit-scoped test. Encode the rule at the "
-                "source-stated unit scope or cite source text that states the "
-                "person-level test."
-            )
-        elif (
-            source_scope == _SOURCE_SCOPE_UNIT
-            and source_unit_entity is not None
-            and normalized_entity in _UNIT_SCOPED_ENTITY_NAMES
-            and not _unit_entities_are_equivalent_for_source_rule(
-                normalized_entity,
-                source_unit_entity,
-                rule=rule,
-                fallback_source_text=source_text,
-            )
-        ):
-            issues.append(
-                "Source scope mismatch: "
-                f"`{name}` is declared on `{entity}`, but the embedded source "
                 f"states a `{_UNIT_SCOPED_ENTITY_LABELS[source_unit_entity]}` "
-                "unit-scoped test. Encode the rule at the source-stated unit "
-                "scope or cite source text that states the declared unit scope."
+                "unit-scoped test. Encode the rule at the source-stated "
+                "unit scope or cite source text that states the person-level "
+                "test."
             )
-    return issues
+        return (
+            "Source scope mismatch: "
+            f"`{name}` is declared on `Person`, but the embedded source "
+            "states a household/unit-scoped test. Encode the rule at the "
+            "source-stated unit scope or cite source text that states the "
+            "person-level test."
+        )
+    if (
+        source_scope == _SOURCE_SCOPE_UNIT
+        and source_unit_entity is not None
+        and normalized_entity in _UNIT_SCOPED_ENTITY_NAMES
+        and not _unit_entities_are_equivalent_for_source_rule(
+            normalized_entity,
+            source_unit_entity,
+            rule=rule,
+            fallback_source_text=source_text,
+        )
+    ):
+        return (
+            "Source scope mismatch: "
+            f"`{name}` is declared on `{entity}`, but the embedded source "
+            f"states a `{_UNIT_SCOPED_ENTITY_LABELS[source_unit_entity]}` "
+            "unit-scoped test. Encode the rule at the source-stated unit "
+            "scope or cite source text that states the declared unit scope."
+        )
+    return None
 
 
 def _unit_relation_aggregate_helper_names_by_rule(
