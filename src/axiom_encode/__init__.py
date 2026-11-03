@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-__version__ = "0.2.2300"
-=======
-__version__ = "0.2.2298"
->>>>>>> origin/main
+__version__ = "0.2.2301"
 # Axiom Encode - AI-assisted RuleSpec encoding
 # Self-contained encoding infrastructure -- no external plugin dependencies.
 
