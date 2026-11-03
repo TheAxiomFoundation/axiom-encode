@@ -145,6 +145,9 @@ class _NumericOccurrenceView:
     requires_rate_context: bool
     is_word_number: bool
     alternative_values: tuple[float, ...]
+    # Carried through rebasing so a month number read from a month name keeps
+    # grounding only month comparisons (see validator_pipeline).
+    requires_month_context: bool = False
 
 
 NumericOccurrenceExtractor = Callable[[str], Sequence[NumericOccurrenceLike]]
@@ -29684,6 +29687,7 @@ def _shift_numeric_occurrence(
         requires_rate_context=occurrence.requires_rate_context,
         is_word_number=occurrence.is_word_number,
         alternative_values=occurrence.alternative_values,
+        requires_month_context=getattr(occurrence, "requires_month_context", False),
     )
 
 
