@@ -18842,15 +18842,17 @@ def _non_scalar_fixture_output_names(
     payload: dict[str, object],
     *,
     repo_path: Path,
-    include_unclassified_imports: bool = True,
+    _seen_modules: frozenset[Path] = frozenset(),
 ) -> set[str]:
-    """Refuse scalar repair for lifetime or unclassified imported dependencies.
+    """Refuse scalar repair for outputs that depend on a lifetime reduction.
 
     Inspect every local version and propagate through scalar/judgment helpers.
-    An imported derived output may need a lifetime context, so only an explicitly
-    resolved parameter is safe for automatic scalar fixture construction. Normal
-    compilation still admits semantics; this classifier cannot invent a history,
-    calculation date, or expected reduction to fill missing test coverage.
+    An imported output counts only when its same-repository module, read the
+    same way (and through its own imports), shows that output depends on a
+    lifetime reduction. An import that can't be resolved keeps main's scalar
+    repairs. Normal compilation still admits semantics; this classifier
+    cannot invent a history, calculation date, or expected reduction to fill
+    missing test coverage.
     """
     rules = payload.get("rules")
     if not isinstance(rules, list):
@@ -18860,51 +18862,32 @@ def _non_scalar_fixture_output_names(
         for rule in rules
         if isinstance(rule, dict) and str(rule.get("name") or "").strip()
     }
-    unsafe_imports = (
-        _imported_output_names_from_payload(payload)
-        if include_unclassified_imports
-        else set()
-    )
+    unsafe_imports: set[str] = set()
     imports = payload.get("imports")
-    if include_unclassified_imports and isinstance(imports, list):
-        for raw_import in imports:
-            if not isinstance(raw_import, str) or "#" not in raw_import:
-                continue
-            name = raw_import.rsplit("#", 1)[-1].strip()
-            # Multiple imported identities with the same local name cannot be
-            # made safe by finding one parameter among them.
-            if (
-                sum(
-                    isinstance(item, str)
-                    and "#" in item
-                    and item.rsplit("#", 1)[-1].strip() == name
-                    for item in imports
-                )
-                != 1
-            ):
-                continue
-            resolved = _same_repo_import_base_and_file(raw_import, repo_path=repo_path)
-            if resolved is None:
-                continue
-            try:
-                imported = yaml.safe_load(resolved[1].read_text())
-            except (OSError, ValueError, yaml.YAMLError):
-                continue
-            imported_rules = (
-                imported.get("rules") if isinstance(imported, dict) else None
-            )
-            if not isinstance(imported_rules, list):
-                continue
-            matches = [
-                rule
-                for rule in imported_rules
-                if isinstance(rule, dict) and rule.get("name") == name
-            ]
-            if (
-                len(matches) == 1
-                and str(matches[0].get("kind", "")).lower() == "parameter"
-            ):
-                unsafe_imports.discard(name)
+    for raw_import in imports if isinstance(imports, list) else ():
+        if not isinstance(raw_import, str) or "#" not in raw_import:
+            continue
+        name = raw_import.rsplit("#", 1)[-1].strip()
+        resolved = _same_repo_import_base_and_file(raw_import, repo_path=repo_path)
+        if resolved is None:
+            continue
+        module_file = resolved[1].resolve()
+        if module_file in _seen_modules:
+            continue
+        try:
+            imported = yaml.safe_load(module_file.read_text())
+        except (OSError, ValueError, yaml.YAMLError):
+            continue
+        if not isinstance(imported, dict):
+            continue
+        # Any import of this local name that depends on a reduction makes
+        # the name unsafe, whatever its other imported identities are.
+        if name in _non_scalar_fixture_output_names(
+            imported,
+            repo_path=repo_path,
+            _seen_modules=_seen_modules | {module_file},
+        ):
+            unsafe_imports.add(name)
     seeds = set()
     for name, rule in by_name.items():
         versions = rule.get("versions")
@@ -19446,14 +19429,11 @@ def _append_generated_judgment_positive_tests_if_missing(
     if not isinstance(test_payload, list):
         return []
     # Never synthesize or clone a scalar scenario for a Judgment that depends
-    # on a local lifetime reduction, and never clone a lifetime case (below).
-    # Imported operands keep their existing companion-input repair.
+    # on a lifetime reduction, locally or through a resolved import, and never
+    # clone a lifetime case (below). Other imported operands keep their
+    # existing companion-input repair.
     lifetime_outputs = (
-        _non_scalar_fixture_output_names(
-            rules_payload,
-            repo_path=repo_path,
-            include_unclassified_imports=False,
-        )
+        _non_scalar_fixture_output_names(rules_payload, repo_path=repo_path)
         if rules_payload is not None
         else set()
     )

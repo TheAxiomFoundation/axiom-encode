@@ -161,12 +161,16 @@ def test_auto_repair_preserves_history_and_leaves_missing_coverage_for_encoder(
 
 
 @pytest.mark.parametrize(
-    "imported_kind", ["derived", "parameter", "missing", "cross_jurisdiction"]
+    "imported_kind",
+    ["derived", "scalar_derived", "parameter", "missing", "cross_jurisdiction"],
 )
 @pytest.mark.parametrize("repair_kind", ["output", "zero"])
-def test_imported_lifetime_or_unknown_dependency_cannot_receive_scalar_repair(
+def test_only_an_import_calling_a_lifetime_reduction_refuses_scalar_repair(
     tmp_path, imported_kind, repair_kind
 ):
+    """A plain scalar import (``history = credit * 2``), a parameter, or an
+    import that can't be resolved keeps main's repairs; only an import whose
+    resolved rules call a lifetime reduction is refused."""
     root = tmp_path / "rulespec-us" / "us"
     (root / "statutes/99").mkdir(parents=True)
     upstream = root / "statutes/99/2.yaml"
@@ -179,10 +183,13 @@ def test_imported_lifetime_or_unknown_dependency_cannot_receive_scalar_repair(
                     "rules": [
                         rule(
                             "history",
-                            "2"
+                            {
+                                "parameter": "2",
+                                "scalar_derived": "credit * 2",
+                            }.get(imported_kind, "count_over_periods(credit)"),
+                            kind="parameter"
                             if imported_kind == "parameter"
-                            else "count_over_periods(credit)",
-                            kind=imported_kind,
+                            else "derived",
                         ),
                     ],
                 }
@@ -218,11 +225,49 @@ def test_imported_lifetime_or_unknown_dependency_cannot_receive_scalar_repair(
         relative_output=Path("statutes/99/3.yaml"),
         issues=[issue],
     )
-    if imported_kind == "parameter":
-        assert repaired == [f"auto_{repair_kind}_result"]
-    else:
+    if imported_kind == "derived":
         assert repaired == []
         assert test.read_bytes() == before
+    else:
+        assert repaired == [f"auto_{repair_kind}_result"]
+
+
+def _write_module(root, number, rules, imports=()):
+    path = root / f"statutes/99/{number}.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"format": "rulespec/v1", "rules": rules}
+    if imports:
+        payload["imports"] = list(imports)
+    path.write_text(yaml.safe_dump(payload))
+    return path
+
+
+def test_lifetime_reduction_behind_two_imports_is_still_refused(tmp_path):
+    root = tmp_path / "rulespec-us" / "us"
+    _write_module(root, 1, [rule("history", "count_over_periods(credit)")])
+    _write_module(
+        root, 2, [rule("relay", "history + 1")], imports=["us:statutes/99/1#history"]
+    )
+    rules_payload = {
+        "format": "rulespec/v1",
+        "imports": ["us:statutes/99/2#relay"],
+        "rules": [rule("result", "relay * 2")],
+    }
+    assert cli._non_scalar_fixture_output_names(rules_payload, repo_path=root) == {
+        "result"
+    }
+
+
+def test_import_cycle_terminates_and_keeps_scalar_repair(tmp_path):
+    root = tmp_path / "rulespec-us" / "us"
+    _write_module(root, 1, [rule("a", "b + 1")], imports=["us:statutes/99/2#b"])
+    _write_module(root, 2, [rule("b", "a + 1")], imports=["us:statutes/99/1#a"])
+    rules_payload = {
+        "format": "rulespec/v1",
+        "imports": ["us:statutes/99/1#a"],
+        "rules": [rule("result", "a * 2")],
+    }
+    assert cli._non_scalar_fixture_output_names(rules_payload, repo_path=root) == set()
 
 
 @pytest.mark.parametrize("order", ["derived_first", "parameter_first"])
@@ -376,6 +421,47 @@ def test_positive_judgment_repair_skips_lifetime_judgment_even_with_scalar_cases
         repo_path=root,
         axiom_rules_path=tmp_path / "axiom-rules-engine",
         relative_output=relative,
+        issues=[
+            "Judgment rule missing positive companion output coverage: "
+            f"`{PREFIX}eligible` is not asserted as `holds` by the companion "
+            "`.test.yaml` file."
+        ],
+        test_failure_checker=lambda *_a, **_k: [],
+    )
+
+    assert repaired == []
+    assert yaml.safe_load(test.read_text()) == [scalar_case]
+
+
+def test_positive_judgment_repair_refuses_an_imported_lifetime_operand(tmp_path):
+    """``eligible = history >= 40`` with ``history`` imported from a module that
+    counts over periods gets no invented scalar case."""
+    root = tmp_path / "rulespec-us" / "us"
+    _write_module(root, 2, [rule("history", "count_over_periods(credit)")])
+    source = _write_module(
+        root,
+        3,
+        [
+            rule("eligible", "history >= 40", dtype="Judgment"),
+            rule("scalar", "amount + 1"),
+        ],
+        imports=["us:statutes/99/2#history"],
+    )
+    test = source.with_name("3.test.yaml")
+    scalar_case = {
+        "name": "scalar_world",
+        "period": {"start": "2026-01-01", "end": "2026-12-31"},
+        "input": {PREFIX + "input.amount": 1},
+        "output": {PREFIX + "scalar": 2},
+    }
+    test.write_text(yaml.safe_dump([scalar_case], sort_keys=False))
+
+    repaired = cli._append_generated_judgment_positive_tests_if_missing(
+        rules_file=source,
+        test_file=test,
+        repo_path=root,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        relative_output=Path("statutes/99/3.yaml"),
         issues=[
             "Judgment rule missing positive companion output coverage: "
             f"`{PREFIX}eligible` is not asserted as `holds` by the companion "
