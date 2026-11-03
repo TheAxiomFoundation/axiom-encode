@@ -3511,6 +3511,80 @@ rules:
     assert find_admin_agency_aggregate_entity_issues(content, source_text) == []
 
 
+def test_admin_agency_aggregate_scopes_mixed_regulation_to_rule_paragraph():
+    source_text = (
+        "(a) Work requirements. Each household member who is not exempt must "
+        "comply with SNAP work requirements.\n"
+        "(i) Register for work or be registered by the State agency.\n"
+        "(b) State agency quality control. The State agency shall calculate "
+        "its payment error rate from the quality control sample.\n"
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_paths:
+      - us/regulation/7/273/7
+      - us/statute/7/2015/d/2
+rules:
+  - name: snap_member_work_requirement_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.7(a)(1)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: member_not_exempt
+  - name: state_agency_payment_error_rate
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Year
+    source: 7 CFR 273.7(b)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: payment_error_rate
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate`" in issues[0]
+
+
+def test_admin_agency_aggregate_uses_statutory_rule_proof_in_mixed_source():
+    source_text = (
+        "(a) Each household member must comply with SNAP work requirements.\n"
+        "(b) State agency quality control. The State agency shall calculate "
+        "its payment error rate from the quality control sample.\n"
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/7
+rules:
+  - name: snap_member_statutory_work_registration_exemption_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 U.S.C. 2015(d)(2)
+    versions:
+      - effective_from: '2025-07-04'
+        formula: member_cares_for_dependent_child_under_six
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/7/2015/d/2
+              excerpt: a parent or other member of a household with responsibility for the care of a dependent child under age six
+"""
+
+    assert find_admin_agency_aggregate_entity_issues(content, source_text) == []
+
+
 def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
     assert _source_identifier_to_relative_rulespec_path(
         "us/regulation/7/273/10"

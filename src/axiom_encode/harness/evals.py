@@ -15292,8 +15292,7 @@ def find_admin_agency_aggregate_entity_issues(
     source_text: str,
 ) -> list[str]:
     """Reject executable entity rules for State-agency/FNS aggregate measures."""
-    is_admin_agency_aggregate = _has_admin_agency_aggregate_source_context(source_text)
-    if not is_admin_agency_aggregate:
+    if not _has_admin_agency_aggregate_source_context(source_text):
         return []
     try:
         payload = yaml.safe_load(content)
@@ -15323,6 +15322,10 @@ def find_admin_agency_aggregate_entity_issues(
             continue
         if normalized_entity not in standard_entities:
             continue
+        if not _has_admin_agency_aggregate_rule_context(
+            rule, module=module, source_text=source_text
+        ):
+            continue
         name = str(rule.get("name") or f"rules[{index}]").strip()
         issues.append(
             "Unsupported administrative aggregate entity: "
@@ -15334,6 +15337,70 @@ def find_admin_agency_aggregate_entity_issues(
             "administrative surface still cannot be represented faithfully."
         )
     return issues
+
+
+def _has_admin_agency_aggregate_rule_context(
+    rule: dict,
+    *,
+    module: dict | None,
+    source_text: str,
+) -> bool:
+    """Scope a mixed provision to the rule's paragraph or source proof."""
+    source_verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    citations = []
+    if isinstance(source_verification, dict):
+        citations.append(source_verification.get("corpus_citation_path"))
+        plural = source_verification.get("corpus_citation_paths")
+        if isinstance(plural, list):
+            citations.extend(plural)
+    rule_source = rule.get("source")
+    if isinstance(rule_source, str):
+        for citation in citations:
+            if not isinstance(citation, str):
+                continue
+            match = re.fullmatch(r"us/regulation/(\d+)/(\d+)/(\d+)", citation)
+            if not match:
+                continue
+            title, part, section = match.groups()
+            reference = re.compile(
+                rf"\b{title}\s*C\.?\s*F\.?\s*R\.?\s*§?\s*"
+                rf"{part}\.{section}\(([a-z])\)",
+                re.IGNORECASE,
+            )
+            paragraphs = {item.group(1).lower() for item in reference.finditer(rule_source)}
+            if paragraphs:
+                headings = []
+                next_letter = ord("a")
+                for item in re.finditer(r"(?m)^\(([a-z])\)\s", source_text):
+                    # The first-level CFR paragraphs advance alphabetically;
+                    # nested roman numerals such as (i) must not end (a).
+                    if ord(item.group(1).lower()) == next_letter:
+                        headings.append(item)
+                        next_letter += 1
+                scoped = [
+                    source_text[item.end() : headings[index + 1].start() if index + 1 < len(headings) else len(source_text)]
+                    for index, item in enumerate(headings)
+                    if item.group(1).lower() in paragraphs
+                ]
+                if scoped:
+                    return any(_has_admin_agency_aggregate_source_context(text) for text in scoped)
+
+    metadata = rule.get("metadata")
+    proof = metadata.get("proof") if isinstance(metadata, dict) else None
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if isinstance(atoms, list):
+        excerpts = [
+            source["excerpt"]
+            for atom in atoms
+            if isinstance(atom, dict)
+            for source in [atom.get("source")]
+            if isinstance(source, dict) and isinstance(source.get("excerpt"), str)
+        ]
+        if excerpts:
+            return _has_admin_agency_aggregate_source_context("\n".join(excerpts))
+    return _has_admin_agency_aggregate_source_context(source_text)
 
 
 def _has_admin_agency_aggregate_source_context(source_text: str) -> bool:
