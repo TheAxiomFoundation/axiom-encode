@@ -1,3 +1,7 @@
+## 0.2.2298
+
+- Remove clause-head and present-filing `דוחות` noun exceptions after measuring unchanged dependency entries and senses across the statute snapshot. Reject verb-first indefinite computation objects and immediate filing relatives using existing forms; label the removed noun controls intended-stricter. Harden the Hebrew gate AST guard against reflected, escaped and delayed calls, and derive the gate at consumer evidence selection from authoritative source and deferral reasons.
+
 ## 0.2.2282
 
 - Read a clause-initial source `דוחות` through a bounded window when looking for its filing verb, so the check costs constant time and the clause-head family grows linearly again; verdicts within the window are unchanged.
