@@ -39,7 +39,7 @@ on:
         required: false
         type: string
       source_bundle_json:
-        description: 'Atomic source input: corpus-artifact-transport/v1 wrapping fresh v3 with an optional signed corpus export and signed provision export run IDs; corpus-provision-prefetch/v1 wrapping exact v2-v3 with signed provision run IDs; legacy citation array/refresh object, v2-v5 contract, or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} for an authenticated failed ordinary single-target repair'
+        description: 'Atomic source input: corpus-artifact-transport/v1 wrapping v3 with signed corpus/provision export run IDs (fresh, or exact authenticated legacy-primary repair after dependent failure); corpus-provision-prefetch/v1 wrapping exact v2-v3 with signed provision run IDs; legacy citation array/refresh object, v2-v5 contract, or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} for an authenticated failed ordinary single-target repair'
         required: false
         default: "[]"
         type: string
@@ -712,7 +712,11 @@ jobs:
                [ -z "$REPLACE_RULESPEC_PATH" ]; } || \
              { [ "$repair_tests_only" = "true" ] && \
                [ -z "$REPLACE_RULESPEC_PATH" ]; } || \
-             [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+             { [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ] && {
+                 [ "$REPLACE_LEGACY_RULESPEC_PATH" != "$REPLACE_RULESPEC_PATH" ] || \
+                 [ -z "$DEPENDENT_CITATION" ] || \
+                 [ "$source_bundle_json" != "[]" ] || \
+                 [ "$primary_required_test_cases_json" = "[]" ]; }; } || \
              [ -n "$LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
              [ -n "$SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
              { [ -n "$SECOND_DEPENDENT_CITATION" ] && {
@@ -730,8 +734,8 @@ jobs:
              ! jq -e 'type == "array" and length == 0' \
                <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" \
                > /dev/null; then
-            echo "repair replay is limited to one non-legacy target and at most two fresh direct dependents, with at most one exact source or test bundle, artifact-bound imports, and without refreshes or queue authorization" >&2
-            python axiom-encode/scripts/infra_issue.py record infra:resolve-trusted-prior-run-repair-candidate "repair replay is limited to one non-legacy target and at most two fresh direct dependents, with at most one exact source or test bundle, artifact-bound imports, and without refreshes or queue authorization" || true
+            echo "repair replay is limited to an authenticated target with at most two fresh direct dependents; legacy replay also requires its exact target path, one dependent, and prior boundary tests; queue authorization, canonical refreshes, invalid signed imports, and conflicting source bundles are not allowed" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:resolve-trusted-prior-run-repair-candidate "repair replay is limited to an authenticated target with at most two fresh direct dependents; legacy replay also requires its exact target path, one dependent, and prior boundary tests; queue authorization, canonical refreshes, invalid signed imports, and conflicting source bundles are not allowed" || true
             exit 1
           fi
 
@@ -807,6 +811,8 @@ jobs:
               --existing-signed-imports-json "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" \
               --repair-lane "$REPAIR_RUN_LANE" \
               --replace-rulespec-path "$repair_rulespec_path" \
+              --replace-legacy-rulespec-path "${REPLACE_LEGACY_RULESPEC_PATH:-}" \
+              --dependent-citation "${DEPENDENT_CITATION:-}" \
               --transaction-citation "$CITATION" \
               --transaction-rulespec-path "$REPLACE_RULESPEC_PATH" \
               --workflow-run-id "$REPAIR_RUN_ID" \
@@ -818,7 +824,8 @@ jobs:
           retained_primary=false
           if [ "$REPAIR_RUN_LANE" = "dependent" ] && \
              [ "$source_bundle_json" = "[]" ] && \
-             [ "$primary_required_test_cases_json" = "[]" ]; then
+             { [ "$primary_required_test_cases_json" = "[]" ] || \
+               [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ]; }; then
             dependent_repair_citation="$repair_citation"
             dependent_repair_rulespec_path="$repair_rulespec_path"
             REPAIR_RUN_LANE=target
@@ -832,6 +839,10 @@ jobs:
               cp "$RUNNER_TEMP/repair-primary-candidate.json" \
                 "$RUNNER_TEMP/repair-candidate.json"
             else
+              if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ]; then
+                cat "$RUNNER_TEMP/repair-primary-probe.log" >&2
+                exit 1
+              fi
               REPAIR_RUN_LANE=dependent
               repair_citation="$dependent_repair_citation"
               repair_rulespec_path="$dependent_repair_rulespec_path"
@@ -907,6 +918,7 @@ jobs:
           LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
           QUEUE_ID: ${{ inputs.queue_id }}
           REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          REPAIR_RUN_LANE: ${{ steps.repair_candidate.outputs.lane }}
           REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
           REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
@@ -937,7 +949,8 @@ jobs:
             if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
                { [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
                  [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
-               [ -n "${REPAIR_RUN_ID:-}" ] || \
+               { [ -n "${REPAIR_RUN_ID:-}" ] && \
+                 [ "${REPAIR_RUN_LANE:-}" != "target" ]; } || \
                [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
                [ -n "${QUEUE_ID:-}" ] || \
                { [ -n "${DEPENDENT_CITATION:-}" ] && \
@@ -1621,6 +1634,7 @@ jobs:
           REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
           QUEUE_ID: ${{ inputs.queue_id }}
           REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          REPAIR_RUN_LANE: ${{ steps.repair_candidate.outputs.lane }}
           REPAIR_TESTS_ONLY: ${{ steps.repair_candidate.outputs.tests_only }}
           RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
@@ -1651,7 +1665,8 @@ jobs:
             if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
                { [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
                  [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
-               [ -n "${REPAIR_RUN_ID:-}" ] || \
+               { [ -n "${REPAIR_RUN_ID:-}" ] && \
+                 [ "${REPAIR_RUN_LANE:-}" != "target" ]; } || \
                [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
                [ -n "${QUEUE_ID:-}" ] || \
                { [ -n "${DEPENDENT_CITATION:-}" ] && \
@@ -2283,7 +2298,8 @@ jobs:
             if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
                { [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
                  [ -z "$CORPUS_EXPORT_RUN_ID" ]; } || \
-               [ -n "${REPAIR_RUN_ID:-}" ] || \
+               { [ -n "${REPAIR_RUN_ID:-}" ] && \
+                 [ "${REPAIR_RUN_LANE:-}" != "target" ]; } || \
                [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
                [ -n "${QUEUE_ID:-}" ] || \
                { [ -n "${DEPENDENT_CITATION:-}" ] && \
