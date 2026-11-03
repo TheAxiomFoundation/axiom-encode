@@ -53,7 +53,11 @@ which the engine reads as the mapping). Interpretation strings must not contain
 UTF-16 surrogate code points: PyYAML decodes escapes such as `"\uD800"` to lone
 surrogates, which the engine rejects. YAML merge keys must not supply `module` or
 `module.interpretations`: the engine does not apply merge keys, so it would
-read different interpretations from the encoder.
+read different interpretations from the encoder. Interpretation mapping keys
+must be plain strings: a key tagged `!!merge` is a merge key whatever its form,
+and a collection key is refused, with what it holds still checked. Each refusal
+names the line and column it refers to. Text nested too deeply for the check to
+finish is reported as such and is never rewritten.
 
 The encoder is instructed to create new entries with `status: open`. A repair may carry recorded human rulings and
 publisher replies supplied through mandatory review findings into `ruling` and

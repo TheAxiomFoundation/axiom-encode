@@ -1,6 +1,8 @@
 """Strict, inert interpretation metadata and corpus matcher regressions."""
 
+import dataclasses
 import json
+import re
 import string
 from copy import deepcopy
 from datetime import date, datetime
@@ -11,15 +13,33 @@ import yaml
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from axiom_encode.harness import proof_validator
 from axiom_encode.harness.proof_validator import (
     _interpretation_yaml_constraints,
     _safe_load_with_interpretation_constraints,
     _validate_source_proof_atom,
-    find_interpretation_yaml_issues,
     proof_source_citation_paths,
-    validate_rulespec_proofs,
 )
 from axiom_encode.yaml_serialization import safe_dump_yaml
+
+# Each raw refusal names the line and column of what it refuses. Most tests in
+# this file pin the wording, so they compare issues with those positions
+# removed; test_raw_interpretation_refusals_name_their_line pins the positions.
+_POSITION = re.compile(r" at line \d+, column \d+")
+
+
+def _unplaced(issues):
+    return [_POSITION.sub("", issue) for issue in issues]
+
+
+def find_interpretation_yaml_issues(content):
+    return _unplaced(proof_validator.find_interpretation_yaml_issues(content))
+
+
+def validate_rulespec_proofs(content, **kwargs):
+    result = proof_validator.validate_rulespec_proofs(content, **kwargs)
+    return dataclasses.replace(result, issues=_unplaced(result.issues))
+
 
 CITATION = "zz/manual/fictional-lantern/review-schedule"
 EXCERPT = "Review supplies at the start of each period."
@@ -1556,3 +1576,260 @@ def test_generated_valid_entries_pass_and_each_missing_required_field_has_one_fi
         assert _validate(_payload(mutated)).issues == [
             f"{expected_label}{_field_label(path)} {expectation}"
         ]
+
+
+# --- refusals name their position; findings from the round-1 review ---------
+
+
+def _position(content, context, token):
+    """`line L, column C` of the last ``token`` inside ``context``."""
+
+    index = content.index(context) + context.rindex(token)
+    line = content.count("\n", 0, index) + 1
+    column = index - (content.rfind("\n", 0, index) + 1) + 1
+    return f"line {line}, column {column}"
+
+
+_STATUS = "      status: open\n"
+_READING = "      reading: Review supplies once a week.\n"
+_BASIS = "      basis: The fictional Lantern schedule supports weekly reviews.\n"
+_ROOT_MERGE = (
+    "format: rulespec/v1\nx-module: &m\n  module:\n    interpretations: []\n"
+    f"<<: *m\n{RAW_RULES}"
+)
+_MODULE_MERGE = (
+    "format: rulespec/v1\nx-defaults: &defaults\n"
+    f"{RAW_SHADOWED_INTERPRETATIONS}module:\n  <<: [*defaults]\n{RAW_RULES}"
+)
+
+
+@pytest.mark.parametrize(
+    ("content", "context", "token", "message"),
+    [
+        pytest.param(
+            _raw_payload().replace("module:\n", "module: !!set\n", 1),
+            "module: !!set",
+            "!!set",
+            "module has unsupported YAML tag `tag:yaml.org,2002:set` at {}; only an "
+            "untagged mapping or `!!map` is supported.",
+            id="module-tag",
+        ),
+        pytest.param(
+            _raw_payload().replace("rules:\n", "module: {}\nrules:\n", 1),
+            "module: {}",
+            "module",
+            "RuleSpec root has duplicate key `module` at {}.",
+            id="duplicate-module",
+        ),
+        pytest.param(
+            _raw_payload().replace(
+                "  interpretations:\n", "  interpretations: []\n  interpretations:\n"
+            ),
+            "  interpretations: []\n  interpretations:",
+            "interpretations",
+            "module has duplicate key `interpretations` at {}.",
+            id="duplicate-interpretations",
+        ),
+        pytest.param(
+            _ROOT_MERGE,
+            "<<: *m",
+            "<<",
+            "RuleSpec root must not supply `module` through YAML merge keys at {}; "
+            "the engine does not apply them.",
+            id="root-merge",
+        ),
+        pytest.param(
+            _MODULE_MERGE,
+            "<<: [*defaults]",
+            "<<",
+            "module must not supply `interpretations` through YAML merge keys at {}; "
+            "the engine does not apply them.",
+            id="module-merge",
+        ),
+        pytest.param(
+            _raw_payload().replace("      texts:\n", "      texts: !!seq\n", 1),
+            "texts: !!seq",
+            "!!seq",
+            "module.interpretations[0].texts must not use YAML tags on "
+            "interpretation collections at {}.",
+            id="collection-tag",
+        ),
+        pytest.param(
+            _raw_payload().replace(_READING, _READING + "      reading: twice\n", 1),
+            "reading: twice",
+            "reading",
+            "module.interpretations[0] has duplicate key `reading` at {}.",
+            id="duplicate-key",
+        ),
+        pytest.param(
+            _raw_payload().replace(_STATUS, _STATUS + "      <<: {x: merged}\n", 1),
+            "<<: {x",
+            "<<",
+            "module.interpretations[0] must not use YAML merge keys at {}.",
+            id="merge-key",
+        ),
+        pytest.param(
+            _raw_payload().replace(
+                _STATUS, _STATUS + "      ? !!merge [hidden]\n      : {x: merged}\n", 1
+            ),
+            "? !!merge [hidden]",
+            "!!merge",
+            "module.interpretations[0] must not use YAML merge keys at {}.",
+            id="merge-key-that-is-not-a-scalar",
+        ),
+        pytest.param(
+            _raw_payload().replace(
+                _STATUS, _STATUS + "      ? [hidden]\n      : merged\n", 1
+            ),
+            "? [hidden]",
+            "[hidden]",
+            "module.interpretations[0] must use plain string keys; the key at {} is "
+            "a collection.",
+            id="collection-key",
+        ),
+        pytest.param(
+            _raw_payload().replace(_BASIS, '      basis: "\\uD800 review"\n', 1),
+            'basis: "',
+            '"',
+            "module.interpretations[0].basis must not contain UTF-16 surrogate code "
+            "points (U+D800 to U+DFFF) at {}; the engine accepts only Unicode scalar "
+            "values.",
+            id="surrogate",
+        ),
+        pytest.param(
+            _raw_payload().replace(_STATUS, "      status: ! open\n", 1),
+            "status: ! open",
+            "!",
+            "module.interpretations[0].status has unsupported YAML tag `!` at {}; "
+            "only the canonical string tag `!!str` (`tag:yaml.org,2002:str`) is "
+            "supported.",
+            id="scalar-tag",
+        ),
+        pytest.param(
+            _raw_payload().replace(_READING, "      reading: 1e5\n", 1),
+            "reading: 1e5",
+            "1e5",
+            "module.interpretations[0].reading must be a quoted string when YAML "
+            "reads this scalar as a number at {}.",
+            id="numeric-string",
+        ),
+        pytest.param(
+            _raw_payload(entry_id="1e5"),
+            "- id: 1e5",
+            "1e5",
+            "module.interpretations[0].id must be a quoted string when YAML reads "
+            "this scalar as a number at {}.",
+            id="numeric-id",
+        ),
+    ],
+)
+def test_raw_interpretation_refusals_name_their_line(content, context, token, message):
+    expected = message.format(_position(content, context, token))
+
+    assert expected in proof_validator.find_interpretation_yaml_issues(content)
+    assert not proof_validator.validate_rulespec_proofs(
+        content, source_texts={CITATION: EXCERPT}
+    ).passed
+
+
+def test_the_proof_gate_names_where_a_numeric_id_is_written():
+    content = _raw_payload(entry_id="1e5")
+    position = _position(content, "- id: 1e5", "1e5")
+
+    issues = proof_validator.validate_rulespec_proofs(
+        content, source_texts={CITATION: EXCERPT}
+    ).issues
+
+    assert (
+        "Interpretation `1e5` (module.interpretations[0]).id must be a quoted string "
+        f"when YAML reads this scalar as a number at {position}."
+    ) in issues
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param(
+            "format: rulespec/v1\n? !!merge [x]\n: {module: {interpretations: []}}\n"
+            + RAW_RULES,
+            id="root",
+        ),
+        pytest.param(
+            "format: rulespec/v1\nmodule:\n  ? !!merge [x]\n  : {interpretations: []}\n"
+            + RAW_RULES,
+            id="module",
+        ),
+    ],
+)
+def test_merge_keys_that_are_not_scalars_cannot_supply_module_or_interpretations(
+    content,
+):
+    # PyYAML applies a merge through any key tagged `!!merge`, scalar or not.
+    assert "interpretations" in yaml.safe_load(content)["module"]
+    issues = find_interpretation_yaml_issues(content)
+
+    assert [issue for issue in issues if "through YAML merge keys" in issue]
+
+
+def test_a_merge_key_that_is_not_a_scalar_cannot_hide_interpretation_content():
+    content = _raw_payload().replace(
+        _STATUS,
+        _STATUS + '      ? !!merge [hidden]\n      : {extra: "\\uD800", x: ! 1e5}\n',
+        1,
+    )
+
+    issues = find_interpretation_yaml_issues(content)
+
+    assert "module.interpretations[0] must not use YAML merge keys." in issues
+    assert any("must not contain UTF-16 surrogate" in issue for issue in issues)
+    assert any("has unsupported YAML tag `!`" in issue for issue in issues)
+    assert not validate_rulespec_proofs(
+        content, source_texts={CITATION: EXCERPT}
+    ).passed
+
+
+@pytest.mark.parametrize(
+    "scalar", ["!!bool maybe", "!!timestamp weekly", "!!int ''", "!!float ''"]
+)
+def test_construction_errors_after_the_raw_scan_keep_its_issues(scalar):
+    # PyYAML raises KeyError, AttributeError or IndexError constructing these.
+    content = _raw_payload().replace(_STATUS, f"      status: {scalar}\n", 1)
+
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+
+    assert not result.passed
+    assert any(
+        "module.interpretations[0].status has unsupported YAML tag" in issue
+        for issue in result.issues
+    )
+
+
+def test_an_aliased_duplicate_module_reports_its_tag_once():
+    content = _raw_payload().replace("module:\n", "module: &m !!set\n", 1) + (
+        "module: *m\n"
+    )
+
+    issues = find_interpretation_yaml_issues(content)
+
+    assert (
+        issues.count(
+            "module has unsupported YAML tag `tag:yaml.org,2002:set`; only an untagged "
+            "mapping or `!!map` is supported."
+        )
+        == 1
+    )
+
+
+_DEEP_METADATA = "    metadata: " + "{<<: " * 400 + "{note: flat}" + "}" * 400 + "\n"
+
+
+def test_the_proof_gate_reports_yaml_too_deep_for_the_raw_scan():
+    content = _raw_payload().replace(
+        "    dtype: Float\n", "    dtype: Float\n" + _DEEP_METADATA, 1
+    )
+    yaml.safe_load(content)  # Loading still works at this depth.
+
+    result = validate_rulespec_proofs(content, source_texts={CITATION: EXCERPT})
+
+    assert not result.passed
+    assert result.issues == ["RuleSpec YAML nesting is too deep to check."]
