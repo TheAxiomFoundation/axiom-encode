@@ -1689,6 +1689,141 @@ _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
     r"\b\d{1,2}(?:st|nd|rd|th)\s+day\s+of\s+(?:a|the)\s+month\b",
     re.IGNORECASE,
 )
+# Belgian legal French and Dutch write the percent sign out ("28 pour cent",
+# "2,5 pourcents", "9 procent") or abbreviate it ("60 pct."), and German
+# statutes abbreviate "vom Hundert" ("15 v. H."). Only Belgian sources (the
+# be-BE profile) read the Belgian words, and only Belgian and German sources
+# read "v. H.": every other source keeps main's markers, since "28 pct." may
+# name a police precinct there and "pour cent" is no English.
+#
+# "pour cent" (also "pourcent", "pour-cent", "pourcents") may also count a
+# hundred of something ("2 pour cent kilogrammes" is two per hundred
+# kilograms), so it is a percent only where no count can follow:
+# - before the end of the text, ";", ")", "]", "|" or a full stop;
+# - before more rates after ",", "et", "ou" or "à", each marked "pour cent",
+#   "%", "p.c." or "procent", when the last marker closes by these rules
+#   ("5 pour cent, 10 pour cent et 15 % du montant"); a count at the end
+#   makes counts of the whole list, whatever its markers ("2 pour cent et 3
+#   pour cent kilogrammes", "2 pour cent et 3 p.c. kilogrammes");
+# - before a soft closer (",", ":", "»", "”", or a quotation mark set against
+#   "cent") or one of the phrases below, unless a figure, a number word,
+#   "quelques", "plusieurs" or "demi" (behind "et" or "ou" too) or an opening
+#   mark comes next ("2 pour cent, deux cents kilogrammes", "2 pour cent de
+#   quelques kilogrammes", "2 pour cent, et demi").
+# The phrases: "de", "du", "des", "d'"; "l'an", "l'année"; "par"; "pour" or
+# "sur" before a determiner or the end of the text; "au moins", "au plus",
+# "au maximum", "au minimum", "au total"; "maximum", "minimum", "environ";
+# "jusqu'à", "jusqu'au", "jusqu'aux"; "à compter", "à partir", "à
+# concurrence"; "est", "sont", "sera", "seront", "serait", "seraient",
+# "était", "étaient"; and "respectivement", "annuellement", "mensuellement".
+# So "28 pour cent du montant", "5 pour cent l'an", "5 pour cent, à compter
+# du" and "20 pour cent pour chaque enfant" are rates, while "2 pour cent et
+# quelques kilogrammes", "5 pour cent mille habitants", "2 pour cent (100)
+# kilogrammes" and '2 pour cent "kilogrammes"' are not. The rules drop real
+# rates with them ("5 pour cent applicable aux revenus", "5 pour cent de
+# 1000 euros", "5 pour cent, 200 euros", "5 pour cent en tout", "5 pour cent
+# — ", "2 pour cent et 3 p.c. de 200 euros", and "2 pour cent et 3 p.c. Le
+# taux", where the abbreviation's full stop ends the sentence); main grounds
+# none of them either. "pour mille" is per mille and never
+# matches. "pct" and "v. H." match in their own case only: "28 PCT
+# applications" and Dutch "v.h." (formerly) are no rates.
+_FRENCH_COUNT_AFTER_POUR_CENT_BODY = (
+    r"(?:(?:et|ou)\s+)?"
+    r"(?:\d|(?:(?<!['’])une?|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|"
+    r"onze|douze|treize|quatorze|quinze|seize|vingts?|trente|quarante|"
+    r"cinquante|soixante|septante|octante|huitante|nonante|cents?|milles?|"
+    r"millions?|milliards?|dizaines?|douzaines?|vingtaines?|trentaines?|"
+    r"quarantaines?|cinquantaines?|soixantaines?|centaines?|milliers?|"
+    r"quelques|plusieurs|demie?s?)\b|[(\[«“\"'‘-])"
+)
+_FRENCH_DETERMINER_AFTER_POUR_CENT_BODY = (
+    r"(?:(?:le|la|les|leurs?|ce|cet|cette|ces|son|sa|ses|chaque|toute?s?)"
+    r"(?![\w'’-])|l['’])"
+)
+_FRENCH_PHRASE_AFTER_POUR_CENT_BODY = (
+    r"(?:(?:"
+    r"de|du|des|par|maximum|minimum|environ|"
+    r"est|sont|sera|seront|serait|seraient|était|étaient|"
+    r"respectivement|annuellement|mensuellement|"
+    r"l['’](?:an|année)|"
+    r"au\s+(?:moins|plus|maximum|minimum|total)|"
+    r"jusqu['’](?:à|au|aux)|"
+    r"à\s+(?:compter|partir|concurrence)"
+    r")(?![\w'’-])|d['’]|(?:pour|sur)(?=\s*\Z)|"
+    rf"(?:pour|sur)\s+{_FRENCH_DETERMINER_AFTER_POUR_CENT_BODY})"
+)
+_POUR_CENT_WORD_BODY = r"pour[ \t-]*cents?\b"
+# What closes "pour cent" short of a list: a hard closer, or a soft closer or
+# phrase that no count follows.
+_POUR_CENT_CLOSING_BODY = (
+    r"\s*(?:\Z|;|\.(?!\S)|[|)\]])|"
+    r"(?:\s*[,:»”]|[\"'’](?!\w)|"
+    rf"\s*{_FRENCH_PHRASE_AFTER_POUR_CENT_BODY})"
+    rf"(?!\s*{_FRENCH_COUNT_AFTER_POUR_CENT_BODY})"
+)
+# The next figure of a list of rates: ",", "et", "ou" or "à", then a figure,
+# which dots or no-break spaces may group.
+_FRENCH_RATE_LIST_MEMBER_BODY = (
+    r"\s*(?:,|(?:et|ou|à)(?!\w))\s*"
+    r"\d+(?:[.,\u00a0\u202f]\d+)*[ \t\u00a0\u202f]*"
+)
+# The marker on a later figure of a list of rates: "%", "p.c.",
+# "procent(en)", "procentpunt(en)" or "pour cent".
+_FRENCH_RATE_LIST_MARKER_BODY = (
+    rf"(?:%|p\.[ \t]?c\.|procent(?:en|punt(?:en)?)?\b|{_POUR_CENT_WORD_BODY})"
+)
+# The rest of a list of rates after "pour cent": more marked figures, the
+# last marker closing as "pour cent" does, whichever marker it is. So a count
+# at the end leaves the list's "pour cent" unread whatever marks its last
+# figure ("2 pour cent et 3 p.c. kilogrammes", "2 pour cent et 3 %
+# kilogrammes").
+_FRENCH_RATE_LIST_AFTER_POUR_CENT_BODY = (
+    rf"(?:{_FRENCH_RATE_LIST_MEMBER_BODY}{_FRENCH_RATE_LIST_MARKER_BODY})*"
+    rf"{_FRENCH_RATE_LIST_MEMBER_BODY}{_FRENCH_RATE_LIST_MARKER_BODY}"
+    rf"(?:{_POUR_CENT_CLOSING_BODY})"
+)
+# The Belgian words that spell a percent out: "pour cent" where it closes or
+# opens a list of rates, and Dutch "procent(en)" and "procentpunt(en)".
+_BELGIAN_PERCENT_SPELLED_BODY = (
+    rf"\b{_POUR_CENT_WORD_BODY}"
+    rf"(?={_POUR_CENT_CLOSING_BODY}|{_FRENCH_RATE_LIST_AFTER_POUR_CENT_BODY})|"
+    r"\bprocent(?:en|punt(?:en)?)?\b"
+)
+_BELGIAN_PERCENT_WORD_BODY = rf"{_BELGIAN_PERCENT_SPELLED_BODY}|\b(?-i:pct)\b\.?"
+_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY = r"\b(?-i:v\.[ \t]?H\.)"
+# Main's markers that make the figure right before them a rate, which every
+# source reads.
+_RATE_MARKER_AFTER_FIGURE_BODY = (
+    r"%|"
+    r"\bp\.?[ \t]*c\.?\b|"
+    r"\bpercent\b|"
+    r"\bper[ \t-]+cent(?:um)?\b|"
+    r"\bProzent\b|"
+    r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
+    r"\bvom[ \t]+Hundert\b"
+)
+# The word right before a figure that Belgian texts restate in parentheses
+# ahead of their own rate marker: a French, Dutch or German preposition or
+# copula ("pour (75) pour cent", "tarief van (9) procent", "Satz von (15)
+# Prozent", "taux de (101) %"). The word starts the text or follows a space,
+# an apostrophe or a mark typed for one ("jusqu'à (17) pour cent",
+# "jusqu´à", "jusqu`à", "jusquʼà", "jusqu′à") or an opening bracket or quote,
+# so the end of a URL ("https://example.be/de (17) pour cent", "example.de
+# (17) %") is no lead-in. After any other word a whole or dotted figure in
+# parentheses restates no rate, and a label-shaped one stays the label it
+# looks like, as on main: after a structural word ("article 5 bis (2) pour
+# cent", "Item (117) Percent"), a spelled number ("vingt-huit (28) pour
+# cent", "l'article six (112) procent") or a figure ("5 (2) pour cent"). The
+# label cleaner and the parenthesized reader both read it.
+_RATE_RESTATEMENT_PREPOSITION_PATTERN = re.compile(
+    r"(?<![^\s'’\u02bc\u00b4`\u2032(\[«“„\"‘])(?:"
+    r"pour|de|du|des|à|sur|soit|est|sont|sera|seront|était|étaient|"
+    r"environ|moins|que|"
+    r"van|tot|met|op|voor|dan|bij|zijn|bedraagt|bedragen|"
+    r"von|zu|um|auf|mit|über|unter|als|beträgt|betragen|je"
+    r")[ \t\u00a0\u202f]\Z",
+    re.IGNORECASE,
+)
 _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
     r"(?<![A-Za-z0-9])\((?:[A-Za-z]|[ivxlcdmIVXLCDM]+|0|[1-9]\d?(?:\.\d+)?)\)"
 )
@@ -7745,18 +7880,114 @@ _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN = re.compile(
     _WRAP_SPACE_FRAGMENT + r"*(?:%|\bp\.?\s*c\.?\b)",
     re.IGNORECASE,
 )
-_LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN = re.compile(
-    r"[ \t]*(?:"
-    r"%|"
-    r"\bp\.?[ \t]*c\.?\b|"
-    r"\bpercent\b|"
-    r"\bper[ \t-]+cent(?:um)?\b|"
-    r"\bProzent\b|"
-    r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
-    r"\bvom[ \t]+Hundert\b"
-    r")",
+# The marker after a figure in the range and decimal-comma readers.
+_FIGURE_RATE_MARKER_BODY = r"(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b)"
+# A Belgian source's range and decimal-comma readers take its own words too:
+# "entre 10 et 20 pour cent" and "van 10 tot 20 procent" are two rates each,
+# as "10 to 20 percent" is.
+_BELGIAN_FIGURE_RATE_MARKER_BODY = (
+    r"(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b|"
+    r"\bProzent\b|\bvom\s+Hundert\b|"
+    rf"{_BELGIAN_PERCENT_WORD_BODY}|{_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY})"
+)
+# Cleaning may blank what follows "pour cent" (a label, a dotted figure, a
+# figure at the start of a line, a date), and "pour cent" then seems to close
+# where the source keeps it open. So the range and decimal-comma readers find
+# a Belgian marker in the cleaned text with "pour cent" bare, then judge the
+# whole marker, closing rule and all, in the source, as the after-figure
+# reader does.
+_BELGIAN_FIGURE_RATE_MARKER_WORD_BODY = (
+    rf"(?:\b{_POUR_CENT_WORD_BODY}|{_BELGIAN_FIGURE_RATE_MARKER_BODY})"
+)
+_BELGIAN_FIGURE_RATE_MARKER_AFTER_PATTERN = re.compile(
+    rf"\s*{_BELGIAN_FIGURE_RATE_MARKER_BODY}",
     re.IGNORECASE,
 )
+_LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN = re.compile(
+    rf"[ \t]*(?:{_RATE_MARKER_AFTER_FIGURE_BODY})",
+    re.IGNORECASE,
+)
+# German and Belgian typography set a no-break space before the marker
+# ("28\u00a0%", "28\u202fProzent"). German sources read "v. H." too, and
+# Belgian sources their own words as well.
+_LOCALE_LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERNS = {
+    "de-DE": re.compile(
+        rf"[ \t\u00a0\u202f]*(?:{_RATE_MARKER_AFTER_FIGURE_BODY}|"
+        rf"{_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY})",
+        re.IGNORECASE,
+    ),
+    "be-BE": re.compile(
+        rf"[ \t\u00a0\u202f]*(?:{_RATE_MARKER_AFTER_FIGURE_BODY}|"
+        rf"{_BELGIAN_PERCENT_WORD_BODY}|{_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY})",
+        re.IGNORECASE,
+    ),
+}
+# The markers that spell a percent out in Belgian, Dutch and German sources.
+_SPELLED_PERCENT_MARKER_BODY = (
+    r"\bProzent\b|"
+    r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
+    r"\bvom[ \t]+Hundert\b|"
+    rf"{_BELGIAN_PERCENT_SPELLED_BODY}"
+)
+# The markers before which a Belgian source may restate a label-shaped figure
+# in parentheses ("pour (75) pour cent", "tarief van (9) procent"): the words
+# that spell a percent out. A source may define an abbreviation as anything
+# ("p.c." for "parties civiles", "pct." for a precinct), so before "p.c.",
+# "pct." or "v. H.", as before "%" or an English word, the parenthesis stays
+# the label it looks like, as on main.
+_BELGIAN_RESTATED_RATE_MARKER_PATTERN = re.compile(
+    rf"[ \t\u00a0\u202f]*(?:{_SPELLED_PERCENT_MARKER_BODY})",
+    re.IGNORECASE,
+)
+# The markers that make any figure restated in parentheses a rate: the
+# percent sign and the words that spell a percent out.
+_PARENTHESIZED_FIGURE_RATE_MARKER_PATTERN = re.compile(
+    r"[ \t\u00a0\u202f]*(?:"
+    r"%|\bpercent\b|\bper[ \t-]+cent(?:um)?\b|"
+    rf"{_SPELLED_PERCENT_MARKER_BODY})",
+    re.IGNORECASE,
+)
+# A figure that ends in a decimal comma and its fraction ("14,75", "1.000,5").
+_DECIMAL_COMMA_FRACTION_END_PATTERN = re.compile(r",\d+\Z")
+# The spaces print puts between groups of three digits: an ordinary,
+# no-break, figure, thin or narrow no-break space ("12 345").
+_PRINTED_FIGURE_GROUPING_SPACES = " \u00a0\u2007\u2009\u202f"
+# The fraction of a mixed number ("1/2" in "16 1/2", "½" in "16 ½").
+_PRINTED_FRACTION_START_PATTERN = re.compile(
+    "[0-9]+[/\u2044][0-9]|[\u00bc-\u00be\u2150-\u215e]"
+)
+# A slash or a fraction slash with up to three spaces on each side joins two
+# figures into one fraction ("1/2", "1 / 2"), as main reads "1 / 2 %" (0.5
+# percent).
+_SPACED_FRACTION_SLASH_BEFORE_PATTERN = re.compile(r"[0-9]\s{0,3}[/\u2044]\s{0,3}\Z")
+_SPACED_FRACTION_SLASH_AFTER_PATTERN = re.compile(r"\s{0,3}[/\u2044]\s{0,3}[0-9]")
+# A digit, a slash and three spaces on each side.
+_SPACED_FRACTION_SLASH_REACH = 8
+# Groups of three that grouping spaces join into one figure ("12 345").
+_SPACE_GROUPED_FIGURE_PATTERN = re.compile(
+    r"(?<![0-9])[1-9][0-9]{0,2}(?P<join>[ \u00a0\u2007\u2009\u202f])[0-9]{3}"
+    r"(?:(?P=join)[0-9]{3})*(?![0-9])"
+)
+# The longest figure the Belgian reading check widens to; a longer run of
+# joined digits reads no Belgian figure.
+_PRINTED_FIGURE_MAX_LENGTH = 64
+# A figure as a Belgian source prints it: a decimal comma ("2,5", "1,250"),
+# dots or grouping spaces between groups of three ("1.250", "12 345,5"), or
+# a point that ends no such group ("12.5"). A figure that only English prints
+# ("1,250.5", "1,250,000") has its English value, its only one.
+_BELGIAN_DECIMAL_COMMA_FIGURE_PATTERN = re.compile(r"[0-9]+(?:,[0-9]+)?")
+_BELGIAN_GROUPED_FIGURE_PATTERN = re.compile(
+    r"[1-9][0-9]{0,2}(?P<join>[. \u00a0\u2007\u2009\u202f])[0-9]{3}"
+    r"(?:(?P=join)[0-9]{3})*"
+    r"(?:,[0-9]+)?"
+)
+_ENGLISH_GROUPED_FIGURE_PATTERN = re.compile(
+    r"[1-9][0-9]{0,2}(?:,[0-9]{3})+\.[0-9]+|[1-9][0-9]{0,2}(?:,[0-9]{3}){2,}"
+)
+_DECIMAL_POINT_FIGURE_PATTERN = re.compile(r"[0-9]+\.[0-9]+")
+# The closing parenthesis of a figure restated in parentheses ("(14,75)
+# p.c."), read before the marker that follows it.
+_PARENTHESIZED_FIGURE_CLOSE_PATTERN = re.compile(r"[ \t\u00a0\u202f]*\)")
 _GENERIC_RATE_MARKER_PATTERN = re.compile(
     r"(?:"
     r"%|"
@@ -7783,6 +8014,24 @@ _TABLE_RATE_HEADER_PATTERN = re.compile(
     r")",
     re.IGNORECASE,
 )
+# The words a source's own percent markers add to a rate column's header,
+# read only in the header row right above a Markdown table's delimiter row,
+# where the table declares its columns.
+_TABLE_LOCALE_RATE_HEADER_PATTERNS = {
+    "be-BE": re.compile(
+        rf"{_BELGIAN_PERCENT_WORD_BODY}|{_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY}",
+        re.IGNORECASE,
+    ),
+    "de-DE": re.compile(_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY),
+}
+# A body cell whose marker follows a figure ("28 percent", "(14,75) p.c.")
+# holds a value, not a header: it types itself and declares nothing about the
+# rest of its column.
+_TABLE_VALUE_CELL_RATE_PATTERN = re.compile(
+    rf"\d(?:\s*\))?\s*(?:{_RATE_MARKER_AFTER_FIGURE_BODY})",
+    re.IGNORECASE,
+)
+_PIPE_TABLE_DELIMITER_CELL_PATTERN = re.compile(r":?-+:?")
 _DANISH_RATE_MARKER_BODY = (
     r"(?:\bpct(?:\.(?!\w)|(?![\w.]))|\bprocent(?:point|enhed(?:er)?)?\b)"
 )
@@ -13882,7 +14131,16 @@ def _clean_source_text_for_numeric_extraction_tracked(
     tracked = tracked.sub(_SLASH_DATE_PATTERN, _blank_match)
     tracked = tracked.sub(_MONTH_NAME_DAY_PATTERN, _blank_match)
     tracked = tracked.sub(_MONTH_DAY_OF_MONTH_PATTERN, _blank_match)
-    tracked = tracked.sub(_STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN, _blank_match)
+    tracked = tracked.sub(
+        _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN,
+        (
+            functools.partial(
+                _blank_subdivision_label, source=text, offsets=tracked.offsets
+            )
+            if profile == "be-BE"
+            else _blank_match
+        ),
+    )
     tracked = tracked.sub(
         _SCHEDULE_SIZE_CAP_RESTATEMENT_PATTERN,
         _restate_schedule_size_cap_in_place,
@@ -13909,6 +14167,43 @@ def _restate_schedule_size_cap_in_place(match: re.Match[str]) -> str:
 def _blank_match(match: re.Match[str]) -> str:
     """Replace a match with spaces of its own width, so offsets stay put."""
     return " " * len(match.group(0))
+
+
+def _blank_subdivision_label(
+    match: re.Match[str],
+    *,
+    source: str,
+    offsets: Sequence[int | None],
+) -> str:
+    """Blank a Belgian subdivision label unless it restates a rate figure.
+
+    ``pour (75) pour cent`` restates the rate 75 percent: a French, Dutch or
+    German preposition or copula and one space come before the parenthesis,
+    and a word that spells a percent out follows it. Otherwise ``(17)`` is
+    the label it looks like (``Item (17) Percent``, ``met (17) p.c.``,
+    ``pour (17) p.c.``, ``l'article six (12) procent``, ``apply. (17)
+    procent``, ``5 (2) pour cent``): an abbreviation may stand for anything
+    its source defines, so it licenses no restatement.
+
+    ``source`` is the text before cleaning and ``offsets`` place each
+    character of the matched text in it. This reads the label in ``source``,
+    as the readers read its figure: an edit before this one may have
+    blanked what follows the marker ("pour cent 2026-01-01." closes at the
+    full stop once the date is blank), and a label kept for a rate the
+    readers then decline would ground its bare figure.
+    """
+    start, end = match.span()
+    opening, closing = offsets[start], offsets[end - 1]
+    if (
+        opening is not None
+        and closing is not None
+        and _BELGIAN_RESTATED_RATE_MARKER_PATTERN.match(source, closing + 1)
+        and _RATE_RESTATEMENT_PREPOSITION_PATTERN.search(
+            source[max(0, opening - 64) : opening]
+        )
+    ):
+        return match.group(0)
+    return _blank_match(match)
 
 
 def _strip_superseded_bracketed_numeric_text(match: re.Match[str]) -> str:
@@ -14407,13 +14702,33 @@ def _pipe_table_next_width(line: str, width: int | None) -> int:
     count is the width, and a later row's leading pipe that keeps the row at
     that width marks an empty first cell.
     """
-    starts = line.lstrip().startswith("|")
-    ends = line.rstrip().endswith("|")
+    separators = _pipe_table_separators(line)
+    starts, ends = _pipe_table_line_borders(line, separators)
     if width is None:
         return 0 if starts or ends else len(_pipe_table_line_cells(line, None))
-    if starts and (ends or line.count("|") + 1 > width):
+    if starts and (ends or len(separators) + 1 > width):
         return 0
     return width
+
+
+# A backslash before a pipe makes the pipe part of its cell ("Type \| Category"),
+# the way GitHub-flavored Markdown reads a table row.
+_PIPE_TABLE_SEPARATOR_PATTERN = re.compile(r"(?<!\\)\|")
+
+
+def _pipe_table_separators(line: str) -> list[int]:
+    """Return the offsets of the pipes that separate ``line``'s cells."""
+    return [match.start() for match in _PIPE_TABLE_SEPARATOR_PATTERN.finditer(line)]
+
+
+def _pipe_table_line_borders(line: str, separators: Sequence[int]) -> tuple[bool, bool]:
+    """Return whether a separator opens and whether one closes ``line``."""
+    if not separators:
+        return False, False
+    return (
+        not line[: separators[0]].strip(),
+        not line[separators[-1] + 1 :].strip(),
+    )
 
 
 def _pipe_table_line_cells(
@@ -14431,20 +14746,18 @@ def _pipe_table_line_cells(
     the block looks bordered anywhere, so a bordered or mixed Markdown table
     keeps the border rule on every row; with ``None``, borders are dropped.
     """
-    boundaries = [
-        -1,
-        *(match.start() for match in re.finditer(r"\|", line)),
-        len(line),
-    ]
+    separators = _pipe_table_separators(line)
+    boundaries = [-1, *separators, len(line)]
     cells = [
         (boundaries[index] + 1, boundaries[index + 1])
         for index in range(len(boundaries) - 1)
     ]
     if width is not None and len(cells) == width:
         return cells
-    if line.lstrip().startswith("|") and cells:
+    starts, ends = _pipe_table_line_borders(line, separators)
+    if starts and cells:
         cells = cells[1:]
-    if line.rstrip().endswith("|") and cells:
+    if ends and cells:
         cells = cells[:-1]
     return cells
 
@@ -14684,14 +14997,284 @@ def _local_rate_context_after_number(
             patterns=(_GENERIC_RATE_MARKER_PATTERN, _DANISH_RATE_MARKER_PATTERN),
             boundaries=boundaries,
         )
-    return bool(_LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN.match(text, end))
+    return bool(_local_rate_context_pattern(profile).match(text, end))
 
 
-def _table_rate_header_matches(text: str, *, profile: str) -> bool:
-    """Return whether a table header contains a profile-specific rate marker."""
+def _local_rate_context_pattern(profile: str) -> re.Pattern[str]:
+    """Return the markers after a figure that make it a rate in ``profile``."""
+    return _LOCALE_LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERNS.get(
+        profile, _LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN
+    )
+
+
+def _parenthesized_figure_rate_context(
+    text: str,
+    span: tuple[int, int],
+    *,
+    profile: str,
+    value: float,
+    boundaries: _NumericContextBoundaries | None = None,
+) -> bool:
+    """Return whether a rate marker follows a figure restated in parentheses.
+
+    Belgian statutes restate a figure in parentheses and put the marker after
+    them: "(14,75) p.c. du montant" and "pour (75) pour cent" are rates. A
+    figure right before the opening parenthesis, across any space or a comma,
+    owns the marker instead ("5 (2,5) p.c." is five percent and a note), so it
+    blocks the reading, and an unopened parenthesis ("2) p.c.", a list label)
+    is no restatement. Only Belgian sources read it; elsewhere the parenthesis
+    is a label or a note, as on main.
+
+    A whole or dotted figure in parentheses may count, cite or label ("(101)
+    p.c. applicants", "(101.5)", "Item (117) Percent"), so it restates a
+    rate only after the lead-in a label needs, a preposition or copula and
+    one space ("taux de (101) % du montant"), and only before the percent
+    sign or a word that spells a percent out: an abbreviation ("p.c.",
+    "pct.", "v. H.") may stand for whatever its source defines. A fraction
+    with a decimal comma neither counts nor cites, so any marker makes it a
+    rate, an abbreviation too, after any word ("(14,75) p.c."): main reads
+    "14,75 p.c." as a rate. ``value`` is the reading's value of the figure,
+    and a zero fraction reads whole ("(2,0)", or "(1,000)", which may group
+    a count). ``occurrence`` asks this reader only about a reading that
+    takes the figure the Belgian way (``_reads_belgian_figure``), so
+    "(1.250) pour cent" types 1250 and never 1.25.
+    """
+    if profile != "be-BE":
+        return False
+    start, end = span
+    opening = start - 1
+    while opening >= 0 and text[opening] in _LOCALE_NUMERIC_GROUPING_SPACES + "\t":
+        opening -= 1
+    if opening < 0 or text[opening] != "(":
+        return False
+    before = opening - 1
+    while before >= 0 and (text[before].isspace() or text[before] == ","):
+        before -= 1
+    if before >= 0 and text[before].isdigit():
+        return False
+    closing = _PARENTHESIZED_FIGURE_CLOSE_PATTERN.match(text, end)
+    if closing is None:
+        return False
+    fraction = not float(value).is_integer() and bool(
+        _DECIMAL_COMMA_FRACTION_END_PATTERN.search(text, start, end)
+    )
+    if not fraction and not _RATE_RESTATEMENT_PREPOSITION_PATTERN.search(
+        text[max(0, opening - 64) : opening]
+    ):
+        return False
+    if _PARENTHESIZED_FIGURE_RATE_MARKER_PATTERN.match(text, closing.end()):
+        return True
+    if not fraction:
+        return False
+    return _local_rate_context_after_number(
+        text,
+        closing.end(),
+        profile=profile,
+        boundaries=boundaries,
+    )
+
+
+def _is_printed_figure_character(character: str) -> bool:
+    """Return whether a character is a digit or a fraction glyph ("½")."""
+    return (
+        "0" <= character <= "9"
+        or "\u00bc" <= character <= "\u00be"
+        or "\u2150" <= character <= "\u215e"
+    )
+
+
+def _widen_printed_figure(
+    text: str,
+    start: int,
+    end: int,
+    joins: str,
+) -> tuple[int, int] | None:
+    """Widen a figure's span over the digits and ``joins`` that continue it.
+
+    Returns None for a figure longer than ``_PRINTED_FIGURE_MAX_LENGTH``.
+    """
+    while start > 0 and (
+        _is_printed_figure_character(text[start - 1])
+        or (
+            start > 1
+            and text[start - 1] in joins
+            and _is_printed_figure_character(text[start - 2])
+        )
+    ):
+        start -= 1
+        if end - start > _PRINTED_FIGURE_MAX_LENGTH:
+            return None
+    while end < len(text) and (
+        _is_printed_figure_character(text[end])
+        or (
+            end + 1 < len(text)
+            and text[end] in joins
+            and _is_printed_figure_character(text[end + 1])
+        )
+    ):
+        end += 1
+        if end - start > _PRINTED_FIGURE_MAX_LENGTH:
+            return None
+    return start, end
+
+
+def _belgian_figure_value(figure: str) -> float | None:
+    """Return the value a printed figure states in a Belgian source, if any."""
+    if _BELGIAN_DECIMAL_COMMA_FIGURE_PATTERN.fullmatch(figure):
+        return float(figure.replace(",", "."))
+    grouped = _BELGIAN_GROUPED_FIGURE_PATTERN.fullmatch(figure)
+    if grouped:
+        return float(figure.replace(grouped["join"], "").replace(",", "."))
+    if _ENGLISH_GROUPED_FIGURE_PATTERN.fullmatch(figure):
+        return float(figure.replace(",", ""))
+    if _DECIMAL_POINT_FIGURE_PATTERN.fullmatch(figure):
+        return float(figure)
+    return None
+
+
+def _reads_belgian_figure(text: str, span: tuple[int, int], value: float) -> bool:
+    """Return whether a reading takes its printed figure the Belgian way.
+
+    Main's readers read a figure the English way: one drops its commas ("2,5"
+    as 25, "1,250" as 1250), one takes a grouping dot for a decimal point
+    ("1.250" as 1.25), and some read a part of it (the "5" of "1.250,5", the
+    "345,5" of "12 345,5", the "2" of "1/2" or "1 / 2", the "½" of "16½", the
+    "1⁄2" of "1.250 1⁄2"). A Belgian source states none of those values. A
+    grouping space joins a figure only where it groups three digits ("12 345,5",
+    not "2025 125,5"). A reading with no comma or dot in its span ("28",
+    "16 1/2", a number spelled out) has no other value to mistake; any other
+    reading must take its figure's Belgian value.
+    """
+    start, end = span
+    first = next(
+        (
+            index
+            for index in range(start, end)
+            if _is_printed_figure_character(text[index])
+        ),
+        None,
+    )
+    if first is None:
+        return True
+    last = 1 + next(
+        index
+        for index in range(end - 1, first - 1, -1)
+        if _is_printed_figure_character(text[index])
+    )
+    if last - first > _PRINTED_FIGURE_MAX_LENGTH:
+        return False
+    if _widen_printed_figure(text, first, last, ".,") != (first, last):
+        return False
+    if _SPACED_FRACTION_SLASH_BEFORE_PATTERN.search(
+        text, max(0, first - _SPACED_FRACTION_SLASH_REACH), first
+    ) or _SPACED_FRACTION_SLASH_AFTER_PATTERN.match(
+        text, last, last + _SPACED_FRACTION_SLASH_REACH
+    ):
+        return False
+    if (
+        first > 1
+        and text[first - 1] in _PRINTED_FIGURE_GROUPING_SPACES
+        and _is_printed_figure_character(text[first - 2])
+        and _PRINTED_FRACTION_START_PATTERN.match(text, first)
+    ):
+        return False
+    wide = _widen_printed_figure(
+        text, first, last, ".,/\u2044" + _PRINTED_FIGURE_GROUPING_SPACES
+    )
+    if wide is None:
+        return False
+    if any(
+        group.start() < last
+        and group.end() > first
+        and (group.start() < first or group.end() > last)
+        for group in _SPACE_GROUPED_FIGURE_PATTERN.finditer(text, *wide)
+    ):
+        return False
+    figure = text[first:last]
+    if "." not in figure and "," not in figure:
+        return True
+    reading = _belgian_figure_value(figure)
+    return reading is not None and math.isclose(
+        abs(value),
+        reading,
+        rel_tol=0,
+        abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+    )
+
+
+def _table_rate_header_matches(
+    text: str,
+    *,
+    profile: str,
+    row: str = "undelimited",
+) -> bool:
+    """Return whether a table header contains a profile-specific rate marker.
+
+    ``row`` places the cell in its Markdown table: "header" above the
+    delimiter row, "body" below it, "undelimited" in a block without one. A
+    header cell may name the rate in its source's own words too (Belgian
+    words, German "v. H."); a body cell whose marker follows its own figure is
+    a value and types no column.
+    """
     if profile == "da-DK":
         return False
+    locale_header = _TABLE_LOCALE_RATE_HEADER_PATTERNS.get(profile)
+    if row == "header" and locale_header and locale_header.search(text):
+        return True
+    if row == "body":
+        text = _TABLE_VALUE_CELL_RATE_PATTERN.sub(" ", text)
     return bool(_TABLE_RATE_HEADER_PATTERN.search(text))
+
+
+def _pipe_table_is_delimiter_row(line: str) -> bool:
+    """Return whether ``line`` is a Markdown delimiter row (``| --- | :-: |``).
+
+    Whitespace around the row and its cells is no part of it.
+    """
+    separators = _pipe_table_separators(line)
+    if not separators:
+        return False
+    cells = _pipe_table_line_cells(line, None)
+    return bool(cells) and all(
+        _PIPE_TABLE_DELIMITER_CELL_PATTERN.fullmatch(line[start:end].strip())
+        for start, end in cells
+    )
+
+
+def _pipe_table_row_kinds(lines: Sequence[str]) -> list[str]:
+    """Place each line of one pipe block around its delimiter row.
+
+    As in GitHub Flavored Markdown, the header is the one row right above the
+    first delimiter row, and only when both have as many cells. Pipe text
+    above it is paragraph text, and a header that mismatches heads no table:
+    those rows read as rows of an undelimited block. Rows below the delimiter
+    are body rows either way.
+    """
+    delimiter = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if _pipe_table_is_delimiter_row(line)
+        ),
+        None,
+    )
+    if delimiter is None:
+        return ["undelimited"] * len(lines)
+    header = delimiter - 1
+    if header >= 0 and len(_pipe_table_line_cells(lines[header], None)) != len(
+        _pipe_table_line_cells(lines[delimiter], None)
+    ):
+        header = -1
+    return [
+        "header"
+        if index == header
+        else "delimiter"
+        if index == delimiter
+        else "body"
+        if index > delimiter
+        else "undelimited"
+        for index in range(len(lines))
+    ]
 
 
 def _currency_marker_before_number(
@@ -14776,30 +15359,49 @@ def _pipe_table_rate_cell_spans(
     profile: str = "legacy",
 ) -> tuple[tuple[int, int], ...]:
     """Index cells whose pipe-table column has an explicit percentage header."""
-    rate_cells: list[tuple[int, int]] = []
-    rate_columns: set[int] = set()
-    width: int | None = None
+    blocks: list[list[tuple[int, str]]] = []
+    block: list[tuple[int, str]] = []
     line_offset = 0
     for line_with_ending in text.splitlines(keepends=True):
         line = line_with_ending.rstrip("\r\n")
-        if "|" not in line:
-            rate_columns.clear()
-            width = None
-            line_offset += len(line_with_ending)
-            continue
-
-        width = _pipe_table_next_width(line, width)
-        cells = _pipe_table_line_cells(line, width)
-
-        for column, (start, end) in enumerate(cells):
-            if _table_rate_header_matches(line[start:end], profile=profile):
-                rate_columns.add(column)
-        for column in rate_columns:
-            if column >= len(cells):
-                continue
-            start, end = cells[column]
-            rate_cells.append((line_offset + start, line_offset + end))
+        if "|" in line:
+            block.append((line_offset, line))
+        elif block:
+            blocks.append(block)
+            block = []
         line_offset += len(line_with_ending)
+    if block:
+        blocks.append(block)
+
+    rate_cells: list[tuple[int, int]] = []
+    for block in blocks:
+        rows = _pipe_table_row_kinds([line for _, line in block])
+        rate_columns: set[int] = set()
+        width: int | None = None
+        for (offset, line), row in zip(block, rows, strict=True):
+            # The header row starts the table: pipe text above it sets no
+            # width for the table's own rows.
+            if row == "header":
+                width = None
+            width = _pipe_table_next_width(line, width)
+            cells = _pipe_table_line_cells(line, width)
+
+            # A header that names its column only in its source's own words
+            # types the cells below it, not the figures beside those words
+            # ("Tarief (procent) 2026"). A header in main's words types its
+            # own cell as on main.
+            locale_headers: set[int] = set()
+            for column, (start, end) in enumerate(cells):
+                cell = line[start:end]
+                if _table_rate_header_matches(cell, profile=profile, row=row):
+                    rate_columns.add(column)
+                    if not _table_rate_header_matches(cell, profile="legacy", row=row):
+                        locale_headers.add(column)
+            for column in rate_columns - locale_headers:
+                if column >= len(cells):
+                    continue
+                start, end = cells[column]
+                rate_cells.append((offset + start, offset + end))
     return tuple(rate_cells)
 
 
@@ -15134,7 +15736,12 @@ class _LegacyNumericCollector:
     rate_table_cell_spans: tuple[tuple[int, int], ...] = field(init=False)
     rate_table_cell_span_starts: tuple[int, ...] = field(init=False)
     rate_table_cell_prefix_max_ends: tuple[int, ...] = field(init=False)
+    # The rate cells main's markers alone declare, built on first use.
+    legacy_rate_table_cell_index: tuple[tuple[int, ...], tuple[int, ...]] | None = (
+        field(init=False, default=None)
+    )
     shared_rate_spans: tuple[tuple[int, int], ...] = field(init=False)
+    legacy_shared_rate_spans: tuple[tuple[int, int], ...] = field(init=False)
     temporal_component_spans: tuple[tuple[int, int], ...] = field(init=False)
     standalone_month_header_year_spans: tuple[tuple[int, int], ...] = field(init=False)
     structural_component_spans: tuple[tuple[int, int], ...] = field(init=False)
@@ -15207,6 +15814,7 @@ class _LegacyNumericCollector:
             )
         }
         shared_rate_spans: set[tuple[int, int]] = set()
+        legacy_shared_rate_spans: set[tuple[int, int]] = set()
         for match in _TEMPORAL_YEAR_RANGE_PATTERN.finditer(self.context_text):
             endpoint_spans = (match.span("start"), match.span("end"))
             has_money_context = (
@@ -15241,8 +15849,36 @@ class _LegacyNumericCollector:
                 boundaries=self.context_boundaries,
             ):
                 shared_rate_spans.update(endpoint_spans)
+            if self.profile == "be-BE" and _local_rate_context_after_number(
+                self.context_text,
+                match.end(),
+                profile="legacy",
+                boundaries=self.context_boundaries,
+            ):
+                legacy_shared_rate_spans.update(endpoint_spans)
         self.money_spans = tuple(sorted(money_spans))
         self.shared_rate_spans = tuple(sorted(shared_rate_spans))
+        self.legacy_shared_rate_spans = (
+            tuple(sorted(legacy_shared_rate_spans))
+            if self.profile == "be-BE"
+            else self.shared_rate_spans
+        )
+
+    def rate_table_cell_index(
+        self,
+        profile: str,
+    ) -> tuple[tuple[int, ...], tuple[int, ...]]:
+        """Return the containment index of the rate cells ``profile`` declares."""
+        if profile == self.profile:
+            return (
+                self.rate_table_cell_span_starts,
+                self.rate_table_cell_prefix_max_ends,
+            )
+        if self.legacy_rate_table_cell_index is None:
+            self.legacy_rate_table_cell_index = _span_containment_index(
+                _pipe_table_rate_cell_spans(self.context_text, profile=profile)
+            )
+        return self.legacy_rate_table_cell_index
 
     def occurrence(
         self,
@@ -15262,6 +15898,22 @@ class _LegacyNumericCollector:
             require_exact=self.profile == "da-DK",
         )
         start, end = source_span
+        reading_value = value if source_value is None else source_value
+        # A Belgian source's own markers, restatements and headers type only
+        # a reading that takes its figure whole and the Belgian way: "2,5
+        # procent" states 2.5 percent, never 25. Any other reading, the English
+        # one or a part of the figure, takes rate context only from main's
+        # markers: one right after it, a table cell's or a year range's. No
+        # reader forces its rate, main's included, so the "250" of "1,250
+        # percent" states no rate here.
+        rate_profile = self.profile
+        if self.profile == "be-BE" and not _reads_belgian_figure(
+            self.source,
+            source_span,
+            reading_value,
+        ):
+            rate_profile = "legacy"
+            force_rate_context = False
         in_structural_component = _span_is_contained_in_index(
             source_span,
             self.structural_component_span_starts,
@@ -15275,8 +15927,7 @@ class _LegacyNumericCollector:
             and not in_structural_component
             and _span_is_contained_in_index(
                 source_span,
-                self.rate_table_cell_span_starts,
-                self.rate_table_cell_prefix_max_ends,
+                *self.rate_table_cell_index(rate_profile),
             )
         )
         has_rate_context = (
@@ -15284,13 +15935,24 @@ class _LegacyNumericCollector:
             or _local_rate_context_after_number(
                 self.context_text,
                 end,
-                profile=self.profile,
+                profile=rate_profile,
+                boundaries=self.context_boundaries,
+            )
+            or _parenthesized_figure_rate_context(
+                self.context_text,
+                source_span,
+                profile=rate_profile,
+                value=reading_value,
                 boundaries=self.context_boundaries,
             )
             or has_table_rate_context
             or any(
                 start >= rate_start and end <= rate_end
-                for rate_start, rate_end in self.shared_rate_spans
+                for rate_start, rate_end in (
+                    self.shared_rate_spans
+                    if rate_profile == self.profile
+                    else self.legacy_shared_rate_spans
+                )
             )
         )
         has_money_context = (
@@ -15334,7 +15996,7 @@ class _LegacyNumericCollector:
             has_rate_context=has_rate_context,
             has_temporal_context=has_temporal_context,
             has_structural_context=has_structural_context,
-            source_value=value if source_value is None else source_value,
+            source_value=reading_value,
             requires_rate_context=requires_rate_context,
             is_word_number=is_word_number,
             alternative_values=alternative_values,
@@ -15360,7 +16022,12 @@ class _LegacyNumericCollector:
         self.inventory.append(self.occurrence(view, span, value, **kwargs))
 
 
-_NUMERIC_EXTRACTION_PROFILES = frozenset({"legacy", "en-US", "en-GB", "de-DE", "da-DK"})
+_NUMERIC_EXTRACTION_PROFILES = frozenset(
+    {"legacy", "be-BE", "en-US", "en-GB", "de-DE", "da-DK"}
+)
+# The profiles the legacy tokenizer reads: be-BE is the legacy reading with
+# the Belgian rate markers (_BELGIAN_PERCENT_WORD_BODY).
+_LEGACY_NUMERIC_PROFILES = frozenset({"legacy", "be-BE"})
 _DECIMAL_COMMA_NUMERIC_PROFILES = frozenset({"de-DE", "da-DK"})
 _LOCALE_NUMERIC_GROUPING_SPACES = " \u00a0\u202f"
 # An ASCII space commonly separates adjacent Danish table values (for example,
@@ -15587,6 +16254,10 @@ def _numeric_profile_for_citation_path(citation_path: str | None) -> str:
         return "de-DE"
     if canonical.startswith("dk/"):
         return "da-DK"
+    # Belgium's federal and regional corpora: be/, be-vlg/, be-wal/, be-bru/,
+    # be-dg/.
+    if re.match(r"be(?:-[a-z]+)?/", canonical):
+        return "be-BE"
     return "legacy"
 
 
@@ -16346,7 +17017,7 @@ def _has_malformed_profiled_numeric_envelope(
     profile: str,
 ) -> bool:
     """Return whether strict-profile text contains an unparseable full span."""
-    if profile == "legacy":
+    if profile in _LEGACY_NUMERIC_PROFILES:
         return False
     if profile not in _NUMERIC_EXTRACTION_PROFILES:
         raise ValueError(f"Unsupported numeric profile: {profile}")
@@ -16744,6 +17415,49 @@ def _occurrence_value_matches(left: float, right: float) -> bool:
     )
 
 
+def _figure_rate_marker_follows_in_source(
+    collector: _LegacyNumericCollector,
+    view: _NumericTextView,
+    span: tuple[int, int],
+    marker: re.Pattern[str],
+) -> bool:
+    """Return whether ``marker`` follows a cleaned-text figure in the source.
+
+    Cleaning can blank what follows "pour cent" (a label, a dotted figure, a
+    figure at the start of a line, a date), so a reader that finds a figure
+    and its marker in the cleaned text judges the marker, closing rule and
+    all, in the source, as the after-figure reader does. A figure that maps to
+    no source text has no marker there.
+    """
+    try:
+        end = view.source_span(span)[1]
+    except ValueError:
+        return False
+    return bool(marker.match(collector.context_text, end))
+
+
+def _range_endpoints_meet_in_source(
+    collector: _LegacyNumericCollector,
+    view: _NumericTextView,
+    first: tuple[int, int],
+    second: tuple[int, int],
+    gap: re.Pattern[str],
+) -> bool:
+    """Return whether only the range's separator parts its endpoints in the source.
+
+    Cleaning blanks a label, a date or a code between two figures ("1 (10) à
+    2 pour cent", "1 2026-01-01 à 2"), and the cleaned text then shows a range
+    the source does not print. A range whose endpoints map to no source text
+    is no range there.
+    """
+    try:
+        first_end = view.source_span(first)[1]
+        second_start = view.source_span(second)[0]
+    except ValueError:
+        return False
+    return bool(gap.fullmatch(collector.context_text, first_end, second_start))
+
+
 # Complete-source-unit analysis re-tokenizes the same branch texts once per
 # formula rule they are matched against; on one module ~95% of calls repeat
 # an already-seen text. The result is a tuple of frozen occurrences, so it
@@ -16757,10 +17471,10 @@ def _tokenize_numeric_occurrences_from_text(
     """Tokenize once into typed grounding and source-inventory emission streams."""
     if profile not in _NUMERIC_EXTRACTION_PROFILES:
         raise ValueError(f"Unsupported numeric profile: {profile}")
-    if profile != "legacy":
+    if profile not in _LEGACY_NUMERIC_PROFILES:
         return _tokenize_profiled_numeric_occurrences(text, profile=profile)
 
-    collector = _LegacyNumericCollector(text)
+    collector = _LegacyNumericCollector(text, profile=profile)
     source_view = _NumericTextView.identity(text)
     implied_cents_matches = _iter_form_implied_cents_matches(text)
     raw_tracked = _bind_hebrew_source_text_tracked(
@@ -16776,7 +17490,9 @@ def _tokenize_numeric_occurrences_from_text(
     # ends and maqaf wrap space read as the cleaner reads them, each
     # character carrying its offset into text; offsets carried through the
     # cleaning of raw_text are offsets into raw_text, composed here.
-    cleaned_tracked = _clean_source_text_for_numeric_extraction_tracked(raw_text)
+    cleaned_tracked = _clean_source_text_for_numeric_extraction_tracked(
+        raw_text, profile=profile
+    )
     cleaned_tracked = _TrackedText(
         cleaned_tracked.text,
         [
@@ -17207,7 +17923,18 @@ def _tokenize_numeric_occurrences_from_text(
                 continue
             if (
                 _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN.match(cleaned, match.end())
-                or _LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN.match(cleaned, match.end())
+                or (
+                    _figure_rate_marker_follows_in_source(
+                        collector,
+                        cleaned_view,
+                        match.span(),
+                        _local_rate_context_pattern(profile),
+                    )
+                    if profile == "be-BE"
+                    else _local_rate_context_pattern(profile).match(
+                        cleaned, match.end()
+                    )
+                )
                 or _HEBREW_PERCENT_WORD_PATTERN.match(cleaned, match.end())
             ):
                 # "16 1⁄2%" and "10 1⁄4 percent" are the rates 0.165 and
@@ -17337,6 +18064,11 @@ def _tokenize_numeric_occurrences_from_text(
                     float(match.group(group_index).replace(",", "")),
                 )
 
+    figure_rate_marker = (
+        _BELGIAN_FIGURE_RATE_MARKER_WORD_BODY
+        if profile == "be-BE"
+        else _FIGURE_RATE_MARKER_BODY
+    )
     percentage_number = (
         r"-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+)"
         r"(?:,\d{1,4})?"
@@ -17344,12 +18076,29 @@ def _tokenize_numeric_occurrences_from_text(
     range_separator = (
         "(?:and|to|through|thru|et|\\u00e0|a|tot|bis|en|[-\\u2010-\\u2015])"
     )
+    range_gap = re.compile(rf"\s+{range_separator}\s+", re.IGNORECASE)
     for match in re.finditer(
         rf"\b({percentage_number})\s+{range_separator}\s+({percentage_number})"
-        r"\s*(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b)",
+        rf"\s*{figure_rate_marker}",
         cleaned,
         re.IGNORECASE,
     ):
+        if profile == "be-BE" and not (
+            _figure_rate_marker_follows_in_source(
+                collector,
+                cleaned_view,
+                match.span(2),
+                _BELGIAN_FIGURE_RATE_MARKER_AFTER_PATTERN,
+            )
+            and _range_endpoints_meet_in_source(
+                collector,
+                cleaned_view,
+                match.span(1),
+                match.span(2),
+                range_gap,
+            )
+        ):
+            continue
         for group_index in (1, 2):
             raw = _normalize_european_decimal_number(match.group(group_index))
             with contextlib.suppress(ValueError):
@@ -17368,10 +18117,17 @@ def _tokenize_numeric_occurrences_from_text(
     for match in re.finditer(
         r"(?:^|(?<=[\s(\[+\-−*/\"'`“”‘’])|(?<=(?<!\d),))"
         r"(-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+),\d{1,4})"
-        r"\s*(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b)",
+        rf"\s*{figure_rate_marker}",
         cleaned,
         re.IGNORECASE,
     ):
+        if profile == "be-BE" and not _figure_rate_marker_follows_in_source(
+            collector,
+            cleaned_view,
+            match.span(1),
+            _BELGIAN_FIGURE_RATE_MARKER_AFTER_PATTERN,
+        ):
+            continue
         raw = _normalize_european_decimal_number(match.group(1))
         with contextlib.suppress(ValueError):
             source_value = float(raw)
@@ -34477,7 +35233,7 @@ def _find_source_text_value_issues(
         for raw_key, expected_cell in expected_value.items():
             cell_key = str(raw_key)
             if (
-                numeric_profile != "legacy"
+                numeric_profile not in _LEGACY_NUMERIC_PROFILES
                 and _numeric_rule_value(expected_cell) is not None
             ):
                 profiled_numeric_cells.append((cell_key, expected_cell))
@@ -34493,7 +35249,7 @@ def _find_source_text_value_issues(
                     f"{_format_verification_value(expected_cell)}."
                 )
         if (
-            numeric_profile == "legacy"
+            numeric_profile in _LEGACY_NUMERIC_PROFILES
             and issues
             and _source_text_contains_table_value_multiset(
                 normalized_text,
@@ -34517,7 +35273,7 @@ def _find_source_text_value_issues(
         return issues
 
     expected_is_numeric = _numeric_rule_value(expected_value) is not None
-    if numeric_profile != "legacy" and expected_is_numeric:
+    if numeric_profile not in _LEGACY_NUMERIC_PROFILES and expected_is_numeric:
         value_is_present = _source_text_contains_numeric_value_equivalent(
             source_text,
             expected_value,
