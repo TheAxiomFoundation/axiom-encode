@@ -1,5 +1,6 @@
 """Git ancestry belongs to the staging origin; execution bytes belong to overlay."""
 
+import shutil
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -230,6 +231,8 @@ def test_origin_factory_refuses_non_git_and_alias_roots(staged):
         "overlay_symlink",
         "closure_symlink",
         "snapshot_symlink",
+        "closure_dir_symlink",
+        "snapshot_dir_symlink",
     ],
 )
 def test_freshness_and_consumption_reject_mutation_after_capture(staged, change):
@@ -251,6 +254,17 @@ def test_freshness_and_consumption_reject_mutation_after_capture(staged, change)
             moved = root.with_name("moved")
             root.rename(moved)
             root.symlink_to(moved, target_is_directory=True)
+        elif change in ("closure_dir_symlink", "snapshot_dir_symlink"):
+            base = (
+                staged.overlay
+                if change == "closure_dir_symlink"
+                else capture.snapshot_root
+            )
+            directory = base / "ca" / REL.parent
+            moved = staged.tmp / f"moved-{change}"
+            shutil.copytree(directory, moved)
+            shutil.rmtree(directory)
+            directory.symlink_to(moved, target_is_directory=True)
         elif change in ("closure_symlink", "snapshot_symlink"):
             path = (
                 file
@@ -350,6 +364,10 @@ def test_evaluate_artifact_forwards_pre_copy_origin_to_real_pipeline(
     generated.with_name("consumer.test.yaml").write_text("[]\n")
     contract = replacement_contract(staged) if replacement_scope == "legacy" else None
     eligible = not stale_during_copy and replacement_scope == "ordinary"
+    capture_spy = Mock(wraps=evals.capture_execution_git_origin)
+    bind_spy = Mock(wraps=evals.bind_execution_overlay_origin)
+    monkeypatch.setattr(evals, "capture_execution_git_origin", capture_spy)
+    monkeypatch.setattr(evals, "bind_execution_overlay_origin", bind_spy)
     original_copy = evals._copy_validation_overlay_tree
 
     def copy_then_change(*args, **kwargs):
@@ -395,6 +413,12 @@ def test_evaluate_artifact_forwards_pre_copy_origin_to_real_pipeline(
         axiom_rules_engine_ref=PIN,
     )
     assert observed == [eligible]
+    if replacement_scope == "ordinary":
+        capture_spy.assert_called_once()
+        bind_spy.assert_called_once()
+    else:
+        capture_spy.assert_not_called()
+        bind_spy.assert_not_called()
 
 
 @pytest.mark.parametrize("replacement_scope", ["ordinary", "canonical", "legacy"])
@@ -442,6 +466,10 @@ def test_apply_overlay_forwards_pre_copy_origin_to_real_pipeline(
         result, cli._REPLACEMENT_OVERLAY_SCOPE_ATTR, replacement_scope == "canonical"
     )
     eligible = not stale_during_copy and replacement_scope == "ordinary"
+    capture_spy = Mock(wraps=cli.capture_execution_git_origin)
+    bind_spy = Mock(wraps=cli.bind_execution_overlay_origin)
+    monkeypatch.setattr(cli, "capture_execution_git_origin", capture_spy)
+    monkeypatch.setattr(cli, "bind_execution_overlay_origin", bind_spy)
     original_copy = cli._stage_apply_overlay_dependency_root
 
     def copy_then_change(*args, **kwargs):
@@ -486,6 +514,12 @@ def test_apply_overlay_forwards_pre_copy_origin_to_real_pipeline(
     )
     assert ok, issues
     assert observed == [eligible]
+    if replacement_scope == "ordinary":
+        capture_spy.assert_called_once()
+        bind_spy.assert_called_once()
+    else:
+        capture_spy.assert_not_called()
+        bind_spy.assert_not_called()
 
 
 def test_ordinary_canonical_checkout_and_git_worktree_remain_eligible(staged):
@@ -511,3 +545,156 @@ def test_ordinary_canonical_checkout_and_git_worktree_remain_eligible(staged):
     )
     with e.compilation_snapshot(linked_pipe, linked / "ca" / REL) as capture:
         assert capture is not None and capture.fresh()
+
+
+def test_real_engine_overlay_executes_only_import_closure(
+    tmp_path, monkeypatch, real_engine
+):
+    """Real compiler/CI, with observation only; no fixture binary or result stubs."""
+    source = tmp_path / "source" / "rulespec-ca"
+    content = source / "ca"
+    target = content / REL
+    target.parent.mkdir(parents=True)
+    provider = target.with_name("provider.yaml")
+    frame = {"effective_from": "2031-01-01", "effective_to": "2031-12-31"}
+    declaration = {
+        "kind": "derived",
+        "entity": "Person",
+        "period": "Year",
+        "dtype": "Money",
+        "unit": "CAD",
+    }
+    provider.write_text(
+        yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "module": {"source_verification": {"corpus_citation_path": CITATION}},
+                "units": [{"name": "CAD", "kind": "currency", "minor_units": 2}],
+                "rules": [
+                    {
+                        **declaration,
+                        "name": "reported",
+                        "source": "Reported amount is 5 CAD.",
+                        "versions": [{**frame, "formula": "5"}],
+                    }
+                ],
+            }
+        )
+    )
+    payload = {
+        "format": "rulespec/v1",
+        "module": {"source_verification": {"corpus_citation_path": CITATION}},
+        "units": [{"name": "CAD", "kind": "currency", "minor_units": 2}],
+        "imports": ["ca:policies/test/provider#reported"],
+        "inputs": [
+            {
+                "name": "local_amount",
+                "entity": "Person",
+                "period": "Year",
+                "dtype": "Money",
+                "unit": "CAD",
+            }
+        ],
+        "rules": [
+            {
+                **declaration,
+                "name": "out",
+                "source": BODY,
+                "versions": [{**frame, "formula": "reported + local_amount"}],
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "formula",
+                                "source": {
+                                    "corpus_citation_path": CITATION,
+                                    "excerpt": BODY,
+                                },
+                            }
+                        ]
+                    }
+                },
+            }
+        ],
+    }
+    baseline = yaml.safe_load(yaml.safe_dump(payload))
+    baseline["rules"][0]["versions"][0]["formula"] = "reported - local_amount"
+    target.write_text(yaml.safe_dump(baseline))
+    # Deliberately outside the closure. Ordinary repository context still sees it.
+    (content / "policies/test/sibling.yaml").write_text(provider.read_text())
+    git(source, "init", "-q")
+    commit(source)
+    generated = tmp_path / "generated" / REL
+    generated.parent.mkdir(parents=True)
+    generated.write_text(yaml.safe_dump(payload))
+    generated.with_suffix(".test.yaml").write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "name": "imported_plus_local",
+                    "period": {
+                        "period_kind": "tax_year",
+                        "start": "2031-01-01",
+                        "end": "2031-12-31",
+                    },
+                    "input": {"ca:policies/test/consumer#input.local_amount": 7},
+                    "output": {"ca:policies/test/consumer#out": 12},
+                }
+            ]
+        )
+    )
+    observed = []
+
+    captured = []
+
+    class RecordingPipeline(v.ValidatorPipeline):
+        def _complete_source_unit_issues(self, candidate, **kwargs):
+            evidence = kwargs.get("execution_evidence")
+            if evidence is not None:
+                expected = {
+                    "ca/policies/test/consumer.yaml",
+                    "ca/policies/test/consumer.test.yaml",
+                    "ca/policies/test/provider.yaml",
+                }
+                assert {item.relative for item in evidence.files} == expected
+                assert {
+                    str(path.relative_to(evidence.snapshot_root))
+                    for path in evidence.snapshot_root.rglob("*")
+                    if path.is_file()
+                    and ".git" not in path.relative_to(evidence.snapshot_root).parts
+                } == expected
+                assert (
+                    evidence.snapshot_root / "ca" / REL
+                ).read_bytes() == generated.read_bytes()
+                captured.append(evidence)
+            return super()._complete_source_unit_issues(candidate, **kwargs)
+
+        def _run_rulespec_ci(self, rules_file):
+            assert self.execution_overlay_origin is not None
+            assert not (self.policy_repo_path.parent / ".git").exists()
+            result = super()._run_rulespec_ci(rules_file)
+            observed.append(result)
+            return result
+
+    monkeypatch.setattr(evals, "ValidatorPipeline", RecordingPipeline)
+    metrics = evals.evaluate_artifact(
+        generated,
+        content,
+        real_engine.root,
+        BODY,
+        _write_test_corpus_release(
+            tmp_path, [{"citation_path": CITATION, "body": BODY}]
+        ),
+        skip_reviewers=True,
+        source_citation_path=CITATION,
+        require_complete_source_unit=True,
+        axiom_rules_engine_ref=git(real_engine.root, "rev-parse", "HEAD"),
+    )
+    assert metrics.compile_pass, metrics.compile_issues
+    assert metrics.ci_pass, metrics.ci_issues
+    assert len(captured) == 1
+    assert len(captured[0].records) == 1
+    assert len(observed) == 1
+    assert observed[0].details["same_case_snapshot"]["closure_files"] == 3
+    assert observed[0].details["same_case_snapshot"]["executed_cases"] == 1

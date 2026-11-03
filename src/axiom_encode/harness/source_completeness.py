@@ -145,6 +145,9 @@ class _NumericOccurrenceView:
     requires_rate_context: bool
     is_word_number: bool
     alternative_values: tuple[float, ...]
+    # Carried through rebasing so a month number read from a month name keeps
+    # grounding only month comparisons (see validator_pipeline).
+    requires_month_context: bool = False
 
 
 NumericOccurrenceExtractor = Callable[[str], Sequence[NumericOccurrenceLike]]
@@ -2712,6 +2715,58 @@ _ALABAMA_TERMINAL_CODE_HISTORY_ENTRY = re.compile(
     r"§{1,2}\s*\d+(?:\s*(?:,|and|through|to|[-–—])\s*\d+)*"
     r"\s*\.?\s*",
     flags=re.IGNORECASE,
+)
+_ARMENIAN_AMENDMENT_HISTORY_DASH = (
+    r"[-\u058a\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d]"
+)
+# The one dot class, used for the article label's decimal point, the action's
+# optional period and both date separators. The encoder prompt names exactly
+# these characters.
+_ARMENIAN_AMENDMENT_HISTORY_DOT = r"[.\u2024]"
+# ASCII digits only, as the prompt's `DD.MM.YY` spells them. Matched against
+# the stripped body: no lazy quantifier and no trailing
+# whitespace run, so a long whitespace run cannot make the match quadratic.
+_ARMENIAN_AMENDMENT_HISTORY_ARTICLE = re.compile(
+    rf"[0-9]+(?:{_ARMENIAN_AMENDMENT_HISTORY_DOT}[0-9]+)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}"
+    r"(?:ին|րդ)\s+հոդվածը\s+(?P<history>\S.*)",
+    flags=re.DOTALL,
+)
+# Amendment-action abbreviations are matched case-insensitively, but the paired
+# `ՀՕ-N[-N]-Ն` law identifier is not: scope the case folding to the action
+# alternation so recognizing an uppercase action cannot also fold the
+# identifier's casing and admit a citation the prompt contract does not permit.
+_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN = (
+    rf"(?i:փոփ|լրաց|խմբ)(?:{_ARMENIAN_AMENDMENT_HISTORY_DOT})?"
+)
+_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN = (
+    rf"[0-9]{{2}}{_ARMENIAN_AMENDMENT_HISTORY_DOT}[0-9]{{2}}"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DOT}[0-9]{{2}}(?:[0-9]{{2}})?\s+Հ(?:Օ)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}[0-9]+(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}[0-9]+)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}Ն"
+)
+_ARMENIAN_AMENDMENT_HISTORY_ACTION = re.compile(
+    _ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN,
+)
+_ARMENIAN_AMENDMENT_HISTORY_CITATION = re.compile(
+    _ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN,
+)
+# Possessive: no action or citation token can begin with a separator character,
+# so giving separator characters back never enables a match. Committing to the
+# longest run keeps the sequence scan linear on adversarial separator runs.
+_ARMENIAN_AMENDMENT_HISTORY_SEPARATOR = r"[\s,;]++"
+_ARMENIAN_AMENDMENT_HISTORY_SEQUENCE = re.compile(
+    rf"\s*(?:{_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN}|"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN})(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_SEPARATOR}(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN}|"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN}))*\s*",
+)
+# One parenthetical alone on its line. Any parenthesis inside the body fails
+# the candidate, so nested ledgers are never consumed whole.
+_ARMENIAN_AMENDMENT_HISTORY_CANDIDATE = re.compile(
+    r"(?:^|\r?\n)[ \t]*\((?P<body>[^()]*)\)(?=[ \t]*(?:\r?\n|$))"
 )
 _FORMULA_IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 
@@ -14019,6 +14074,76 @@ def _strip_terminal_session_law_history(source_text: str) -> str:
     return source_text
 
 
+def _armenian_amendment_history_numeric_recall_spans(
+    source_text: str,
+) -> Iterable[tuple[int, int]]:
+    """Yield spans of fully validated standalone ARLIS amendment-history ledgers.
+
+    Each span covers the body (the parentheses stay) of one parenthetical
+    that sits alone on its line at nesting depth zero and whose
+    body is an ordinal article label followed only by amendment actions and
+    paired ``DD.MM.YY[YY] Հ[Օ]-N[-N]-Ն`` citations. Every other parenthetical,
+    including nested, inline, operative or malformed ones, yields nothing and so
+    keeps all of its numbers as recall obligations. The spans are masked, never
+    deleted, so recall-text positions keep their source origins.
+    """
+
+    depth_before: list[int] | None = None
+
+    def parenthesis_depth_before(index: int) -> int:
+        # Built on the first candidate only: sources with no standalone
+        # parenthetical never pay to map the whole text.
+        nonlocal depth_before
+        if depth_before is None:
+            depth_before = []
+            depth = 0
+            for character in source_text:
+                depth_before.append(depth)
+                if character == "(":
+                    depth += 1
+                elif character == ")":
+                    depth = max(0, depth - 1)
+        return depth_before[index]
+
+    for candidate in _ARMENIAN_AMENDMENT_HISTORY_CANDIDATE.finditer(source_text):
+        opening = candidate.start("body") - 1
+        # A candidate whose opening parenthesis sits inside another
+        # parenthetical is nested, and the prompt contract keeps nested
+        # parentheticals as source content.
+        if parenthesis_depth_before(opening) != 0:
+            continue
+        article_history = _ARMENIAN_AMENDMENT_HISTORY_ARTICLE.fullmatch(
+            candidate.group("body").strip()
+        )
+        if article_history is None:
+            continue
+        history = article_history.group("history")
+        if (
+            _ARMENIAN_AMENDMENT_HISTORY_ACTION.search(history) is None
+            or _ARMENIAN_AMENDMENT_HISTORY_CITATION.search(history) is None
+            or _ARMENIAN_AMENDMENT_HISTORY_SEQUENCE.fullmatch(history) is None
+        ):
+            continue
+        # Blank the body only. Keeping both parentheses leaves the depth map
+        # unchanged and keeps a line break plus `(` between the lines around
+        # the ledger, so no later citation pattern that allows whitespace can
+        # join a reference word above to a number below.
+        yield candidate.start("body"), candidate.end("body")
+
+
+def mask_armenian_amendment_history(source_text: str) -> str:
+    """Mask fully validated standalone ARLIS ledgers in place with spaces.
+
+    The eval numeric-coverage metric uses this so it never demands a number
+    the encoder prompt tells the model to leave out. It applies only this
+    recognizer, so every other source number keeps its obligation.
+    """
+
+    return _mask_numeric_spans(
+        source_text, _armenian_amendment_history_numeric_recall_spans(source_text)
+    )
+
+
 def _spaced_german_sentence_label_spans(text: str) -> tuple[tuple[int, int], ...]:
     """Identify a consecutive sentence-label chain, anchored to a paragraph start.
 
@@ -15605,6 +15730,9 @@ def authoritative_numeric_recall_text(
         # The preceding masks preserve positions; history cleanup only drops
         # a terminal suffix. All subsequent deletions go through tracked sub.
         del _source_map.offsets[len(cleaned) :]
+    # After the history cleanup, so a masked ledger (now blank) can never make
+    # an earlier session-law history chain look terminal and drop it.
+    cleaned = mask(cleaned, _armenian_amendment_history_numeric_recall_spans(cleaned))
     if _GLUED_SECTION_SENTENCE_MARKER.search(cleaned):
         # Strip only authenticated sentence labels, before removing the section
         # citation that distinguishes `2§ 64` from a substantive number 2.
@@ -29684,6 +29812,7 @@ def _shift_numeric_occurrence(
         requires_rate_context=occurrence.requires_rate_context,
         is_word_number=occurrence.is_word_number,
         alternative_values=occurrence.alternative_values,
+        requires_month_context=getattr(occurrence, "requires_month_context", False),
     )
 
 

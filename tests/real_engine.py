@@ -55,6 +55,7 @@ from axiom_encode.engine_binding import (
     EnginePin,
     resolve_pinned_engine_binary,
 )
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BINARY_NAME = "axiom-rules-engine"
@@ -78,7 +79,6 @@ ENGINE_ABSENT_REASON = re.compile(
     r"|\b(?:binary|built)\b[^.;]*\baxiom-rules-engine",
     re.IGNORECASE,
 )
-_PROBE_TIMEOUT_SECONDS = 30
 _FULL_SHA = re.compile(r"[0-9a-f]{40}")
 
 
@@ -122,7 +122,7 @@ def _git(root: Path, *args: str) -> str | None:
             capture_output=True,
             text=True,
             check=False,
-            timeout=_PROBE_TIMEOUT_SECONDS,
+            timeout=HANG_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -145,7 +145,7 @@ def _usable(root: Path, origin: str) -> tuple[RealEngine | None, str]:
             capture_output=True,
             text=True,
             check=False,
-            timeout=_PROBE_TIMEOUT_SECONDS,
+            timeout=HANG_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         return None, f"{origin}: {binary} could not run: {error}"
@@ -211,7 +211,7 @@ def _discovered() -> tuple[RealEngine | None, str]:
                 capture_output=True,
                 text=True,
                 check=False,
-                timeout=_PROBE_TIMEOUT_SECONDS,
+                timeout=HANG_TIMEOUT_SECONDS,
             )
         except (OSError, subprocess.TimeoutExpired) as error:
             reasons.append(f"{LOCATOR} engine failed: {error}")

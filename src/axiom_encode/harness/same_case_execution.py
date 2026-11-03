@@ -168,8 +168,8 @@ def _directory_identity(path: Path) -> tuple[int, int]:
     # Reject aliases before resolving; a symlink must not launder an origin.
     if path.resolve(strict=True) != path or not path.is_dir():
         raise ValueError("execution origin must be an exact directory")
-    stat = path.stat()
-    return stat.st_dev, stat.st_ino
+    directory_stat = path.stat()
+    return directory_stat.st_dev, directory_stat.st_ino
 
 
 def _checkout_head(root: Path) -> str:
