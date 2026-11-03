@@ -14,6 +14,7 @@ from hypothesis import strategies as st
 
 from axiom_encode import cli
 from scripts.provision_verification_supervisor import _install_trusted_git_wrapper
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 from tests.test_cli import (
     TEST_PINNED_ENCODER_IDENTITY,
     _test_eval_evidence_keys,  # noqa: F401 -- installs authenticated fixture keys
@@ -32,7 +33,7 @@ def _system_git(repo, *arguments, input_bytes=None):
         input=input_bytes,
         capture_output=True,
         check=True,
-        timeout=30,
+        timeout=HANG_TIMEOUT_SECONDS,
     )
 
 

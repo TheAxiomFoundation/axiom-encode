@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "us",
+  "declared": null,
+  "pr_base_branch": null,
+  "purpose": "Reviewed RuleSpec hard-cut head. Migrated from the pre-record allowlist; admitted by axiom-encode#1341.",
+  "rulespec_pr": null,
+  "rulespec_ref": "251d8d66dabdebcb763d9e7c9b8322a281440c36",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}

@@ -60,6 +60,7 @@ from tests.eval_evidence_fixtures import (
     TEST_APPLY_PRIVATE_KEY_B64,
     TEST_APPLY_PUBLIC_KEY_B64,
 )
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 from tests.release_object_fixtures import (
     TEST_RELEASE_PUBLIC_KEY,
     bind_test_corpus_release,
@@ -2505,7 +2506,7 @@ def _bash_declared_lines(run):
         capture_output=True,
         text=True,
         env={"PATH": ""},
-        timeout=30,
+        timeout=HANG_TIMEOUT_SECONDS,
         check=False,
     )
     assert result.returncode == 0, result.stderr
