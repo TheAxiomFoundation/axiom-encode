@@ -7,7 +7,12 @@ import pytest
 import yaml
 
 from axiom_encode.harness import evals, validator_pipeline
-from axiom_encode.prompts.encoder import ENCODER_PROMPT, LIFETIME_FIXTURE_PROTOCOL
+from axiom_encode.harness.lifetime_fixtures import engine_supports_lifetime
+from axiom_encode.prompts.encoder import (
+    ENCODER_PROMPT,
+    LIFETIME_FIXTURE_PROTOCOL,
+    get_encoder_prompt,
+)
 
 PREFIX = "us:statutes/example/lifetime"
 RULES = """format: rulespec/v1
@@ -336,7 +341,12 @@ def test_scalar_oracle_refuses_lifetime_before_any_mapping_or_execution(
     assert "history-aware oracle adapter" in result.issues[0]
 
 
-def test_lifetime_guidance_reaches_both_generation_prompts(tmp_path):
+@pytest.mark.parametrize("capable", [False, True])
+def test_lifetime_guidance_follows_the_engine_capability_in_both_prompts(
+    tmp_path, capable
+):
+    """Neither prompt steers toward run-lifetime or calendar conversion unless
+    the bound engine implements them."""
     source = tmp_path / "source.txt"
     source.write_text(
         "Synthetic statute: sum the person's values over the supplied years."
@@ -346,7 +356,7 @@ def test_lifetime_guidance_reaches_both_generation_prompts(tmp_path):
         source_text_file=source,
         manifest_file=tmp_path / "manifest.json",
     )
-    prompt = evals._build_rulespec_eval_prompt(
+    eval_prompt = evals._build_rulespec_eval_prompt(
         citation="us/statute/example/lifetime",
         mode="cold",
         workspace=workspace,
@@ -356,11 +366,64 @@ def test_lifetime_guidance_reaches_both_generation_prompts(tmp_path):
         include_tests=True,
         runner_backend="codex",
         policyengine_rule_hint=None,
+        require_complete_source_unit=True,
+        engine_supports_lifetime=capable,
     )
-    assert LIFETIME_FIXTURE_PROTOCOL in prompt
-    assert LIFETIME_FIXTURE_PROTOCOL in ENCODER_PROMPT
-    assert "#input.<builtin_name>" in prompt
-    assert "row_count" in prompt and "entity_ids" in prompt
+    encoder_prompt = get_encoder_prompt(
+        "us/statute/example/lifetime",
+        "lifetime.yaml",
+        require_complete_source_unit=True,
+        engine_supports_lifetime=capable,
+    )
+    for prompt in (eval_prompt, encoder_prompt):
+        assert (LIFETIME_FIXTURE_PROTOCOL.strip() in prompt) is capable
+        assert ("calendar_years_to_months" in prompt) is capable
+        assert ("run-lifetime" in prompt) is capable
+        assert ("row_count" in prompt and "entity_ids" in prompt) is capable
+    assert LIFETIME_FIXTURE_PROTOCOL.strip() not in ENCODER_PROMPT
+    assert "calendar_years_to_months" not in ENCODER_PROMPT
+
+
+def _fake_engine(checkout, help_text):
+    binary = checkout / "target" / "release" / "axiom-rules-engine"
+    binary.parent.mkdir(parents=True)
+    binary.write_text(f"#!/bin/sh\nprintf '%s\\n' {help_text!r}\n")
+    binary.chmod(0o755)
+    return binary
+
+
+@pytest.mark.parametrize(
+    ("help_text", "expected"),
+    [
+        ("Commands: compile run run-compiled run-lifetime capabilities", True),
+        ("Commands: compile run run-compiled capabilities", False),
+        (None, False),
+    ],
+)
+def test_engine_capability_probe_reads_the_bound_binary(tmp_path, help_text, expected):
+    """The gate probes the binary validation binds; any failure reads as no."""
+    checkout = tmp_path / "engine"
+    checkout.mkdir()
+    if help_text is not None:
+        _fake_engine(checkout, help_text)
+    policy = tmp_path / "rulespec-us" / "us"
+    policy.mkdir(parents=True)
+
+    assert (
+        evals._engine_supports_lifetime_fixtures(
+            policy_path=policy, axiom_rules_path=checkout
+        )
+        is expected
+    )
+
+
+def test_engine_capability_probe_failure_reads_as_unsupported(tmp_path):
+    broken = tmp_path / "engine"
+    _fake_engine(broken, "run-lifetime")
+    (broken / "target" / "release" / "axiom-rules-engine").chmod(0o644)
+    assert not engine_supports_lifetime(
+        broken / "target" / "release" / "axiom-rules-engine"
+    )
 
 
 def test_lifetime_batch_cannot_assign_a_computed_output_as_history(

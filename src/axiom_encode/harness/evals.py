@@ -136,6 +136,7 @@ from .lifetime_fixture_contracts import (
     exact_fixture_value_equal,
     validate_lifetime_test_contract,
 )
+from .lifetime_fixtures import engine_supports_lifetime
 from .observability import emit_eval_result, extract_reasoning_output_tokens
 from .policyengine_runtime import (
     POLICYENGINE_RUNTIME_PIN_PATH,
@@ -9945,6 +9946,11 @@ def _run_single_eval(
         validation_retry_candidate=validation_retry_candidate,
         repair_candidate_tests_only=repair_candidate_tests_only,
         required_import_targets=required_import_targets,
+        engine_supports_lifetime=_engine_supports_lifetime_fixtures(
+            policy_path=policy_path,
+            axiom_rules_path=runtime_axiom_rules_path,
+            axiom_rules_engine_ref=axiom_rules_engine_ref,
+        ),
     )
     generation_prompt_sha256 = _sha256_text(prompt)
     output_file = _contained_eval_output_file(output_root, runner.name, relative_output)
@@ -10414,6 +10420,10 @@ def _run_single_source_eval(
         runner_backend=runner.backend,
         policyengine_rule_hint=policyengine_rule_hint,
         require_complete_source_unit=require_complete_source_unit,
+        engine_supports_lifetime=_engine_supports_lifetime_fixtures(
+            policy_path=policy_path,
+            axiom_rules_path=runtime_axiom_rules_path,
+        ),
     )
     generation_prompt_sha256 = _sha256_text(prompt)
     output_file = _contained_eval_output_file(output_root, runner.name, relative_output)
@@ -11348,8 +11358,14 @@ def _build_rulespec_eval_prompt(
     validation_retry_candidate: ValidationRetryCandidate | None = None,
     repair_candidate_tests_only: bool = False,
     required_import_targets: Sequence[str] = (),
+    engine_supports_lifetime: bool = False,
 ) -> str:
     """Build the RuleSpec authoring prompt used by current evals."""
+    # Lifetime fixtures and calendar-unit conversion need an engine with
+    # ``run-lifetime``; without one, guidance toward them only causes refusals.
+    lifetime_fixture_section = (
+        f"{LIFETIME_FIXTURE_PROTOCOL}\n" if engine_supports_lifetime else ""
+    )
     if validation_retry_feedback and validation_retry_candidate is None:
         raise ValueError(
             "Validation retry feedback requires its matching rejected candidate"
@@ -12118,8 +12134,7 @@ Primary legal authority:
 {backend_section}
 {canonical_concept_section}{complete_source_unit_section}
 {INTERPRETATIONS_PROTOCOL}
-{LIFETIME_FIXTURE_PROTOCOL}
-RuleSpec requirements:
+{lifetime_fixture_section}RuleSpec requirements:
 - The RuleSpec file must begin with `format: rulespec/v1`.
 - Include `module.summary: |-` with a concise exact audit excerpt, not the full source text when the source is more than a short paragraph. Corpus-backed validation reads the authoritative source from `corpus.provisions`; use the summary only to orient reviewers to the encoded provisions.
 - Do not emit `source_url`; RuleSpec source verification reads `corpus.provisions`, not raw PDFs or web pages.
@@ -12982,6 +12997,31 @@ def _workspace_corpus_citation_path(workspace: EvalWorkspace) -> str | None:
     return citation_path or None
 
 
+def _engine_supports_lifetime_fixtures(
+    *,
+    policy_path: Path,
+    axiom_rules_path: Path,
+    axiom_rules_engine_ref: str | None = None,
+) -> bool:
+    """Probe the engine binary that validation will bind for ``run-lifetime``."""
+    try:
+        pipeline = ValidatorPipeline(
+            policy_repo_path=policy_path,
+            axiom_rules_path=axiom_rules_path,
+            local_corpus_release=None,
+            enable_oracles=False,
+            **(
+                {"axiom_rules_engine_ref": axiom_rules_engine_ref}
+                if axiom_rules_engine_ref is not None
+                else {}
+            ),
+        )
+        binary = pipeline._axiom_rules_binary()
+    except Exception:
+        return False
+    return engine_supports_lifetime(binary)
+
+
 def _build_eval_prompt(
     citation: str,
     mode: EvalMode,
@@ -13000,9 +13040,11 @@ def _build_eval_prompt(
     validation_retry_candidate: ValidationRetryCandidate | None = None,
     repair_candidate_tests_only: bool = False,
     required_import_targets: Sequence[str] = (),
+    engine_supports_lifetime: bool = False,
 ) -> str:
     """Build a prompt-only eval request with explicit provenance rules."""
     return _build_rulespec_eval_prompt(
+        engine_supports_lifetime=engine_supports_lifetime,
         citation=citation,
         mode=mode,
         workspace=workspace,

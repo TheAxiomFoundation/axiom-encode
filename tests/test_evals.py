@@ -3196,6 +3196,70 @@ def test_model_eval_uses_output_override_for_prompt_and_artifact_path(tmp_path):
     )
 
 
+@pytest.mark.parametrize("capable", [False, True])
+def test_model_eval_gates_lifetime_guidance_on_the_probed_engine(tmp_path, capable):
+    """Generation asks the bound engine before offering lifetime guidance."""
+    corpus_release, _source_unit = _write_test_source_unit(
+        tmp_path,
+        "Authoritative source.",
+        citation_path="us-nc/statute/105/105-153.7",
+    )
+    policy_root = _canonical_rulespec_content_root(tmp_path, "us-nc")
+    engine = tmp_path / "engine"
+
+    def generate(**kwargs):
+        output_file = kwargs["output_file"]
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        return (
+            EvalPromptResponse(text="generated", duration_ms=1),
+            True,
+            0,
+            frozenset({output_file}),
+        )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval_with_empty_artifact_retry",
+            side_effect=generate,
+        ),
+        patch(
+            "axiom_encode.harness.evals._evaluate_generated_artifact_with_repairs",
+            return_value=EvalArtifactMetrics(
+                compile_pass=True,
+                compile_issues=[],
+                ci_pass=True,
+                ci_issues=[],
+                embedded_source_present=False,
+                grounded_numeric_count=0,
+                ungrounded_numeric_count=0,
+                grounding=[],
+            ),
+        ),
+        patch(
+            "axiom_encode.harness.evals._engine_supports_lifetime_fixtures",
+            return_value=capable,
+        ) as probe,
+        patch(
+            "axiom_encode.harness.evals._build_eval_prompt",
+            wraps=evals_module._build_eval_prompt,
+        ) as mock_prompt,
+    ):
+        run_model_eval(
+            citations=["us-nc/statute/105/105-153.7"],
+            runner_specs=["openai:model-a"],
+            output_root=tmp_path / "out",
+            policy_path=policy_root,
+            runtime_axiom_rules_path=engine,
+            corpus_release=corpus_release,
+            mode="repo-augmented",
+        )
+
+    assert probe.call_args.kwargs["axiom_rules_path"] == engine
+    assert probe.call_args.kwargs["policy_path"] == policy_root
+    assert mock_prompt.call_args.kwargs["engine_supports_lifetime"] is capable
+
+
 def test_model_eval_marks_each_encode_try_phase_in_order(tmp_path):
     """Inside an encode try, one generation walks prepare -> model call ->
     staging -> validation -> result recording, each a timeline phase."""
@@ -20651,6 +20715,29 @@ cases:
 
 
 class TestReadinessSummary:
+    @pytest.mark.parametrize("unscored_pass", [None, False])
+    def test_unscored_review_never_counts_toward_review_pass_rate(self, unscored_pass):
+        """A skipped or unavailable review (pass None or False, no score) is not
+        a pass; only a scored passing review raises the rate."""
+        gates = EvalReadinessGates(min_generalist_review_pass_rate=1.0)
+        results = [
+            _fake_eval_result("codex-gpt-5.4", "scored-pass"),
+            _fake_eval_result(
+                "codex-gpt-5.4",
+                "skipped",
+                generalist_review_pass=unscored_pass,
+                generalist_review_score=None,
+            ),
+        ]
+
+        summary = summarize_readiness(results, gates)
+
+        assert summary.generalist_review_pass_rate == pytest.approx(0.5)
+        gate = {gate.name: gate for gate in summary.gate_results}[
+            "min_generalist_review_pass_rate"
+        ]
+        assert gate.passed is False
+
     def test_summarize_readiness_applies_suite_gates(self):
         gates = EvalReadinessGates(
             min_cases=3,

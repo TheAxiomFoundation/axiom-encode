@@ -1714,7 +1714,6 @@ _PROMPT_BLOCKS = (
     _COMPOSITION_AND_DEFERRAL,
     _NAMING_PROTOCOL,
     _TESTS_PROTOCOL,
-    LIFETIME_FIXTURE_PROTOCOL,
     _FORMULA_PROTOCOL,
     US_TAX_PACK,
     _NUMERIC_GROUNDING,
@@ -1733,6 +1732,17 @@ def _assemble(*blocks: str) -> str:
 
 
 ENCODER_PROMPT = _assemble(*_PROMPT_BLOCKS)
+# Lifetime fixtures and calendar-unit conversion need an engine that implements
+# ``run-lifetime``. Callers that have probed the bound engine opt in; everyone
+# else gets the prompt without them.
+LIFETIME_ENCODER_PROMPT = _assemble(*_PROMPT_BLOCKS, LIFETIME_FIXTURE_PROTOCOL)
+
+_CALENDAR_CONVERSION_GUIDANCE = """\
+  When the source requires months in a count of whole Gregorian calendar years,
+  use the engine's `calendar_years_to_months` operation on the grounded count.
+  Never turn that operation into a fabricated fact or assume that it establishes
+  statutory year selection, partial-year coverage, or month-specific exclusions.
+"""
 
 _COMPLETE_SOURCE_UNIT_PROTOCOL = """
 Complete-source-unit mode is enabled for this request:
@@ -1751,11 +1761,7 @@ Complete-source-unit mode is enabled for this request:
   mandate deriving one parameter from the other.
 - Never introduce calendar constants `12`, `52`, `365`, `4`, or `24` as module
   literals unless that literal appears in the authoritative source text.
-  When the source requires months in a count of whole Gregorian calendar years,
-  use the engine's `calendar_years_to_months` operation on the grounded count.
-  Never turn that operation into a fabricated fact or assume that it establishes
-  statutory year selection, partial-year coverage, or month-specific exclusions.
-  Express a stated conversion through companion-test assertions on both
+{calendar_conversion}  Express a stated conversion through companion-test assertions on both
   parameter outputs; literals used only in companion tests do not require
   source grounding.
 - Encode every structural paragraph and list branch, including Absatz markers
@@ -1840,11 +1846,20 @@ Complete-source-unit mode is enabled for this request:
 """
 
 
+def complete_source_unit_protocol(*, engine_supports_lifetime: bool = False) -> str:
+    """Return the complete-source-unit protocol for the bound engine."""
+    return _COMPLETE_SOURCE_UNIT_PROTOCOL.replace(
+        "{calendar_conversion}",
+        _CALENDAR_CONVERSION_GUIDANCE if engine_supports_lifetime else "",
+    ).strip()
+
+
 def get_encoder_prompt(
     citation: str,
     output_path: str,
     corpus_citation_path: str | None = None,
     require_complete_source_unit: bool = False,
+    engine_supports_lifetime: bool = False,
 ) -> str:
     """Return a complete RuleSpec task prompt for a source unit."""
     corpus_section = ""
@@ -1866,10 +1881,13 @@ affected executable surface.
 """
     if require_complete_source_unit:
         corpus_section += f"""
-{_COMPLETE_SOURCE_UNIT_PROTOCOL.strip()}
+{complete_source_unit_protocol(engine_supports_lifetime=engine_supports_lifetime)}
 """
 
-    return f"""{ENCODER_PROMPT}
+    base_prompt = (
+        LIFETIME_ENCODER_PROMPT if engine_supports_lifetime else ENCODER_PROMPT
+    )
+    return f"""{base_prompt}
 
 Target citation/source id: {citation}
 Expected output path: {output_path}
