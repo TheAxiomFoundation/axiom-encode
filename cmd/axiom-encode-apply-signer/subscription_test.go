@@ -248,3 +248,44 @@ func TestRunLauncherSubscriptionRejectsAmbientCodexHomeBeforeConsumingKey(t *tes
 		t.Fatal("ambient CODEX_HOME check consumed the test key")
 	}
 }
+
+func TestRunLauncherSubscriptionRejectsAmbientAPIKeysBeforeConsumingKey(t *testing.T) {
+	for _, name := range []string{"OPENAI_API_KEY", "CODEX_API_KEY"} {
+		t.Run(name, func(t *testing.T) {
+			const keyName = "APPLY_SIGNER_SUBSCRIPTION_TEST_KEY"
+			const testKey = "invented-key-must-not-be-consumed"
+			t.Setenv(keyName, testKey)
+			options := runOptions{
+				scope:              scopeApply,
+				keyEnv:             keyName,
+				binding:            ciBinding(),
+				codexCLIConfigPath: "/protected config/codex.json",
+				codexAuthPath:      "/operator auth/auth.json",
+				codexAuthOutbox:    "/operator outbox/auth.json",
+			}
+			environment := validCIEnvironment()
+			environment[name] = "sk-invented-api-key"
+			_, err := runLauncher(options, envFrom(environment))
+			want := "ambient " + name + " conflicts with Codex subscription auth; unset it so the supervised encoder cannot bill an API key"
+			if err == nil || err.Error() != want {
+				t.Fatalf("ambient %s must fail before key handling: %v", name, err)
+			}
+			if os.Getenv(keyName) != testKey {
+				t.Fatalf("ambient %s check consumed the test key", name)
+			}
+		})
+	}
+}
+
+func TestRunLauncherWithoutSubscriptionIgnoresAPIKeys(t *testing.T) {
+	// Outside subscription mode the launcher keeps its existing behaviour: an
+	// API key in the environment is not its concern, and no refusal names it.
+	options := runOptions{scope: scopeApply, keyEnv: "", binding: ciBinding()}
+	environment := validCIEnvironment()
+	environment["OPENAI_API_KEY"] = "sk-invented-api-key"
+	environment["CODEX_API_KEY"] = "sk-invented-api-key"
+	_, err := runLauncher(options, envFrom(environment))
+	if err != nil && strings.Contains(err.Error(), "API_KEY") {
+		t.Fatalf("non-subscription launch must not refuse API keys: %v", err)
+	}
+}
