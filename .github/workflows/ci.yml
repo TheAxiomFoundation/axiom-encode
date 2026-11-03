@@ -6,8 +6,9 @@ on:
   pull_request:
     branches: [main]
     # A draft pull request runs only lint and the quick-tests job, and its
-    # test (3.13) check fails. Marking it ready starts the full run.
-    types: [opened, synchronize, reopened, ready_for_review]
+    # test (3.13) check fails. Marking it ready starts the full run; turning a
+    # pull request back into a draft makes its test (3.13) check fail again.
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   # `gh workflow run CI --ref <branch>` runs the full suite on a branch, such
   # as a draft's. Its checks attach to the branch's head commit, and its jobs
   # key their concurrency groups on the run id, so it neither cancels a pull
@@ -98,20 +99,22 @@ jobs:
   # publishes its report only when its pytest run exits 0 having run every
   # test it kept, so a failed, cancelled or never-started shard leaves its
   # report empty. `always()` keeps such a shard from turning this job into a
-  # skipped (and so passing) check. On a draft pull request the shards are
+  # skipped (and so passing) check. It also needs real-engine to have passed in
+  # the same run. On a draft pull request the shards and real-engine are
   # skipped, so this check fails; the full run that marking the pull request
   # ready starts reports this check again for the same commit.
   test-gate:
     name: test (3.13)
     if: always()
-    needs: test
+    needs: [test, real-engine]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Check every shard passed and the shards ran every selected test
+      - name: Check every shard and real-engine passed and the shards ran every selected test
         env:
           SHARDS_RESULT: ${{ needs.test.result }}
+          REAL_ENGINE_RESULT: ${{ needs.real-engine.result }}
           DRAFT_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
           SHARD_1: ${{ needs.test.outputs.shard_1 }}
           SHARD_2: ${{ needs.test.outputs.shard_2 }}
@@ -122,11 +125,11 @@ jobs:
           SHARD_7: ${{ needs.test.outputs.shard_7 }}
           SHARD_8: ${{ needs.test.outputs.shard_8 }}
         run: |
-          if [ "$SHARDS_RESULT" != "success" ]; then
+          if [ "$SHARDS_RESULT" != "success" ] || [ "$REAL_ENGINE_RESULT" != "success" ]; then
             if [ "$DRAFT_PULL_REQUEST" = "true" ]; then
               echo "::error::draft PR: the full suite runs when the PR is marked ready (or dispatch CI on the branch: gh workflow run CI --ref <branch>)"
             fi
-            echo "error: the test shards finished as '$SHARDS_RESULT'" >&2
+            echo "error: the test shards finished as '$SHARDS_RESULT' and real-engine as '$REAL_ENGINE_RESULT'" >&2
             exit 1
           fi
           python3 -I tests/ci_shards.py check \
@@ -138,8 +141,8 @@ jobs:
     # against an engine built from the pinned commit. The test job has no
     # engine and deselects them; with AXIOM_REQUIRE_REAL_ENGINE=1 a missing,
     # unusable or unpinned engine fails them here instead of skipping them.
-    # Skipped exactly when the test shards are, so a skipped real-engine check
-    # always comes with a failed test (3.13) check.
+    # Skipped exactly when the test shards are. test (3.13) needs this job to
+    # have passed, so a skipped real-engine check comes with a failed one.
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -248,15 +251,16 @@ jobs:
           set -euo pipefail
           # HEAD merges the pull request (second parent) into its base (first).
           git rev-parse --verify --quiet 'HEAD^2' > /dev/null
-          # Added, changed or renamed (not deleted) files. -z, so git does not
-          # quote a name with non-ASCII characters.
-          files=$(git diff -z --name-only --diff-filter=d 'HEAD^1' HEAD | tr '\000' '\n')
+          # Added, changed or renamed (not deleted) files, NUL-separated so git
+          # neither quotes nor splits any name.
+          files=$(mktemp)
+          git diff -z --name-only --diff-filter=d 'HEAD^1' HEAD > "$files"
           changed=()
-          while IFS= read -r file; do
-            if [[ "$file" =~ ^tests/test_[^/]+[.]py$ ]]; then
+          while IFS= read -r -d '' file; do
+            if [[ "$file" =~ ^tests/test_[^/]*[.]py$ ]]; then
               changed+=("$file")
             fi
-          done <<< "$files"
+          done < "$files"
           if [ "${#changed[@]}" -eq 0 ]; then
             echo "The pull request changes no tests/test_*.py file; the full suite runs when it is marked ready."
             exit 0

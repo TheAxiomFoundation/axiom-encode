@@ -128,6 +128,16 @@ def collected(item: Any) -> Collected:
     info = getattr(item, "_fixtureinfo", None)
     definitions = info.name2fixturedefs.values() if info is not None else ()
     scopes = {str(defs[-1].scope) for defs in definitions if defs}
+    # A parametrized argument is cached at its parametrize call's scope
+    # (`parametrize(..., indirect=True, scope="module")`), whatever the
+    # fixture's own scope.
+    callspec = getattr(item, "callspec", None)
+    arg_scopes = getattr(callspec, "_arg2scope", {}) if callspec is not None else {}
+    scopes |= {
+        str(getattr(arg_scopes[name], "value", arg_scopes[name]))
+        for name in getattr(callspec, "params", {})
+        if name in arg_scopes
+    }
     if "module" in scopes:
         return Collected(item.nodeid, function, "module")
     # A class-scoped fixture serves a function outside a class once per test.

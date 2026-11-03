@@ -639,6 +639,17 @@ def test_also_uses_the_module_fixture(module_setup):
     pass
 
 
+@pytest.fixture
+def cached_value(request):
+    return request.param
+
+
+# The parametrize call caches the function-scoped fixture per module.
+@pytest.mark.parametrize("cached_value", [1, 2], indirect=True, scope="module")
+def test_parametrized_at_module_scope(cached_value):
+    pass
+
+
 class TestShared:
     @pytest.fixture(scope="class")
     def class_setup(self):
@@ -738,7 +749,7 @@ def test_each_test_runs_in_exactly_one_shard_and_unsharded_runs_all(tmp_path):
     shards = [_run(tmp_path, f"{shard}/3") for shard in (1, 2, 3)]
 
     assert code == 0 and no_report == ""
-    assert len(whole) == 20 and whole["test_skipped"] == "SKIPPED"
+    assert len(whole) == 22 and whole["test_skipped"] == "SKIPPED"
     assert [code for code, _, _, _ in shards] == [0, 0, 0]
     assert sum(len(results) for _, results, _, _ in shards) == len(whole)
     merged = {}
@@ -751,11 +762,16 @@ def test_each_test_runs_in_exactly_one_shard_and_unsharded_runs_all(tmp_path):
     assert ci_shards.check_reports(reports) == []
     # A parametrized function's cases stay in one shard, and so do the tests
     # that share a module- or class-scoped fixture. The module has a
-    # module-scoped fixture, so TestShared's users join the module's unit:
-    # 14 functions, 11 units.
+    # module-scoped fixture, so TestShared's users join the module's unit, and
+    # so does the function parametrized at module scope: 15 functions, 11 units.
     for together in (
         {f"test_many[{n}]" for n in range(4)},
-        {"test_uses_the_module_fixture", "test_also_uses_the_module_fixture"},
+        {
+            "test_uses_the_module_fixture",
+            "test_also_uses_the_module_fixture",
+            "test_parametrized_at_module_scope[1]",
+            "test_parametrized_at_module_scope[2]",
+        },
         {"TestShared::test_first", "TestShared::test_second"},
     ):
         owners = [results for _, results, _, _ in shards if together & results.keys()]
@@ -1005,12 +1021,14 @@ def test_required_check_is_the_gate_over_all_shards():
     # Nothing here may let the gate pass after a failure either.
     assert gate.keys() == {"name", "if", "needs", "runs-on", "steps"}
     assert gate["if"] == "always()"
-    assert gate["needs"] == "test"
+    # real-engine too, so a passing gate means real-engine passed in its run.
+    assert gate["needs"] == ["test", "real-engine"]
     checkout, check = gate["steps"]
     assert checkout.keys() == {"uses"}
     assert check.keys() == {"name", "env", "run"}
     assert check["env"] == {
         "SHARDS_RESULT": "${{ needs.test.result }}",
+        "REAL_ENGINE_RESULT": "${{ needs.real-engine.result }}",
         "DRAFT_PULL_REQUEST": f"${{{{ {_DRAFT_RUN} }}}}",
         **{
             f"SHARD_{shard}": f"${{{{ needs.test.outputs.shard_{shard} }}}}"
@@ -1020,11 +1038,13 @@ def test_required_check_is_the_gate_over_all_shards():
     arguments = " ".join(f'"$SHARD_{shard}"' for shard in shards)
     # DRAFT_PULL_REQUEST only adds a message: the gate fails either way.
     assert " ".join(check["run"].replace("\\\n", " ").split()) == (
-        'if [ "$SHARDS_RESULT" != "success" ]; then '
+        'if [ "$SHARDS_RESULT" != "success" ] || '
+        '[ "$REAL_ENGINE_RESULT" != "success" ]; then '
         'if [ "$DRAFT_PULL_REQUEST" = "true" ]; then '
         f'echo "::error::{_DRAFT_MESSAGE}" '
         "fi "
-        "echo \"error: the test shards finished as '$SHARDS_RESULT'\" >&2 "
+        "echo \"error: the test shards finished as '$SHARDS_RESULT' "
+        "and real-engine as '$REAL_ENGINE_RESULT'\" >&2 "
         "exit 1 fi "
         f"python3 -I tests/ci_shards.py check {arguments}"
     )
@@ -1076,6 +1096,7 @@ _EVENTS = {
         "github.event_name": "workflow_dispatch",
         "github.event.pull_request.draft": None,
     },
+    # Opened, pushed to, reopened or turned back into a draft.
     "draft pull request": {
         "github.event_name": "pull_request",
         "github.event.pull_request.draft": True,
@@ -1113,7 +1134,14 @@ def test_pull_requests_run_on_ready_for_review_and_any_branch_can_dispatch():
         # cancels and skipped gate replace the real one's checks.
         "pull_request": {
             "branches": ["main"],
-            "types": ["opened", "synchronize", "reopened", "ready_for_review"],
+            "types": [
+                "opened",
+                "synchronize",
+                "reopened",
+                "ready_for_review",
+                # A pull request turned back into a draft fails its gate again.
+                "converted_to_draft",
+            ],
         },
         "workflow_dispatch": None,
     }
@@ -1158,26 +1186,15 @@ def _gate_script() -> str:
     return check["run"]
 
 
-@pytest.mark.parametrize(
-    "shards_result,draft,says_draft",
-    [
-        # A draft's skipped shards fail the gate, with the draft message.
-        ("skipped", "true", True),
-        ("skipped", "false", False),
-        ("failure", "false", False),
-        ("cancelled", "false", False),
-        # Even a successful shards result without reports fails it.
-        ("success", "true", False),
-    ],
-)
-def test_gate_fails_when_shards_did_not_all_report(shards_result, draft, says_draft):
+def _run_gate(shards_result, real_engine_result, draft, reports=("",) * 8):
     environment = {
         "PATH": os.environ["PATH"],
         "SHARDS_RESULT": shards_result,
+        "REAL_ENGINE_RESULT": real_engine_result,
         "DRAFT_PULL_REQUEST": draft,
-        **{f"SHARD_{shard}": "" for shard in range(1, 9)},
+        **{f"SHARD_{shard}": report for shard, report in enumerate(reports, 1)},
     }
-    result = subprocess.run(
+    return subprocess.run(
         ["bash", "-e", "-c", _gate_script()],
         cwd=ROOT,
         env=environment,
@@ -1186,8 +1203,41 @@ def test_gate_fails_when_shards_did_not_all_report(shards_result, draft, says_dr
         check=False,
     )
 
+
+@pytest.mark.parametrize(
+    "shards_result,real_engine_result,draft,says_draft",
+    [
+        # A draft's skipped jobs fail the gate, with the draft message.
+        ("skipped", "skipped", "true", True),
+        ("skipped", "skipped", "false", False),
+        ("failure", "success", "false", False),
+        ("cancelled", "cancelled", "false", False),
+        # Shards that passed do not carry a failed or skipped real-engine.
+        ("success", "failure", "false", False),
+        ("success", "skipped", "false", False),
+        ("success", "cancelled", "false", False),
+        # Even successful jobs without shard reports fail it.
+        ("success", "success", "true", False),
+    ],
+)
+def test_gate_fails_unless_every_job_passed_and_reported(
+    shards_result, real_engine_result, draft, says_draft
+):
+    result = _run_gate(shards_result, real_engine_result, draft)
+
     assert result.returncode == 1
     assert (f"::error::{_DRAFT_MESSAGE}" in result.stdout) is says_draft
+
+
+def test_gate_passes_when_every_job_passed_and_the_reports_agree():
+    tests = _tests(
+        {"tests/test_a.py::test_x": (3, ""), "tests/test_b.py::test_y": (9, "")}
+    )
+    reports = [ci_shards.select(tests, shard, 8, {})[1] for shard in range(1, 9)]
+
+    result = _run_gate("success", "success", "false", reports)
+
+    assert result.returncode == 0, result.stderr
 
 
 def _quick_tests_script() -> str:
@@ -1244,7 +1294,7 @@ def _run_quick_tests(repo: Path, pytest_status: int = 0):
     pytest_path = repo / ".venv" / "bin" / "pytest"
     pytest_path.parent.mkdir(parents=True)
     pytest_path.write_text(
-        f'#!/bin/sh\nprintf "%s\\n" "$@" > "{calls}"\nexit {pytest_status}\n',
+        f'#!/bin/sh\nprintf "%s\\0" "$@" > "{calls}"\nexit {pytest_status}\n',
         encoding="utf-8",
     )
     pytest_path.chmod(0o755)
@@ -1256,7 +1306,9 @@ def _run_quick_tests(repo: Path, pytest_status: int = 0):
         text=True,
         check=False,
     )
-    argv = calls.read_text(encoding="utf-8").splitlines() if calls.exists() else None
+    argv = (
+        calls.read_text(encoding="utf-8").split("\0")[:-1] if calls.exists() else None
+    )
     return result.returncode, result.stdout + result.stderr, argv
 
 
@@ -1268,6 +1320,10 @@ def test_quick_tests_run_only_the_test_files_the_pull_request_changes(tmp_path):
             "tests/test_new.py": "new\n",
             # git quotes this name in --name-only output unless given -z.
             "tests/test_\u00e9t\u00e9.py": "unicode\n",
+            # Without -z, or read by line, git splits this name in two.
+            "tests/test_one\ntwo.py": "newline\n",
+            # test_*.py matches an empty suffix too.
+            "tests/test_.py": "empty\n",
             "tests/test_gone.py": None,
             "tests/fixtures/test_data.py": "fixture\n",
             "tests/helper.py": "helper\n",
@@ -1283,8 +1339,10 @@ def test_quick_tests_run_only_the_test_files_the_pull_request_changes(tmp_path):
         "addopts=",
         "-m",
         "not real_engine",
+        "tests/test_.py",
         "tests/test_kept.py",
         "tests/test_new.py",
+        "tests/test_one\ntwo.py",
         "tests/test_\u00e9t\u00e9.py",
     ]
 
