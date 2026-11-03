@@ -286,6 +286,64 @@ def test_distinct_original_boundary_copies_survive_exact_duplicate_extraction(co
     }
 
 
+# Reduced from the committed Virginia provision (real_defects_v0 case us-239).
+# Each threshold is seen twice: from its numbered branch, whose recall text
+# drops the "1. " marker, and from the formula clause that starts after it.
+VIRGINIA_THRESHOLD_BLOCK = (
+    "A. The credit is allowed only to:\n\n"
+    "1. A single individual where the Virginia adjusted gross income plus the "
+    "modification specified in subdivision 5 of § 58.1-322.03 for such taxable "
+    "year is less than $11,650 for taxable years beginning on and after "
+    "January 1, 2010.\n\n"
+    "2. An individual and spouse if their combined Virginia adjusted gross "
+    "income plus the modification specified in subdivision 5 of § 58.1-322.03 "
+    "is less than $23,300 for taxable years beginning on and after January 1, "
+    "2010.\n\n"
+)
+
+
+def _virginia_boundaries(source):
+    branches = sc.recognize_source_structure(
+        source, corpus_citation_path="us-va/statute/58.1/58.1-339.8"
+    )
+    formulas = sc._source_formula_branches(
+        source, branches=branches, active_branches=branches, deferred_paths=set()
+    )
+    return sc._source_boundary_obligations(
+        branches,
+        narrative_formula_branches=formulas,
+        extract_numeric_occurrences=lambda value: (
+            extract_typed_numeric_inventory_occurrences_from_text(
+                value, profile="en-US"
+            )
+        ),
+        source_text=source,
+    )
+
+
+def test_one_threshold_seen_from_its_branch_and_formula_clause_is_one_obligation():
+    obligations = _virginia_boundaries(VIRGINIA_THRESHOLD_BLOCK + "B. Next.\n")
+    assert sorted(numeric.value for _, numeric in obligations) == [11650, 23300]
+
+
+@settings(max_examples=12, deadline=None)
+@given(copies=st.integers(min_value=1, max_value=4))
+def test_each_temporal_copy_keeps_exactly_one_obligation_per_threshold(copies):
+    source = VIRGINIA_THRESHOLD_BLOCK * copies + "B. Next.\n"
+    obligations = _virginia_boundaries(source)
+    blocks = [index * len(VIRGINIA_THRESHOLD_BLOCK) for index in range(copies)]
+    for value in (11650, 23300):
+        starts = sorted(
+            branch.start for branch, numeric in obligations if numeric.value == value
+        )
+        assert len(starts) == copies
+        # One obligation in each copy, never two in the same copy.
+        assert (
+            sorted(max(block for block in blocks if block <= start) for start in starts)
+            == blocks
+        )
+
+
 @settings(max_examples=24, deadline=None)
 @given(
     suffixes=st.integers(min_value=1, max_value=5),
@@ -1506,6 +1564,63 @@ def test_attached_extension_admission_preserves_reference_and_partial_controls(s
     assert not sc._qualified_parenthesized_legal_outline_markers(
         source, corpus_citation_path="us-ar/manual/example"
     )
+
+
+# Reduced from the committed Oregon estimate publication (real_defects_v0 case
+# us-456), which runs several amended ORS sections together on single lines.
+FLATTENED_QUOTED_SECTIONS = (
+    "the qualified higher education expenses of the designated beneficiary; "
+    "(c) As the result of a scholarship received by the designated beneficiary; "
+    "or (d) As a rollover described in ORS 178.350. SECTION 17. ORS 178.375 is "
+    "amended to read: 178.375. As used in this section: (1) “ABLE account” means "
+    "an account established by an eligible individual. (3) “Designated "
+    "beneficiary” has the same meaning as in section 529A. SECTION 18. ORS "
+    "238A.005 is amended to read: 238A.005. For the purposes of this chapter: "
+    "(1) “Active member” means a member of the pension program. (4) “Eligible "
+    "employee” means a person who performs services for a public employer. "
+    "“Eligible employee” does not include: (a) Persons engaged as independent "
+    "contractors; (b) Aliens working under a training visa; (c) Persons "
+    "provided sheltered employment."
+)
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+        "us-or/statute/238A.005",
+        "",
+    ],
+)
+def test_inline_attached_extension_does_not_prove_a_flattened_outline(citation):
+    # Restarted inline numbering from different quoted sections has no
+    # sequential roots, and inline "(a) ...; (b) ..." after a colon is prose,
+    # not layout. Main recognizes no outline here, and neither may this gate.
+    assert (
+        sc._qualified_parenthesized_legal_outline_markers(
+            FLATTENED_QUOTED_SECTIONS, corpus_citation_path=citation
+        )
+        == ()
+    )
+    assert (
+        sc.recognize_source_structure(
+            FLATTENED_QUOTED_SECTIONS, corpus_citation_path=citation
+        )
+        == ()
+    )
+
+
+def test_line_start_attached_extension_still_nests_colon_children():
+    source = FLATTENED_QUOTED_SECTIONS.replace(" (", "\n(")
+    paths = [
+        branch.path
+        for branch in sc.recognize_source_structure(
+            source, corpus_citation_path="us-or/statute/238A.005"
+        )
+    ]
+    assert ("d", "4", "a") in paths
+    assert ("d", "4", "b") in paths
+    assert ("d", "4", "c") in paths
 
 
 @settings(max_examples=40, deadline=None)

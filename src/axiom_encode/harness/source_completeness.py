@@ -3671,11 +3671,14 @@ def _qualified_parenthesized_legal_outline_markers(
                 break
             # A corrected deep attachment must not remove the evidence that
             # authenticated this outline. Its still-active first child can
-            # prove the immediate same-parent, same-case successor.
+            # prove the immediate same-parent, same-case successor. Only
+            # line-start markers are layout evidence: inline "(a) ...; (b)"
+            # in flattened text that restarts its numbering is prose.
             seed = attached_extension_seeds.get(level)
             previous = next((entry for entry in active if entry[0] == level), None)
             if (
                 attached_parent_level is None
+                and marker_start not in inline_marker_starts
                 and seed is not None
                 and previous is not None
                 and (previous[1], previous[3]) == seed
@@ -3693,6 +3696,7 @@ def _qualified_parenthesized_legal_outline_markers(
             active.append((level, raw_label, normalized, category))
             if (
                 attached_parent_level is not None
+                and marker_start not in inline_marker_starts
                 and (level >= len(outline_levels) or outline_levels[level] != category)
                 and _parenthesized_outline_label_is_first(raw_label, category)
             ):
@@ -40147,30 +40151,52 @@ def _source_boundary_obligations(
             for boundary in (interval.lower, interval.upper)
             if boundary is not None
         )
-    return tuple(
-        {
-            (
-                branch.path,
-                float(occurrence.value),
-                occurrence.has_rate_context,
-                occurrence.has_temporal_context,
-                occurrence.has_structural_context,
-                occurrence.source_value,
-                occurrence.requires_rate_context,
-                occurrence.is_word_number,
-                occurrence.alternative_values,
-                # Unknown origins each retain their own obligation.
-                (("raw", *raw_span) if raw_span is not None else ("unmapped", index))
-                if physical_coordinates
-                # Recall offsets are relative to the branch's source origin, so
-                # distinct temporal copies of one path must survive. Different
-                # end bounds from structural/narrative extraction do not make a
-                # new occurrence. A raw span above is already absolute.
-                else (branch.start, occurrence.start, occurrence.end),
-            ): (branch, occurrence)
-            for index, (branch, occurrence, raw_span) in enumerate(obligations)
-        }.values()
-    )
+
+    def identity(
+        branch: SourceStructureBranch, occurrence: NumericOccurrenceLike
+    ) -> tuple[Any, ...]:
+        return (
+            branch.path,
+            float(occurrence.value),
+            occurrence.has_rate_context,
+            occurrence.has_temporal_context,
+            occurrence.has_structural_context,
+            occurrence.source_value,
+            occurrence.requires_rate_context,
+            occurrence.is_word_number,
+            occurrence.alternative_values,
+        )
+
+    if physical_coordinates:
+        return tuple(
+            {
+                (
+                    *identity(branch, occurrence),
+                    # Unknown origins each retain their own obligation.
+                    ("raw", *raw_span) if raw_span is not None else ("unmapped", index),
+                ): (branch, occurrence)
+                for index, (branch, occurrence, raw_span) in enumerate(obligations)
+            }.values()
+        )
+    # Recall offsets are relative to each branch's own text. Overlapping
+    # structural and narrative branches show one text region, so an equal
+    # offset there is one occurrence. A temporal copy of the path elsewhere is
+    # disjoint and keeps its own obligation. Merging only overlapping spans
+    # never drops an obligation the plain offset key would keep.
+    deduplicated: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
+    groups: dict[tuple[Any, ...], list[tuple[int, list[tuple[int, int]]]]] = {}
+    for branch, occurrence, _ in obligations:
+        key = (*identity(branch, occurrence), occurrence.start, occurrence.end)
+        for position, spans in groups.setdefault(key, []):
+            if any(start < branch.end and branch.start < end for start, end in spans):
+                spans.append((branch.start, branch.end))
+                # The plain offset key kept the last equal occurrence.
+                deduplicated[position] = (branch, occurrence)
+                break
+        else:
+            groups[key].append((len(deduplicated), [(branch.start, branch.end)]))
+            deduplicated.append((branch, occurrence))
+    return tuple(deduplicated)
 
 
 def _source_boundary_is_nonoperative_guidance_definition(
