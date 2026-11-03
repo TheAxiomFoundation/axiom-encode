@@ -17351,8 +17351,11 @@
           "start": 100,
           "end": 105,
           "negator": false,
-          "source_negator": false,
-          "explanation": "A source-only head with no computation complement: its statutory sense."
+          "source_negator": true,
+          "explanation": "Intended stricter in Round 24: clause-initial reports before a filing relative reads as rejection. One snapshot occurrence, zero before a guarded link; no dependency entry or instrument sense moves.",
+          "intended_stricter": true,
+          "snapshot_occurrence_count": 1,
+          "guarded_snapshot_count": 0
         },
         {
           "citation": "il/statute/income-tax-ordinance/section-68b",
