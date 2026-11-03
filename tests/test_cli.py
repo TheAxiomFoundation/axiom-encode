@@ -2087,9 +2087,19 @@ def test_promote_reviewed_candidate_refuses_record_binding_mismatch_before_signe
         patch("axiom_encode.cli._recover_apply_transaction") as recover,
         patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
         patch("axiom_encode.cli._run_generated_encoding_overlay_validation") as overlay,
+        patch(
+            "axiom_encode.cli.subprocess.check_output",
+            wraps=subprocess.check_output,
+        ) as check_output,
         pytest.raises(ValueError, match=message),
     ):
         cmd_promote_reviewed_candidate(args)
+    # The protected runtime's trusted git wrapper admits only
+    # `git [-C <repo>] <command> ...`, so no global option may precede it.
+    for git_call in check_output.call_args_list:
+        argv = list(git_call.args[0])
+        if argv[:1] == ["git"]:
+            assert argv[1] == "-C" and not argv[3].startswith("-"), argv
     signer_context.assert_not_called()
     overlay.assert_not_called()
     recover.assert_not_called()
