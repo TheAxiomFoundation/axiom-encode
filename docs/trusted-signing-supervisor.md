@@ -322,14 +322,28 @@ non-empty `OPENAI_API_KEY` or `CODEX_API_KEY`, which would otherwise reach the
 supervised encoder beside the subscription home. It forwards the paths
 unchanged and never opens them: the supervisor owns credential-file
 validation, isolation, and refresh, so a path the supervisor rejects is
-refused only after the key has been delivered to the signer.
+refused only after the key has been delivered to the signer. The signer's
+minimal environment and CI context requirements still apply. Omitting all three
+subscription flags preserves the existing supervisor arguments.
 
 Codex children can read the `auth.json` in their home despite the read-only
-sandbox. The encoder therefore reads that file's credential strings before
-and after each Codex generation and review run, and replaces them, verbatim
-and JSON-escaped, in everything it keeps from the child's output. The signer's minimal environment and CI
-context requirements still apply. Omitting all three preserves the existing
-supervisor arguments.
+sandbox. The encoder therefore reads that file's credential strings before and
+after each Codex generation and review run. It replaces them, verbatim and
+JSON-escaped, in the child's stdout and stderr, in the extracted reviewer text,
+and in the generation last-message file, which it reads once and then deletes
+from the workspace. The redaction matches whole strings only: it stops a
+token from being copied out by accident, not a deliberate leak. A child that
+encodes a token (for example as base64) or prints it in pieces gets it past
+the redaction, so treat Codex output as sensitive wherever it is kept.
+
+Generation runs Codex in a temporary home whose `auth.json` links the
+encoder's own. A token refresh that writes through the link updates the
+encoder's file directly. A refresh that atomically replaces the file swaps the
+link for a new regular file, so after each run the encoder copies a changed
+`auth.json` from the temporary home back over its own (atomically,
+owner-only, and only if it parses as a JSON object). The supervisor therefore
+publishes the refreshed token to the outbox either way. The reviewer runs in
+the supervisor's home directly and needs no copy.
 
 ### ChatGPT subscription generation
 
