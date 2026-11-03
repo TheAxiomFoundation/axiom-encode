@@ -1526,8 +1526,11 @@ _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
 # hundred of something ("2 pour cent kilogrammes" is two per hundred
 # kilograms), so it is a percent only where no count can follow:
 # - before the end of the text, ";", ")", "]", "|" or a full stop;
-# - before another rate after ",", "et", "ou" or "à" ("5 pour cent, 10 pour
-#   cent et 15 pour cent");
+# - before more rates after ",", "et", "ou" or "à", when the list's last
+#   figure is a rate by itself ("%", "p.c.", "procent") or takes a "pour
+#   cent" that closes by these rules ("5 pour cent, 10 pour cent et 15 pour
+#   cent du montant"); a count at the end makes counts of the whole list
+#   ("2 pour cent et 3 pour cent kilogrammes");
 # - before a soft closer (",", ":", "»", "”", or a quotation mark set against
 #   "cent") or one of the phrases below, unless a figure, a number word,
 #   "quelques", "plusieurs" or "demi" (behind "et" or "ou" too) or an opening
@@ -1573,20 +1576,38 @@ _FRENCH_PHRASE_AFTER_POUR_CENT_BODY = (
     r")(?![\w'’-])|d['’]|(?:pour|sur)(?=\s*\Z)|"
     rf"(?:pour|sur)\s+{_FRENCH_DETERMINER_AFTER_POUR_CENT_BODY})"
 )
-_FRENCH_RATE_LIST_AFTER_POUR_CENT_BODY = (
-    r"\s*(?:,|(?:et|ou|à)(?!\w))\s*\d+(?:[.,]\d+)*[ \t\u00a0\u202f]*"
-    r"(?:%|pour[ \t-]*cents?\b|p\.[ \t]?c\.|procent\b)"
-)
-_BELGIAN_PERCENT_WORD_BODY = (
-    r"\bpour[ \t-]*cents?\b"
-    r"(?=\s*(?:\Z|;|\.(?!\S)|[|)\]])|"
+_POUR_CENT_WORD_BODY = r"pour[ \t-]*cents?\b"
+# What closes "pour cent" short of a list: a hard closer, or a soft closer or
+# phrase that no count follows.
+_POUR_CENT_CLOSING_BODY = (
+    r"\s*(?:\Z|;|\.(?!\S)|[|)\]])|"
     r"(?:\s*[,:»”]|[\"'’](?!\w)|"
     rf"\s*{_FRENCH_PHRASE_AFTER_POUR_CENT_BODY})"
-    rf"(?!\s*{_FRENCH_COUNT_AFTER_POUR_CENT_BODY})|"
-    rf"{_FRENCH_RATE_LIST_AFTER_POUR_CENT_BODY})|"
-    r"\bprocent(?:en|punt(?:en)?)?\b|"
-    r"\b(?-i:pct)\b\.?"
+    rf"(?!\s*{_FRENCH_COUNT_AFTER_POUR_CENT_BODY})"
 )
+# The next figure of a list of rates: ",", "et", "ou" or "à", then a figure,
+# grouped by dots or no-break spaces.
+_FRENCH_RATE_LIST_MEMBER_BODY = (
+    r"\s*(?:,|(?:et|ou|à)(?!\w))\s*"
+    r"\d+(?:[.,\u00a0\u202f]\d+)*[ \t\u00a0\u202f]*"
+)
+# The rest of a list of rates after "pour cent": figures marked "pour cent",
+# then a last figure whose marker is a rate by itself or a "pour cent" that
+# closes.
+_FRENCH_RATE_LIST_AFTER_POUR_CENT_BODY = (
+    rf"(?:{_FRENCH_RATE_LIST_MEMBER_BODY}{_POUR_CENT_WORD_BODY})*"
+    rf"{_FRENCH_RATE_LIST_MEMBER_BODY}"
+    r"(?:%|p\.[ \t]?c\.|procent(?:en|punt(?:en)?)?\b|"
+    rf"{_POUR_CENT_WORD_BODY}(?:{_POUR_CENT_CLOSING_BODY}))"
+)
+# The Belgian words that spell a percent out: "pour cent" where it closes or
+# opens a list of rates, and Dutch "procent(en)" and "procentpunt(en)".
+_BELGIAN_PERCENT_SPELLED_BODY = (
+    rf"\b{_POUR_CENT_WORD_BODY}"
+    rf"(?={_POUR_CENT_CLOSING_BODY}|{_FRENCH_RATE_LIST_AFTER_POUR_CENT_BODY})|"
+    r"\bprocent(?:en|punt(?:en)?)?\b"
+)
+_BELGIAN_PERCENT_WORD_BODY = rf"{_BELGIAN_PERCENT_SPELLED_BODY}|\b(?-i:pct)\b\.?"
 _GERMAN_VOM_HUNDERT_ABBREVIATION_BODY = r"\b(?-i:v\.[ \t]?H\.)"
 # Main's markers that make the figure right before them a rate, which every
 # source reads.
@@ -1601,11 +1622,11 @@ _RATE_MARKER_AFTER_FIGURE_BODY = (
 )
 # The word right before a figure that Belgian texts restate in parentheses
 # ahead of their own rate marker: a French, Dutch or German preposition or
-# copula ("pour (75) p.c.", "tarief van (9) procent", "Satz von (15)
+# copula ("pour (75) pour cent", "tarief van (9) procent", "Satz von (15)
 # Prozent"). After any other word the parenthesis stays the label it looks
-# like, as on main: after a structural word ("article 5 bis (2) p.c."), a
-# spelled number ("vingt-huit (28) pour cent", "l'article six (12) p.c.") or
-# a figure ("5 (2) p.c.").
+# like, as on main: after a structural word ("article 5 bis (2) pour cent"),
+# a spelled number ("vingt-huit (28) pour cent", "l'article six (12)
+# procent") or a figure ("5 (2) pour cent").
 _RATE_RESTATEMENT_PREPOSITION_PATTERN = re.compile(
     r"(?<![^\W\d_])(?:"
     r"pour|de|du|des|à|sur|soit|est|sont|sera|seront|était|étaient|"
@@ -7700,18 +7721,33 @@ _LOCALE_LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERNS = {
         re.IGNORECASE,
     ),
 }
-# The markers before which a Belgian source may restate a figure in
-# parentheses ("pour (75) p.c."): its own words, the German ones, and "p.c."
-# in lowercase. "%", the English words and "P.C." never license it.
-_BELGIAN_RESTATED_RATE_MARKER_PATTERN = re.compile(
-    r"[ \t\u00a0\u202f]*(?:"
-    r"\b(?-i:p\.[ \t]?c\.)|"
+# The markers that spell a percent out in Belgian, Dutch and German sources.
+_SPELLED_PERCENT_MARKER_BODY = (
     r"\bProzent\b|"
     r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
     r"\bvom[ \t]+Hundert\b|"
-    rf"{_BELGIAN_PERCENT_WORD_BODY}|{_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY})",
+    rf"{_BELGIAN_PERCENT_SPELLED_BODY}"
+)
+# The markers before which a Belgian source may restate a label-shaped figure
+# in parentheses ("pour (75) pour cent", "tarief van (9) procent"): the words
+# that spell a percent out. A source may define an abbreviation as anything
+# ("p.c." for "parties civiles", "pct." for a precinct), so before "p.c.",
+# "pct." or "v. H.", as before "%" or an English word, the parenthesis stays
+# the label it looks like, as on main.
+_BELGIAN_RESTATED_RATE_MARKER_PATTERN = re.compile(
+    rf"[ \t\u00a0\u202f]*(?:{_SPELLED_PERCENT_MARKER_BODY})",
     re.IGNORECASE,
 )
+# The markers that make any figure restated in parentheses a rate: the
+# percent sign and the words that spell a percent out.
+_PARENTHESIZED_FIGURE_RATE_MARKER_PATTERN = re.compile(
+    r"[ \t\u00a0\u202f]*(?:"
+    r"%|\bpercent\b|\bper[ \t-]+cent(?:um)?\b|"
+    rf"{_SPELLED_PERCENT_MARKER_BODY})",
+    re.IGNORECASE,
+)
+# A figure that ends in a decimal comma and its fraction ("14,75", "1.000,5").
+_DECIMAL_COMMA_FRACTION_END_PATTERN = re.compile(r",\d+\Z")
 # The closing parenthesis of a figure restated in parentheses ("(14,75)
 # p.c."), read before the marker that follows it.
 _PARENTHESIZED_FIGURE_CLOSE_PATTERN = re.compile(r"[ \t\u00a0\u202f]*\)")
@@ -13409,12 +13445,13 @@ def _blank_match(match: re.Match[str]) -> str:
 def _blank_subdivision_label(match: re.Match[str]) -> str:
     """Blank a Belgian subdivision label unless it restates a rate figure.
 
-    ``pour (75) p.c.`` restates the rate 75 percent: a French, Dutch or German
-    preposition or copula and one space come before the parenthesis, and a
-    Belgian, Dutch or German marker or a lowercase ``p.c.`` follows it.
-    Otherwise ``(17)`` is the label it looks like (``Item (17) Percent``,
-    ``met (17) P.C.``, ``l'article six (12) p.c.``, ``apply. (17) p.c.``,
-    ``5 (2) p.c.``).
+    ``pour (75) pour cent`` restates the rate 75 percent: a French, Dutch or
+    German preposition or copula and one space come before the parenthesis,
+    and a word that spells a percent out follows it. Otherwise ``(17)`` is
+    the label it looks like (``Item (17) Percent``, ``met (17) p.c.``,
+    ``pour (17) p.c.``, ``l'article six (12) procent``, ``apply. (17)
+    procent``, ``5 (2) pour cent``): an abbreviation may stand for anything
+    its source defines, so it licenses no restatement.
     """
     start, end = match.span()
     text = match.string
@@ -14233,17 +14270,26 @@ def _parenthesized_figure_rate_context(
     span: tuple[int, int],
     *,
     profile: str,
+    value: float,
     boundaries: _NumericContextBoundaries | None = None,
 ) -> bool:
     """Return whether a rate marker follows a figure restated in parentheses.
 
     Belgian statutes restate a figure in parentheses and put the marker after
-    them: "(14,75) p.c. du montant" and "pour (75) p.c." are rates. A figure
-    right before the opening parenthesis, across any space or a comma, owns
-    the marker instead ("5 (2,5) p.c." is five percent and a note), so it
+    them: "(14,75) p.c. du montant" and "pour (75) pour cent" are rates. A
+    figure right before the opening parenthesis, across any space or a comma,
+    owns the marker instead ("5 (2,5) p.c." is five percent and a note), so it
     blocks the reading, and an unopened parenthesis ("2) p.c.", a list label)
     is no restatement. Only Belgian sources read it; elsewhere the parenthesis
     is a label or a note, as on main.
+
+    The percent sign and the words that spell a percent out make any figure a
+    rate. An abbreviation ("p.c.", "pct.", "v. H.") may stand for whatever
+    its source defines, and a whole number in parentheses may count or cite
+    ("(101) p.c. applicants"), so an abbreviation makes a rate of a fraction
+    with a decimal comma ("(14,75) p.c.") and of nothing else: a fraction
+    neither counts nor cites, and main reads "14,75 p.c." as a rate.
+    ``value`` is the figure's own value.
     """
     if profile != "be-BE":
         return False
@@ -14260,6 +14306,12 @@ def _parenthesized_figure_rate_context(
         return False
     closing = _PARENTHESIZED_FIGURE_CLOSE_PATTERN.match(text, end)
     if closing is None:
+        return False
+    if _PARENTHESIZED_FIGURE_RATE_MARKER_PATTERN.match(text, closing.end()):
+        return True
+    if float(value).is_integer() or not _DECIMAL_COMMA_FRACTION_END_PATTERN.search(
+        text, start, end
+    ):
         return False
     return _local_rate_context_after_number(
         text,
@@ -14953,6 +15005,7 @@ class _LegacyNumericCollector:
                 self.context_text,
                 source_span,
                 profile=self.profile,
+                value=value if source_value is None else source_value,
                 boundaries=self.context_boundaries,
             )
             or has_table_rate_context

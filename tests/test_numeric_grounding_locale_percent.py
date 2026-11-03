@@ -123,6 +123,17 @@ def test_probe_table_rows(source_text, formula, grounded):
         ("5 pour cent, 10 pour cent et 15 pour cent", 0.05),
         ("5 pour cent, 10 pour cent et 15 pour cent", 0.1),
         ("5 pour cent, 10 pour cent et 15 pour cent", 0.15),
+        ("5 pour cent et 10 pour cent du montant", 0.05),
+        ("5 pour cent et 10 pour cent du montant", 0.1),
+        # A list closes on its last figure, however long it is.
+        (
+            "1 pour cent, 2 pour cent, 3 pour cent, 4 pour cent, 5 pour cent "
+            "et 6 pour cent du montant",
+            0.01,
+        ),
+        ("2 pour cent et 3 procent", 0.02),
+        ("2 pour cent et 4 procentpunten", 0.02),
+        ("2 pour cent et 1\u00a0000,5 pour cent du montant", 0.02),
         ("de 10 pour cent à 20 pour cent du montant", 0.1),
         ("de 5 pour cent ou 3 % du montant", 0.05),
         # A quotation mark set against "cent" closes it.
@@ -307,6 +318,15 @@ def test_mixed_fraction_reads_its_profile_markers(profile, grounded):
     source_text = "un taux de 16 1\u20442 pour cent du montant"
 
     assert _grounds(source_text, 0.165, profile=profile) is grounded
+    # The recall inventory reads the marked fraction as one rate, the way
+    # main reads "16 1⁄2 percent".
+    inventory = extract_typed_numeric_inventory_occurrences_from_text(
+        source_text, profile=profile
+    )
+    assert (
+        any(item.value == 0.165 and item.has_rate_context for item in inventory)
+        is grounded
+    )
 
 
 @pytest.mark.parametrize(
@@ -328,9 +348,12 @@ def test_pour_mille_still_grounds_the_printed_figure():
     (
         ("f (14,75) p.c.du montant de sa rémunération", 0.1475),
         ("Une part de (8,75) p.c. comprise dans la cotisation", 0.0875),
-        ("sont pour (75) p.c. remboursés sur base des honoraires", 0.75),
+        ("taux de (1.000,5) p.c. du montant", 10.005),
+        ("tarief van (0,5) pct.", 0.005),
+        ("Satz von (2,5) v. H.", 0.025),
+        ("remboursés pour (75) pour cent du montant", 0.75),
         ("taux de ( 14,75 ) pour cent", 0.1475),
-        ("taux de (14.75) p.c.", 0.1475),
+        ("taux de (101) % du montant", 1.01),
         ("tarief van (9) procent", 0.09),
         ("Satz von (15) Prozent", 0.15),
     ),
@@ -343,7 +366,7 @@ def test_parenthesized_figure_takes_the_marker_after_the_parenthesis(
 
 def test_parenthesized_integer_followed_by_a_marker_is_no_subdivision_label():
     occurrences = extract_typed_numeric_occurrences_from_text(
-        "sont pour (75) p.c. remboursés", profile="be-BE"
+        "remboursés pour (75) pour cent du montant", profile="be-BE"
     )
 
     assert [(item.value, item.raw, item.has_rate_context) for item in occurrences] == [
@@ -351,7 +374,7 @@ def test_parenthesized_integer_followed_by_a_marker_is_no_subdivision_label():
     ]
     # Outside Belgium "(75)" stays the masked label it is on main.
     assert not extract_typed_numeric_occurrences_from_text(
-        "sont pour (75) p.c. remboursés"
+        "remboursés pour (75) pour cent du montant"
     )
 
 
@@ -441,7 +464,7 @@ def test_danish_profile_masks_a_parenthesized_figure_as_main_did():
 
     assert not _gate_grounds(danish, "75", citation_path="dk/statute/example/1")
     assert not _gate_grounds(danish, "0.75", citation_path="dk/statute/example/1")
-    assert _gate_grounds("sont pour (75) p.c. remboursés", "0.75")
+    assert _gate_grounds("remboursés pour (75) pour cent du montant", "0.75")
 
 
 @pytest.mark.parametrize(
@@ -494,6 +517,105 @@ def test_range_endpoints_share_the_marker(source_text, values):
 def test_noun_after_pour_cent_is_no_marker_in_any_reader(source_text, values):
     for value in values:
         assert not _grounds(source_text, value), (source_text, value)
+
+
+@pytest.mark.parametrize(
+    ("source_text", "formulas"),
+    (
+        # The last figure of a list decides it: a count there makes counts
+        # of the whole list.
+        (
+            "un droit de 2 pour cent et 3 pour cent kilogrammes de poids net",
+            ("0.02", "0.03"),
+        ),
+        (
+            "Droits respectifs : 2 pour cent et 3 pour cent kilogrammes de poids net.",
+            ("0.02", "0.03"),
+        ),
+        (
+            "une redevance de 2 pour cent et 3 pour cent mille habitants",
+            ("0.02", "0.03"),
+        ),
+        (
+            "une redevance de 2 pour cent et 3 pour cent-mille habitants",
+            ("0.02", "0.03"),
+        ),
+        (
+            "un droit de 2 pour cent et 3 pour cent et quelques kilogrammes",
+            ("0.02", "0.03"),
+        ),
+        ("un droit de 2 pour cent, 3 pour cent kilogrammes", ("0.02", "0.03")),
+        ("une redevance de 2 pour cent, 3 pour cent mille habitants", ("0.02", "0.03")),
+        ("un droit de 2 pour cent ou 3 pour cent kilogrammes", ("0.02", "0.03")),
+        ("un droit de 2 pour cent à 3 pour cent kilogrammes", ("0.02", "0.03")),
+        ("un droit de 2 pour cent et 3 pour cent, 200 euros", ("0.02", "0.03")),
+        # However long the list.
+        (
+            "un droit de 2 pour cent, 3 pour cent et 4 pour cent kilogrammes",
+            ("0.02", "0.03", "0.04"),
+        ),
+        (
+            "un droit de 2 pour cent, 3 pour cent, 4 pour cent, 5 pour cent "
+            "et 6 pour cent quintaux",
+            ("0.02", "0.03", "0.04", "0.05", "0.06"),
+        ),
+        # The range reader, at both ends.
+        (
+            "un droit de 1 à 2 pour cent et 3 pour cent kilogrammes de poids net",
+            ("0.01", "0.02", "0.03"),
+        ),
+        # The decimal-comma reader.
+        (
+            "un droit de 2,5 pour cent et 3 pour cent kilogrammes de poids net",
+            ("0.025", "0.03"),
+        ),
+        # A figure restated in parentheses, label-shaped or not.
+        (
+            "un droit de (2) pour cent et 3 pour cent kilogrammes de poids net",
+            ("0.02", "0.03"),
+        ),
+        (
+            "un droit de (2,5) pour cent et 3 pour cent kilogrammes de poids net",
+            ("0.025", "0.03"),
+        ),
+        # A table's header row and a body cell.
+        (
+            "| Droit pour cent et 3 pour cent kilogrammes de poids net | Base |\n"
+            "| --- | --- |\n| 2 | 5000 euro |\n",
+            ("0.02", "50"),
+        ),
+        (
+            "| Droit | Base |\n| --- | --- |\n"
+            "| 2 pour cent et 3 pour cent kilogrammes de poids net | 5000 euro |\n",
+            ("0.02", "0.03", "50"),
+        ),
+    ),
+)
+def test_rate_list_ending_in_a_count_grounds_no_rate(source_text, formulas):
+    for formula in formulas:
+        assert not _gate_grounds(source_text, formula), (source_text, formula)
+
+
+@pytest.mark.parametrize(
+    "continuation",
+    (
+        " ou moins",
+        " lorsque le bénéficiaire est majeur",
+        " dans les cas suivants",
+        " hors TVA",
+        " sans supplément",
+        " selon la catégorie",
+        " après révision",
+        " avant abattement",
+        " et non de 10 %",
+        " au-delà du plafond",
+        " à titre de contribution",
+    ),
+)
+def test_unlisted_continuation_leaves_pour_cent_unread(continuation):
+    # Real rates the phrase list does not cover; main grounds none of them
+    # either.
+    assert not _gate_grounds(f"Le taux est de 5 pour cent{continuation}", "0.05")
 
 
 @pytest.mark.parametrize(
@@ -565,11 +687,11 @@ def test_label_after_a_word_that_states_no_amount_stays_masked(
 @pytest.mark.parametrize(
     ("citation_path", "source_text", "formula"),
     (
-        (BE_CITATION, "sont pour (75) p.c. remboursés", "0.75"),
+        (BE_CITATION, "remboursés pour (75) pour cent du montant", "0.75"),
         (BE_CITATION, "tarief van (9) procent", "0.09"),
-        (BE_CITATION, "met (17) p.c. verhoogd", "0.17"),
+        (BE_CITATION, "met (17) procent verhoogd", "0.17"),
         ("be-dg/statute/example/1", "Der Satz beträgt (15) Prozent", "0.15"),
-        ("be-dg/statute/example/1", "Satz von (15) v. H.", "0.15"),
+        ("be-dg/statute/example/1", "Satz von (15) vom Hundert", "0.15"),
         ("be-vlg/statute/example/1", "bedraagt (12) procent", "0.12"),
     ),
 )
@@ -577,6 +699,65 @@ def test_figure_restated_after_a_lead_in_word_grounds(
     citation_path, source_text, formula
 ):
     assert _gate_grounds(source_text, formula, citation_path=citation_path)
+
+
+@pytest.mark.parametrize(
+    ("source_text", "formulas"),
+    (
+        # A source may define an abbreviation as anything, so a whole figure
+        # in parentheses before one stays the count or citation it may be,
+        # whatever word comes before it.
+        (
+            "p.c. means police constable. The panel met (17) p.c. applicants.",
+            ("17", "0.17"),
+        ),
+        (
+            "p.c. désigne les parties civiles. La demande est déposée pour (17) p.c.",
+            ("17", "0.17"),
+        ),
+        # 2 itself always grounds (GROUNDING_ALLOWED_VALUES), as on main.
+        (
+            "p.c. désigne le Code pénal. Conformément à (2) p.c., la sanction "
+            "est applicable.",
+            ("0.02",),
+        ),
+        ("pct. means precinct. The panel met (28) pct. officers.", ("28", "0.28")),
+        ("Der Satz von (15) v. H. gilt.", ("15", "0.15")),
+        # A whole figure outside the label shape, which the cleaner leaves in
+        # the text, stays a figure: its N/100 never grounds.
+        ("p.c. means police constable. (101) p.c. applicants shall attend.", ("1.01",)),
+        (
+            "p.c. means police constable. The panel met (101) p.c. applicants.",
+            ("1.01",),
+        ),
+        ("The panel met (101) P.C. applicants.", ("1.01",)),
+        ("The panel met (250) pct. officers.", ("2.5",)),
+        ("Der Satz von (250) v. H. gilt.", ("2.5",)),
+        # Only a decimal comma makes a fraction of it: "1,250" reads as 1250,
+        # and "101.5" may cite a section.
+        ("taux de (1,250) p.c. du montant", ("12.5",)),
+        ("conformément à (101.5) p.c.", ("1.015",)),
+        # Real rates go with them; main grounds none of these either.
+        ("sont pour (75) p.c. remboursés sur base des honoraires", ("75", "0.75")),
+        ("met (17) p.c. verhoogd", ("17", "0.17")),
+        ("taux de (14.75) p.c.", ("14.75", "0.1475")),
+        ("Satz von (15) v. H.", ("15", "0.15")),
+    ),
+)
+def test_abbreviation_restates_no_whole_or_dotted_figure(source_text, formulas):
+    for formula in formulas:
+        assert not _gate_grounds(source_text, formula), (source_text, formula)
+
+
+def test_abbreviation_leaves_a_label_out_of_the_recall_inventory():
+    # main inventories no figure for a masked label, and neither does be-BE
+    # before an abbreviation: "(17)" is no value the encoding owes.
+    source_text = "p.c. means police constable. The panel met (17) p.c. applicants."
+
+    for profile in ("be-BE", "legacy"):
+        assert not extract_typed_numeric_inventory_occurrences_from_text(
+            source_text, profile=profile
+        )
 
 
 @pytest.mark.parametrize(
@@ -984,17 +1165,30 @@ _MARKERS = (
     "%",
     "p.c.",
     "p. c.",
+    "P.C.",
     "pour cent",
     "pour-cent",
     "pourcent",
     "pourcents",
     "procent",
+    "procenten",
+    "procentpunt",
+    "procentpunten",
     "pct.",
+    "pct",
     "percent",
     "per cent",
     "Prozent",
+    "Prozentpunkt",
+    "Prozentpunkte",
+    "Beitragssatzpunkte",
     "vom Hundert",
     "v. H.",
+    "v.H.",
+)
+# The abbreviations, which may stand for whatever a source defines.
+_ABBREVIATED_MARKERS = frozenset(
+    ("p.c.", "p. c.", "P.C.", "pct.", "pct", "v. H.", "v.H.")
 )
 _NON_MARKERS = (
     "euro",
@@ -1040,8 +1234,11 @@ _PREFIXES = (
 _LEAD_IN_PREFIXES = frozenset(
     ("le taux de ", "Der Satz beträgt ", "cotisation de ", "une part de ")
 )
-# The markers that let a lead-in word restate a label-shaped figure.
-_LICENSING_MARKERS = frozenset(_MARKERS) - {"%", "percent", "per cent"}
+# The markers that let a lead-in word restate a label-shaped figure: the
+# words that spell a percent out.
+_LICENSING_MARKERS = (
+    frozenset(_MARKERS) - {"%", "percent", "per cent"} - _ABBREVIATED_MARKERS
+)
 # The figures a subdivision label could be: "(9)", "(14.5)".
 _LABEL_SHAPED = re.compile(r"\([1-9]\d?(?:\.\d+)?\)")
 # Words that state no amount, so a parenthesis after them is a label.
@@ -1198,16 +1395,26 @@ def test_marked_figure_grounds_its_rate(figure, marker, gap, prefix):
     assume(not (marker == "per cent" and _ENGLISH_GROUPED_DECIMAL.fullmatch(printed)))
     source_text = f"{prefix}{printed}{gap}{marker} du montant"
 
-    if _LABEL_SHAPED.fullmatch(printed) and (
-        prefix not in _LEAD_IN_PREFIXES or marker not in _LICENSING_MARKERS
-    ):
-        # "tarief (9) procent", "le taux de (9) %": a label-shaped
-        # parenthesis after a word that states no amount, or before a marker
-        # that is not Belgian, Dutch or German, stays the masked label it is
-        # on main.
-        assert not _grounds(source_text, value / 100), source_text
-    else:
-        assert _grounds(source_text, value / 100), source_text
+    assert _grounds(source_text, value / 100) is _restates_its_rate(
+        printed, value, prefix, marker
+    ), source_text
+
+
+def _restates_its_rate(printed: str, value: float, prefix: str, marker: str) -> bool:
+    """Return whether a printed figure before ``marker`` grounds its rate."""
+    if not printed.startswith("("):
+        return True
+    if _LABEL_SHAPED.fullmatch(printed):
+        # "tarief (9) procent", "le taux de (9) %", "le taux de (9) p.c.": a
+        # label-shaped parenthesis after a word that states no amount, or
+        # before a marker that does not spell a percent out, stays the masked
+        # label it is on main.
+        return prefix in _LEAD_IN_PREFIXES and marker in _LICENSING_MARKERS
+    if marker in _ABBREVIATED_MARKERS:
+        # "(101) p.c." may count and "(101.5) p.c." may cite: an abbreviation
+        # makes a rate of a fraction with a decimal comma only.
+        return not value.is_integer() and re.search(r",\d+\)\Z", printed) is not None
+    return True
 
 
 _ENGLISH_GROUPED_DECIMAL = re.compile(r"\d{1,3}(?:,\d{3})+\.\d+")
@@ -1299,7 +1506,7 @@ def test_marked_value_cell_never_types_its_column(rate, marker, hundreds, first,
     # column never grounds amount/100.
     printed, _ = rate
     marked = f"| taux | {printed}{gap}{marker} |\n"
-    # The rate's own figure grounds itself and its N/100 (and main reads
+    # The marked cell may ground the amount's hundreds by itself (main reads
     # "1,000.1p.c." as 1,000); only the column's typing is under test.
     assume(not _grounds(marked, float(hundreds)))
     plain = f"| montant | {hundreds * 100} euro |\n"
@@ -1382,6 +1589,101 @@ def test_pour_cent_before_a_count_never_grounds_its_rate(
     source_text = f"{lead}{printed} {spelling}{continuation}"
 
     assert not _grounds(source_text, value / 100), source_text
+
+
+_POUR_CENT_SPELLINGS = ("pour cent", "pour-cent", "pourcent", "pourcents")
+_LIST_SEPARATORS = (", ", " et ", " ou ", " à ", ",", " et\n")
+
+
+@st.composite
+def _pour_cent_lists(draw):
+    """Return two to five figures marked "pour cent" as a list, and their values."""
+    size = draw(st.integers(min_value=2, max_value=5))
+    members, values = [], []
+    for index in range(size):
+        printed, value = draw(_printed_figures())
+        separator = draw(st.sampled_from(_LIST_SEPARATORS)) if index else ""
+        spelling = draw(st.sampled_from(_POUR_CENT_SPELLINGS))
+        members.append(f"{separator}{printed.strip('()')} {spelling}")
+        values.append(value)
+    return "".join(members), tuple(values)
+
+
+@settings(max_examples=150, deadline=None)
+@given(rates=_pour_cent_lists(), closing=st.sampled_from(_CLOSING_WORDS))
+@example(
+    rates=("5 pour cent, 10 pour cent et 15 pour cent", (5.0, 10.0, 15.0)), closing=""
+)
+def test_rate_list_ending_in_a_rate_grounds_every_figure(rates, closing):
+    listed, values = rates
+    source_text = f"le taux de {listed}{closing}"
+
+    for value in values:
+        assert _grounds(source_text, value / 100), (source_text, value)
+
+
+@settings(max_examples=200, deadline=None)
+@given(
+    rates=_pour_cent_lists(),
+    continuation=st.sampled_from(
+        _COUNT_CONTINUATIONS + tuple(f" {noun}" for noun in _FRENCH_NOUNS)
+    ),
+)
+@example(rates=("2 pour cent et 3 pour cent", (2.0, 3.0)), continuation=" kilogrammes")
+@example(
+    rates=("2 pour cent, 3 pour cent et 4 pour cent", (2.0, 3.0, 4.0)),
+    continuation=" mille habitants",
+)
+def test_rate_list_ending_in_a_count_never_grounds(rates, continuation):
+    listed, values = rates
+    lead = "un droit de "
+    source_text = f"{lead}{listed}{continuation}"
+    # Each figure and the continuation's own figures ground themselves; only
+    # the rates are under test.
+    for value in values:
+        assume(not _grounds(f"{lead}{continuation}", value / 100))
+        assume(all(abs(value / 100 - other) > 1e-9 for other in values))
+
+    for value in values:
+        assert not _grounds(source_text, value / 100), (source_text, value)
+
+
+@settings(max_examples=200, deadline=None)
+@given(
+    figure=st.integers(min_value=1, max_value=99_999),
+    abbreviation=st.sampled_from(sorted(_ABBREVIATED_MARKERS)),
+    lead=st.sampled_from(
+        (
+            "",
+            "met ",
+            "pour ",
+            "à ",
+            "de ",
+            "von ",
+            "The panel met ",
+            "La demande est déposée pour ",
+            "p.c. means police constable. ",
+        )
+    ),
+    continuation=st.sampled_from(
+        ("", ".", " applicants.", ", la sanction est applicable.", " du montant")
+    ),
+)
+@example(
+    figure=101,
+    abbreviation="p.c.",
+    lead="p.c. means police constable. ",
+    continuation=" applicants.",
+)
+def test_abbreviation_never_restates_a_whole_figure(
+    figure, abbreviation, lead, continuation
+):
+    source_text = f"{lead}({figure}) {abbreviation}{continuation}"
+
+    assert not _grounds(source_text, figure / 100), source_text
+    if figure < 100:
+        # A label-shaped figure stays the masked label it is on main.
+        assert not _grounds(source_text, float(figure)), source_text
 
 
 @settings(max_examples=150, deadline=None)
