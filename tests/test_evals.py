@@ -24615,3 +24615,72 @@ def test_openai_generation_gates_cover_gpt_6_models(model, extended, explicit_ca
         evals_module._openai_model_supports_explicit_prompt_cache(model)
         is explicit_cache
     )
+
+
+_ARMENIAN_LEDGER_SOURCE = (
+    "Հայաստանի Հանրապետությունում նվազագույն ամսական աշխատավարձը "
+    "սահմանել 75000 դրամ:\n"
+    "(1-ին հոդվածը փոփ. 11.11.05 ՀՕ-221-Ն, 07.12.22 ՀՕ-501-Ն)"
+)
+
+
+def _armenian_minimum_wage_metrics(tmp_path, source_text, *, complete):
+    citation = "am/statute/act-172160/article-1"
+    corpus_release = _write_test_corpus_provision(
+        tmp_path, citation_path=citation, body=source_text
+    )
+    rulespec_file = tmp_path / "statutes" / "act-172160" / "article-1.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(
+        f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {citation}
+rules:
+  - name: minimum_monthly_wage
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2023-01-01'
+        formula: 75000
+"""
+    )
+    compile_result = ValidationResult("compile", True, issues=[])
+    ci_result = ValidationResult("ci", True, issues=[])
+    with (
+        patch.object(
+            ValidatorPipeline, "_run_compile_check", return_value=compile_result
+        ),
+        patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+    ):
+        return evaluate_artifact(
+            rulespec_file=rulespec_file,
+            policy_repo_root=_canonical_rulespec_content_root(tmp_path, "am"),
+            axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+            source_text=source_text,
+            local_corpus_release=corpus_release,
+            source_citation_path=citation,
+            require_complete_source_unit=complete,
+        )
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_eval_numeric_coverage_skips_validated_armenian_ledger(tmp_path, complete):
+    # The prompt tells the encoder not to encode a recognized ledger's numbers,
+    # so the eval coverage metric must not demand them either.
+    metrics = _armenian_minimum_wage_metrics(
+        tmp_path, _ARMENIAN_LEDGER_SOURCE, complete=complete
+    )
+
+    assert metrics.numeric_occurrence_issues == []
+    assert metrics.source_numeric_occurrence_count == 1
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_eval_numeric_coverage_keeps_unrecognized_armenian_parenthetical(
+    tmp_path, complete
+):
+    source = _ARMENIAN_LEDGER_SOURCE.removesuffix(")") + ", լրացուցիչ 500 դրամ)"
+    metrics = _armenian_minimum_wage_metrics(tmp_path, source, complete=complete)
+
+    assert any("500" in issue for issue in metrics.numeric_occurrence_issues)
