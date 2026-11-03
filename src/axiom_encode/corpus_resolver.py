@@ -189,6 +189,11 @@ def normalize_corpus_identifier(identifier: str) -> str:
     if parts and ":" in parts[0]:
         jurisdiction, source_root = parts[0].split(":", 1)
         document_class = _RULESPEC_DOCUMENT_CLASS.get(source_root, source_root)
+        if document_class == "policy" and len(parts) >= 3 and parts[1] == "rulemaking":
+            # ``policies/rulemaking/`` is the RuleSpec output namespace for
+            # ``<jurisdiction>/rulemaking/...`` (Federal Register) sources.
+            document_class = "rulemaking"
+            parts = [parts[0], *parts[2:]]
         if jurisdiction and document_class:
             return _normalize_citation_path(
                 "/".join((jurisdiction, document_class, *parts[1:]))
