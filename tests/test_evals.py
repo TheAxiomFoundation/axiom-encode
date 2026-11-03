@@ -2982,6 +2982,64 @@ def test_lifetime_probe_resolves_the_explicit_engine_ref(tmp_path, monkeypatch):
     assert seen == [(tmp_path / "engine", ref)]
 
 
+def test_lifetime_probe_uses_the_declared_pin_without_a_ref(tmp_path, monkeypatch):
+    """With no explicit ref, the probe binds the policy repository's declared
+    pin, as validation does, rather than scanning the checkout."""
+    from axiom_encode.engine_binding import EnginePin
+
+    declared = EnginePin(sha="b" * 40, source=tmp_path / "toolchain.toml")
+    binary = tmp_path / "pinned-engine"
+    binary.write_text("#!/bin/sh\necho 'Commands: compile run-lifetime'\n")
+    binary.chmod(0o755)
+    checkout = tmp_path / "engine"
+    unpinned = checkout / "target" / "release" / "axiom-rules-engine"
+    unpinned.parent.mkdir(parents=True)
+    unpinned.write_text("#!/bin/sh\necho 'Commands: compile'\n")
+    unpinned.chmod(0o755)
+    policy = tmp_path / "rulespec-us" / "us"
+    policy.mkdir(parents=True)
+    seen = []
+    monkeypatch.setattr(
+        validator_pipeline,
+        "load_declared_engine_pin",
+        lambda path: seen.append(("declared", path)) or declared,
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "resolve_pinned_engine_binary",
+        lambda path, pin: seen.append(("resolve", path, pin.sha)) or binary,
+    )
+
+    assert evals_module._engine_supports_lifetime_fixtures(
+        policy_path=policy, axiom_rules_path=checkout
+    )
+    assert seen == [("declared", policy), ("resolve", checkout, "b" * 40)]
+
+
+def test_unpinned_probe_prefers_release_then_debug_then_bare(tmp_path, monkeypatch):
+    """The probe's unpinned scan uses validation's order, not its reverse."""
+    monkeypatch.setattr(validator_pipeline, "load_declared_engine_pin", lambda _p: None)
+    checkout = tmp_path / "engine"
+    candidates = [
+        checkout / "target" / "release" / "axiom-rules-engine",
+        checkout / "target" / "debug" / "axiom-rules-engine",
+        checkout / "axiom-rules-engine",
+    ]
+    for candidate in candidates:
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        candidate.write_text("binary\n")
+    policy = tmp_path / "rulespec-us" / "us"
+    policy.mkdir(parents=True)
+    for expected in candidates:
+        assert (
+            validator_pipeline.bound_engine_binary(
+                policy_repo_path=policy, axiom_rules_path=checkout
+            )
+            == expected
+        )
+        expected.unlink()
+
+
 def test_run_source_eval_rejects_removed_source_id_override(tmp_path):
     corpus_release, source_unit = _write_test_source_unit(
         tmp_path,
