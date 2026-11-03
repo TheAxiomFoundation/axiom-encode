@@ -17058,8 +17058,13 @@ def _normalize_main_eval_content(
         # resolve these; keep the raw text so validation reports them.
         if find_interpretation_yaml_issues(content):
             return content
-    except (yaml.YAMLError, RecursionError):
+    except yaml.YAMLError:
         pass
+    except RecursionError:
+        # The scan composes with one more frame per nesting level than loading,
+        # so the repairs below could still load and dump text it could not
+        # check. Normalize the text only; validation reports the nesting.
+        return _normalize_rulespec_content(content)
     if _rewrite_duplicate_key_issues(content):
         # Textual normalization only: it keeps every key and still refuses
         # text that is not RuleSpec.
@@ -18636,8 +18641,15 @@ def _overlay_validation_retry_candidate(
         preserved_interpretation_issues = find_interpretation_yaml_issues(
             candidate.rulespec
         )
-    except (yaml.YAMLError, RecursionError):
+    except yaml.YAMLError:
         preserved_interpretation_issues = []
+    except RecursionError:
+        # The overlay is written back through a YAML load and dump, which could
+        # still succeed on text too deeply nested for the scan to check.
+        raise _PreservedRepairOverlayError(
+            "preserved repair overlay YAML nesting is too deep to check its "
+            "interpretation syntax"
+        ) from None
     if preserved_interpretation_issues:
         raise _PreservedRepairOverlayError(
             "preserved repair overlay has invalid interpretation syntax: "
