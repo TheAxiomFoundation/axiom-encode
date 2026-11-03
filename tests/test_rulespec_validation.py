@@ -11,7 +11,6 @@ import sys
 import textwrap
 from decimal import Decimal
 from pathlib import Path
-from time import monotonic
 from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
@@ -22,6 +21,8 @@ from axiom_oracles.bridges.registry import (
     PolicyEngineOracleRegistry,
     load_policyengine_registry,
 )
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode.corpus_resolver import (
     PROOF_EVIDENCE_SEGMENT_SEPARATOR,
@@ -152,15 +153,23 @@ from axiom_encode.harness.validator_pipeline import (
     ValidatorPipeline as _ValidatorPipeline,
 )
 from axiom_encode.repo_routing import find_policy_repo_root
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 from tests.real_engine import ABSENT_ROOT
 from tests.release_object_fixtures import bind_test_corpus_release
-from tests.scaling import assert_grows_linearly, fastest_cpu_seconds
+from tests.scaling import assert_linear_growth, lowest_work
 
 # Every test here that executes the engine takes the real_engine fixture;
 # the rest get a checkout that never exists, here and in CI alike.
 AXIOM_RULES_PATH = ABSENT_ROOT
 TEST_CORPUS_RELEASE_NAME = "test-release"
 TEST_CORPUS_VERSION = "test-version"
+
+
+def _clear_numeric_extraction_caches():
+    # A fresh tokenization can still reuse its paragraph/currency index.
+    # Clear both text-result caches before every measured extraction.
+    validator_pipeline._tokenize_numeric_occurrences_from_text.cache_clear()
+    validator_pipeline._hebrew_paragraph_and_heading_index.cache_clear()
 
 
 @pytest.mark.parametrize(
@@ -243,8 +252,8 @@ def test_validator_subprocess_capture_read_errors_are_reproducible():
             with pytest.raises(RuntimeError) as exc_info:
                 validator_pipeline._run_subprocess_with_idle_timeout(
                     [sys.executable, "-c", "pass"],
-                    timeout=10,
-                    idle_timeout=10,
+                    timeout=HANG_TIMEOUT_SECONDS,
+                    idle_timeout=HANG_TIMEOUT_SECONDS,
                     poll_interval=0.001,
                 )
             errors.append(str(exc_info.value))
@@ -272,8 +281,8 @@ def test_validator_subprocess_capture_output_paths_are_reproducible():
         for _ in range(2):
             result = validator_pipeline._run_subprocess_with_idle_timeout(
                 [sys.executable, "-c", "pass"],
-                timeout=10,
-                idle_timeout=10,
+                timeout=HANG_TIMEOUT_SECONDS,
+                idle_timeout=HANG_TIMEOUT_SECONDS,
                 poll_interval=0.001,
             )
             outputs.append(result.output)
@@ -7107,7 +7116,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2276"')
+        .startswith('__version__ = "0.2.2280"')
     )
 
 
@@ -7339,13 +7348,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2276"
+    assert encoder_package["version"] == "0.2.2280"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2276"
+    assert project["project"]["version"] == "0.2.2280"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2276"')
+        .startswith('__version__ = "0.2.2280"')
     )
 
 
@@ -7607,13 +7616,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2276"
+    assert encoder_package["version"] == "0.2.2280"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2276"
+    assert project["project"]["version"] == "0.2.2280"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2276"')
+        .startswith('__version__ = "0.2.2280"')
     )
 
 
@@ -14459,63 +14468,67 @@ def test_da_structural_span_lookup_scales_near_linearly(monkeypatch):
         counted_predicate,
     )
 
-    def timed_extract(target):
+    def check(source_text, repetitions, occurrences):
+        assert len(occurrences) == repetitions + 1
+        assert all(
+            occurrence.value == 2.0
+            and occurrence.raw == "2"
+            and occurrence.span == (6 * index + 4, 6 * index + 5)
+            and occurrence.has_structural_context
+            and not occurrence.has_rate_context
+            for index, occurrence in enumerate(occurrences[:-1])
+        )
+        terminal = occurrences[-1]
+        assert (
+            terminal.value,
+            terminal.raw,
+            terminal.span,
+            terminal.has_structural_context,
+            terminal.has_rate_context,
+        ) == (
+            20.0,
+            "20",
+            (len(source_text) - 7, len(source_text) - 5),
+            False,
+            True,
+        )
+
+    def counted_extract(target):
         nonlocal operation_count
         operation_count = 0
         repetitions = target // len(unit)
         source_text = unit * repetitions + "20 pct."
-        start = monotonic()
+        _clear_numeric_extraction_caches()
         occurrences = extract_typed_numeric_occurrences_from_text(
-            source_text,
-            profile="da-DK",
+            source_text, profile="da-DK"
         )
-        return (
-            source_text,
-            repetitions,
-            occurrences,
-            monotonic() - start,
-            operation_count,
+        check(source_text, repetitions, occurrences)
+        return source_text, occurrences, operation_count
+
+    def work(repetitions):
+        source_text = unit * repetitions + "20 pct."
+        return lowest_work(
+            lambda: extract_typed_numeric_occurrences_from_text(
+                source_text, profile="da-DK"
+            ),
+            lambda occurrences: check(source_text, repetitions, occurrences),
+            setup=_clear_numeric_extraction_caches,
         )
+
+    # Meter the whole extraction, including native index copies or scans.
+    assert_linear_growth(work(500), work(8_000), input_ratio=16)
 
     extract_typed_numeric_occurrences_from_text(unit * 1_000, profile="da-DK")
-    source_100k, repetitions_100k, occurrences_100k, _, ops_100k = timed_extract(
-        100_000
-    )
-    _, _, _, elapsed_200k, ops_200k = timed_extract(200_000)
-
+    source_100k, occurrences_100k, ops_100k = counted_extract(100_000)
+    _, _, ops_200k = counted_extract(200_000)
     assert ops_100k > 0
     assert ops_200k <= 2.5 * ops_100k
-    assert elapsed_200k < 30
 
-    assert len(occurrences_100k) == repetitions_100k + 1
-    assert all(
-        occurrence.value == 2.0
-        and occurrence.raw == "2"
-        and occurrence.span == (6 * index + 4, 6 * index + 5)
-        and occurrence.has_structural_context
-        and not occurrence.has_rate_context
-        for index, occurrence in enumerate(occurrences_100k[:-1])
-    )
-    terminal = occurrences_100k[-1]
-    assert (
-        terminal.value,
-        terminal.raw,
-        terminal.span,
-        terminal.has_structural_context,
-        terminal.has_rate_context,
-    ) == (
-        20.0,
-        "20",
-        (len(source_100k) - 7, len(source_100k) - 5),
-        False,
-        True,
-    )
     inventory = extract_typed_numeric_inventory_occurrences_from_text(
-        source_100k,
-        profile="da-DK",
+        source_100k, profile="da-DK"
     )
     assert [(item.value, item.raw, item.span) for item in inventory] == [
-        (20.0, "20", terminal.span)
+        (20.0, "20", occurrences_100k[-1].span)
     ]
 
 
@@ -15993,18 +16006,31 @@ def test_a_hebrew_structural_reference_is_no_recall_obligation():
 
 
 def test_alignment_scales_linearly_on_repetitive_text():
-    import time
-
-    for repeats in (240, 480):
-        text = "מ־2.24; " * repeats
-        started = time.perf_counter()
-        occurrences = extract_typed_numeric_inventory_occurrences_from_text(text)
-        elapsed = time.perf_counter() - started
+    # Repetitive text made general sequence matching quadratic or worse.
+    # Provenance is carried through edits now, so measure the whole
+    # extraction: a diff built by any name or import route grows with it.
+    def check(text, repeats, occurrences):
         assert len(occurrences) == repeats
         assert len({occurrence.span for occurrence in occurrences}) == repeats
         for occurrence in occurrences:
             assert text[occurrence.start : occurrence.end] == "2.24"
-        assert elapsed < 1.0, (repeats, elapsed)
+
+    def work(repeats):
+        text = "מ־2.24; " * repeats
+        return lowest_work(
+            lambda: extract_typed_numeric_inventory_occurrences_from_text(text),
+            lambda occurrences: check(text, repeats, occurrences),
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    assert_linear_growth(work(15), work(120), input_ratio=8)
+    # Keep the original fixtures and their outputs, once and untimed.
+    for repeats in (240, 480):
+        text = "מ־2.24; " * repeats
+        _clear_numeric_extraction_caches()
+        check(
+            text, repeats, extract_typed_numeric_inventory_occurrences_from_text(text)
+        )
 
 
 def test_alignment_survives_an_edit_wider_than_the_walk_window():
@@ -16304,24 +16330,90 @@ def test_an_ascii_fraction_before_a_percent_word_is_one_rate():
         assert _hebrew_recall(text) == {0.0025}, (text, _hebrew_recall(text))
 
 
-def test_hebrew_compound_scanning_is_linear_on_long_prose():
-    import time
+def _assert_compound_scanning_skips_parser(monkeypatch):
+    compound = validator_pipeline._iter_hebrew_compound_number_matches
+    parse = validator_pipeline._parse_hebrew_number_run
+    remaining_words = []
 
-    from axiom_encode.harness.validator_pipeline import (
-        _iter_hebrew_compound_number_matches,
+    def counted_parse(words, start=0, *args, **kwargs):
+        if remaining_words:
+            # These prose and standalone-teen heads cannot begin a number.
+            # Charge the words each call could read: parsing from every start
+            # reads the rest of the run each time, while a bounded call per
+            # word stays within the text's own word count.
+            remaining_words[-1] -= len(words) - start
+            assert remaining_words[-1] >= 0, "compound parser read past the text"
+        return parse(words, start, *args, **kwargs)
+
+    def counted_compound(text):
+        remaining_words.append(len(text.split()))
+        try:
+            return compound(text)
+        finally:
+            remaining_words.pop()
+
+    monkeypatch.setattr(validator_pipeline, "_parse_hebrew_number_run", counted_parse)
+    monkeypatch.setattr(
+        validator_pipeline, "_iter_hebrew_compound_number_matches", counted_compound
     )
 
-    for repeats in (1000, 2000):
-        text = "הוראות חוק זה יחולו על העובד " * repeats
-        started = time.perf_counter()
-        matches = _iter_hebrew_compound_number_matches(text)
-        elapsed = time.perf_counter() - started
+
+@settings(max_examples=20, deadline=None)
+@given(
+    unit=st.sampled_from(("הוראות חוק זה יחולו על העובד", "שנים רבות")),
+    separator=st.sampled_from((" ", "  ", "\t")),
+    repeats=st.integers(min_value=1, max_value=128),
+)
+def test_compound_prose_skips_parser_for_generated_text(unit, separator, repeats):
+    text = (unit + separator) * repeats
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        _assert_compound_scanning_skips_parser(monkeypatch)
+        assert validator_pipeline._iter_hebrew_compound_number_matches(text) == []
+
+
+def test_hebrew_compound_scanning_is_linear_on_long_prose(monkeypatch):
+    _assert_compound_scanning_skips_parser(monkeypatch)
+    unit = "הוראות חוק זה יחולו על העובד "
+
+    def check_matches(matches):
         assert matches == []
-        assert elapsed < 1.0, (repeats, elapsed)
-    started = time.perf_counter()
-    extract_numbers_from_text("הוראות חוק זה יחולו על העובד " * 2000)
-    elapsed = time.perf_counter() - started
-    assert elapsed < 3.0, elapsed
+
+    def check_values(values):
+        assert values == set()
+
+    def work(repeats, *, whole=False):
+        text = unit * repeats
+        call = (
+            extract_numbers_from_text
+            if whole
+            else validator_pipeline._iter_hebrew_compound_number_matches
+        )
+
+        def check(results):
+            for result in results:
+                (check_values if whole else check_matches)(result)
+
+        return lowest_work(
+            lambda: [call(text)],
+            check,
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    # A short first step stops a Python-level quadratic within seconds. A
+    # native copy of the remaining words at each start costs ~1/600 of a
+    # word's scan, so the second step needs thousands of words before that
+    # quadratic term shows: 2,400 and 38,400 words here.
+    assert_linear_growth(work(40), work(400), input_ratio=10)
+    assert_linear_growth(work(400), work(6_400), input_ratio=16)
+    assert_linear_growth(work(32, whole=True), work(512, whole=True), input_ratio=16)
+
+    # Keep the original large fixtures and their outputs outside measurement.
+    for repeats in (1_000, 2_000):
+        check_matches(
+            validator_pipeline._iter_hebrew_compound_number_matches(unit * repeats)
+        )
+    _clear_numeric_extraction_caches()
+    check_values(extract_numbers_from_text(unit * 2_000))
 
 
 def test_an_ascii_mixed_percentage_is_one_rate():
@@ -16363,31 +16455,48 @@ def test_a_structural_reference_takes_the_whole_number_grammar():
     assert _hebrew_recall("לפי סעיף אלף ומאתיים, ישולם סכום של 100 שקלים") == {100.0}
 
 
-def test_hebrew_compound_scanning_is_linear_on_teen_only_words():
-    import time
+def test_hebrew_compound_scanning_is_linear_on_teen_only_words(monkeypatch):
+    # "שנים" means two only inside a teen; by itself it means years.
+    _assert_compound_scanning_skips_parser(monkeypatch)
+    unit = "שנים רבות "
 
-    from axiom_encode.harness.validator_pipeline import (
-        _iter_hebrew_compound_number_matches,
-    )
-
-    # "שנים" is a two only inside a teen; on its own it is "years", and a
-    # source that says "many years" twenty thousand times is not twenty
-    # thousand starts to parse from. The pass is timed on its own, because
-    # the whole pipeline's time on a CI runner is not the pass's; it took
-    # 1.6-2.0 s there against a 1.5 s bound while the pass itself took 0.02.
-    assert 2.0 not in extract_numbers_from_text("שנים רבות " * 2000)
-    for repeats in (20000, 40000):
-        text = "שנים רבות " * repeats
-        started = time.perf_counter()
-        matches = _iter_hebrew_compound_number_matches(text)
-        elapsed = time.perf_counter() - started
+    def check_matches(matches):
         assert matches == []
-        assert elapsed < 1.0, (repeats, elapsed)
-    started = time.perf_counter()
-    grounded = extract_numbers_from_text("שנים רבות " * 20000)
-    elapsed = time.perf_counter() - started
-    assert 2.0 not in grounded
-    assert elapsed < 6.0, elapsed
+
+    def check_values(grounded):
+        assert 2.0 not in grounded
+
+    def work(repeats, *, whole=False):
+        text = unit * repeats
+        call = (
+            extract_numbers_from_text
+            if whole
+            else validator_pipeline._iter_hebrew_compound_number_matches
+        )
+
+        def check(results):
+            for result in results:
+                (check_values if whole else check_matches)(result)
+
+        return lowest_work(
+            lambda: [call(text)],
+            check,
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    # As above: a short first step, then 2,500 and 40,000 words, which let a
+    # per-start native word copy show.
+    assert_linear_growth(work(125), work(1_250), input_ratio=10)
+    assert_linear_growth(work(1_250), work(20_000), input_ratio=16)
+    assert_linear_growth(work(128, whole=True), work(2_048, whole=True), input_ratio=16)
+
+    for repeats in (20_000, 40_000):
+        check_matches(
+            validator_pipeline._iter_hebrew_compound_number_matches(unit * repeats)
+        )
+    for repeats in (2_000, 20_000):
+        _clear_numeric_extraction_caches()
+        check_values(extract_numbers_from_text(unit * repeats))
 
 
 def test_a_counted_fraction_after_tens_or_hundreds_is_a_fractional_tail():
@@ -16792,22 +16901,31 @@ def test_a_spelled_reference_list_is_structural_whole():
 
 
 def test_the_fraction_pass_scans_thousands_of_phrases_in_linear_time():
-    import time
-
-    from axiom_encode.harness.validator_pipeline import (
-        _iter_hebrew_fraction_word_matches,
-    )
-
     # Every ambiguous fraction used to search everything before it for its
     # context word: 1,000, 2,000 and 4,000 phrases took 0.38, 1.55 and 6.18
-    # seconds. The context search is bounded to the words before the fraction.
-    text = "המעביד ישלם חמישית משכרו; " * 4000
-    started = time.perf_counter()
-    matches = _iter_hebrew_fraction_word_matches(text)
-    elapsed = time.perf_counter() - started
-    assert len(matches) == 4000
-    assert all(abs(value - 0.2) < 1e-12 for _span, value in matches)
-    assert elapsed < 2.0, elapsed
+    # seconds. The context search is bounded to the words before the fraction;
+    # measure the whole pass with the native pattern.
+    def check(matches, phrases):
+        assert len(matches) == phrases
+        assert all(abs(value - 0.2) < 1e-12 for _span, value in matches)
+
+    def work(phrases):
+        text = "המעביד ישלם חמישית משכרו; " * phrases
+        return lowest_work(
+            lambda: validator_pipeline._iter_hebrew_fraction_word_matches(text),
+            lambda matches: check(matches, phrases),
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    assert_linear_growth(work(125), work(2_000), input_ratio=16)
+    # Keep the original 4,000-phrase case and its outputs, once and untimed.
+    _clear_numeric_extraction_caches()
+    check(
+        validator_pipeline._iter_hebrew_fraction_word_matches(
+            "המעביד ישלם חמישית משכרו; " * 4000
+        ),
+        4000,
+    )
 
 
 def test_a_prefixed_percent_noun_is_still_a_rate():
@@ -17497,20 +17615,30 @@ def test_a_percentage_is_shared_across_every_alternative():
 
 
 def test_a_long_run_of_conjoined_number_words_scans_in_linear_time():
-    import time
-
-    for tail in (" ישולם למבוטח", " שקלים", ""):
-        text = "תוספת 1" + " ואחד" * 26 + tail
-        started = time.perf_counter()
-        extract_numeric_occurrences_from_text(text)
-        assert time.perf_counter() - started < 1.0, (
-            tail,
-            time.perf_counter() - started,
+    def extract(text):
+        return lowest_work(
+            lambda: extract_numeric_occurrences_from_text(text),
+            lambda _values: None,
+            setup=_clear_numeric_extraction_caches,
         )
-    text = "לפי סעיפים 1, 2 או 3" + " ואחד" * 30 + " ישולם"
-    started = time.perf_counter()
-    extract_numeric_occurrences_from_text(text)
-    assert time.perf_counter() - started < 1.0
+
+    # The former ambiguous regex partitions these words exponentially. Check
+    # 8/16 first, where it still returns, before retaining the original deep
+    # examples; a regression must fail before reaching a case that can hang.
+    for tail in (" ישולם למבוטח", " שקלים", ""):
+        small = "תוספת 1" + " ואחד" * 8 + tail
+        large = "תוספת 1" + " ואחד" * 16 + tail
+        assert_linear_growth(extract(small), extract(large), input_ratio=2)
+        _clear_numeric_extraction_caches()
+        extract_numeric_occurrences_from_text("תוספת 1" + " ואחד" * 26 + tail)
+    prefix, tail = "לפי סעיפים 1, 2 או 3", " ישולם"
+    assert_linear_growth(
+        extract(prefix + " ואחד" * 8 + tail),
+        extract(prefix + " ואחד" * 16 + tail),
+        input_ratio=2,
+    )
+    _clear_numeric_extraction_caches()
+    extract_numeric_occurrences_from_text(prefix + " ואחד" * 30 + tail)
 
 
 def test_a_percentage_walk_back_stops_at_an_age_or_a_reference():
@@ -17554,20 +17682,34 @@ def test_a_monetary_fraction_before_a_temporal_phrase_is_a_fraction_in_any_wordi
 
 
 def test_a_long_run_of_compound_number_words_scans_in_linear_time():
-    import time
-
-    for text in (
-        "תוספת 1" + " ועשרים ואחד" * 40 + " ישולם למבוטח",
-        "תוספת 1" + " ועשרים ואחד" * 40 + " שקלים",
-        "תוספת אחת" + " ושתיים ושלוש" * 40,
-        "לפי סעיפים 1, 2 או 3" + " ואחד" * 60 + " ישולם",
-    ):
-        started = time.perf_counter()
-        extract_numeric_occurrences_from_text(text)
-        assert time.perf_counter() - started < 1.0, (
-            text[:40],
-            time.perf_counter() - started,
+    def work(text):
+        return lowest_work(
+            lambda: extract_numeric_occurrences_from_text(text),
+            lambda _values: None,
+            setup=_clear_numeric_extraction_caches,
         )
+
+    # Repartitioning a compound endpoint once backtracked exponentially.
+    # These shallow pairs finish even with that regression; test their growth
+    # before the original 40/60-deep examples can be reached.
+    cases = (
+        ("תוספת 1", " ועשרים ואחד", " ישולם למבוטח", 40),
+        ("תוספת 1", " ועשרים ואחד", " שקלים", 40),
+        ("תוספת אחת", " ושתיים ושלוש", "", 40),
+        ("לפי סעיפים 1, 2 או 3", " ואחד", " ישולם", 60),
+    )
+    # The historical regex spent minutes on one phrase at depth 12, so every
+    # phrase takes a short first step before any reaches that depth.
+    for small, large in ((2, 6), (4, 12)):
+        for prefix, phrase, tail, _deep in cases:
+            assert_linear_growth(
+                work(prefix + phrase * small + tail),
+                work(prefix + phrase * large + tail),
+                input_ratio=3,
+            )
+    for prefix, phrase, tail, deep in cases:
+        _clear_numeric_extraction_caches()
+        extract_numeric_occurrences_from_text(prefix + phrase * deep + tail)
 
 
 def test_a_percentage_walk_back_passes_a_supplement_and_stops_at_a_subsection():
@@ -18876,20 +19018,23 @@ def test_a_scaled_percentage_reads_whole_in_every_form(lead, remainder, unit, ta
 
 
 def test_the_scaled_percentage_continuation_scans_in_linear_time():
-    import time
+    # Rebuilding the document's token index before every percentage made this
+    # quadratic: 1,000, 2,000 and 4,000 phrases took 0.9, 3.3 and 14 seconds.
+    # Measure the whole pass, however the tokens are built.
+    unit = "השיעור הוא שלושת אלפים ו 200 אחוזים; "
 
-    from axiom_encode.harness.validator_pipeline import (
-        _iter_hebrew_percent_phrase_matches,
-    )
+    def work(phrases):
+        text = unit * phrases
+        return lowest_work(
+            lambda: validator_pipeline._iter_hebrew_percent_phrase_matches(text),
+            lambda _matches: None,
+            setup=_clear_numeric_extraction_caches,
+        )
 
-    # The continuation check once built the document's token index for
-    # every remainder: 1,000, 2,000 and 4,000 phrases took 0.9, 3.3 and
-    # 14 seconds. One index per pass now.
-    text = "השיעור הוא שלושת אלפים ו 200 אחוזים; " * 4000
-    started = time.perf_counter()
-    _iter_hebrew_percent_phrase_matches(text)
-    elapsed = time.perf_counter() - started
-    assert elapsed < 2.0, elapsed
+    assert_linear_growth(work(125), work(2_000), input_ratio=16)
+    # Keep the original 4,000-phrase fixture, once and untimed.
+    _clear_numeric_extraction_caches()
+    validator_pipeline._iter_hebrew_percent_phrase_matches(unit * 4000)
 
 
 def test_a_percent_sign_carries_its_fractional_tail_on_plain_counts():
@@ -18984,21 +19129,48 @@ def test_spelled_components_follow_a_printed_remainder():
         assert not ({3_100.0, 20.0} & extract_numbers_from_text(text)), text
 
 
+def _mixed_printed_scale_fixture(repeats):
+    unit = "הסכום הוא 3 מיליון; הסכום הוא 3 אלפים; "
+    expected = []
+    for index in range(repeats):
+        offset = index * len(unit)
+        for phrase, value in (("3 מיליון", 3_000_000.0), ("3 אלפים", 3_000.0)):
+            start = offset + unit.index(phrase)
+            expected.append(((start, start + len(phrase)), value, False))
+    return unit * repeats, expected
+
+
 def test_the_printed_scale_pass_scans_mixed_scales_in_linear_time():
-    import time
+    # Every printed part once scanned every spelled candidate and part span.
+    # Measure the whole pass, including native scans and index construction.
+    def printed_work(repeats, *, sample=True):
+        text, expected = _mixed_printed_scale_fixture(repeats)
 
-    from axiom_encode.harness.validator_pipeline import (
-        _iter_hebrew_printed_scale_matches,
-    )
+        def check(matches):
+            assert len(matches) == 2 * repeats
+            assert matches == expected
 
-    # Each printed part once scanned every spelled candidate and every part
-    # span: 400, 800 and 1,600 pairs took 0.5, 3.9 and 30 seconds.
-    text = "הסכום הוא 3 מיליון; הסכום הוא 3 אלפים; " * 1600
-    started = time.perf_counter()
-    matches = _iter_hebrew_printed_scale_matches(text)
-    elapsed = time.perf_counter() - started
-    assert len(matches) == 3200
-    assert elapsed < 2.0, elapsed
+        if not sample:
+            _clear_numeric_extraction_caches()
+            check(validator_pipeline._iter_hebrew_printed_scale_matches(text))
+            return None
+        return lowest_work(
+            lambda: validator_pipeline._iter_hebrew_printed_scale_matches(text),
+            check,
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    assert_linear_growth(printed_work(200), printed_work(3_200), input_ratio=16)
+    # Retain the original 3,200-result fixture once, outside the samples.
+    printed_work(1600, sample=False)
+
+
+@settings(max_examples=20, deadline=None)
+@given(repeats=st.integers(min_value=1, max_value=64))
+def test_printed_scale_pass_preserves_amounts_for_generated_lengths(repeats):
+    text, expected = _mixed_printed_scale_fixture(repeats)
+    _clear_numeric_extraction_caches()
+    assert validator_pipeline._iter_hebrew_printed_scale_matches(text) == expected
 
 
 def test_a_shared_scale_lower_endpoint_with_a_remainder_is_complete():
@@ -21710,56 +21882,101 @@ def test_a_conditional_long_list_shares_its_unit():
     assert len(group.members) == 69
 
 
+@settings(max_examples=20, deadline=None)
+@given(
+    count=st.integers(min_value=2, max_value=128),
+    unit=st.sampled_from(("אחוזים", "מיליון שקלים")),
+)
+def test_range_member_lists_preserve_values_for_generated_lengths(count, unit):
+    heading = "השיעורים הם" if unit == "אחוזים" else "הסכומים הם"
+    expected = {
+        float(10 + index) / 100 if unit == "אחוזים" else float(10 + index) * 1_000_000.0
+        for index in range(count)
+    }
+    _clear_numeric_extraction_caches()
+    assert (
+        extract_numbers_from_text(_hebrew_member_list(count, heading, unit)) == expected
+    )
+
+
 def test_the_range_passes_scan_thousands_of_members_and_clauses_in_linear_time():
     from axiom_encode.harness.validator_pipeline import (
         _hebrew_paragraph_and_heading_index,
         _iter_hebrew_percent_range_lower_matches,
-        _tokenize_numeric_occurrences_from_text,
     )
 
-    # Review round 145 on #1585: the walk back over a list learns the
-    # heading once, the paragraph and currency-heading scopes are indexed
-    # once per text and whitespace is trimmed in place, so a headed list of
-    # thousands of members and a text of hundreds of clauses cost their
-    # size. Before, 1,000, 2,000 and 4,000 members took 0.38, 1.44 and 5.71
-    # seconds, and 800 clauses 5.53 seconds.
-    def members_seconds(count, heading, unit):
+    # The whole extraction must scale with list size, including native prefix
+    # copies and any traversal of spans reserved by previous members.
+    def members_work(count, heading, unit, *, sample=True):
         text = _hebrew_member_list(count, heading, unit)
-
-        def extract():
-            _tokenize_numeric_occurrences_from_text.cache_clear()
-            return extract_numbers_from_text(text)
+        expected = {
+            float(10 + index) / 100
+            if unit == "אחוזים"
+            else float(10 + index) * 1_000_000.0
+            for index in range(count)
+        }
 
         def check(values):
             assert len(values) == count, (count, unit, len(values))
+            assert values == expected
 
-        return fastest_cpu_seconds(extract, check)
+        if not sample:
+            _clear_numeric_extraction_caches()
+            check(extract_numbers_from_text(text))
+            return None
+        return lowest_work(
+            lambda: extract_numbers_from_text(text),
+            check,
+            setup=_clear_numeric_extraction_caches,
+        )
 
     for heading, unit in (
         ("השיעורים הם", "אחוזים"),
         ("הסכומים הם", "מיליון שקלים"),
     ):
-        assert_grows_linearly(
-            members_seconds(1000, heading, unit), members_seconds(4000, heading, unit)
+        # A quadratic with a costly step, such as a span list rebuilt at each
+        # overlap check, runs for minutes at 8,000 members, so a short first
+        # step fails it within seconds.
+        assert_linear_growth(
+            members_work(125, heading, unit),
+            members_work(2_000, heading, unit),
+            input_ratio=16,
         )
+        # A scan of every taken span costs ~1% of a member at 250 members;
+        # 32x more members lets that quadratic term clear the bound on CPU
+        # seconds without coverage, where 16x left it at the bound.
+        assert_linear_growth(
+            members_work(250, heading, unit),
+            members_work(8000, heading, unit),
+            input_ratio=32,
+        )
+        # Keep both original large output fixtures, once and untimed.
+        for count in (1000, 4000):
+            members_work(count, heading, unit, sample=False)
 
     clause = "הקנס יהיה 50 או 2 אחוזים מהמחזור, לפי הגבוה.\n"
 
-    def clauses_seconds(count):
+    def clauses_work(count, *, sample=True):
         text = clause * count
-
-        def scan():
-            _hebrew_paragraph_and_heading_index.cache_clear()
-            return _iter_hebrew_percent_range_lower_matches(text)
 
         def check(matches):
             assert len(matches) == count
             # One index for the whole text, however many clauses read it.
             assert _hebrew_paragraph_and_heading_index.cache_info().misses == 1
 
-        return fastest_cpu_seconds(scan, check)
+        if not sample:
+            _clear_numeric_extraction_caches()
+            check(_iter_hebrew_percent_range_lower_matches(text))
+            return None
+        return lowest_work(
+            lambda: _iter_hebrew_percent_range_lower_matches(text),
+            check,
+            setup=_clear_numeric_extraction_caches,
+        )
 
-    assert_grows_linearly(clauses_seconds(200), clauses_seconds(800))
+    assert_linear_growth(clauses_work(50), clauses_work(800), input_ratio=16)
+    # Retain the original 200-clause count and cache-miss checks, untimed.
+    clauses_work(200, sample=False)
 
 
 def test_a_shared_unit_crosses_indentation_and_a_long_relative_clause():
@@ -23928,34 +24145,74 @@ def test_an_excerpt_quotes_a_paragraph_gap_as_a_paragraph_gap():
 
 
 def test_evidence_whitespace_collapses_in_linear_time():
-    # Gate round 5 on #1615: the paragraph-gap pattern scanned and backtracked
-    # from every position of a whitespace run that no paragraph gap followed
-    # (16,000 internal spaces took 1.6 s; 32,000 took 6.2 s). Each run is
-    # read once: a long run, a run that one line wrap opens, and a maqaf
-    # before a long run all collapse in a linear pass.
-    import time
+    from axiom_encode.harness import proof_validator as proof
 
-    from axiom_encode.harness.proof_validator import (
-        bind_maqaf_space,
-        collapse_evidence_whitespace,
-    )
-
-    for width in (16_000, 64_000):
-        for text, expected in (
+    def work(width, variant, *, sample=True):
+        text, expected = (
             ("A" + " " * width + "B", "A B"),
             ("A\n" + " " * width + "B", "A B"),
             ("A" + " \n" * width + "B", "A\n\nB"),
             ("A" + (" " * 100 + "\n") * (width // 100) + "B", "A\n\nB"),
-        ):
-            started = time.perf_counter()
-            assert collapse_evidence_whitespace(text) == expected
-            assert time.perf_counter() - started < 0.5, (width, len(text))
-        started = time.perf_counter()
-        assert bind_maqaf_space("ו־" + " " * width + "\n\nשלושה") == (
-            "ו־" + " " * width + "\n\nשלושה"
+        )[variant]
+        # Batch every form so its small sample clears the CPU floor.
+        repeats = 64 if variant < 2 else 16
+
+        def call():
+            return [proof.collapse_evidence_whitespace(text) for _ in range(repeats)]
+
+        def check(values):
+            assert values == [expected] * repeats
+
+        if not sample:
+            assert proof.collapse_evidence_whitespace(text) == expected
+            return None
+        return lowest_work(call, check)
+
+    for variant in range(4):
+        # The real old no-gap regex is quadratic on the first two forms:
+        # repeating 64000-space failures could hang the suite. Catch it on
+        # the finite pair first. The other forms retain their existing
+        # larger measured fixtures. A quadratic regex spends minutes on a
+        # large batch, so a short first step fails it within seconds.
+        steps = (
+            ((40, 640), (640, 10_240))
+            if variant < 2
+            else ((250, 4_000), (4_000, 64_000))
         )
-        assert bind_maqaf_space("ו־" + " " * width + "\nשלושה") == "ו־שלושה"
-        assert time.perf_counter() - started < 0.5, width
+        for small, large in steps:
+            assert_linear_growth(
+                work(small, variant), work(large, variant), input_ratio=16
+            )
+        # Preserve every original output fixture once, outside measurements.
+        work(16000, variant, sample=False)
+        work(64000, variant, sample=False)
+
+    def maqaf_work(width, *, sample=True):
+        gap = "ו־" + " " * width + "\n\nשלושה"
+        wrap = "ו־" + " " * width + "\nשלושה"
+
+        def call():
+            # Two pairs already retire millions of instructions at the small
+            # size, so repeated binding does not dominate the focused suite.
+            return [
+                (proof.bind_maqaf_space(gap), proof.bind_maqaf_space(wrap))
+                for _ in range(2)
+            ]
+
+        def check(values):
+            assert values == [(gap, "ו־שלושה")] * 2
+
+        if not sample:
+            assert proof.bind_maqaf_space(gap) == gap
+            assert proof.bind_maqaf_space(wrap) == "ו־שלושה"
+            return None
+        return lowest_work(call, check)
+
+    # A short first step fails a quadratic lookahead within seconds.
+    assert_linear_growth(maqaf_work(250), maqaf_work(4_000), input_ratio=16)
+    assert_linear_growth(maqaf_work(4000), maqaf_work(64000), input_ratio=16)
+    maqaf_work(16000, sample=False)
+    maqaf_work(64000, sample=False)
 
 
 def test_proof_excerpt_accepts_one_money_cell_before_the_next_currency_prefix():
@@ -24499,24 +24756,78 @@ def test_a_chain_of_spaced_maqafs_binds_as_one():
 
 
 def test_the_percentage_pass_scans_thousands_of_phrases_in_linear_time():
-    import time
+    # Rebuilding the document's token index before every percentage made this
+    # quadratic. Measure the whole pass, however the tokens are built.
+    unit = "בשיעור של חמישה אחוזים מההכנסה; "
 
-    from axiom_encode.harness.validator_pipeline import (
-        _iter_hebrew_percent_phrase_matches,
-    )
+    def check(matches, phrases):
+        assert len(matches) == phrases
+        assert all(abs(rate - 0.05) < 1e-12 for _span, rate in matches)
 
-    # Each spelled count used to retokenize everything before it: 1,000,
-    # 2,000 and 4,000 phrases took 0.23, 0.92 and 3.77 seconds. The text is
-    # tokenized once and only the run before each noun is walked.
-    text = "בשיעור של חמישה אחוזים מההכנסה; " * 4000
-    started = time.perf_counter()
-    matches = _iter_hebrew_percent_phrase_matches(text)
-    elapsed = time.perf_counter() - started
-    assert len(matches) == 4000
-    assert all(abs(rate - 0.05) < 1e-12 for _span, rate in matches)
-    # Keep enough headroom for shared hosted-runner variance while still
-    # rejecting the former quadratic implementation (about 3.77 seconds).
-    assert elapsed < 3.0, elapsed
+    def work(phrases):
+        text = unit * phrases
+        return lowest_work(
+            lambda: validator_pipeline._iter_hebrew_percent_phrase_matches(text),
+            lambda matches: check(matches, phrases),
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    # A linear count in place of one bisect stays near the bound at 2,000
+    # phrases, so the large sample is the original 4,000-phrase fixture.
+    # Coverage still hides a native count here; the next test catches it.
+    assert_linear_growth(work(250), work(4_000), input_ratio=16)
+
+
+def test_the_hebrew_word_run_lookup_stays_linear_across_thousands_of_phrases(
+    monkeypatch,
+):
+    # Under coverage the pass above traces its Python work but not a native
+    # count, so a native linear count in place of the bisect stays under the
+    # bound there. Measured alone, with the arguments the percentage pass
+    # passes it, the run lookup has little Python work left to dilute the
+    # count, which then fails at 2,000 phrases in both modes. On a 4-vCPU
+    # Linux machine correct code grew 8-19 times plain and 14-17 times under
+    # coverage, and the native count 193-227 times. A refactor that stops
+    # calling the lookup fails the capture rather than passing.
+    unit = "בשיעור של חמישה אחוזים מההכנסה; "
+    original = validator_pipeline._hebrew_word_run_before
+
+    def arguments(phrases):
+        seen = []
+
+        def spy(text, end, *args, **kwargs):
+            run = original(text, end, *args, **kwargs)
+            seen.append(((text, end, *args), kwargs, [m.span() for m in run]))
+            return run
+
+        _clear_numeric_extraction_caches()
+        monkeypatch.setattr(validator_pipeline, "_hebrew_word_run_before", spy)
+        validator_pipeline._iter_hebrew_percent_phrase_matches(unit * phrases)
+        monkeypatch.undo()
+        # One lookup per phrase, each against the one token index.
+        assert len(seen) == phrases, (phrases, len(seen))
+        assert len({id(kwargs.get("tokens")) for _a, kwargs, _r in seen}) == 1
+        assert all(kwargs.get("tokens") is not None for _a, kwargs, _r in seen)
+        return seen
+
+    def work(phrases):
+        calls = arguments(phrases)
+
+        def check(runs):
+            assert [[m.span() for m in run] for run in runs] == [
+                spans for _a, _k, spans in calls
+            ]
+
+        return lowest_work(
+            lambda: [original(*args, **kwargs) for args, kwargs, _s in calls],
+            check,
+            setup=gc.collect,
+            # Under a millisecond per small sample: five runs make it likelier
+            # that one of them misses a slow spell on a shared host.
+            runs=5,
+        )
+
+    assert_linear_growth(work(125), work(2_000), input_ratio=16)
 
 
 def test_hebrew_number_words_join_the_recall_inventory():
@@ -27076,50 +27387,236 @@ def test_rulespec_proof_validator_keeps_parent_across_abbreviation_period():
     assert any("outside" in issue for issue in stale_result.issues)
 
 
-def test_rulespec_proof_parent_resolution_is_bounded_for_repeated_lists():
-    def resolve_repeated_lists(count: int) -> tuple[tuple[str, str] | None, float]:
-        source_text = " ".join("a. (1) Items: (a) Item." for _ in range(count))
+def test_rulespec_proof_parent_resolution_is_bounded_for_repeated_lists(monkeypatch):
+    from axiom_encode.harness import proof_validator
+
+    streams = 0
+    scanned_characters = 0
+    scan_limit = 0
+    newline_characters = 0
+    newline_limit = 0
+    copied_characters = 0
+
+    class CountedText(str):
+        def __getitem__(self, index):
+            nonlocal copied_characters
+            if isinstance(index, slice):
+                if index.indices(len(self)) == (0, len(self), 1):
+                    # A full slice of an exact str is that str: no copy.
+                    return self
+                copied_characters += len(range(*index.indices(len(self))))
+                assert copied_characters <= scan_limit, (
+                    "copied prefix characters",
+                    copied_characters,
+                    scan_limit,
+                )
+                return type(self)(super().__getitem__(index))
+            return super().__getitem__(index)
+
+        def rfind(self, needle, start=0, end=None):
+            nonlocal newline_characters
+            if needle == "\n":
+                # This fixture has no newline, so rfind scans the entire
+                # requested span inside C. Its existing quadratic work gets
+                # an explicit budget; this guard does not claim linearity.
+                stop = len(self) if end is None else end
+                begin, stop, _ = slice(start, stop).indices(len(self))
+                newline_characters += max(0, stop - begin)
+                assert newline_characters <= newline_limit, (
+                    "newline prefix characters",
+                    newline_characters,
+                    newline_limit,
+                )
+            return super().rfind(needle, start, len(self) if end is None else end)
+
+    def counted_finditer(pattern, text, pos=0, endpos=None):
+        nonlocal streams, scanned_characters
+        endpos = len(text) if endpos is None else min(endpos, len(text))
+        streams += 1
+        scanned_characters += max(0, endpos - pos)
+        # The resolver builds three ordered structural streams once. Count
+        # their actual scan spans: rebuilding prefix streams does its costly
+        # work inside C, beyond a Python predicate-call counter.
+        assert streams <= 3, streams
+        assert scanned_characters <= scan_limit, (scanned_characters, scan_limit)
+        return pattern.finditer(text, pos, endpos)
+
+    class CountedPattern:
+        def __init__(self, pattern):
+            self.pattern = pattern
+
+        def finditer(self, string, pos=0, endpos=None):
+            return counted_finditer(self.pattern, string, pos, endpos)
+
+        def __getattr__(self, name):
+            return getattr(self.pattern, name)
+
+    class CountedRegex:
+        def compile(self, pattern, *args, **kwargs):
+            return CountedPattern(re.compile(pattern, *args, **kwargs))
+
+        def finditer(self, pattern, text, flags=0):
+            return self.compile(pattern, flags).finditer(text)
+
+        def __getattr__(self, name):
+            return getattr(re, name)
+
+    monkeypatch.setattr(proof_validator, "re", CountedRegex())
+
+    def resolve_repeated_lists(count):
+        nonlocal streams, scanned_characters, scan_limit
+        nonlocal newline_characters, newline_limit
+        source_text = CountedText(
+            " ".join("a. (1) Items: (a) Item." for _ in range(count))
+        )
+        assert "\n" not in source_text
+        newline_limit = 2 * count * len(source_text)
         numeric_start = source_text.rfind("(1)")
-        results, timings = set(), []
-        # Best of three, each after a collection, so heap debt left by preceding
-        # tests or a one-off runner stall is not charged to the resolver.
-        for _ in range(3):
+        scan_limit = 3 * (source_text.find(")", numeric_start) + 1)
+
+        def setup():
+            nonlocal streams, scanned_characters, newline_characters
+            nonlocal copied_characters
             gc.collect()
-            started = monotonic()
-            results.add(
-                _source_top_level_marker_for_numeric_parent(source_text, numeric_start)
-            )
-            timings.append(monotonic() - started)
-        assert len(results) == 1
-        return results.pop(), min(timings)
+            streams = scanned_characters = newline_characters = 0
+            copied_characters = 0
 
-    small_result, small_elapsed = resolve_repeated_lists(192)
-    large_result, large_elapsed = resolve_repeated_lists(768)
+        def check(result):
+            assert result == ("a", "dotted")
+            # Upper bounds only: a pattern compiled at import, or a native
+            # str method, is equivalent code these meters do not see.
+            assert streams <= 3
+            assert scanned_characters <= scan_limit
+            assert newline_characters <= newline_limit
 
-    assert small_result == large_result == ("a", "dotted")
-    assert large_elapsed < 1.0
-    assert large_elapsed < max(small_elapsed * 16, 0.05)
+        lowest_work(
+            lambda: _source_top_level_marker_for_numeric_parent(
+                source_text, numeric_start
+            ),
+            check,
+            setup=setup,
+        )
+
+    resolve_repeated_lists(192)
+    resolve_repeated_lists(768)
+
+
+def test_rulespec_proof_parent_resolution_grows_linearly_across_lines():
+    # On separate lines each newline lookup stops at the nearest line, so the
+    # whole resolution is linear here. A prefix scan by any route shows up,
+    # which the budgets on the single-line fixture above can't promise.
+    def work(count):
+        source_text = "\n".join("a. (1) Items: (a) Item." for _ in range(count))
+        numeric_start = source_text.rfind("(1)")
+
+        def check(result):
+            assert result == ("a", "dotted")
+
+        return lowest_work(
+            lambda: _source_top_level_marker_for_numeric_parent(
+                source_text, numeric_start
+            ),
+            check,
+            setup=gc.collect,
+        )
+
+    assert_linear_growth(work(192), work(3_072), input_ratio=16)
+
+
+def test_rulespec_proof_parent_resolution_stays_far_below_a_python_line_scan():
+    # On one long line, correct code's newline lookups scan each prefix in C,
+    # so the resolution is quadratic but cheap, and no growth bound tells
+    # that scan from a Python loop back to the line start. Compare instead
+    # with that loop itself at one marker in 64, measured in the same process:
+    # a resolver that runs it at every marker of one kind takes about 21 times
+    # the loop's steps here, whatever the machine. A native lookup's own cost
+    # moves with the platform, so it makes a poor yardstick: the same regression
+    # took 1,100-2,800 times the native lookups' work on Linux and 28-88 times
+    # on macOS.
+    source_text = " ".join("a. (1) Items: (a) Item." for _ in range(768))
+    assert "\n" not in source_text
+    numeric_start = source_text.rfind("(1)")
+    sampled_starts = [
+        match.start()
+        for match in re.compile(
+            r"(?<![A-Za-z])[a-z]\.(?=\s)|\([a-z]\)(?=\s)|\(\d+\)"
+        ).finditer(source_text, 0, numeric_start + 1)
+    ][::64]
+
+    def python_line_starts():
+        line_starts = []
+        for start in sampled_starts:
+            line_start = start - 1
+            while line_start >= 0 and source_text[line_start] != "\n":
+                line_start -= 1
+            line_starts.append(line_start)
+        return line_starts
+
+    def check_scan(line_starts):
+        assert line_starts == [-1] * len(sampled_starts)
+
+    def check(result):
+        assert result == ("a", "dotted")
+
+    python_scan = lowest_work(python_line_starts, check_scan, setup=gc.collect)
+    resolution = lowest_work(
+        lambda: _source_top_level_marker_for_numeric_parent(source_text, numeric_start),
+        check,
+        setup=gc.collect,
+    )
+    # The sampled scan stands in for the small sample: this allows the
+    # resolution 6 times its work, after the clock's floor, with one fresh pair.
+    assert_linear_growth(python_scan, resolution, input_ratio=2)
+
+
+def _reference_chain_source(count):
+    # A reference chain ends in "(c)(k)": after a letter marker, (k) would be
+    # a numeric paragraph and claim the following "(a)" as its child, unless
+    # the walk back over the whole chain finds "paragraph". The target's
+    # parent, ("a", "parenthesized"), depends on that walk: treating every
+    # marker as a reference returns None, and none as one returns ("b", ...).
+    source_text = (
+        "b. Rules: see paragraph "
+        + "".join(f"({index})" for index in range(1, count + 1))
+        + f"(c)({count + 1}): (a) First. ({count + 2}) Target."
+    )
+    return source_text, source_text.rfind(f"({count + 2})")
 
 
 def test_rulespec_proof_reference_chain_resolution_is_bounded():
-    def resolve_reference_chain(count: int) -> float:
-        source_text = "paragraph " + "".join(
-            f"({index})" for index in range(1, count + 1)
+    def check(result):
+        assert result == ("a", "parenthesized")
+
+    def work(count):
+        source_text, numeric_start = _reference_chain_source(count)
+
+        def check_batch(results):
+            for result in results:
+                check(result)
+
+        # Each resolver call builds a fresh local reference cache.
+        return lowest_work(
+            lambda: [
+                _source_top_level_marker_for_numeric_parent(source_text, numeric_start)
+                for _ in range(64)
+            ],
+            check_batch,
+            setup=gc.collect,
         )
-        numeric_start = source_text.rfind(f"({count})")
-        # Exclude heap debt left by preceding tests from the resolver measurement.
-        gc.collect()
-        started = monotonic()
-        result = _source_top_level_marker_for_numeric_parent(source_text, numeric_start)
-        elapsed = monotonic() - started
-        assert result is None
-        return elapsed
 
-    small_elapsed = resolve_reference_chain(800)
-    large_elapsed = resolve_reference_chain(3200)
+    assert_linear_growth(work(20), work(320), input_ratio=16)
+    for count in (800, 3_200):
+        check(
+            _source_top_level_marker_for_numeric_parent(*_reference_chain_source(count))
+        )
 
-    assert large_elapsed < 1.0
-    assert large_elapsed < max(small_elapsed * 10, 0.05)
+
+@settings(max_examples=20, deadline=None)
+@given(count=st.integers(min_value=1, max_value=64))
+def test_reference_chain_resolution_for_generated_lengths(count):
+    assert _source_top_level_marker_for_numeric_parent(
+        *_reference_chain_source(count)
+    ) == ("a", "parenthesized")
 
 
 def test_rulespec_proof_parent_resolution_supports_multi_digit_paragraphs():
