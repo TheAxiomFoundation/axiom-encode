@@ -5,3 +5,141 @@ build-backend = "hatchling.build"
 [project]
 name = "axiom-encode"
 version = "0.2.2297"
+description = "AI-assisted RuleSpec encoding infrastructure - fully self-contained"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+authors = [
+    { name = "The Axiom Foundation", email = "hello@axiom-foundation.org" }
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    # Shared PolicyEngine/Populace oracle-bridge layer; the modules under
+    # src/axiom_encode/oracles/policyengine/ are thin re-export shims over
+    # axiom_oracles.bridges (axiom-oracles#124). Pinned to a commit because
+    # axiom-oracles is not on PyPI; bump the SHA to pull bridge changes.
+    "axiom-oracles @ git+https://github.com/TheAxiomFoundation/axiom-oracles@9434ce833bacbc60bc1572ea0245913ff4e48501",
+    "cryptography>=46.0",
+    "pydantic>=2.0",
+    "pypdf>=6.4.0",
+    "pyyaml>=6.0",
+    "receipt==0.6.1",
+    "requests>=2.28",
+    "sqlite-utils>=3.30",
+    "supabase>=2.0.0",
+]
+
+# The base install needs no model SDK: the default `codex` backend and the
+# `claude` backend run those CLIs as subprocesses, and the `openai` backend
+# calls the Responses API with `requests`. The `api` extra adds the Anthropic
+# Python SDK, which the Claude judges (judges/client.py) and AgentSDKBackend
+# (harness/backends.py) import.
+
+[project.optional-dependencies]
+api = [
+    "anthropic>=0.83.0",
+]
+observability = [
+    "opentelemetry-api>=1.28.0",
+    "opentelemetry-sdk>=1.28.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.28.0",
+]
+# TypeSafe System One SDK for the statutory-fidelity screen
+# (judges/system_one.py). Imported lazily; exact pin because the screen's
+# recorded pilot evidence and answer shapes are tied to this SDK version.
+typesafe = [
+    "typesafe-sdk==0.6.0",
+]
+dev = [
+    "hypothesis>=6.100.0",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "ruff",
+    "towncrier>=24.8.0",
+]
+all = [
+    "axiom-encode[api,dev,observability]",
+]
+
+[project.scripts]
+# entrypoint.main dispatches source-staleness and core candidate export commands;
+# all other invocations delegate to axiom_encode.cli:main unchanged.
+axiom-encode = "axiom_encode.entrypoint:main"
+
+# Required for the git-pinned axiom-oracles dependency above (axiom-oracles
+# is not published to PyPI, and neither is axiom-encode, so a direct
+# reference is the honest declaration).
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/axiom_encode"]
+artifacts = ["src/axiom_encode/harness/data/coverage_exemptions.jsonl"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+]
+
+[tool.hatch.build]
+sources = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "--cov=src/axiom_encode --cov-report=term-missing"
+
+[tool.towncrier]
+package = "axiom_encode"
+package_dir = "src"
+directory = "changelog.d"
+filename = "CHANGELOG.md"
+title_format = "## [{version}] - {project_date}"
+issue_format = ""
+underlines = ["", "", ""]
+
+[[tool.towncrier.type]]
+directory = "breaking"
+name = "Breaking changes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "added"
+name = "Added"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "changed"
+name = "Changed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "fixed"
+name = "Fixed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "removed"
+name = "Removed"
+showcontent = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]
+"src/axiom_encode/supabase_sync.py" = ["F821"]
