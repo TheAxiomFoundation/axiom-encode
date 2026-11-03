@@ -336,14 +336,11 @@ token from being copied out by accident, not a deliberate leak. A child that
 encodes a token (for example as base64) or prints it in pieces gets it past
 the redaction, so treat Codex output as sensitive wherever it is kept.
 
-Generation runs Codex in a temporary home whose `auth.json` links the
-encoder's own. A token refresh that writes through the link updates the
-encoder's file directly. A refresh that atomically replaces the file swaps the
-link for a new regular file, so after each run the encoder copies a changed
-`auth.json` from the temporary home back over its own (atomically,
-owner-only, and only if it parses as a JSON object). The supervisor therefore
-publishes the refreshed token to the outbox either way. The reviewer runs in
-the supervisor's home directly and needs no copy.
+Generation runs Codex in a temporary home whose `auth.json` symlinks or copies
+the encoder's own. A token refresh that writes through the symlink updates the
+encoder's file. A refresh that replaces the file, or any refresh of a copy,
+stays in the temporary home and is discarded with it, so the encoder's file
+keeps the older token. The reviewer runs in the supervisor's home directly.
 
 ### ChatGPT subscription generation
 

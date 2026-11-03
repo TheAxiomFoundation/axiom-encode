@@ -7,7 +7,6 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -256,83 +255,3 @@ def test_generation_output_carries_no_auth_token(tmp_path, monkeypatch):
         # Only the Codex home itself may hold the credentials.
         if path.is_file() and source_home not in path.parents:
             assert_clean(path.read_text(errors="replace"), ACCESS, ROTATED)
-
-
-def _run_generation_with_refresh(tmp_path, monkeypatch, refresh):
-    source_home = tmp_path / "source-home"
-    write_auth(source_home, access_token=ACCESS, refresh_token=REFRESH)
-    (source_home / "auth.json").chmod(0o600)
-    workspace = evals.EvalWorkspace(
-        root=tmp_path / "workspace",
-        source_text_file=tmp_path / "source.txt",
-        manifest_file=tmp_path / "manifest.json",
-    )
-    workspace.root.mkdir()
-
-    class FakePopen:
-        returncode = 0
-
-        def __init__(self, cmd, **kwargs):
-            refresh(Path(kwargs["env"]["CODEX_HOME"]))
-            kwargs["stdout"].write(
-                json.dumps(
-                    {
-                        "type": "item.completed",
-                        "item": {"type": "agent_message", "text": "ok"},
-                    }
-                )
-                + "\n"
-            )
-            kwargs["stdout"].flush()
-
-    monkeypatch.setenv("CODEX_HOME", str(source_home))
-    monkeypatch.setattr(evals, "resolve_codex_cli", lambda: "/explicit/codex")
-    monkeypatch.setattr(evals, "_codex_prompt_timeouts", lambda _: (20, 10))
-    monkeypatch.setattr(evals.subprocess, "Popen", FakePopen)
-    monkeypatch.setattr(evals, "_wait_for_codex_process", lambda *a, **kw: False)
-    evals._run_codex_prompt_eval(
-        evals.parse_runner_spec("codex:test-model"), workspace, "encode source"
-    )
-    return source_home / "auth.json"
-
-
-def _rotated(home: Path) -> str:
-    data = json.loads((home / "auth.json").read_text())
-    data["tokens"]["refresh_token"] = ROTATED
-    return json.dumps(data)
-
-
-def test_atomically_replaced_auth_is_carried_back_to_the_source_home(
-    tmp_path, monkeypatch
-):
-    """A refresh that replaces the linked file must not leave the source stale."""
-
-    def atomic_refresh(home: Path) -> None:
-        staged = home / "auth.json.tmp"
-        staged.write_text(_rotated(home))
-        staged.replace(home / "auth.json")
-
-    source = _run_generation_with_refresh(tmp_path, monkeypatch, atomic_refresh)
-
-    assert json.loads(source.read_text())["tokens"]["refresh_token"] == ROTATED
-    assert not source.is_symlink()
-    assert source.stat().st_mode & 0o777 == 0o600
-    assert [path.name for path in source.parent.iterdir()] == ["auth.json"]
-
-
-@pytest.mark.parametrize("replacement", ["not json", "[]"])
-def test_invalid_replacement_auth_is_not_carried_back(
-    tmp_path, monkeypatch, replacement
-):
-    def broken_refresh(home: Path) -> None:
-        (home / "auth.json").unlink()
-        (home / "auth.json").write_text(replacement)
-
-    source = _run_generation_with_refresh(tmp_path, monkeypatch, broken_refresh)
-
-    assert json.loads(source.read_text())["tokens"]["refresh_token"] == REFRESH
-
-
-def test_unchanged_linked_auth_is_left_alone(tmp_path, monkeypatch):
-    source = _run_generation_with_refresh(tmp_path, monkeypatch, lambda home: None)
-    assert json.loads(source.read_text())["tokens"]["refresh_token"] == REFRESH

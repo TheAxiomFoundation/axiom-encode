@@ -15923,7 +15923,6 @@ def _run_codex_prompt_eval(
                     process.wait()
 
         auth_secrets |= codex_auth_secrets(codex_home)
-        _carry_back_rotated_codex_auth(codex_home)
 
     stdout_text = redact_codex_auth_secrets(stdout_path.read_text(), auth_secrets)
     stderr_text = redact_codex_auth_secrets(stderr_path.read_text(), auth_secrets)
@@ -16039,45 +16038,11 @@ def _run_codex_prompt_eval(
     )
 
 
-def _codex_source_home() -> Path:
-    return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-
-
-def _carry_back_rotated_codex_auth(codex_home: Path) -> None:
-    """Keep a token refresh that replaced, rather than wrote through, auth.json.
-
-    The temporary home links the source ``auth.json``. A write through the link
-    already updates the source; an atomic replace swaps the link for a regular
-    file, and without this the rotated token would vanish with the temporary
-    home while the source kept a refresh token the provider may have revoked.
-    Only a JSON object that differs from the source is copied back, atomically
-    and owner-only. A child that could write through the link gains nothing.
-    """
-    linked = codex_home / "auth.json"
-    source = _codex_source_home() / "auth.json"
-    if linked.is_symlink() or not linked.is_file() or not source.is_file():
-        return
-    try:
-        data = linked.read_bytes()
-        if not isinstance(json.loads(data), dict) or data == source.read_bytes():
-            return
-    except (OSError, ValueError, RecursionError):
-        return
-    staged = source.with_name(f".{source.name}.{os.getpid()}.rotated")
-    try:
-        fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(data)
-        os.replace(staged, source)
-    except OSError:
-        staged.unlink(missing_ok=True)
-
-
 def _prepare_codex_eval_home(codex_home: Path) -> Path:
     """Create a minimal CODEX_HOME for eval subprocesses without user skills."""
     codex_home.mkdir(parents=True, exist_ok=True)
     (codex_home / "skills").mkdir(exist_ok=True)
-    source_home = _codex_source_home()
+    source_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
     for filename in ("auth.json", "installation_id"):
         source = source_home / filename
         target = codex_home / filename
