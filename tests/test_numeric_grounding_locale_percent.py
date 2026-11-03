@@ -19,6 +19,7 @@ from hypothesis import strategies as st
 
 from axiom_encode.harness.validator_pipeline import (
     _BELGIAN_FIGURE_RATE_MARKER_AFTER_PATTERN,
+    _ascii_digit_text,
     _belgian_figure_value,
     _figure_rate_marker_follows_in_source,
     _find_source_text_value_issues,
@@ -37,7 +38,9 @@ from axiom_encode.harness.validator_pipeline import (
 BE_CITATION = "be/statute/loi/1987/02/27/1987022077/article/12"
 
 
-def _rate_rulespec(formula: str, *, citation_path: str = BE_CITATION) -> str:
+def _rate_rulespec(
+    formula: str, *, citation_path: str = BE_CITATION, dtype: str = "Rate"
+) -> str:
     return textwrap.dedent(
         f"""
         format: rulespec/v1
@@ -47,7 +50,7 @@ def _rate_rulespec(formula: str, *, citation_path: str = BE_CITATION) -> str:
         rules:
           - name: rate
             kind: parameter
-            dtype: Rate
+            dtype: {dtype}
             versions:
               - effective_from: '2026-01-01'
                 formula: '{formula}'
@@ -60,9 +63,10 @@ def _gate_grounds(
     formula: str,
     *,
     citation_path: str = BE_CITATION,
+    dtype: str = "Rate",
 ) -> bool:
     return not find_ungrounded_numeric_issues(
-        _rate_rulespec(formula, citation_path=citation_path),
+        _rate_rulespec(formula, citation_path=citation_path, dtype=dtype),
         source_text=source_text,
         source_citation_path=citation_path,
     )
@@ -953,7 +957,7 @@ _DG_CITATION = "be-dg/statute/example/1"
         # A minus sign before the figure leaves its Belgian reading whole.
         (BE_CITATION, "Le taux est de -2,5 pour cent.", ("-0.025",), ("0.025",)),
         (BE_CITATION, "Le taux est de -1.250 pour cent.", ("-12.5",), ("-0.0125",)),
-        # A number spelled out has no other reading.
+        # A whole number spelled out has no other reading.
         (BE_CITATION, "Le taux est de cinq pour cent du montant.", ("0.05",), ()),
         (BE_CITATION, "Le taux est de vingt-cinq pour cent.", ("0.25",), ()),
         (_VLG_CITATION, "Het tarief bedraagt vijf procent.", ("0.05",), ()),
@@ -1012,6 +1016,10 @@ _DG_CITATION = "be-dg/statute/example/1"
         ),
         # main reads "1 250" as two figures, and neither is the rate.
         (BE_CITATION, "taux de 1 250 pour cent", (), ("2.5", "12.5")),
+        # Nor is a part of a figure grouped with an apostrophe.
+        (BE_CITATION, "taux de 1'250 pour cent du montant", (), ("2.5",)),
+        (BE_CITATION, "taux de 2'5 pour cent du montant", (), ("0.05",)),
+        (BE_CITATION, "taux de 1\u2019250 pour cent du montant", (), ("2.5",)),
         (
             BE_CITATION,
             "un taux entre 1,250 et 2,500 pour cent",
@@ -1025,6 +1033,15 @@ _DG_CITATION = "be-dg/statute/example/1"
         (BE_CITATION, "un taux de 16 1 / 2 pour cent", (), ("0.02",)),
         (BE_CITATION, "un taux de 16 1 \u2044 2 pour cent", (), ("0.02",)),
         (_VLG_CITATION, "een tarief van 3 /4 procent", (), ("0.04",)),
+        # Any spaces around a slash, as main reads "1    /    2 %" (0.5
+        # percent), and the division slash and the fullwidth solidus.
+        (BE_CITATION, "taux de 1    /    2 pour cent du montant", (), ("0.02",)),
+        (BE_CITATION, "taux de 1     /2 pour cent du montant", (), ("0.02",)),
+        (BE_CITATION, "taux de 1/     2 pour cent du montant", (), ("0.02",)),
+        (BE_CITATION, "taux de 1\t\t\t\t/2 pour cent du montant", (), ("0.02",)),
+        (BE_CITATION, "taux de 1/\n\n\n\n2 pour cent du montant", (), ("0.02",)),
+        (BE_CITATION, "taux de 1 \u2215 2 pour cent du montant", (), ("0.02",)),
+        (BE_CITATION, "taux de 1 \uff0f 2 pour cent du montant", (), ("0.02",)),
         (BE_CITATION, "un taux de 16 1\u20442 pour cent", ("0.165",), ("0.02",)),
         (BE_CITATION, "un taux de 16\u00bd pour cent", (), ("0.005",)),
         (BE_CITATION, "un taux de 1.250 1\u20442 pour cent", (), ("0.005",)),
@@ -1042,6 +1059,10 @@ _DG_CITATION = "be-dg/statute/example/1"
 def test_belgian_rate_word_types_only_the_belgian_reading(
     citation_path, source_text, grounded, refused
 ):
+    _assert_grounds(citation_path, source_text, grounded, refused)
+
+
+def _assert_grounds(citation_path, source_text, grounded, refused):
     for formula in grounded:
         assert _gate_grounds(source_text, formula, citation_path=citation_path), (
             source_text,
@@ -1052,6 +1073,306 @@ def test_belgian_rate_word_types_only_the_belgian_reading(
             source_text,
             formula,
         )
+
+
+# main's word readers read a spelled-out number word by word where their
+# tables lack it: "vingt-huit" as 20 and 8, "cent cinq" as 5. No part of a
+# spelled number takes a Belgian word's rate; a whole one does.
+@pytest.mark.parametrize(
+    ("citation_path", "source_text", "grounded", "refused"),
+    (
+        (
+            BE_CITATION,
+            "Le taux est de vingt-huit pour cent du montant.",
+            (),
+            ("0.08", "0.2"),
+        ),
+        (BE_CITATION, "Le taux est de vingt-huit pourcent.", (), ("0.08",)),
+        (BE_CITATION, "Le taux est de vingt-huit pour-cent par an.", (), ("0.08",)),
+        (BE_CITATION, "un taux de soixante-quinze pour cent du montant", (), ("0.15",)),
+        (
+            BE_CITATION,
+            "un taux de quatre-vingt-quinze pour cent du montant",
+            (),
+            ("0.15",),
+        ),
+        (BE_CITATION, "un taux de septante-deux pour cent du montant", (), ("0.02",)),
+        (BE_CITATION, "un taux de nonante-neuf pour cent du montant", (), ("0.09",)),
+        (BE_CITATION, "un taux de dix-sept pour cent du montant", (), ("0.07",)),
+        # A space or a dash in place of the hyphen.
+        (BE_CITATION, "un taux de vingt huit pour cent du montant", (), ("0.08",)),
+        (BE_CITATION, "un taux de vingt\u00a0huit pour cent du montant", (), ("0.08",)),
+        (BE_CITATION, "un taux de vingt - huit pour cent du montant", (), ("0.08",)),
+        (BE_CITATION, "un taux de vingt\u2013huit pour cent du montant", (), ("0.08",)),
+        (BE_CITATION, "un taux de vingt\u2212huit pour cent du montant", (), ("0.08",)),
+        # Hundreds and thousands, and the decimal words.
+        (BE_CITATION, "un taux de cent cinq pour cent du montant", (), ("0.05",)),
+        (BE_CITATION, "un taux de deux cent cinq pour cent du montant", (), ("0.05",)),
+        (
+            BE_CITATION,
+            "un taux de cent vingt-cinq pour cent du montant",
+            (),
+            ("0.05", "0.25"),
+        ),
+        (BE_CITATION, "un taux de mille cinq pour cent du montant", (), ("0.05",)),
+        (
+            BE_CITATION,
+            "un taux de deux virgule cinq pour cent du montant",
+            (),
+            ("0.02", "0.05"),
+        ),
+        (
+            _VLG_CITATION,
+            "een tarief van twee komma vijf procent van het bedrag",
+            (),
+            ("0.05",),
+        ),
+        (
+            _VLG_CITATION,
+            "een tarief van honderd vijf procent van het bedrag",
+            (),
+            ("0.05",),
+        ),
+        (
+            _VLG_CITATION,
+            "Het tarief bedraagt honderd vijfentwintig procent van het bedrag.",
+            (),
+            ("0.25",),
+        ),
+        # The "et" or "en" a number goes on after.
+        (BE_CITATION, "un taux de trente et un pour cent du montant", (), ("0.01",)),
+        (BE_CITATION, "un taux de trente-et-un pour cent du montant", (), ("0.01",)),
+        (BE_CITATION, "un taux de deux et demi pour cent du montant", (), ("0.005",)),
+        (BE_CITATION, "un taux de 2 et demi pour cent du montant", (), ("0.005",)),
+        (_VLG_CITATION, "een tarief van vijf en twintig procent", (), ("0.05", "0.2")),
+        # A number spelled partly in words, and a figure after a number word
+        # and a space or a comma.
+        (BE_CITATION, "un taux de deux virgule 5 pour cent du montant", (), ("0.05",)),
+        (BE_CITATION, "un taux de 2 virgule 5 pour cent du montant", (), ("0.05",)),
+        (BE_CITATION, "un taux de deux 5 pour cent du montant", (), ("0.05",)),
+        (BE_CITATION, "un taux de deux,5 pour cent du montant", (), ("0.05",)),
+        (
+            _VLG_CITATION,
+            "een tarief van twee komma 5 procent van het bedrag",
+            (),
+            ("0.05",),
+        ),
+        (_VLG_CITATION, "een tarief van twee,5 procent van het bedrag", (), ("0.05",)),
+        # Two provisions in the corpus spell their rates this way (be-bru
+        # ordonnance of 17 July 2003, article 22; the tobacco excise law,
+        # 1997003241, article 3).
+        (
+            BE_CITATION,
+            "Nonante-cinq pour cent du produit total des amendes sont vers\u00e9s "
+            "dans le fonds.",
+            (),
+            ("0.05",),
+        ),
+        (
+            BE_CITATION,
+            "ne peut en aucun cas \u00eatre inf\u00e9rieur \u00e0 cent cinq pourcent "
+            "du total de ces accises",
+            (),
+            ("0.05",),
+        ),
+        # Whole spelled numbers, and lists of them.
+        (BE_CITATION, "un taux de vingt-cinq pour cent du montant", ("0.25",), ()),
+        (BE_CITATION, "un taux de nonante pour cent du montant", ("0.9",), ()),
+        (
+            BE_CITATION,
+            "un taux de vingt-et-un pour cent du montant",
+            ("0.21",),
+            ("0.01",),
+        ),
+        (BE_CITATION, "un taux d'un quart pour cent du montant", ("0.0025",), ()),
+        (
+            BE_CITATION,
+            "un taux de trois quarts pour cent du montant",
+            ("0.0075",),
+            ("0.03",),
+        ),
+        (_VLG_CITATION, "een tarief van vijfentwintig procent", ("0.25",), ()),
+        (
+            BE_CITATION,
+            "un droit de deux pour cent et trois pour cent du montant",
+            ("0.03",),
+            (),
+        ),
+        (
+            BE_CITATION,
+            "un droit de cinq pour cent et deux pour cent du montant",
+            ("0.02",),
+            (),
+        ),
+        (
+            BE_CITATION,
+            "un droit de vingt pour cent, cinq pour cent du montant",
+            ("0.05",),
+            (),
+        ),
+        (_VLG_CITATION, "een tarief van vijf en twaalf procent", ("0.12",), ()),
+        # A figure after a list's conjunction, a percent marker or an article
+        # reads whole.
+        (
+            BE_CITATION,
+            "Les taux sont de deux et 5 pour cent du montant.",
+            ("0.05",),
+            (),
+        ),
+        (
+            BE_CITATION,
+            "un taux de 3 pour cent,5 pour cent du montant",
+            ("0.03", "0.05"),
+            (),
+        ),
+        (BE_CITATION, "un 5 pour cent du montant", ("0.05",), ()),
+        (_VLG_CITATION, "een 5 procent toeslag", ("0.05",), ()),
+    ),
+)
+def test_no_part_of_a_spelled_number_takes_a_belgian_rate(
+    citation_path, source_text, grounded, refused
+):
+    _assert_grounds(citation_path, source_text, grounded, refused)
+
+
+# A figure printed in other decimal digits reads as its ASCII twin does.
+@pytest.mark.parametrize(
+    ("citation_path", "source_text", "grounded", "refused"),
+    (
+        (
+            _VLG_CITATION,
+            "Het percentage bedraagt \uff12,\uff15 procent van het bedrag.",
+            ("0.025",),
+            ("0.25",),
+        ),
+        (
+            BE_CITATION,
+            "taux de \uff11,\uff12\uff15\uff10 pour cent du montant",
+            (),
+            ("12.5",),
+        ),
+        (
+            BE_CITATION,
+            "taux de 1,\uff12\uff15\uff10 pour cent du montant",
+            (),
+            ("12.5",),
+        ),
+        (BE_CITATION, "taux de \uff11,250 pour cent du montant", (), ("12.5",)),
+        (
+            BE_CITATION,
+            "un taux de \u0662,\u0663\u0667\u0665 pour cent du montant",
+            (),
+            ("23.75",),
+        ),
+        (
+            BE_CITATION,
+            "taux de (\uff11.\uff12\uff15\uff10) % du montant",
+            (),
+            ("0.0125",),
+        ),
+        (BE_CITATION, "taux de \uff12\uff18 pour cent du montant", ("0.28",), ()),
+        (BE_CITATION, "taux de 1 / \uff12 pour cent du montant", (), ("0.02",)),
+    ),
+)
+def test_figure_in_other_decimal_digits_reads_as_its_ascii_twin(
+    citation_path, source_text, grounded, refused
+):
+    _assert_grounds(citation_path, source_text, grounded, refused)
+
+
+# A comma or a dot right before a figure leaves the figure the tail of
+# another ("taux de ,5" is 0.5 percent, never 5), unless a word, a sign or a
+# closing bracket or quote sits before it: there the mark parts a list.
+@pytest.mark.parametrize(
+    ("source_text", "grounded", "refused"),
+    (
+        ("taux de ,5 pour cent du montant", (), ("0.05",)),
+        ("un taux de ,25 pour cent du montant", (), ("0.25",)),
+        ("taux de (,5) pour cent du montant", (), ("0.05",)),
+        ("taux de \u00ab,5 pour cent\u00bb du montant", (), ("0.05",)),
+        ('le taux de ",5 pour cent"', (), ("0.05",)),
+        ("le taux de \u201c,5 pour cent\u201d", (), ("0.05",)),
+        ("taux de 2 ,5 pour cent du montant", (), ("0.05",)),
+        ("taux de 2\t,5 pour cent du montant", (), ("0.05",)),
+        ("taux de 2\u00a0,5 pour cent du montant", (), ("0.05",)),
+        ("taux de 2\n,5 pour cent du montant", (), ("0.05",)),
+        ("taux de 2\u2028,5 pour cent du montant", (), ("0.05",)),
+        ("taux de 2.,5 pour cent du montant", (), ("0.05",)),
+        ("taux de 2,5 pour cent ,5 pour cent du montant", ("0.025",), ("0.05",)),
+        ("le taux de 1 pour cent,2 pour cent", ("0.01", "0.02"), ()),
+        ("le taux de 1 pour cent,,2 pour cent", ("0.02",), ()),
+        ("le taux de 1 p.c.,2 pour cent", ("0.02",), ()),
+        ("le taux de 5 %,2 pour cent", ("0.02",), ()),
+        ("le taux de 5 %),2 pour cent", ("0.02",), ()),
+        ("le taux fix\u00e9,2 pour cent du montant", ("0.02",), ()),
+    ),
+)
+def test_mark_before_a_figure_parts_a_list_only_after_a_word_or_sign(
+    source_text, grounded, refused
+):
+    _assert_grounds(BE_CITATION, source_text, grounded, refused)
+    _assert_grounds(
+        _VLG_CITATION,
+        source_text.replace("pour cent", "procent"),
+        grounded,
+        refused,
+    )
+
+
+# The be-BE cleaner keeps a figure restated in parentheses before a word that
+# spells a percent out, where main blanks it as a label. Only its Belgian
+# reading reads there: a pipe cell in main's words types no other.
+@pytest.mark.parametrize(
+    ("citation_path", "source_text", "grounded", "refused"),
+    (
+        (_DG_CITATION, "| Satz | von (1.250) Prozent |", ("12.5",), ("0.0125",)),
+        (_DG_CITATION, "| Satz | von (1.250) vom Hundert |", ("12.5",), ("0.0125",)),
+        (_DG_CITATION, "| Satz | von (12.500) Prozent |", ("125",), ("0.125",)),
+        (
+            _DG_CITATION,
+            "| Steuersatz | Betrag |\n| von (1.250) Prozent | 100 Euro |",
+            (),
+            ("0.0125",),
+        ),
+        (
+            _DG_CITATION,
+            "| Satz von (1.250) Prozentpunkte | Betrag |\n| --- | --- |\n| 1 | 2 |",
+            (),
+            ("0.0125",),
+        ),
+        (BE_CITATION, "| de (1.250) Prozent", (), ("0.0125",)),
+        (BE_CITATION, "| Taux | pour (75) pour cent |", ("0.75",), ()),
+    ),
+)
+def test_kept_restatement_reads_only_its_belgian_figure(
+    citation_path, source_text, grounded, refused
+):
+    _assert_grounds(citation_path, source_text, grounded, refused)
+
+
+@pytest.mark.parametrize(
+    ("dtype", "formula", "grounded"),
+    (
+        ("Decimal", "1250", True),
+        ("Decimal", "1.25", False),
+        ("Money", "1.25", False),
+        ("Integer", "1250", True),
+        ("Decimal", "250", False),
+    ),
+)
+def test_kept_restatement_grounds_no_amount_main_never_reads(dtype, formula, grounded):
+    # main blanks "(1.250)" as a label and reads nothing there; the Belgian
+    # reading, 1250, is the one figure the source states. The recall
+    # inventory lists none of main's readings of it, as on main.
+    source_text = "Satz von (1.250) Prozent"
+
+    assert (
+        _gate_grounds(source_text, formula, citation_path=_DG_CITATION, dtype=dtype)
+        is grounded
+    )
+    assert not extract_typed_numeric_inventory_occurrences_from_text(
+        source_text, profile="be-BE"
+    )
 
 
 @pytest.mark.parametrize(
@@ -1068,6 +1389,14 @@ def test_belgian_rate_word_types_only_the_belgian_reading(
             "| Category | Rate (percent) 2026 |\n| --- | --- |\n| A | 3 |",
             ("0.03", "20.26"),
         ),
+        (
+            BE_CITATION,
+            "| Rate (percent) |\n| --- |\n| 2,5 |\n| Rate (percent) 2026 |",
+            ("20.26",),
+        ),
+        (BE_CITATION, "Le taux est de vingt-huit % du montant.", ("0.08", "0.28")),
+        (BE_CITATION, "Le taux est de vingt\u2013huit % du montant.", ("0.08",)),
+        (BE_CITATION, "taux de 1'250 % du montant", ("2.5", "12.5")),
     ),
 )
 def test_main_markers_keep_main_readings_in_belgian_sources(
@@ -1497,6 +1826,38 @@ def test_header_with_a_figure_before_its_marker_still_types_its_column(table):
     assert _gate_grounds(table, "0.03", citation_path="us/statute/example/1")
 
 
+@pytest.mark.parametrize(
+    "cell",
+    ("16 1/2", "16 \u00bd", "16\u00a01/2", "16 1 / 2", "16  1/2", "16\t1/2"),
+)
+@pytest.mark.parametrize(
+    ("citation_path", "header"),
+    ((_VLG_CITATION, "Tarief (procent)"), (BE_CITATION, "Taux (pour cent)")),
+)
+def test_no_part_of_a_mixed_number_takes_a_belgian_headers_rate(
+    citation_path, header, cell
+):
+    # Whatever space joins a mixed number's whole to its fraction, neither
+    # part states a rate by itself.
+    table = f"| {header} | Bedrag |\n| --- | --- |\n| {cell} | 100 euro |"
+
+    _assert_grounds(citation_path, table, (), ("0.16", "0.005"))
+
+
+@pytest.mark.parametrize(
+    ("citation_path", "header"),
+    ((BE_CITATION, "Taux (pour cent)"), (_VLG_CITATION, "Tarief (procent)")),
+)
+def test_body_row_repeating_a_locale_header_types_no_figure_of_its_own(
+    citation_path, header
+):
+    # A body row that repeats the header's words names the column again: its
+    # year states no rate, and the column's own figures keep theirs.
+    table = f"| {header} |\n| --- |\n| 2,5 |\n| {header} 2026 |"
+
+    _assert_grounds(citation_path, table, ("0.025",), ("20.26",))
+
+
 def test_locale_header_needs_a_delimiter_row():
     # Without a delimiter row no line is known to be a header, so only the
     # wording main always read types a column there.
@@ -1922,19 +2283,156 @@ def test_bare_figure_never_grounds_its_rate(figure, prefix):
     assert not _grounds(source_text, value / 100), source_text
 
 
+_FRENCH_UNITS = (
+    "z\u00e9ro",
+    "un",
+    "deux",
+    "trois",
+    "quatre",
+    "cinq",
+    "six",
+    "sept",
+    "huit",
+    "neuf",
+    "dix",
+    "onze",
+    "douze",
+    "treize",
+    "quatorze",
+    "quinze",
+    "seize",
+)
+_FRENCH_TENS = {
+    2: "vingt",
+    3: "trente",
+    4: "quarante",
+    5: "cinquante",
+    6: "soixante",
+    7: "septante",
+    9: "nonante",
+}
+_DUTCH_UNITS = (
+    "nul",
+    "een",
+    "twee",
+    "drie",
+    "vier",
+    "vijf",
+    "zes",
+    "zeven",
+    "acht",
+    "negen",
+    "tien",
+    "elf",
+    "twaalf",
+    "dertien",
+    "veertien",
+    "vijftien",
+    "zestien",
+    "zeventien",
+    "achttien",
+    "negentien",
+)
+_DUTCH_TENS = {
+    2: "twintig",
+    3: "dertig",
+    4: "veertig",
+    5: "vijftig",
+    6: "zestig",
+    7: "zeventig",
+    8: "tachtig",
+    9: "negentig",
+}
+# What joins the words of a spelled number in print: a hyphen, a space, a
+# no-break space or a dash in the hyphen's place.
+_SPELLED_JOINS = ("-", " ", "\u00a0", " - ", "\u2013", "\u2212")
+
+
+def _french_number(number: int, join: str, *, belgian: bool) -> str:
+    """Spell 1 to 999 in French: Belgium's "septante" and "nonante" or France's
+    "soixante-dix" and "quatre-vingt-dix"."""
+    hundreds, rest = divmod(number, 100)
+    if hundreds:
+        head = "cent" if hundreds == 1 else f"{_FRENCH_UNITS[hundreds]} cent"
+        if not rest:
+            return head if hundreds == 1 else f"{head}s"
+        return f"{head} {_french_number(rest, join, belgian=belgian)}"
+    if number <= 16:
+        return _FRENCH_UNITS[number]
+    tens, unit = divmod(number, 10)
+    if tens == 1:
+        return f"dix{join}{_FRENCH_UNITS[unit]}"
+    if tens == 8 or (tens == 9 and not belgian):
+        base = f"quatre{join}vingt"
+        if number == 80:
+            return f"{base}s"
+        return f"{base}{join}{_french_number(number - 80, join, belgian=belgian)}"
+    if tens == 7 and not belgian:
+        joint = " et " if number == 71 else join
+        return f"soixante{joint}{_french_number(number - 60, join, belgian=belgian)}"
+    if not unit:
+        return _FRENCH_TENS[tens]
+    if unit == 1:
+        return f"{_FRENCH_TENS[tens]} et un"
+    return f"{_FRENCH_TENS[tens]}{join}{_FRENCH_UNITS[unit]}"
+
+
+def _dutch_number(number: int, join: str) -> str:
+    """Spell 1 to 999 in Dutch: "vijfentwintig" for 25, "honderd vijf" for 105."""
+    hundreds, rest = divmod(number, 100)
+    if hundreds:
+        head = "honderd" if hundreds == 1 else f"{_DUTCH_UNITS[hundreds]}honderd"
+        return f"{head}{join}{_dutch_number(rest, join)}" if rest else head
+    if number < 20:
+        return _DUTCH_UNITS[number]
+    tens, unit = divmod(number, 10)
+    if not unit:
+        return _DUTCH_TENS[tens]
+    link = "\u00ebn" if _DUTCH_UNITS[unit].endswith("e") else "en"
+    return f"{_DUTCH_UNITS[unit]}{link}{_DUTCH_TENS[tens]}"
+
+
+@st.composite
+def _spelled_numbers(draw):
+    """Return (a number spelled out, its value) in French or Dutch.
+
+    A ten and a unit ("vingt-huit", "trente et un"), a hundred and what
+    follows it ("cent cinq"), a decimal word ("deux virgule cinq", "twee
+    komma vijf"), or a Dutch compound ("vijfentwintig").
+    """
+    number = draw(st.integers(min_value=1, max_value=999))
+    join = draw(st.sampled_from(_SPELLED_JOINS))
+    style = draw(st.sampled_from(("french", "belgian", "dutch", "decimal")))
+    if style == "dutch":
+        return _dutch_number(number, draw(st.sampled_from(("", " ")))), float(number)
+    if style == "decimal":
+        whole, tenth = draw(st.integers(1, 16)), draw(st.integers(1, 9))
+        word, units = draw(
+            st.sampled_from((("virgule", _FRENCH_UNITS), ("komma", _DUTCH_UNITS)))
+        )
+        return f"{units[whole]} {word} {units[tenth]}", whole + tenth / 10
+    return _french_number(number, join, belgian=style == "belgian"), float(number)
+
+
 @st.composite
 def _belgian_figures(draw):
     """Return (printed figure, its value, whether main reads it whole).
 
     A decimal comma ("2,5", "1,250"), dots or grouping spaces between groups
-    of three ("1.250", "12 345,5"), or a mixed number ("16 1\u20442"). main reads
-    "12 345" with no decimal comma, a second group mark ("1.250.000"), an
-    ASCII slash ("16 1/2"), a slash with spaces around it ("16 1 / 2") and a
-    figure or thin space in parts.
+    of three ("1.250", "12 345,5"), a mixed number ("16 1\u20442"), or a
+    number spelled out ("vingt-huit"). main reads "12 345" with no decimal
+    comma, a second group mark ("1.250.000"), an ASCII slash ("16 1/2"), a
+    slash with spaces around it ("16 1 / 2") and a figure or thin space in
+    parts, and a spelled number whole only where its word tables hold it.
     """
     style = draw(
-        st.sampled_from(("decimal-comma", "dot-group", "space-group", "mixed"))
+        st.sampled_from(
+            ("decimal-comma", "dot-group", "space-group", "mixed", "spelled")
+        )
     )
+    if style == "spelled":
+        printed, value = draw(_spelled_numbers())
+        return printed, value, False
     if style == "decimal-comma":
         whole = draw(st.integers(min_value=0, max_value=999))
         fraction = draw(st.text("0123456789", min_size=1, max_size=3))
@@ -2001,6 +2499,27 @@ def _belgian_figures(draw):
     prefix="le taux de ",
     parenthesized=False,
 )
+@example(
+    figure=("vingt-huit", 28.0, False),
+    marker="pour cent",
+    gap=" ",
+    prefix="le taux de ",
+    parenthesized=False,
+)
+@example(
+    figure=("cent cinq", 105.0, False),
+    marker="pourcent",
+    gap=" ",
+    prefix="le taux de ",
+    parenthesized=False,
+)
+@example(
+    figure=("twee komma vijf", 2.5, False),
+    marker="procent",
+    gap=" ",
+    prefix="tarief ",
+    parenthesized=False,
+)
 def test_belgian_rate_word_rates_only_the_belgian_reading(
     figure, marker, gap, prefix, parenthesized
 ):
@@ -2026,6 +2545,40 @@ def test_belgian_rate_word_rates_only_the_belgian_reading(
             )
     if read_whole and not parenthesized:
         assert numeric_value_is_grounded(value / 100, occurrences), source_text
+
+
+_LOCALE_HEADERS = (
+    "Tarief (procent)",
+    "Taux (pour cent)",
+    "taux en pour cent",
+    "Satz in v. H.",
+)
+
+
+@settings(max_examples=150, deadline=None)
+@given(figure=_belgian_figures(), header=st.sampled_from(_LOCALE_HEADERS))
+@example(figure=("16 1/2", 16.5, False), header="Tarief (procent)")
+@example(figure=("16\t1/2", 16.5, False), header="Taux (pour cent)")
+@example(figure=("vingt-huit", 28.0, False), header="Taux (pour cent)")
+def test_belgian_header_rates_only_the_belgian_reading_of_a_cell(figure, header):
+    printed, value, _ = figure
+    table = f"| {header} | Bedrag |\n| --- | --- |\n| {printed} | 100 euro |"
+
+    # A header types the cells below it as a Belgian word types the figure
+    # before it: only a reading of the whole figure the Belgian way.
+    for occurrence in extract_typed_numeric_occurrences_from_text(
+        table, profile="be-BE"
+    ):
+        if occurrence.has_rate_context:
+            reading = (
+                occurrence.value
+                if occurrence.source_value is None
+                else occurrence.source_value
+            )
+            assert reading == pytest.approx(value, rel=0, abs=1e-9), (
+                table,
+                occurrence,
+            )
 
 
 @settings(max_examples=200, deadline=None)
@@ -2064,15 +2617,99 @@ def test_belgian_figure_check_takes_the_value_of_any_marked_span():
 
 
 def test_belgian_figure_check_reads_a_spaced_slash_as_a_fraction():
-    # A slash with up to three spaces on each side joins its figures into one
-    # fraction: neither figure reads whole by itself, and the fraction does.
+    # A slash with any spaces around it joins its figures into one fraction,
+    # as far as the 64-character limit reaches: neither figure reads whole by
+    # itself, and the fraction does.
     assert not _reads_belgian_figure("1/2", (2, 3), 2.0)
     assert not _reads_belgian_figure("1/2", (0, 1), 1.0)
     assert not _reads_belgian_figure("1 / 2", (4, 5), 2.0)
     assert not _reads_belgian_figure("1 / 2", (0, 1), 1.0)
     assert not _reads_belgian_figure("1   /   2", (8, 9), 2.0)
+    assert not _reads_belgian_figure("1    /    2", (10, 11), 2.0)
+    assert not _reads_belgian_figure("1    /    2", (0, 1), 1.0)
+    assert not _reads_belgian_figure("1/\n\n\n\n2", (6, 7), 2.0)
     assert not _reads_belgian_figure("1 \u2044 2", (4, 5), 2.0)
+    assert not _reads_belgian_figure("1 \u2215 2", (4, 5), 2.0)
+    assert not _reads_belgian_figure("1 \uff0f 2", (4, 5), 2.0)
     assert _reads_belgian_figure("1 / 2", (0, 5), 0.5)
+    # The other figure's digit must sit within 64 characters of this one.
+    near, far = f"1{' ' * 62}/2", f"1{' ' * 63}/2"
+    assert not _reads_belgian_figure(near, (64, 65), 2.0)
+    assert not _reads_belgian_figure(near, (0, 1), 1.0)
+    assert _reads_belgian_figure(far, (65, 66), 2.0)
+    assert _reads_belgian_figure(far, (0, 1), 1.0)
+
+
+def test_belgian_figure_check_reads_a_mixed_number_whole_or_not_at_all():
+    # Any run of the horizontal spaces main joins a mixed number with makes
+    # its whole and its fraction parts of one figure.
+    for join in (" ", "  ", "\t", "\u00a0", "\u2009"):
+        text = f"16{join}1/2"
+        assert not _reads_belgian_figure(text, (0, 2), 16.0), text
+        assert not _reads_belgian_figure(text, (2 + len(join), len(text)), 0.5), text
+    assert not _reads_belgian_figure("16 \u00bd", (0, 2), 16.0)
+    assert not _reads_belgian_figure("16 \u00bd", (3, 4), 0.5)
+    # A line break parts them, as main reads "16\n1/2 %".
+    assert _reads_belgian_figure("16\n1/2", (0, 2), 16.0)
+
+
+def test_belgian_figure_check_reads_a_spelled_number_whole_or_not_at_all():
+    # A reading with no printed digit reads whole only when no number word or
+    # digit joins it.
+    assert _reads_belgian_figure("vingt-cinq", (0, 10), 25.0)
+    assert not _reads_belgian_figure("vingt-huit", (6, 10), 8.0)
+    assert not _reads_belgian_figure("vingt-huit", (0, 5), 20.0)
+    assert not _reads_belgian_figure("vingt\u2013huit", (6, 10), 8.0)
+    assert not _reads_belgian_figure("deux cent cinq", (10, 14), 5.0)
+    assert not _reads_belgian_figure("twee komma vijf", (11, 15), 5.0)
+    assert not _reads_belgian_figure("2 vingt", (2, 7), 20.0)
+    assert not _reads_belgian_figure("vingt 2", (0, 5), 20.0)
+    # "et", "en" and "und" join a number only to what it goes on with.
+    assert not _reads_belgian_figure("trente et un", (10, 12), 1.0)
+    assert not _reads_belgian_figure("trente et un", (0, 6), 30.0)
+    assert not _reads_belgian_figure("1 et demi", (5, 9), 0.5)
+    assert not _reads_belgian_figure("vijf en twintig", (8, 15), 20.0)
+    assert _reads_belgian_figure("cinq et deux", (8, 12), 2.0)
+    assert _reads_belgian_figure("vijf en twaalf", (8, 14), 12.0)
+    # The scale word of a percent marker ends its number.
+    assert _reads_belgian_figure("deux pour cent et trois", (18, 23), 3.0)
+    assert _reads_belgian_figure("deux pour-cent trois", (15, 20), 3.0)
+    assert not _reads_belgian_figure("deux cent et un", (13, 15), 1.0)
+
+
+def test_belgian_figure_check_fails_a_figure_after_a_number_word():
+    # A number word joined to a figure's first digit leaves it a part.
+    assert not _reads_belgian_figure("deux virgule 5", (13, 14), 5.0)
+    assert not _reads_belgian_figure("2 virgule 5", (10, 11), 5.0)
+    assert not _reads_belgian_figure("twee komma 5", (11, 12), 5.0)
+    assert not _reads_belgian_figure("deux 5", (5, 6), 5.0)
+    assert not _reads_belgian_figure("deux,5", (5, 6), 5.0)
+    assert not _reads_belgian_figure("deux.,5", (6, 7), 5.0)
+    assert not _reads_belgian_figure("vingt-5", (6, 7), 5.0)
+    assert not _reads_belgian_figure("vingt–5", (6, 7), 5.0)
+    assert not _reads_belgian_figure("deux cent,5", (10, 11), 5.0)
+    assert not _reads_belgian_figure("un,5", (3, 4), 5.0)
+    # A conjunction parts a list, the scale word of a percent marker ends its
+    # number, and an article joins none.
+    assert _reads_belgian_figure("deux et 5", (8, 9), 5.0)
+    assert _reads_belgian_figure("pour cent,5", (10, 11), 5.0)
+    assert _reads_belgian_figure("vom Hundert,5", (12, 13), 5.0)
+    assert _reads_belgian_figure("ten honderd,5", (12, 13), 5.0)
+    assert _reads_belgian_figure("un 5", (3, 4), 5.0)
+    assert _reads_belgian_figure("een 5", (4, 5), 5.0)
+    assert _reads_belgian_figure("eine 5", (5, 6), 5.0)
+
+
+def test_ascii_digit_text_prints_every_decimal_digit_in_ascii():
+    # Each digit stays one character, so every span still holds.
+    for text, printed in (
+        ("\uff12,\uff15", "2,5"),
+        ("\u0662,\u0663\u0667\u0665", "2,375"),
+        ("1.\u096825", "1.225"),
+        ("taux de 1,250", "taux de 1,250"),
+        ("\u00bd \u00b2", "\u00bd \u00b2"),
+    ):
+        assert _ascii_digit_text(text) == printed
 
 
 @st.composite
@@ -2211,6 +2848,131 @@ def test_pour_cent_before_a_count_never_grounds_its_rate(
     source_text = f"{lead}{printed} {spelling}{continuation}"
 
     assert not _grounds(source_text, value / 100), source_text
+
+
+# What sits before a comma or a dot that leaves the figure after it the tail
+# of another: nothing, a space or a line break, an opening bracket or quote,
+# a sign, or another figure and its mark.
+_TAIL_OPENINGS = (
+    "",
+    " ",
+    "\t",
+    "\n",
+    "\u00a0",
+    "\u2028",
+    "(",
+    "[",
+    "\u00ab",
+    '"',
+    "\u201c",
+    "-",
+    "2",
+    "2.",
+    "2,",
+)
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    opening=st.sampled_from(_TAIL_OPENINGS),
+    mark=st.sampled_from((",", ".")),
+    digits=st.text("0123456789", min_size=1, max_size=3),
+    marker=st.sampled_from(_LOCALE_MARKERS),
+)
+@example(opening="", mark=",", digits="5", marker="pour cent")
+@example(opening="\u00ab", mark=",", digits="5", marker="pour cent")
+@example(opening="2.", mark=",", digits="5", marker="pour cent")
+def test_figure_after_a_leading_mark_never_reads_whole(opening, mark, digits, marker):
+    value = int(digits)
+    # ",0" is zero read either way, and an opening "2" is a figure of its own.
+    assume(value not in (0, 2))
+    source_text = f"le taux de {opening}{mark}{digits} {marker} du montant"
+    occurrences = extract_typed_numeric_occurrences_from_text(
+        source_text, profile="be-BE"
+    )
+
+    # No reading of the digits after the mark as a whole number takes the
+    # word's rate. (A figure that reads ".25" as 0.25 grounds the literal 0.25
+    # as itself, rate or not, as on main.)
+    for occurrence in occurrences:
+        if occurrence.has_rate_context:
+            reading = (
+                occurrence.value
+                if occurrence.source_value is None
+                else occurrence.source_value
+            )
+            assert reading != pytest.approx(value, rel=0, abs=1e-9), (
+                source_text,
+                occurrence,
+            )
+
+
+# Number words a figure can go on from: units, tens, scales and the decimal
+# words, in French, Dutch and German.
+_LEADING_NUMBER_WORDS = (
+    "deux",
+    "cinq",
+    "vingt",
+    "septante",
+    "cent",
+    "mille",
+    "virgule",
+    "twee",
+    "vijf",
+    "twintig",
+    "honderd",
+    "komma",
+    "zwei",
+    "fünf",
+    "zwanzig",
+    "hundert",
+    "Komma",
+)
+_NUMBER_WORD_FIGURE_JOINS = (
+    " ",
+    " ",
+    "  ",
+    "-",
+    "–",
+    "−",
+    " - ",
+    ",",
+    ".",
+    ".,",
+)
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    word=st.sampled_from(_LEADING_NUMBER_WORDS),
+    join=st.sampled_from(_NUMBER_WORD_FIGURE_JOINS),
+    digits=st.text("0123456789", min_size=1, max_size=3),
+    marker=st.sampled_from(_LOCALE_MARKERS),
+)
+@example(word="virgule", join=" ", digits="5", marker="pour cent")
+@example(word="deux", join=",", digits="5", marker="pour cent")
+@example(word="komma", join=" ", digits="5", marker="procent")
+@example(word="cent", join=",", digits="5", marker="pour cent")
+def test_figure_after_a_number_word_never_reads_whole(word, join, digits, marker):
+    value = int(digits)
+    source_text = f"le taux de {word}{join}{digits} {marker} du montant"
+    occurrences = extract_typed_numeric_occurrences_from_text(
+        source_text, profile="be-BE"
+    )
+
+    # No reading of the figure alone takes the word's rate: the figure goes
+    # on from the number word before it.
+    for occurrence in occurrences:
+        if occurrence.has_rate_context:
+            reading = (
+                occurrence.value
+                if occurrence.source_value is None
+                else occurrence.source_value
+            )
+            assert reading != pytest.approx(value, rel=0, abs=1e-9), (
+                source_text,
+                occurrence,
+            )
 
 
 _POUR_CENT_SPELLINGS = ("pour cent", "pour-cent", "pourcent", "pourcents")

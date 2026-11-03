@@ -8093,9 +8093,7 @@ _PRINTED_FRACTION_BODY = (
 _PRINTED_FRACTION_START_PATTERN = re.compile(_PRINTED_FRACTION_BODY)
 # The whole of a mixed number before its fraction, and the fraction after
 # its whole.
-_MIXED_NUMBER_WHOLE_BEFORE_PATTERN = re.compile(
-    rf"[0-9]{_MIXED_NUMBER_SPACE_BODY}\Z"
-)
+_MIXED_NUMBER_WHOLE_BEFORE_PATTERN = re.compile(rf"[0-9]{_MIXED_NUMBER_SPACE_BODY}\Z")
 _MIXED_NUMBER_FRACTION_AFTER_PATTERN = re.compile(
     rf"{_MIXED_NUMBER_SPACE_BODY}(?:{_PRINTED_FRACTION_BODY})"
 )
@@ -8149,21 +8147,26 @@ _SPELLED_NUMBER_WORD_BODY = (
     r"halves|quarters?|thirds?|"
     rf"{_SPELLED_NUMBER_SCALE_WORD_BODY}"
 )
-# What joins the words of one spelled number: a hyphen ("vingt-huit") or a
-# space ("cent cinq", "deux virgule cinq", "twee komma vijf").
-_SPELLED_NUMBER_JOIN_BODY = "\\s*[-\u00ad\u2010\u2011]\\s*|\\s+"
+# The hyphens that join a spelled number's words (the plain, soft and
+# non-breaking ones) and the marks some sources print in their place: the
+# figure, en and em dashes, the horizontal bar and the minus sign.
+_SPELLED_NUMBER_HYPHENS = "-\u00ad\u2010-\u2015\u2212"
+# What joins the words of one spelled number: a hyphen or a dash in its
+# place ("vingt-huit"), or a space ("cent cinq", "deux virgule cinq", "twee
+# komma vijf").
+_SPELLED_NUMBER_JOIN_BODY = rf"\s*[{_SPELLED_NUMBER_HYPHENS}]\s*|\s+"
 # The conjunction a spelled number goes on after ("vingt et un", "vijf en
 # twintig", "fünf und zwanzig", "deux et un quart"), and the words it goes
 # on with: French "un" and "onze", a Dutch or German ten, or a fraction.
 # Before any other word the conjunction joins two members of a list ("cinq
 # et deux pour cent").
 _SPELLED_NUMBER_CONJUNCTION_BODY = (
-    "(?:\\s+|\\s*[-\u00ad\u2010\u2011]\\s*)(?:et|en|und)"
-    "(?:\\s+|\\s*[-\u00ad\u2010\u2011]\\s*)"
+    rf"(?:\s+|\s*[{_SPELLED_NUMBER_HYPHENS}]\s*)(?:et|en|und)"
+    rf"(?:\s+|\s*[{_SPELLED_NUMBER_HYPHENS}]\s*)"
 )
 _SPELLED_NUMBER_CONJOINED_WORD_BODY = (
     rf"une?|onze|{_DUTCH_TENS_WORD_BODY}|{_GERMAN_TENS_WORD_BODY}|"
-    rf"(?:(?:{_SPELLED_NUMBER_WORD_BODY})[-\s]+)*"
+    rf"(?:(?:{_SPELLED_NUMBER_WORD_BODY})[{_SPELLED_NUMBER_HYPHENS}\s]+)*"
     rf"(?:{_FRENCH_FRACTION_WORD_BODY}|{_DUTCH_FRACTION_WORD_BODY}|"
     rf"{_GERMAN_FRACTION_WORD_BODY}|halves|quarters?|thirds?)"
 )
@@ -8198,6 +8201,18 @@ _PERCENT_SCALE_WORD_LEAD_PATTERN = re.compile(
     r"\b(?:pour|per|vom|von|ten|op)[ \t-]*\Z",
     re.IGNORECASE,
 )
+# The word right before a figure and what joins it to the figure's first
+# digit: a hyphen, a dash, a space or a run of commas and dots ("deux
+# virgule 5", "deux 5", "deux,5").
+_WORD_BEFORE_FIGURE_PATTERN = re.compile(
+    rf"(?<!\w)(?P<word>\w+)(?P<join>{_SPELLED_NUMBER_JOIN_BODY}|[.,]+)\Z"
+)
+_SPELLED_NUMBER_WORD_PATTERN = re.compile(
+    _SPELLED_NUMBER_WORD_BODY,
+    re.IGNORECASE,
+)
+# The articles that share a number word's spelling ("un", "een", "ein").
+_NUMBER_WORD_ARTICLE_PATTERN = re.compile(r"une?|een|eine?[mnrs]?", re.IGNORECASE)
 # Groups of three that grouping spaces join into one figure ("12 345").
 _SPACE_GROUPED_FIGURE_PATTERN = re.compile(
     r"(?<![0-9])[1-9][0-9]{0,2}(?P<join>[ \u00a0\u2007\u2009\u202f])[0-9]{3}"
@@ -8206,6 +8221,10 @@ _SPACE_GROUPED_FIGURE_PATTERN = re.compile(
 # The longest figure the Belgian reading check widens to; a longer run of
 # joined digits reads no Belgian figure.
 _PRINTED_FIGURE_MAX_LENGTH = 64
+# The marks a source prints between a figure's digits: a decimal comma or
+# point, a grouping dot, and the apostrophe some sources group digits with
+# ("1'250").
+_PRINTED_FIGURE_MARKS = ".,'\u2019"
 # A figure as a Belgian source prints it: a decimal comma ("2,5", "1,250"),
 # dots or grouping spaces between groups of three ("1.250", "12 345,5"), or
 # a point that ends no such group ("12.5"). A figure that only English prints
@@ -15430,20 +15449,47 @@ def _joins_spelled_number(text: str, start: int, end: int) -> bool:
     return bool(_SPELLED_NUMBER_PART_AFTER_PATTERN.match(text, end))
 
 
+def _spelled_number_leads_figure(text: str, first: int) -> bool:
+    """Return whether a number word makes a figure the tail of a longer number.
+
+    Main's readers read a number spelled partly in words part by part:
+    "deux virgule 5" as 2 and 5, "2 virgule 5" as 2 and 5. A number word
+    joined to the figure's first digit by a hyphen, a dash, a space or a run
+    of commas and dots ("deux 5", "deux,5") leaves the figure a part of that
+    number. The scale word of a percent marker ends its number ("1 pour
+    cent,5 pour cent"), and an article joins no number ("un 5 pour cent").
+    """
+    before = _WORD_BEFORE_FIGURE_PATTERN.search(
+        text, max(0, first - _PRINTED_FIGURE_MAX_LENGTH), first
+    )
+    if before is None or not _SPELLED_NUMBER_WORD_PATTERN.fullmatch(before["word"]):
+        return False
+    word, word_start = before["word"], before.start("word")
+    if _SPELLED_NUMBER_SCALE_WORD_PATTERN.fullmatch(word) and (
+        _PERCENT_SCALE_WORD_LEAD_PATTERN.search(
+            text, max(0, word_start - 16), word_start
+        )
+    ):
+        return False
+    return not (
+        before["join"].isspace() and _NUMBER_WORD_ARTICLE_PATTERN.fullmatch(word)
+    )
+
+
 def _reads_belgian_figure(text: str, span: tuple[int, int], value: float) -> bool:
     """Return whether a reading takes its whole figure the Belgian way.
 
     Main's readers read a figure the English way: one drops its commas ("2,5"
     as 25, "1,250" as 1250), one takes a grouping dot for a decimal point
-    ("1.250" as 1.25), and some read a part of it: the "5" of "1.250,5" or of
-    ",5", the "345,5" of "12 345,5", the "2" of "1/2" or "1    /    2", the
-    "16" and the "½" of "16 ½", the "1⁄2" of "1.250 1⁄2", the "huit" of
-    "vingt-huit". A Belgian source states none of those values. A grouping
-    space joins a figure only where it groups three digits ("12 345,5", not
-    "2025 125,5"). A whole figure with no comma or dot ("28", "16 1/2") and a
-    whole spelled number ("vingt-cinq") have no other value to mistake; any
-    other figure must take its Belgian value. ``text`` prints its digits in
-    ASCII (``_ascii_digit_text``), so "２,５" reads as "2,5" does.
+    ("1.250" as 1.25), and some read a part of it: the "5" of "1.250,5", ",5",
+    "2'5" or "deux virgule 5", the "345,5" of "12 345,5", the "2" of "1/2" or
+    "1    /    2", the "16" and the "½" of "16 ½", the "1⁄2" of "1.250 1⁄2",
+    the "huit" of "vingt-huit". A Belgian source states none of those values.
+    A grouping space joins a figure only where it groups three digits
+    ("12 345,5", not "2025 125,5"). A whole figure with no comma or dot ("28",
+    "16 1/2") and a whole spelled number ("vingt-cinq") have no other value to
+    mistake; any other figure must take its Belgian value. ``text`` prints its
+    digits in ASCII (``_ascii_digit_text``), so "２,５" reads as "2,5" does.
     """
     start, end = span
     first = next(
@@ -15463,16 +15509,30 @@ def _reads_belgian_figure(text: str, span: tuple[int, int], value: float) -> boo
     )
     if last - first > _PRINTED_FIGURE_MAX_LENGTH:
         return False
-    if _widen_printed_figure(text, first, last, ".,") != (first, last):
-        return False
-    # A comma or a dot right before the figure, after a space or a bracket,
-    # leaves it the tail of another ("taux de ,5", "2 ,5", "(,5)"); after a
-    # word it parts a list ("1 pour cent,2 pour cent").
-    if (
-        first > 0
-        and text[first - 1] in ".,"
-        and (first == 1 or text[first - 2].isspace() or text[first - 2] in "([")
+    if _widen_printed_figure(text, first, last, _PRINTED_FIGURE_MARKS) != (
+        first,
+        last,
     ):
+        return False
+    # A run of commas and dots right before the figure parts a list after a
+    # letter, a percent sign or a closing bracket or quote ("1 pour cent,2
+    # pour cent", "5 %,2 pour cent", "1 p.c.,2 pour cent"). After anything
+    # else (a space, an opening bracket or quote, another figure, the text's
+    # start) it leaves the figure the tail of another ("taux de ,5", "2 ,5",
+    # "(,5)", "«,5", "2.,5").
+    mark = first
+    while mark > 0 and text[mark - 1] in ".,":
+        mark -= 1
+    if mark < first and not (
+        mark > 0
+        and (
+            text[mark - 1].isalpha()
+            or text[mark - 1] == "%"
+            or unicodedata.category(text[mark - 1]) in ("Pe", "Pf")
+        )
+    ):
+        return False
+    if _spelled_number_leads_figure(text, first):
         return False
     if _SPACED_FRACTION_SLASH_BEFORE_PATTERN.search(
         text, max(0, first - _PRINTED_FIGURE_MAX_LENGTH), first
