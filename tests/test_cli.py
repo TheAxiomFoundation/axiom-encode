@@ -373,6 +373,7 @@ from tests.release_object_fixtures import (
     TEST_RELEASE_PUBLIC_KEY,
     bind_test_corpus_release,
 )
+from tests.scaling import assert_linear_growth, lowest_work
 from tests.signing_broker_fixtures import SigningBrokerFixture
 
 APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV = "AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY"
@@ -14664,6 +14665,268 @@ class TestCmdEncode:
         generate.assert_not_called()
         assert signer.mock_calls == []
 
+    _FR_CITATION = "us/rulemaking/federal-register/2026-02-25/2026-03829"
+
+    def _write_policy_module(
+        self, args, relative: str, citation: str | None, *, plural=()
+    ) -> None:
+        path = args.policy_repo_path / "us" / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = ["format: rulespec/v1", "module:", "  source_verification:"]
+        if citation is not None:
+            lines.append(f"    corpus_citation_path: {citation}")
+        if plural:
+            lines.append("    corpus_citation_paths:")
+            lines.extend(f"    - {item}" for item in plural)
+        lines.append("rules: []")
+        path.write_text("\n".join(lines) + "\n")
+
+    def test_encode_federal_register_target_without_explicit_output_refuses(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path, citation=self._FR_CITATION)
+        self._write_policy_module(
+            args, "policies/cbp/de-minimis/postal-flat-rate.yaml", self._FR_CITATION
+        )
+        self._write_policy_module(
+            args,
+            "policies/usitc/overlays/termination.yaml",
+            "us/rulemaking/federal-register/2026-02-25/2026-03832",
+        )
+        with (
+            patch("axiom_encode.cli.run_model_eval") as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(ValueError) as refused:
+                cmd_encode(args)
+
+        message = str(refused.value)
+        assert "has no default RuleSpec path" in message
+        assert "--replace-rulespec-path" in message
+        assert "us/policies/<agency>/<subject>.yaml" in message
+        # Only the module whose own source is this document is listed.
+        assert (
+            "Modules whose source_verification corpus_citation_path is this "
+            "document: us/policies/cbp/de-minimis/postal-flat-rate.yaml."
+        ) in message
+        assert "termination.yaml" not in message
+        assert "decides whether it accepts that module" in message
+        # No claim about what the flag can or cannot take.
+        assert "can take" not in message and "cannot take" not in message
+        generate.assert_not_called()
+
+    def test_encode_federal_register_refusal_lists_list_and_page_citations(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path, citation=self._FR_CITATION)
+        # A composition module citing the document in its plural list.
+        self._write_policy_module(
+            args,
+            "policies/cbp/us-tariff-duty-composition.yaml",
+            None,
+            plural=(
+                "us/rulemaking/federal-register/2026-02-25/2026-03824",
+                self._FR_CITATION,
+            ),
+        )
+        # A module citing one page of the document.
+        self._write_policy_module(
+            args,
+            "policies/cbp/de-minimis/page-module.yaml",
+            f"{self._FR_CITATION}/page-3",
+        )
+        # A plural-only module, which --replace-rulespec-path can admit.
+        self._write_policy_module(
+            args,
+            "policies/cbp/plural-only.yaml",
+            None,
+            plural=(self._FR_CITATION,),
+        )
+        # A singular module whose plural list also names another document.
+        self._write_policy_module(
+            args,
+            "policies/cbp/singular-and-list.yaml",
+            self._FR_CITATION,
+            plural=("us/rulemaking/federal-register/2026-02-25/2026-03824",),
+        )
+        # A companion test file is never a module, whatever it carries.
+        self._write_policy_module(
+            args,
+            "policies/cbp/de-minimis/postal-flat-rate.test.yaml",
+            self._FR_CITATION,
+        )
+        with (
+            patch("axiom_encode.cli.run_model_eval") as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(ValueError) as refused:
+                cmd_encode(args)
+
+        message = str(refused.value)
+        assert (
+            "Modules whose source_verification corpus_citation_path is this "
+            "document: us/policies/cbp/singular-and-list.yaml."
+        ) in message
+        assert (
+            "Modules that cite this document in corpus_citation_paths or cite "
+            "one of its pages: us/policies/cbp/de-minimis/page-module.yaml, "
+            "us/policies/cbp/plural-only.yaml, "
+            "us/policies/cbp/us-tariff-duty-composition.yaml."
+        ) in message
+        assert "decides whether it accepts that module" in message
+        assert "can take" not in message and "cannot take" not in message
+        assert "exactly one citation path" not in message
+        assert "postal-flat-rate.test.yaml" not in message
+        assert "found no module" not in message
+        generate.assert_not_called()
+
+    def test_encode_federal_register_listing_ignores_sibling_prefixes(self, tmp_path):
+        page_1 = "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-1"
+        args = self._make_args(tmp_path, citation=page_1)
+        # page-10 shares page-1 as a string prefix but is a sibling, not a page.
+        self._write_policy_module(
+            args, "policies/cbp/annex-ii-page-10.yaml", page_1 + "0"
+        )
+        self._write_policy_module(
+            args, "policies/cbp/annex-ii-page-1-part.yaml", f"{page_1}/part-a"
+        )
+        with (
+            patch("axiom_encode.cli.run_model_eval") as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(ValueError) as refused:
+                cmd_encode(args)
+
+        message = str(refused.value)
+        assert "us/policies/cbp/annex-ii-page-1-part.yaml" in message
+        assert "annex-ii-page-10.yaml" not in message
+        generate.assert_not_called()
+
+    def test_encode_federal_register_refusal_says_when_no_module_names_it(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path, citation=self._FR_CITATION)
+        with (
+            patch("axiom_encode.cli.run_model_eval") as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(
+                ValueError,
+                match=r"A scan of us/policies/ in this checkout found no module",
+            ):
+                cmd_encode(args)
+        generate.assert_not_called()
+
+    def test_encode_federal_register_target_through_real_replace_flag(self, tmp_path):
+        # The real --replace-rulespec-path check, against an existing Federal
+        # Register module whose one citation is the requested document.
+        from axiom_encode import cli as cli_module
+
+        relative = "policies/cbp/de-minimis/postal-flat-rate.yaml"
+        args = self._make_args(
+            tmp_path,
+            citation=self._FR_CITATION,
+            apply=True,
+            replace_rulespec_path=Path("us") / relative,
+        )
+        self._write_policy_module(args, relative, self._FR_CITATION)
+
+        class _Stop(Exception):
+            pass
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", side_effect=_Stop) as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(_Stop):
+                cli_module._run_encode_attempt(
+                    args,
+                    model="test-model",
+                    apply_signing_broker=MagicMock(spec=cli_module.SigningBroker),
+                )
+
+        generate.assert_called_once()
+        assert generate.call_args.kwargs["target_relative_output"] == Path(relative)
+
+    def test_encode_federal_register_target_with_explicit_output_proceeds(
+        self, tmp_path
+    ):
+        from axiom_encode import cli as cli_module
+
+        args = self._make_args(tmp_path, citation=self._FR_CITATION)
+        explicit = Path("policies/cbp/de-minimis/postal-flat-rate.yaml")
+
+        class _Stop(Exception):
+            pass
+
+        with (
+            patch(
+                "axiom_encode.cli._resolve_encode_replacement_target",
+                return_value=cli_module._EncodeReplacementTarget(
+                    relative_output=explicit, context_paths=()
+                ),
+            ),
+            patch("axiom_encode.cli.run_model_eval", side_effect=_Stop) as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            with pytest.raises(_Stop):
+                cli_module._run_encode_attempt(args, model="test-model")
+
+        generate.assert_called_once()
+        assert generate.call_args.kwargs["target_relative_output"] == explicit
+
+    @pytest.mark.parametrize(
+        "citation",
+        ("26 USC 1(j)(2)", "us/statute/26/1/j/2", "us/regulation/7/273/4"),
+    )
+    def test_encode_statute_and_regulation_targets_keep_default_paths(
+        self, tmp_path, citation
+    ):
+        args = self._make_args(tmp_path, citation=citation)
+
+        class _Stop(Exception):
+            pass
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", side_effect=_Stop) as generate,
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+        ):
+            from axiom_encode import cli as cli_module
+
+            with pytest.raises(_Stop):
+                cli_module._run_encode_attempt(args, model="test-model")
+
+        generate.assert_called_once()
+        assert generate.call_args.kwargs["target_relative_output"] is None
+
     def test_encode_success(self, capsys, tmp_path):
         args = self._make_args(tmp_path)
         mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
@@ -25560,45 +25823,83 @@ rules:
         )
         assert target.read_text(encoding="utf-8") == original
 
-    def test_generated_yaml_unescape_compares_alias_graphs_in_linear_time(self):
-        # Each level aliases the previous one twice: a path-by-path comparison
-        # is exponential in the depth, a node-pair comparison is linear.
-        import time
-
+    @staticmethod
+    def _alias_graph_text(depth, tag=None):
+        # Each level aliases the previous one twice, so a path-by-path
+        # comparison is exponential in depth.
         lines = ["a0: &a0 [0]"]
-        for level in range(1, 33):
-            lines.append(f"a{level}: &a{level} [*a{level - 1}, *a{level - 1}]")
+        for level in range(1, depth + 1):
+            if tag is None:
+                lines.append(f"a{level}: &a{level} [*a{level - 1}, *a{level - 1}]")
+            else:
+                lines.append(
+                    f"a{level}: &a{level} {tag} "
+                    f"[{{x: *a{level - 1}}}, {{y: *a{level - 1}}}]"
+                )
         lines.append('summary: "\\u05d0"')
-        text = "\n".join(lines) + "\n"
-        started = time.perf_counter()
-        rewritten = _unescape_non_ascii_yaml_escapes(text)
-        assert time.perf_counter() - started < 2.0
+        return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _alias_rewrite_with_bounded_work(monkeypatch, text, depth):
+        import axiom_encode.cli as cli_module
+
+        calls = 0
+        compare = cli_module._yaml_documents_equivalent
+
+        def counted_compare(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            # Stop as soon as the work bound is crossed, so a missing memo
+            # cannot turn the deep case into an exponential suite hang.
+            assert calls <= 8 * (depth + 1)
+            return compare(*args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(cli_module, "_yaml_documents_equivalent", counted_compare)
+            rewritten = _unescape_non_ascii_yaml_escapes(text)
+        assert 0 < calls <= 8 * (depth + 1)
         assert rewritten is not None
         assert "א" in rewritten
+        return rewritten
+
+    def _assert_alias_rewrite_is_linear_in_depth(self, monkeypatch, tag=None):
+        # The call budget at a shallow depth stops a comparator without its
+        # memo first. Native equality inside C (a tuple's own ==, say) follows
+        # every alias path beyond that counter, so the whole rewrite of native
+        # SafeLoader output must grow linearly between two finite depths
+        # before the original depth 32 runs as an output check.
+        self._alias_rewrite_with_bounded_work(
+            monkeypatch, self._alias_graph_text(12, tag), 12
+        )
+
+        def work(depth):
+            text = self._alias_graph_text(depth, tag)
+
+            def check(rewritten):
+                assert rewritten is not None
+                assert "א" in rewritten
+
+            return lowest_work(lambda: _unescape_non_ascii_yaml_escapes(text), check)
+
+        assert_linear_growth(work(12), work(24), input_ratio=2)
+        self._alias_rewrite_with_bounded_work(
+            monkeypatch, self._alias_graph_text(32, tag), 32
+        )
+
+    def test_generated_yaml_unescape_compares_alias_graphs_in_linear_time(
+        self, monkeypatch
+    ):
+        self._assert_alias_rewrite_is_linear_in_depth(monkeypatch)
 
     @pytest.mark.parametrize("tag", ["!!omap", "!!pairs"])
     def test_generated_yaml_unescape_compares_tuple_alias_graphs_in_linear_time(
-        self, tag
+        self, monkeypatch, tag
     ):
         # The safe loader builds !!omap and !!pairs as lists of tuples. A
         # tuple compared by Python's own equality walks every alias path
         # again -- depths 22, 24 and 26 took 0.16, 0.67 and 2.68 seconds --
         # so it is a node of the memoized comparison like a list.
-        import time
-
-        lines = ["a0: &a0 [0]"]
-        for level in range(1, 33):
-            lines.append(
-                f"a{level}: &a{level} {tag} "
-                f"[{{x: *a{level - 1}}}, {{y: *a{level - 1}}}]"
-            )
-        lines.append('summary: "\\u05d0"')
-        text = "\n".join(lines) + "\n"
-        started = time.perf_counter()
-        rewritten = _unescape_non_ascii_yaml_escapes(text)
-        assert time.perf_counter() - started < 2.0
-        assert rewritten is not None
-        assert "א" in rewritten
+        self._assert_alias_rewrite_is_linear_in_depth(monkeypatch, tag)
 
     def test_generated_yaml_unescape_declines_a_document_its_constructor_rejects(self):
         # An unquoted date that does not exist raises ValueError from the

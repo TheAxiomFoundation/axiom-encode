@@ -9,6 +9,7 @@ from the source-unit admission policy implemented here.
 from __future__ import annotations
 
 import ast
+import bisect
 import calendar
 import contextlib
 import contextvars
@@ -144,6 +145,9 @@ class _NumericOccurrenceView:
     requires_rate_context: bool
     is_word_number: bool
     alternative_values: tuple[float, ...]
+    # Carried through rebasing so a month number read from a month name keeps
+    # grounding only month comparisons (see validator_pipeline).
+    requires_month_context: bool = False
 
 
 NumericOccurrenceExtractor = Callable[[str], Sequence[NumericOccurrenceLike]]
@@ -2652,6 +2656,8 @@ _SESSION_LAW_SENTENCE_SEPARATOR = re.compile(
     rf"(?:{_SESSION_LAW_PUBLICATION})?{_SESSION_LAW_YEAR_CHAPTER})",
     flags=re.IGNORECASE,
 )
+_SESSION_LAW_PARAGRAPH_BREAK = re.compile(r"\r?\n[ \t]*\r?\n")
+_SESSION_LAW_CONTINUATION_WRAPPER = re.compile(r"(?:[('\"“‘][ \t]*){0,2}")
 # A validated citation can introduce body prose in an earlier paragraph.
 # The opening must be ordinary prose, currency or a number with a unit or
 # arithmetic operator, with finite history continuations excluded. Dates,
@@ -2680,6 +2686,12 @@ _SESSION_LAW_OPERATIVE_CONTINUATION = re.compile(
     r"[A-Za-z]+\b|\d+\s*[-+*/]\s*\d+\b)",
     flags=re.IGNORECASE,
 )
+# The same predicate anchored at a ``pos`` rather than the string start, so a
+# caller can match inside the source without copying the remaining suffix.
+_SESSION_LAW_OPERATIVE_CONTINUATION_AT = re.compile(
+    _SESSION_LAW_OPERATIVE_CONTINUATION.pattern.removeprefix("^"),
+    flags=_SESSION_LAW_OPERATIVE_CONTINUATION.flags,
+)
 _ALABAMA_TERMINAL_ACT_HISTORY_ENTRY = re.compile(
     r"\s*Acts?\s+"
     r"(?:"
@@ -2703,6 +2715,58 @@ _ALABAMA_TERMINAL_CODE_HISTORY_ENTRY = re.compile(
     r"§{1,2}\s*\d+(?:\s*(?:,|and|through|to|[-–—])\s*\d+)*"
     r"\s*\.?\s*",
     flags=re.IGNORECASE,
+)
+_ARMENIAN_AMENDMENT_HISTORY_DASH = (
+    r"[-\u058a\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d]"
+)
+# The one dot class, used for the article label's decimal point, the action's
+# optional period and both date separators. The encoder prompt names exactly
+# these characters.
+_ARMENIAN_AMENDMENT_HISTORY_DOT = r"[.\u2024]"
+# ASCII digits only, as the prompt's `DD.MM.YY` spells them. Matched against
+# the stripped body: no lazy quantifier and no trailing
+# whitespace run, so a long whitespace run cannot make the match quadratic.
+_ARMENIAN_AMENDMENT_HISTORY_ARTICLE = re.compile(
+    rf"[0-9]+(?:{_ARMENIAN_AMENDMENT_HISTORY_DOT}[0-9]+)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}"
+    r"(?:ին|րդ)\s+հոդվածը\s+(?P<history>\S.*)",
+    flags=re.DOTALL,
+)
+# Amendment-action abbreviations are matched case-insensitively, but the paired
+# `ՀՕ-N[-N]-Ն` law identifier is not: scope the case folding to the action
+# alternation so recognizing an uppercase action cannot also fold the
+# identifier's casing and admit a citation the prompt contract does not permit.
+_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN = (
+    rf"(?i:փոփ|լրաց|խմբ)(?:{_ARMENIAN_AMENDMENT_HISTORY_DOT})?"
+)
+_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN = (
+    rf"[0-9]{{2}}{_ARMENIAN_AMENDMENT_HISTORY_DOT}[0-9]{{2}}"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DOT}[0-9]{{2}}(?:[0-9]{{2}})?\s+Հ(?:Օ)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}[0-9]+(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}[0-9]+)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}Ն"
+)
+_ARMENIAN_AMENDMENT_HISTORY_ACTION = re.compile(
+    _ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN,
+)
+_ARMENIAN_AMENDMENT_HISTORY_CITATION = re.compile(
+    _ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN,
+)
+# Possessive: no action or citation token can begin with a separator character,
+# so giving separator characters back never enables a match. Committing to the
+# longest run keeps the sequence scan linear on adversarial separator runs.
+_ARMENIAN_AMENDMENT_HISTORY_SEPARATOR = r"[\s,;]++"
+_ARMENIAN_AMENDMENT_HISTORY_SEQUENCE = re.compile(
+    rf"\s*(?:{_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN}|"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN})(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_SEPARATOR}(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN}|"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN}))*\s*",
+)
+# One parenthetical alone on its line. Any parenthesis inside the body fails
+# the candidate, so nested ledgers are never consumed whole.
+_ARMENIAN_AMENDMENT_HISTORY_CANDIDATE = re.compile(
+    r"(?:^|\r?\n)[ \t]*\((?P<body>[^()]*)\)(?=[ \t]*(?:\r?\n|$))"
 )
 _FORMULA_IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 
@@ -5407,36 +5471,87 @@ def analyze_complete_source_unit(
             )
             return CompleteSourceUnitAnalysis((issue,), (), 0, 0, 0)
 
-        with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        try:
             payload = yaml.safe_load(content)
-            if isinstance(payload, dict) and payload.get("format") == "rulespec/v1":
-                return _analyze_rulespec_payload(
-                    payload,
-                    content=content,
-                    execution_evidence=execution_evidence,
-                    referral_context=referral_context,
-                    source_text=source_text,
-                    raw_source_text=authoritative_source_text,
-                    corpus_citation_path=corpus_citation_path,
-                    test_cases=test_cases,
-                    extract_numeric_occurrences=extract_numeric_occurrences,
-                    extract_numeric_grounding_occurrences=(
-                        extract_numeric_grounding_occurrences
-                        or extract_numeric_occurrences
-                    ),
-                    extract_named_scalars=extract_named_scalars,
-                    numeric_value_is_grounded=numeric_value_is_grounded,
-                    artifact_numeric_values=artifact_numeric_values,
-                    artifact_numeric_bindings=artifact_numeric_bindings,
-                    authenticated_same_act_aliases=authenticated_same_act_aliases,
-                    imported_symbol_contents=imported_symbol_contents,
-                    imported_export_bindings=imported_export_bindings,
-                    imported_proof_source_context=imported_proof_source_context,
-                    resolved_dependency_outputs=resolved_dependency_outputs,
-                    source_context=source_context,
-                )
+        except (yaml.YAMLError, TypeError, ValueError) as exc:
+            # PyYAML raises ValueError for an impossible timestamp such as
+            # `2026-02-30`, not a YAMLError.
+            return _unanalyzable_complete_source_unit(exc)
+        if not (isinstance(payload, dict) and payload.get("format") == "rulespec/v1"):
+            return _unanalyzable_complete_source_unit(
+                None, reason="the artifact is not a `format: rulespec/v1` mapping"
+            )
+        shape_problem = _rulespec_payload_shape_problem(payload)
+        if shape_problem is not None:
+            return _unanalyzable_complete_source_unit(None, reason=shape_problem)
+        try:
+            return _analyze_rulespec_payload(
+                payload,
+                content=content,
+                execution_evidence=execution_evidence,
+                referral_context=referral_context,
+                source_text=source_text,
+                raw_source_text=authoritative_source_text,
+                corpus_citation_path=corpus_citation_path,
+                test_cases=test_cases,
+                extract_numeric_occurrences=extract_numeric_occurrences,
+                extract_numeric_grounding_occurrences=(
+                    extract_numeric_grounding_occurrences or extract_numeric_occurrences
+                ),
+                extract_named_scalars=extract_named_scalars,
+                numeric_value_is_grounded=numeric_value_is_grounded,
+                artifact_numeric_values=artifact_numeric_values,
+                artifact_numeric_bindings=artifact_numeric_bindings,
+                authenticated_same_act_aliases=authenticated_same_act_aliases,
+                imported_symbol_contents=imported_symbol_contents,
+                imported_export_bindings=imported_export_bindings,
+                imported_proof_source_context=imported_proof_source_context,
+                resolved_dependency_outputs=resolved_dependency_outputs,
+                source_context=source_context,
+            )
+        except (yaml.YAMLError, TypeError, ValueError) as exc:
+            # A gate that cannot read its input must report it, never pass it.
+            return _unanalyzable_complete_source_unit(exc)
 
-        return CompleteSourceUnitAnalysis((), (), 0, 0, 0)
+
+def _rulespec_payload_shape_problem(payload: Mapping[str, Any]) -> str | None:
+    """Name a top-level shape this analysis cannot read, or return None.
+
+    Some malformed shapes do not raise: a bare string in `inputs` is skipped,
+    so the analysis would pass the artifact on what it could read (#1927).
+    Every RuleSpec file in this repository has `rules` as a list of mappings
+    and `inputs` as a list of mappings or one mapping; anything else is
+    reported instead of analysed.
+    """
+
+    if "rules" in payload:
+        rules = payload["rules"]
+        if not isinstance(rules, list) or not all(
+            isinstance(rule, dict) for rule in rules
+        ):
+            return "`rules` is not a list of mappings"
+    if "inputs" in payload:
+        inputs = payload["inputs"]
+        if not isinstance(inputs, dict) and (
+            not isinstance(inputs, list)
+            or not all(isinstance(item, dict) for item in inputs)
+        ):
+            return "`inputs` is not a mapping or a list of mappings"
+    return None
+
+
+def _unanalyzable_complete_source_unit(
+    exc: BaseException | None, *, reason: str | None = None
+) -> CompleteSourceUnitAnalysis:
+    """Fail closed when a payload cannot be analysed (issue #1927)."""
+
+    detail = reason or f"{type(exc).__name__}: {exc}"
+    issue = (
+        "[complete-source-unit:unanalyzable] The RuleSpec payload could not be "
+        f"analysed against its authoritative source ({detail}); fix the payload "
+        "shape before completeness can pass."
+    )
+    return CompleteSourceUnitAnalysis((issue,), (), 0, 0, 0)
 
 
 def _bind_currency_rounding_rules(payload: dict[str, Any]) -> dict[str, Any]:
@@ -13574,6 +13689,11 @@ def _rulespec_target_base(corpus_citation_path: str) -> str:
         "policy": "policies",
         "form": "forms",
     }.get(document_class, f"{document_class}s")
+    if document_class == "rulemaking":
+        # Federal Register instruments land in the reserved
+        # policies/rulemaking/ output namespace (evals._RULEMAKING_OUTPUT_ROOT).
+        plural = "policies"
+        tail = ["rulemaking", *tail]
     if jurisdiction == "us-la" and plural == "statutes" and tail:
         title_section = tail[0].split(":")
         if len(title_section) == 2 and all(title_section):
@@ -13684,6 +13804,23 @@ def _branch_citation(
     return f"{citation}({branch.path[0]}) [{', '.join(components)}]"
 
 
+def _session_law_entry_dates_are_valid(entry: re.Match[str]) -> bool:
+    for qualifier in ("effective", "operative"):
+        month = entry.group(f"{qualifier}_month")
+        if month is None:
+            continue
+        month_number = tuple(calendar.month_abbr).index(month[:3].title())
+        try:
+            date(
+                int(entry.group(f"{qualifier}_year")),
+                month_number,
+                int(entry.group(f"{qualifier}_day")),
+            )
+        except ValueError:
+            return False
+    return True
+
+
 def _validated_session_law_history_entries(
     history: str,
 ) -> tuple[re.Match[str], ...] | None:
@@ -13693,27 +13830,123 @@ def _validated_session_law_history_entries(
     entries = []
     for part in normalized.split(";"):
         entry = _SESSION_LAW_ENTRY.fullmatch(part)
-        if entry is None:
+        if entry is None or not _session_law_entry_dates_are_valid(entry):
             return None
-        for qualifier in ("effective", "operative"):
-            month = entry.group(f"{qualifier}_month")
-            if month is None:
-                continue
-            month_number = tuple(calendar.month_abbr).index(month[:3].title())
-            try:
-                date(
-                    int(entry.group(f"{qualifier}_year")),
-                    month_number,
-                    int(entry.group(f"{qualifier}_day")),
-                )
-            except ValueError:
-                return None
         entries.append(entry)
     return tuple(entries)
 
 
+@dataclass(frozen=True)
+class _SessionLawSuffixSummary:
+    entry_count: int
+    has_action: bool
+
+
+class _SessionLawSuffixIndex:
+    """Validate the history suffix at any candidate start in linear total work.
+
+    ``summary(start)`` agrees with ``_validated_session_law_history_entries(
+    text[start:])`` (``None`` exactly when that is ``None``; otherwise its entry
+    count and whether any entry has an action). The text is normalized and split
+    once, and suffix validity is computed right to left, so each candidate costs
+    one bounded entry match instead of a pass over the remaining text (#1828).
+
+    The sentence separator consumes only a period and whitespace, and it needs a
+    digit before it, so no separator match can begin at or straddle a start
+    whose character is neither whitespace nor a period. Matches after such a
+    start are therefore the same in the whole text and in the suffix. A start
+    outside that shape falls back to validating its suffix directly.
+    """
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+        self._separator_starts: list[int] = []
+        self._separator_ends: list[int] = []
+        self._shifts: list[int] = []
+        pieces: list[str] = []
+        last = 0
+        shift = 0
+        for match in _SESSION_LAW_SENTENCE_SEPARATOR.finditer(text):
+            pieces.append(text[last : match.start()])
+            pieces.append("; ")
+            shift += 2 - (match.end() - match.start())
+            self._separator_starts.append(match.start())
+            self._separator_ends.append(match.end())
+            self._shifts.append(shift)
+            last = match.end()
+        pieces.append(text[last:])
+        normalized = "".join(pieces)
+        self._normalized = normalized
+        semicolons = [
+            index for index, character in enumerate(normalized) if character == ";"
+        ]
+        self._semicolons = semicolons
+        part_count = len(semicolons) + 1
+        # Suffix aggregates over whole parts k..end; index part_count is empty.
+        self._valid_from = [True] * (part_count + 1)
+        self._action_from = [False] * (part_count + 1)
+        for index in range(part_count - 1, -1, -1):
+            start = semicolons[index - 1] + 1 if index else 0
+            end = semicolons[index] if index < len(semicolons) else len(normalized)
+            entry = _SESSION_LAW_ENTRY.fullmatch(normalized, start, end)
+            valid = entry is not None and _session_law_entry_dates_are_valid(entry)
+            self._valid_from[index] = valid and self._valid_from[index + 1]
+            self._action_from[index] = (
+                bool(entry is not None and entry.group("action"))
+                or (self._action_from[index + 1])
+            )
+        self._part_count = part_count
+
+    def summary(self, start: int) -> _SessionLawSuffixSummary | None:
+        text = self._text
+        preceding = bisect.bisect_right(self._separator_ends, start)
+        straddles = preceding < len(self._separator_starts) and (
+            self._separator_starts[preceding] <= start
+        )
+        if (
+            start >= len(text)
+            or text[start].isspace()
+            or text[start] == "."
+            or (straddles)
+        ):
+            entries = _validated_session_law_history_entries(text[start:])
+            if entries is None:
+                return None
+            return _SessionLawSuffixSummary(
+                len(entries), any(entry.group("action") for entry in entries)
+            )
+        offset = start + (self._shifts[preceding - 1] if preceding else 0)
+        part = bisect.bisect_left(self._semicolons, offset)
+        end = (
+            self._semicolons[part]
+            if part < len(self._semicolons)
+            else len(self._normalized)
+        )
+        first = _SESSION_LAW_ENTRY.fullmatch(self._normalized, offset, end)
+        if (
+            first is None
+            or not _session_law_entry_dates_are_valid(first)
+            or not self._valid_from[part + 1]
+        ):
+            return None
+        return _SessionLawSuffixSummary(
+            1 + self._part_count - (part + 1),
+            bool(first.group("action")) or self._action_from[part + 1],
+        )
+
+
+def _whitespace_run_start(text: str, end: int, floor: int = 0) -> int:
+    """Where ``text[floor:end].rstrip()`` ends, without copying the prefix."""
+
+    while end > floor and text[end - 1].isspace():
+        end -= 1
+    return end
+
+
 def _operative_session_law_body_resume_offset(
-    source_text: str, candidate: re.Match[str]
+    source_text: str,
+    candidate: re.Match[str],
+    paragraph_break: re.Match[str] | None,
 ) -> int | None:
     """Keep a citation introducing body prose distinct from a later footer.
 
@@ -13722,35 +13955,48 @@ def _operative_session_law_body_resume_offset(
     history start or blank-line-delimited paragraph. The next candidate still
     owns validation of its entire suffix. A malformed first entry or explicit
     History chain cannot be bypassed this way.
+
+    ``paragraph_break`` is the first paragraph break at or after the candidate.
+    Every match below is bounded by the paragraph through ``pos``/``endpos``
+    instead of copying the suffix, so a candidate costs its own paragraph.
     """
 
     if (candidate.group("history_label") or "").lower() == "history":
         return None
-    suffix = source_text[candidate.start() :]
-    paragraph_break = re.search(r"\r?\n[ \t]*\r?\n", suffix)
-    paragraph = suffix[: paragraph_break.start()] if paragraph_break else suffix
-    entry = _SESSION_LAW_ENTRY.match(paragraph)
+    start = candidate.start()
+    paragraph_end = paragraph_break.start() if paragraph_break else len(source_text)
+    entry = _SESSION_LAW_ENTRY.match(source_text, start, paragraph_end)
     if entry is None or _validated_session_law_history_entries(entry.group()) is None:
         return None
-    continuation = paragraph[entry.end() :]
     # Structural markers inside parenthetical/quoted prose still fail the
     # predicate; the original body text, including its wrappers, is retained.
-    continuation = re.sub(r"^(?:[('\"“‘][ \t]*){0,2}", "", continuation)
-    if _SESSION_LAW_OPERATIVE_CONTINUATION.match(continuation) is None:
+    wrapper = _SESSION_LAW_CONTINUATION_WRAPPER.match(
+        source_text, entry.end(), paragraph_end
+    )
+    continuation_start = wrapper.end() if wrapper else entry.end()
+    if (
+        _SESSION_LAW_OPERATIVE_CONTINUATION_AT.match(
+            source_text, continuation_start, paragraph_end
+        )
+        is None
+    ):
         return None
-    for paragraph_candidate in _SESSION_LAW_TAIL_START.finditer(paragraph, entry.end()):
-        preceding = paragraph[: paragraph_candidate.start()].rstrip()
-        separator = paragraph[len(preceding) : paragraph_candidate.start()]
+    for paragraph_candidate in _SESSION_LAW_TAIL_START.finditer(
+        source_text, entry.end(), paragraph_end
+    ):
+        preceding_end = _whitespace_run_start(
+            source_text, paragraph_candidate.start(), start
+        )
         label = (paragraph_candidate.group("history_label") or "").lower()
         if (
             not label
-            and preceding
-            and "\n" not in separator
-            and preceding[-1] not in ".!?"
+            and preceding_end > start
+            and "\n" not in source_text[preceding_end : paragraph_candidate.start()]
+            and source_text[preceding_end - 1] not in ".!?"
         ):
             continue
-        return candidate.start() + paragraph_candidate.start()
-    return candidate.start() + paragraph_break.end() if paragraph_break else None
+        return paragraph_candidate.start()
+    return paragraph_break.end() if paragraph_break else None
 
 
 def _strip_terminal_session_law_history(source_text: str) -> str:
@@ -13759,6 +14005,9 @@ def _strip_terminal_session_law_history(source_text: str) -> str:
     A failed history entry cannot be bypassed by restarting at a later chapter
     or action in the same suffix. Source/provenance text itself is unchanged;
     this helper is used solely to construct computational recall text.
+
+    The text is normalized and scanned for paragraph breaks once, lazily, so the
+    work is linear in the text rather than text length times candidates (#1828).
     """
 
     terminal_parenthetical = re.search(
@@ -13777,24 +14026,40 @@ def _strip_terminal_session_law_history(source_text: str) -> str:
         ):
             return source_text[: terminal_parenthetical.start()].rstrip()
 
+    suffixes: _SessionLawSuffixIndex | None = None
+    paragraph_breaks: list[re.Match[str]] | None = None
+    paragraph_break_starts: list[int] = []
     retained_body_end = 0
     for candidate in _SESSION_LAW_TAIL_START.finditer(source_text):
-        if candidate.start() < retained_body_end:
+        start = candidate.start()
+        if start < retained_body_end:
             continue
-        prefix = source_text[: candidate.start()]
-        preceding = prefix.rstrip()
-        separator = prefix[len(preceding) :]
+        preceding_end = _whitespace_run_start(source_text, start)
         explicitly_labeled = candidate.group("history_label") is not None
-        strong_layout = not preceding or "\n" in separator
-        if not explicitly_labeled and not strong_layout and preceding[-1] not in ".!?":
+        strong_layout = not preceding_end or "\n" in source_text[preceding_end:start]
+        if (
+            not explicitly_labeled
+            and not strong_layout
+            and source_text[preceding_end - 1] not in ".!?"
+        ):
             continue
 
-        entries = _validated_session_law_history_entries(
-            source_text[candidate.start() :]
-        )
+        if suffixes is None:
+            suffixes = _SessionLawSuffixIndex(source_text)
+        entries = suffixes.summary(start)
         if entries is None:
+            if paragraph_breaks is None:
+                paragraph_breaks = list(
+                    _SESSION_LAW_PARAGRAPH_BREAK.finditer(source_text)
+                )
+                paragraph_break_starts = [match.start() for match in paragraph_breaks]
+            following = bisect.bisect_left(paragraph_break_starts, start)
             resume_offset = _operative_session_law_body_resume_offset(
-                source_text, candidate
+                source_text,
+                candidate,
+                paragraph_breaks[following]
+                if following < len(paragraph_breaks)
+                else None,
             )
             if resume_offset is not None:
                 retained_body_end = resume_offset
@@ -13806,14 +14071,82 @@ def _strip_terminal_session_law_history(source_text: str) -> str:
         if (
             not explicitly_labeled
             and not strong_layout
-            and (
-                len(entries) < 2 or not any(entry.group("action") for entry in entries)
-            )
+            and (entries.entry_count < 2 or not entries.has_action)
         ):
             continue
-        return prefix.rstrip()
+        return source_text[:preceding_end]
 
     return source_text
+
+
+def _armenian_amendment_history_numeric_recall_spans(
+    source_text: str,
+) -> Iterable[tuple[int, int]]:
+    """Yield spans of fully validated standalone ARLIS amendment-history ledgers.
+
+    Each span covers the body (the parentheses stay) of one parenthetical
+    that sits alone on its line at nesting depth zero and whose
+    body is an ordinal article label followed only by amendment actions and
+    paired ``DD.MM.YY[YY] Հ[Օ]-N[-N]-Ն`` citations. Every other parenthetical,
+    including nested, inline, operative or malformed ones, yields nothing and so
+    keeps all of its numbers as recall obligations. The spans are masked, never
+    deleted, so recall-text positions keep their source origins.
+    """
+
+    depth_before: list[int] | None = None
+
+    def parenthesis_depth_before(index: int) -> int:
+        # Built on the first candidate only: sources with no standalone
+        # parenthetical never pay to map the whole text.
+        nonlocal depth_before
+        if depth_before is None:
+            depth_before = []
+            depth = 0
+            for character in source_text:
+                depth_before.append(depth)
+                if character == "(":
+                    depth += 1
+                elif character == ")":
+                    depth = max(0, depth - 1)
+        return depth_before[index]
+
+    for candidate in _ARMENIAN_AMENDMENT_HISTORY_CANDIDATE.finditer(source_text):
+        opening = candidate.start("body") - 1
+        # A candidate whose opening parenthesis sits inside another
+        # parenthetical is nested, and the prompt contract keeps nested
+        # parentheticals as source content.
+        if parenthesis_depth_before(opening) != 0:
+            continue
+        article_history = _ARMENIAN_AMENDMENT_HISTORY_ARTICLE.fullmatch(
+            candidate.group("body").strip()
+        )
+        if article_history is None:
+            continue
+        history = article_history.group("history")
+        if (
+            _ARMENIAN_AMENDMENT_HISTORY_ACTION.search(history) is None
+            or _ARMENIAN_AMENDMENT_HISTORY_CITATION.search(history) is None
+            or _ARMENIAN_AMENDMENT_HISTORY_SEQUENCE.fullmatch(history) is None
+        ):
+            continue
+        # Blank the body only. Keeping both parentheses leaves the depth map
+        # unchanged and keeps a line break plus `(` between the lines around
+        # the ledger, so no later citation pattern that allows whitespace can
+        # join a reference word above to a number below.
+        yield candidate.start("body"), candidate.end("body")
+
+
+def mask_armenian_amendment_history(source_text: str) -> str:
+    """Mask fully validated standalone ARLIS ledgers in place with spaces.
+
+    The eval numeric-coverage metric uses this so it never demands a number
+    the encoder prompt tells the model to leave out. It applies only this
+    recognizer, so every other source number keeps its obligation.
+    """
+
+    return _mask_numeric_spans(
+        source_text, _armenian_amendment_history_numeric_recall_spans(source_text)
+    )
 
 
 def _spaced_german_sentence_label_spans(text: str) -> tuple[tuple[int, int], ...]:
@@ -15402,6 +15735,9 @@ def authoritative_numeric_recall_text(
         # The preceding masks preserve positions; history cleanup only drops
         # a terminal suffix. All subsequent deletions go through tracked sub.
         del _source_map.offsets[len(cleaned) :]
+    # After the history cleanup, so a masked ledger (now blank) can never make
+    # an earlier session-law history chain look terminal and drop it.
+    cleaned = mask(cleaned, _armenian_amendment_history_numeric_recall_spans(cleaned))
     if _GLUED_SECTION_SENTENCE_MARKER.search(cleaned):
         # Strip only authenticated sentence labels, before removing the section
         # citation that distinguishes `2§ 64` from a substantive number 2.
@@ -29481,6 +29817,7 @@ def _shift_numeric_occurrence(
         requires_rate_context=occurrence.requires_rate_context,
         is_word_number=occurrence.is_word_number,
         alternative_values=occurrence.alternative_values,
+        requires_month_context=getattr(occurrence, "requires_month_context", False),
     )
 
 
