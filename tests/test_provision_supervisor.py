@@ -2198,6 +2198,102 @@ class TestEncoderSnapshotProvisioning:
         with pytest.raises(SystemExit, match="after the latest version bump"):
             self._export(repo, head, staging)
 
+    def _commit_record(self, repo: Path, relative: str, raw: bytes) -> str:
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+        path.chmod(0o644)
+        self._git(repo, "add", ".")
+        self._git(repo, "commit", "-q", "-m", "admit reviewed head", "--no-verify")
+        return self._git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    def test_exports_committed_reviewed_rulespec_records_verbatim(self, tmp_path):
+        from axiom_encode.prepare_signed_backfill import (
+            load_reviewed_rulespec_records,
+            reviewed_rulespec_refs_from_records,
+        )
+
+        repo = tmp_path / "axiom-encode"
+        self._init_encoder_repo(repo)
+        sha = "a" * 40
+        payload = {
+            "base_sha": None,
+            "binding": None,
+            "country": "us",
+            "declared": None,
+            "pr_base_branch": None,
+            "purpose": "Test admission.",
+            "rulespec_pr": None,
+            "rulespec_ref": sha,
+            "schema": "axiom-encode/reviewed-rulespec-admission/v1",
+        }
+        raw = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode()
+        relative = f"data/reviewed-rulespec-refs/us/{sha}.json"
+        # Admission records are data: no version bump is needed to provision.
+        head = self._commit_record(repo, relative, raw)
+        # A dirty worktree record must not reach the runtime.
+        (repo / "data/reviewed-rulespec-refs/us" / f"{'b' * 40}.json").write_bytes(
+            raw.replace(sha.encode(), b"b" * 40)
+        )
+        staging = tmp_path / "staging"
+        staging.mkdir()
+
+        self._export(repo, head, staging)
+
+        exported = staging / "reviewed-rulespec-refs"
+        assert sorted(
+            path.relative_to(exported).as_posix() for path in exported.rglob("*")
+        ) == ["us", f"us/{sha}.json"]
+        record = exported / "us" / f"{sha}.json"
+        assert record.read_bytes() == raw
+        assert stat.S_IMODE(record.stat().st_mode) == 0o644
+        assert stat.S_IMODE((exported / "us").stat().st_mode) == 0o755
+        assert reviewed_rulespec_refs_from_records(
+            load_reviewed_rulespec_records(exported)
+        ) == {("us", sha)}
+
+    def test_commit_without_records_exports_empty_record_root(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        head = self._init_encoder_repo(repo)
+        staging = tmp_path / "staging"
+        staging.mkdir()
+
+        self._export(repo, head, staging)
+
+        exported = staging / "reviewed-rulespec-refs"
+        assert exported.is_dir() and not any(exported.iterdir())
+
+    def test_refuses_executable_reviewed_rulespec_record(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        self._init_encoder_repo(repo)
+        record = repo / "data/reviewed-rulespec-refs/us" / f"{'a' * 40}.json"
+        record.parent.mkdir(parents=True)
+        record.write_text("{}\n")
+        record.chmod(0o755)
+        self._git(repo, "add", ".")
+        self._git(repo, "commit", "-q", "-m", "exec record", "--no-verify")
+        head = self._git(repo, "rev-parse", "HEAD").stdout.strip()
+        staging = tmp_path / "staging"
+        staging.mkdir()
+
+        with pytest.raises(SystemExit, match="unsupported reviewed RuleSpec record"):
+            self._export(repo, head, staging)
+
+    def test_refuses_symlinked_reviewed_rulespec_record(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        self._init_encoder_repo(repo)
+        directory = repo / "data/reviewed-rulespec-refs/us"
+        directory.mkdir(parents=True)
+        (directory / f"{'a' * 40}.json").symlink_to("/etc/passwd")
+        self._git(repo, "add", ".")
+        self._git(repo, "commit", "-q", "-m", "symlink record", "--no-verify")
+        head = self._git(repo, "rev-parse", "HEAD").stdout.strip()
+        staging = tmp_path / "staging"
+        staging.mkdir()
+
+        with pytest.raises(SystemExit, match="unsupported reviewed RuleSpec record"):
+            self._export(repo, head, staging)
+
     def test_rejects_shallow_history(self, tmp_path):
         repo = tmp_path / "axiom-encode"
         self._init_encoder_repo(repo)
