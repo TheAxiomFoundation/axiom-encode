@@ -35,22 +35,23 @@ sentence); main grounds none of them either. "pour mille" is no percent.
 In a Belgian source, a figure restated in parentheses takes the marker after
 them. A fraction with a decimal comma takes any marker after any word
 ("(14,75) p.c."). A whole or dotted figure needs a French, Dutch or German
-preposition or copula and one space right before the parenthesis, and "%" or
-a word that spells a percent out after it ("taux de (101) % du montant"). The
+preposition or copula and one space right before the parenthesis, and "%" or a
+word that spells a percent out after it ("taux de (101) % du montant"). The
 preposition follows a space, an apostrophe ("jusqu'à") or an opening bracket
-or quote, so "Item (117) Percent" and "https://example.be/de (117) pour
-cent" hold no rate. Nor does a figure printed as one comma before three
-digits ("taux de (1,250) %"): English reads 1250 there, a Belgian source
-1.25. A label-shaped parenthesis ("(75)") needs a word that spells a percent
-out ("pour (75) pour cent", "tarief van (9) procent", "Satz von (15)
-Prozent"); otherwise it stays a masked label, as on main. The cleaner judges
-a label in the text before cleaning, as the readers do, so a date after its
+or quote, so "Item (117) Percent" and "https://example.be/de (117) pour cent"
+hold no rate. Nor does a figure printed as one comma before three digits
+("taux de (1,250) %"): English reads 1250 there, a Belgian source 1.25.
+English groups no figure that starts with a zero, so "(0,125) %" keeps its
+decimal comma. A label-shaped parenthesis ("(75)") needs a word that spells a
+percent out ("pour (75) pour cent", "tarief van (9) procent", "Satz von (15)
+Prozent"); otherwise it stays a masked label, as on main. The cleaner judges a
+label in the text before cleaning, as the readers do, so a date after its
 marker ("pour cent 2026-01-01.") keeps it masked. A source may define an
 abbreviation as anything ("p.c." for "parties civiles"), and a whole number
 may count or cite ("(101) p.c. applicants"), so "pour (75) p.c. remboursés"
-and "taux de (14.75) p.c." hold no rate; main grounds neither. A figure
-before the parenthesis owns the marker, and a figure without a marker still
-never grounds N/100.
+and "taux de (14.75) p.c." hold no rate; main grounds neither. A figure before
+the parenthesis owns the marker, and a figure without a marker still never
+grounds N/100.
 
 Pipe tables: a Belgian or German header names a rate column only in the row
 right above the delimiter row, when both have as many cells. That header row

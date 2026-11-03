@@ -7775,8 +7775,9 @@ _PARENTHESIZED_FIGURE_RATE_MARKER_PATTERN = re.compile(
 # A figure that ends in a decimal comma and its fraction ("14,75", "1.000,5").
 _DECIMAL_COMMA_FRACTION_END_PATTERN = re.compile(r",\d+\Z")
 # A figure printed as one comma before three digits ("1,250"): English reads
-# a thousands separator there, a Belgian source a decimal comma.
-_AMBIGUOUS_COMMA_FIGURE_PATTERN = re.compile(r"-?\d{1,3},\d{3}")
+# a thousands separator there, a Belgian source a decimal comma. English
+# groups no figure that starts with a zero, so "0,125" keeps its decimal comma.
+_AMBIGUOUS_COMMA_FIGURE_PATTERN = re.compile(r"-?[1-9]\d{0,2},\d{3}")
 # The closing parenthesis of a figure restated in parentheses ("(14,75)
 # p.c."), read before the marker that follows it.
 _PARENTHESIZED_FIGURE_CLOSE_PATTERN = re.compile(r"[ \t\u00a0\u202f]*\)")
@@ -14813,7 +14814,9 @@ def _parenthesized_figure_rate_context(
     rate, an abbreviation too, after any word ("(14,75) p.c."): main reads
     "14,75 p.c." as a rate. A figure printed as one comma before three digits
     ("taux de (1,250) %") reads 1250 in English and 1.25 in a Belgian source,
-    so the reader takes it as neither. ``value`` is the figure's own value.
+    so the reader takes it as neither; English groups no figure that starts
+    with a zero, so "(0,125) %" keeps its decimal comma. ``value`` is the
+    figure's own value.
     """
     if profile != "be-BE":
         return False

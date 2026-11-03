@@ -854,6 +854,15 @@ def test_comma_grouped_figure_in_parentheses_restates_no_rate(marker):
         assert not _gate_grounds(source_text, formula), (source_text, formula)
 
 
+@pytest.mark.parametrize("marker", ("%", "pour cent", "procent", "p.c."))
+def test_comma_figure_with_a_leading_zero_keeps_its_decimal_comma(marker):
+    # English groups no figure that starts with a zero, so "0,125" holds a
+    # decimal comma.
+    source_text = f"taux de (0,125) {marker} du montant"
+    assert _gate_grounds(source_text, "0.00125"), source_text
+    assert not _gate_grounds(source_text, "1.25"), source_text
+
+
 @pytest.mark.parametrize(
     "source_text",
     ("N1,000 de (17) pour cent du montant", "¢5 de (17) pour cent du montant"),
