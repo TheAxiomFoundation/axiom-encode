@@ -1,3 +1,11 @@
+## 0.2.2300
+
+- Assign the encoder version after merge, not in each pull request (#2048). The new `Encoder version bump` workflow runs on every push to `main`. When encoder-affecting files changed after the latest bump, it writes the next version into `pyproject.toml`, `src/axiom_encode/__init__.py` and `uv.lock`, compiles the `changelog.d/` fragments into `CHANGELOG.md`, and opens a bump pull request with auto-merge on. The workflow needs the `ENCODER_VERSION_BUMP_TOKEN` secret.
+- Add `axiom_encode.version_provenance`, a standard-library check of the version rule at any git ref. It applies the same rule as the `--apply` guard: no encoder-affecting file may change after the latest version bump.
+- Refuse an encoder head that no bump covers in the re-encode workflow's attempt-budget job. The encode job is then skipped, so a dispatch made before the bump lands uses no production-signing approval and does not count against the attempt budget.
+- `ci_parity.encoder_version_at_pin` refuses a pin whose encoder files changed after its version bump, so that one version never names two encoder states.
+- `test_current_encoder_affecting_changes_are_behind_version_bump` now runs only with `AXIOM_ENCODE_REQUIRE_VERSION_BUMP=1`, because a pull request no longer carries a bump.
+
 ## 0.2.2298
 
 - Type validator issues from declared checks. Each converted issue is a `ValidationIssue` (a `str` whose value is the unchanged message) that names its check id, subject (citation, branch or clause with the branch's source span, module and line, rule, test case or field), expected and found values, a short evidence excerpt and a stable fingerprint. Checks declare `title`, `requires`, `why`, `fix`, `cause` and their code site next to the code that runs them. Converted: complete-source-unit `structure`, `formula-output`, `numeric-recall`, `deferral`, `source-explicit-conditions` and `tests` (split into ten checks), proof source evidence (not found, out of scope) and the rules-engine compile failure.
