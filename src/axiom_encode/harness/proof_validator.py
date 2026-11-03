@@ -181,7 +181,14 @@ def proof_source_citation_paths(content: str) -> tuple[str, ...]:
 
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except (
+        yaml.YAMLError,
+        ValueError,
+        KeyError,
+        IndexError,
+        AttributeError,
+        TypeError,
+    ):
         return ()
     if not isinstance(payload, dict):
         return ()

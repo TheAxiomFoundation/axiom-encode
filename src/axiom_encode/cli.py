@@ -5277,7 +5277,16 @@ def cmd_proof_validate(args):
     for display_path, content in money_atom_files:
         try:
             payload = yaml.safe_load(content)
-        except (yaml.YAMLError, ValueError):
+        except (
+            yaml.YAMLError,
+            ValueError,
+            KeyError,
+            IndexError,
+            AttributeError,
+            TypeError,
+        ):
+            # PyYAML's scalar constructors raise these on some tagged text,
+            # such as `!!bool maybe`; the proof gate below reports the tag.
             continue
         identity_issues = find_noncanonical_corpus_citation_path_issues(payload)
         if identity_issues:
