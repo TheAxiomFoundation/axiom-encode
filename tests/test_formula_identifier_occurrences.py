@@ -347,6 +347,8 @@ def test_actual_rust_unknown_call_is_not_silently_dropped(actual_engine, tmp_pat
         ("if exactly_one(period_start, period_end):\n    1\nelse:\n    0", set()),
         ("sum_over_periods(period_start)", set()),
         ("sum(members.period_start)", {"members", "period_start"}),
+        ("sum(members . period_start)", {"members", "period_start"}),
+        ("sum(members.\n    period_end)", {"members", "period_end"}),
         ("count_where(members, period_end)", {"members"}),
         ("period_start[lookup_key]", {"lookup_key"}),
         ("if period_start: 1 else: 0", set()),

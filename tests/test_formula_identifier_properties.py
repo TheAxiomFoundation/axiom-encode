@@ -58,7 +58,12 @@ def test_comments_never_change_references_or_lifetime_routing(formula, comment):
     ) is formula_calls_lifetime_reduction(formula)
 
 
-@given(formula=formulas(), quoted=inert_text.filter(lambda text: '"' not in text))
+@given(
+    formula=formulas(),
+    # A trailing backslash would escape the closing quote and leave the string
+    # unterminated, which is malformed input rather than quoted text.
+    quoted=inert_text.filter(lambda text: '"' not in text and not text.endswith("\\")),
+)
 def test_quoted_text_never_adds_references_or_lifetime_calls(formula, quoted):
     with_label = f'{formula} + len("{quoted}")'
     assert formula_reference_identifiers(with_label) == formula_reference_identifiers(
