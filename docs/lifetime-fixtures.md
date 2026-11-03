@@ -3,12 +3,19 @@
 The encoder can execute a multi-period companion case through an actual Axiom
 Rust CLI implementing `run-lifetime --artifact`. This is an opt-in fixture shape;
 ordinary scalar cases keep their existing behavior. The engine must support
-`axiom-rules-engine/lifetime-request/v1`, response v1 and compiled artifact v2
-for ordinary lifetime cases. Explicit calculation-period cases require request
-and response v2 support.
-An older CLI fails validation rather than falling back to scalar evaluation.
+`axiom-rules-engine/lifetime-request/v1` and response v1 for ordinary lifetime
+cases, and request and response v2 for explicit calculation-period cases. Its
+responses must echo compiled artifact format 3, the format the engine that adds
+`run-lifetime` compiles and loads. An engine without `run-lifetime` fails
+validation of any lifetime case rather than falling back to scalar evaluation.
 Production generation must still use the reviewed, pinned engine and protected
 encoder workflow. This feature does not update a repository's toolchain pins.
+
+Generation offers this protocol, and the `calendar_years_to_months` guidance
+below, only when the engine binary that validation binds lists `run-lifetime`
+in its `--help` output. With any other engine, or if the probe fails, the
+generation prompt is unchanged and never asks for a lifetime case or the
+calendar conversion.
 
 To pin the engine for a job, pass `--axiom-rules-engine-ref` with the full
 40-character commit to `encode`, along with `--axiom-rules-engine-path`. Lifetime
@@ -68,7 +75,8 @@ the same unique entity IDs in the same order in every batch. It asserts every
 row, using a scalar expectation for one row or a list for multiple rows. Decimal
 expectations use ASCII decimal strings without exponent notation and are compared
 as exact decimal numbers, so trailing zeros don't matter (`"0.30"` equals
-`"0.3"`) but any other difference, however small, does. Booleans, integers, dates, text and judgments preserve their types.
+`"0.3"`) but any other difference, however small, does. Booleans, integers,
+dates, text and judgments preserve their types.
 Inputs and results are validated by the real Rust runtime and the typed response
 contract. No Python policy calculation or floating-point tolerance is involved.
 
@@ -111,20 +119,27 @@ Where other scalar cases are comparable, their existing oracle score covers only
 those comparable outputs. It does not establish oracle parity for the lifetime
 outputs. Other source-coverage requirements remain in force.
 
-Run the synthetic integration tests against an explicitly selected real build:
+The engine-backed tests take the `real_engine` fixture (`tests/real_engine.py`),
+so CI's real-engine job runs them against its pinned engine. Tests that need
+`run-lifetime` or `calendar_years_to_months` also check the engine's `--help`
+output (`tests/lifetime_engine.py`) and skip with a capability reason when the
+command is missing. Until the CI pin includes `run-lifetime`, those tests skip
+there, and nothing in CI exercises the lifetime transport against a real engine.
+To run them locally against a capable build, bind it with
+`axiom-encode engine-bind` and point `AXIOM_RULES_ENGINE_ROOT` (and
+`AXIOM_RULES_ENGINE_REF`) at that checkout:
 
 ```sh
-AXIOM_LIFETIME_TEST_ENGINE=/absolute/path/to/axiom-rules-engine \
-  uv run pytest --no-cov tests/test_lifetime_engine_integration.py
+AXIOM_RULES_ENGINE_ROOT=<engine checkout> AXIOM_RULES_ENGINE_REF=<pin> \
+  uv run pytest --no-cov -m real_engine \
+  tests/test_lifetime_engine_integration.py \
+  tests/test_calculation_lifetime_engine_integration.py \
+  tests/test_calendar_unit_engine_integration.py
 ```
 
-These tests compile fresh synthetic modules and execute all four reductions,
-verify a decimal discrepancy below floating-point resolution, and reject a
-computed output supplied as a historical fact. They skip if the binary is not
-explicitly configured; default Python CI alone does not prove engine integration.
-
-With a build exposing the calendar primitive, also run
-`tests/test_calendar_unit_engine_integration.py` under the same environment.
-Those synthetic fixtures exercise an arithmetic-derived year count, conversion
-of a lifetime count, exact typed output, zero earnings, tied values and separated
-complete years. A fractional derived count must fail rather than truncate.
+These compile fresh synthetic modules and execute all four reductions, verify a
+decimal discrepancy below floating-point resolution, and check that a computed
+output supplied as a historical fact is refused. The calendar tests exercise an
+arithmetic-derived year count, conversion of a lifetime count, exact typed output,
+zero earnings, tied values and separated complete years. A fractional derived
+count must fail rather than truncate.
