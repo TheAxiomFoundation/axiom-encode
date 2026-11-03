@@ -25,12 +25,17 @@ from axiom_encode.codex_cli import (
     with_codex_model_availability_hint,
 )
 from axiom_encode.constants import (
-    DEFAULT_API_ENCODER_EFFORT,
     DEFAULT_CLI_MODEL,
     DEFAULT_MODEL,
 )
 from axiom_encode.prompts.encoder import get_encoder_prompt
 
+from .anthropic_messages import (
+    ANTHROPIC_API_EFFORTS,
+    ANTHROPIC_MESSAGES_MAX_TOKENS,
+    anthropic_messages_options,
+    resolve_api_encoder_effort,
+)
 from .encoding_db import TokenUsage
 from .eval_evidence import scrub_attestation_signing_keys
 from .observability import extract_reasoning_output_tokens
@@ -299,13 +304,15 @@ Score each dimension from 1-10. Output ONLY valid JSON:
         cmd.extend(["-p", prompt])
 
         try:
+            env = scrub_attestation_signing_keys()
+            env.pop("ANTHROPIC_API_KEY", None)
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
                 cwd=execution_root,
-                env=scrub_attestation_signing_keys(),
+                env=env,
             )
             return result.stdout + result.stderr, result.returncode
         except subprocess.TimeoutExpired:
@@ -560,9 +567,9 @@ class AgentSDKBackend(EncoderBackend):
     """
 
     # Room for adaptive thinking plus a long RuleSpec module.
-    MAX_TOKENS = 64_000
+    MAX_TOKENS = ANTHROPIC_MESSAGES_MAX_TOKENS
     # The API's ``output_config.effort`` levels on current Claude models.
-    EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
+    EFFORTS = ANTHROPIC_API_EFFORTS
 
     def __init__(
         self,
@@ -574,20 +581,7 @@ class AgentSDKBackend(EncoderBackend):
         if not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY required for AgentSDKBackend")
         self.model = model or DEFAULT_MODEL
-        # Fail at construction, not with a 400 on every request. A blank
-        # argument defers to the environment, and a blank value there to the
-        # default.
-        if effort and effort.strip():
-            source, raw_effort = "effort", effort
-        else:
-            source = "AXIOM_API_ENCODER_EFFORT"
-            raw_effort = os.environ.get("AXIOM_API_ENCODER_EFFORT") or ""
-        self.effort = raw_effort.strip().lower() or DEFAULT_API_ENCODER_EFFORT
-        if self.effort not in self.EFFORTS:
-            raise ValueError(
-                f"{source}={raw_effort!r} is not a valid effort; use one of "
-                f"{sorted(self.EFFORTS)}"
-            )
+        self.effort = resolve_api_encoder_effort(effort, efforts=self.EFFORTS)
 
     def encode(self, request: EncoderRequest) -> EncoderResponse:
         """Synchronous encode using API (runs async under the hood)."""
@@ -656,10 +650,12 @@ class AgentSDKBackend(EncoderBackend):
             # runs many of these concurrently.
             async with anthropic.AsyncAnthropic(api_key=self.api_key) as client:
                 async with client.messages.stream(
-                    model=self.model,
-                    max_tokens=self.MAX_TOKENS,
-                    messages=[{"role": "user", "content": prompt}],
-                    output_config={"effort": self.effort},
+                    **anthropic_messages_options(
+                        model=self.model,
+                        prompt=prompt,
+                        effort=self.effort,
+                        max_tokens=self.MAX_TOKENS,
+                    ),
                 ) as stream:
                     # anthropic 0.83.0's final message drops stop_details; its
                     # message_delta event still carries them.

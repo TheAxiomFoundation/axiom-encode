@@ -60,6 +60,15 @@ Prerequisites (all local):
   `openai:` backend is not part of the roster and needs explicit per-run
   approval.
 
+Use `claude-api:<model>` for a Claude Messages API contestant authenticated by
+`ANTHROPIC_API_KEY`. This runner is prompt-only, with every context file inlined
+in full; context overflow fails as an infrastructure error without scoring a
+partial artifact. Claude CLI runners and reviewers continue to use subscription
+authentication. `--skip-reviewers` disables the advisory reviewer and enters the
+execution identity. Signed `encode --apply` remains unavailable for `claude-api`,
+and its admission score is not applicable: signed apply does not stamp that
+backend's source attestation.
+
 Serial run (whole roster from the manifest, resumable):
 
 ```bash

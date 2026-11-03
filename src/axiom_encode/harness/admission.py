@@ -30,7 +30,16 @@ COMPLETE_SOURCE_UNIT_CATEGORIES = (
 # Infrastructure classes a caller may report for a generation that left no
 # artifact. The scorer never infers one: the harness passes it from evidence
 # of its own (see ``evals._eval_result_generation_infrastructure_failure``).
-GENERATION_INFRASTRUCTURE_FAILURES = ("authentication", "quota-exhaustion")
+GENERATION_INFRASTRUCTURE_FAILURES = (
+    "authentication",
+    "quota-exhaustion",
+    "context-overflow",
+)
+CLAUDE_API_ADMISSION_NOT_APPLICABLE_REASON = (
+    "claude-api admission is not applicable because signed apply does not stamp "
+    "this backend's resolver source attestation; signed encoding remains limited "
+    "to the existing backends."
+)
 _CONTEXT_CATEGORIES = {
     "temporal-dependency-coverage",
     "existing-target-oracle-contract",
@@ -186,9 +195,15 @@ class AdmissionResult:
     identity: dict[str, object]
     unknown_issues: list[str] = field(default_factory=list)
     scorer_error: dict[str, str] | None = None
+    applicable: bool = True
+    not_applicable_reason: str | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return asdict(self)
+        payload = asdict(self)
+        if self.applicable:
+            payload.pop("applicable")
+            payload.pop("not_applicable_reason")
+        return payload
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
@@ -381,6 +396,21 @@ def prerequisite_admission_result(
         missing_authoritative_occurrences=None,
         authoritative_recall_percentage=None,
         identity=dict(identity or {}),
+    )
+
+
+def not_applicable_admission_result() -> AdmissionResult:
+    """Report an API backend whose unsigned output cannot take signed admission."""
+    result = prerequisite_admission_result(
+        [CLAUDE_API_ADMISSION_NOT_APPLICABLE_REASON],
+        categories=["backend-not-applicable"],
+    )
+    return AdmissionResult(
+        **{
+            **result.to_dict(),
+            "applicable": False,
+            "not_applicable_reason": CLAUDE_API_ADMISSION_NOT_APPLICABLE_REASON,
+        }
     )
 
 
@@ -853,8 +883,9 @@ def score_admission(
     ``generation_infrastructure_failure`` is the caller's own evidence that
     infrastructure ended a generation: one of
     ``GENERATION_INFRASTRUCTURE_FAILURES``. A row with no artifact is then a
-    prerequisite failure (``generation-authentication`` or
-    ``generation-quota-exhaustion``), not the model's. The scorer never derives
+    prerequisite failure (``generation-authentication``,
+    ``generation-quota-exhaustion`` or ``generation-context-overflow``), not the
+    model's. The scorer never derives
     it from diagnostic text, and it does not excuse an artifact that exists.
 
     ``expected_context`` optionally pins ``source_body_sha256``,
@@ -862,6 +893,9 @@ def score_admission(
     ``corpus_release_content_sha256`` from a suite manifest. Resolved identities
     are recorded even when these expected values are not supplied.
     """
+
+    if str(getattr(result, "backend", "") or "").strip().lower() == "claude-api":
+        return not_applicable_admission_result()
 
     from .. import cli
     from ..engine_binding import (
