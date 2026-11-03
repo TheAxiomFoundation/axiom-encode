@@ -315,10 +315,19 @@ per-child scrub, so the launcher is a wiring layer, not a second trust boundary.
 
 For subscription-backed generation, `run` also accepts the supervisor's
 `--trusted-codex-cli-config`, `--codex-subscription-auth`, and
-`--codex-auth-outbox` flags before the `--` separator. Supply all three together;
-the launcher rejects partial configurations before consuming the signing key.
-It forwards the paths unchanged to the supervisor, which owns credential-file
-validation, isolation, and refresh. The signer's minimal environment and CI
+`--codex-auth-outbox` flags before the `--` separator. Supply all three together.
+Before it reads the signing key, the launcher rejects a partial configuration,
+an ambient `CODEX_HOME` (which the supervisor would also refuse), and a
+non-empty `OPENAI_API_KEY` or `CODEX_API_KEY`, which would otherwise reach the
+supervised encoder beside the subscription home. It forwards the paths
+unchanged and never opens them: the supervisor owns credential-file
+validation, isolation, and refresh, so a path the supervisor rejects is
+refused only after the key has been delivered to the signer.
+
+Codex children can read the `auth.json` in their home despite the read-only
+sandbox. The encoder therefore reads that file's credential strings before
+and after each Codex generation and review run, and replaces them, verbatim
+and JSON-escaped, in everything it keeps from the child's output. The signer's minimal environment and CI
 context requirements still apply. Omitting all three preserves the existing
 supervisor arguments.
 
