@@ -26,6 +26,7 @@ from tests.eval_evidence_fixtures import (
     TEST_APPLY_PUBLIC_KEY_B64,
     install_test_eval_evidence_keys,
 )
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 from tests.signing_broker_fixtures import SigningBrokerFixture
 from tests.test_cli import (
     TEST_APPLY_SIGNING_BROKER,
@@ -44,7 +45,7 @@ def _git(repo: Path, *args: str, input: str | None = None) -> str:
         capture_output=True,
         text=True,
         check=True,
-        timeout=60,
+        timeout=HANG_TIMEOUT_SECONDS,
         env=Names(
             {
                 **os.environ,

@@ -13,6 +13,7 @@ from tests.environment_assertions import (
     Names,
     environment_variable,
 )
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 ROOT = Path(__file__).parents[1]
 RUN_ID = 123
@@ -99,7 +100,7 @@ def _lookup(
         ),
         capture_output=True,
         text=True,
-        timeout=15,
+        timeout=HANG_TIMEOUT_SECONDS,
     )
 
 

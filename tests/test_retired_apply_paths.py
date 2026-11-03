@@ -20,6 +20,7 @@ from axiom_encode import cli
 from axiom_encode.harness.evals import resolve_corpus_source_unit
 from axiom_encode.judges import regeneration
 from tests.environment_assertions import Names
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 from tests.signing_broker_fixtures import SigningBrokerFixture
 from tests.test_cli import (
     TEST_APPLY_SIGNING_BROKER,
@@ -56,7 +57,7 @@ def _git(repo: Path, *args: str) -> str:
         check=True,
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=HANG_TIMEOUT_SECONDS,
         env=Names(
             {
                 **os.environ,

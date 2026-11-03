@@ -25,6 +25,7 @@ from axiom_encode.retired_apply import (
     retrospective_head_issue,
     validate_retired_apply_inventory,
 )
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 
 def _git(repo: Path, *arguments: str) -> str:
@@ -33,7 +34,7 @@ def _git(repo: Path, *arguments: str) -> str:
         capture_output=True,
         check=True,
         text=True,
-        timeout=30,
+        timeout=HANG_TIMEOUT_SECONDS,
         env={
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "HOME": "/nonexistent",

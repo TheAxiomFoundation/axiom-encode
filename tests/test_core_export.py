@@ -17,6 +17,7 @@ import pytest
 
 from axiom_encode import core_export, entrypoint, signing_broker
 from tests.environment_assertions import hides_environment
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 ROOT = "zz:policies/synthetic-candidate"
 IMPORTED = "zz:policies/synthetic-import"
@@ -68,7 +69,7 @@ def _isolated_python(tmp_path: Path, script: str, *args: str, env=None):
         env=env,
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=HANG_TIMEOUT_SECONDS,
         check=False,
     )
 

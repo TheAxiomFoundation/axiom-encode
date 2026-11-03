@@ -17,6 +17,7 @@ from axiom_encode.cli import _execute_rulespec_test_file
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 from axiom_encode.rules_engine_compat import run_rulespec_compile
 from tests.environment_assertions import Names, hides_environment
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 FIXTURES = Path(__file__).parent / "fixtures" / "companion_declared_entities"
 PERIOD = {"period_kind": "month", "start": "2026-01-01", "end": "2026-01-31"}
@@ -159,7 +160,7 @@ def test_rehoming_conceals_real_engine_missing_input(tmp_path, entity_engine, fa
             capture_output=True,
             text=True,
             check=False,
-            timeout=30,
+            timeout=HANG_TIMEOUT_SECONDS,
         )
 
     rehomed = execute(MODULES[family][2], "owner-1")
@@ -558,7 +559,7 @@ def test_flat_companion_pass_implies_correctly_scoped_engine_pass(
             capture_output=True,
             text=True,
             check=False,
-            timeout=30,
+            timeout=HANG_TIMEOUT_SECONDS,
         )
         direct_passes = direct.returncode == 0
         if direct_passes:

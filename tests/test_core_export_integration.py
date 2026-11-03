@@ -18,6 +18,7 @@ import pytest
 from axiom_encode.core_export import build_spec_from_eval_result
 from tests.core_eval_fixture import candidate_result
 from tests.environment_assertions import Names
+from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 _REPO = Path(__file__).resolve().parents[1]
 _ROOT = "zz:policies/demo"
@@ -66,7 +67,7 @@ def _command(args, *, stdin=None):
         input=stdin,
         text=True,
         capture_output=True,
-        timeout=60,
+        timeout=HANG_TIMEOUT_SECONDS,
         check=False,
     )
 
