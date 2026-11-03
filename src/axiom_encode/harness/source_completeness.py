@@ -5723,7 +5723,8 @@ def analyze_complete_source_unit(
                     test_cases=test_cases,
                     extract_numeric_occurrences=extract_numeric_occurrences,
                     extract_numeric_grounding_occurrences=(
-                        extract_numeric_grounding_occurrences or extract_numeric_occurrences
+                        extract_numeric_grounding_occurrences
+                        or extract_numeric_occurrences
                     ),
                     extract_named_scalars=extract_named_scalars,
                     numeric_value_is_grounded=numeric_value_is_grounded,
@@ -24439,13 +24440,18 @@ def _chapeau_computation_occurrences(
             )
         inherited.append(
             _NumericOccurrenceView(
-                **{
-                    name: getattr(occurrence, name)
-                    for name in _NumericOccurrenceView.__dataclass_fields__
-                    if name not in {"start", "end"}
-                },
+                value=occurrence.value,
                 start=cue_start + local_start - branch.start,
                 end=cue_start + local_end - branch.start,
+                raw=occurrence.raw,
+                has_rate_context=occurrence.has_rate_context,
+                has_temporal_context=occurrence.has_temporal_context,
+                has_structural_context=occurrence.has_structural_context,
+                source_value=occurrence.source_value,
+                requires_rate_context=occurrence.requires_rate_context,
+                is_word_number=occurrence.is_word_number,
+                alternative_values=occurrence.alternative_values,
+                requires_month_context=occurrence.requires_month_context,
             )
         )
     # Cue coefficients are filtered in their own source context, then appended:

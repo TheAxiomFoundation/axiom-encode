@@ -16,6 +16,8 @@ module checks over the AST of `source_completeness.py` that
 - the gate's context variable is set only in `_hebrew_reading`, and only the
   listed doors open it;
 - a cached function whose result depends on the gate keys its cache on it.
+- dynamic namespace access, escaped Hebrew helpers, delayed reads and aliased
+  ContextVar setters cannot hide a read from those checks.
 
 A new unconditioned read fails here; so does each mutant below, which removes
 one gate from the real module.
@@ -45,6 +47,26 @@ ALLOWLIST = {
         "computes the gate from the authoritative source and the deferral reasons"
     ),
 }
+# These four module-level declarations assemble the patterns selected behind
+# the gate. Only their named constants/constructor may be read at import time;
+# assigning a module, helper, container or callback is not pattern construction.
+PATTERN_CONSTRUCTIONS = {
+    "_HEBREW_EDITORIAL_OMISSION_ONLY": {
+        "HEBREW_OUTLINE_LABEL",
+        "EDITORIAL_OMISSION_WORDS",
+    },
+    "_HEBREW_MISSING_DEPENDENCY_LANGUAGE": {"MISSING_DEPENDENCY_LANGUAGE"},
+    "_HEBREW_ADVERSATIVE_LANGUAGE": {"AdversativePattern", "ADVERSATIVE_LANGUAGE"},
+    "_HEBREW_SOURCE_BOUND_RUNTIME_GAP_LANGUAGE": {"RUNTIME_GAP_LANGUAGE"},
+}
+# This generator's sole Hebrew call computes the outer iterable immediately,
+# and tuple consumes it synchronously. The checker also requires that exact
+# shape; moving the call into a delayed element does not inherit the exception.
+DELAYED_ALLOWLIST = {
+    ("recognize_source_structure", "GeneratorExp", "hebrew_outline_markers"): (
+        "the outer iterable is computed eagerly and tuple immediately consumes it"
+    ),
+}
 # Module-level names whose values do not reference the Hebrew modules but
 # exist only for the Hebrew readers; they are Hebrew names too.
 HEBREW_ONLY_NAMES = {
@@ -59,6 +81,7 @@ DOORS = {
     ("harness/coverage_index.py", "format_coverage_index"),
     ("cli.py", "_try_repair_generated_mixed_missing_deferred_outputs_for_apply"),
     ("harness/validator_pipeline.py", "_stated_conversion_ungrounded_literal_hint"),
+    ("harness/same_case_execution.py", "_has_consumer"),
 }
 CACHE_DECORATORS = frozenset({"lru_cache", "cache"})
 
@@ -127,6 +150,33 @@ class GateChecker:
                 self.parents[child] = node
         self.functions: dict[ast.AST, _Function] = {}
         self._collect(self.tree, None)
+        self.imported_hebrew_modules = set(HEBREW_MODULES)
+        self.imported_hebrew_helpers: set[str] = set()
+        self.importlib_names = {"importlib"}
+        self.sys_names = {"sys"}
+        self.sys_module_names: set[str] = set()
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                for alias in node.names:
+                    name = alias.asname or alias.name
+                    if module.rsplit(".", 1)[-1] in HEBREW_MODULES:
+                        self.imported_hebrew_helpers.add(name)
+                    elif alias.name in HEBREW_MODULES:
+                        self.imported_hebrew_modules.add(name)
+                    if module.split(".", 1)[0] == "importlib":
+                        self.importlib_names.add(name)
+                    if module == "sys" and alias.name == "modules":
+                        self.sys_module_names.add(name)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    name = alias.asname or alias.name.split(".", 1)[0]
+                    if alias.name.rsplit(".", 1)[-1] in HEBREW_MODULES:
+                        self.imported_hebrew_modules.add(name)
+                    if alias.name.split(".", 1)[0] == "importlib":
+                        self.importlib_names.add(name)
+                    if alias.name == "sys":
+                        self.sys_names.add(name)
 
     def _collect(self, node: ast.AST, parent: _Function | None) -> None:
         for child in ast.iter_child_nodes(node):
@@ -280,17 +330,238 @@ class GateChecker:
         """Every read of a Hebrew module or Hebrew name inside a function."""
 
         for node in ast.walk(self.tree):
-            if isinstance(node, ast.Attribute) and _is_hebrew_module(node.value):
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in self.imported_hebrew_modules
+            ):
                 yield node, node.attr
             elif (
                 isinstance(node, ast.Name)
                 and isinstance(node.ctx, ast.Load)
-                and node.id in self.hebrew_names
+                and node.id in self.hebrew_names | self.imported_hebrew_helpers
             ):
                 yield node, node.id
 
-    def violations(self) -> list[str]:
+    def _violation(self, node: ast.AST, message: str) -> str:
+        function = self._enclosing_function(node)
+        owner = function.name if function else "module level"
+        return f"{owner} line {node.lineno}: {message}"
+
+    def _attribute_chain(self, node: ast.AST) -> ast.AST:
+        """The complete attribute expression rooted at a loaded name."""
+
+        while (
+            isinstance(self.parents.get(node), ast.Attribute)
+            and self.parents[node].value is node
+        ):
+            node = self.parents[node]
+        return node
+
+    def _called_directly(self, node: ast.AST) -> bool:
+        parent = self.parents.get(node)
+        return isinstance(parent, ast.Call) and parent.func is node
+
+    def _pattern_construction(self, node: ast.Name) -> bool:
+        attribute = self.parents.get(node)
+        if not isinstance(attribute, ast.Attribute) or attribute.value is not node:
+            return False
+        statement: ast.AST = node
+        while statement in self.parents and self.parents[statement] is not self.tree:
+            statement = self.parents[statement]
+        if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            return False
+        targets = (
+            statement.targets
+            if isinstance(statement, ast.Assign)
+            else [statement.target]
+        )
+        if len(targets) != 1 or not isinstance(targets[0], ast.Name):
+            return False
+        allowed = PATTERN_CONSTRUCTIONS.get(targets[0].id, set())
+        if attribute.attr not in allowed:
+            return False
+        # Constants are consumed as string expressions; the one constructor is
+        # invoked directly. Neither shape may export a reader for later use.
+        if attribute.attr == "AdversativePattern":
+            return (
+                self._called_directly(attribute)
+                and statement.value is self.parents[attribute]
+            )
+        return isinstance(self.parents.get(attribute), (ast.BinOp, ast.FormattedValue))
+
+    def restricted_access_violations(self) -> list[str]:
+        """Reject reflection, escaped imported readers and ContextVar aliases."""
+
         found = []
+        forbidden = {"globals", "vars", "locals", "__import__"}
+        for node in ast.walk(self.tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                module = node.module if isinstance(node, ast.ImportFrom) else ""
+                if (module or "").split(".", 1)[0] == "importlib" or any(
+                    alias.name.split(".", 1)[0] == "importlib" for alias in node.names
+                ):
+                    found.append(self._violation(node, "importlib is forbidden"))
+                if module == "builtins" and any(
+                    alias.name in forbidden
+                    or (
+                        alias.name == "getattr"
+                        and alias.asname not in {None, "getattr"}
+                    )
+                    for alias in node.names
+                ):
+                    found.append(
+                        self._violation(node, "imported dynamic namespace alias")
+                    )
+                if any(alias.name == GATE_VARIABLE for alias in node.names):
+                    found.append(
+                        self._violation(node, "imported gate ContextVar alias")
+                    )
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                if node.id in forbidden | self.importlib_names | self.sys_module_names:
+                    found.append(
+                        self._violation(node, f"dynamic namespace access: {node.id}")
+                    )
+                if node.id in self.sys_names and not (
+                    isinstance(self.parents.get(node), ast.Attribute)
+                    and self.parents[node].value is node
+                ):
+                    found.append(self._violation(node, "escaped sys module"))
+                if node.id == "getattr":
+                    call = self.parents.get(node)
+                    if not (
+                        isinstance(call, ast.Call)
+                        and call.func is node
+                        and len(call.args) >= 2
+                        and isinstance(call.args[1], ast.Constant)
+                        and isinstance(call.args[1].value, str)
+                    ):
+                        found.append(
+                            self._violation(node, "getattr requires a literal name")
+                        )
+                if (
+                    node.id
+                    in self.imported_hebrew_modules | self.imported_hebrew_helpers
+                ):
+                    expression = self._attribute_chain(node)
+                    is_module = node.id in self.imported_hebrew_modules
+                    if not (
+                        (expression is not node or not is_module)
+                        and self._called_directly(expression)
+                    ) and not self._pattern_construction(node):
+                        found.append(
+                            self._violation(node, f"escaped Hebrew reader: {node.id}")
+                        )
+                if node.id == GATE_VARIABLE:
+                    expression = self.parents.get(node)
+                    function = self._enclosing_function(node)
+                    if not (
+                        isinstance(expression, ast.Attribute)
+                        and expression.value is node
+                        and self._called_directly(expression)
+                        and function is not None
+                        and function.parent is None
+                        and (
+                            (
+                                function.name == GATE_OPENER
+                                and expression.attr in {"set", "reset"}
+                            )
+                            or (function.name == GATE and expression.attr == "get")
+                        )
+                    ):
+                        found.append(
+                            self._violation(node, "escaped gate ContextVar or setter")
+                        )
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr == "modules"
+                and isinstance(node.value, ast.Name)
+                and node.value.id in self.sys_names
+            ):
+                found.append(self._violation(node, "sys.modules is forbidden"))
+            if isinstance(node, ast.Attribute):
+                if node.attr in forbidden | {"importlib"}:
+                    found.append(
+                        self._violation(node, f"dynamic namespace access: {node.attr}")
+                    )
+                if node.attr == "getattr":
+                    call = self.parents.get(node)
+                    if not (
+                        isinstance(call, ast.Call)
+                        and call.func is node
+                        and len(call.args) >= 2
+                        and isinstance(call.args[1], ast.Constant)
+                        and isinstance(call.args[1].value, str)
+                    ):
+                        found.append(
+                            self._violation(node, "getattr requires a literal name")
+                        )
+        return found
+
+    def _hebrew_call_name(self, call: ast.Call) -> str | None:
+        expression = call.func
+        while isinstance(expression, ast.Attribute):
+            if (
+                isinstance(expression.value, ast.Name)
+                and expression.value.id in self.imported_hebrew_modules
+            ):
+                return expression.attr
+            expression = expression.value
+        if isinstance(expression, ast.Name) and expression.id in (
+            self.imported_hebrew_helpers | self.hebrew_names
+        ):
+            return expression.id
+        return None
+
+    def _allowed_delayed_call(self, node: ast.AST, call: ast.Call, name: str) -> bool:
+        function = self._enclosing_function(node)
+        key = (function.name if function else "", type(node).__name__, name)
+        if key not in DELAYED_ALLOWLIST or not isinstance(node, ast.GeneratorExp):
+            return False
+        parent = self.parents.get(node)
+        return (
+            len(node.generators) == 1
+            and node.generators[0].iter is call
+            and isinstance(parent, ast.Call)
+            and isinstance(parent.func, ast.Name)
+            and parent.func.id == "tuple"
+            and parent.args == [node]
+            and not parent.keywords
+        )
+
+    def delayed_read_violations(self) -> list[str]:
+        """Lexical gates do not authorize a reader executed after they close."""
+
+        found = []
+        for call in ast.walk(self.tree):
+            if not isinstance(call, ast.Call):
+                continue
+            name = self._hebrew_call_name(call)
+            if name is None:
+                continue
+            node: ast.AST = call
+            while node in self.parents:
+                node = self.parents[node]
+                delayed = isinstance(
+                    node, (ast.Yield, ast.YieldFrom, ast.GeneratorExp, ast.Lambda)
+                )
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    function = self.functions[node]
+                    delayed = function.parent is not None or any(
+                        isinstance(sub, (ast.Yield, ast.YieldFrom))
+                        for sub in _own_nodes(node)
+                    )
+                if delayed and not self._allowed_delayed_call(node, call, name):
+                    found.append(
+                        self._violation(
+                            call,
+                            f"delayed Hebrew call in {type(node).__name__}: {name}",
+                        )
+                    )
+        return found
+
+    def violations(self) -> list[str]:
+        found = self.restricted_access_violations() + self.delayed_read_violations()
         for node, name in self.hebrew_reads():
             function = self._enclosing_function(node)
             if function is None:
@@ -402,6 +673,15 @@ def test_the_allowlist_names_only_what_it_allows(checker):
 
 
 def test_the_gate_is_set_only_by_its_opener(checker):
+    openers = [
+        node
+        for node in checker.tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == GATE_OPENER
+    ]
+    assert len(openers) == 1
+    assert [ast.unparse(node) for node in openers[0].decorator_list] == [
+        "contextlib.contextmanager"
+    ]
     setters = []
     for node in ast.walk(checker.tree):
         if (
@@ -545,6 +825,36 @@ MUTANTS = {
         "        and hebrew_source_text.HEBREW_LETTER.search(branch.text)\n",
         "        and hebrew_source_text.HEBREW_LETTER.search(branch.text)\n",
     ),
+    # Sol r12's existing-reader mutation retains the gated expression, so all
+    # six original mutation checks still run on the bypassed source.
+    "_strip_source_clause_marker[globals]": (
+        "    hebrew_body = (\n"
+        "        hebrew_source_text.strip_leading_outline_chain(text)\n"
+        "        if _hebrew_script()\n"
+        "        else None\n"
+        "    )",
+        "    hebrew_body = (\n"
+        '        globals()["hebrew_source_text"].strip_leading_outline_chain(text) or (\n'
+        "        hebrew_source_text.strip_leading_outline_chain(text)\n"
+        "        if _hebrew_script()\n"
+        "        else None\n"
+        "        )\n"
+        "    )",
+    ),
+    "_review_gate_escape": (
+        "def _strip_source_clause_marker(text: str) -> str:",
+        "def _review_gate_escape(text):\n"
+        "    if _hebrew_script():\n"
+        "        return (hebrew_source_text.fold_marks(piece) for piece in [text])\n"
+        "    return ()\n\n\n"
+        "def _strip_source_clause_marker(text: str) -> str:",
+    ),
+    "module level[setter alias]": (
+        "def _hebrew_script() -> bool:",
+        "_review_gate_alias = _HEBREW_SCRIPT\n"
+        "_review_gate_alias.set(True)\n\n\n"
+        "def _hebrew_script() -> bool:",
+    ),
 }
 
 
@@ -554,7 +864,81 @@ def test_removing_a_gate_fails_the_check(function):
     source = SOURCE.read_text()
     assert source.count(original) == 1, function
     violations = GateChecker(source.replace(original, mutated)).violations()
-    assert any(v.startswith(f"{function} ") for v in violations), violations
+    owner = function.split("[", 1)[0]
+    assert any(v.startswith(f"{owner} ") for v in violations), violations
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        'globals()["hebrew_source_text"].fold_marks(text)',
+        'vars(hebrew_source_text)["fold_marks"](text)',
+        'locals()["hebrew_source_text"].fold_marks(text)',
+        '__import__("axiom_encode.harness.hebrew_source_text")',
+        'importlib.import_module("axiom_encode.harness.hebrew_source_text")',
+        'sys.modules["axiom_encode.harness.hebrew_source_text"]',
+        "builtins.globals()",
+        "builtins.vars(text)",
+        "builtins.locals()",
+        'builtins.__import__("axiom_encode.harness.hebrew_source_text")',
+        "getattr(text, name)",
+        "builtins.getattr(text, name)",
+        "getter = getattr",
+        "reader = hebrew_source_text.fold_marks",
+        "use(hebrew_source_text.fold_marks)",
+        "readers = [hebrew_source_text.fold_marks]",
+        "reader = hebrew_source_text.HEBREW_LETTER.search",
+        "variable = _HEBREW_SCRIPT",
+        "setter = _HEBREW_SCRIPT.set",
+        "_HEBREW_SCRIPT.set(True)",
+        "_HEBREW_SCRIPT.reset(token)",
+        "return lambda: hebrew_source_text.fold_marks(text)",
+        "return (hebrew_source_text.fold_marks(piece) for piece in [text])",
+        "yield hebrew_source_text.fold_marks(text)",
+        "yield from hebrew_source_text.fold_marks(text)",
+        "def later():\n            return hebrew_source_text.fold_marks(text)",
+    ],
+)
+def test_a_lexical_gate_does_not_authorize_escaped_or_delayed_reads(body):
+    source = (
+        "def f(text, name, token):\n    if _hebrew_script():\n        " + body + "\n"
+    )
+    assert GateChecker(source).violations(), body
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import importlib as loader\n",
+        "from importlib import import_module as load\n",
+        "from builtins import globals as reflect\ndef f():\n    return reflect()\n",
+        "from builtins import __import__ as load\n",
+        "from builtins import getattr as read\ndef f(text, name):\n    return read(text, name)\n",
+        "from axiom_encode.harness.source_completeness import _HEBREW_SCRIPT as gate\n"
+        "gate.set(True)\n",
+        "import sys as system\ndef f():\n    return system.modules\n",
+        "import sys\nsystem = sys\nsystem.modules\n",
+        "from sys import modules as loaded\ndef f():\n    return loaded\n",
+        "from axiom_encode.harness.hebrew_source_text import fold_marks as fold\n"
+        "def f(text):\n    if _hebrew_script():\n        return fold\n",
+        "MODULES = [hebrew_source_text]\n",
+        "READER = hebrew_source_text.fold_marks\n",
+        "class Reader:\n    module = hebrew_source_text\n",
+        "def f(text, reader=hebrew_source_text.fold_marks):\n    return reader(text)\n",
+    ],
+)
+def test_module_construction_cannot_hide_a_reader_or_dynamic_namespace(source):
+    assert GateChecker(source).violations()
+
+
+def test_a_named_eager_generator_exception_cannot_cover_a_delayed_element():
+    source = (
+        "def recognize_source_structure(text):\n"
+        "    if _hebrew_script():\n"
+        "        return tuple(hebrew_source_text.hebrew_outline_markers(piece) "
+        "for piece in [text])\n"
+    )
+    assert GateChecker(source).delayed_read_violations()
 
 
 def test_a_local_bound_from_anything_else_is_no_gate():
