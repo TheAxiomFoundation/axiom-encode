@@ -1,0 +1,1 @@
+Distinguish known function calls from bare factual names in generated fixtures, context dependencies, and validation. Preserve mixed call/argument uses and Boolean period-symbol inputs while excluding scalar date operators; retain possible references for unsupported syntax.

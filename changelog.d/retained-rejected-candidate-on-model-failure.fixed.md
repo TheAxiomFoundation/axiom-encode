@@ -1,0 +1,1 @@
+Keep the best earlier rejected rule/test pair, with its attempt number, hashes and validation evidence, when a later model call fails without producing an artifact. Record it as a separate `retained_rejected_candidate` outcome and export it when requested, without restoring stale live files or applying it.

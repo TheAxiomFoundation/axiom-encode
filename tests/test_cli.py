@@ -16262,6 +16262,273 @@ rules:
         assert exit_code == expected_exit
         assert not destination.exists()
 
+    @pytest.mark.parametrize("apply_requested", [False, True])
+    @pytest.mark.parametrize("emit_requested", [False, True])
+    @pytest.mark.parametrize(
+        ("best_attempt", "missing_companion"), [(1, False), (3, False), (3, True)]
+    )
+    def test_encode_retains_rejection_when_later_model_returns_no_artifact(
+        self, tmp_path, apply_requested, emit_requested, best_attempt, missing_companion
+    ):
+        """A failed fourth call must not erase or misattribute an earlier pair."""
+        from axiom_encode.harness.evals import EvalArtifactMetrics
+
+        destination = tmp_path / "failed-encode"
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=apply_requested,
+            sync=False,
+            escalation_enabled=True,
+            emit_final_rejected_candidate=destination if emit_requested else None,
+        )
+        generated = []
+        captured = []
+        terminal_error = "Your refresh token was revoked. Please sign in again."
+
+        def generate(**kwargs):
+            backend, model = kwargs["runner_specs"][0].split(":", 1)
+            attempt = len(generated) + 1
+            result = self._make_eval_result(False)
+            result.backend, result.model = backend, model
+            result.runner = f"{backend}-{model}"
+            result.mode = args.mode
+            result.generation_prompt_sha256 = hashlib.sha256(
+                f"prompt-{attempt}".encode()
+            ).hexdigest()
+            output = args.output / result.runner / "statutes/26/1/j/2.yaml"
+            tests = output.with_suffix(".test.yaml")
+            # Match real per-attempt cleanup; never rely on an old live path.
+            output.unlink(missing_ok=True)
+            tests.unlink(missing_ok=True)
+            if attempt == 4:
+                result.output_file = ""
+                result.error = terminal_error
+                result.metrics = None
+            else:
+                output.parent.mkdir(parents=True, exist_ok=True)
+                rulespec = f"format: rulespec/v1\n# candidate-{attempt}\nrules: []\n"
+                companion = (
+                    None
+                    if missing_companion and attempt == best_attempt
+                    else f"# companion-{attempt}\n[]\n"
+                )
+                output.write_text(rulespec)
+                if companion is not None:
+                    tests.write_text(companion)
+                result.output_file = str(output)
+                result.error = "Generated RuleSpec failed CI validation"
+                issues = [
+                    f"candidate {attempt} unresolved issue {index}"
+                    for index in range(1 if attempt == best_attempt else 3)
+                ]
+                result.metrics = EvalArtifactMetrics(
+                    compile_pass=True,
+                    compile_issues=[],
+                    ci_pass=False,
+                    ci_issues=issues,
+                    embedded_source_present=True,
+                    grounded_numeric_count=0,
+                    ungrounded_numeric_count=0,
+                    grounding=[],
+                    generalist_review_status="skipped",
+                    generalist_review_skip_reason="deterministic_rejection",
+                )
+                captured.append((rulespec, companion, issues, result))
+            generated.append(result)
+            return [result]
+
+        def reject_overlay(result, **_kwargs):
+            return False, result.metrics.ci_issues, {}
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", side_effect=generate),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=reject_overlay,
+            ),
+            patch("axiom_encode.cli._apply_generated_encoding_result") as apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        assert len(generated) == 4
+        apply.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs()[0]
+        assert run.success is False
+        assert run.generation_attempt_count == 4
+        assert [iteration.success for iteration in run.iterations] == [False] * 4
+        assert terminal_error in run.iterations[-1].errors[0].message
+        assert run.outcome["primary_error"] == terminal_error
+        assert run.outcome["final_success"] is False
+        assert run.outcome["apply_success"] is (False if apply_requested else None)
+        # These are the terminal call's fields, not the retained candidate's.
+        assert run.rulespec_content == ""
+        assert run.review_results is None
+        assert generated[-1].metrics is None
+        assert generated[-1].output_file == ""
+        retained = run.outcome["retained_rejected_candidate"]
+        rulespec, companion, issues, selected_result = captured[best_attempt - 1]
+        assert retained["accepted"] is False
+        assert retained["attempt"] == best_attempt
+        assert retained["backend"] == selected_result.backend
+        assert retained["model"] == selected_result.model
+        assert retained["runner"] == selected_result.runner
+        assert retained["rulespec_content"] == rulespec
+        assert retained["tests_content"] == companion
+        assert (
+            retained["rulespec_sha256"] == hashlib.sha256(rulespec.encode()).hexdigest()
+        )
+        assert retained["tests_sha256"] == (
+            hashlib.sha256(companion.encode()).hexdigest()
+            if companion is not None
+            else None
+        )
+        assert retained["validation_issues"] == issues
+        assert retained["metrics"]["ci_issues"] == issues
+        assert retained["metrics"]["compile_pass"] is True
+        assert retained["metrics"]["ci_pass"] is False
+        assert retained["metrics"]["generalist_review_status"] == "skipped"
+        assert retained["metrics"]["generalist_review_pass"] is None
+        assert (
+            retained["generation_prompt_sha256"]
+            == selected_result.generation_prompt_sha256
+        )
+        assert (
+            retained["context_manifest_sha256"]
+            == selected_result.context_manifest_sha256
+        )
+        assert retained["source_attestation"] == selected_result.source_attestation
+        assert terminal_error not in retained["error"]
+        if emit_requested:
+            metadata = json.loads((destination / "issues.json").read_text())
+            assert (destination / metadata["path"]).read_text() == rulespec
+            emitted_tests = companion if companion is not None else "[]\n"
+            assert (
+                destination / Path(metadata["path"]).with_suffix(".test.yaml")
+            ).read_text() == emitted_tests
+            assert metadata["issues"] == issues
+            assert metadata["attempt_count"] == 4
+            assert metadata["rulespec_sha256"] == retained["rulespec_sha256"]
+            assert (
+                metadata["tests_sha256"]
+                == hashlib.sha256(emitted_tests.encode()).hexdigest()
+            )
+        else:
+            assert not destination.exists()
+
+    def test_encode_does_not_retain_rejection_when_terminal_call_has_metrics(
+        self, tmp_path
+    ):
+        """Only an artifact-free call with no metrics is a bare model failure.
+
+        A terminal result that carries metrics was evaluated, so a retained
+        earlier pair would be misread as describing it.
+        """
+        from axiom_encode.harness.evals import EvalArtifactMetrics
+
+        destination = tmp_path / "failed-encode"
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            sync=False,
+            escalation_enabled=True,
+            emit_final_rejected_candidate=destination,
+        )
+        generated = []
+
+        def generate(**kwargs):
+            backend, model = kwargs["runner_specs"][0].split(":", 1)
+            result = self._make_eval_result(False)
+            result.backend, result.model = backend, model
+            result.runner = f"{backend}-{model}"
+            result.mode = args.mode
+            output = args.output / result.runner / "statutes/26/1/j/2.yaml"
+            if not generated:
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text("format: rulespec/v1\n# first\nrules: []\n")
+                output.with_suffix(".test.yaml").write_text("[]\n")
+                result.output_file = str(output)
+                result.error = "Generated RuleSpec failed CI validation"
+            else:
+                result.output_file = ""
+                result.error = "evaluated without a kept artifact"
+            result.metrics = EvalArtifactMetrics(
+                compile_pass=True,
+                compile_issues=[],
+                ci_pass=False,
+                ci_issues=["still failing"],
+                embedded_source_present=True,
+                grounded_numeric_count=0,
+                ungrounded_numeric_count=0,
+                grounding=[],
+            )
+            generated.append(result)
+            return [result]
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", side_effect=generate),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=lambda result, **_k: (False, ["still failing"], {}),
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        assert len(generated) >= 2
+        run = EncodingDB(args.db).get_recent_runs()[0]
+        assert "retained_rejected_candidate" not in run.outcome
+
+    def test_encode_does_not_substitute_prior_rejection_for_new_failed_artifact(
+        self, tmp_path
+    ):
+        destination = tmp_path / "failed-encode"
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            sync=False,
+            escalation_enabled=True,
+            emit_final_rejected_candidate=destination,
+        )
+        generated = []
+
+        def generate(**kwargs):
+            backend, model = kwargs["runner_specs"][0].split(":", 1)
+            result = self._make_eval_result(False)
+            result.backend, result.model = backend, model
+            result.runner = f"{backend}-{model}"
+            result.mode = args.mode
+            output = args.output / result.runner / "statutes/26/1/j/2.yaml"
+            output.parent.mkdir(parents=True, exist_ok=True)
+            result.output_file = str(output)
+            if not generated:
+                output.write_text("format: rulespec/v1\n# first\nrules: []\n")
+                output.with_suffix(".test.yaml").write_text("[]\n")
+                result.error = "Generated RuleSpec failed CI validation"
+            else:
+                output.write_text("# new artifact from failed model call\n")
+                result.error = "model transport failed after writing output"
+            generated.append(result)
+            return [result]
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", side_effect=generate),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        assert len(generated) == 2
+        run = EncodingDB(args.db).get_recent_runs()[0]
+        assert run.rulespec_content == "# new artifact from failed model call\n"
+        assert run.outcome["primary_error"] == generated[-1].error
+        assert "retained_rejected_candidate" not in run.outcome
+        assert not destination.exists()
+
     @pytest.mark.parametrize(
         "relative_output",
         [

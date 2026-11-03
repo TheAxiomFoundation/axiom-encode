@@ -2916,6 +2916,130 @@ def test_run_source_eval_accepts_fresh_resolver_owned_child_slice(tmp_path):
     assert "Second child source" not in source_text
 
 
+@pytest.mark.parametrize("capable", [False, True])
+def test_run_source_eval_gates_lifetime_guidance_on_the_probed_engine(
+    tmp_path, capable
+):
+    """Source evals ask the bound engine too, rather than hard-wiring the gate."""
+    corpus_release, source_unit = _write_test_source_unit(
+        tmp_path, "(a) First child source."
+    )
+    engine = tmp_path / "axiom-rules-engine"
+    policy_root = _canonical_rulespec_content_root(tmp_path, "us")
+    response = EvalPromptResponse(
+        text="=== FILE: a.yaml ===\nformat: rulespec/v1\nrules: []\n",
+        duration_ms=10,
+        trace={},
+    )
+
+    with (
+        patch("axiom_encode.harness.evals._run_prompt_eval", return_value=response),
+        patch("axiom_encode.harness.evals.evaluate_artifact", return_value=None),
+        patch(
+            "axiom_encode.harness.evals._engine_supports_lifetime_fixtures",
+            return_value=capable,
+        ) as probe,
+        patch(
+            "axiom_encode.harness.evals._build_eval_prompt",
+            wraps=evals_module._build_eval_prompt,
+        ) as mock_prompt,
+    ):
+        run_source_eval(
+            source_unit=source_unit,
+            runner_specs=["openai:gpt-5.4"],
+            output_root=tmp_path / "out",
+            policy_path=policy_root,
+            local_corpus_release=corpus_release,
+            runtime_axiom_rules_path=engine,
+            mode="cold",
+        )
+
+    assert probe.call_args.kwargs["axiom_rules_path"] == engine
+    assert mock_prompt.call_args.kwargs["engine_supports_lifetime"] is capable
+
+
+def test_lifetime_probe_resolves_the_explicit_engine_ref(tmp_path, monkeypatch):
+    """The probe binds the same pinned binary validation would, ref included."""
+    ref = "a" * 40
+    binary = tmp_path / "engine-bin"
+    binary.write_text("#!/bin/sh\necho 'Commands: compile run-lifetime'\n")
+    binary.chmod(0o755)
+    seen = []
+
+    def resolve(checkout, pin):
+        seen.append((checkout, pin.sha))
+        return binary
+
+    monkeypatch.setattr(validator_pipeline, "resolve_pinned_engine_binary", resolve)
+    policy = tmp_path / "rulespec-us" / "us"
+    policy.mkdir(parents=True)
+
+    assert evals_module._engine_supports_lifetime_fixtures(
+        policy_path=policy,
+        axiom_rules_path=tmp_path / "engine",
+        axiom_rules_engine_ref=ref,
+    )
+    assert seen == [(tmp_path / "engine", ref)]
+
+
+def test_lifetime_probe_uses_the_declared_pin_without_a_ref(tmp_path, monkeypatch):
+    """With no explicit ref, the probe binds the policy repository's declared
+    pin, as validation does, rather than scanning the checkout."""
+    from axiom_encode.engine_binding import EnginePin
+
+    declared = EnginePin(sha="b" * 40, source=tmp_path / "toolchain.toml")
+    binary = tmp_path / "pinned-engine"
+    binary.write_text("#!/bin/sh\necho 'Commands: compile run-lifetime'\n")
+    binary.chmod(0o755)
+    checkout = tmp_path / "engine"
+    unpinned = checkout / "target" / "release" / "axiom-rules-engine"
+    unpinned.parent.mkdir(parents=True)
+    unpinned.write_text("#!/bin/sh\necho 'Commands: compile'\n")
+    unpinned.chmod(0o755)
+    policy = tmp_path / "rulespec-us" / "us"
+    policy.mkdir(parents=True)
+    seen = []
+    monkeypatch.setattr(
+        validator_pipeline,
+        "load_declared_engine_pin",
+        lambda path: seen.append(("declared", path)) or declared,
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "resolve_pinned_engine_binary",
+        lambda path, pin: seen.append(("resolve", path, pin.sha)) or binary,
+    )
+
+    assert evals_module._engine_supports_lifetime_fixtures(
+        policy_path=policy, axiom_rules_path=checkout
+    )
+    assert seen == [("declared", policy), ("resolve", checkout, "b" * 40)]
+
+
+def test_unpinned_probe_prefers_release_then_debug_then_bare(tmp_path, monkeypatch):
+    """The probe's unpinned scan uses validation's order, not its reverse."""
+    monkeypatch.setattr(validator_pipeline, "load_declared_engine_pin", lambda _p: None)
+    checkout = tmp_path / "engine"
+    candidates = [
+        checkout / "target" / "release" / "axiom-rules-engine",
+        checkout / "target" / "debug" / "axiom-rules-engine",
+        checkout / "axiom-rules-engine",
+    ]
+    for candidate in candidates:
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        candidate.write_text("binary\n")
+    policy = tmp_path / "rulespec-us" / "us"
+    policy.mkdir(parents=True)
+    for expected in candidates:
+        assert (
+            validator_pipeline.bound_engine_binary(
+                policy_repo_path=policy, axiom_rules_path=checkout
+            )
+            == expected
+        )
+        expected.unlink()
+
+
 def test_run_source_eval_rejects_removed_source_id_override(tmp_path):
     corpus_release, source_unit = _write_test_source_unit(
         tmp_path,
@@ -3194,6 +3318,70 @@ def test_model_eval_uses_output_override_for_prompt_and_artifact_path(tmp_path):
     assert mock_prompt.call_args.kwargs["target_ref_prefix"] == (
         "us-nc:policies/income_tax/pilot_liability_pipeline"
     )
+
+
+@pytest.mark.parametrize("capable", [False, True])
+def test_model_eval_gates_lifetime_guidance_on_the_probed_engine(tmp_path, capable):
+    """Generation asks the bound engine before offering lifetime guidance."""
+    corpus_release, _source_unit = _write_test_source_unit(
+        tmp_path,
+        "Authoritative source.",
+        citation_path="us-nc/statute/105/105-153.7",
+    )
+    policy_root = _canonical_rulespec_content_root(tmp_path, "us-nc")
+    engine = tmp_path / "engine"
+
+    def generate(**kwargs):
+        output_file = kwargs["output_file"]
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        return (
+            EvalPromptResponse(text="generated", duration_ms=1),
+            True,
+            0,
+            frozenset({output_file}),
+        )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval_with_empty_artifact_retry",
+            side_effect=generate,
+        ),
+        patch(
+            "axiom_encode.harness.evals._evaluate_generated_artifact_with_repairs",
+            return_value=EvalArtifactMetrics(
+                compile_pass=True,
+                compile_issues=[],
+                ci_pass=True,
+                ci_issues=[],
+                embedded_source_present=False,
+                grounded_numeric_count=0,
+                ungrounded_numeric_count=0,
+                grounding=[],
+            ),
+        ),
+        patch(
+            "axiom_encode.harness.evals._engine_supports_lifetime_fixtures",
+            return_value=capable,
+        ) as probe,
+        patch(
+            "axiom_encode.harness.evals._build_eval_prompt",
+            wraps=evals_module._build_eval_prompt,
+        ) as mock_prompt,
+    ):
+        run_model_eval(
+            citations=["us-nc/statute/105/105-153.7"],
+            runner_specs=["openai:model-a"],
+            output_root=tmp_path / "out",
+            policy_path=policy_root,
+            runtime_axiom_rules_path=engine,
+            corpus_release=corpus_release,
+            mode="repo-augmented",
+        )
+
+    assert probe.call_args.kwargs["axiom_rules_path"] == engine
+    assert probe.call_args.kwargs["policy_path"] == policy_root
+    assert mock_prompt.call_args.kwargs["engine_supports_lifetime"] is capable
 
 
 def test_model_eval_marks_each_encode_try_phase_in_order(tmp_path):
@@ -9340,7 +9528,9 @@ rules: []
             )
 
         mock_reviewer.assert_not_called()
-        assert metrics.generalist_review_pass
+        assert metrics.generalist_review_pass is None
+        assert metrics.generalist_review_status == "skipped"
+        assert metrics.generalist_review_skip_reason == "user_requested"
         assert metrics.generalist_review_score is None
         assert metrics.generalist_review_issues == []
 
@@ -12216,7 +12406,17 @@ rules:
         assert metrics.ungrounded_numeric_count == 0
         assert metrics.missing_source_numeric_occurrence_count == 0
 
-    def test_runs_generalist_reviewer_and_records_result(self, tmp_path):
+    @pytest.mark.parametrize(
+        "source_text",
+        [
+            "Provision text with £10.",
+            "Provision text with £10.\n"
+            + "The ordinary rule applies subject to the following exception.\n" * 100
+            + "Final exception: the amount does not apply to the excluded class.\n",
+        ],
+        ids=["short-source", "exception-beyond-former-source-limit"],
+    )
+    def test_runs_generalist_reviewer_and_records_result(self, tmp_path, source_text):
         rulespec_file = _generated_rulespec_file_path(tmp_path, "statutes/example.yaml")
         rulespec_file.write_text(
             """format: rulespec/v1
@@ -12259,7 +12459,7 @@ rules:
                 rulespec_file=rulespec_file,
                 policy_repo_root=_canonical_rulespec_content_root(tmp_path, "uk"),
                 axiom_rules_path=Path("/tmp/axiom-rules-engine"),
-                source_text="Provision text with £10.",
+                source_text=source_text,
             )
 
         assert metrics.compile_pass is True
@@ -12276,6 +12476,7 @@ rules:
             "stale, generic, or misleading"
             in mock_reviewer.call_args.kwargs["review_context"]
         )
+        assert source_text in mock_reviewer.call_args.kwargs["review_context"]
 
     def test_timing_clause_review_context_mentions_boolean_day_predicate(
         self, tmp_path
@@ -20660,6 +20861,29 @@ cases:
 
 
 class TestReadinessSummary:
+    @pytest.mark.parametrize("unscored_pass", [None, False])
+    def test_unscored_review_never_counts_toward_review_pass_rate(self, unscored_pass):
+        """A skipped or unavailable review (pass None or False, no score) is not
+        a pass; only a scored passing review raises the rate."""
+        gates = EvalReadinessGates(min_generalist_review_pass_rate=1.0)
+        results = [
+            _fake_eval_result("codex-gpt-5.4", "scored-pass"),
+            _fake_eval_result(
+                "codex-gpt-5.4",
+                "skipped",
+                generalist_review_pass=unscored_pass,
+                generalist_review_score=None,
+            ),
+        ]
+
+        summary = summarize_readiness(results, gates)
+
+        assert summary.generalist_review_pass_rate == pytest.approx(0.5)
+        gate = {gate.name: gate for gate in summary.gate_results}[
+            "min_generalist_review_pass_rate"
+        ]
+        assert gate.passed is False
+
     def test_summarize_readiness_applies_suite_gates(self):
         gates = EvalReadinessGates(
             min_cases=3,

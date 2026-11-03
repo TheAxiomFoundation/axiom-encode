@@ -1,0 +1,171 @@
+"""Properties of the lexical formula-reference collector.
+
+Fixture repair trusts these answers to decide which facts a formula reads and
+whether an output depends on a lifetime reduction, so they must not depend on
+comments, quoted text or spacing, and a call must never read as a fact.
+"""
+
+import pytest
+from hypothesis import given
+from hypothesis import strategies as st
+
+from axiom_encode.rulespec_formula_identifiers import (
+    formula_calls_lifetime_reduction,
+    formula_reference_identifiers,
+)
+
+LIFETIME_REDUCTIONS = (
+    "sum_over_periods",
+    "max_over_periods",
+    "count_over_periods",
+    "sum_top_n_over_periods",
+)
+
+# Independent of the collector's own tables: no builtin, keyword or period
+# name starts with ``fact_``.
+fact_names = st.from_regex(r"fact_[a-z0-9_]{0,8}", fullmatch=True)
+spacing = st.sampled_from(["", " ", "  ", "\n"])
+inert_text = st.text(
+    alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\n"),
+    max_size=30,
+)
+
+
+@st.composite
+def formulas(draw):
+    """Small formulas mixing facts, lifetime calls and other known calls."""
+    facts = draw(st.lists(fact_names, min_size=1, max_size=4))
+    terms = []
+    for fact in facts:
+        shape = draw(st.sampled_from(["fact", "lifetime", "call"]))
+        if shape == "lifetime":
+            terms.append(f"{draw(st.sampled_from(LIFETIME_REDUCTIONS))}({fact})")
+        elif shape == "call":
+            terms.append(f"{draw(st.sampled_from(['max', 'min', 'floor']))}({fact})")
+        else:
+            terms.append(fact)
+    return " + ".join(terms)
+
+
+@given(formula=formulas(), comment=inert_text)
+def test_comments_never_change_references_or_lifetime_routing(formula, comment):
+    commented = f"{formula} # {comment}"
+    assert formula_reference_identifiers(commented) == formula_reference_identifiers(
+        formula
+    )
+    assert formula_calls_lifetime_reduction(
+        commented
+    ) is formula_calls_lifetime_reduction(formula)
+
+
+@given(
+    formula=formulas(),
+    # A trailing backslash would escape the closing quote and leave the string
+    # unterminated, which is malformed input rather than quoted text.
+    quoted=inert_text.filter(lambda text: '"' not in text and not text.endswith("\\")),
+)
+def test_quoted_text_never_adds_references_or_lifetime_calls(formula, quoted):
+    with_label = f'{formula} + len("{quoted}")'
+    assert formula_reference_identifiers(with_label) == formula_reference_identifiers(
+        formula
+    )
+    assert formula_calls_lifetime_reduction(
+        with_label
+    ) is formula_calls_lifetime_reduction(formula)
+
+
+@given(
+    reduction=st.sampled_from(LIFETIME_REDUCTIONS),
+    fact=fact_names,
+    gap=spacing,
+)
+def test_a_lifetime_call_is_never_a_fact_and_a_bare_name_is_never_a_call(
+    reduction, fact, gap
+):
+    call = f"{reduction}{gap}({fact})"
+    assert formula_calls_lifetime_reduction(call)
+    assert formula_reference_identifiers(call) == {fact}
+
+    bare = f"{reduction} + {fact}"
+    assert not formula_calls_lifetime_reduction(bare)
+    assert formula_reference_identifiers(bare) == {reduction, fact}
+
+
+@given(formula=formulas())
+def test_routing_matches_the_presence_of_a_lifetime_call(formula):
+    assert formula_calls_lifetime_reduction(formula) is any(
+        f"{reduction}(" in formula for reduction in LIFETIME_REDUCTIONS
+    )
+
+
+operands = fact_names | st.sampled_from(["period_start", "period_end", "0", "1"])
+comparisons = st.sampled_from([">=", "<", "=="])
+
+
+@st.composite
+def conditions(draw):
+    if draw(st.booleans()):
+        return draw(operands)
+    return f"{draw(operands)} {draw(comparisons)} {draw(operands)}"
+
+
+@given(
+    branches=st.lists(st.tuples(conditions(), operands), min_size=1, max_size=3),
+    fallback=operands,
+)
+def test_one_line_conditionals_read_like_their_multi_line_form(branches, fallback):
+    """The one-line ``if c: a else: b`` form changes no reference."""
+    one_line = " ".join(
+        f"{'if' if index == 0 else 'elif'} {test}: {body}"
+        for index, (test, body) in enumerate(branches)
+    )
+    one_line += f" else: {fallback}"
+    multi_line = "".join(
+        f"{'if' if index == 0 else 'elif'} {test}:\n    {body}\n"
+        for index, (test, body) in enumerate(branches)
+    )
+    multi_line += f"else:\n    {fallback}"
+
+    for judgment in (None, False, True):
+        assert formula_reference_identifiers(
+            one_line, judgment=judgment
+        ) == formula_reference_identifiers(multi_line, judgment=judgment)
+
+
+def test_scalar_period_comparison_in_one_line_conditional_is_not_an_input():
+    formula = "if period_start >= effective_date: amount else: 0"
+    assert formula_reference_identifiers(formula, judgment=False) == {
+        "amount",
+        "effective_date",
+    }
+
+
+def test_abs_and_round_calls_are_not_inputs():
+    assert formula_reference_identifiers("round(abs(amount), 2)") == {"amount"}
+    assert formula_reference_identifiers("round + abs") == {"round", "abs"}
+
+
+@pytest.mark.parametrize(
+    "formula, expected",
+    [
+        (
+            "if fact_a: fact_b elif fact_c: fact_d else: 0",
+            {"fact_a", "fact_b", "fact_c", "fact_d"},
+        ),
+        ("if fact_a:\n    True\nelse:\n    False", {"fact_a"}),
+        ("match fact_a:\n    1 => fact_b", {"fact_a", "fact_b"}),
+        ("'it''s count_over_periods(fact_x)' + fact_a", {"fact_a"}),
+        ('"quoted \\" fact_x" + fact_a', {"fact_a"}),
+    ],
+)
+def test_keywords_and_quoted_text_are_never_references(formula, expected):
+    assert formula_reference_identifiers(formula) == expected
+    assert not formula_calls_lifetime_reduction(formula)
+
+
+@pytest.mark.parametrize("reduction", LIFETIME_REDUCTIONS)
+def test_each_reduction_alone_is_detected(reduction):
+    """Each reduction is detected by itself, not through a nested sibling."""
+    arguments = "fact_a, 3" if reduction == "sum_top_n_over_periods" else "fact_a"
+    assert formula_calls_lifetime_reduction(f"{reduction}({arguments})")
+    assert formula_reference_identifiers(f"{reduction}({arguments})") == {"fact_a"}
