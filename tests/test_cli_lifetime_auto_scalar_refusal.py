@@ -338,3 +338,51 @@ def test_positive_judgment_repair_never_clones_or_synthesizes_lifetime_scenarios
     assert repaired == []
     # The repair may re-serialize the file; its cases must be unchanged.
     assert yaml.safe_load(test.read_text()) == [lifetime_case]
+
+
+def test_positive_judgment_repair_skips_lifetime_judgment_even_with_scalar_cases(
+    tmp_path,
+):
+    """The local-lifetime skip holds on its own, with a clonable scalar case."""
+    root = tmp_path / "rulespec-us" / "us"
+    relative = Path("statutes/99/3.yaml")
+    source = root / relative
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "rules": [
+                    rule("history", "count_over_periods(credit)"),
+                    rule("eligible", "history >= 40", dtype="Judgment"),
+                    rule("scalar", "amount + 1"),
+                ],
+            },
+            sort_keys=False,
+        )
+    )
+    test = source.with_name("3.test.yaml")
+    scalar_case = {
+        "name": "scalar_world",
+        "period": {"start": "2026-01-01", "end": "2026-12-31"},
+        "input": {PREFIX + "input.amount": 1},
+        "output": {PREFIX + "scalar": 2},
+    }
+    test.write_text(yaml.safe_dump([scalar_case], sort_keys=False))
+
+    repaired = cli._append_generated_judgment_positive_tests_if_missing(
+        rules_file=source,
+        test_file=test,
+        repo_path=root,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        relative_output=relative,
+        issues=[
+            "Judgment rule missing positive companion output coverage: "
+            f"`{PREFIX}eligible` is not asserted as `holds` by the companion "
+            "`.test.yaml` file."
+        ],
+        test_failure_checker=lambda *_a, **_k: [],
+    )
+
+    assert repaired == []
+    assert yaml.safe_load(test.read_text()) == [scalar_case]

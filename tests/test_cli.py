@@ -16418,6 +16418,70 @@ rules:
         else:
             assert not destination.exists()
 
+    def test_encode_does_not_retain_rejection_when_terminal_call_has_metrics(
+        self, tmp_path
+    ):
+        """Only an artifact-free call with no metrics is a bare model failure.
+
+        A terminal result that carries metrics was evaluated, so a retained
+        earlier pair would be misread as describing it.
+        """
+        from axiom_encode.harness.evals import EvalArtifactMetrics
+
+        destination = tmp_path / "failed-encode"
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            sync=False,
+            escalation_enabled=True,
+            emit_final_rejected_candidate=destination,
+        )
+        generated = []
+
+        def generate(**kwargs):
+            backend, model = kwargs["runner_specs"][0].split(":", 1)
+            result = self._make_eval_result(False)
+            result.backend, result.model = backend, model
+            result.runner = f"{backend}-{model}"
+            result.mode = args.mode
+            output = args.output / result.runner / "statutes/26/1/j/2.yaml"
+            if not generated:
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text("format: rulespec/v1\n# first\nrules: []\n")
+                output.with_suffix(".test.yaml").write_text("[]\n")
+                result.output_file = str(output)
+                result.error = "Generated RuleSpec failed CI validation"
+            else:
+                result.output_file = ""
+                result.error = "evaluated without a kept artifact"
+            result.metrics = EvalArtifactMetrics(
+                compile_pass=True,
+                compile_issues=[],
+                ci_pass=False,
+                ci_issues=["still failing"],
+                embedded_source_present=True,
+                grounded_numeric_count=0,
+                ungrounded_numeric_count=0,
+                grounding=[],
+            )
+            generated.append(result)
+            return [result]
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", side_effect=generate),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=lambda result, **_k: (False, ["still failing"], {}),
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        assert len(generated) >= 2
+        run = EncodingDB(args.db).get_recent_runs()[0]
+        assert "retained_rejected_candidate" not in run.outcome
+
     def test_encode_does_not_substitute_prior_rejection_for_new_failed_artifact(
         self, tmp_path
     ):
