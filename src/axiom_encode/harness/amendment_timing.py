@@ -46,7 +46,17 @@ def amendment_timing_issues(
         return []
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except (
+        yaml.YAMLError,
+        ValueError,
+        KeyError,
+        IndexError,
+        AttributeError,
+        TypeError,
+    ):
+        # PyYAML raises KeyError, IndexError or AttributeError for `!!bool`,
+        # `!!int ''` or `!!timestamp` on other text; the YAML preflight
+        # reports those tags.
         return []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []

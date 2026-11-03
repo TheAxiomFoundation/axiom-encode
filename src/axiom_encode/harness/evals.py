@@ -141,7 +141,10 @@ from .policyengine_runtime import (
     PolicyEngineRuntimeError,
 )
 from .pricing import estimate_usage_cost_usd
-from .proof_validator import find_interpretation_yaml_issues
+from .proof_validator import (
+    find_interpretation_yaml_issues,
+    find_unsupported_yaml_tag_issues,
+)
 from .source_completeness import (
     _rulespec_target_base,
     collect_artifact_numeric_values,
@@ -192,6 +195,10 @@ EvalFailureKind = Literal["timeout", "validation", "error"]
 _DUPLICATE_KEY_SCAN_RESOURCE_ISSUE = (
     "YAML nesting is too deep to check for duplicate mapping keys, so the "
     "file is not rewritten."
+)
+_TAG_SCAN_RESOURCE_ISSUE = (
+    "YAML nesting is too deep to check for unsupported tags, so the file is "
+    "not rewritten."
 )
 
 
@@ -8899,13 +8906,14 @@ def _apply_generated_eval_repairs(
     """Apply deterministic generated-artifact repairs before final eval scoring."""
     repairs: list[str] = []
     # Several repairs load and dump the module or its tests, which would erase
-    # all but the last of two equal keys; validation already rejects them.
+    # all but the last of two equal keys, change type-changing tags, or raise;
+    # validation already rejects all three.
     for artifact in (rulespec_file, _rulespec_test_path(rulespec_file)):
         try:
             artifact_content = artifact.read_text() if artifact.is_file() else ""
         except (OSError, UnicodeError):
             continue
-        if _rewrite_duplicate_key_issues(artifact_content):
+        if _rewrite_would_change_yaml(artifact_content):
             return repairs
     proof_repairs = _remove_unreferenced_proof_import_atoms(rulespec_file, issues)
     repairs.extend(f"proof_import:{name}" for name in proof_repairs)
@@ -17058,16 +17066,18 @@ def _normalize_main_eval_content(
         # resolve these; keep the raw text so validation reports them.
         if find_interpretation_yaml_issues(content):
             return content
-    except yaml.YAMLError:
+    except (yaml.YAMLError, ValueError):
+        # The check below also covers PyYAML's plain ValueError, raised for
+        # example on a double-quoted escape beyond U+10FFFF.
         pass
     except RecursionError:
         # The scan composes with one more frame per nesting level than loading,
         # so the repairs below could still load and dump text it could not
         # check. Normalize the text only; validation reports the nesting.
         return _normalize_rulespec_content(content)
-    if _rewrite_duplicate_key_issues(content):
-        # Textual normalization only: it keeps every key and still refuses
-        # text that is not RuleSpec.
+    if _rewrite_would_change_yaml(content):
+        # Textual normalization only: it keeps every key and tag and still
+        # refuses text that is not RuleSpec.
         return _normalize_rulespec_content(content)
     normalized = _normalize_rulespec_content(content)
     normalized, _lifted_inputs = _repair_misplaced_module_inputs(normalized)
@@ -17094,16 +17104,25 @@ def _normalize_main_eval_content(
     return normalized
 
 
-def _test_rewrite_duplicate_key_issues(content: str) -> list[str]:
-    """Why normalizing companion-test ``content`` could erase case entries.
+# PyYAML raises a plain ValueError, not a YAML error, for a double-quoted escape
+# beyond U+10FFFF and for an impossible implicit date such as 2024-13-01.
+_UNLOADABLE_YAML_ISSUE = (
+    "YAML text cannot be loaded: PyYAML raises ValueError on it, for example on "
+    "a double-quoted escape beyond U+10FFFF or an impossible date"
+)
+
+
+def _test_rewrite_would_change_yaml(content: str) -> bool:
+    """Whether normalizing companion-test ``content`` would lose, change or fail
+    on what it says.
 
     The test normalizers strip thousands separators before they load and dump
     the cases, so keys that differ only by a separator, such as `12,500` and
-    `12500`, collide only after that step. Both texts are checked.
+    `12500`, collide only after that step; the stripped text is checked too.
     """
 
-    return _rewrite_duplicate_key_issues(content) or _rewrite_duplicate_key_issues(
-        _normalize_comma_numeric_literals(content)
+    return _rewrite_would_change_yaml(content) or bool(
+        _rewrite_duplicate_key_issues(_normalize_comma_numeric_literals(content))
     )
 
 
@@ -17111,9 +17130,11 @@ def _rewrite_duplicate_key_issues(content: str) -> list[str]:
     """Why rewriting ``content`` through a YAML load could erase entries.
 
     Text that does not compose cannot load either, so callers keep their own
-    handling of it. The scan composes with one more frame per level than
-    ``yaml.safe_load``, so nesting can exhaust it where loading still works;
-    that text is reported too, since its duplicate keys cannot be ruled out.
+    handling of it, except PyYAML's plain ValueError, which their loaders let
+    escape and which is reported. The scan composes with one more frame per
+    level than ``yaml.safe_load``, so nesting can exhaust it where loading still
+    works; that text is reported too, since its duplicate keys cannot be ruled
+    out.
     """
 
     try:
@@ -17122,9 +17143,60 @@ def _rewrite_duplicate_key_issues(content: str) -> list[str]:
         return []
     except RecursionError:
         return [_DUPLICATE_KEY_SCAN_RESOURCE_ISSUE]
+    except ValueError:
+        return [_UNLOADABLE_YAML_ISSUE]
+
+
+def _rewrite_unsupported_tag_issues(content: str) -> list[str]:
+    """Tags that loading ``content`` would construct apart from the engine.
+
+    Like the duplicate-key check, text too deeply nested to scan is reported,
+    since its tags cannot be ruled out.
+    """
+
+    try:
+        return find_unsupported_yaml_tag_issues(content)
+    except yaml.YAMLError:
+        # Callers keep their own handling of unparseable text.
+        return []
+    except RecursionError:
+        return [_TAG_SCAN_RESOURCE_ISSUE]
+    except ValueError:
+        return [_UNLOADABLE_YAML_ISSUE]
+
+
+def _yaml_load_raises_value_error(content: str) -> bool:
+    """Whether loading ``content`` raises ValueError, which most loaders let escape.
+
+    Text with unsupported tags is left to the tag check, since some of those
+    tags make loading raise other errors.
+    """
+
+    try:
+        if find_unsupported_yaml_tag_issues(content):
+            return False
+        yaml.safe_load(content)
+    except (yaml.YAMLError, RecursionError):
+        return False
+    except ValueError:
+        return True
+    return False
+
+
+def _rewrite_would_change_yaml(content: str) -> bool:
+    """Whether a YAML load-and-dump rewrite of ``content`` would lose, change or
+    fail on what it says."""
+
+    return bool(
+        _rewrite_duplicate_key_issues(content)
+        or _rewrite_unsupported_tag_issues(content)
+    ) or _yaml_load_raises_value_error(content)
 
 
 def _rulespec_rule_names(content: str) -> set[str]:
+    if _rewrite_unsupported_tag_issues(content):
+        # Some of these tags make loading raise; validation reports them.
+        return set()
     try:
         payload = yaml.safe_load(content)
     except (yaml.YAMLError, ValueError):
@@ -17149,6 +17221,8 @@ def _removed_rulespec_rule_names(original: str, normalized: str) -> set[str]:
 
 
 def _indexed_parameter_rule_names(content: str) -> set[str]:
+    if _rewrite_unsupported_tag_issues(content):
+        return set()
     try:
         payload = yaml.safe_load(content)
     except (yaml.YAMLError, ValueError):
@@ -18376,9 +18450,15 @@ def _materialize_eval_artifact(
                 if normalized_main_content is None:
                     continue
                 content = normalized_main_content
-            # Normalization loads and dumps the cases; keep raw duplicate keys.
+            # Normalization loads and dumps the cases; keep raw duplicate keys,
+            # tags and text that cannot be loaded.
+            # The normalizers also load the module, so a module kept raw keeps
+            # its test raw too.
             elif target_path == expected_test_path and not (
-                _test_rewrite_duplicate_key_issues(content)
+                _test_rewrite_would_change_yaml(content)
+                or _rewrite_would_change_yaml(
+                    normalized_main_content or raw_main_content or ""
+                )
             ):
                 if single_amount_table_slice:
                     content = _normalize_single_amount_row_test_content(
@@ -18641,6 +18721,27 @@ def _repair_overlay_candidate_base_issue(
     return None
 
 
+def _generated_overlay_raw_issue(content: str) -> str | None:
+    """The first raw-YAML defect a load-and-dump overlay would hide, if any."""
+
+    interpretation_issues = find_interpretation_yaml_issues(content)
+    if interpretation_issues:
+        return "generated repair overlay has invalid interpretation syntax: " + (
+            "; ".join(interpretation_issues)
+        )
+    duplicate_key_issues = find_duplicate_mapping_key_issues(content)
+    if duplicate_key_issues:
+        return "generated repair overlay has duplicate YAML mapping keys: " + (
+            "; ".join(duplicate_key_issues)
+        )
+    tag_issues = find_unsupported_yaml_tag_issues(content)
+    if tag_issues:
+        return "generated repair overlay has unsupported YAML tags: " + "; ".join(
+            tag_issues
+        )
+    return None
+
+
 @timed_phase(PHASE_REPAIR_OVERLAY)
 def _overlay_validation_retry_candidate(
     rulespec_file: Path,
@@ -18650,6 +18751,13 @@ def _overlay_validation_retry_candidate(
 ) -> tuple[str, ...]:
     """Overlay partial repair output onto its integrity-bound prior candidate."""
 
+    # The checks and loads below let a plain ValueError from PyYAML escape.
+    for label, text in (("RuleSpec", candidate.rulespec), ("tests", candidate.tests)):
+        if text is not None and _yaml_load_raises_value_error(text):
+            raise _PreservedRepairOverlayError(
+                f"preserved repair overlay {label} cannot be loaded: "
+                + _UNLOADABLE_YAML_ISSUE
+            )
     try:
         preserved_interpretation_issues = find_interpretation_yaml_issues(
             candidate.rulespec
@@ -18684,32 +18792,35 @@ def _overlay_validation_retry_candidate(
                 "losing YAML mapping entries: "
                 + "; ".join(preserved_duplicate_key_issues)
             )
+    # Loading constructs these tags apart from the engine, and some make it raise.
+    preserved_tag_issues = _rewrite_unsupported_tag_issues(candidate.rulespec)
+    if preserved_tag_issues:
+        raise _PreservedRepairOverlayError(
+            "preserved repair overlay has unsupported YAML tags: "
+            + "; ".join(preserved_tag_issues)
+        )
+    if candidate.tests is not None:
+        preserved_tag_issues = _rewrite_unsupported_tag_issues(candidate.tests)
+        if preserved_tag_issues:
+            raise _PreservedRepairOverlayError(
+                "preserved repair overlay tests have unsupported YAML tags: "
+                + "; ".join(preserved_tag_issues)
+            )
     base_issue = _repair_overlay_candidate_base_issue(candidate)
     if base_issue is not None:
         raise _PreservedRepairOverlayError(base_issue)
     try:
         generated_content = rulespec_file.read_text(encoding="utf-8")
-        generated_interpretation_issues = find_interpretation_yaml_issues(
-            generated_content
-        )
-        if generated_interpretation_issues:
-            raise ValueError(
-                "generated repair overlay has invalid interpretation syntax: "
-                + "; ".join(generated_interpretation_issues)
-            )
-        generated_duplicate_key_issues = find_duplicate_mapping_key_issues(
-            generated_content
-        )
-        if generated_duplicate_key_issues:
-            raise ValueError(
-                "generated repair overlay has duplicate YAML mapping keys: "
-                + "; ".join(generated_duplicate_key_issues)
-            )
-        generated = yaml.safe_load(generated_content)
-    except (OSError, UnicodeError, yaml.YAMLError, RecursionError) as exc:
+        generated_raw_issue = _generated_overlay_raw_issue(generated_content)
+        generated = None if generated_raw_issue else yaml.safe_load(generated_content)
+    except (OSError, ValueError, yaml.YAMLError, RecursionError) as exc:
+        # ValueError covers UnicodeError and PyYAML's plain ValueError, for
+        # example on a double-quoted escape beyond U+10FFFF.
         raise ValueError(
             "generated repair overlay RuleSpec must be valid UTF-8 YAML"
         ) from exc
+    if generated_raw_issue:
+        raise ValueError(generated_raw_issue)
     preserved = yaml.safe_load(candidate.rulespec)
     if not isinstance(generated, dict):
         raise ValueError("generated repair overlay RuleSpec must be a YAML mapping")
@@ -18879,14 +18990,25 @@ def _overlay_validation_retry_candidate(
             generated_duplicate_key_issues = find_duplicate_mapping_key_issues(
                 generated_test_content
             )
-            generated_tests = yaml.safe_load(generated_test_content)
+            generated_tag_issues = find_unsupported_yaml_tag_issues(
+                generated_test_content
+            )
+            # Some of these tags make loading raise, so the text is not loaded.
+            generated_tests = (
+                None if generated_tag_issues else yaml.safe_load(generated_test_content)
+            )
             preserved_tests = yaml.safe_load(candidate.tests)
-        except (OSError, UnicodeError, yaml.YAMLError, RecursionError) as exc:
+        except (OSError, ValueError, yaml.YAMLError, RecursionError) as exc:
             raise ValueError("repair overlay tests must be valid UTF-8 YAML") from exc
         if generated_duplicate_key_issues:
             raise ValueError(
                 "generated repair overlay tests have duplicate YAML mapping keys: "
                 + "; ".join(generated_duplicate_key_issues)
+            )
+        if generated_tag_issues:
+            raise ValueError(
+                "generated repair overlay tests have unsupported YAML tags: "
+                + "; ".join(generated_tag_issues)
             )
         generated_wrapper = isinstance(generated_tests, dict)
         preserved_wrapper = isinstance(preserved_tests, dict)
@@ -18973,7 +19095,17 @@ def _preserves_companion_test_cases(
     try:
         original = yaml.safe_load(original_content)
         proposed = yaml.safe_load(proposed_content)
-    except (yaml.YAMLError, RecursionError):
+    except (
+        yaml.YAMLError,
+        RecursionError,
+        ValueError,
+        KeyError,
+        IndexError,
+        AttributeError,
+        TypeError,
+    ):
+        # Text PyYAML cannot load, or tagged text its constructors raise on,
+        # is not preserved; validation reports it from the raw file.
         return False
 
     def case_list(payload: object) -> list[object] | None:
@@ -19113,7 +19245,15 @@ def _append_contract_test_fragment(
     try:
         original_cases = yaml.safe_load(original_content)
         fragment_cases = yaml.safe_load(fragment_content)
-    except (yaml.YAMLError, RecursionError):
+    except (
+        yaml.YAMLError,
+        RecursionError,
+        ValueError,
+        KeyError,
+        IndexError,
+        AttributeError,
+        TypeError,
+    ):
         return None
     if not isinstance(original_cases, list) or not isinstance(fragment_cases, list):
         return None
@@ -19248,8 +19388,14 @@ def _materialize_workspace_artifacts(
 
     if workspace_test.exists():
         test_content = workspace_test.read_text()
-        # Normalization loads and dumps the cases; keep raw duplicate keys.
-        if not _test_rewrite_duplicate_key_issues(test_content):
+        # Normalization loads and dumps the cases; keep raw duplicate keys,
+        # tags and text that cannot be loaded.
+        # The normalizers also load the module, so a module kept raw keeps its
+        # test raw too.
+        if not (
+            _test_rewrite_would_change_yaml(test_content)
+            or _rewrite_would_change_yaml(main_content)
+        ):
             if single_amount_table_slice:
                 test_content = _normalize_single_amount_row_test_content(
                     test_content,
