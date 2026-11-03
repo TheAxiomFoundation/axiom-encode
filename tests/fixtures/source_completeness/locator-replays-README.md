@@ -23,7 +23,7 @@ original candidate archive, or historical run outcome.
   `us-va/statute/58.1/58.1-322.03`. The tests require removal of history-only
   chapter demands and keep real unencoded deductions rejected.
 
-The recorded round-two comparison checked all three sources against their
+The recorded source comparison checked all three sources against their
 identified rows in corpus commit
 `8f7d60aaced28ee4252b9237f9d6e02360dc34bc`, including provision-file and body
 hashes. The metadata names corpus release
@@ -31,11 +31,11 @@ hashes. The metadata names corpus release
 are recorded labels. Replay checks run `analyze_complete_source_unit` with the
 `en-US` numeric inventory and grounding extractors, matching these U.S. sources.
 
-The caption mask and its heading metadata were removed in round four. Direct
+The replays run without a caption mask or caption heading metadata. Direct
 completeness-only replay totals are recorded separately from `issues.json`,
 which retains the recorded pipeline diagnostics:
 
-| Labelled fixture | Main baseline | Two-mask head | Round-four status |
+| Labelled fixture | Main baseline | With both locator masks | Status |
 | --- | ---: | ---: | --- |
 | Oklahoma `37936331759` | 4 | 0 | Observed |
 | Arizona `37936338132` | 53 | 51 | Observed |
@@ -46,5 +46,5 @@ exclusions with four caption-related diagnostics. Removing the caption mask
 restores demands for 43 and 1072, one apparent-computation output, and its
 companion-test evidence; the Statutes at Large values 49 and 620 remain
 excluded. These replay totals are not full production encode/apply or signing
-runs. Oklahoma and Virginia retain the reviewed head's diagnostic reductions;
+runs. Oklahoma and Virginia keep the diagnostic reductions shown above;
 both genuine-omission controls still reject.

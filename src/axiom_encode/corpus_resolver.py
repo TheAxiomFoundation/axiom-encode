@@ -15,7 +15,7 @@ import stat
 import sys
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
-from itertools import islice
+from itertools import accumulate, islice
 from pathlib import Path
 from types import MappingProxyType
 from typing import AbstractSet, Any, Literal
@@ -1414,6 +1414,49 @@ def _read_descendant_records(
     return records
 
 
+# Metadata that makes a row amendment or commencement evidence. Such a row is
+# never classed as a part heading; it keeps main's refusals.
+_PART_HEADING_EXCLUDED_METADATA = frozenset(
+    {
+        "amendment_target",
+        "commencement_citation_path",
+        "commencement_date",
+        "document_type",
+    }
+)
+
+
+def _is_part_heading_row(record: _StoredRecord) -> bool:
+    """A bodyless, current row that looks like a flat-numbered part heading.
+
+    Flat-numbered regulations such as Colorado's CCR print a part heading as
+    its own row, with a heading, no body and no rows under its path (#1825).
+    Callers pass only bodyless, non-repealed rows, so this checks what remains:
+    the document class is ``regulation``, the heading is not blank, and the
+    metadata names no amendment or commencement routing field.
+
+    Such a row is refused, never composed. Its row identity has no body digest,
+    and `_source_attestation_structure_issues` requires one for every
+    component row, so a source composed from it could be generated but never
+    signed, applied or admitted by the guard.
+    """
+
+    return (
+        record.row.document_class == "regulation"
+        and bool(record.heading and record.heading.strip())
+        and not _PART_HEADING_EXCLUDED_METADATA & set(record.metadata)
+    )
+
+
+def _part_heading_refusal(citation_path: str, row_path: str) -> str:
+    return (
+        f"Active corpus source {citation_path!r} has heading-only descendant "
+        f"{row_path!r}: a part heading with no body has no body digest, so a "
+        "source composed from it could not be signed, applied or admitted "
+        "after generation; it is refused before generation instead (#1825)"
+    )
+
+
 def _compose_descendant_text(
     citation_path: str,
     records: list[_StoredRecord],
@@ -1443,6 +1486,31 @@ def _compose_descendant_text(
             tuple(record.row for record in ambiguous),
         )
     if not any(record.body is not None for record in records):
+        # A part heading has no row under its path, as in the leaf branch of
+        # `visit` below. Every record's ancestor paths, collected once, keep
+        # this linear in the number of records.
+        paths_with_descendants = {
+            ancestor
+            for record in records
+            for ancestor in accumulate(
+                record.row.citation_path.split("/")[:-1],
+                lambda parent, segment: f"{parent}/{segment}",
+            )
+        }
+        part_heading = next(
+            (
+                record
+                for record in records
+                if record.status != "repealed"
+                and record.row.citation_path not in paths_with_descendants
+                and _is_part_heading_row(record)
+            ),
+            None,
+        )
+        if part_heading is not None:
+            raise CorpusDescendantStructureError(
+                _part_heading_refusal(citation_path, part_heading.row.citation_path)
+            )
         raise CorpusDescendantStructureError(
             f"Active corpus source {citation_path!r} has no body-bearing descendants"
         )
@@ -1526,6 +1594,11 @@ def _compose_descendant_text(
         }
         if raw_child_paths and not child_paths:
             return
+        if not raw_child_paths and record is not None and _is_part_heading_row(record):
+            # Repealed and body-bearing rows returned above.
+            raise CorpusDescendantStructureError(
+                _part_heading_refusal(citation_path, path)
+            )
         if not child_paths:
             raise CorpusDescendantStructureError(
                 f"Active corpus source {citation_path!r} has uncovered "
