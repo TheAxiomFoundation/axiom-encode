@@ -571,9 +571,11 @@ class _Item:
         ([], None, None),
         ([("function",), ("session",), ("package",)], None, None),
         ([("module",)], None, "module"),
-        # The last definition of a name is the one that serves the test.
+        # Every definition of a name counts: an override may use the one
+        # it overrides, by requesting its own name.
         ([("function", "module")], None, "module"),
-        ([("module", "function")], None, None),
+        ([("module", "function")], None, "module"),
+        ([("class", "function")], object, "class"),
         ([("class",)], object, "class"),
         ([("class",), ("module",)], object, "module"),
         # Outside a class, pytest sets a class-scoped fixture up per test.
@@ -648,6 +650,21 @@ def cached_value(request):
 @pytest.mark.parametrize("cached_value", [1, 2], indirect=True, scope="module")
 def test_parametrized_at_module_scope(cached_value):
     pass
+
+
+@pytest.fixture(scope="module")
+def wrapped():
+    return []
+
+
+class TestWrap:
+    # Overrides the module's fixture and uses it.
+    @pytest.fixture
+    def wrapped(self, wrapped):
+        return wrapped
+
+    def test_wrapped(self, wrapped):
+        pass
 
 
 class TestShared:
@@ -749,7 +766,7 @@ def test_each_test_runs_in_exactly_one_shard_and_unsharded_runs_all(tmp_path):
     shards = [_run(tmp_path, f"{shard}/3") for shard in (1, 2, 3)]
 
     assert code == 0 and no_report == ""
-    assert len(whole) == 22 and whole["test_skipped"] == "SKIPPED"
+    assert len(whole) == 23 and whole["test_skipped"] == "SKIPPED"
     assert [code for code, _, _, _ in shards] == [0, 0, 0]
     assert sum(len(results) for _, results, _, _ in shards) == len(whole)
     merged = {}
@@ -763,7 +780,8 @@ def test_each_test_runs_in_exactly_one_shard_and_unsharded_runs_all(tmp_path):
     # A parametrized function's cases stay in one shard, and so do the tests
     # that share a module- or class-scoped fixture. The module has a
     # module-scoped fixture, so TestShared's users join the module's unit, and
-    # so does the function parametrized at module scope: 15 functions, 11 units.
+    # so do the function parametrized at module scope and TestWrap's test,
+    # whose fixture wraps a module-scoped one: 16 functions, 11 units.
     for together in (
         {f"test_many[{n}]" for n in range(4)},
         {
@@ -771,6 +789,7 @@ def test_each_test_runs_in_exactly_one_shard_and_unsharded_runs_all(tmp_path):
             "test_also_uses_the_module_fixture",
             "test_parametrized_at_module_scope[1]",
             "test_parametrized_at_module_scope[2]",
+            "TestWrap::test_wrapped",
         },
         {"TestShared::test_first", "TestShared::test_second"},
     ):

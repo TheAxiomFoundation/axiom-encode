@@ -123,11 +123,12 @@ class Collected(NamedTuple):
 def collected(item: Any) -> Collected:
     """A pytest item as the split sees it."""
     function = unit_of(item.nodeid, item.name, getattr(item, "originalname", None))
-    # pytest has no public API for the fixture definitions an item uses; the
-    # last definition of each name is the one that serves this item.
+    # pytest has no public API for the fixture definitions an item uses. The
+    # last definition of each name serves this item, but it may request the
+    # name itself and so use the one before it: count every definition.
     info = getattr(item, "_fixtureinfo", None)
     definitions = info.name2fixturedefs.values() if info is not None else ()
-    scopes = {str(defs[-1].scope) for defs in definitions if defs}
+    scopes = {str(definition.scope) for defs in definitions for definition in defs}
     # A parametrized argument is cached at its parametrize call's scope
     # (`parametrize(..., indirect=True, scope="module")`), whatever the
     # fixture's own scope.
