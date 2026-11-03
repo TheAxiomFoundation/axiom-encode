@@ -616,7 +616,14 @@ def test_workflow_runs_every_shard_and_reports_each():
         "fail-fast": False,
         "matrix": {"python-version": ["3.13"], "shard": shards},
     }
-    assert job.keys() == {"name", "runs-on", "strategy", "outputs", "steps"}
+    assert job.keys() == {
+        "name",
+        "runs-on",
+        "concurrency",
+        "strategy",
+        "outputs",
+        "steps",
+    }
     assert run_tests == {
         "name": "Run tests",
         "id": "tests",
@@ -673,3 +680,33 @@ def test_required_check_is_the_gate_over_all_shards():
         "exit 1 fi "
         f"python3 -I tests/ci_shards.py check {arguments}"
     )
+
+
+def test_concurrency_groups_sit_on_the_jobs_that_do_the_work():
+    # The gate runs even in a cancelled run, so a workflow-level group would keep
+    # a pull request's new run waiting until the old gate got a runner. Each job
+    # that does the work keys its own group instead, and each test shard keys one
+    # per matrix leg, so the legs of one run never cancel each other. On any event
+    # but a pull request, the key ends in the run's own id: nothing cancels it.
+    suffix = (
+        "${{ github.event_name == 'pull_request' && format('pr-{0}', "
+        "github.event.pull_request.number) || format('run-{0}', github.run_id) }}"
+    )
+    legs = "${{ matrix.python-version }}-${{ matrix.shard }}"
+    assert "concurrency" not in CI
+    assert "concurrency" not in CI["jobs"]["test-gate"]
+    assert {
+        key: job["concurrency"]
+        for key, job in CI["jobs"].items()
+        if "concurrency" in job
+    } == {
+        key: {
+            "group": f"${{{{ github.workflow }}}}-{group}-{suffix}",
+            "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
+        }
+        for key, group in {
+            "test": f"test-{legs}",
+            "real-engine": "real-engine",
+            "lint": "lint",
+        }.items()
+    }

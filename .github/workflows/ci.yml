@@ -9,19 +9,20 @@ on:
 permissions:
   contents: read
 
-# A new push to a pull request cancels that pull request's older run of this
-# workflow, so runs for superseded heads stop holding runners. Each push to
-# main keys its own group, so nothing cancels it or makes it wait.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   # The suite, split across parallel shards. tests/ci_shards.py assigns every
   # test function to exactly one shard; the test-gate job below checks it.
   test:
     name: test shard ${{ matrix.shard }} of 8 (${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    # A new push to a pull request cancels the older run's test shards, real-engine
+    # and lint jobs. The groups sit on these jobs, not on the workflow, because
+    # test-gate runs even in a cancelled run (`if: always()`): a workflow-level
+    # group would keep the new run waiting until the old gate found a runner.
+    # Each push to main keys its own groups, so nothing cancels it or makes it wait.
+    concurrency:
+      group: ${{ github.workflow }}-test-${{ matrix.python-version }}-${{ matrix.shard }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
@@ -120,6 +121,9 @@ jobs:
     # unusable or unpinned engine fails them here instead of skipping them.
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    concurrency:
+      group: ${{ github.workflow }}-real-engine-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     env:
       # Reviewed merged engine with required unique Boolean relation projection.
       # The tests require a clean checkout at this commit and a binding receipt
@@ -187,6 +191,9 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-lint-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
