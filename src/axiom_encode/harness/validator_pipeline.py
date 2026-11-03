@@ -38282,33 +38282,8 @@ class ValidatorPipeline:
                     f"{self.policyengine_rule_hint}."
                 )
 
-            if "lifetime" in case:
-                if binary is None:
-                    binary = self._axiom_rules_binary()
-                try:
-                    lifetime_issues = run_lifetime_fixture(
-                        binary=binary,
-                        compiled_path=compiled_path,
-                        case=case,
-                        period=period,
-                        cwd=(
-                            self.axiom_rules_path
-                            if self.axiom_rules_path.exists()
-                            else None
-                        ),
-                        env=self._rulespec_engine_env(),
-                    )
-                except (ValueError, OSError, subprocess.SubprocessError) as exc:
-                    lifetime_issues = [str(exc)]
-                for issue in lifetime_issues:
-                    detail = _normalize_validation_staging_text(
-                        issue,
-                        compiled_path.parent,
-                        placeholder=_VALIDATION_TEMP_ROOT_PLACEHOLDER,
-                    )
-                    issues.append(f"Test case `{case_name}` {detail}")
-                continue
-
+            # This holds for lifetime batches too: a history fact cannot
+            # stand in for an output the compiled program computes.
             computed_input_keys = [
                 input_name
                 for input_name in _test_case_assignment_keys(case)
@@ -38325,6 +38300,38 @@ class ValidatorPipeline:
                     "assign their upstream `#input.*` or `#relation.*` facts "
                     "instead."
                 )
+                continue
+
+            if "lifetime" in case:
+                if binary is None:
+                    binary = self._axiom_rules_binary()
+                try:
+                    lifetime_issues = run_lifetime_fixture(
+                        binary=binary,
+                        compiled_path=compiled_path,
+                        case=case,
+                        period=period,
+                        cwd=(
+                            self.axiom_rules_path
+                            if self.axiom_rules_path.exists()
+                            else None
+                        ),
+                        env=self._rulespec_engine_env(),
+                    )
+                except (
+                    ValueError,
+                    OSError,
+                    RecursionError,
+                    subprocess.SubprocessError,
+                ) as exc:
+                    lifetime_issues = [str(exc) or type(exc).__name__]
+                for issue in lifetime_issues:
+                    detail = _normalize_validation_staging_text(
+                        issue,
+                        compiled_path.parent,
+                        placeholder=_VALIDATION_TEMP_ROOT_PLACEHOLDER,
+                    )
+                    issues.append(f"Test case `{case_name}` {detail}")
                 continue
 
             derived_outputs: list[str] = []

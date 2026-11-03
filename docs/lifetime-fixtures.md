@@ -67,7 +67,8 @@ The adapter requires 1–512 explicit periods and 1–100,000 rows per batch, wi
 the same unique entity IDs in the same order in every batch. It asserts every
 row, using a scalar expectation for one row or a list for multiple rows. Decimal
 expectations use ASCII decimal strings without exponent notation and are compared
-exactly. Booleans, integers, dates, text and judgments preserve their types.
+as exact decimal numbers, so trailing zeros don't matter (`"0.30"` equals
+`"0.3"`) but any other difference, however small, does. Booleans, integers, dates, text and judgments preserve their types.
 Inputs and results are validated by the real Rust runtime and the typed response
 contract. No Python policy calculation or floating-point tolerance is involved.
 

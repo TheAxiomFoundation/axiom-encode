@@ -18839,7 +18839,10 @@ def _compiled_rulespec_test_output_names(
 
 
 def _non_scalar_fixture_output_names(
-    payload: dict[str, object], *, repo_path: Path
+    payload: dict[str, object],
+    *,
+    repo_path: Path,
+    include_unclassified_imports: bool = True,
 ) -> set[str]:
     """Refuse scalar repair for lifetime or unclassified imported dependencies.
 
@@ -18857,9 +18860,13 @@ def _non_scalar_fixture_output_names(
         for rule in rules
         if isinstance(rule, dict) and str(rule.get("name") or "").strip()
     }
-    unsafe_imports = _imported_output_names_from_payload(payload)
+    unsafe_imports = (
+        _imported_output_names_from_payload(payload)
+        if include_unclassified_imports
+        else set()
+    )
     imports = payload.get("imports")
-    if isinstance(imports, list):
+    if include_unclassified_imports and isinstance(imports, list):
         for raw_import in imports:
             if not isinstance(raw_import, str) or "#" not in raw_import:
                 continue
@@ -19438,6 +19445,25 @@ def _append_generated_judgment_positive_tests_if_missing(
         return []
     if not isinstance(test_payload, list):
         return []
+    # Never synthesize or clone a scalar scenario for a Judgment that depends
+    # on a local lifetime reduction, and never clone a lifetime case (below).
+    # Imported operands keep their existing companion-input repair.
+    lifetime_outputs = (
+        _non_scalar_fixture_output_names(
+            rules_payload,
+            repo_path=repo_path,
+            include_unclassified_imports=False,
+        )
+        if rules_payload is not None
+        else set()
+    )
+    output_targets = [
+        target
+        for target in output_targets
+        if target.rsplit("#", 1)[-1] not in lifetime_outputs
+    ]
+    if not output_targets:
+        return []
 
     target_base = _rulespec_anchor_base_for_output(repo_path, relative_output)
     existing_case_names = {
@@ -19588,7 +19614,7 @@ def _append_generated_judgment_positive_tests_if_missing(
         for test_case in test_payload:
             if candidate_payload is not None:
                 break
-            if not isinstance(test_case, dict):
+            if not isinstance(test_case, dict) or "lifetime" in test_case:
                 continue
             outputs = test_case.get("output")
             if not isinstance(outputs, dict):

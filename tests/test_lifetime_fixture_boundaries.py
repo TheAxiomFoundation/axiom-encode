@@ -361,3 +361,59 @@ def test_lifetime_guidance_reaches_both_generation_prompts(tmp_path):
     assert LIFETIME_FIXTURE_PROTOCOL in ENCODER_PROMPT
     assert "#input.<builtin_name>" in prompt
     assert "row_count" in prompt and "entity_ids" in prompt
+
+
+def test_lifetime_batch_cannot_assign_a_computed_output_as_history(
+    tmp_path, monkeypatch
+):
+    """The computed-output check runs before, and without, the engine."""
+    policy_root = tmp_path / "rulespec-us" / "us"
+    policy_root.mkdir(parents=True)
+    pipeline = validator_pipeline.ValidatorPipeline(
+        policy_repo_path=policy_root,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        local_corpus_release=None,
+        enable_oracles=False,
+    )
+
+    def no_engine(*_args, **_kwargs):
+        raise AssertionError("a computed-output assignment must not reach the engine")
+
+    monkeypatch.setattr(validator_pipeline, "run_lifetime_fixture", no_engine)
+    monkeypatch.setattr(pipeline, "_axiom_rules_binary", no_engine)
+    compiled_payload = {
+        "program": {
+            "derived": [
+                {"name": "total", "id": "us:statutes/99/1#total", "entity": "Person"},
+                {"name": "amount", "id": "us:statutes/99/1#amount", "entity": "Person"},
+            ],
+            "parameters": [],
+        }
+    }
+    case = {
+        "name": "history_stubs_computed_amount",
+        "period": period(2021),
+        "lifetime": {
+            "entity": "Person",
+            "periods": [period(2020), period(2021)],
+            "batches": [
+                {"inputs": {"us:statutes/99/1#amount": ["1"]}},
+                {"inputs": {"us:statutes/99/1#amount": ["2"]}},
+            ],
+        },
+        "output": {"us:statutes/99/1#total": "3"},
+    }
+
+    issues = pipeline._run_rulespec_test_cases(
+        rules_file=tmp_path / "statutes/99/1.yaml",
+        compiled_path=tmp_path / "compiled.json",
+        compiled_payload=compiled_payload,
+        cases=[case],
+    )
+
+    assert issues == [
+        "Test case `history_stubs_computed_amount` assigns computed RuleSpec "
+        "output(s) as input: `us:statutes/99/1#amount`, `us:statutes/99/1#amount`. "
+        "Imported parameters and derived outputs are computed by the compiled "
+        "program; assign their upstream `#input.*` or `#relation.*` facts instead."
+    ]

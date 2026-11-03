@@ -280,3 +280,61 @@ def test_duplicate_import_fragments_cannot_be_cleared_by_one_parameter(
         == []
     )
     assert test.read_text() == "[]\n"
+
+
+@pytest.mark.parametrize("with_rules", [False, True])
+@pytest.mark.parametrize("checker", [None, "accept_all"])
+def test_positive_judgment_repair_never_clones_or_synthesizes_lifetime_scenarios(
+    tmp_path, with_rules, checker
+):
+    """A Judgment over a lifetime reduction gets no invented positive case.
+
+    With the rules, the dependency itself refuses the repair. Without them,
+    the only clonable scenario is a lifetime case, which is never cloned.
+    """
+    root = tmp_path / "rulespec-us" / "us"
+    relative = Path("statutes/99/3.yaml")
+    source = root / relative
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "rules": [
+                    rule("history", "count_over_periods(credit)"),
+                    rule("eligible", "history >= 40", dtype="Judgment"),
+                ],
+            },
+            sort_keys=False,
+        )
+    )
+    test = source.with_name("3.test.yaml")
+    lifetime_case = {
+        "name": "authentic_history",
+        "period": {"start": "2026-01-01", "end": "2026-12-31"},
+        "lifetime": {
+            "entity": "Person",
+            "periods": [{"start": "2026-01-01", "end": "2026-12-31"}],
+            "batches": [{"inputs": {"credit": ["1"]}}],
+        },
+        "output": {PREFIX + "history": "1"},
+    }
+    test.write_text(yaml.safe_dump([lifetime_case], sort_keys=False))
+
+    repaired = cli._append_generated_judgment_positive_tests_if_missing(
+        rules_file=source if with_rules else None,
+        test_file=test,
+        repo_path=root,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        relative_output=relative,
+        issues=[
+            "Judgment rule missing positive companion output coverage: "
+            f"`{PREFIX}eligible` is not asserted as `holds` by the companion "
+            "`.test.yaml` file."
+        ],
+        test_failure_checker=(lambda *_a, **_k: []) if checker else None,
+    )
+
+    assert repaired == []
+    # The repair may re-serialize the file; its cases must be unchanged.
+    assert yaml.safe_load(test.read_text()) == [lifetime_case]
