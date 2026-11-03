@@ -18,11 +18,16 @@ from __future__ import annotations
 
 import os
 import random
+import signal
 import tempfile
+import threading
+import time
+import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+import pytest
 from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
@@ -295,7 +300,10 @@ def test_operation_count_of_repeated_resolution(tmp_path: Path, monkeypatch):
     """The work repeated resolution does, cached and uncached, as counts.
 
     The pull request and ``docs/corpus-resolution-cache.md`` quote these
-    counts instead of wall-clock times.
+    counts instead of wall-clock times. "Uncached" binds a fresh release per
+    call, so it runs this change's cold path: that path also takes the disk
+    fingerprint before it reads. Each count is (provisions reads, rows parsed,
+    fingerprint lstats, citation-index builds).
     """
 
     rows, calls = 200, 100
@@ -308,9 +316,10 @@ def test_operation_count_of_repeated_resolution(tmp_path: Path, monkeypatch):
         ],
     )
     release = bind_test_corpus_release(tmp_path, RELEASE, [("us", "statute", STATUTE)])
-    counts = {"parsed": 0, "stat": 0}
+    counts = {"parsed": 0, "stat": 0, "index": 0}
     real_loads = corpus_resolver.json.loads
     real_identity = corpus_resolver._file_identity
+    real_build = corpus_resolver._CorpusCitationIndex.build.__func__
 
     def loads(*args, **kwargs):
         counts["parsed"] += 1
@@ -320,24 +329,32 @@ def test_operation_count_of_repeated_resolution(tmp_path: Path, monkeypatch):
         counts["stat"] += 1
         return real_identity(path)
 
+    def build(cls, artifact):
+        counts["index"] += 1
+        return real_build(cls, artifact)
+
     monkeypatch.setattr(corpus_resolver.json, "loads", loads)
     monkeypatch.setattr(corpus_resolver, "_file_identity", identity)
+    monkeypatch.setattr(
+        corpus_resolver._CorpusCitationIndex, "build", classmethod(build)
+    )
 
-    def run(pick) -> tuple[int, int, int]:
-        counts.update(parsed=0, stat=0)
+    def run(pick) -> tuple[int, int, int, int]:
+        counts.update(parsed=0, stat=0, index=0)
         with _provision_reads() as reads:
             for index in range(calls):
                 resolve_local_corpus_source(f"us/statute/1/{index}", pick())
-        return len(reads), counts["parsed"], counts["stat"]
+        return len(reads), counts["parsed"], counts["stat"], counts["index"]
 
     fresh_releases = [_fresh(release) for _ in range(calls)]
     uncached = run(iter(fresh_releases).__next__)
     cached = run(lambda: release)
-    # Uncached: every call reads, hashes and parses the whole bucket.
-    assert uncached[:2] == (calls, calls * rows)
-    # Cached: one read and one parse of each row; each call takes one
-    # lstat of the provisions file for the disk fingerprint.
-    assert cached == (1, rows, calls)
+    # Uncached: every call reads, hashes and parses the whole bucket, takes
+    # one fingerprint lstat before its read, and builds the citation index.
+    assert uncached == (calls, calls * rows, calls, calls)
+    # Cached: one read, one parse of each row and one index build; each call
+    # still takes one lstat of the provisions file for the fingerprint.
+    assert cached == (1, rows, calls, 1)
 
 
 def test_mutating_selected_row_metadata_cannot_change_a_later_result(
@@ -422,3 +439,181 @@ def test_a_symlink_swapped_in_during_a_warm_call_is_refused(
     assert warm == _outcome(
         lambda: resolve_local_corpus_source("us/statute/1", release.with_fresh_reads())
     )
+
+
+def test_an_in_place_same_size_rewrite_with_restored_times_is_read_again(
+    tmp_path: Path,
+):
+    """Only the change time tells this rewrite apart, so it must be compared.
+
+    The file keeps its inode and size, and ``os.utime`` restores its access and
+    modification times, as ``touch -r`` or ``cp -p`` leave a file. The kernel
+    sets the change time on every write and ``utime`` call and does not let a
+    caller set it. On a filesystem whose timestamps are coarser than this test,
+    the rewrite can land in the same tick as the original write, so the test
+    rewrites until the change time differs (bounded), which makes it
+    deterministic.
+    """
+
+    _write_rows(tmp_path, STATUTE, [{"citation_path": "us/statute/1", "body": "One."}])
+    release = bind_test_corpus_release(tmp_path, RELEASE, [("us", "statute", STATUTE)])
+    assert resolve_local_corpus_source("us/statute/1", release).body == "One."
+    provisions = _provisions_path(tmp_path, "statute", STATUTE)
+    before = os.lstat(provisions)
+    rewritten = provisions.read_bytes().replace(b"One.", b"Two.")
+    assert len(rewritten) == before.st_size
+
+    deadline = time.monotonic() + 5
+    while True:
+        with open(provisions, "r+b") as handle:
+            handle.write(rewritten)
+        os.utime(provisions, ns=(before.st_atime_ns, before.st_mtime_ns))
+        after = os.lstat(provisions)
+        if after.st_ctime_ns != before.st_ctime_ns:
+            break
+        assert time.monotonic() < deadline, "the change time never moved"
+        time.sleep(0.01)
+    # Every other identity field is unchanged.
+    for field in ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns"):
+        assert getattr(after, field) == getattr(before, field), field
+
+    warm = _outcome(lambda: resolve_local_corpus_source("us/statute/1", release))
+    assert warm[0] == "error" and "do not match" in warm[2], warm
+    assert warm == _outcome(
+        lambda: resolve_local_corpus_source("us/statute/1", release.with_fresh_reads())
+    )
+
+
+def test_a_file_swapped_after_the_cold_read_is_not_served_as_verified(
+    tmp_path: Path, monkeypatch
+):
+    """The cold path fingerprints before it reads.
+
+    A swap that lands after the read, before the next call, changes the file's
+    identity from the fingerprint taken before the read, so the next warm call
+    reads again and fails as a fresh release does. A fingerprint taken after
+    the read would match the swapped file and serve the old rows as verified.
+    """
+
+    _write_rows(tmp_path, STATUTE, [{"citation_path": "us/statute/1", "body": "One."}])
+    release = bind_test_corpus_release(tmp_path, RELEASE, [("us", "statute", STATUTE)])
+    provisions = _provisions_path(tmp_path, "statute", STATUTE)
+    tampered = provisions.read_bytes().replace(b"One.", b"Two.")
+    read_artifacts = corpus_resolver._read_corpus_artifacts
+    swapped: list[bool] = []
+
+    def read_then_swap(*args, **kwargs):
+        artifacts = read_artifacts(*args, **kwargs)
+        if not swapped:
+            swapped.append(True)
+            _replace(provisions, tampered)
+        return artifacts
+
+    monkeypatch.setattr(corpus_resolver, "_read_corpus_artifacts", read_then_swap)
+    assert resolve_local_corpus_source("us/statute/1", release).body == "One."
+    assert swapped
+
+    warm = _outcome(lambda: resolve_local_corpus_source("us/statute/1", release))
+    assert warm[0] == "error" and "do not match" in warm[2], warm
+    assert warm == _outcome(
+        lambda: resolve_local_corpus_source("us/statute/1", release.with_fresh_reads())
+    )
+
+
+class _Identifier(str):
+    """A ``str`` subclass: resolution skips the memo and the per-caller copy."""
+
+
+def test_unmemoized_results_do_not_share_metadata_with_cached_rows(tmp_path: Path):
+    """A result built straight from cached rows carries its own metadata copy.
+
+    A ``str`` subclass identifier is never memoized and its result is not
+    passed through the per-caller copy, so only the copy taken when the row is
+    read keeps a caller's mutation out of the cached row.
+    """
+
+    _write_rows(
+        tmp_path,
+        STATUTE,
+        [
+            {
+                "citation_path": "us/statute/1",
+                "body": "One.",
+                "metadata": {"notes": ["first"], "detail": {"kind": "rule"}},
+            }
+        ],
+    )
+    release = bind_test_corpus_release(tmp_path, RELEASE, [("us", "statute", STATUTE)])
+    expected = resolve_local_corpus_source("us/statute/1", _fresh(release))
+
+    for _ in range(3):
+        resolved = resolve_local_corpus_source(_Identifier("us/statute/1"), release)
+        record = resolved.selected_record
+        assert record is not None
+        assert dict(record.metadata) == dict(expected.selected_record.metadata)
+        record.metadata["notes"].append("POISON")
+        record.metadata["detail"]["kind"] = "POISON"
+    assert resolve_local_corpus_source("us/statute/1", release) == expected
+    assert (
+        resolve_local_corpus_source(
+            _Identifier("us/statute/1"), release
+        ).selected_record
+        == expected.selected_record
+    )
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="needs os.fork")
+def test_a_child_forked_while_the_cache_lock_is_held_still_resolves(tmp_path: Path):
+    """A forked child gets a fresh lock and an empty cache.
+
+    Another thread holds the release's cache lock across the fork. Without the
+    fork handler the child inherits a held lock that no thread of its own can
+    release, and its first resolution blocks forever.
+    """
+
+    _write_rows(tmp_path, STATUTE, [{"citation_path": "us/statute/1", "body": "One."}])
+    release = bind_test_corpus_release(tmp_path, RELEASE, [("us", "statute", STATUTE)])
+    assert resolve_local_corpus_source("us/statute/1", release).body == "One."
+    held = threading.Event()
+    release_lock = threading.Event()
+
+    def hold() -> None:
+        with _cache(release).lock:
+            held.set()
+            release_lock.wait(timeout=30)
+
+    holder = threading.Thread(target=hold)
+    holder.start()
+    try:
+        assert held.wait(timeout=10)
+        with warnings.catch_warnings():
+            # Python warns that forking a multi-threaded process can deadlock;
+            # that is the case under test.
+            warnings.simplefilter("ignore", DeprecationWarning)
+            pid = os.fork()
+        if pid == 0:  # pragma: no cover - runs in the child
+            status = 1
+            try:
+                cache = _cache(release)
+                if not cache.buckets and cache.lock.acquire(timeout=5):
+                    cache.lock.release()
+                    resolved = resolve_local_corpus_source("us/statute/1", release)
+                    status = 0 if resolved.body == "One." else 1
+            finally:
+                os._exit(status)
+        deadline = time.monotonic() + 30
+        while True:
+            done, wait_status = os.waitpid(pid, os.WNOHANG)
+            if done:
+                break
+            if time.monotonic() > deadline:
+                os.kill(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)
+                pytest.fail("the forked child blocked on the inherited cache lock")
+            time.sleep(0.02)
+        assert os.waitstatus_to_exitcode(wait_status) == 0
+    finally:
+        release_lock.set()
+        holder.join(timeout=10)
+    # The parent's cache is untouched by the child's reset.
+    assert ("us", "statute") in _cache(release).buckets

@@ -15,6 +15,7 @@ import re
 import stat
 import sys
 import threading
+import weakref
 from bisect import bisect_left
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
@@ -685,7 +686,7 @@ class _VerifiedCorpusBucket:
         return indexes
 
 
-@dataclass
+@dataclass(eq=False)
 class _LocalCorpusResolutionCache:
     """Verified buckets and memoized resolutions owned by one release object.
 
@@ -704,6 +705,24 @@ class _LocalCorpusResolutionCache:
     # Bumped whenever the limits change, so outcomes computed under the old
     # limits by a call still in flight are not stored afterwards.
     generation: int = 0
+
+    def __post_init__(self) -> None:
+        _LIVE_RESOLUTION_CACHES.add(self)
+
+    def reset_after_fork(self) -> None:
+        """Start a forked child with a fresh lock and an empty cache.
+
+        Another parent thread may have held the lock, or been changing the
+        cache, at the moment of the fork; the child has neither that thread
+        nor a way to release the lock.
+        """
+
+        self.lock = threading.Lock()
+        self.buckets = OrderedDict()
+        self.row_bytes = 0
+        self.memo_bytes = 0
+        self.limits = ()
+        self.generation += 1
 
     def evict_buckets(self) -> None:
         """Drop least-recently-used buckets; the most recent one always stays."""
@@ -743,6 +762,20 @@ class _LocalCorpusResolutionCache:
             return True
         self.clear_memo(keep)
         return False
+
+
+_LIVE_RESOLUTION_CACHES: weakref.WeakSet[_LocalCorpusResolutionCache] = (
+    weakref.WeakSet()
+)
+
+
+def _reset_resolution_caches_after_fork() -> None:
+    for cache in list(_LIVE_RESOLUTION_CACHES):
+        cache.reset_after_fork()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_resolution_caches_after_fork)
 
 
 @dataclass
@@ -1267,17 +1300,21 @@ def _verified_corpus_bucket(
     *,
     budget: _LocalCorpusReadBudget,
 ) -> _VerifiedCorpusBucket:
-    """Return one bucket's parsed provisions, reading them at most once.
+    """Return one bucket's parsed provisions, reading them once per disk state.
 
-    The first request selects, reads, sha256-hashes, byte-counts, and parses
-    every provisions artifact of the bucket against the verified release exactly
-    as an uncached read would, charging ``budget`` as it goes. Any failure
-    propagates and nothing is cached. Later requests reuse the parsed rows,
-    whose bytes are already bound to the immutable release object, and replay
-    the same budget charges so per-call limits still fail closed. Cached rows
-    are never re-read from disk: checks that must observe the current on-disk
-    artifact, such as :func:`resolve_local_corpus_dependency_artifacts`, hash it
-    themselves.
+    The first request takes the disk fingerprint of the bucket's files, then
+    selects, reads, sha256-hashes, byte-counts, and parses every provisions
+    artifact of the bucket against the verified release exactly as an uncached
+    read would, charging ``budget`` as it goes. Any failure propagates and
+    nothing is cached. Later requests fingerprint the files again and re-run
+    the uncached path checks. While the files and their locks keep the
+    identities they had before the read, they reuse the parsed rows, whose
+    bytes are bound to the immutable release object, and replay the same
+    budget charges so per-call limits still fail closed. When an identity
+    changes, the bucket is dropped and read from disk again. The fingerprint
+    does not hash: an in-place rewrite that keeps every identity field is not
+    seen, so checks that must observe the current bytes, such as
+    :func:`resolve_local_corpus_dependency_artifacts`, hash them themselves.
     """
 
     cache = release._resolution_cache
