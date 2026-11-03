@@ -532,8 +532,10 @@ from .toolchain import (
     VALIDATION_WAIVER_SET_SHA256_FIELD,
     load_rulespec_local_corpus_release,
     load_rulespec_toolchain,
+    local_corpus_release_verification,
     local_signing_public_key,
     local_verification_active,
+    protected_process_signal_active,
     verify_rulespec_validation_waiver_set,
 )
 from .validation_waiver_scope import select_validation_waiver_scope
@@ -3295,6 +3297,43 @@ def main():
             "per retained successor; the old group is retired, canonical content "
             "bytes are preserved, and its manifest is refreshed with common "
             "replacement-receipt provenance."
+        ),
+    )
+    encode_parser.add_argument(
+        "--corpus-release-public-key",
+        default=None,
+        help=(
+            "Verification-only local run: verify the pinned corpus release "
+            "with this public root (AXIOM_CORPUS_RELEASE_PUBLIC_KEY) instead of "
+            "an attached signing broker, as axiom-encode ci does. It conveys no "
+            "signing capability, is refused with --apply, and is refused under "
+            "an attached signing broker, the trusted runtime or CI."
+        ),
+    )
+    encode_parser.add_argument(
+        "--corpus-release-retired-public-key",
+        action="append",
+        default=[],
+        help=(
+            "With --corpus-release-public-key, a retired corpus release public "
+            "key to accept beside the current key (repeatable)"
+        ),
+    )
+    encode_parser.add_argument(
+        "--apply-public-key",
+        default=None,
+        help=(
+            "With --corpus-release-public-key, the apply-manifest public root "
+            "(AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY) that verifies existing "
+            "signed apply manifests"
+        ),
+    )
+    encode_parser.add_argument(
+        "--eval-public-key",
+        default=None,
+        help=(
+            "With --corpus-release-public-key, the eval-evidence public root "
+            "(AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY)"
         ),
     )
     _add_complete_source_unit_argument(encode_parser)
@@ -31060,7 +31099,71 @@ def _read_only_guard_encoder_execution_identity(
 # =========================================================================
 
 
+class _LocalVerificationRoots(NamedTuple):
+    corpus_release_public_key: str
+    retired_corpus_release_public_keys: tuple[str, ...]
+    apply_public_key: str | None
+    eval_public_key: str | None
+
+
+def _local_verification_encode_roots(args) -> _LocalVerificationRoots | None:
+    """Return the verification-only public roots an encode was given, if any.
+
+    Only explicit string arguments count; the roots are never read from the
+    environment. The run is refused with --apply and under any protected
+    signal (an attached signing broker, the trusted runtime, CI), so a
+    protected run always keeps its own trust roots.
+    """
+
+    def _string_or_none(name: str) -> str | None:
+        value = getattr(args, name, None)
+        return value if isinstance(value, str) else None
+
+    corpus_key = _string_or_none("corpus_release_public_key")
+    raw_retired = getattr(args, "corpus_release_retired_public_key", None)
+    retired = (
+        tuple(value for value in raw_retired if isinstance(value, str))
+        if isinstance(raw_retired, (list, tuple))
+        else ()
+    )
+    apply_key = _string_or_none("apply_public_key")
+    eval_key = _string_or_none("eval_public_key")
+    if corpus_key is None:
+        if retired or apply_key is not None or eval_key is not None:
+            raise ValueError(
+                "--corpus-release-retired-public-key, --apply-public-key and "
+                "--eval-public-key require --corpus-release-public-key"
+            )
+        return None
+    if getattr(args, "apply", False) is not False:
+        raise ValueError(
+            "encode --corpus-release-public-key is a verification-only local "
+            "run and cannot --apply; land changes through the protected workflow"
+        )
+    if protected_process_signal_active():
+        raise ValueError(
+            "encode --corpus-release-public-key is a verification-only local "
+            "run; it cannot run under an attached signing broker, the trusted "
+            "runtime or CI"
+        )
+    return _LocalVerificationRoots(corpus_key, retired, apply_key, eval_key)
+
+
 def cmd_encode(args):
+    """Encode, inside the verification-only local context when one is given."""
+    local_roots = _local_verification_encode_roots(args)
+    if local_roots is None:
+        return _cmd_encode_under_current_trust(args)
+    with local_corpus_release_verification(
+        local_roots.corpus_release_public_key,
+        retired_public_keys=local_roots.retired_corpus_release_public_keys,
+        apply_public_key=local_roots.apply_public_key,
+        eval_public_key=local_roots.eval_public_key,
+    ):
+        return _cmd_encode_under_current_trust(args)
+
+
+def _cmd_encode_under_current_trust(args):
     """Encode with the exact caller-authorized RuleSpec dependency roots."""
     engine_ref = getattr(args, "axiom_rules_engine_ref", None)
     if engine_ref is not None:
@@ -66924,6 +67027,19 @@ def _read_eval_source_text(context_manifest_file) -> str | None:
     return source_text or None
 
 
+def _generalist_reviewer_failed_without_score(metrics) -> bool:
+    """Return true when the generalist reviewer ran but produced no score.
+
+    A skipped reviewer records a pass with no score. A reviewer that could not
+    start, exited non-zero, or returned unparseable output records a failure
+    with no score; that must be reported, not dropped.
+    """
+    return (
+        getattr(metrics, "generalist_review_pass", None) is False
+        and getattr(metrics, "generalist_review_score", None) is None
+    )
+
+
 def _review_results_from_eval_metrics(metrics) -> ReviewResults | None:
     if metrics is None:
         return None
@@ -66967,6 +67083,17 @@ def _review_results_from_eval_metrics(metrics) -> ReviewResults | None:
                 important_issues=list(metrics.generalist_review_issues or []),
             )
         )
+    elif _generalist_reviewer_failed_without_score(metrics):
+        reviews.append(
+            ReviewResult(
+                reviewer="integration_reviewer",
+                passed=False,
+                items_checked=10,
+                items_passed=0,
+                critical_issues=list(metrics.generalist_review_issues or [])
+                or ["Reviewer error: generalist reviewer returned no score"],
+            )
+        )
 
     return ReviewResults(
         reviews=reviews,
@@ -66994,6 +67121,15 @@ def _print_eval_metrics(result) -> None:
     if result.metrics.generalist_review_score is not None:
         print(
             f"  generalist_review={'yes' if result.metrics.generalist_review_pass else 'no'} score={result.metrics.generalist_review_score:.1f}/10"
+        )
+    elif _generalist_reviewer_failed_without_score(result.metrics):
+        reviewer_issues = list(result.metrics.generalist_review_issues or [])
+        detail = reviewer_issues[0] if reviewer_issues else "no score returned"
+        print(f"  generalist_review=error {detail[:300]}")
+        print(
+            "WARNING: the generalist reviewer did not produce a review; "
+            "this candidate was not reviewed.",
+            file=sys.stderr,
         )
     if result.metrics.policyengine_score is not None:
         print(
