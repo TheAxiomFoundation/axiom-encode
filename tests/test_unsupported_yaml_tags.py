@@ -1731,3 +1731,80 @@ def test_engine_rejects_nesting_too_deep_to_scan(real_engine, tmp_path):
 
     assert run.returncode != 0
     assert "recursion limit exceeded" in run.stderr
+
+
+# --- findings from the round-1 independent review ------------------------------
+
+RAISING_TAGS = ["!!bool maybe", "!!timestamp soon", "!!int ''", "!!float ''"]
+
+
+@pytest.mark.parametrize("tag", RAISING_TAGS)
+def test_a_raising_tag_on_a_key_is_refused_before_any_rewrite(tmp_path, tag):
+    # The duplicate-key scan builds each key first; a key PyYAML cannot build
+    # must not crash it, so the tag scan behind it can report the tag.
+    content = APPLY_CLEAN.replace("    dtype: Float\n", f"    {tag}: Float\n", 1)
+    result, generated, output_root = _candidate(tmp_path, content)
+    original = generated.read_bytes()
+
+    issue = _generated_rulespec_yaml_nonparser_issue(
+        result, generated, output_root=output_root
+    )
+    with pytest.raises(RuntimeError) as stamped:
+        _stamp_generated_source_attestation_for_apply(result, generated)
+
+    assert issue is not None and "unsupported YAML tag" in issue
+    assert "unsupported YAML tag" in str(stamped.value)
+    assert generated.read_bytes() == original
+
+
+@pytest.mark.parametrize("tag", RAISING_TAGS)
+@pytest.mark.parametrize("delivery", ["bundle", "workspace"])
+def test_materialization_keeps_a_raising_module_and_its_test_raw(
+    tmp_path, tag, delivery
+):
+    # Test normalization loads the module too, so it must not run beside a
+    # module that was kept raw.
+    content = APPLY_CLEAN.replace("    kind: parameter\n", f"    kind: {tag}\n", 1)
+
+    main, tests = _materialize(tmp_path, content, delivery, TESTS)
+
+    assert main == content
+    assert tests == TESTS
+
+
+@pytest.mark.parametrize("tag", [*RAISING_TAGS, "!!int '-'"])
+def test_amendment_timing_leaves_every_raising_tag_to_the_yaml_preflight(tag):
+    content = APPLY_CLEAN.replace("    kind: parameter\n", f"    kind: {tag}\n", 1)
+    document = SimpleNamespace(
+        citation_path=CITATION, metadata={"commencement_date": "2027-04-01"}
+    )
+
+    assert amendment_timing_issues(content, [document]) == []
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "- name: first_rate_applies\n  output:\n    first_rate: !!bool maybe\n",
+        '- name: "\\U00110000"\n  output:\n    first_rate: 0.1\n',
+    ],
+)
+def test_tests_only_repair_helpers_refuse_text_they_cannot_load(case):
+    from axiom_encode.harness.evals import (
+        _append_contract_test_fragment,
+        _preserves_companion_test_cases,
+    )
+
+    contracts = [{"name": "first_rate_applies"}]
+
+    assert _preserves_companion_test_cases(TESTS, TESTS + case, contracts) is False
+    assert _append_contract_test_fragment(TESTS, case, contracts) is None
+
+
+@pytest.mark.parametrize("tag", RAISING_TAGS)
+def test_proof_source_citation_paths_tolerates_raising_tags(tag):
+    from axiom_encode.harness.proof_validator import proof_source_citation_paths
+
+    content = APPLY_CLEAN.replace("    kind: parameter\n", f"    kind: {tag}\n", 1)
+
+    assert proof_source_citation_paths(content) is not None

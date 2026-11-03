@@ -18452,8 +18452,13 @@ def _materialize_eval_artifact(
                 content = normalized_main_content
             # Normalization loads and dumps the cases; keep raw duplicate keys,
             # tags and text that cannot be loaded.
+            # The normalizers also load the module, so a module kept raw keeps
+            # its test raw too.
             elif target_path == expected_test_path and not (
                 _test_rewrite_would_change_yaml(content)
+                or _rewrite_would_change_yaml(
+                    normalized_main_content or raw_main_content or ""
+                )
             ):
                 if single_amount_table_slice:
                     content = _normalize_single_amount_row_test_content(
@@ -19090,7 +19095,17 @@ def _preserves_companion_test_cases(
     try:
         original = yaml.safe_load(original_content)
         proposed = yaml.safe_load(proposed_content)
-    except (yaml.YAMLError, RecursionError):
+    except (
+        yaml.YAMLError,
+        RecursionError,
+        ValueError,
+        KeyError,
+        IndexError,
+        AttributeError,
+        TypeError,
+    ):
+        # Text PyYAML cannot load, or tagged text its constructors raise on,
+        # is not preserved; validation reports it from the raw file.
         return False
 
     def case_list(payload: object) -> list[object] | None:
@@ -19230,7 +19245,15 @@ def _append_contract_test_fragment(
     try:
         original_cases = yaml.safe_load(original_content)
         fragment_cases = yaml.safe_load(fragment_content)
-    except (yaml.YAMLError, RecursionError):
+    except (
+        yaml.YAMLError,
+        RecursionError,
+        ValueError,
+        KeyError,
+        IndexError,
+        AttributeError,
+        TypeError,
+    ):
         return None
     if not isinstance(original_cases, list) or not isinstance(fragment_cases, list):
         return None
@@ -19367,7 +19390,12 @@ def _materialize_workspace_artifacts(
         test_content = workspace_test.read_text()
         # Normalization loads and dumps the cases; keep raw duplicate keys,
         # tags and text that cannot be loaded.
-        if not _test_rewrite_would_change_yaml(test_content):
+        # The normalizers also load the module, so a module kept raw keeps its
+        # test raw too.
+        if not (
+            _test_rewrite_would_change_yaml(test_content)
+            or _rewrite_would_change_yaml(main_content)
+        ):
             if single_amount_table_slice:
                 test_content = _normalize_single_amount_row_test_content(
                     test_content,
