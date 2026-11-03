@@ -127,6 +127,11 @@ class BrokerStatus:
     retired_apply_inventory: RetiredApplyInventory | None = None
 
 
+def supervisor_codex_home() -> str | None:
+    """Return the isolated Codex home recorded at broker attach, if any."""
+    return _trusted_codex_home
+
+
 def scrub_private_signing_environment(
     environment: Mapping[str, str] | None = None,
     *,

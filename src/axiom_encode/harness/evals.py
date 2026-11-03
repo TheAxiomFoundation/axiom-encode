@@ -34,6 +34,8 @@ from axiom_encode import __version__
 from axiom_encode import corpus_resolver as _corpus_resolver
 from axiom_encode.codex_cli import (
     DEFAULT_CODEX_REASONING_EFFORT,
+    codex_auth_secrets,
+    redact_codex_auth_secrets,
     resolve_codex_cli,
     validate_codex_reasoning_effort,
     with_codex_model_availability_hint,
@@ -15865,6 +15867,9 @@ def _run_codex_prompt_eval(
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,
     ):
         codex_home = _prepare_codex_eval_home(Path(codex_home_dir))
+        # auth.json is readable from the read-only sandbox. Record its
+        # credential strings now and after the run, and keep none of them.
+        auth_secrets = codex_auth_secrets(codex_home)
         codex_env = scrub_attestation_signing_keys()
         codex_env["CODEX_HOME"] = str(codex_home)
         stdout_path = Path(stdout_file.name)
@@ -15917,8 +15922,10 @@ def _run_codex_prompt_eval(
                     process.kill()
                     process.wait()
 
-    stdout_text = stdout_path.read_text()
-    stderr_text = stderr_path.read_text()
+        auth_secrets |= codex_auth_secrets(codex_home)
+
+    stdout_text = redact_codex_auth_secrets(stdout_path.read_text(), auth_secrets)
+    stderr_text = redact_codex_auth_secrets(stderr_path.read_text(), auth_secrets)
     stdout_path.unlink(missing_ok=True)
     stderr_path.unlink(missing_ok=True)
     duration_ms = int((time.time() - start) * 1000)
@@ -15975,7 +15982,9 @@ def _run_codex_prompt_eval(
 
     final_text = "\n".join(assistant_messages).strip()
     if last_message_file.exists():
-        file_text = last_message_file.read_text().strip()
+        file_text = redact_codex_auth_secrets(
+            last_message_file.read_text(), auth_secrets
+        ).strip()
         if file_text:
             final_text = file_text
 
