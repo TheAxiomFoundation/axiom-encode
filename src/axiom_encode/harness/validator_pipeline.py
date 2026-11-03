@@ -1631,14 +1631,17 @@ _RATE_MARKER_AFTER_FIGURE_BODY = (
 # The word right before a figure that Belgian texts restate in parentheses
 # ahead of their own rate marker: a French, Dutch or German preposition or
 # copula ("pour (75) pour cent", "tarief van (9) procent", "Satz von (15)
-# Prozent", "taux de (101) %"). After any other word a whole or dotted
-# figure in parentheses restates no rate, and a label-shaped one stays the
-# label it looks like, as on main: after a structural word ("article 5 bis
-# (2) pour cent", "Item (117) Percent"), a spelled number ("vingt-huit (28)
-# pour cent", "l'article six (112) procent") or a figure ("5 (2) pour
-# cent"). The label cleaner and the parenthesized reader both read it.
+# Prozent", "taux de (101) %"). The word starts the text or follows a space,
+# an apostrophe ("jusqu'à (17) pour cent") or an opening bracket or quote, so
+# the end of a URL ("https://example.be/de (17) pour cent", "example.de (17)
+# %") is no lead-in. After any other word a whole or dotted figure in
+# parentheses restates no rate, and a label-shaped one stays the label it
+# looks like, as on main: after a structural word ("article 5 bis (2) pour
+# cent", "Item (117) Percent"), a spelled number ("vingt-huit (28) pour
+# cent", "l'article six (112) procent") or a figure ("5 (2) pour cent"). The
+# label cleaner and the parenthesized reader both read it.
 _RATE_RESTATEMENT_PREPOSITION_PATTERN = re.compile(
-    r"(?<![^\W\d_])(?:"
+    r"(?<![^\s'’(\[«“„\"‘])(?:"
     r"pour|de|du|des|à|sur|soit|est|sont|sera|seront|était|étaient|"
     r"environ|moins|que|"
     r"van|tot|met|op|voor|dan|bij|zijn|bedraagt|bedragen|"
@@ -7712,6 +7715,19 @@ _BELGIAN_FIGURE_RATE_MARKER_BODY = (
     r"\bProzent\b|\bvom\s+Hundert\b|"
     rf"{_BELGIAN_PERCENT_WORD_BODY}|{_GERMAN_VOM_HUNDERT_ABBREVIATION_BODY})"
 )
+# Cleaning may blank what follows "pour cent" (a label, a dotted figure, a
+# figure at the start of a line, a date), and "pour cent" then seems to close
+# where the source keeps it open. So the range and decimal-comma readers find
+# a Belgian marker in the cleaned text with "pour cent" bare, then judge the
+# whole marker, closing rule and all, in the source, as the after-figure
+# reader does.
+_BELGIAN_FIGURE_RATE_MARKER_WORD_BODY = (
+    rf"(?:\b{_POUR_CENT_WORD_BODY}|{_BELGIAN_FIGURE_RATE_MARKER_BODY})"
+)
+_BELGIAN_FIGURE_RATE_MARKER_AFTER_PATTERN = re.compile(
+    rf"\s*{_BELGIAN_FIGURE_RATE_MARKER_BODY}",
+    re.IGNORECASE,
+)
 _LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN = re.compile(
     rf"[ \t]*(?:{_RATE_MARKER_AFTER_FIGURE_BODY})",
     re.IGNORECASE,
@@ -7758,6 +7774,9 @@ _PARENTHESIZED_FIGURE_RATE_MARKER_PATTERN = re.compile(
 )
 # A figure that ends in a decimal comma and its fraction ("14,75", "1.000,5").
 _DECIMAL_COMMA_FRACTION_END_PATTERN = re.compile(r",\d+\Z")
+# A figure printed as one comma before three digits ("1,250"): English reads
+# a thousands separator there, a Belgian source a decimal comma.
+_AMBIGUOUS_COMMA_FIGURE_PATTERN = re.compile(r"-?\d{1,3},\d{3}")
 # The closing parenthesis of a figure restated in parentheses ("(14,75)
 # p.c."), read before the marker that follows it.
 _PARENTHESIZED_FIGURE_CLOSE_PATTERN = re.compile(r"[ \t\u00a0\u202f]*\)")
@@ -14792,7 +14811,9 @@ def _parenthesized_figure_rate_context(
     "pct.", "v. H.") may stand for whatever its source defines. A fraction
     with a decimal comma neither counts nor cites, so any marker makes it a
     rate, an abbreviation too, after any word ("(14,75) p.c."): main reads
-    "14,75 p.c." as a rate. ``value`` is the figure's own value.
+    "14,75 p.c." as a rate. A figure printed as one comma before three digits
+    ("taux de (1,250) %") reads 1250 in English and 1.25 in a Belgian source,
+    so the reader takes it as neither. ``value`` is the figure's own value.
     """
     if profile != "be-BE":
         return False
@@ -14809,6 +14830,8 @@ def _parenthesized_figure_rate_context(
         return False
     closing = _PARENTHESIZED_FIGURE_CLOSE_PATTERN.match(text, end)
     if closing is None:
+        return False
+    if _AMBIGUOUS_COMMA_FIGURE_PATTERN.fullmatch(text, start, end):
         return False
     fraction = not float(value).is_integer() and bool(
         _DECIMAL_COMMA_FRACTION_END_PATTERN.search(text, start, end)
@@ -16983,6 +17006,27 @@ def _occurrence_value_matches(left: float, right: float) -> bool:
     )
 
 
+def _figure_rate_marker_follows_in_source(
+    collector: _LegacyNumericCollector,
+    view: _NumericTextView,
+    span: tuple[int, int],
+    marker: re.Pattern[str],
+) -> bool:
+    """Return whether ``marker`` follows a cleaned-text figure in the source.
+
+    Cleaning can blank what follows "pour cent" (a label, a dotted figure, a
+    figure at the start of a line, a date), so a reader that finds a figure
+    and its marker in the cleaned text judges the marker, closing rule and
+    all, in the source, as the after-figure reader does. A figure that maps to
+    no source text has no marker there.
+    """
+    try:
+        end = view.source_span(span)[1]
+    except ValueError:
+        return False
+    return bool(marker.match(collector.context_text, end))
+
+
 # Complete-source-unit analysis re-tokenizes the same branch texts once per
 # formula rule they are matched against; on one module ~95% of calls repeat
 # an already-seen text. The result is a tuple of frozen occurrences, so it
@@ -17448,7 +17492,18 @@ def _tokenize_numeric_occurrences_from_text(
                 continue
             if (
                 _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN.match(cleaned, match.end())
-                or _local_rate_context_pattern(profile).match(cleaned, match.end())
+                or (
+                    _figure_rate_marker_follows_in_source(
+                        collector,
+                        cleaned_view,
+                        match.span(),
+                        _local_rate_context_pattern(profile),
+                    )
+                    if profile == "be-BE"
+                    else _local_rate_context_pattern(profile).match(
+                        cleaned, match.end()
+                    )
+                )
                 or _HEBREW_PERCENT_WORD_PATTERN.match(cleaned, match.end())
             ):
                 # "16 1⁄2%" and "10 1⁄4 percent" are the rates 0.165 and
@@ -17579,7 +17634,7 @@ def _tokenize_numeric_occurrences_from_text(
                 )
 
     figure_rate_marker = (
-        _BELGIAN_FIGURE_RATE_MARKER_BODY
+        _BELGIAN_FIGURE_RATE_MARKER_WORD_BODY
         if profile == "be-BE"
         else _FIGURE_RATE_MARKER_BODY
     )
@@ -17596,6 +17651,13 @@ def _tokenize_numeric_occurrences_from_text(
         cleaned,
         re.IGNORECASE,
     ):
+        if profile == "be-BE" and not _figure_rate_marker_follows_in_source(
+            collector,
+            cleaned_view,
+            match.span(2),
+            _BELGIAN_FIGURE_RATE_MARKER_AFTER_PATTERN,
+        ):
+            continue
         for group_index in (1, 2):
             raw = _normalize_european_decimal_number(match.group(group_index))
             with contextlib.suppress(ValueError):
@@ -17618,6 +17680,13 @@ def _tokenize_numeric_occurrences_from_text(
         cleaned,
         re.IGNORECASE,
     ):
+        if profile == "be-BE" and not _figure_rate_marker_follows_in_source(
+            collector,
+            cleaned_view,
+            match.span(1),
+            _BELGIAN_FIGURE_RATE_MARKER_AFTER_PATTERN,
+        ):
+            continue
         raw = _normalize_european_decimal_number(match.group(1))
         with contextlib.suppress(ValueError):
             source_value = float(raw)

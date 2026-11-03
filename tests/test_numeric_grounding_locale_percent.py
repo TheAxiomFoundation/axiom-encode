@@ -493,6 +493,13 @@ def test_figure_before_a_restated_note_owns_the_marker(source_text, value):
         ("van 10 tot 20 procent", (0.1, 0.2)),
         ("zwischen 10 bis 20 Prozent", (0.1, 0.2)),
         ("de 10 à 20 %", (0.1, 0.2)),
+        # Cleaning blanks "ET 17" as a bill-style reference ("HB 1234"); in
+        # the source it is the list's last member, which closes at "par an",
+        # so the range reads its marker there.
+        (
+            "un droit de 3 à 7 pour cents à 11 pour cents et 13 P. C. ET 17 % par an",
+            (0.03, 0.07, 0.11),
+        ),
     ),
 )
 def test_range_endpoints_share_the_marker(source_text, values):
@@ -777,6 +784,18 @@ def test_list_ending_in_an_unlisted_continuation_leaves_pour_cent_unread(source_
         (BE_CITATION, "le taux de (12) percent du montant", ("12", "0.12")),
         # "pc" without its dots is too short to tell from a label's tail.
         (BE_CITATION, "le taux de (12) pc du montant", ("12", "0.12")),
+        # A lead-in word follows a space, an apostrophe or an opening bracket
+        # or quote. The end of a URL is none, and nor is a word glued to a
+        # footnote mark, which cleaning blanks: a cleaner that read the
+        # cleaned text would keep "(17)" there for a rate the readers decline.
+        (
+            BE_CITATION,
+            "https://example.be/de (17) pour cent du montant",
+            ("17", "0.17"),
+        ),
+        (BE_CITATION, "https://example.be/van (9) procent", ("9", "0.09")),
+        (BE_CITATION, "www.example.be/pour (75) pour cent", ("75", "0.75")),
+        (BE_CITATION, "[1]de (17) pour cent du montant", ("17", "0.17")),
     ),
 )
 def test_label_after_a_word_that_states_no_amount_stays_masked(
@@ -796,6 +815,7 @@ def test_label_after_a_word_that_states_no_amount_stays_masked(
         ("be-dg/statute/example/1", "Satz von (15) vom Hundert", "0.15"),
         ("be-vlg/statute/example/1", "bedraagt (12) procent", "0.12"),
         (BE_CITATION, "réduit de (17) pour cent.", "0.17"),
+        (BE_CITATION, "réduit jusqu'à (17) pour cent du montant", "0.17"),
     ),
 )
 def test_figure_restated_after_a_lead_in_word_grounds(
@@ -815,10 +835,34 @@ def test_figure_restated_after_a_lead_in_word_grounds(
         ("tarief (101) % van het bedrag", "1.01"),
         ("le taux de  (101) % du montant", "1.01"),
         ("Item (101.5) pour cent du montant", "1.015"),
+        # The end of a URL is no lead-in.
+        ("https://example.be/de (117) pour cent du montant", "1.17"),
+        ("www.example.be/pour (175) pour cent", "1.75"),
+        ("example.de (117) % du montant", "1.17"),
     ),
 )
 def test_whole_figure_outside_the_label_shape_needs_a_lead_in(source_text, formula):
     assert not _gate_grounds(source_text, formula), source_text
+
+
+@pytest.mark.parametrize("marker", ("%", "pour cent", "procent"))
+def test_comma_grouped_figure_in_parentheses_restates_no_rate(marker):
+    # "1,250" is 1250 in English and 1.25 in a Belgian source, so the
+    # parenthesis restates neither rate.
+    source_text = f"taux de (1,250) {marker} du montant"
+    for formula in ("12.5", "0.0125"):
+        assert not _gate_grounds(source_text, formula), (source_text, formula)
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    ("N1,000 de (17) pour cent du montant", "¢5 de (17) pour cent du montant"),
+)
+def test_label_after_an_edit_that_widens_the_text_restates_its_rate(source_text):
+    # Cleaning widens "N1,000" and "¢5" by a space before the label, so the
+    # cleaner finds the label in the source by its offsets, not its position.
+    for formula in ("17", "0.17"):
+        assert _gate_grounds(source_text, formula), (source_text, formula)
 
 
 @pytest.mark.parametrize(
@@ -1686,6 +1730,8 @@ def test_locale_words_below_the_delimiter_never_type_their_column(
     spelling=st.sampled_from(("pour cent", "pour-cent", "pourcent", "pourcents")),
     closing=st.sampled_from(_CLOSING_WORDS),
 )
+# Only English prints "1,000.0", so its comma is no decimal comma.
+@example(figure=("(1,000.0)", 1000.0), spelling="pour cent", closing="")
 def test_pour_cent_before_a_closing_word_grounds_its_rate(figure, spelling, closing):
     printed, value = figure
     source_text = f"le taux de {printed} {spelling}{closing}"
@@ -1885,10 +1931,97 @@ def test_mixed_rate_list_ending_in_a_count_grounds_no_pour_cent_rate(
         assert not _grounds(source_text, value / 100), (source_text, value)
 
 
+# Counts that cleaning blanks after "pour cent": a label-shaped figure, a
+# dotted figure, a figure that opens a line with a colon later on it, a
+# label-shaped list member, a date. The source still shows the count.
+_BLANKED_COUNTS = (
+    " de (10) kilogrammes",
+    ", (10) kilogrammes",
+    ", 1.000.000 kilogrammes",
+    ",\n3 pour cent kilogrammes de poids net : voir l'annexe",
+    " et 3 p.c.,\n4 pour cent kilogrammes de poids net : voir l'annexe",
+    ", (3) pour cent kilogrammes",
+    " du 2026-01-01",
+    " du 2026-01-01.",
+    " du 15.03.2026.",
+)
+# A figure as each reader finds it, and the rates it would state: the
+# after-figure reader's "2", the range's "1 à 2", the decimal comma's "2,5"
+# and the mixed fraction's "2 1⁄2".
+_READER_FIGURES = (
+    ("2", (("2", 0.02),)),
+    ("1 à 2", (("1", 0.01), ("2", 0.02))),
+    ("2,5", (("2,5", 0.025),)),
+    ("2 1⁄2", (("2 1⁄2", 0.025),)),
+)
+
+
+@pytest.mark.parametrize("continuation", _BLANKED_COUNTS)
+@pytest.mark.parametrize(("figure", "rates"), _READER_FIGURES)
+def test_count_that_cleaning_blanks_keeps_pour_cent_unread(figure, rates, continuation):
+    # Every reader judges "pour cent" in the source, where the count still
+    # follows it, in the grounding stream and in the recall inventory.
+    source_text = f"un droit de {figure} pour cent{continuation}"
+    for _, rate in rates:
+        assert not _grounds(source_text, rate), (source_text, rate)
+    printed = {raw for raw, _ in rates}
+    assert not [
+        item
+        for item in extract_typed_numeric_inventory_occurrences_from_text(
+            source_text, profile="be-BE"
+        )
+        if item.raw in printed and item.has_rate_context
+    ], source_text
+
+
+# The markers the range, decimal-comma and mixed-fraction readers take.
+_FIGURE_READER_MARKERS = _POUR_CENT_SPELLINGS + (
+    "%",
+    "p.c.",
+    "P.C.",
+    "procent",
+    "procenten",
+    "procentpunt",
+    "pct.",
+    "v. H.",
+    "Prozent",
+    "vom Hundert",
+    "percent",
+    "per cent",
+)
+
+
+@pytest.mark.parametrize(
+    "continuation",
+    _CLOSING_WORDS
+    + _COUNT_CONTINUATIONS
+    + tuple(f" {noun}" for noun in _FRENCH_NOUNS)
+    + _BLANKED_COUNTS,
+)
+def test_every_reader_reads_a_marker_as_the_after_figure_reader_does(continuation):
+    # The after-figure reader judges a marker in the source. The range,
+    # decimal-comma and mixed-fraction readers find their figures in the
+    # cleaned text, and judge the same marker the same way.
+    for marker in _FIGURE_READER_MARKERS:
+        rate = _grounds(f"un droit de 2 {marker}{continuation}", 0.02)
+        for figure, value in (("1 à 2", 0.01), ("2,5", 0.025), ("2 1⁄2", 0.025)):
+            source_text = f"un droit de {figure} {marker}{continuation}"
+            assert _grounds(source_text, value) == rate, (source_text, rate)
+
+
 @settings(max_examples=200, deadline=None)
 @given(
+    prefix=st.sampled_from(("", "N1,000 ", "¢5 ", "[1]", "voir https://example.be/")),
     lead=st.sampled_from(
-        ("réduit de ", "remboursés pour ", "tarief van ", "Satz von ", "Item ", "5 ")
+        (
+            "réduit de ",
+            "remboursés pour ",
+            "tarief van ",
+            "Satz von ",
+            "Item ",
+            "5 ",
+            "de ",
+        )
     ),
     label=st.integers(min_value=1, max_value=99),
     marker=st.sampled_from(_MARKERS),
@@ -1898,13 +2031,22 @@ def test_mixed_rate_list_ending_in_a_count_grounds_no_pour_cent_rate(
         + (" 2026-01-01.", " 15.03.2026.", " du 1er janvier 2026", " le 1er mars")
     ),
 )
-@example(lead="réduit de ", label=17, marker="pour cent", continuation=" 2026-01-01.")
-def test_kept_label_always_reads_as_a_rate(lead, label, marker, continuation):
+@example(
+    prefix="",
+    lead="réduit de ",
+    label=17,
+    marker="pour cent",
+    continuation=" 2026-01-01.",
+)
+@example(prefix="[1]", lead="de ", label=17, marker="pour cent", continuation="")
+def test_kept_label_always_reads_as_a_rate(prefix, lead, label, marker, continuation):
     # The cleaner keeps a label-shaped parenthesis only for the readers to
     # read its figure as a rate. A kept figure they decline would ground
-    # itself, where main masks the label.
-    source_text = f"{lead}({label}) {marker}{continuation}"
-    start = len(lead) + 1
+    # itself, where main masks the label. The prefix puts an edit before
+    # the label: cleaning widens "N1,000" and "¢5" by a space and blanks
+    # "[1]" and the URL.
+    source_text = f"{prefix}{lead}({label}) {marker}{continuation}"
+    start = len(prefix) + len(lead) + 1
     span = (start, start + len(str(label)))
     for occurrences in (
         extract_typed_numeric_occurrences_from_text(source_text, profile="be-BE"),
