@@ -462,9 +462,12 @@ axiom-encode guard-generated \
 CI must supply `PROTECTED_BASE_REF` from its trusted review or dispatch context.
 When retired source metadata migration receipts are present, `--all` requires
 this protected base to admit each receipt's complete transaction, including
-every rewritten importer and replacement owner. The receipt's own
-`base_commit` does not establish which base CI trusts. Without an explicit
-protected base, the guard refuses the receipt and names its path.
+every rewritten importer and replacement owner. A receipt that is already in
+the protected base and unchanged is settled history: the guard replays it and
+judges later changes under the ordinary rules, while editing or removing it is
+still refused. The receipt's own `base_commit` does not establish which base CI
+trusts. Without an explicit protected base, the guard refuses the receipt and
+names its path.
 
 That guard protects atomic RuleSpec YAML under `legislation/`, `policies/`,
 `regulations/`, and `statutes/` unless it matches a root-owned encoder apply
