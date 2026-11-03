@@ -1632,16 +1632,17 @@ _RATE_MARKER_AFTER_FIGURE_BODY = (
 # ahead of their own rate marker: a French, Dutch or German preposition or
 # copula ("pour (75) pour cent", "tarief van (9) procent", "Satz von (15)
 # Prozent", "taux de (101) %"). The word starts the text or follows a space,
-# an apostrophe ("jusqu'à (17) pour cent") or an opening bracket or quote, so
-# the end of a URL ("https://example.be/de (17) pour cent", "example.de (17)
-# %") is no lead-in. After any other word a whole or dotted figure in
+# an apostrophe or a mark typed for one ("jusqu'à (17) pour cent",
+# "jusqu´à", "jusqu`à", "jusquʼà", "jusqu′à") or an opening bracket or quote,
+# so the end of a URL ("https://example.be/de (17) pour cent", "example.de
+# (17) %") is no lead-in. After any other word a whole or dotted figure in
 # parentheses restates no rate, and a label-shaped one stays the label it
 # looks like, as on main: after a structural word ("article 5 bis (2) pour
 # cent", "Item (117) Percent"), a spelled number ("vingt-huit (28) pour
 # cent", "l'article six (112) procent") or a figure ("5 (2) pour cent"). The
 # label cleaner and the parenthesized reader both read it.
 _RATE_RESTATEMENT_PREPOSITION_PATTERN = re.compile(
-    r"(?<![^\s'’(\[«“„\"‘])(?:"
+    r"(?<![^\s'’\u02bc\u00b4`\u2032(\[«“„\"‘])(?:"
     r"pour|de|du|des|à|sur|soit|est|sont|sera|seront|était|étaient|"
     r"environ|moins|que|"
     r"van|tot|met|op|voor|dan|bij|zijn|bedraagt|bedragen|"
@@ -7774,10 +7775,42 @@ _PARENTHESIZED_FIGURE_RATE_MARKER_PATTERN = re.compile(
 )
 # A figure that ends in a decimal comma and its fraction ("14,75", "1.000,5").
 _DECIMAL_COMMA_FRACTION_END_PATTERN = re.compile(r",\d+\Z")
-# A figure printed as one comma before three digits ("1,250"): English reads
-# a thousands separator there, a Belgian source a decimal comma. English
-# groups no figure that starts with a zero, so "0,125" keeps its decimal comma.
-_AMBIGUOUS_COMMA_FIGURE_PATTERN = re.compile(r"-?[1-9]\d{0,2},\d{3}")
+# The spaces print puts between groups of three digits: an ordinary,
+# no-break, figure, thin or narrow no-break space ("12 345").
+_PRINTED_FIGURE_GROUPING_SPACES = " \u00a0\u2007\u2009\u202f"
+# The fraction of a mixed number ("1/2" in "16 1/2", "½" in "16 ½").
+_PRINTED_FRACTION_START_PATTERN = re.compile(
+    "[0-9]+[/\u2044][0-9]|[\u00bc-\u00be\u2150-\u215e]"
+)
+# A slash or a fraction slash with up to three spaces on each side joins two
+# figures into one fraction ("1/2", "1 / 2"), as main reads "1 / 2 %" (0.5
+# percent).
+_SPACED_FRACTION_SLASH_BEFORE_PATTERN = re.compile(r"[0-9]\s{0,3}[/\u2044]\s{0,3}\Z")
+_SPACED_FRACTION_SLASH_AFTER_PATTERN = re.compile(r"\s{0,3}[/\u2044]\s{0,3}[0-9]")
+# A digit, a slash and three spaces on each side.
+_SPACED_FRACTION_SLASH_REACH = 8
+# Groups of three that grouping spaces join into one figure ("12 345").
+_SPACE_GROUPED_FIGURE_PATTERN = re.compile(
+    r"(?<![0-9])[1-9][0-9]{0,2}(?P<join>[ \u00a0\u2007\u2009\u202f])[0-9]{3}"
+    r"(?:(?P=join)[0-9]{3})*(?![0-9])"
+)
+# The longest figure the Belgian reading check widens to; a longer run of
+# joined digits reads no Belgian figure.
+_PRINTED_FIGURE_MAX_LENGTH = 64
+# A figure as a Belgian source prints it: a decimal comma ("2,5", "1,250"),
+# dots or grouping spaces between groups of three ("1.250", "12 345,5"), or
+# a point that ends no such group ("12.5"). A figure that only English prints
+# ("1,250.5", "1,250,000") has its English value, its only one.
+_BELGIAN_DECIMAL_COMMA_FIGURE_PATTERN = re.compile(r"[0-9]+(?:,[0-9]+)?")
+_BELGIAN_GROUPED_FIGURE_PATTERN = re.compile(
+    r"[1-9][0-9]{0,2}(?P<join>[. \u00a0\u2007\u2009\u202f])[0-9]{3}"
+    r"(?:(?P=join)[0-9]{3})*"
+    r"(?:,[0-9]+)?"
+)
+_ENGLISH_GROUPED_FIGURE_PATTERN = re.compile(
+    r"[1-9][0-9]{0,2}(?:,[0-9]{3})+\.[0-9]+|[1-9][0-9]{0,2}(?:,[0-9]{3}){2,}"
+)
+_DECIMAL_POINT_FIGURE_PATTERN = re.compile(r"[0-9]+\.[0-9]+")
 # The closing parenthesis of a figure restated in parentheses ("(14,75)
 # p.c."), read before the marker that follows it.
 _PARENTHESIZED_FIGURE_CLOSE_PATTERN = re.compile(r"[ \t\u00a0\u202f]*\)")
@@ -14812,11 +14845,11 @@ def _parenthesized_figure_rate_context(
     "pct.", "v. H.") may stand for whatever its source defines. A fraction
     with a decimal comma neither counts nor cites, so any marker makes it a
     rate, an abbreviation too, after any word ("(14,75) p.c."): main reads
-    "14,75 p.c." as a rate. A figure printed as one comma before three digits
-    ("taux de (1,250) %") reads 1250 in English and 1.25 in a Belgian source,
-    so the reader takes it as neither; English groups no figure that starts
-    with a zero, so "(0,125) %" keeps its decimal comma. ``value`` is the
-    figure's own value.
+    "14,75 p.c." as a rate. ``value`` is the reading's value of the figure,
+    and a zero fraction reads whole ("(2,0)", or "(1,000)", which may group
+    a count). ``occurrence`` asks this reader only about a reading that
+    takes the figure the Belgian way (``_reads_belgian_figure``), so
+    "(1.250) pour cent" types 1250 and never 1.25.
     """
     if profile != "be-BE":
         return False
@@ -14834,8 +14867,6 @@ def _parenthesized_figure_rate_context(
     closing = _PARENTHESIZED_FIGURE_CLOSE_PATTERN.match(text, end)
     if closing is None:
         return False
-    if _AMBIGUOUS_COMMA_FIGURE_PATTERN.fullmatch(text, start, end):
-        return False
     fraction = not float(value).is_integer() and bool(
         _DECIMAL_COMMA_FRACTION_END_PATTERN.search(text, start, end)
     )
@@ -14852,6 +14883,134 @@ def _parenthesized_figure_rate_context(
         closing.end(),
         profile=profile,
         boundaries=boundaries,
+    )
+
+
+def _is_printed_figure_character(character: str) -> bool:
+    """Return whether a character is a digit or a fraction glyph ("½")."""
+    return (
+        "0" <= character <= "9"
+        or "\u00bc" <= character <= "\u00be"
+        or "\u2150" <= character <= "\u215e"
+    )
+
+
+def _widen_printed_figure(
+    text: str,
+    start: int,
+    end: int,
+    joins: str,
+) -> tuple[int, int] | None:
+    """Widen a figure's span over the digits and ``joins`` that continue it.
+
+    Returns None for a figure longer than ``_PRINTED_FIGURE_MAX_LENGTH``.
+    """
+    while start > 0 and (
+        _is_printed_figure_character(text[start - 1])
+        or (
+            start > 1
+            and text[start - 1] in joins
+            and _is_printed_figure_character(text[start - 2])
+        )
+    ):
+        start -= 1
+        if end - start > _PRINTED_FIGURE_MAX_LENGTH:
+            return None
+    while end < len(text) and (
+        _is_printed_figure_character(text[end])
+        or (
+            end + 1 < len(text)
+            and text[end] in joins
+            and _is_printed_figure_character(text[end + 1])
+        )
+    ):
+        end += 1
+        if end - start > _PRINTED_FIGURE_MAX_LENGTH:
+            return None
+    return start, end
+
+
+def _belgian_figure_value(figure: str) -> float | None:
+    """Return the value a printed figure states in a Belgian source, if any."""
+    if _BELGIAN_DECIMAL_COMMA_FIGURE_PATTERN.fullmatch(figure):
+        return float(figure.replace(",", "."))
+    grouped = _BELGIAN_GROUPED_FIGURE_PATTERN.fullmatch(figure)
+    if grouped:
+        return float(figure.replace(grouped["join"], "").replace(",", "."))
+    if _ENGLISH_GROUPED_FIGURE_PATTERN.fullmatch(figure):
+        return float(figure.replace(",", ""))
+    if _DECIMAL_POINT_FIGURE_PATTERN.fullmatch(figure):
+        return float(figure)
+    return None
+
+
+def _reads_belgian_figure(text: str, span: tuple[int, int], value: float) -> bool:
+    """Return whether a reading takes its printed figure the Belgian way.
+
+    Main's readers read a figure the English way: one drops its commas ("2,5"
+    as 25, "1,250" as 1250), one takes a grouping dot for a decimal point
+    ("1.250" as 1.25), and some read a part of it (the "5" of "1.250,5", the
+    "345,5" of "12 345,5", the "2" of "1/2" or "1 / 2", the "½" of "16½", the
+    "1⁄2" of "1.250 1⁄2"). A Belgian source states none of those values. A
+    grouping space joins a figure only where it groups three digits ("12 345,5",
+    not "2025 125,5"). A reading with no comma or dot in its span ("28",
+    "16 1/2", a number spelled out) has no other value to mistake; any other
+    reading must take its figure's Belgian value.
+    """
+    start, end = span
+    first = next(
+        (
+            index
+            for index in range(start, end)
+            if _is_printed_figure_character(text[index])
+        ),
+        None,
+    )
+    if first is None:
+        return True
+    last = 1 + next(
+        index
+        for index in range(end - 1, first - 1, -1)
+        if _is_printed_figure_character(text[index])
+    )
+    if last - first > _PRINTED_FIGURE_MAX_LENGTH:
+        return False
+    if _widen_printed_figure(text, first, last, ".,") != (first, last):
+        return False
+    if _SPACED_FRACTION_SLASH_BEFORE_PATTERN.search(
+        text, max(0, first - _SPACED_FRACTION_SLASH_REACH), first
+    ) or _SPACED_FRACTION_SLASH_AFTER_PATTERN.match(
+        text, last, last + _SPACED_FRACTION_SLASH_REACH
+    ):
+        return False
+    if (
+        first > 1
+        and text[first - 1] in _PRINTED_FIGURE_GROUPING_SPACES
+        and _is_printed_figure_character(text[first - 2])
+        and _PRINTED_FRACTION_START_PATTERN.match(text, first)
+    ):
+        return False
+    wide = _widen_printed_figure(
+        text, first, last, ".,/\u2044" + _PRINTED_FIGURE_GROUPING_SPACES
+    )
+    if wide is None:
+        return False
+    if any(
+        group.start() < last
+        and group.end() > first
+        and (group.start() < first or group.end() > last)
+        for group in _SPACE_GROUPED_FIGURE_PATTERN.finditer(text, *wide)
+    ):
+        return False
+    figure = text[first:last]
+    if "." not in figure and "," not in figure:
+        return True
+    reading = _belgian_figure_value(figure)
+    return reading is not None and math.isclose(
+        abs(value),
+        reading,
+        rel_tol=0,
+        abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
     )
 
 
@@ -15039,12 +15198,18 @@ def _pipe_table_rate_cell_spans(
             width = _pipe_table_next_width(line, width)
             cells = _pipe_table_line_cells(line, width)
 
+            # A header that names its column only in its source's own words
+            # types the cells below it, not the figures beside those words
+            # ("Tarief (procent) 2026"). A header in main's words types its
+            # own cell as on main.
+            locale_headers: set[int] = set()
             for column, (start, end) in enumerate(cells):
-                if _table_rate_header_matches(
-                    line[start:end], profile=profile, row=row
-                ):
+                cell = line[start:end]
+                if _table_rate_header_matches(cell, profile=profile, row=row):
                     rate_columns.add(column)
-            for column in rate_columns:
+                    if not _table_rate_header_matches(cell, profile="legacy", row=row):
+                        locale_headers.add(column)
+            for column in rate_columns - locale_headers:
                 if column >= len(cells):
                     continue
                 start, end = cells[column]
@@ -15383,7 +15548,12 @@ class _LegacyNumericCollector:
     rate_table_cell_spans: tuple[tuple[int, int], ...] = field(init=False)
     rate_table_cell_span_starts: tuple[int, ...] = field(init=False)
     rate_table_cell_prefix_max_ends: tuple[int, ...] = field(init=False)
+    # The rate cells main's markers alone declare, built on first use.
+    legacy_rate_table_cell_index: tuple[tuple[int, ...], tuple[int, ...]] | None = (
+        field(init=False, default=None)
+    )
     shared_rate_spans: tuple[tuple[int, int], ...] = field(init=False)
+    legacy_shared_rate_spans: tuple[tuple[int, int], ...] = field(init=False)
     temporal_component_spans: tuple[tuple[int, int], ...] = field(init=False)
     standalone_month_header_year_spans: tuple[tuple[int, int], ...] = field(init=False)
     structural_component_spans: tuple[tuple[int, int], ...] = field(init=False)
@@ -15456,6 +15626,7 @@ class _LegacyNumericCollector:
             )
         }
         shared_rate_spans: set[tuple[int, int]] = set()
+        legacy_shared_rate_spans: set[tuple[int, int]] = set()
         for match in _TEMPORAL_YEAR_RANGE_PATTERN.finditer(self.context_text):
             endpoint_spans = (match.span("start"), match.span("end"))
             has_money_context = (
@@ -15490,8 +15661,36 @@ class _LegacyNumericCollector:
                 boundaries=self.context_boundaries,
             ):
                 shared_rate_spans.update(endpoint_spans)
+            if self.profile == "be-BE" and _local_rate_context_after_number(
+                self.context_text,
+                match.end(),
+                profile="legacy",
+                boundaries=self.context_boundaries,
+            ):
+                legacy_shared_rate_spans.update(endpoint_spans)
         self.money_spans = tuple(sorted(money_spans))
         self.shared_rate_spans = tuple(sorted(shared_rate_spans))
+        self.legacy_shared_rate_spans = (
+            tuple(sorted(legacy_shared_rate_spans))
+            if self.profile == "be-BE"
+            else self.shared_rate_spans
+        )
+
+    def rate_table_cell_index(
+        self,
+        profile: str,
+    ) -> tuple[tuple[int, ...], tuple[int, ...]]:
+        """Return the containment index of the rate cells ``profile`` declares."""
+        if profile == self.profile:
+            return (
+                self.rate_table_cell_span_starts,
+                self.rate_table_cell_prefix_max_ends,
+            )
+        if self.legacy_rate_table_cell_index is None:
+            self.legacy_rate_table_cell_index = _span_containment_index(
+                _pipe_table_rate_cell_spans(self.context_text, profile=profile)
+            )
+        return self.legacy_rate_table_cell_index
 
     def occurrence(
         self,
@@ -15511,6 +15710,22 @@ class _LegacyNumericCollector:
             require_exact=self.profile == "da-DK",
         )
         start, end = source_span
+        reading_value = value if source_value is None else source_value
+        # A Belgian source's own markers, restatements and headers type only
+        # a reading that takes its figure whole and the Belgian way: "2,5
+        # procent" states 2.5 percent, never 25. Any other reading, the English
+        # one or a part of the figure, takes rate context only from main's
+        # markers: one right after it, a table cell's or a year range's. No
+        # reader forces its rate, main's included, so the "250" of "1,250
+        # percent" states no rate here.
+        rate_profile = self.profile
+        if self.profile == "be-BE" and not _reads_belgian_figure(
+            self.source,
+            source_span,
+            reading_value,
+        ):
+            rate_profile = "legacy"
+            force_rate_context = False
         in_structural_component = _span_is_contained_in_index(
             source_span,
             self.structural_component_span_starts,
@@ -15524,8 +15739,7 @@ class _LegacyNumericCollector:
             and not in_structural_component
             and _span_is_contained_in_index(
                 source_span,
-                self.rate_table_cell_span_starts,
-                self.rate_table_cell_prefix_max_ends,
+                *self.rate_table_cell_index(rate_profile),
             )
         )
         has_rate_context = (
@@ -15533,20 +15747,24 @@ class _LegacyNumericCollector:
             or _local_rate_context_after_number(
                 self.context_text,
                 end,
-                profile=self.profile,
+                profile=rate_profile,
                 boundaries=self.context_boundaries,
             )
             or _parenthesized_figure_rate_context(
                 self.context_text,
                 source_span,
-                profile=self.profile,
-                value=value if source_value is None else source_value,
+                profile=rate_profile,
+                value=reading_value,
                 boundaries=self.context_boundaries,
             )
             or has_table_rate_context
             or any(
                 start >= rate_start and end <= rate_end
-                for rate_start, rate_end in self.shared_rate_spans
+                for rate_start, rate_end in (
+                    self.shared_rate_spans
+                    if rate_profile == self.profile
+                    else self.legacy_shared_rate_spans
+                )
             )
         )
         has_money_context = (
@@ -15590,7 +15808,7 @@ class _LegacyNumericCollector:
             has_rate_context=has_rate_context,
             has_temporal_context=has_temporal_context,
             has_structural_context=has_structural_context,
-            source_value=value if source_value is None else source_value,
+            source_value=reading_value,
             requires_rate_context=requires_rate_context,
             is_word_number=is_word_number,
             alternative_values=alternative_values,
@@ -17030,6 +17248,28 @@ def _figure_rate_marker_follows_in_source(
     return bool(marker.match(collector.context_text, end))
 
 
+def _range_endpoints_meet_in_source(
+    collector: _LegacyNumericCollector,
+    view: _NumericTextView,
+    first: tuple[int, int],
+    second: tuple[int, int],
+    gap: re.Pattern[str],
+) -> bool:
+    """Return whether only the range's separator parts its endpoints in the source.
+
+    Cleaning blanks a label, a date or a code between two figures ("1 (10) à
+    2 pour cent", "1 2026-01-01 à 2"), and the cleaned text then shows a range
+    the source does not print. A range whose endpoints map to no source text
+    is no range there.
+    """
+    try:
+        first_end = view.source_span(first)[1]
+        second_start = view.source_span(second)[0]
+    except ValueError:
+        return False
+    return bool(gap.fullmatch(collector.context_text, first_end, second_start))
+
+
 # Complete-source-unit analysis re-tokenizes the same branch texts once per
 # formula rule they are matched against; on one module ~95% of calls repeat
 # an already-seen text. The result is a tuple of frozen occurrences, so it
@@ -17648,17 +17888,27 @@ def _tokenize_numeric_occurrences_from_text(
     range_separator = (
         "(?:and|to|through|thru|et|\\u00e0|a|tot|bis|en|[-\\u2010-\\u2015])"
     )
+    range_gap = re.compile(rf"\s+{range_separator}\s+", re.IGNORECASE)
     for match in re.finditer(
         rf"\b({percentage_number})\s+{range_separator}\s+({percentage_number})"
         rf"\s*{figure_rate_marker}",
         cleaned,
         re.IGNORECASE,
     ):
-        if profile == "be-BE" and not _figure_rate_marker_follows_in_source(
-            collector,
-            cleaned_view,
-            match.span(2),
-            _BELGIAN_FIGURE_RATE_MARKER_AFTER_PATTERN,
+        if profile == "be-BE" and not (
+            _figure_rate_marker_follows_in_source(
+                collector,
+                cleaned_view,
+                match.span(2),
+                _BELGIAN_FIGURE_RATE_MARKER_AFTER_PATTERN,
+            )
+            and _range_endpoints_meet_in_source(
+                collector,
+                cleaned_view,
+                match.span(1),
+                match.span(2),
+                range_gap,
+            )
         ):
             continue
         for group_index in (1, 2):

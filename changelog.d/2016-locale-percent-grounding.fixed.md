@@ -34,29 +34,50 @@ sentence); main grounds none of them either. "pour mille" is no percent.
 
 In a Belgian source, a figure restated in parentheses takes the marker after
 them. A fraction with a decimal comma takes any marker after any word
-("(14,75) p.c."). A whole or dotted figure needs a French, Dutch or German
-preposition or copula and one space right before the parenthesis, and "%" or a
-word that spells a percent out after it ("taux de (101) % du montant"). The
-preposition follows a space, an apostrophe ("jusqu'à") or an opening bracket
-or quote, so "Item (117) Percent" and "https://example.be/de (117) pour cent"
-hold no rate. Nor does a figure printed as one comma before three digits
-("taux de (1,250) %"): English reads 1250 there, a Belgian source 1.25.
-English groups no figure that starts with a zero, so "(0,125) %" keeps its
-decimal comma. A label-shaped parenthesis ("(75)") needs a word that spells a
-percent out ("pour (75) pour cent", "tarief van (9) procent", "Satz von (15)
-Prozent"); otherwise it stays a masked label, as on main. The cleaner judges a
-label in the text before cleaning, as the readers do, so a date after its
-marker ("pour cent 2026-01-01.") keeps it masked. A source may define an
-abbreviation as anything ("p.c." for "parties civiles"), and a whole number
-may count or cite ("(101) p.c. applicants"), so "pour (75) p.c. remboursés"
-and "taux de (14.75) p.c." hold no rate; main grounds neither. A figure before
-the parenthesis owns the marker, and a figure without a marker still never
-grounds N/100.
+("(14,75) p.c."). A whole or dotted figure, or a zero fraction ("(2,0)"),
+needs a French, Dutch or German preposition or copula and one space right
+before the parenthesis, and "%" or a word that spells a percent out after it
+("taux de (101) % du montant"). The preposition follows a space, an apostrophe
+or a mark a source types for one ("jusqu'à", "jusqu´à", "jusqu`à"), or an
+opening bracket or quote, so "Item (117) Percent" and "https://example.be/de
+(117) pour cent" hold no rate. A label-shaped parenthesis ("(75)") needs a
+word that spells a percent out ("pour (75) pour cent", "tarief van (9)
+procent", "Satz von (15) Prozent"); otherwise it stays a masked label, as on
+main. The cleaner judges a label in the text before cleaning, as the readers
+do, so a date after its marker ("pour cent 2026-01-01.") keeps it masked. A
+source may define an abbreviation as anything ("p.c." for "parties civiles"),
+and a whole number may count or cite ("(101) p.c. applicants"), so "pour (75)
+p.c. remboursés" and "taux de (14.75) p.c." hold no rate; main grounds
+neither. A figure before the parenthesis owns the marker, and a figure without
+a marker still never grounds N/100.
+
+A Belgian source's own markers, restatements and headers type only a reading
+that takes the whole figure the Belgian way. "2,5 procent" states 2.5 percent
+and never 25, "1,250 pour cent" 1.25 and never 1250, "1.250 pour cent" 1250
+and never 1.25, and "(0,125) %" 0.125 and never 125. No part of "1.250,5",
+"12 345,5", "16 1/2", "1 / 2" or "16½" states a rate by itself. Any of the
+ordinary, no-break, figure, thin and narrow no-break spaces joins a figure's
+groups, and a slash joins a fraction with up to three spaces on each side. A
+figure that only English prints ("1,250.5", "1,250,000") keeps its English
+value. Before main's own markers, main's readings stand: "ein Satz von 1,125
+Prozent" grounds 11.25 and "1 / 2 %" 0.005, as on main. No reader forces a
+rate onto any other reading, so the "250" of "1,250 percent" no longer
+grounds 2.5. main reads "(1,250)" only as 1250 and "1 250" as two figures, so
+"taux de (1,250) pour cent" and "taux de 1 250 pour cent" ground no rate. A
+range takes its marker only where its separator alone parts the endpoints in
+the source: cleaning blanks the label in "un droit de 1 (10) à 2 pour cent",
+which grounds 0.02 and not 0.01. The same holds before "%" in a Belgian
+source, where main grounds 0.01. A year or an article number before "à" still
+starts a range, as main reads one before "%": "pour l'année 2026 à 6 pour cent
+du montant" grounds 20.26, and "art. 12 à 6 pour cent du montant" 0.12.
 
 Pipe tables: a Belgian or German header names a rate column only in the row
-right above the delimiter row, when both have as many cells. That header row
-starts the table's width, so pipe text above it no longer shifts the rate
-column onto an amount. A body cell whose marker follows its figure types that
-figure only, and an escaped pipe ("Type \| Category") stays inside its cell.
-The width, body-cell and escaped-pipe fixes apply to every source. Rate
-tables the corpus stores flattened stay ungrounded.
+right above the delimiter row, when both have as many cells. Such a header
+types the cells below it and not the figures in its own cell, so
+"Tarief (procent) 2026" grounds no 20.26; a header in main's words types its
+own cell as on main. That header row starts the table's width, so pipe text
+above it no longer shifts the rate column onto an amount. A body cell whose
+marker follows its figure types that figure only, and an escaped pipe
+("Type \| Category") stays inside its cell. The width, body-cell and
+escaped-pipe fixes apply to every source. Rate tables the corpus stores
+flattened stay ungrounded.
