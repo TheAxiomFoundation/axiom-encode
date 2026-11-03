@@ -9,9 +9,12 @@ import ast
 import re
 import textwrap
 
-# These are Expr::Call names accepted by the Rust RuleSpec formula lowerer.
+# These are Expr::Call names accepted by the Rust RuleSpec formula lowerer,
+# plus abs and round, which the validator's builtin list has always treated
+# as calls rather than inputs.
 _CALLABLES = frozenset(
     {
+        "abs",
         "calendar_years_to_months",
         "ceil",
         "count_over_periods",
@@ -27,6 +30,7 @@ _CALLABLES = frozenset(
         "max_over_periods",
         "min",
         "only_related",
+        "round",
         "sum",
         "sum_over_periods",
         "sum_top_n_over_periods",
@@ -57,6 +61,31 @@ _RESERVED = frozenset(
 _NON_CODE = re.compile(r""""(?:\\.|[^"\\])*"|'(?:''|\\.|[^'\\])*'|\#[^\n]*""")
 _IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 _PERIOD_SYMBOLS = frozenset({"period_start", "period_end"})
+_ONE_LINE_CONDITIONAL = re.compile(
+    r"\s*if\s+(?P<test>.+?):\s*(?P<body>.+?)\s+(?P<rest>(?:elif|else)\b.*)",
+    re.DOTALL,
+)
+
+
+def _one_line_conditional_as_python(formula: str) -> str | None:
+    """Rewrite one-line ``if c: a elif d: b else: e`` as a Python expression.
+
+    Multi-line RuleSpec conditionals already parse as Python statements; the
+    one-line form does not. Returns None for anything else.
+    """
+    match = _ONE_LINE_CONDITIONAL.fullmatch(formula)
+    if match is None or "\n" in formula.strip():
+        return None
+    rest = match["rest"]
+    if rest.startswith("elif"):
+        orelse = _one_line_conditional_as_python("if" + rest[len("elif") :])
+    elif rest.startswith("else:"):
+        orelse = rest[len("else:") :].strip() or None
+    else:
+        orelse = None
+    if orelse is None:
+        return None
+    return f"({match['body']}) if ({match['test']}) else ({orelse})"
 
 
 def _period_references(formula: str, *, judgment: bool | None) -> set[str]:
@@ -66,10 +95,17 @@ def _period_references(formula: str, *, judgment: bool | None) -> set[str]:
     evaluating them. RuleSpec-only syntax (such as match arrows) falls back to
     retaining possible references; only the Rust compiler admits semantics.
     """
+    source = textwrap.dedent(formula).strip()
     try:
-        tree = ast.parse(textwrap.dedent(formula).strip())
+        tree = ast.parse(source)
     except (SyntaxError, ValueError, RecursionError):
-        return set(_PERIOD_SYMBOLS)
+        rewritten = _one_line_conditional_as_python(source)
+        if rewritten is None:
+            return set(_PERIOD_SYMBOLS)
+        try:
+            tree = ast.parse(rewritten)
+        except (SyntaxError, ValueError, RecursionError):
+            return set(_PERIOD_SYMBOLS)
     references = set()
 
     def walk(node: ast.AST, is_judgment: bool) -> None:

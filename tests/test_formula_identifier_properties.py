@@ -100,3 +100,50 @@ def test_routing_matches_the_presence_of_a_lifetime_call(formula):
     assert formula_calls_lifetime_reduction(formula) is any(
         f"{reduction}(" in formula for reduction in LIFETIME_REDUCTIONS
     )
+
+
+operands = fact_names | st.sampled_from(["period_start", "period_end", "0", "1"])
+comparisons = st.sampled_from([">=", "<", "=="])
+
+
+@st.composite
+def conditions(draw):
+    if draw(st.booleans()):
+        return draw(operands)
+    return f"{draw(operands)} {draw(comparisons)} {draw(operands)}"
+
+
+@given(
+    branches=st.lists(st.tuples(conditions(), operands), min_size=1, max_size=3),
+    fallback=operands,
+)
+def test_one_line_conditionals_read_like_their_multi_line_form(branches, fallback):
+    """The one-line ``if c: a else: b`` form changes no reference."""
+    one_line = " ".join(
+        f"{'if' if index == 0 else 'elif'} {test}: {body}"
+        for index, (test, body) in enumerate(branches)
+    )
+    one_line += f" else: {fallback}"
+    multi_line = "".join(
+        f"{'if' if index == 0 else 'elif'} {test}:\n    {body}\n"
+        for index, (test, body) in enumerate(branches)
+    )
+    multi_line += f"else:\n    {fallback}"
+
+    for judgment in (None, False, True):
+        assert formula_reference_identifiers(
+            one_line, judgment=judgment
+        ) == formula_reference_identifiers(multi_line, judgment=judgment)
+
+
+def test_scalar_period_comparison_in_one_line_conditional_is_not_an_input():
+    formula = "if period_start >= effective_date: amount else: 0"
+    assert formula_reference_identifiers(formula, judgment=False) == {
+        "amount",
+        "effective_date",
+    }
+
+
+def test_abs_and_round_calls_are_not_inputs():
+    assert formula_reference_identifiers("round(abs(amount), 2)") == {"amount"}
+    assert formula_reference_identifiers("round + abs") == {"round", "abs"}
