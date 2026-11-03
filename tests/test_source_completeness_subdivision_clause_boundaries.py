@@ -6,10 +6,14 @@ subdivision 7 if such payments ..." and "the portion of subdivision B 10 of
 demanded 7 and 10 as values, and no faithful encoding can name a structural
 unit as a scalar.
 
-A label is masked here only when it carries reference evidence of its own (the
-demonstrative ``this`` before the keyword, or a statutory object such as
-``of § 58.1-301`` after the label) and a clause cue follows. The negative
-controls come first: the same number in an operative position stays demanded.
+A label is masked here only when it carries reference evidence of its own and
+a clause cue follows. The evidence is a statutory object such as
+``of § 58.1-301`` after the label, or a self-reference: ``pursuant to this
+subdivision 7`` inside item ``7.``, in a clause with its own verb. A bare
+``this subdivision N if`` is not enough, because in gapped English (``the
+qualifying age is 65; under this subdivision 62 if ...``) the number is a
+value. The negative controls come first: the same number in an operative
+position stays demanded.
 Production reads U.S. citations with the ``legacy`` numeric profile and the
 replay fixtures use ``en-US``, so every check runs under both.
 """
@@ -45,11 +49,13 @@ RECALL_VALUE = re.compile(
     r"value (\S+) has no named scalar"
 )
 EMPTY_MODULE = "format: rulespec/v1\nmodule: {}\nrules: []\n"
-# Verbatim sentences from the Virginia fixture's source text.
+# Item 7 of the Virginia fixture, shortened to the sentence that names it,
+# and a verbatim sentence from the same source.
 SUBDIVISION_7 = (
-    "No deduction shall be allowed pursuant to this subdivision 7 if such "
-    "payments or contributions are deducted on the purchaser's or contributor's "
-    "federal income tax return."
+    "7. a. A deduction shall be allowed to the purchaser or contributor. No "
+    "deduction shall be allowed pursuant to this subdivision 7 if such payments "
+    "or contributions are deducted on the purchaser's or contributor's federal "
+    "income tax return."
 )
 SUBDIVISION_B_10 = (
     "to the extent excluded from federal adjusted gross income, are not "
@@ -125,8 +131,50 @@ NEGATIVE_CONTROLS = (
     # A unit after the number makes it a quantity, not a label.
     ("pursuant to this subdivision 7 percent if such payments", ("7 percent",)),
     ("pursuant to this subdivision 7 months if such payments", ("7 months",)),
-    # No reference evidence of its own: no `this`, no statutory object.
+    # No reference evidence of its own: no self-reference, no statutory object.
     ("pursuant to subdivision 7 if such payments are deducted", ("7",)),
+    ("pursuant to this subdivision 7 if such payments are deducted", ("7",)),
+    ("This subdivision 7 unless the taxpayer elects otherwise.", ("7",)),
+    (
+        "8. No deduction shall be allowed pursuant to this subdivision 7 if paid.",
+        ("7",),
+    ),
+    # Gapped English: the number after the reference is the elided value.
+    (
+        "62. Under subsection A the qualifying age is 65; under this subdivision "
+        "62 if the individual is permanently and totally disabled.",
+        ("62", "65"),
+    ),
+    (
+        "62. Under subsection A the qualifying age is 65; pursuant to this "
+        "subdivision 62 if the individual is permanently and totally disabled.",
+        ("62", "65"),
+    ),
+    (
+        "Under subsection A the certification period is 12 months; under this "
+        "subdivision 24 where all adult household members are elderly or disabled.",
+        ("12 months", "24"),
+    ),
+    (
+        "Under subsection A the number of exemptions is 1; under this subdivision "
+        "2 if the taxpayer and spouse file a joint return.",
+        ("1", "2"),
+    ),
+    (
+        "Under subsection A the base year is 2019; under this subdivision 2021 if "
+        "the taxpayer first claimed the credit after December 31, 2020.",
+        ("2019", "2021"),
+    ),
+    (
+        'The term "qualifying age" means for purposes of this subdivision 65 '
+        "unless the individual is blind or disabled.",
+        ("65",),
+    ),
+    (
+        "1. The monthly amount is the annual amount divided by 12; under this "
+        "subdivision 24 if the employee is paid semimonthly.",
+        ("12", "24"),
+    ),
     ("A county may approve a subdivision 5 if the lots are platted.", ("5",)),
     ("the portion of subdivision B 10 related to loans", ("10",)),
     # A suffix letter can be a unit; coordinated labels keep main's demand.
@@ -174,13 +222,28 @@ def test_operative_numbers_stay_demanded_through_the_gate(source, fragment, prof
 LOCATOR_SENTENCES = (
     (SUBDIVISION_7, "7"),
     (SUBDIVISION_B_10, "10"),
-    ("This subdivision 7 unless the taxpayer elects otherwise.", "7"),
     ("under subdivision 3 of this section if the taxpayer elects", "3"),
     ("under subdivision B 3 of § 58.1-322.02 relating to the credit", "3"),
-    ("pursuant to this subdivision 7 when such payments are made", "7"),
-    ("pursuant to this subdivision 7 provided that such payments are made", "7"),
-    ("pursuant to this subdivision 7 except as provided in this section", "7"),
-    ("pursuant to this subdivision 7 if such payments", "7"),
+    (
+        "7. The credit is allowed. It shall be denied pursuant to this "
+        "subdivision 7 when such payments are made.",
+        "7",
+    ),
+    (
+        "7. No credit may be claimed pursuant to this subdivision 7 provided that "
+        "such payments are made.",
+        "7",
+    ),
+    (
+        "Intro.\n\n7. No credit is allowed pursuant to this subdivision 7 except as "
+        "provided in this section.",
+        "7",
+    ),
+    (
+        "7. No credit is allowed pursuant to this\u00a0subdivision\u00a07 if such "
+        "payments are made.",
+        "7",
+    ),
 )
 
 
@@ -310,11 +373,12 @@ OPERATIVE = (
     "at least {n} taxable years",
 )
 LOCATORS = (
-    "No deduction shall be allowed pursuant to this subdivision {n} if such "
-    "payments are deducted.",
+    "{n}. a. No deduction shall be allowed pursuant to this subdivision {n} if "
+    "such payments are deducted.",
     "the portion of subdivision B {n} of § 58.1-301 related to loans.",
     "under subdivision {n} of this section if the taxpayer elects.",
-    "This subdivision {n} unless the taxpayer elects otherwise.",
+    "{n}. The credit shall be denied pursuant to this subdivision {n} unless the "
+    "taxpayer elects otherwise.",
 )
 
 
@@ -352,7 +416,8 @@ def test_same_number_in_operative_and_locator_positions(
         if locator_first
         else (operative_text, locator_text)
     )
-    source = " ".join(parts)
+    # Each on its own line: a self-reference names the item its line opens.
+    source = "\n\n".join(parts)
     assert sorted(_values(_clean(source), profile)) == sorted(
         _values(_clean(operative_text), profile)
     )
@@ -491,17 +556,32 @@ def test_clause_cue_branch_work_is_linear_in_references(monkeypatch, copies):
     for name in (
         "_ENGLISH_SUBDIVISION_STATUTORY_OBJECT",
         "_ENGLISH_SUBDIVISION_CLAUSE_CUE",
-        "_ENGLISH_SUBDIVISION_DEMONSTRATIVE",
+        "_ENGLISH_SUBDIVISION_SELF_REFERENCE",
+        "_ENGLISH_SUBDIVISION_ENCLOSING_ITEM",
+        "_ENGLISH_SUBDIVISION_CLAUSE_VERB",
     ):
         monkeypatch.setattr(
             completeness,
             name,
             _CountingPattern(getattr(completeness, name), meter),
         )
-    source = " ".join((SUBDIVISION_7, SUBDIVISION_B_10) * copies)
+    source = "\n\n".join((SUBDIVISION_7, SUBDIVISION_B_10) * copies)
     spans = list(completeness._english_subdivision_numeric_recall_spans(source))
     assert len(spans) == 2 * copies
-    # Each reference reaches the branch once: at most three anchored calls,
-    # each reading a bounded window, whatever the text length.
-    assert meter["calls"] <= 3 * 2 * copies
-    assert meter["read"] <= 60 * 2 * copies
+    # Each reference reaches the branch once: at most five anchored or
+    # windowed calls, each reading at most its own line, whatever the length.
+    assert meter["calls"] <= 5 * 2 * copies
+    assert meter["read"] <= 2 * len(SUBDIVISION_7) * 2 * copies
+
+
+def test_a_self_reference_beyond_the_window_keeps_its_number():
+    """The backward read to the enclosing item is bounded; past it, no mask."""
+
+    padding = "x" * completeness._ENGLISH_SUBDIVISION_SELF_REFERENCE_WINDOW
+    source = (
+        "7. a. A deduction is allowed " + padding + ". No deduction shall be "
+        "allowed pursuant to this subdivision 7 if such payments are deducted."
+    )
+    assert list(completeness._english_subdivision_numeric_recall_spans(source)) == []
+    near = SUBDIVISION_7
+    assert list(completeness._english_subdivision_numeric_recall_spans(near))

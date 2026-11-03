@@ -2350,12 +2350,15 @@ _ENGLISH_SUBDIVISION_SINGLE_REFERENCE_PREDICATE = re.compile(
     flags=re.IGNORECASE,
 )
 # A single subdivision reference can also end where a subordinate clause or a
-# participial modifier begins (`pursuant to this subdivision 7 if such
-# payments`, `subdivision B 10 of § 58.1-301 related to loans`). The cue alone
+# participial modifier begins (`subdivision B 10 of § 58.1-301 related to
+# loans`, `pursuant to this subdivision 7 if such payments`). The cue alone
 # proves nothing about the label, so the reference must carry evidence of its
-# own: the demonstrative `this` before the keyword, or a statutory object
-# directly after the label. A unit word, a suffix letter or a coordinated label
-# keeps the number demanded.
+# own. Either a statutory object directly follows the label, or the reference
+# names the item it sits in: `pursuant to this subdivision 7` inside item
+# `7.`, in a clause whose own verb precedes it. A bare `this subdivision N if`
+# is not enough: in gapped English (`the qualifying age is 65; under this
+# subdivision 62 if ...`) the number is a value. A unit word, a suffix letter
+# or a coordinated label keeps the number demanded.
 _ENGLISH_SUBDIVISION_STATUTORY_OBJECT = re.compile(
     r"[ \t]+of[ \t]+(?:(?:this|the|that)[ \t]+"
     r"(?:section|subsection|paragraph|subdivision|act|code|chapter)\b|"
@@ -2367,9 +2370,16 @@ _ENGLISH_SUBDIVISION_CLAUSE_CUE = re.compile(
     r"relat(?:ed|ing)[ \t]+to|pertaining[ \t]+to)[ \t]+[A-Za-z]",
     flags=re.IGNORECASE,
 )
-_ENGLISH_SUBDIVISION_DEMONSTRATIVE = re.compile(
-    r"(?<![A-Za-z])this[ \t]+\Z", flags=re.IGNORECASE
+_ENGLISH_SUBDIVISION_SELF_REFERENCE = re.compile(
+    r"(?<![A-Za-z])pursuant[ \t]+to[ \t]+this[ \t]+\Z", flags=re.IGNORECASE
 )
+# The enclosing item's label at the start of its line (`7. a. ...`).
+_ENGLISH_SUBDIVISION_ENCLOSING_ITEM = re.compile(r"[ \t]*(?P<item>\d+)\.[ \t]")
+_ENGLISH_SUBDIVISION_CLAUSE_VERB = re.compile(
+    r"\b(?:shall|may|must|will|is|are|was|were|be|been|has|have|had)\b",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_SUBDIVISION_SELF_REFERENCE_WINDOW = 4096
 # The exact phrase can identify poverty-guideline geography. The span helper
 # also requires bare or definite reference syntax, retaining unknown units.
 _CONTIGUOUS_STATES_NUMERIC_RECALL_IDENTIFIER = re.compile(
@@ -15601,20 +15611,53 @@ def _english_subdivision_reference_ends_at_clause_cue(
 ) -> bool:
     """Prove a single reference by its own evidence and a following clause cue.
 
-    ``this subdivision 7 if ...`` and ``subdivision B 10 of § 58.1-301 related
-    to ...`` qualify. Both matches are anchored at fixed positions, and the
-    demonstrative check reads at most 16 characters before the keyword.
+    ``subdivision B 10 of § 58.1-301 related to ...`` qualifies through its
+    statutory object, and ``pursuant to this subdivision 7 if ...`` inside item
+    ``7.`` through self-reference. Every read is anchored or bounded: at most
+    24 characters before the keyword, and at most a fixed window back to the
+    start of the enclosing line.
     """
 
     statutory_object = _ENGLISH_SUBDIVISION_STATUTORY_OBJECT.match(
         source_text, citation.end()
     )
-    if statutory_object is None and not _ENGLISH_SUBDIVISION_DEMONSTRATIVE.search(
-        source_text[max(0, citation.start() - 16) : citation.start()]
+    if statutory_object is not None:
+        cue_start = statutory_object.end()
+    elif _english_subdivision_self_reference(source_text, citation):
+        cue_start = citation.end()
+    else:
+        return False
+    return _ENGLISH_SUBDIVISION_CLAUSE_CUE.match(source_text, cue_start) is not None
+
+
+def _english_subdivision_self_reference(
+    source_text: str, citation: re.Match[str]
+) -> bool:
+    """`pursuant to this subdivision 7`, in item `7.`, modifying a full clause."""
+
+    start = citation.start()
+    if not _ENGLISH_SUBDIVISION_SELF_REFERENCE.search(
+        source_text[max(0, start - 24) : start]
     ):
         return False
-    cue_start = statutory_object.end() if statutory_object else citation.end()
-    return _ENGLISH_SUBDIVISION_CLAUSE_CUE.match(source_text, cue_start) is not None
+    label = re.fullmatch(r"\d+", citation.group("labels"), flags=re.ASCII)
+    if label is None:
+        return False
+    window_start = max(0, start - _ENGLISH_SUBDIVISION_SELF_REFERENCE_WINDOW)
+    line_break = source_text.rfind("\n", window_start, start)
+    if line_break < 0 and window_start:
+        return False
+    line_start = line_break + 1
+    item = _ENGLISH_SUBDIVISION_ENCLOSING_ITEM.match(source_text, line_start)
+    if item is None or item.group("item") != label.group(0):
+        return False
+    # In `No deduction shall be allowed pursuant to this subdivision 7 if`
+    # the clause has its own verb before the reference. A gapped clause
+    # (`...; pursuant to this subdivision 7 if`) has none, and there the
+    # number can be the elided value.
+    clause = source_text[item.end() : start]
+    clause = re.split(r"[.;:]", clause)[-1]
+    return _ENGLISH_SUBDIVISION_CLAUSE_VERB.search(clause) is not None
 
 
 def _english_subdivision_numeric_recall_spans(
