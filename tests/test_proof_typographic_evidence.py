@@ -23,6 +23,7 @@ import yaml
 
 from axiom_encode import cli
 from axiom_encode.corpus_resolver import (
+    CorpusResolutionError,
     CorpusSourceNotFoundError,
     CorpusSourceSliceError,
 )
@@ -724,7 +725,8 @@ def test_repair_page_probe_survives_resolver_errors(tmp_path, monkeypatch):
     release = _corpus(
         monkeypatch,
         _with_document(_MEMO_PAGES),
-        raising={f"{_MEMO}/page-1", f"{_MEMO}/page-2"},
+        # Page 5 is one of the document's pages, so the page probe reads it.
+        raising={f"{_MEMO}/page-5"},
     )
     rules_file = _write_rules(tmp_path, path=f"{_MEMO}/page-4", excerpt=_QUOTE)
 
@@ -791,3 +793,85 @@ def test_repair_never_moves_a_quote_to_another_section(tmp_path, monkeypatch):
         "atoms"
     ][0]["source"]
     assert source["corpus_citation_path"] == "us/statute/26/25A"
+
+
+@pytest.mark.parametrize(
+    "sign",
+    [
+        "-" + " " * 9,
+        "-\n        ",
+        "\uff0d",
+        "\u2212\u200b",
+        "\u2212 \u200b ",
+        "+ ",
+        "\u2013 ",
+    ],
+)
+def test_alignment_never_drops_a_sign_before_a_parenthesized_phrase(sign):
+    source = f"total {sign}(500 dollars) due"
+    assert align_proof_excerpt(source_text=source, excerpt="500 dollars") is None
+    assert align_proof_excerpt(source_text=source, excerpt="500 dollars.") is None
+
+
+def test_alignment_widens_a_parenthesized_phrase_without_a_sign():
+    source = "total (500 dollars) due"
+    assert (
+        align_proof_excerpt(source_text=source, excerpt="500 dollars")
+        == "(500 dollars)"
+    )
+
+
+_EARNED_PAGES = {
+    f"{_MEMO}/page-3": "The term \u201cearned income\u201d means wages.",
+    f"{_MEMO}/page-4": "Quality control reviews follow the usual schedule.",
+    f"{_MEMO}/page-5": "earned income is disregarded for this purpose.",
+}
+
+
+def test_alignment_refuses_independent_occurrences_that_print_different_forms():
+    document = _with_document(_EARNED_PAGES)[_MEMO]
+    assert align_proof_excerpt(source_text=document, excerpt='"earned income"') is None
+    # The quoted occurrence alone still aligns to its printed quotation marks.
+    assert (
+        align_proof_excerpt(
+            source_text=_EARNED_PAGES[f"{_MEMO}/page-3"], excerpt='"earned income"'
+        )
+        == "\u201cearned income\u201d"
+    )
+
+
+def test_repair_does_not_move_when_pages_print_independent_forms(tmp_path, monkeypatch):
+    release = _corpus(monkeypatch, _with_document(_EARNED_PAGES))
+    rules_file = _write_rules(
+        tmp_path, path=f"{_MEMO}/page-4", excerpt='"earned income"'
+    )
+
+    _repair(rules_file, release)
+    assert _atom_source(rules_file)["corpus_citation_path"] == f"{_MEMO}/page-4"
+
+
+def test_repair_keeps_the_citation_when_composing_the_document_text_fails(
+    tmp_path, monkeypatch
+):
+    release = _corpus(monkeypatch, _with_document(_MEMO_PAGES))
+    resolve = cli.resolve_local_corpus_source
+
+    class _Unreadable:
+        component_rows = resolve(_MEMO, release).component_rows
+
+        @property
+        def proof_evidence_text(self):
+            raise CorpusResolutionError(
+                "Corpus proof evidence contains the reserved segment separator"
+            )
+
+    monkeypatch.setattr(
+        cli,
+        "resolve_local_corpus_source",
+        lambda path, corpus_release: _Unreadable(),
+    )
+    rules_file = _write_rules(tmp_path, path=f"{_MEMO}/page-4", excerpt=_QUOTE)
+    original = rules_file.read_text()
+
+    assert _repair(rules_file, release) == []
+    assert rules_file.read_text() == original

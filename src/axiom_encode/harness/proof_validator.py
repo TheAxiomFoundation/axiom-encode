@@ -1179,15 +1179,35 @@ def _located_proof_evidence(*, source_text: str, evidence_text: str) -> tuple[st
     through the typographic view is returned as each distinct exact source
     span it matched. This locates evidence for a repair; it never accepts it.
     """
+    return tuple(
+        dict.fromkeys(
+            text
+            for _, _, text in _located_proof_evidence_occurrences(
+                source_text=source_text, evidence_text=evidence_text
+            )
+        )
+    )
+
+
+# A located occurrence: its raw source span and the text printed there. An
+# excerpt accepted as written has no span of its own (-1, -1).
+_LocatedProofText = tuple[int, int, str]
+
+
+def _located_proof_evidence_occurrences(
+    *, source_text: str, evidence_text: str
+) -> tuple[_LocatedProofText, ...]:
     if _source_contains_proof_evidence(
         source_text=source_text, evidence_text=evidence_text
     ):
-        return (evidence_text,)
-    spans = _typographic_source_evidence_spans(
-        source_text=source_text,
-        evidence_text=evidence_text,
+        return ((-1, -1, evidence_text),)
+    return tuple(
+        (start, end, source_text[start:end])
+        for start, end in _typographic_source_evidence_spans(
+            source_text=source_text,
+            evidence_text=evidence_text,
+        )
     )
-    return tuple(dict.fromkeys(source_text[start:end] for start, end in spans))
 
 
 # End marks a model adds to a quotation that the source does not print there
@@ -1198,8 +1218,10 @@ _PROOF_ADDED_END_MARKS = ".;,"
 _PROOF_LOCATE_WORD_GAP = r"(?:[ \t\u00a0]*\r?\n[ \t\u00a0]*|[ \t\u00a0]+)"
 
 
-def _plain_source_occurrences(source_text: str, excerpt: str) -> tuple[str, ...]:
-    """Distinct printed texts of the excerpt's words, ignoring token boundaries.
+def _plain_source_occurrences(
+    source_text: str, excerpt: str
+) -> tuple[_LocatedProofText, ...]:
+    """Each printed occurrence of the excerpt's words, ignoring token boundaries.
 
     Locating only: a caller stores a returned text only after the matcher
     accepts it (or a version of it widened to its enclosing parentheses).
@@ -1208,22 +1230,24 @@ def _plain_source_occurrences(source_text: str, excerpt: str) -> tuple[str, ...]
     if not words:
         return ()
     pattern = re.compile(_PROOF_LOCATE_WORD_GAP.join(re.escape(word) for word in words))
-    found: dict[str, None] = {}
+    found: list[_LocatedProofText] = []
+    base = 0
     for segment in split_proof_evidence_text(source_text):
         for match in pattern.finditer(segment):
-            found[match.group()] = None
             start, end = match.span()
+            found.append((base + start, base + end, match.group()))
             if (
                 0 < start
                 and end < len(segment)
                 and segment[start - 1] == "("
                 and segment[end] == ")"
                 and _PROOF_WIDENABLE_PARENTHETICAL.search(match.group())
-                and not _PROOF_SIGN_BEFORE_PARENTHESIS.search(
-                    segment[max(0, start - 9) : start - 1]
-                )
+                and not _follows_numeric_sign(segment, start - 1)
             ):
-                found["(" + match.group() + ")"] = None
+                found.append(
+                    (base + start - 1, base + end + 1, "(" + match.group() + ")")
+                )
+        base += len(segment) + len(PROOF_EVIDENCE_SEGMENT_SEPARATOR)
     return tuple(found)
 
 
@@ -1231,25 +1255,51 @@ def _plain_source_occurrences(source_text: str, excerpt: str) -> tuple[str, ...]
 # Level)"): a parenthesized bare number is an accounting negative, and a sign
 # before the parenthesis belongs to the number, so neither is widened.
 _PROOF_WIDENABLE_PARENTHETICAL = re.compile(r"[^\W\d_]{2,}")
-_PROOF_SIGN_BEFORE_PARENTHESIS = re.compile("[-+\u2212\u2013\u00b1]\\s*$")
 
 
-def _distinct_printed_forms(forms: Sequence[str]) -> tuple[str, ...]:
-    """One entry per printed text: whitespace variants and nested spans merge.
+def _follows_numeric_sign(text: str, index: int) -> bool:
+    """Whether the last meaningful character before ``text[index]`` is a sign.
 
-    The same printed words wrapped differently are one text; a form found
-    inside another found form ("magic phrase" inside "\u201cmagic phrase\u201d")
-    is part of that occurrence, so the enclosing form is kept.
+    Whitespace and format characters (a zero-width space) are skipped however
+    many there are, so "-         (500 dollars)" keeps its sign.
     """
-    by_text: dict[str, str] = {}
-    for form in forms:
-        by_text.setdefault(collapse_evidence_whitespace(form), form)
-    keys = list(by_text)
-    return tuple(
-        by_text[key]
-        for key in keys
-        if not any(key != other and key in other for other in keys)
+    position = index - 1
+    while position >= 0 and (
+        text[position].isspace() or unicodedata.category(text[position]) == "Cf"
+    ):
+        position -= 1
+    return position >= 0 and (
+        _is_numeric_sign_marker(text[position]) or text[position] == "\N{EN DASH}"
     )
+
+
+def _distinct_printed_forms(
+    occurrences: Sequence[_LocatedProofText],
+) -> tuple[str, ...]:
+    """One entry per printed text among independent occurrences.
+
+    A match inside the span of another match ("magic phrase" inside
+    "\u201cmagic phrase\u201d" at the same place) is part of that occurrence,
+    so only the enclosing match counts. Matches at different places stay
+    separate occurrences, and occurrences that print one text (up to
+    whitespace) are one form.
+    """
+    outer: list[_LocatedProofText] = [
+        occurrence for occurrence in occurrences if occurrence[0] < 0
+    ]
+    max_end = -1
+    for occurrence in sorted(
+        (occurrence for occurrence in occurrences if occurrence[0] >= 0),
+        key=lambda occurrence: (occurrence[0], -occurrence[1]),
+    ):
+        if occurrence[1] <= max_end:
+            continue
+        outer.append(occurrence)
+        max_end = occurrence[1]
+    by_text: dict[str, str] = {}
+    for _, _, text in outer:
+        by_text.setdefault(collapse_evidence_whitespace(text), text)
+    return tuple(by_text.values())
 
 
 def align_proof_excerpt(*, source_text: str, excerpt: str) -> str | None:
@@ -1260,9 +1310,10 @@ def align_proof_excerpt(*, source_text: str, excerpt: str) -> str | None:
     recased first letter), with an added end mark dropped. When that finds
     nothing because a token-boundary rule rejects the bare span, the span
     widened to its enclosing parentheses is tried ("(165 Percent of Poverty
-    Level)"). The result is returned only when every match prints one text and
-    ``_source_contains_proof_evidence`` accepts that text, so the stored
-    excerpt is always the printed source text and no check gets looser.
+    Level)"). The result is returned only when every independent occurrence
+    prints one text and ``_source_contains_proof_evidence`` accepts that text,
+    so the stored excerpt is always the printed source text and no check gets
+    looser.
     """
     excerpt = excerpt.strip()
     if not excerpt:
@@ -1274,28 +1325,25 @@ def align_proof_excerpt(*, source_text: str, excerpt: str) -> str | None:
     if trimmed and trimmed != excerpt:
         queries.append(trimmed)
     # The excerpt as written first; the trimmed excerpt only if that finds nothing.
-    forms: dict[str, None] = {}
+    occurrences: tuple[_LocatedProofText, ...] = ()
     for query in queries:
-        forms = dict.fromkeys(
-            _located_proof_evidence(source_text=source_text, evidence_text=query)
+        occurrences = _located_proof_evidence_occurrences(
+            source_text=source_text, evidence_text=query
         )
-        if forms:
+        if occurrences:
             break
-    if not forms:
-        for query in queries:
-            for form in _plain_source_occurrences(source_text, query):
-                forms[form] = None
-        accepted = [
-            form
-            for form in forms
-            if _source_contains_proof_evidence(
-                source_text=source_text, evidence_text=form
-            )
-        ]
+    if not occurrences:
         # A bare span the boundary rules reject and its widened form are one
         # occurrence; keep only the accepted texts.
-        forms = dict.fromkeys(accepted)
-    distinct = _distinct_printed_forms(tuple(forms))
+        occurrences = tuple(
+            occurrence
+            for query in queries
+            for occurrence in _plain_source_occurrences(source_text, query)
+            if _source_contains_proof_evidence(
+                source_text=source_text, evidence_text=occurrence[2]
+            )
+        )
+    distinct = _distinct_printed_forms(occurrences)
     if len(distinct) != 1:
         return None
     (form,) = distinct

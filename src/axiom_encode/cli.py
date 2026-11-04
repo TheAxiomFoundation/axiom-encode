@@ -46368,6 +46368,8 @@ def _proof_document_text_and_pages(
     """
     try:
         source = resolve_local_corpus_source(document, corpus_release)
+        # Composing the proof text can itself refuse (a reserved separator).
+        text = source.proof_evidence_text
     except CorpusResolutionError:
         return None
     pages = sorted(
@@ -46379,7 +46381,7 @@ def _proof_document_text_and_pages(
         },
         key=lambda path: int(path.rsplit("-", 1)[1]),
     )
-    return source.proof_evidence_text, tuple(pages)
+    return text, tuple(pages)
 
 
 def _proof_page_text(
