@@ -1,0 +1,37 @@
+from pathlib import Path
+import json,time,hashlib
+from axiom_encode.harness import validator_pipeline as v
+from axiom_encode.corpus_resolver import LocalCorpusRelease
+L=Path('/Users/pavelmakarchuk/axiom-api-catalog-readiness/.local/catalog-readiness');C=L/'independent-t89-preflight/federal-income-provider-current/t1-child-contract';D=Path(__file__).parent;R=D.parent/'signed-proof-git-copy/rulespec-ca';T=L/'canada-pr27-readonly-triage';release=LocalCorpusRelease(T/'newer-runtime-diagnostic/axiom-corpus','ca-rulespec-2026-07-21-oracle-complete-v2','5acdb15ce948857a13baf9088c2179951716edd47a0327c078b4e97be6eb0ef4',(T/'release-public-key.pem').read_text());E=L/'worktrees/retirement/engine-895-review';f=R/'ca/policies/cra/t1-2025/t1-income-net-taxable-income/step-3.yaml'
+
+import subprocess
+from axiom_encode import __version__
+W=L/'worktrees/step3-merged2024-preflight-encoder'
+assert subprocess.check_output(['git','-C',str(W),'rev-parse','HEAD']).decode().strip()=='bcd7ad40af654fd0d8ae8db2ab57d8894bfc0099'
+assert __version__=='0.2.2270'
+def source_hashes():
+ return {str(p.relative_to(R)):hashlib.sha256(p.read_bytes()).hexdigest() for p in R.rglob('*') if p.is_file() and '.git' not in p.relative_to(R).parts}
+before=source_hashes()
+(D/'before.json').write_text(json.dumps(before,indent=2)+'\n')
+
+class Probe(v.ValidatorPipeline):
+ def _proof_source_texts_for_rulespec_content(self,content,**kwargs):
+  resolved=super()._proof_source_texts_for_rulespec_content(content,**kwargs)
+  (D/('normal-resolved-proof-context-'+hashlib.sha256(content.encode()).hexdigest()+'.json')).write_text(json.dumps({'consumer_sha256':hashlib.sha256(content.encode()).hexdigest(),'sources':{k:None if value is None else {'sha256':hashlib.sha256(value.encode()).hexdigest(),'text':value} for k,value in resolved.items()}},indent=2)+'\n')
+  return resolved
+ def _complete_source_unit_issues(self, content, **kwargs):
+  evidence=kwargs.get('execution_evidence')
+  if evidence and content == f.read_text():
+   (D/'metadata-evidence-summary.json').write_text(json.dumps({'case_count':len(evidence.records),'artifact_sha256':hashlib.sha256(evidence.artifact_bytes).hexdigest(),'record_cases':[r.case_sha256 for r in evidence.records],'requests_responses':[{'case_index':r.case_index,'request':json.loads(r.request_json),'response':json.loads(r.response_json)} for r in evidence.records]},indent=2)+'\n')
+  result=super()._complete_source_unit_issues(content,**kwargs)
+  (D/('source-issues-'+hashlib.sha256(content.encode()).hexdigest()+'.json')).write_text(json.dumps(result,indent=2)+'\n')
+  return result
+pipe=Probe(R/'ca',E,local_corpus_release=release,axiom_rules_engine_ref='89571cc2a938707fd60a5489b951135345697296',enable_oracles=False,require_complete_source_unit=True,source_citation_path='ca/policy/cra/t1-2025/t1-income-net-taxable-income/step-3')
+start=time.monotonic()
+with v._authoritative_corpus_scope(release):
+ result=pipe._run_rulespec_ci(f)
+(D/'metadata-pipeline-result.json').write_text(json.dumps({'seconds':time.monotonic()-start,'passed':result.passed,'issues':result.issues,'details':result.details},indent=2)+'\n');print(result)
+
+after=source_hashes()
+(D/"after.json").write_text(json.dumps(after,indent=2)+"\n")
+assert before==after

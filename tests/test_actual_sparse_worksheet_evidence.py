@@ -173,7 +173,16 @@ def pair(floor_pair):  # noqa: F811
     return p
 
 
-def test_exact_sparse_pair_and_unchanged_consumer_binder(pair):
+@pytest.mark.parametrize("strict_echo", [False, True])
+def test_exact_sparse_pair_and_unchanged_consumer_binder(pair, tmp_path, strict_echo):
+    from tests.test_same_case_execution import restage_witness_records
+
+    pair["evidence"] = restage_witness_records(
+        pair["evidence"],
+        [case for cases in pair["asserted_by_rule"].values() for case in cases],
+        tmp_path,
+        strict_echo,
+    )
     assert (
         bind_entered_observations(
             pair["content"],
