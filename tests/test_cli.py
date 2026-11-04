@@ -45942,6 +45942,8 @@ class TestGuardGenerated:
             ("wrong_waiver_transition", False),
             ("wrong_toolchain_transition", False),
             ("not_in_place", False),
+            ("missing_target_manifest", False),
+            ("wrong_model_manifest_path", False),
         ],
     )
     def test_in_place_replacement_scheduled_dependent_uses_post_waiver_identity(
@@ -45965,6 +45967,9 @@ class TestGuardGenerated:
             "replacement": {
                 "source": target,
                 "destination": target,
+                "model_manifest_path": (
+                    ".axiom/encoding-manifests/us/regulations/example.json"
+                ),
                 "scheduled_dependents": [
                     {
                         "primary": dependent,
@@ -45994,15 +45999,27 @@ class TestGuardGenerated:
             )
         elif mutation == "not_in_place":
             receipt["replacement"]["destination"] = dependent
+        elif mutation == "wrong_model_manifest_path":
+            receipt["replacement"]["model_manifest_path"] = (
+                ".axiom/encoding-manifests/us/regulations/unrelated.json"
+            )
         target_manifest = repo / ".axiom/encoding-manifests/us/regulations/example.json"
-        target_manifest.write_text(json.dumps(receipt) + "\n")
+        target_manifest.parent.mkdir(parents=True, exist_ok=True)
+        target_manifest.write_text(
+            json.dumps({"tool": APPLIED_ENCODING_MODEL_TOOL}) + "\n"
+        )
+        receipt_path = repo / ".axiom/legacy-replacements/example.json"
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(json.dumps(receipt) + "\n")
         changed = [
             target,
             dependent,
             "known-validation-gaps.yaml",
             ".axiom/toolchain.toml",
-            target_manifest.relative_to(repo).as_posix(),
+            receipt_path.relative_to(repo).as_posix(),
         ]
+        if mutation != "missing_target_manifest":
+            changed.append(target_manifest.relative_to(repo).as_posix())
         if mutation != "missing_dependent_manifest":
             changed.append(".axiom/encoding-manifests/us/regulations/dependent.json")
         expected, issues = _guard_manifest_waiver_set_identity(
@@ -51313,6 +51330,83 @@ rules: []
             "36B.yaml",
         )
 
+    def test_external_proved_rules_are_carried_forward_before_overlay_validation(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
+        generated = output_root / "codex-test-model" / "statutes/26/36B.yaml"
+        generated.parent.mkdir(parents=True)
+        scalar = {
+            "name": "legacy_scalar",
+            "kind": "parameter",
+            "dtype": "Integer",
+            "versions": [{"effective_from": "2026-01-01", "formula": "30"}],
+        }
+        applies = {
+            "name": "legacy_applies",
+            "kind": "condition",
+            "versions": [{"effective_from": "2026-01-01", "formula": "true"}],
+        }
+        generated.write_text(
+            yaml.safe_dump(
+                {
+                    "format": "rulespec/v1",
+                    "rules": [
+                        {
+                            "name": "legacy_scalar",
+                            "kind": "parameter",
+                            "dtype": "Integer",
+                            "versions": [
+                                {"effective_from": "2026-01-01", "formula": "60"}
+                            ],
+                        },
+                        {"name": "new_rule", "kind": "condition"},
+                    ],
+                }
+            )
+        )
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                rules = yaml.safe_load(Path(path).read_text())["rules"]
+                assert rules == [
+                    scalar,
+                    {"name": "new_rule", "kind": "condition"},
+                    applies,
+                ]
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._record_successful_apply_validation"),
+        ):
+            ok, issues, _ = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
+                retired_source_admission={
+                    "required_unchanged_rules": [scalar, applies]
+                },
+            )
+        assert ok is True
+        assert issues == []
+        assert yaml.safe_load(generated.read_text())["rules"] == [
+            scalar,
+            {"name": "new_rule", "kind": "condition"},
+            applies,
+        ]
+
     def test_external_scalar_preservation_is_checked_after_overlay_repairs(
         self, tmp_path
     ):
@@ -51382,6 +51476,54 @@ rules: []
         )
         assert supplemental == {}
         record.assert_not_called()
+
+    def test_external_carry_forward_does_not_modify_immutable_candidate(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
+        generated = output_root / "codex-test-model" / "statutes/26/36B.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text(
+            yaml.safe_dump(
+                {
+                    "format": "rulespec/v1",
+                    "rules": [{"name": "legacy_scalar", "kind": "parameter"}],
+                }
+            )
+        )
+        original_bytes = generated.read_bytes()
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
+        setattr(
+            result,
+            _IMMUTABLE_RULESPEC_SHA256_ATTR,
+            hashlib.sha256(original_bytes).hexdigest(),
+        )
+        with patch("axiom_encode.cli.ValidatorPipeline") as pipeline:
+            ok, issues, _ = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
+                retired_source_admission={
+                    "required_unchanged_rules": [
+                        {
+                            "name": "legacy_scalar",
+                            "kind": "parameter",
+                            "versions": [{"formula": "30"}],
+                        }
+                    ]
+                },
+            )
+        assert not ok
+        assert any(
+            "preserve the entire legacy scalar rule" in issue for issue in issues
+        )
+        assert generated.read_bytes() == original_bytes
+        pipeline.assert_not_called()
 
     def test_apply_overlay_dependency_alias_copies_when_canonical_name_differs(
         self, tmp_path

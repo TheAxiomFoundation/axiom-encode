@@ -334,6 +334,27 @@ class CaseExecution:
     case_index: int | None = None
 
 
+def strict_explain_metadata(request: dict[str, Any], response: dict[str, Any]) -> bool:
+    """Accept only closed explain metadata and a corroborated strict binding."""
+    metadata = response.get("metadata")
+    if not isinstance(metadata, dict):
+        return False
+    expected = {
+        "requested_mode": "explain",
+        "actual_mode": "explain",
+        "fallback_reason": None,
+    }
+    # Historical engines omitted binding metadata. New engines echo the
+    # strict default; an explicit request must be corroborated by that echo.
+    if request.get("relation_binding", "strict") != "strict":
+        return False
+    if "relation_binding" in metadata:
+        expected["relation_binding"] = "strict"
+    elif "relation_binding" in request:
+        return False
+    return request.get("mode") == "explain" and metadata == expected
+
+
 @dataclass
 class ExecutionCapture:
     """Private mutable staging; exposed evidence is frozen after all tests pass."""
@@ -389,21 +410,7 @@ class ExecutionCapture:
     ) -> None:
         if binary != self.binary or artifact != self.artifact or not self.fresh():
             return
-        expected_metadata = {
-            "requested_mode": "explain",
-            "actual_mode": "explain",
-            "fallback_reason": None,
-        }
-        metadata = response.get("metadata")
-        # Historical engines omitted binding metadata. New engines echo the
-        # strict default; an explicit request must be corroborated by that echo.
-        if request.get("relation_binding", "strict") != "strict":
-            return
-        if isinstance(metadata, dict) and "relation_binding" in metadata:
-            expected_metadata["relation_binding"] = "strict"
-        elif "relation_binding" in request:
-            return
-        if request.get("mode") != "explain" or metadata != expected_metadata:
+        if not strict_explain_metadata(request, response):
             return
         # Initially one Person query, no nested/table/assessment transport.
         queries = request.get("queries")

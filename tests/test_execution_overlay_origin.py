@@ -229,6 +229,8 @@ def test_origin_factory_refuses_non_git_and_alias_roots(staged):
         "companion",
         "source_symlink",
         "overlay_symlink",
+        "source_copy",
+        "overlay_copy",
         "closure_symlink",
         "snapshot_symlink",
         "closure_dir_symlink",
@@ -254,6 +256,12 @@ def test_freshness_and_consumption_reject_mutation_after_capture(staged, change)
             moved = root.with_name("moved")
             root.rename(moved)
             root.symlink_to(moved, target_is_directory=True)
+        elif change in ("source_copy", "overlay_copy"):
+            root = staged.source if change == "source_copy" else staged.overlay
+            moved = root.with_name("replaced-identical-directory")
+            root.rename(moved)
+            shutil.copytree(moved, root)
+            assert git(staged.source, "rev-parse", "HEAD") == capture.git_head
         elif change in ("closure_dir_symlink", "snapshot_dir_symlink"):
             base = (
                 staged.overlay
@@ -353,7 +361,9 @@ def replacement_contract(staged):
     )
 
 
-@pytest.mark.parametrize("replacement_scope", ["ordinary", "canonical", "legacy"])
+@pytest.mark.parametrize(
+    "replacement_scope", ["ordinary", "canonical", "legacy", "dependency"]
+)
 @pytest.mark.parametrize("stale_during_copy", [False, True])
 def test_evaluate_artifact_forwards_pre_copy_origin_to_real_pipeline(
     staged, monkeypatch, stale_during_copy, replacement_scope
@@ -363,6 +373,14 @@ def test_evaluate_artifact_forwards_pre_copy_origin_to_real_pipeline(
     generated.write_text(staged.target.read_text() + "\n# evaluated candidate\n")
     generated.with_name("consumer.test.yaml").write_text("[]\n")
     contract = replacement_contract(staged) if replacement_scope == "legacy" else None
+    dependency_roots = ()
+    if replacement_scope == "dependency":
+        dependency = staged.tmp / "rulespec-us" / "us"
+        dependency.mkdir(parents=True)
+        (dependency / "sibling.yaml").write_text(
+            "module: {name: dependency}\nrules: []\n"
+        )
+        dependency_roots = (dependency.parent,)
     eligible = not stale_during_copy and replacement_scope == "ordinary"
     capture_spy = Mock(wraps=evals.capture_execution_git_origin)
     bind_spy = Mock(wraps=evals.bind_execution_overlay_origin)
@@ -409,6 +427,7 @@ def test_evaluate_artifact_forwards_pre_copy_origin_to_real_pipeline(
         skip_reviewers=True,
         legacy_replacement=contract,
         replacement_overlay_scope=replacement_scope == "canonical",
+        rulespec_dependency_roots=dependency_roots,
         require_complete_source_unit=True,
         axiom_rules_engine_ref=PIN,
     )
@@ -421,7 +440,9 @@ def test_evaluate_artifact_forwards_pre_copy_origin_to_real_pipeline(
         bind_spy.assert_not_called()
 
 
-@pytest.mark.parametrize("replacement_scope", ["ordinary", "canonical", "legacy"])
+@pytest.mark.parametrize(
+    "replacement_scope", ["ordinary", "canonical", "legacy", "dependency"]
+)
 @pytest.mark.parametrize("stale_during_copy", [False, True])
 def test_apply_overlay_forwards_pre_copy_origin_to_real_pipeline(
     staged, monkeypatch, stale_during_copy, replacement_scope
@@ -461,6 +482,14 @@ def test_apply_overlay_forwards_pre_copy_origin_to_real_pipeline(
         result, cli._IMMUTABLE_RULESPEC_SHA256_ATTR, e.digest(generated.read_bytes())
     )
     contract = replacement_contract(staged) if replacement_scope == "legacy" else None
+    dependency_roots = ()
+    if replacement_scope == "dependency":
+        dependency = staged.tmp / "rulespec-us" / "us"
+        dependency.mkdir(parents=True)
+        (dependency / "sibling.yaml").write_text(
+            "module: {name: dependency}\nrules: []\n"
+        )
+        dependency_roots = (dependency.parent,)
     setattr(result, cli._LEGACY_REPLACEMENT_ATTR, contract)
     setattr(
         result, cli._REPLACEMENT_OVERLAY_SCOPE_ATTR, replacement_scope == "canonical"
@@ -510,6 +539,7 @@ def test_apply_overlay_forwards_pre_copy_origin_to_real_pipeline(
             staged.tmp, [{"citation_path": CITATION, "body": BODY}]
         ),
         validate_dependents=False,
+        rulespec_dependency_roots=dependency_roots,
         require_complete_source_unit=True,
     )
     assert ok, issues

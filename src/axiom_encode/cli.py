@@ -25665,13 +25665,16 @@ def _in_place_replacement_post_waiver_dependent_manifests(
     matches: list[str] = []
     for label in sorted(changed):
         path = Path(label)
-        if not _is_applied_encoding_manifest_path(path, roots=roots):
+        if (
+            path.parent != APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR
+            or path.suffix != ".json"
+        ):
             continue
         try:
             raw = read_bounded_regular_file(
                 repo_path,
                 repo_path / path,
-                label="in-place replacement manifest",
+                label="in-place replacement receipt",
                 max_bytes=1024 * 1024,
                 required_mode=0o644,
             )
@@ -25698,7 +25701,9 @@ def _in_place_replacement_post_waiver_dependent_manifests(
             or source not in protected
             or source not in changed
             or not _is_protected_rulespec_yaml_path(Path(source), roots=roots)
-            or path != _applied_encoding_manifest_path(Path(source))
+            or replacement.get("model_manifest_path")
+            != _applied_encoding_manifest_path(Path(source)).as_posix()
+            or replacement["model_manifest_path"] not in changed
             or payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != current_waiver_sha256
         ):
             continue
@@ -62747,12 +62752,36 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
 
     generated_content = output_file.read_text()
     if retired_source_admission is not None:
-        from .legacy_external_parameters import external_parameter_preservation_issues
+        from .legacy_external_parameters import (
+            carry_forward_external_proved_rules,
+            external_parameter_preservation_issues,
+        )
 
         try:
             generated_payload = _safe_load_unique_keys(generated_content)
         except (yaml.YAMLError, ValueError) as exc:
             return False, [f"Invalid replacement YAML: {exc}"], {}
+        if vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None:
+            try:
+                carried = carry_forward_external_proved_rules(
+                    generated_payload, retired_source_admission
+                )
+                if carried:
+                    generated_content = safe_dump_yaml(
+                        generated_payload, sort_keys=False, allow_unicode=True
+                    )
+                    output_file.write_text(generated_content)
+            except (yaml.YAMLError, ValueError) as exc:
+                return False, [f"Invalid external-rule carry-forward: {exc}"], {}
+            if carried:
+                artifact_issue = _generated_artifact_guard_issue(
+                    output_file, output_test, relative_output, generated_root
+                )
+                if artifact_issue is not None:
+                    return False, [artifact_issue], {}
+                print(
+                    "apply=carried_forward_external_proved_rules:" + ",".join(carried)
+                )
         preservation_issues = external_parameter_preservation_issues(
             generated_payload, retired_source_admission
         )

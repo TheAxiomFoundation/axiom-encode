@@ -1011,6 +1011,66 @@ def test_repair_candidate_overlay_restores_omitted_named_items(tmp_path):
     assert "resolved_deferred_output:us:section#added" in repairs
 
 
+def test_repair_candidate_overlay_removes_only_defined_local_rule_self_imports(
+    tmp_path,
+):
+    artifact_root = tmp_path / "generated"
+    rulespec_file = artifact_root / "regulations" / "7-cfr" / "273" / "7.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(
+        "format: rulespec/v1\n"
+        "imports:\n"
+        "  - us:regulations/7-cfr/273/7#new_local_rule\n"
+        "  - us:regulations/7-cfr/273/7#unresolved_rule\n"
+        "  - us-az:regulations/7-cfr/273/7#new_local_rule\n"
+        "  - us:regulations/7-cfr/273/5#external_rule\n"
+        "rules:\n"
+        "  - name: new_local_rule\n"
+        "    kind: parameter\n"
+        "    dtype: Count\n"
+        "    versions: [{effective_from: '2026-01-01', formula: 2}]\n",
+        encoding="utf-8",
+    )
+    candidate = ValidationRetryCandidate(
+        rulespec=(
+            "format: rulespec/v1\n"
+            "imports:\n"
+            "  - us:regulations/7-cfr/273/7#preserved_local_rule\n"
+            "rules:\n"
+            "  - name: preserved_local_rule\n"
+            "    kind: parameter\n"
+            "    dtype: Count\n"
+            "    versions: [{effective_from: '2026-01-01', formula: 1}]\n"
+        )
+    )
+
+    repairs = evals_module._overlay_validation_retry_candidate(
+        rulespec_file,
+        artifact_root=artifact_root,
+        candidate=candidate,
+        target_ref_prefix="us:regulations/7-cfr/273/7",
+    )
+
+    payload = yaml.safe_load(rulespec_file.read_text(encoding="utf-8"))
+    assert payload["imports"] == [
+        "us:regulations/7-cfr/273/7#unresolved_rule",
+        "us-az:regulations/7-cfr/273/7#new_local_rule",
+        "us:regulations/7-cfr/273/5#external_rule",
+    ]
+    assert {rule["name"] for rule in payload["rules"]} == {
+        "new_local_rule",
+        "preserved_local_rule",
+    }
+    assert (
+        "removed_local_rule_self_import:us:regulations/7-cfr/273/7#new_local_rule"
+        in repairs
+    )
+    assert (
+        "removed_local_rule_self_import:us:regulations/7-cfr/273/7#preserved_local_rule"
+        in repairs
+    )
+
+
 def test_repair_candidate_overlay_removes_unreferenced_input(tmp_path):
     artifact_root = tmp_path / "generated"
     rulespec_file = artifact_root / "regulations" / "section.yaml"

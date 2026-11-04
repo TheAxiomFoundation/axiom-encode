@@ -10222,17 +10222,18 @@ def _run_single_eval(
         review_contract=review_contract,
     )
     target_ref_source = citation if is_corpus_path else source_unit.citation_path
+    target_ref_prefix = _canonical_target_ref_prefix(
+        target_ref_source,
+        relative_output,
+        policy_repo_path=policy_path,
+    )
     prompt = _build_eval_prompt(
         citation,
         mode,
         workspace,
         workspace.context_files,
         target_file_name=relative_output.name,
-        target_ref_prefix=_canonical_target_ref_prefix(
-            target_ref_source,
-            relative_output,
-            policy_repo_path=policy_path,
-        ),
+        target_ref_prefix=target_ref_prefix,
         include_tests=include_tests,
         runner_backend=runner.backend,
         policyengine_rule_hint=policyengine_rule_hint,
@@ -10427,6 +10428,7 @@ def _run_single_eval(
                 output_file,
                 artifact_root=artifact_root,
                 candidate=validation_retry_candidate,
+                target_ref_prefix=target_ref_prefix,
             )
         except _PreservedRepairOverlayError as exc:
             # Do not restore an unusable base, but also do not accept this
@@ -19159,6 +19161,7 @@ def _overlay_validation_retry_candidate(
     *,
     artifact_root: Path,
     candidate: ValidationRetryCandidate,
+    target_ref_prefix: str | None = None,
 ) -> tuple[str, ...]:
     """Overlay partial repair output onto its integrity-bound prior candidate."""
 
@@ -19245,6 +19248,28 @@ def _overlay_validation_retry_candidate(
         for item in rules
         if isinstance(item, dict) and isinstance(item.get("name"), str)
     }
+    # A retained candidate can carry an import of a rule that the repaired
+    # target now defines locally. Such an import points back to this same
+    # module and creates a cycle; remove only exact local-rule self-imports.
+    if target_ref_prefix:
+        self_import_prefix = f"{target_ref_prefix}#"
+        local_rule_self_imports = [
+            item
+            for item in imports
+            if isinstance(item, str)
+            and item.startswith(self_import_prefix)
+            and item[len(self_import_prefix) :] in generated_rule_names
+        ]
+        if local_rule_self_imports:
+            imports = [item for item in imports if item not in local_rule_self_imports]
+            if imports:
+                generated["imports"] = imports
+            else:
+                generated.pop("imports", None)
+            repairs.extend(
+                f"removed_local_rule_self_import:{item}"
+                for item in local_rule_self_imports
+            )
     repairs.extend(f"rule:{name}" for name in restored_rules)
     repairs.extend(f"removed_rule:{name}" for name in removed_rules)
 

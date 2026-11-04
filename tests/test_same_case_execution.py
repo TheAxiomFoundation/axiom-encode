@@ -20,6 +20,48 @@ URI = "ca:policies/test/provider#reported"
 ROOT = "ca:policies/test/consumer"
 
 
+def restage_witness_records(evidence, cases, tmp_path, strict_echo):
+    """Send synthetic witness fixtures through real capture before consumption.
+
+    The executable is fixture bytes, not a real-engine/signature claim. Closure,
+    artifact and record checks are the actual ExecutionCapture implementation.
+    """
+    binary = tmp_path / "witness-binary"
+    binary.write_bytes(b"fixture executable")
+    artifact = tmp_path / "witness-artifact.json"
+    artifact.write_bytes(evidence.artifact_bytes)
+    capture = e.ExecutionCapture(
+        tmp_path,
+        evidence.snapshot_root,
+        evidence.root_relative,
+        evidence.files,
+        binary,
+        e.digest(binary.read_bytes()),
+        evidence.engine_pin,
+        0.0,
+        evidence.git_head,
+    )
+    capture.compiled(artifact)
+    by_key = {e.case_key(case): case for case in cases}
+    for record in evidence.records:
+        request = json.loads(record.request_json)
+        response = json.loads(record.response_json)
+        if strict_echo:
+            response["metadata"]["relation_binding"] = "strict"
+        capture.stage(
+            by_key[record.case_sha256],
+            request,
+            response,
+            binary,
+            artifact,
+            case_index=record.case_index,
+        )
+    assert len(capture.records) == len(evidence.records)
+    result = capture.evidence()
+    assert result is not None
+    return result
+
+
 @pytest.fixture
 def world(tmp_path):
     formula = "reported + local_amount"
@@ -519,7 +561,10 @@ def test_capture_requires_pinned_same_artifact_explain_and_matching_query(
         ("absent", "unknown", False),
     ],
 )
-@pytest.mark.parametrize("invalid_metadata", [None, "extra", "fallback", "fast"])
+@pytest.mark.parametrize(
+    "invalid_metadata",
+    [None, "extra", "fallback", "fast", "missing", "null", "integer"],
+)
 def test_capture_accepts_only_closed_strict_binding_metadata(
     world, tmp_path, request_binding, response_binding, accepted, invalid_metadata
 ):
@@ -551,6 +596,12 @@ def test_capture_accepts_only_closed_strict_binding_metadata(
         response["metadata"]["fallback_reason"] = "unsupported"
     elif invalid_metadata == "fast":
         response["metadata"]["actual_mode"] = "fast"
+    elif invalid_metadata == "missing":
+        response.pop("metadata")
+    elif invalid_metadata == "null":
+        response["metadata"] = None
+    elif invalid_metadata == "integer":
+        response["metadata"] = 7
     capture.stage(world.case, request, response, binary, artifact)
     assert (capture.evidence() is not None) == (accepted and invalid_metadata is None)
 
