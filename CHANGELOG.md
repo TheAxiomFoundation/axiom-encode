@@ -1,3 +1,7 @@
+## 0.2.2299
+
+- Preserve the original checkout identity when validating staged eval and apply overlays, so same-case source witnesses execute against the candidate closure while retaining exact Git, file, and engine binding checks.
+
 ## 0.2.2298
 
 - Type validator issues from declared checks. Each converted issue is a `ValidationIssue` (a `str` whose value is the unchanged message) that names its check id, subject (citation, branch or clause with the branch's source span, module and line, rule, test case or field), expected and found values, a short evidence excerpt and a stable fingerprint. Checks declare `title`, `requires`, `why`, `fix`, `cause` and their code site next to the code that runs them. Converted: complete-source-unit `structure`, `formula-output`, `numeric-recall`, `deferral`, `source-explicit-conditions` and `tests` (split into ten checks), proof source evidence (not found, out of scope) and the rules-engine compile failure.
