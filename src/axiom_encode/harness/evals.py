@@ -320,6 +320,11 @@ _ADMIN_AGENCY_BONUS_USE_RESTRICTION_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _ADMIN_AGENCY_AGGREGATE_CONTEXT_WINDOW = 500
+_PERSON_LEVEL_RULE_CONTEXT_PATTERN = re.compile(
+    r"\b(?:each\s+household\s+member|the\s+following\s+persons|"
+    r"an?\s+(?:individual|person|recipient|applicant))\b",
+    flags=re.IGNORECASE,
+)
 _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     r"\b(?:if|where|unless|except|subject to|treated as paid)\b",
     re.IGNORECASE,
@@ -15292,8 +15297,7 @@ def find_admin_agency_aggregate_entity_issues(
     source_text: str,
 ) -> list[str]:
     """Reject executable entity rules for State-agency/FNS aggregate measures."""
-    is_admin_agency_aggregate = _has_admin_agency_aggregate_source_context(source_text)
-    if not is_admin_agency_aggregate:
+    if not _has_admin_agency_aggregate_source_context(source_text):
         return []
     try:
         payload = yaml.safe_load(content)
@@ -15323,6 +15327,10 @@ def find_admin_agency_aggregate_entity_issues(
             continue
         if normalized_entity not in standard_entities:
             continue
+        if not _has_admin_agency_aggregate_rule_context(
+            rule, module=module, source_text=source_text
+        ):
+            continue
         name = str(rule.get("name") or f"rules[{index}]").strip()
         issues.append(
             "Unsupported administrative aggregate entity: "
@@ -15334,6 +15342,113 @@ def find_admin_agency_aggregate_entity_issues(
             "administrative surface still cannot be represented faithfully."
         )
     return issues
+
+
+def _has_admin_agency_aggregate_rule_context(
+    rule: dict,
+    *,
+    module: dict | None,
+    source_text: str,
+) -> bool:
+    """Scope a mixed provision to the rule's paragraph or source proof."""
+    source_verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    citations = []
+    if isinstance(source_verification, dict):
+        singular = source_verification.get("corpus_citation_path")
+        if isinstance(singular, str):
+            citations.append(singular)
+        plural = source_verification.get("corpus_citation_paths")
+        if isinstance(plural, list):
+            citations.extend(item for item in plural if isinstance(item, str))
+    rule_source = rule.get("source")
+    if (
+        citations
+        and citations[0] == "us/regulation/7/273/7"
+        and isinstance(rule_source, str)
+    ):
+        references = [
+            item.strip()
+            for item in re.split(r"\s*(?:,|;|\band\b)\s*", rule_source)
+            if item.strip()
+        ]
+        reference_pattern = re.compile(
+            r"7\s+CFR\s+273\.7\(([ab])\)(?:\([^)]+\))*", re.IGNORECASE
+        )
+        parsed = [reference_pattern.fullmatch(item) for item in references]
+        if parsed and all(parsed):
+            paragraphs = {item.group(1).lower() for item in parsed if item}
+            # Scope only the established (a)/(b) person-level provisions.
+            # A general alphabetic split confuses nested roman (i) with the
+            # top-level (i) and can conceal administrative measures.
+            a = re.search(r"(?m)^\(a\)\s", source_text)
+            b = re.search(r"(?m)^\(b\)\s", source_text)
+            c = re.search(r"(?m)^\(c\)\s", source_text)
+            if a and b and c and a.start() < b.start() < c.start():
+                intro = source_text[: a.start()]
+                sections = {
+                    "a": intro + source_text[a.end() : b.start()],
+                    "b": intro + source_text[b.end() : c.start()],
+                }
+                scoped = [sections[key.lower()] for key in paragraphs]
+                if any(
+                    _has_admin_agency_aggregate_source_context(text) for text in scoped
+                ):
+                    return True
+                if all(
+                    _PERSON_LEVEL_RULE_CONTEXT_PATTERN.search(text) for text in scoped
+                ):
+                    return False
+
+    metadata = rule.get("metadata")
+    proof = metadata.get("proof") if isinstance(metadata, dict) else None
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if isinstance(atoms, list):
+        proved_sources = [
+            source
+            for atom in atoms
+            if isinstance(atom, dict)
+            for source in [atom.get("source")]
+            if isinstance(source, dict) and isinstance(source.get("excerpt"), str)
+        ]
+        if proved_sources:
+            excerpts = "\n".join(source["excerpt"] for source in proved_sources)
+            if _has_admin_agency_aggregate_source_context(excerpts):
+                return True
+            # The existing SNAP work-registration exemption is proven by a
+            # separate statute. Do not let a generic statutory proof fragment
+            # (such as an administrative coefficient or household reference)
+            # override the regulation's aggregate context.
+            if (
+                citations
+                and citations[0] == "us/regulation/7/273/7"
+                and rule.get("name")
+                == "snap_member_statutory_work_registration_exemption_applies"
+                and rule_source == "7 U.S.C. 2015(d)(2)"
+                and len(proved_sources) >= 3
+                and all(
+                    source.get("corpus_citation_path") == "us/statute/7/2015/d/2"
+                    for source in proved_sources
+                )
+                and re.search(
+                    r"\bparent\b.{0,100}\bdependent child\b",
+                    excerpts,
+                    re.IGNORECASE | re.DOTALL,
+                )
+                and re.search(
+                    r"\bstudent enrolled at least half time\b",
+                    excerpts,
+                    re.IGNORECASE,
+                )
+                and re.search(
+                    r"\bperson between the ages of sixteen and eighteen\b",
+                    excerpts,
+                    re.IGNORECASE,
+                )
+            ):
+                return False
+    return _has_admin_agency_aggregate_source_context(source_text)
 
 
 def _has_admin_agency_aggregate_source_context(source_text: str) -> bool:
