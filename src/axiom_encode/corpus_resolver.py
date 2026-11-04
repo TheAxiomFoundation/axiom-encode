@@ -2030,6 +2030,16 @@ def _read_descendant_records(
                 f"{path}:{line_number}"
             )
         _validate_release_row_metadata(record, path=path, line_number=line_number)
+        raw_body = record.get("body")
+        if (
+            _record_status(record) == "reserved"
+            and raw_body is not None
+            and not isinstance(raw_body, str)
+        ):
+            raise CorpusDescendantStructureError(
+                f"Active corpus source {citation_path!r} has malformed reserved "
+                f"descendant {record_path!r}: body must be null or a string"
+            )
         body = _record_body(record, path=path, line_number=line_number)
         if relative_file is None:
             artifact_root = _repository_root_for_provisions(provisions_root)

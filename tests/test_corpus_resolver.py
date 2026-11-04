@@ -3584,7 +3584,7 @@ def test_reserved_regulation_leaf_requires_explicit_consistent_status(
         resolve_local_corpus_source(parent, _release(tmp_path))
 
 
-@pytest.mark.parametrize("malformation", ["body", "child"])
+@pytest.mark.parametrize("malformation", ["body", "list_body", "object_body", "child"])
 def test_reserved_regulation_leaf_cannot_hide_operative_text(
     tmp_path: Path, malformation: str
 ):
@@ -3600,7 +3600,11 @@ def test_reserved_regulation_leaf_cannot_hide_operative_text(
         {"citation_path": f"{parent}/710", "body": "Operative text."},
         {
             "citation_path": reserved,
-            "body": "Unexpected body." if malformation == "body" else None,
+            "body": {
+                "body": "Unexpected body.",
+                "list_body": ["Unexpected body."],
+                "object_body": {"text": "Unexpected body."},
+            }.get(malformation),
             "heading": "800 Reserved",
             "metadata": {"status": "reserved", "section_label": "800"},
         },
