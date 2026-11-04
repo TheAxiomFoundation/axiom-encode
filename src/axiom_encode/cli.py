@@ -31411,12 +31411,17 @@ def _require_axiom_encode_version_provenance(
             "bump was found; bump the encoder version before using --apply."
         )
 
-    changed_since_version = _git_name_only(
+    # Deletions and both sides of a move count, and -z keeps non-ASCII names
+    # unquoted, so no encoder change escapes the prefix test (axiom-encode#2048).
+    changed_since_version = _git_nul_paths(
         repo,
         "diff",
         "--name-only",
-        "--diff-filter=ACMRT",
-        f"{version_commit}..HEAD",
+        "--no-renames",
+        "--diff-filter=ACDMRT",
+        "-z",
+        version_commit,
+        "HEAD",
     )
     unversioned_encoder_changes = [
         path for path in changed_since_version if _is_axiom_encode_versioned_path(path)
@@ -31565,6 +31570,20 @@ def _git_name_only(repo: Path, *args: str) -> list[str]:
         stderr = getattr(exc, "stderr", "") or ""
         raise RuntimeError(stderr.strip() or "git provenance command failed") from exc
     return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+
+def _git_nul_paths(repo: Path, *args: str) -> list[str]:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        stderr = getattr(exc, "stderr", "") or ""
+        raise RuntimeError(stderr.strip() or "git provenance command failed") from exc
+    return [path for path in completed.stdout.split("\0") if path]
 
 
 def _extract_pyproject_version(content: str) -> str | None:

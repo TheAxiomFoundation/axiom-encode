@@ -1290,15 +1290,16 @@ def _require_snapshot_version_bump(
         home,
         "diff",
         "--name-only",
-        "--diff-filter=ACMRT",
-        f"{version_commit}..{commit}",
-    ).splitlines()
+        "--no-renames",
+        "--diff-filter=ACDMRT",
+        "-z",
+        version_commit,
+        commit,
+    ).split("\0")
+    # Deletions and both sides of a move count, and -z keeps non-ASCII names
+    # unquoted, so no encoder change escapes the prefix test (axiom-encode#2048).
     unversioned = sorted(
-        {
-            path.strip()
-            for path in changed
-            if path.strip() and _is_encoder_versioned_path(path.strip())
-        }
+        {path for path in changed if path and _is_encoder_versioned_path(path)}
     )
     if unversioned:
         raise SystemExit(

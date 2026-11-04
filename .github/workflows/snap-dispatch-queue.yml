@@ -124,6 +124,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: axiom-encode
+          # The tick holds while main has encoder changes no version bump
+          # covers (axiom-encode#2048); that check needs full history.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Python

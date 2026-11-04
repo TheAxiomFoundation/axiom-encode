@@ -11,8 +11,14 @@ name: Encoder version bump
 #
 # The pull request is opened with ENCODER_VERSION_BUMP_TOKEN, not GITHUB_TOKEN:
 # GitHub does not run workflows for pull requests that GITHUB_TOKEN opens, so
-# the required checks would never report. The token needs contents and
-# pull-requests write on this repository, and repository auto-merge must be on.
+# the required checks would never report. Repository auto-merge must be on.
+#
+# Keep the token narrow. A workflow on any pushed branch can read repository
+# secrets, so store it as a secret of the encoder-version-bump environment,
+# whose deployment branch rule allows only main. Issue it to a GitHub App or a
+# machine user outside CODEOWNERS with only contents and pull-requests write on
+# this repository: pull-requests write can also submit reviews, and a code
+# owner's approval would count for the signing paths.
 
 on:
   push:
@@ -32,6 +38,8 @@ jobs:
     if: github.repository == 'TheAxiomFoundation/axiom-encode'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Holds ENCODER_VERSION_BUMP_TOKEN; its branch rule allows only main.
+    environment: encoder-version-bump
     steps:
       - name: Checkout axiom-encode
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

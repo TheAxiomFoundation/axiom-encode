@@ -1207,7 +1207,8 @@ def test_current_encoder_affecting_changes_are_behind_version_bump():
     # assigns it after merge (axiom-encode#2048), so a PR head and main between
     # a merge and its bump are legitimately unversioned. `--apply`, the
     # provisioner and the re-encode workflow's early check still refuse such a
-    # head. The bump workflow sets this variable to verify its own commit.
+    # head. CI sets this variable on bump pull requests
+    # (`automation/encoder-version-*` heads) to verify the bump.
     if os.environ.get("AXIOM_ENCODE_REQUIRE_VERSION_BUMP") != "1":
         pytest.skip("version bump is assigned after merge (axiom-encode#2048)")
     repo = Path(__file__).parents[1]

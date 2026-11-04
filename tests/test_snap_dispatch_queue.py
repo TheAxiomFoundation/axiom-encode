@@ -230,6 +230,16 @@ class FakeGitHub:
         raise AssertionError(f"unexpected POST {path}")
 
 
+_UNVERSIONED_ENCODER_REFUSAL = q.unversioned_encoder_refusal
+
+
+@pytest.fixture(autouse=True)
+def _versioned_encoder(monkeypatch):
+    # The tick command checks this checkout's encoder version; a branch is
+    # unversioned until its post-merge bump, so the tests see a versioned one.
+    monkeypatch.setattr(q, "unversioned_encoder_refusal", lambda _root: None)
+
+
 def _tick(state, github, *, now=NOW, dry_run=False):
     return q.tick(
         state,
@@ -560,6 +570,55 @@ def test_a_paused_queue_reconciles_but_never_dispatches():
 
     assert github.dispatches == []
     assert result["hold"] == "queue is paused"
+
+
+def test_an_unversioned_encoder_main_holds_dispatches():
+    # Between a merge and its post-merge bump (axiom-encode#2048), a dispatched
+    # run would wait for its production-signing approval and then be refused.
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+
+    result = q.tick(
+        state,
+        github=github,
+        encoder_repo=ENCODER_REPO,
+        now=NOW,
+        sleep=lambda _seconds: None,
+        unversioned_encoder="src/axiom_encode/cli.py changed after the bump",
+    )
+
+    assert github.dispatches == []
+    assert "no version bump covers" in result["hold"]
+    assert state["items"][0]["status"] == "pending"
+
+
+def test_unversioned_encoder_refusal_reads_the_version_check(tmp_path):
+    repo = tmp_path / "axiom-encode"
+    (repo / "src/axiom_encode").mkdir(parents=True)
+    script = Path(__file__).parents[1] / "src/axiom_encode/version_provenance.py"
+    (repo / "src/axiom_encode/version_provenance.py").write_text(script.read_text())
+    (repo / "pyproject.toml").write_text('[project]\nversion = "0.2.10"\n')
+    (repo / "src/axiom_encode/__init__.py").write_text('__version__ = "0.2.10"\n')
+    (repo / "uv.lock").write_text(
+        '[[package]]\nname = "axiom-encode"\nversion = "0.2.10"\n'
+    )
+    for args in (
+        ("init", "-q", "-b", "main"),
+        ("config", "user.email", "test@example.com"),
+        ("config", "user.name", "Test"),
+        ("config", "commit.gpgsign", "false"),
+        ("add", "-A"),
+        ("commit", "-qm", "init"),
+    ):
+        subprocess.run(["git", "-C", str(repo), *args], check=True)
+
+    assert _UNVERSIONED_ENCODER_REFUSAL(repo) is None
+
+    (repo / "src/axiom_encode/cli.py").write_text("MARKER = 1\n")
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "change"], check=True)
+
+    assert "src/axiom_encode/cli.py" in _UNVERSIONED_ENCODER_REFUSAL(repo)
 
 
 def test_active_queue_dispatches_up_to_max_in_flight_with_main_pins():

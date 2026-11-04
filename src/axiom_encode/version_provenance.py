@@ -36,8 +36,13 @@ VERSIONED_FILES = frozenset({"pyproject.toml", "uv.lock"})
 CHANGELOG = "CHANGELOG.md"
 
 _PYPROJECT_VERSION = re.compile(r'(?m)^version\s*=\s*"([^"]+)"\s*$')
-_PACKAGE_VERSION = re.compile(r'(?m)^__version__\s*=\s*"([^"]+)"')
-_LOCK_VERSION = re.compile(r'(?ms)^name = "axiom-encode"\nversion = "([^"]+)"')
+# The same patterns as cli's _extract_*_version, so both read one version.
+_PACKAGE_VERSION = re.compile(r'(?m)^__version__\s*=\s*"([^"]+)"\s*$')
+_LOCK_VERSION = re.compile(
+    r'(?ms)^\[\[package\]\]\s*^name\s*=\s*"axiom-encode"\s*^version\s*=\s*"([^"]+)"'
+)
+_BUMP_BRANCH = "automation/encoder-version-"
+_PR_MERGE = re.compile(r"^Merge pull request #(\d+) from \S+?/(\S+)$")
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -127,8 +132,13 @@ def is_versioned_path(path: str) -> bool:
 def unversioned_changes(repo: Path, ref: str = "HEAD") -> list[str]:
     """Encoder-affecting paths that changed at ``ref`` after its latest bump.
 
-    Raises ``ValueError`` when the version files disagree or no bump exists.
+    Deletions and both sides of a move count, and ``-z`` keeps non-ASCII names
+    unquoted, as in cli and the provisioner. Raises ``ValueError`` when the
+    history is shallow, the version files disagree or no bump exists.
     """
+    if _git(repo, "rev-parse", "--is-shallow-repository").strip() == "true":
+        # A shallow boundary commit reads as a bump and hides older changes.
+        raise ValueError(f"{repo} is a shallow clone; the check needs full history")
     versions = versions_at(repo, ref)
     if not all(versions.values()) or len(set(versions.values())) != 1:
         raise ValueError(
@@ -140,9 +150,16 @@ def unversioned_changes(repo: Path, ref: str = "HEAD") -> list[str]:
     if bump is None:
         raise ValueError(f"no committed encoder version bump is reachable from {ref}")
     changed = _git(
-        repo, "diff", "--name-only", "--diff-filter=ACMRT", f"{bump}..{ref}"
-    ).split()
-    return [path for path in changed if is_versioned_path(path)]
+        repo,
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "--diff-filter=ACDMRT",
+        "-z",
+        bump,
+        ref,
+    ).split("\0")
+    return [path for path in changed if path and is_versioned_path(path)]
 
 
 def next_version(version: str) -> str:
@@ -162,11 +179,29 @@ def _replace_once(path: Path, pattern: re.Pattern[str], version: str) -> None:
     path.write_text(text[:start] + version + text[end:])
 
 
+def _changelog_line(subject: str, body: str) -> str | None:
+    """A pull request merge reads as its title; a bump pull request is left out."""
+    merge = _PR_MERGE.match(subject)
+    if merge is None:
+        return None if subject.startswith("Bump encoder version to ") else subject
+    number, branch = merge.groups()
+    if branch.startswith(_BUMP_BRANCH):
+        return None
+    title = next((line.strip() for line in body.splitlines() if line.strip()), "")
+    return f"{title} (#{number})" if title else subject
+
+
 def _changelog_entry(repo: Path, ref: str, bump_commit: str | None) -> str:
-    """One bullet per commit merged to ``ref`` since the previous bump."""
+    """One bullet per change merged to ``ref`` since the previous bump."""
     span = f"{bump_commit}..{ref}" if bump_commit else ref
-    subjects = _git(repo, "log", "--first-parent", "--format=%s", span)
-    return "\n".join(f"- {subject}" for subject in subjects.splitlines() if subject)
+    records = _git(repo, "log", "--first-parent", "--format=%s%x00%b%x1e", span)
+    lines = []
+    for record in records.split("\x1e"):
+        subject, _, body = record.strip("\n").partition("\0")
+        line = _changelog_line(subject.strip(), body) if subject.strip() else None
+        if line:
+            lines.append(f"- {line}")
+    return "\n".join(lines)
 
 
 def bump(repo: Path, ref: str = "HEAD") -> str:

@@ -1,10 +1,13 @@
+import importlib.util
+import random
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from axiom_encode import version_provenance
+from axiom_encode import cli, version_provenance
 from axiom_encode.ci_parity import encoder_version_at_pin
 from axiom_encode.cli import _latest_axiom_encode_version_commit
 
@@ -178,3 +181,161 @@ def test_ci_parity_refuses_a_pin_newer_than_its_version(repo: Path):
     assert encoder_version_at_pin(repo, versioned) == "0.2.10"
     with pytest.raises(ValueError, match="after its version bump"):
         encoder_version_at_pin(repo, unversioned)
+
+
+_PROVISIONER_SPEC = importlib.util.spec_from_file_location(
+    "provision_verification_supervisor_for_provenance",
+    Path(__file__).parents[1] / "scripts" / "provision_verification_supervisor.py",
+)
+provisioner = importlib.util.module_from_spec(_PROVISIONER_SPEC)
+sys.modules[_PROVISIONER_SPEC.name] = provisioner
+_PROVISIONER_SPEC.loader.exec_module(provisioner)
+
+
+def _verdicts(repo: Path, monkeypatch: pytest.MonkeyPatch, home: Path) -> set[bool]:
+    """Whether each copy of the rule refuses HEAD: version_provenance, cli and
+    the provisioner. One rule gives one verdict."""
+    monkeypatch.setattr(
+        cli, "__version__", version_provenance.versions_at(repo, "HEAD")["pyproject"]
+    )
+    provenance = bool(version_provenance.unversioned_changes(repo))
+    try:
+        cli._require_axiom_encode_version_provenance(repo)
+        cli_refuses = False
+    except RuntimeError:
+        cli_refuses = True
+    try:
+        provisioner._require_snapshot_version_bump(
+            Path(shutil.which("git")),
+            repo / ".git",
+            home,
+            _git(repo, "rev-parse", "HEAD"),
+        )
+        provisioner_refuses = False
+    except SystemExit:
+        provisioner_refuses = True
+    return {provenance, cli_refuses, provisioner_refuses}
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["delete", "move-out", "non-ascii-name"],
+)
+def test_deleted_moved_and_quoted_encoder_paths_need_a_bump(
+    repo: Path, change: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    (repo / "src/axiom_encode/validator.py").write_text("RULE = 1\n")
+    _write_version(repo, "0.2.11")
+    _commit(repo, "add validator under a bump")
+    if change == "delete":
+        (repo / "src/axiom_encode/validator.py").unlink()
+    elif change == "move-out":
+        (repo / "scripts").mkdir()
+        _git(repo, "mv", "src/axiom_encode/validator.py", "scripts/validator.py")
+    else:
+        (repo / "src/axiom_encode/données.py").write_text("RULE = 2\n")
+    _commit(repo, change)
+
+    assert version_provenance.unversioned_changes(repo)
+    assert _verdicts(repo, monkeypatch, tmp_path / "home") == {True}
+
+
+def test_a_shallow_clone_is_refused(repo: Path, tmp_path: Path):
+    _write_version(repo, "0.2.11")
+    _commit(repo, "bump")
+    _change_encoder(repo, 1)
+    shallow = tmp_path / "shallow"
+    _git(tmp_path, "clone", "-q", "--depth", "1", f"file://{repo}", str(shallow))
+
+    with pytest.raises(ValueError, match="shallow"):
+        version_provenance.unversioned_changes(shallow)
+    assert _run_script("check", "--repo", str(shallow)).returncode == 1
+
+
+def test_changelog_uses_pull_request_titles_and_skips_bump_merges(repo: Path):
+    def merge_pr(number: int, branch: str, title: str, change) -> None:
+        base = _git(repo, "rev-parse", "HEAD")
+        _git(repo, "checkout", "-qb", branch, base)
+        change()
+        _commit(repo, f"work on {branch}")
+        _git(repo, "checkout", "-q", "main")
+        _git(
+            repo,
+            "merge",
+            "-q",
+            "--no-ff",
+            branch,
+            "-m",
+            f"Merge pull request #{number} from org/{branch}",
+            "-m",
+            title,
+        )
+
+    def bump_files() -> None:
+        _write_version(repo, "0.2.11")
+
+    merge_pr(101, "automation/encoder-version-0.2.11-abc", "Bump", bump_files)
+    def encoder_files(marker: int):
+        return lambda: (repo / "src/axiom_encode/cli.py").write_text(
+            f"MARKER = {marker}\n"
+        )
+
+    merge_pr(102, "feature-a", "Type the SNAP checks", encoder_files(1))
+    merge_pr(103, "feature-b", "Fix the corpus pin", encoder_files(2))
+
+    version_provenance.bump(repo)
+
+    assert (repo / "CHANGELOG.md").read_text().startswith(
+        "## 0.2.12\n\n- Fix the corpus pin (#103)\n- Type the SNAP checks (#102)\n\n"
+    )
+
+
+def test_the_three_copies_of_the_rule_agree_on_random_histories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # Linear histories and merged feature branches with random bumps, encoder
+    # changes, deletions and non-encoder changes. Each copy of the rule must give
+    # the same verdict at every head.
+    for seed in range(6):
+        rng = random.Random(seed)
+        root = tmp_path / f"history-{seed}"
+        root.mkdir()
+        repo = root / "axiom-encode"
+        (repo / "src/axiom_encode").mkdir(parents=True)
+        (repo / "CHANGELOG.md").write_text("")
+        (repo / "src/axiom_encode/cli.py").write_text("MARKER = 0\n")
+        version = 10
+        _write_version(repo, f"0.2.{version}")
+        _git(repo.parent, "init", "-q", "-b", "main", str(repo))
+        _git(repo, "config", "user.email", "test@example.com")
+        _git(repo, "config", "user.name", "Test")
+        _git(repo, "config", "commit.gpgsign", "false")
+        _commit(repo, "init")
+        files = ["src/axiom_encode/cli.py"]
+        for step in range(8):
+            action = rng.choice(["bump", "encoder", "delete", "docs", "merge"])
+            if action == "bump":
+                version += 1
+                _write_version(repo, f"0.2.{version}")
+            elif action == "encoder":
+                name = f"src/axiom_encode/m{step}.py"
+                (repo / name).write_text(f"STEP = {step}\n")
+                files.append(name)
+            elif action == "delete" and len(files) > 1:
+                (repo / files.pop()).unlink()
+            elif action == "merge":
+                base = _git(repo, "rev-parse", "HEAD")
+                _git(repo, "checkout", "-qb", f"feature-{step}", base)
+                version += 1
+                _write_version(repo, f"0.2.{version}")
+                (repo / f"src/axiom_encode/f{step}.py").write_text("F = 1\n")
+                _commit(repo, f"feature {step}")
+                _git(repo, "checkout", "-q", "main")
+                _git(repo, "merge", "-q", "--no-ff", f"feature-{step}", "-m", "merge")
+                continue
+            else:
+                (repo / f"docs-{step}.md").write_text("docs\n")
+            if _git(repo, "status", "--porcelain"):
+                _commit(repo, f"{action} {step}")
+            verdicts = _verdicts(repo, monkeypatch, root / "home")
+            assert len(verdicts) == 1, (seed, step, action, verdicts)
