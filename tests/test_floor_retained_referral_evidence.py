@@ -363,9 +363,20 @@ def witness(pair, **overrides):
     return f.witnesses(pair.evidence, pair.branch, **args)
 
 
+@pytest.mark.parametrize("strict_echo", [False, True])
 def test_complete_local_pair_retains_signed_value_without_downstream_execution(
     local_pair,
+    tmp_path,
+    strict_echo,
 ):
+    from tests.test_same_case_execution import restage_witness_records
+
+    local_pair.evidence = restage_witness_records(
+        local_pair.evidence,
+        local_pair.cases,
+        tmp_path,
+        strict_echo,
+    )
     assert witness(local_pair)
 
 
