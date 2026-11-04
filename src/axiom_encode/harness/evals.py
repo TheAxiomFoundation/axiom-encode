@@ -320,6 +320,11 @@ _ADMIN_AGENCY_BONUS_USE_RESTRICTION_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _ADMIN_AGENCY_AGGREGATE_CONTEXT_WINDOW = 500
+_PERSON_LEVEL_RULE_CONTEXT_PATTERN = re.compile(
+    r"\b(?:each\s+household\s+member|the\s+following\s+persons|"
+    r"an?\s+(?:individual|person|recipient|applicant))\b",
+    flags=re.IGNORECASE,
+)
 _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     r"\b(?:if|where|unless|except|subject to|treated as paid)\b",
     re.IGNORECASE,
@@ -10219,17 +10224,18 @@ def _run_single_eval(
         review_contract=review_contract,
     )
     target_ref_source = citation if is_corpus_path else source_unit.citation_path
+    target_ref_prefix = _canonical_target_ref_prefix(
+        target_ref_source,
+        relative_output,
+        policy_repo_path=policy_path,
+    )
     prompt = _build_eval_prompt(
         citation,
         mode,
         workspace,
         workspace.context_files,
         target_file_name=relative_output.name,
-        target_ref_prefix=_canonical_target_ref_prefix(
-            target_ref_source,
-            relative_output,
-            policy_repo_path=policy_path,
-        ),
+        target_ref_prefix=target_ref_prefix,
         include_tests=include_tests,
         runner_backend=runner.backend,
         policyengine_rule_hint=policyengine_rule_hint,
@@ -10424,6 +10430,7 @@ def _run_single_eval(
                 output_file,
                 artifact_root=artifact_root,
                 candidate=validation_retry_candidate,
+                target_ref_prefix=target_ref_prefix,
             )
         except _PreservedRepairOverlayError as exc:
             # Do not restore an unusable base, but also do not accept this
@@ -15322,8 +15329,7 @@ def find_admin_agency_aggregate_entity_issues(
     source_text: str,
 ) -> list[str]:
     """Reject executable entity rules for State-agency/FNS aggregate measures."""
-    is_admin_agency_aggregate = _has_admin_agency_aggregate_source_context(source_text)
-    if not is_admin_agency_aggregate:
+    if not _has_admin_agency_aggregate_source_context(source_text):
         return []
     try:
         payload = yaml.safe_load(content)
@@ -15353,6 +15359,10 @@ def find_admin_agency_aggregate_entity_issues(
             continue
         if normalized_entity not in standard_entities:
             continue
+        if not _has_admin_agency_aggregate_rule_context(
+            rule, module=module, source_text=source_text
+        ):
+            continue
         name = str(rule.get("name") or f"rules[{index}]").strip()
         issues.append(
             "Unsupported administrative aggregate entity: "
@@ -15364,6 +15374,113 @@ def find_admin_agency_aggregate_entity_issues(
             "administrative surface still cannot be represented faithfully."
         )
     return issues
+
+
+def _has_admin_agency_aggregate_rule_context(
+    rule: dict,
+    *,
+    module: dict | None,
+    source_text: str,
+) -> bool:
+    """Scope a mixed provision to the rule's paragraph or source proof."""
+    source_verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    citations = []
+    if isinstance(source_verification, dict):
+        singular = source_verification.get("corpus_citation_path")
+        if isinstance(singular, str):
+            citations.append(singular)
+        plural = source_verification.get("corpus_citation_paths")
+        if isinstance(plural, list):
+            citations.extend(item for item in plural if isinstance(item, str))
+    rule_source = rule.get("source")
+    if (
+        citations
+        and citations[0] == "us/regulation/7/273/7"
+        and isinstance(rule_source, str)
+    ):
+        references = [
+            item.strip()
+            for item in re.split(r"\s*(?:,|;|\band\b)\s*", rule_source)
+            if item.strip()
+        ]
+        reference_pattern = re.compile(
+            r"7\s+CFR\s+273\.7\(([ab])\)(?:\([^)]+\))*", re.IGNORECASE
+        )
+        parsed = [reference_pattern.fullmatch(item) for item in references]
+        if parsed and all(parsed):
+            paragraphs = {item.group(1).lower() for item in parsed if item}
+            # Scope only the established (a)/(b) person-level provisions.
+            # A general alphabetic split confuses nested roman (i) with the
+            # top-level (i) and can conceal administrative measures.
+            a = re.search(r"(?m)^\(a\)\s", source_text)
+            b = re.search(r"(?m)^\(b\)\s", source_text)
+            c = re.search(r"(?m)^\(c\)\s", source_text)
+            if a and b and c and a.start() < b.start() < c.start():
+                intro = source_text[: a.start()]
+                sections = {
+                    "a": intro + source_text[a.end() : b.start()],
+                    "b": intro + source_text[b.end() : c.start()],
+                }
+                scoped = [sections[key.lower()] for key in paragraphs]
+                if any(
+                    _has_admin_agency_aggregate_source_context(text) for text in scoped
+                ):
+                    return True
+                if all(
+                    _PERSON_LEVEL_RULE_CONTEXT_PATTERN.search(text) for text in scoped
+                ):
+                    return False
+
+    metadata = rule.get("metadata")
+    proof = metadata.get("proof") if isinstance(metadata, dict) else None
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if isinstance(atoms, list):
+        proved_sources = [
+            source
+            for atom in atoms
+            if isinstance(atom, dict)
+            for source in [atom.get("source")]
+            if isinstance(source, dict) and isinstance(source.get("excerpt"), str)
+        ]
+        if proved_sources:
+            excerpts = "\n".join(source["excerpt"] for source in proved_sources)
+            if _has_admin_agency_aggregate_source_context(excerpts):
+                return True
+            # The existing SNAP work-registration exemption is proven by a
+            # separate statute. Do not let a generic statutory proof fragment
+            # (such as an administrative coefficient or household reference)
+            # override the regulation's aggregate context.
+            if (
+                citations
+                and citations[0] == "us/regulation/7/273/7"
+                and rule.get("name")
+                == "snap_member_statutory_work_registration_exemption_applies"
+                and rule_source == "7 U.S.C. 2015(d)(2)"
+                and len(proved_sources) >= 3
+                and all(
+                    source.get("corpus_citation_path") == "us/statute/7/2015/d/2"
+                    for source in proved_sources
+                )
+                and re.search(
+                    r"\bparent\b.{0,100}\bdependent child\b",
+                    excerpts,
+                    re.IGNORECASE | re.DOTALL,
+                )
+                and re.search(
+                    r"\bstudent enrolled at least half time\b",
+                    excerpts,
+                    re.IGNORECASE,
+                )
+                and re.search(
+                    r"\bperson between the ages of sixteen and eighteen\b",
+                    excerpts,
+                    re.IGNORECASE,
+                )
+            ):
+                return False
+    return _has_admin_agency_aggregate_source_context(source_text)
 
 
 def _has_admin_agency_aggregate_source_context(source_text: str) -> bool:
@@ -19053,6 +19170,7 @@ def _overlay_validation_retry_candidate(
     *,
     artifact_root: Path,
     candidate: ValidationRetryCandidate,
+    target_ref_prefix: str | None = None,
 ) -> tuple[str, ...]:
     """Overlay partial repair output onto its integrity-bound prior candidate."""
 
@@ -19139,6 +19257,28 @@ def _overlay_validation_retry_candidate(
         for item in rules
         if isinstance(item, dict) and isinstance(item.get("name"), str)
     }
+    # A retained candidate can carry an import of a rule that the repaired
+    # target now defines locally. Such an import points back to this same
+    # module and creates a cycle; remove only exact local-rule self-imports.
+    if target_ref_prefix:
+        self_import_prefix = f"{target_ref_prefix}#"
+        local_rule_self_imports = [
+            item
+            for item in imports
+            if isinstance(item, str)
+            and item.startswith(self_import_prefix)
+            and item[len(self_import_prefix) :] in generated_rule_names
+        ]
+        if local_rule_self_imports:
+            imports = [item for item in imports if item not in local_rule_self_imports]
+            if imports:
+                generated["imports"] = imports
+            else:
+                generated.pop("imports", None)
+            repairs.extend(
+                f"removed_local_rule_self_import:{item}"
+                for item in local_rule_self_imports
+            )
     repairs.extend(f"rule:{name}" for name in restored_rules)
     repairs.extend(f"removed_rule:{name}" for name in removed_rules)
 

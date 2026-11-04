@@ -79,8 +79,13 @@ class TestPathInside:
 
 
 class TestPinnedCodexCLI:
-    def _archive(self, tmp_path: Path, binary: bytes) -> Path:
-        source = tmp_path / "package/vendor/aarch64-apple-darwin/bin/codex"
+    def _archive(
+        self,
+        tmp_path: Path,
+        binary: bytes,
+        member: str = "package/vendor/aarch64-apple-darwin/bin/codex",
+    ) -> Path:
+        source = tmp_path / member
         source.parent.mkdir(parents=True)
         source.write_bytes(binary)
         archive = tmp_path / "codex.tgz"
@@ -102,19 +107,44 @@ class TestPinnedCodexCLI:
             "e89718aa1969bfc4a471277bdc4679a3a3529293de0a309909822dfd67ddb77a"
         )
 
-    @pytest.mark.parametrize("machine", ["arm64", "aarch64"])
-    def test_installs_exact_hash_pinned_binary(self, tmp_path, monkeypatch, machine):
+    def test_reviewed_linux_x64_release_pin(self):
+        pin = provisioner._CODEX_CLI_PINS[("linux", "x64")]
+        assert provisioner._CODEX_CLI_VERSION == "0.159.0"
+        assert pin["url"] == (
+            "https://registry.npmjs.org/@openai/codex/-/codex-0.159.0-linux-x64.tgz"
+        )
+        assert pin["member"] == "package/vendor/x86_64-unknown-linux-musl/bin/codex"
+        assert pin["archive_sha256"] == (
+            "27a80e1904c7337fe65d94f881779ba7700f42a8a87f3d06352b543b0115df98"
+        )
+        assert pin["sha256"] == (
+            "d2752c52353401f7f6efbfcea68796f4f7a3d3e4769f5d1da53fa49d4856b72f"
+        )
+
+    @pytest.mark.parametrize(
+        ("platform_name", "machine", "pin_key"),
+        [
+            ("darwin", "arm64", ("darwin", "arm64")),
+            ("darwin", "aarch64", ("darwin", "arm64")),
+            ("linux", "x86_64", ("linux", "x64")),
+            ("linux", "amd64", ("linux", "x64")),
+        ],
+    )
+    def test_installs_exact_hash_pinned_binary(
+        self, tmp_path, monkeypatch, platform_name, machine, pin_key
+    ):
         binary = b"#!/bin/sh\necho codex-cli-test\n"
-        archive = self._archive(tmp_path, binary)
-        monkeypatch.setattr(provisioner.sys, "platform", "darwin")
+        pin = provisioner._CODEX_CLI_PINS[pin_key]
+        archive = self._archive(tmp_path, binary, pin["member"])
+        monkeypatch.setattr(provisioner.sys, "platform", platform_name)
         monkeypatch.setattr(provisioner.platform, "machine", lambda: machine)
         monkeypatch.setitem(
-            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            pin,
             "sha256",
             provisioner.hashlib.sha256(binary).hexdigest(),
         )
         monkeypatch.setitem(
-            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            pin,
             "archive_sha256",
             hashlib.sha256(archive.read_bytes()).hexdigest(),
         )
