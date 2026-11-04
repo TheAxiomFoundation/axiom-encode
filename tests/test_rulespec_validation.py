@@ -25488,10 +25488,12 @@ rules:
         tokenizer_calls += 1
         return original_tokenizer(text, profile=profile)
 
-    def counting_cleaner(text, *, profile="legacy"):
+    def counting_cleaner(text, *, profile="legacy", belgian_restatements=None):
         nonlocal cleaner_calls
         cleaner_calls += 1
-        return original_cleaner(text, profile=profile)
+        return original_cleaner(
+            text, profile=profile, belgian_restatements=belgian_restatements
+        )
 
     monkeypatch.setattr(
         validator_pipeline,
