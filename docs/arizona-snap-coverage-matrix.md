@@ -182,6 +182,23 @@ release and/or regeneration, not manual manifest edits or waiver broadening;
 CI and independent review must be green on the eventual exact heads before
 either RuleSpec PR can merge.
 
+A separate [pinned-engine counterexample](https://github.com/TheAxiomFoundation/rulespec-us/pull/2022#issuecomment-6630425602)
+on the signed #2022 benefit module supplies March 2026 gross income $1,000,
+FPG $1,000, BCE false, an ECE-consideration flag true, and a participant
+disqualification true. Its imported `na_expanded_categorical_eligibility`
+returns `not_holds`, while
+`na_categorically_eligible_for_benefit_calculation` returns `holds` and the
+post-minimum benefit returns the supplied $24. Clearing only the disqualification
+changes the ECE judgment to `holds` without changing the benefit outputs.
+The benefit module imports the ECE *rate* but takes consideration as an
+unconstrained caller input; a repository-wide source search finds no producer
+that ties that input to the ECE eligibility judgment. This proves a
+module-level inconsistent-input path, not an observed end-to-end payment error.
+[DES FAA5](https://dbmefaapolicy.azdes.gov/FAA5/NA_Categorical_Eligibility.html)
+requires the ECE conditions and disqualification gate. Protected regeneration
+and program wiring must resolve the relationship before household parity can
+be claimed.
+
 A **matched medical-deduction amount boundary**, not end-to-end household
 parity: for January 2026 in Arizona, PolicyEngine US
 `d89439134c1bac8add0c8261c8a075c33c39401a` with a 65-year-old member
