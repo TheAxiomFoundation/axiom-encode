@@ -1,0 +1,48 @@
+{
+  "source_attestation": {
+    "component_rows": [
+      {
+        "body_sha256": "88d16c60d95b955f77adb9b480f3586a54cf608ec92b057d07f23dd986275772",
+        "citation_path": "us-va/statute/58.1/58.1-322.03/block-1",
+        "document_class": "statute",
+        "expression_date": "2026-07-13",
+        "jurisdiction": "us-va",
+        "line_number": 6,
+        "provision_file": "data/corpus/provisions/us-va/statute/2026-07-13-recovery.jsonl",
+        "provision_file_sha256": "fd8e4174e4eef71d1ab7e8e348640088f29919dfc80734a1c1d2a203df0ef047",
+        "record_id": "016e147e-c448-5385-ba60-05a59cada0fa",
+        "source_as_of": "2026-07-13",
+        "source_path": "sources/us-va/statute/2026-07-13-recovery/official-documents/us-va-code-58.1-p3",
+        "version": "2026-07-13-recovery"
+      }
+    ],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2026-07-13",
+    "generation_input_sha256": "4d5721391f85bf246ad9621182c60b40cbaa1bbe5df80250248b1dc33a8206ab",
+    "provision_file": "data/corpus/provisions/us-va/statute/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "fd8e4174e4eef71d1ab7e8e348640088f29919dfc80734a1c1d2a203df0ef047",
+    "requested_corpus_citation_path": "us-va/statute/58.1/58.1-322.03",
+    "resolved_corpus_citation_path": "us-va/statute/58.1/58.1-322.03",
+    "resolved_text_sha256": "4d5721391f85bf246ad9621182c60b40cbaa1bbe5df80250248b1dc33a8206ab",
+    "row": {
+      "body_sha256": null,
+      "citation_path": "us-va/statute/58.1/58.1-322.03",
+      "document_class": "statute",
+      "expression_date": "2026-07-13",
+      "jurisdiction": "us-va",
+      "line_number": 5,
+      "provision_file": "data/corpus/provisions/us-va/statute/2026-07-13-recovery.jsonl",
+      "provision_file_sha256": "fd8e4174e4eef71d1ab7e8e348640088f29919dfc80734a1c1d2a203df0ef047",
+      "record_id": "969a4bcd-1656-5ae9-aac1-e0ef1bfdf0b6",
+      "source_as_of": "2026-07-13",
+      "source_path": "sources/us-va/statute/2026-07-13-recovery/official-documents/us-va-code-58.1-p3",
+      "version": "2026-07-13-recovery"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us-va",
+    "source_as_of": "2026-07-13",
+    "source_sha256": "4d5721391f85bf246ad9621182c60b40cbaa1bbe5df80250248b1dc33a8206ab"
+  }
+}

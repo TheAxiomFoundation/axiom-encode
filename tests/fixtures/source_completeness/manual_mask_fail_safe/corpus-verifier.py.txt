@@ -1,0 +1,74 @@
+"""Reconcile complete streamed evidence with immutable inputs and final bytes."""
+from __future__ import annotations
+import argparse
+import collections
+import hashlib
+import json
+from pathlib import Path
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+CORPUS=ROOT/'.hub-scratch/r6/corpus'
+
+
+def digest(path):
+    value=hashlib.sha256()
+    with path.open('rb') as stream:
+        while data:=stream.read(1024*1024):value.update(data)
+    return value.hexdigest()
+
+
+def main():
+    parser=argparse.ArgumentParser();parser.add_argument('--output',required=True,type=Path);args=parser.parse_args()
+    run=args.output;summary=json.loads((run/'summary.json').read_text())
+    assert summary['complete'] and summary['full_corpus'] and summary['rows']==68848 and summary['input_files']==231
+    assert summary['previous_records_read']==0 and summary['baseline_package_unchanged_at_completion']
+    assert summary['baseline_commit']=='4f3547461300bfa70569f57c83728b2ad25d9d0b'
+    manifest=json.loads((CORPUS/'corpus-manifest.json').read_text());assert len(manifest)==231
+    expected={}
+    for item in manifest:
+        path=CORPUS/'input'/item['file'];assert digest(path)==item['sha256']
+        rows=path.read_bytes().splitlines();assert len(rows)==item['rows']
+        for number,raw in enumerate(rows,1):expected[item['file'],number]=hashlib.sha256(raw).hexdigest()
+    assert len(expected)==68848
+    seen=set();proofs=collections.Counter();counts={p:collections.Counter() for p in ('en-US','legacy')};changed={}
+    for raw in (run/'rows.jsonl').open('rb'):
+        row=json.loads(raw);key=row['file'],row['line'];assert key not in seen;seen.add(key)
+        assert row['row_sha256']==expected[key] and row['helper_length_and_idempotence']
+        proof=row['proof'];proofs[proof]+=1
+        same=row['recall_sha256']['main']==row['recall_sha256']['candidate']
+        assert same==(proof!='different_recall_actual_both_profiles')
+        if proof in ('equal_recall_identical_en_us_and_no_legacy_guard_candidate','equal_recall_actual_current_legacy_no_guard_divergence'):
+            assert not row['changes']
+        if proof=='equal_recall_guard_divergence_actual_both_legacy':assert set(row['changes'])<={'legacy'}
+        if row['changes']:changed[key]=raw
+        for profile,delta in row['changes'].items():
+            count=counts[profile];count['changed_rows']+=1
+            for kind in ('new_demands','removed_demands'):count[kind]+=len(delta[kind])
+            for kind in ('added_occurrences','removed_occurrences','added_typed','removed_typed'):count[kind]+=sum(x['count'] for x in delta[kind])
+            assert not delta['removed_demands'] and not delta['removed_occurrences'] and not delta['removed_typed'],(key,profile,delta)
+    assert seen==expected.keys() and dict(proofs)==summary['proof_counts']
+    assert {p:dict(c) for p,c in counts.items()}==summary['comparisons']
+    delta_seen=set()
+    for raw in (run/'deltas.jsonl').open('rb'):
+        row=json.loads(raw);key=row['file'],row['line'];assert key not in delta_seen;delta_seen.add(key)
+        assert raw==changed[key]
+    assert delta_seen==changed.keys()
+    for name,want in summary['output_sha256'].items():assert digest(run/name)==want
+    assert digest(Path(__file__).with_name('final_differential.py'))==summary['runner_sha256']
+    for name,want in summary['baseline_package_sha256'].items():assert digest(HERE/'current-main-package/src/axiom_encode'/name)==want
+    for name,field in [('harness/source_completeness.py','source_sha256'),('harness/validator_pipeline.py','validator_sha256')]:
+        assert digest(ROOT/'src/axiom_encode'/name)==summary[field]['candidate']
+        assert digest(run/'candidate-package/src/axiom_encode'/name)==summary[field]['candidate']
+    assert digest(ROOT/'src/axiom_encode/harness/manual_locator_metadata.py')==summary['metadata_sha256']
+    smoke=json.loads((run/'observer-smoke.json').read_text());assert smoke['cases']==11 and smoke['all_assertions_passed'] and smoke['runtime_package_bindings_verified']
+    result={'complete':True,'rows':len(seen),'files':len(manifest),'delta_rows':len(changed),
+        'all_input_row_hashes_verified':True,'all_ledger_keys_unique_complete':True,'all_output_hashes_verified':True,
+        'all_final_source_and_baseline_package_hashes_verified':True,'zero_removed_demands_occurrences_or_typed_entries':True,
+        'previous_records_read':0,'proof_counts':dict(proofs),'recomputed_comparisons':{p:dict(c) for p,c in counts.items()},
+        'summary_sha256':digest(run/'summary.json'),'verifier_sha256':digest(Path(__file__))}
+    (run/'verified-completion.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+    print(json.dumps(result,indent=2,sort_keys=True),flush=True)
+
+
+if __name__=='__main__':main()

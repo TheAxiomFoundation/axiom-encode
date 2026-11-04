@@ -1,0 +1,1 @@
+Retire the New Zealand Winter Energy Payment section 75 reviewed candidate (rulespec-nz `163ac0d3`, branch `nzhub/wep-s75e`) from signed promotion now that its module has merged on rulespec-nz main. The allowlist is consulted only when a candidate is promoted or a signing run is dispatched, so the merged module and its manifest are unaffected.

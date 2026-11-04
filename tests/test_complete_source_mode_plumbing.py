@@ -109,6 +109,9 @@ def test_generic_encoder_prompt_adds_completeness_only_when_enabled():
         complete_prompt
     )
     assert "The output path\n  is not a source citation" in complete_prompt
+    assert "`us/regulation/7/273/10(a)(1)`" in complete_prompt
+    assert "display-style `7 CFR 273.10(a)(1)` alone" in complete_prompt
+    assert "`us/regulation/7/273/10(a)(1)`" not in default_prompt
     assert (
         "authoritative branch is exactly a bare `Repealed.` tombstone"
         in complete_prompt
@@ -151,6 +154,16 @@ def test_generic_encoder_prompt_adds_completeness_only_when_enabled():
     assert "parameter/helper guards in the\n  single derived formula" in complete_prompt
     assert "omit oracle inputs or expectations" in complete_prompt
     assert "scalar-only source unit may remain parameter-only" in complete_prompt
+    assert "In Armenian ARLIS text" in default_prompt
+    assert "opens at the start of a line and closes at the end of a line" in (
+        default_prompt
+    )
+    assert "single ordinal-numbered article label" in default_prompt
+    assert "date in ASCII digits followed, after whitespace, by" in default_prompt
+    assert "Keep every inline, plural or unnumbered" in default_prompt
+    assert "unpaired-date, nested, or otherwise unrecognized" in default_prompt
+    assert "otherwise lists only amendment dates" not in default_prompt
+    assert "parenthetical that states an operative amount" in complete_prompt
     assert "single-principal-output case pairs" in complete_prompt
     assert "one large omnibus case" in complete_prompt
     assert "Build those boolean-gate witnesses mechanically" in complete_prompt
@@ -279,6 +292,9 @@ def test_eval_prompt_adds_completeness_only_when_enabled(tmp_path):
         complete_prompt
     )
     assert "The output path\n  is not a source citation" in complete_prompt
+    assert "`us/regulation/7/273/10(a)(1)`" in complete_prompt
+    assert "display-style `7 CFR 273.10(a)(1)` alone" in complete_prompt
+    assert "`us/regulation/7/273/10(a)(1)`" not in default_prompt
     assert (
         "authoritative branch is exactly a bare `Repealed.` tombstone"
         in complete_prompt

@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2026-07-01",
+    "generation_input_sha256": "14904f6058b7e0015d38bfe9e80dd3dd1fa09739dcc33d73c7314573946bc793",
+    "provision_file": "data/corpus/provisions/us-or/manual/2026-07-16-or-programs-eligibility-notebook.jsonl",
+    "provision_file_sha256": "f0ce2f26eea4d11e8cc9f9aef0096f5274935d1950c1397663e9a8265e807e7b",
+    "requested_corpus_citation_path": "us-or/manual/odhs/open/page-93",
+    "resolved_corpus_citation_path": "us-or/manual/odhs/open/page-93",
+    "resolved_text_sha256": "14904f6058b7e0015d38bfe9e80dd3dd1fa09739dcc33d73c7314573946bc793",
+    "row": {
+      "body_sha256": "14904f6058b7e0015d38bfe9e80dd3dd1fa09739dcc33d73c7314573946bc793",
+      "citation_path": "us-or/manual/odhs/open/page-93",
+      "document_class": "manual",
+      "expression_date": "2026-07-01",
+      "jurisdiction": "us-or",
+      "line_number": 94,
+      "provision_file": "data/corpus/provisions/us-or/manual/2026-07-16-or-programs-eligibility-notebook.jsonl",
+      "provision_file_sha256": "f0ce2f26eea4d11e8cc9f9aef0096f5274935d1950c1397663e9a8265e807e7b",
+      "record_id": "8c7b305b-52a2-5f4c-b6b0-f173a15da903",
+      "source_as_of": "2026-07-16",
+      "source_path": "sources/us-or/manual/2026-07-16-or-programs-eligibility-notebook/official-documents/or-open-2818.pdf",
+      "version": "2026-07-16-or-programs-eligibility-notebook"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us-or",
+    "source_as_of": "2026-07-16",
+    "source_sha256": "14904f6058b7e0015d38bfe9e80dd3dd1fa09739dcc33d73c7314573946bc793"
+  }
+}

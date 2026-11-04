@@ -1,0 +1,87 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_paths:
+      - uk/guidance/govuk/pension-credit/what-youll-get
+      - uk/guidance/govuk/pension-credit/eligibility
+      - uk/regulation/uksi/2002/1792/6
+      - uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+  summary: |-
+    Pension credit guarantee credit as described by GOV.UK guidance: tops up
+    weekly income to the standard minimum guarantee for a person who has
+    reached state pension age, using the single or couple amount from the
+    State Pension Credit Regulations 2002. Savings credit (for people who
+    reached state pension age before 6 April 2016) is calculated by sections
+    2 and 3 of the State Pension Credit Act 2002.
+imports:
+  - uk:regulations/uksi/2002/1792/6#standard_minimum_guarantee
+rules:
+  - name: pension_credit_weeks_in_year
+    kind: parameter
+    dtype: Count
+    source: Universal Credit Regulations 2013, Schedule 4 paragraph 7 (weekly amounts converted over 52 weeks)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+              excerpt: "calculated as a monthly amount"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          52
+
+  - name: guarantee_credit_weekly_top_up
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: GOV.UK, Pension Credit, "What you'll get"
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/guidance/govuk/pension-credit/what-youll-get
+              excerpt: "tops up: your weekly income to £238 if you're single"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/govuk/pension-credit/eligibility
+              excerpt: "you've reached State Pension age"
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2002/1792/6#standard_minimum_guarantee
+              output: standard_minimum_guarantee
+              hash: sha256:ece6b2972afef712657aa636f347bb21ceadb051b4bae974d170d83249fa07c9
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if person_has_reached_state_pension_age: max(0, standard_minimum_guarantee - weekly_income_for_pension_credit) else: 0
+
+  - name: guarantee_credit_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: GOV.UK, Pension Credit (weekly top up annualised over the year)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/guidance/govuk/pension-credit/what-youll-get
+              excerpt: "The top up and extra amounts are known as 'Guarantee Credit'"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          guarantee_credit_weekly_top_up * pension_credit_weeks_in_year

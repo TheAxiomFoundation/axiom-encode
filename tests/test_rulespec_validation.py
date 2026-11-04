@@ -8,12 +8,10 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import textwrap
 from decimal import Decimal
 from pathlib import Path
-from time import monotonic
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -23,6 +21,8 @@ from axiom_oracles.bridges.registry import (
     PolicyEngineOracleRegistry,
     load_policyengine_registry,
 )
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode.corpus_resolver import (
     PROOF_EVIDENCE_SEGMENT_SEPARATOR,
@@ -153,17 +153,23 @@ from axiom_encode.harness.validator_pipeline import (
     ValidatorPipeline as _ValidatorPipeline,
 )
 from axiom_encode.repo_routing import find_policy_repo_root
+from tests.process_limits import HANG_TIMEOUT_SECONDS
+from tests.real_engine import ABSENT_ROOT
 from tests.release_object_fixtures import bind_test_corpus_release
+from tests.scaling import assert_linear_growth, lowest_work
 
-AXIOM_RULES_PATH = Path(
-    "/Users/maxghenis/TheAxiomFoundation/_worktrees/"
-    "axiom-rules-engine-canonical-loader-hard-cut"
-)
-if not AXIOM_RULES_PATH.is_dir():
-    AXIOM_RULES_PATH = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine")
-AXIOM_RULES_ENGINE_BINARY = AXIOM_RULES_PATH / "target" / "debug" / "axiom-rules-engine"
+# Every test here that executes the engine takes the real_engine fixture;
+# the rest get a checkout that never exists, here and in CI alike.
+AXIOM_RULES_PATH = ABSENT_ROOT
 TEST_CORPUS_RELEASE_NAME = "test-release"
 TEST_CORPUS_VERSION = "test-version"
+
+
+def _clear_numeric_extraction_caches():
+    # A fresh tokenization can still reuse its paragraph/currency index.
+    # Clear both text-result caches before every measured extraction.
+    validator_pipeline._tokenize_numeric_occurrences_from_text.cache_clear()
+    validator_pipeline._hebrew_paragraph_and_heading_index.cache_clear()
 
 
 @pytest.mark.parametrize(
@@ -246,8 +252,8 @@ def test_validator_subprocess_capture_read_errors_are_reproducible():
             with pytest.raises(RuntimeError) as exc_info:
                 validator_pipeline._run_subprocess_with_idle_timeout(
                     [sys.executable, "-c", "pass"],
-                    timeout=10,
-                    idle_timeout=10,
+                    timeout=HANG_TIMEOUT_SECONDS,
+                    idle_timeout=HANG_TIMEOUT_SECONDS,
                     poll_interval=0.001,
                 )
             errors.append(str(exc_info.value))
@@ -275,8 +281,8 @@ def test_validator_subprocess_capture_output_paths_are_reproducible():
         for _ in range(2):
             result = validator_pipeline._run_subprocess_with_idle_timeout(
                 [sys.executable, "-c", "pass"],
-                timeout=10,
-                idle_timeout=10,
+                timeout=HANG_TIMEOUT_SECONDS,
+                idle_timeout=HANG_TIMEOUT_SECONDS,
                 poll_interval=0.001,
             )
             outputs.append(result.output)
@@ -1970,25 +1976,38 @@ def test_rulespec_target_resolution_rejects_workspace_dependency_root(tmp_path):
 
 
 def test_rulespec_target_resolution_accepts_macos_system_path_alias(tmp_path):
-    if not Path("/var").is_symlink():
-        pytest.skip("macOS /var system alias is unavailable")
-    with tempfile.TemporaryDirectory(dir="/var/tmp") as raw_tmpdir:
-        checkout = Path(raw_tmpdir) / "rulespec-us"
-        target = checkout / "us" / "statutes/1/target.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text("format: rulespec/v1\nrules: []\n")
-        policy_repo = _canonical_rulespec_content_root(tmp_path, "uk")
-        target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
+    resolved_tmp = tmp_path.resolve()
+    for alias_root, physical_root in (
+        (Path("/var"), Path("/private/var")),
+        (Path("/tmp"), Path("/private/tmp")),
+    ):
+        if (
+            resolved_tmp.is_relative_to(physical_root)
+            and alias_root.is_symlink()
+            and alias_root.resolve() == physical_root
+        ):
+            aliased_tmp = alias_root / resolved_tmp.relative_to(physical_root)
+            break
+    else:
+        pytest.skip("temporary directory has no macOS system path alias")
+    assert aliased_tmp != resolved_tmp
+    assert aliased_tmp.resolve() == resolved_tmp
+    checkout = aliased_tmp / "rulespec-us"
+    target = checkout / "us" / "statutes/1/target.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text("format: rulespec/v1\nrules: []\n")
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "uk")
+    target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
 
-        assert target_ref is not None
-        assert (
-            validator_pipeline._resolve_rulespec_target_file(
-                target_ref,
-                policy_repo,
-                rulespec_dependency_roots=(checkout,),
-            )
-            == target.resolve()
+    assert target_ref is not None
+    assert (
+        validator_pipeline._resolve_rulespec_target_file(
+            target_ref,
+            policy_repo,
+            rulespec_dependency_roots=(checkout,),
         )
+        == target.resolve()
+    )
 
 
 def test_rulespec_target_resolution_rejects_explicit_checkout_symlink(tmp_path):
@@ -2893,6 +2912,83 @@ inputs:
     assert "#al_pit_2026_schedule_before_credits" in issues[0]
     assert "#input.al_taxable_income" in issues[1]
     assert find_existing_target_oracle_contract_issues(existing, contract) == []
+
+
+def test_not_comparable_registry_entry_does_not_freeze_replacement_shape():
+    target = "us-az:policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: expanded_categorical_eligibility_deems_resources_met
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={
+            f"{target}#expanded_categorical_eligibility_deems_resources_met": SimpleNamespace(
+                mapping_type="not_comparable"
+            )
+        }
+    )
+
+    assert (
+        build_existing_target_oracle_contract(
+            existing,
+            target=target,
+            policyengine_registry=registry,
+        )
+        is None
+    )
+
+
+def test_mixed_oracle_registry_preserves_only_comparable_surface_shape():
+    target = "us-az:policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: unmapped_arizona_ece_deeming
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+  - name: mapped_categorical_eligibility
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={
+            f"{target}#unmapped_arizona_ece_deeming": SimpleNamespace(
+                mapping_type="not_comparable"
+            ),
+            f"{target}#mapped_categorical_eligibility": SimpleNamespace(
+                mapping_type="direct_variable"
+            ),
+        }
+    )
+
+    contract = build_existing_target_oracle_contract(
+        existing,
+        target=target,
+        policyengine_registry=registry,
+    )
+
+    assert contract is not None
+    assert [surface.name for surface in contract.surfaces] == [
+        "mapped_categorical_eligibility"
+    ]
 
 
 def test_exact_oracle_replacement_contract_preserves_visibility_and_rejects_path_identity_helpers():
@@ -4405,10 +4501,7 @@ def test_imported_stub_dependency_rejects_unsafe_target(tmp_path, unsafe_kind):
     assert "Unsafe imported RuleSpec dependency" in issues[0]
 
 
-def test_rulespec_compile_ci_and_grounding(tmp_path, monkeypatch):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_compile_ci_and_grounding(real_engine, tmp_path, monkeypatch):
     _mock_corpus_source_text(
         monkeypatch,
         "The official source states the standard utility allowance is $451.",
@@ -4454,7 +4547,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -4471,10 +4564,7 @@ rules:
     ] == [("standard_utility_allowance_value", 451.0)]
 
 
-def test_rulespec_ci_rejects_repo_backed_friendly_output_keys(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_rejects_repo_backed_friendly_output_keys(real_engine, tmp_path):
     rules_file = (
         _canonical_rulespec_content_root(tmp_path, "us")
         / "statutes"
@@ -4511,7 +4601,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -4526,10 +4616,9 @@ rules:
     )
 
 
-def test_rulespec_ci_rejects_repo_backed_unresolved_output_reference_path(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_rejects_repo_backed_unresolved_output_reference_path(
+    real_engine, tmp_path
+):
     rules_file = (
         _canonical_rulespec_content_root(tmp_path, "us")
         / "statutes"
@@ -4566,7 +4655,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -4581,10 +4670,9 @@ rules:
     )
 
 
-def test_rulespec_ci_rejects_repo_backed_input_reference_in_output_position(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_rejects_repo_backed_input_reference_in_output_position(
+    real_engine, tmp_path
+):
     rules_file = (
         _canonical_rulespec_content_root(tmp_path, "us")
         / "statutes"
@@ -4621,7 +4709,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -4636,10 +4724,7 @@ rules:
     )
 
 
-def test_rulespec_ci_rejects_repo_backed_friendly_input_keys(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_rejects_repo_backed_friendly_input_keys(real_engine, tmp_path):
     rules_file = (
         _canonical_rulespec_content_root(tmp_path, "us")
         / "statutes"
@@ -4676,7 +4761,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
     )
 
@@ -4689,10 +4774,7 @@ rules:
     )
 
 
-def test_rulespec_ci_executes_repo_backed_absolute_input_keys(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_executes_repo_backed_absolute_input_keys(real_engine, tmp_path):
     rules_file = (
         _canonical_rulespec_content_root(tmp_path, "us")
         / "statutes"
@@ -4729,7 +4811,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -4740,10 +4822,9 @@ rules:
     assert result.issues == []
 
 
-def test_rulespec_ci_rejects_repo_backed_unresolved_input_reference_path(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_rejects_repo_backed_unresolved_input_reference_path(
+    real_engine, tmp_path
+):
     rules_file = (
         _canonical_rulespec_content_root(tmp_path, "us")
         / "statutes"
@@ -4780,7 +4861,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -4796,11 +4877,9 @@ rules:
 
 
 def test_rulespec_ci_rejects_repo_backed_unresolved_input_reference_fragment(
+    real_engine,
     tmp_path,
 ):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
     rules_file = (
         _canonical_rulespec_content_root(tmp_path, "us")
         / "statutes"
@@ -4837,7 +4916,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
     )
 
@@ -4851,10 +4930,9 @@ rules:
     )
 
 
-def test_rulespec_ci_rejects_repo_backed_friendly_relation_child_input_keys(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_rejects_repo_backed_friendly_relation_child_input_keys(
+    real_engine, tmp_path
+):
     rules_file = (
         _canonical_rulespec_content_root(tmp_path, "us")
         / "statutes"
@@ -4872,6 +4950,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -4895,7 +4974,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
     )
 
@@ -4909,10 +4988,9 @@ rules:
     )
 
 
-def test_rulespec_ci_executes_repo_backed_absolute_relation_child_input_keys(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_executes_repo_backed_absolute_relation_child_input_keys(
+    real_engine, tmp_path
+):
     rules_file = (
         _canonical_rulespec_content_root(tmp_path, "us")
         / "statutes"
@@ -4930,6 +5008,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -4953,7 +5032,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -4964,10 +5043,9 @@ rules:
     assert result.issues == []
 
 
-def test_rulespec_ci_rejects_repo_backed_unresolved_relation_reference(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_rejects_repo_backed_unresolved_relation_reference(
+    real_engine, tmp_path
+):
     rules_file = (
         _canonical_rulespec_content_root(tmp_path, "us")
         / "statutes"
@@ -4985,6 +5063,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -5008,7 +5087,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=_canonical_rulespec_content_root(tmp_path, "us"),
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
     )
 
@@ -5345,8 +5424,9 @@ def test_policyengine_registry_is_legal_id_keyed():
         "us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#snap_gross_income_limit_130_percent_fpl_48_states_dc",
         country="us",
     )
-    assert gross_income_limit_mapping.policyengine_variable == "snap_fpg"
-    assert gross_income_limit_mapping.result_multiplier == 1.3
+    assert gross_income_limit_mapping.mapping_type == "not_comparable"
+    assert gross_income_limit_mapping.candidate_priority == "P4"
+    assert gross_income_limit_mapping.policyengine_variable is None
     colorado_ccap_smi_limit_mapping = registry.mapping_for_legal_id(
         "us-co:regulations/8-ccr-1403-1/3.111/h-low-income-eligibility-guidelines#monthly_state_median_income_85_limit",
         country="us",
@@ -6403,7 +6483,7 @@ def test_packaged_alabama_2026_schedule_registry_and_fallback_are_synchronized()
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6514,7 +6594,7 @@ def test_packaged_connecticut_2026_ordinary_tax_registry_is_exactly_synchronized
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6598,7 +6678,7 @@ def test_packaged_georgia_2026_annual_tax_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6693,7 +6773,7 @@ def test_packaged_mississippi_2026_schedule_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6854,7 +6934,7 @@ def test_packaged_kansas_2026_k40es_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6959,7 +7039,7 @@ def test_packaged_dc_2026_section_47_1806_03_has_exact_bounded_slice():
 def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     import axiom_oracles.bridges.registry as runtime_registry_module
 
-    durable_oracle_merge = "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    durable_oracle_merge = "9434ce833bacbc60bc1572ea0245913ff4e48501"
     root = Path(__file__).parents[1]
     bundled_path = root / "src/axiom_encode/oracles/policyengine/mappings/us.yaml"
     runtime_path = (
@@ -7036,7 +7116,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2081"')
+        .startswith('__version__ = "0.2.2310"')
     )
 
 
@@ -7162,7 +7242,7 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
 
     import axiom_oracles.bridges.registry as runtime_registry_module
 
-    durable_oracle_merge = "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    durable_oracle_merge = "9434ce833bacbc60bc1572ea0245913ff4e48501"
     root = Path(__file__).parents[1]
     bundled_path = root / "src/axiom_encode/oracles/policyengine/mappings/us.yaml"
     runtime_path = (
@@ -7268,13 +7348,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2081"
+    assert encoder_package["version"] == "0.2.2310"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2081"
+    assert project["project"]["version"] == "0.2.2310"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2081"')
+        .startswith('__version__ = "0.2.2310"')
     )
 
 
@@ -7438,7 +7518,7 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
 
     import axiom_oracles.bridges.registry as runtime_registry_module
 
-    durable_oracle_merge = "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    durable_oracle_merge = "9434ce833bacbc60bc1572ea0245913ff4e48501"
     root = Path(__file__).parents[1]
     bundled_path = root / "src/axiom_encode/oracles/policyengine/mappings/us.yaml"
     runtime_path = (
@@ -7536,13 +7616,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2081"
+    assert encoder_package["version"] == "0.2.2310"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2081"
+    assert project["project"]["version"] == "0.2.2310"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2081"')
+        .startswith('__version__ = "0.2.2310"')
     )
 
 
@@ -7789,7 +7869,7 @@ def test_packaged_utah_2026_before_credit_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    assert pin == "9434ce833bacbc60bc1572ea0245913ff4e48501"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -8989,6 +9069,98 @@ def test_policyengine_snap_net_income_annualizes_housing_cost(tmp_path):
 
     assert "'housing_cost': {'2026': 6000}" in script
     assert "'housing_cost': {'2026-01':" not in script
+
+
+def test_policyengine_snap_child_support_election_inverts_exclusion_parameter(
+    tmp_path, monkeypatch, capsys
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    child_support_parameter = SimpleNamespace(child_support={"TX": False, "CA": True})
+    params = SimpleNamespace(
+        gov=SimpleNamespace(
+            usda=SimpleNamespace(
+                snap=SimpleNamespace(
+                    income=SimpleNamespace(deductions=child_support_parameter)
+                )
+            )
+        )
+    )
+    policyengine_us = ModuleType("policyengine_us")
+    policyengine_us.CountryTaxBenefitSystem = lambda: SimpleNamespace(
+        parameters=lambda _period: params
+    )
+    policyengine_us.Simulation = lambda **_kwargs: SimpleNamespace(
+        calculate=lambda *_args: [100.0]
+    )
+    monkeypatch.setitem(sys.modules, "policyengine_us", policyengine_us)
+
+    election_script = pipeline._build_pe_us_scenario_script(
+        "snap_state_agency_provides_child_support_deduction",
+        {"period": "2026-01", "snap_state_agency_chose_child_support_deduction": True},
+        "2026",
+    )
+    exec(election_script, {})
+    assert capsys.readouterr().out.strip() == "RESULT:1.0"
+
+    qualified_script = pipeline._build_pe_us_scenario_script(
+        "snap_state_agency_provides_child_support_deduction",
+        {
+            "period": "2026-01",
+            "us:statutes/7/2014/e/4#input.snap_state_agency_chose_child_support_deduction": True,
+        },
+        "2026",
+    )
+    assert "child_support['TX']" in qualified_script
+    exec(qualified_script, {})
+    assert capsys.readouterr().out.strip() == "RESULT:1.0"
+
+    incompatible_election_script = pipeline._build_pe_us_scenario_script(
+        "snap_state_agency_provides_child_support_deduction",
+        {
+            "period": "2026-01",
+            "state_name": "CA",
+            "snap_state_agency_chose_child_support_deduction": True,
+        },
+        "2026",
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        exec(incompatible_election_script, {})
+    assert exc_info.value.code == 86
+    assert pipeline._is_pe_unsupported_error(capsys.readouterr().out)
+
+    incompatible_script = pipeline._build_pe_us_scenario_script(
+        "snap_child_support_gross_income_deduction",
+        {
+            "period": "2026-01",
+            "state_name": "CA",
+            "snap_state_agency_chose_child_support_deduction": True,
+            "snap_legally_obligated_child_support_payments_to_nonhousehold_members": 100,
+        },
+        "2026",
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        exec(incompatible_script, {})
+    assert exc_info.value.code == 86
+    unsupported = capsys.readouterr().out.strip()
+    assert unsupported.startswith("AXIOM_ORACLE_UNSUPPORTED:")
+    assert pipeline._is_pe_unsupported_error(unsupported)
+
+    compatible_script = pipeline._build_pe_us_scenario_script(
+        "snap_child_support_gross_income_deduction",
+        {
+            "period": "2026-01",
+            "state_name": "TX",
+            "snap_state_agency_chose_child_support_deduction": True,
+            "snap_legally_obligated_child_support_payments_to_nonhousehold_members": 100,
+        },
+        "2026",
+    )
+    exec(compatible_script, {})
+    assert capsys.readouterr().out.strip() == "RESULT:100.0"
 
 
 def test_policyengine_ma_tafdc_payment_standard_projects_household_rent_status(
@@ -14296,63 +14468,67 @@ def test_da_structural_span_lookup_scales_near_linearly(monkeypatch):
         counted_predicate,
     )
 
-    def timed_extract(target):
+    def check(source_text, repetitions, occurrences):
+        assert len(occurrences) == repetitions + 1
+        assert all(
+            occurrence.value == 2.0
+            and occurrence.raw == "2"
+            and occurrence.span == (6 * index + 4, 6 * index + 5)
+            and occurrence.has_structural_context
+            and not occurrence.has_rate_context
+            for index, occurrence in enumerate(occurrences[:-1])
+        )
+        terminal = occurrences[-1]
+        assert (
+            terminal.value,
+            terminal.raw,
+            terminal.span,
+            terminal.has_structural_context,
+            terminal.has_rate_context,
+        ) == (
+            20.0,
+            "20",
+            (len(source_text) - 7, len(source_text) - 5),
+            False,
+            True,
+        )
+
+    def counted_extract(target):
         nonlocal operation_count
         operation_count = 0
         repetitions = target // len(unit)
         source_text = unit * repetitions + "20 pct."
-        start = monotonic()
+        _clear_numeric_extraction_caches()
         occurrences = extract_typed_numeric_occurrences_from_text(
-            source_text,
-            profile="da-DK",
+            source_text, profile="da-DK"
         )
-        return (
-            source_text,
-            repetitions,
-            occurrences,
-            monotonic() - start,
-            operation_count,
+        check(source_text, repetitions, occurrences)
+        return source_text, occurrences, operation_count
+
+    def work(repetitions):
+        source_text = unit * repetitions + "20 pct."
+        return lowest_work(
+            lambda: extract_typed_numeric_occurrences_from_text(
+                source_text, profile="da-DK"
+            ),
+            lambda occurrences: check(source_text, repetitions, occurrences),
+            setup=_clear_numeric_extraction_caches,
         )
+
+    # Meter the whole extraction, including native index copies or scans.
+    assert_linear_growth(work(500), work(8_000), input_ratio=16)
 
     extract_typed_numeric_occurrences_from_text(unit * 1_000, profile="da-DK")
-    source_100k, repetitions_100k, occurrences_100k, _, ops_100k = timed_extract(
-        100_000
-    )
-    _, _, _, elapsed_200k, ops_200k = timed_extract(200_000)
-
+    source_100k, occurrences_100k, ops_100k = counted_extract(100_000)
+    _, _, ops_200k = counted_extract(200_000)
     assert ops_100k > 0
     assert ops_200k <= 2.5 * ops_100k
-    assert elapsed_200k < 30
 
-    assert len(occurrences_100k) == repetitions_100k + 1
-    assert all(
-        occurrence.value == 2.0
-        and occurrence.raw == "2"
-        and occurrence.span == (6 * index + 4, 6 * index + 5)
-        and occurrence.has_structural_context
-        and not occurrence.has_rate_context
-        for index, occurrence in enumerate(occurrences_100k[:-1])
-    )
-    terminal = occurrences_100k[-1]
-    assert (
-        terminal.value,
-        terminal.raw,
-        terminal.span,
-        terminal.has_structural_context,
-        terminal.has_rate_context,
-    ) == (
-        20.0,
-        "20",
-        (len(source_100k) - 7, len(source_100k) - 5),
-        False,
-        True,
-    )
     inventory = extract_typed_numeric_inventory_occurrences_from_text(
-        source_100k,
-        profile="da-DK",
+        source_100k, profile="da-DK"
     )
     assert [(item.value, item.raw, item.span) for item in inventory] == [
-        (20.0, "20", terminal.span)
+        (20.0, "20", occurrences_100k[-1].span)
     ]
 
 
@@ -15830,18 +16006,31 @@ def test_a_hebrew_structural_reference_is_no_recall_obligation():
 
 
 def test_alignment_scales_linearly_on_repetitive_text():
-    import time
-
-    for repeats in (240, 480):
-        text = "מ־2.24; " * repeats
-        started = time.perf_counter()
-        occurrences = extract_typed_numeric_inventory_occurrences_from_text(text)
-        elapsed = time.perf_counter() - started
+    # Repetitive text made general sequence matching quadratic or worse.
+    # Provenance is carried through edits now, so measure the whole
+    # extraction: a diff built by any name or import route grows with it.
+    def check(text, repeats, occurrences):
         assert len(occurrences) == repeats
         assert len({occurrence.span for occurrence in occurrences}) == repeats
         for occurrence in occurrences:
             assert text[occurrence.start : occurrence.end] == "2.24"
-        assert elapsed < 1.0, (repeats, elapsed)
+
+    def work(repeats):
+        text = "מ־2.24; " * repeats
+        return lowest_work(
+            lambda: extract_typed_numeric_inventory_occurrences_from_text(text),
+            lambda occurrences: check(text, repeats, occurrences),
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    assert_linear_growth(work(15), work(120), input_ratio=8)
+    # Keep the original fixtures and their outputs, once and untimed.
+    for repeats in (240, 480):
+        text = "מ־2.24; " * repeats
+        _clear_numeric_extraction_caches()
+        check(
+            text, repeats, extract_typed_numeric_inventory_occurrences_from_text(text)
+        )
 
 
 def test_alignment_survives_an_edit_wider_than_the_walk_window():
@@ -16141,24 +16330,90 @@ def test_an_ascii_fraction_before_a_percent_word_is_one_rate():
         assert _hebrew_recall(text) == {0.0025}, (text, _hebrew_recall(text))
 
 
-def test_hebrew_compound_scanning_is_linear_on_long_prose():
-    import time
+def _assert_compound_scanning_skips_parser(monkeypatch):
+    compound = validator_pipeline._iter_hebrew_compound_number_matches
+    parse = validator_pipeline._parse_hebrew_number_run
+    remaining_words = []
 
-    from axiom_encode.harness.validator_pipeline import (
-        _iter_hebrew_compound_number_matches,
+    def counted_parse(words, start=0, *args, **kwargs):
+        if remaining_words:
+            # These prose and standalone-teen heads cannot begin a number.
+            # Charge the words each call could read: parsing from every start
+            # reads the rest of the run each time, while a bounded call per
+            # word stays within the text's own word count.
+            remaining_words[-1] -= len(words) - start
+            assert remaining_words[-1] >= 0, "compound parser read past the text"
+        return parse(words, start, *args, **kwargs)
+
+    def counted_compound(text):
+        remaining_words.append(len(text.split()))
+        try:
+            return compound(text)
+        finally:
+            remaining_words.pop()
+
+    monkeypatch.setattr(validator_pipeline, "_parse_hebrew_number_run", counted_parse)
+    monkeypatch.setattr(
+        validator_pipeline, "_iter_hebrew_compound_number_matches", counted_compound
     )
 
-    for repeats in (1000, 2000):
-        text = "הוראות חוק זה יחולו על העובד " * repeats
-        started = time.perf_counter()
-        matches = _iter_hebrew_compound_number_matches(text)
-        elapsed = time.perf_counter() - started
+
+@settings(max_examples=20, deadline=None)
+@given(
+    unit=st.sampled_from(("הוראות חוק זה יחולו על העובד", "שנים רבות")),
+    separator=st.sampled_from((" ", "  ", "\t")),
+    repeats=st.integers(min_value=1, max_value=128),
+)
+def test_compound_prose_skips_parser_for_generated_text(unit, separator, repeats):
+    text = (unit + separator) * repeats
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        _assert_compound_scanning_skips_parser(monkeypatch)
+        assert validator_pipeline._iter_hebrew_compound_number_matches(text) == []
+
+
+def test_hebrew_compound_scanning_is_linear_on_long_prose(monkeypatch):
+    _assert_compound_scanning_skips_parser(monkeypatch)
+    unit = "הוראות חוק זה יחולו על העובד "
+
+    def check_matches(matches):
         assert matches == []
-        assert elapsed < 1.0, (repeats, elapsed)
-    started = time.perf_counter()
-    extract_numbers_from_text("הוראות חוק זה יחולו על העובד " * 2000)
-    elapsed = time.perf_counter() - started
-    assert elapsed < 3.0, elapsed
+
+    def check_values(values):
+        assert values == set()
+
+    def work(repeats, *, whole=False):
+        text = unit * repeats
+        call = (
+            extract_numbers_from_text
+            if whole
+            else validator_pipeline._iter_hebrew_compound_number_matches
+        )
+
+        def check(results):
+            for result in results:
+                (check_values if whole else check_matches)(result)
+
+        return lowest_work(
+            lambda: [call(text)],
+            check,
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    # A short first step stops a Python-level quadratic within seconds. A
+    # native copy of the remaining words at each start costs ~1/600 of a
+    # word's scan, so the second step needs thousands of words before that
+    # quadratic term shows: 2,400 and 38,400 words here.
+    assert_linear_growth(work(40), work(400), input_ratio=10)
+    assert_linear_growth(work(400), work(6_400), input_ratio=16)
+    assert_linear_growth(work(32, whole=True), work(512, whole=True), input_ratio=16)
+
+    # Keep the original large fixtures and their outputs outside measurement.
+    for repeats in (1_000, 2_000):
+        check_matches(
+            validator_pipeline._iter_hebrew_compound_number_matches(unit * repeats)
+        )
+    _clear_numeric_extraction_caches()
+    check_values(extract_numbers_from_text(unit * 2_000))
 
 
 def test_an_ascii_mixed_percentage_is_one_rate():
@@ -16200,31 +16455,48 @@ def test_a_structural_reference_takes_the_whole_number_grammar():
     assert _hebrew_recall("לפי סעיף אלף ומאתיים, ישולם סכום של 100 שקלים") == {100.0}
 
 
-def test_hebrew_compound_scanning_is_linear_on_teen_only_words():
-    import time
+def test_hebrew_compound_scanning_is_linear_on_teen_only_words(monkeypatch):
+    # "שנים" means two only inside a teen; by itself it means years.
+    _assert_compound_scanning_skips_parser(monkeypatch)
+    unit = "שנים רבות "
 
-    from axiom_encode.harness.validator_pipeline import (
-        _iter_hebrew_compound_number_matches,
-    )
-
-    # "שנים" is a two only inside a teen; on its own it is "years", and a
-    # source that says "many years" twenty thousand times is not twenty
-    # thousand starts to parse from. The pass is timed on its own, because
-    # the whole pipeline's time on a CI runner is not the pass's; it took
-    # 1.6-2.0 s there against a 1.5 s bound while the pass itself took 0.02.
-    assert 2.0 not in extract_numbers_from_text("שנים רבות " * 2000)
-    for repeats in (20000, 40000):
-        text = "שנים רבות " * repeats
-        started = time.perf_counter()
-        matches = _iter_hebrew_compound_number_matches(text)
-        elapsed = time.perf_counter() - started
+    def check_matches(matches):
         assert matches == []
-        assert elapsed < 1.0, (repeats, elapsed)
-    started = time.perf_counter()
-    grounded = extract_numbers_from_text("שנים רבות " * 20000)
-    elapsed = time.perf_counter() - started
-    assert 2.0 not in grounded
-    assert elapsed < 6.0, elapsed
+
+    def check_values(grounded):
+        assert 2.0 not in grounded
+
+    def work(repeats, *, whole=False):
+        text = unit * repeats
+        call = (
+            extract_numbers_from_text
+            if whole
+            else validator_pipeline._iter_hebrew_compound_number_matches
+        )
+
+        def check(results):
+            for result in results:
+                (check_values if whole else check_matches)(result)
+
+        return lowest_work(
+            lambda: [call(text)],
+            check,
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    # As above: a short first step, then 2,500 and 40,000 words, which let a
+    # per-start native word copy show.
+    assert_linear_growth(work(125), work(1_250), input_ratio=10)
+    assert_linear_growth(work(1_250), work(20_000), input_ratio=16)
+    assert_linear_growth(work(128, whole=True), work(2_048, whole=True), input_ratio=16)
+
+    for repeats in (20_000, 40_000):
+        check_matches(
+            validator_pipeline._iter_hebrew_compound_number_matches(unit * repeats)
+        )
+    for repeats in (2_000, 20_000):
+        _clear_numeric_extraction_caches()
+        check_values(extract_numbers_from_text(unit * repeats))
 
 
 def test_a_counted_fraction_after_tens_or_hundreds_is_a_fractional_tail():
@@ -16629,22 +16901,31 @@ def test_a_spelled_reference_list_is_structural_whole():
 
 
 def test_the_fraction_pass_scans_thousands_of_phrases_in_linear_time():
-    import time
-
-    from axiom_encode.harness.validator_pipeline import (
-        _iter_hebrew_fraction_word_matches,
-    )
-
     # Every ambiguous fraction used to search everything before it for its
     # context word: 1,000, 2,000 and 4,000 phrases took 0.38, 1.55 and 6.18
-    # seconds. The context search is bounded to the words before the fraction.
-    text = "המעביד ישלם חמישית משכרו; " * 4000
-    started = time.perf_counter()
-    matches = _iter_hebrew_fraction_word_matches(text)
-    elapsed = time.perf_counter() - started
-    assert len(matches) == 4000
-    assert all(abs(value - 0.2) < 1e-12 for _span, value in matches)
-    assert elapsed < 2.0, elapsed
+    # seconds. The context search is bounded to the words before the fraction;
+    # measure the whole pass with the native pattern.
+    def check(matches, phrases):
+        assert len(matches) == phrases
+        assert all(abs(value - 0.2) < 1e-12 for _span, value in matches)
+
+    def work(phrases):
+        text = "המעביד ישלם חמישית משכרו; " * phrases
+        return lowest_work(
+            lambda: validator_pipeline._iter_hebrew_fraction_word_matches(text),
+            lambda matches: check(matches, phrases),
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    assert_linear_growth(work(125), work(2_000), input_ratio=16)
+    # Keep the original 4,000-phrase case and its outputs, once and untimed.
+    _clear_numeric_extraction_caches()
+    check(
+        validator_pipeline._iter_hebrew_fraction_word_matches(
+            "המעביד ישלם חמישית משכרו; " * 4000
+        ),
+        4000,
+    )
 
 
 def test_a_prefixed_percent_noun_is_still_a_rate():
@@ -17334,20 +17615,30 @@ def test_a_percentage_is_shared_across_every_alternative():
 
 
 def test_a_long_run_of_conjoined_number_words_scans_in_linear_time():
-    import time
-
-    for tail in (" ישולם למבוטח", " שקלים", ""):
-        text = "תוספת 1" + " ואחד" * 26 + tail
-        started = time.perf_counter()
-        extract_numeric_occurrences_from_text(text)
-        assert time.perf_counter() - started < 1.0, (
-            tail,
-            time.perf_counter() - started,
+    def extract(text):
+        return lowest_work(
+            lambda: extract_numeric_occurrences_from_text(text),
+            lambda _values: None,
+            setup=_clear_numeric_extraction_caches,
         )
-    text = "לפי סעיפים 1, 2 או 3" + " ואחד" * 30 + " ישולם"
-    started = time.perf_counter()
-    extract_numeric_occurrences_from_text(text)
-    assert time.perf_counter() - started < 1.0
+
+    # The former ambiguous regex partitions these words exponentially. Check
+    # 8/16 first, where it still returns, before retaining the original deep
+    # examples; a regression must fail before reaching a case that can hang.
+    for tail in (" ישולם למבוטח", " שקלים", ""):
+        small = "תוספת 1" + " ואחד" * 8 + tail
+        large = "תוספת 1" + " ואחד" * 16 + tail
+        assert_linear_growth(extract(small), extract(large), input_ratio=2)
+        _clear_numeric_extraction_caches()
+        extract_numeric_occurrences_from_text("תוספת 1" + " ואחד" * 26 + tail)
+    prefix, tail = "לפי סעיפים 1, 2 או 3", " ישולם"
+    assert_linear_growth(
+        extract(prefix + " ואחד" * 8 + tail),
+        extract(prefix + " ואחד" * 16 + tail),
+        input_ratio=2,
+    )
+    _clear_numeric_extraction_caches()
+    extract_numeric_occurrences_from_text(prefix + " ואחד" * 30 + tail)
 
 
 def test_a_percentage_walk_back_stops_at_an_age_or_a_reference():
@@ -17391,20 +17682,34 @@ def test_a_monetary_fraction_before_a_temporal_phrase_is_a_fraction_in_any_wordi
 
 
 def test_a_long_run_of_compound_number_words_scans_in_linear_time():
-    import time
-
-    for text in (
-        "תוספת 1" + " ועשרים ואחד" * 40 + " ישולם למבוטח",
-        "תוספת 1" + " ועשרים ואחד" * 40 + " שקלים",
-        "תוספת אחת" + " ושתיים ושלוש" * 40,
-        "לפי סעיפים 1, 2 או 3" + " ואחד" * 60 + " ישולם",
-    ):
-        started = time.perf_counter()
-        extract_numeric_occurrences_from_text(text)
-        assert time.perf_counter() - started < 1.0, (
-            text[:40],
-            time.perf_counter() - started,
+    def work(text):
+        return lowest_work(
+            lambda: extract_numeric_occurrences_from_text(text),
+            lambda _values: None,
+            setup=_clear_numeric_extraction_caches,
         )
+
+    # Repartitioning a compound endpoint once backtracked exponentially.
+    # These shallow pairs finish even with that regression; test their growth
+    # before the original 40/60-deep examples can be reached.
+    cases = (
+        ("תוספת 1", " ועשרים ואחד", " ישולם למבוטח", 40),
+        ("תוספת 1", " ועשרים ואחד", " שקלים", 40),
+        ("תוספת אחת", " ושתיים ושלוש", "", 40),
+        ("לפי סעיפים 1, 2 או 3", " ואחד", " ישולם", 60),
+    )
+    # The historical regex spent minutes on one phrase at depth 12, so every
+    # phrase takes a short first step before any reaches that depth.
+    for small, large in ((2, 6), (4, 12)):
+        for prefix, phrase, tail, _deep in cases:
+            assert_linear_growth(
+                work(prefix + phrase * small + tail),
+                work(prefix + phrase * large + tail),
+                input_ratio=3,
+            )
+    for prefix, phrase, tail, deep in cases:
+        _clear_numeric_extraction_caches()
+        extract_numeric_occurrences_from_text(prefix + phrase * deep + tail)
 
 
 def test_a_percentage_walk_back_passes_a_supplement_and_stops_at_a_subsection():
@@ -18713,20 +19018,23 @@ def test_a_scaled_percentage_reads_whole_in_every_form(lead, remainder, unit, ta
 
 
 def test_the_scaled_percentage_continuation_scans_in_linear_time():
-    import time
+    # Rebuilding the document's token index before every percentage made this
+    # quadratic: 1,000, 2,000 and 4,000 phrases took 0.9, 3.3 and 14 seconds.
+    # Measure the whole pass, however the tokens are built.
+    unit = "השיעור הוא שלושת אלפים ו 200 אחוזים; "
 
-    from axiom_encode.harness.validator_pipeline import (
-        _iter_hebrew_percent_phrase_matches,
-    )
+    def work(phrases):
+        text = unit * phrases
+        return lowest_work(
+            lambda: validator_pipeline._iter_hebrew_percent_phrase_matches(text),
+            lambda _matches: None,
+            setup=_clear_numeric_extraction_caches,
+        )
 
-    # The continuation check once built the document's token index for
-    # every remainder: 1,000, 2,000 and 4,000 phrases took 0.9, 3.3 and
-    # 14 seconds. One index per pass now.
-    text = "השיעור הוא שלושת אלפים ו 200 אחוזים; " * 4000
-    started = time.perf_counter()
-    _iter_hebrew_percent_phrase_matches(text)
-    elapsed = time.perf_counter() - started
-    assert elapsed < 2.0, elapsed
+    assert_linear_growth(work(125), work(2_000), input_ratio=16)
+    # Keep the original 4,000-phrase fixture, once and untimed.
+    _clear_numeric_extraction_caches()
+    validator_pipeline._iter_hebrew_percent_phrase_matches(unit * 4000)
 
 
 def test_a_percent_sign_carries_its_fractional_tail_on_plain_counts():
@@ -18821,21 +19129,48 @@ def test_spelled_components_follow_a_printed_remainder():
         assert not ({3_100.0, 20.0} & extract_numbers_from_text(text)), text
 
 
+def _mixed_printed_scale_fixture(repeats):
+    unit = "הסכום הוא 3 מיליון; הסכום הוא 3 אלפים; "
+    expected = []
+    for index in range(repeats):
+        offset = index * len(unit)
+        for phrase, value in (("3 מיליון", 3_000_000.0), ("3 אלפים", 3_000.0)):
+            start = offset + unit.index(phrase)
+            expected.append(((start, start + len(phrase)), value, False))
+    return unit * repeats, expected
+
+
 def test_the_printed_scale_pass_scans_mixed_scales_in_linear_time():
-    import time
+    # Every printed part once scanned every spelled candidate and part span.
+    # Measure the whole pass, including native scans and index construction.
+    def printed_work(repeats, *, sample=True):
+        text, expected = _mixed_printed_scale_fixture(repeats)
 
-    from axiom_encode.harness.validator_pipeline import (
-        _iter_hebrew_printed_scale_matches,
-    )
+        def check(matches):
+            assert len(matches) == 2 * repeats
+            assert matches == expected
 
-    # Each printed part once scanned every spelled candidate and every part
-    # span: 400, 800 and 1,600 pairs took 0.5, 3.9 and 30 seconds.
-    text = "הסכום הוא 3 מיליון; הסכום הוא 3 אלפים; " * 1600
-    started = time.perf_counter()
-    matches = _iter_hebrew_printed_scale_matches(text)
-    elapsed = time.perf_counter() - started
-    assert len(matches) == 3200
-    assert elapsed < 2.0, elapsed
+        if not sample:
+            _clear_numeric_extraction_caches()
+            check(validator_pipeline._iter_hebrew_printed_scale_matches(text))
+            return None
+        return lowest_work(
+            lambda: validator_pipeline._iter_hebrew_printed_scale_matches(text),
+            check,
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    assert_linear_growth(printed_work(200), printed_work(3_200), input_ratio=16)
+    # Retain the original 3,200-result fixture once, outside the samples.
+    printed_work(1600, sample=False)
+
+
+@settings(max_examples=20, deadline=None)
+@given(repeats=st.integers(min_value=1, max_value=64))
+def test_printed_scale_pass_preserves_amounts_for_generated_lengths(repeats):
+    text, expected = _mixed_printed_scale_fixture(repeats)
+    _clear_numeric_extraction_caches()
+    assert validator_pipeline._iter_hebrew_printed_scale_matches(text) == expected
 
 
 def test_a_shared_scale_lower_endpoint_with_a_remainder_is_complete():
@@ -21547,39 +21882,101 @@ def test_a_conditional_long_list_shares_its_unit():
     assert len(group.members) == 69
 
 
-def test_the_range_passes_scan_thousands_of_members_and_clauses_in_linear_time():
-    import time
+@settings(max_examples=20, deadline=None)
+@given(
+    count=st.integers(min_value=2, max_value=128),
+    unit=st.sampled_from(("אחוזים", "מיליון שקלים")),
+)
+def test_range_member_lists_preserve_values_for_generated_lengths(count, unit):
+    heading = "השיעורים הם" if unit == "אחוזים" else "הסכומים הם"
+    expected = {
+        float(10 + index) / 100 if unit == "אחוזים" else float(10 + index) * 1_000_000.0
+        for index in range(count)
+    }
+    _clear_numeric_extraction_caches()
+    assert (
+        extract_numbers_from_text(_hebrew_member_list(count, heading, unit)) == expected
+    )
 
+
+def test_the_range_passes_scan_thousands_of_members_and_clauses_in_linear_time():
     from axiom_encode.harness.validator_pipeline import (
+        _hebrew_paragraph_and_heading_index,
         _iter_hebrew_percent_range_lower_matches,
     )
 
-    # Review round 145 on #1585: the walk back over a list learns the
-    # heading once, the paragraph and currency-heading scopes are indexed
-    # once per text and whitespace is trimmed in place, so a headed list of
-    # thousands of members and a text of hundreds of clauses cost their
-    # size. Before, 1,000, 2,000 and 4,000 members took 0.38, 1.44 and 5.71
-    # seconds, and 800 clauses 5.53 seconds.
-    timings = {}
-    for count in (1000, 4000):
-        for heading, unit in (
-            ("השיעורים הם", "אחוזים"),
-            ("הסכומים הם", "מיליון שקלים"),
-        ):
-            text = _hebrew_member_list(count, heading, unit)
-            started = time.perf_counter()
-            values = extract_numbers_from_text(text)
-            timings[(count, unit)] = time.perf_counter() - started
+    # The whole extraction must scale with list size, including native prefix
+    # copies and any traversal of spans reserved by previous members.
+    def members_work(count, heading, unit, *, sample=True):
+        text = _hebrew_member_list(count, heading, unit)
+        expected = {
+            float(10 + index) / 100
+            if unit == "אחוזים"
+            else float(10 + index) * 1_000_000.0
+            for index in range(count)
+        }
+
+        def check(values):
             assert len(values) == count, (count, unit, len(values))
-    for unit in ("אחוזים", "מיליון שקלים"):
-        assert timings[(4000, unit)] < 2.0, timings
-        assert timings[(4000, unit)] < 8 * max(timings[(1000, unit)], 0.02), timings
+            assert values == expected
+
+        if not sample:
+            _clear_numeric_extraction_caches()
+            check(extract_numbers_from_text(text))
+            return None
+        return lowest_work(
+            lambda: extract_numbers_from_text(text),
+            check,
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    for heading, unit in (
+        ("השיעורים הם", "אחוזים"),
+        ("הסכומים הם", "מיליון שקלים"),
+    ):
+        # A quadratic with a costly step, such as a span list rebuilt at each
+        # overlap check, runs for minutes at 8,000 members, so a short first
+        # step fails it within seconds.
+        assert_linear_growth(
+            members_work(125, heading, unit),
+            members_work(2_000, heading, unit),
+            input_ratio=16,
+        )
+        # A scan of every taken span costs ~1% of a member at 250 members;
+        # 32x more members lets that quadratic term clear the bound on CPU
+        # seconds without coverage, where 16x left it at the bound.
+        assert_linear_growth(
+            members_work(250, heading, unit),
+            members_work(8000, heading, unit),
+            input_ratio=32,
+        )
+        # Keep both original large output fixtures, once and untimed.
+        for count in (1000, 4000):
+            members_work(count, heading, unit, sample=False)
+
     clause = "הקנס יהיה 50 או 2 אחוזים מהמחזור, לפי הגבוה.\n"
-    started = time.perf_counter()
-    matches = _iter_hebrew_percent_range_lower_matches(clause * 800)
-    elapsed = time.perf_counter() - started
-    assert len(matches) == 800
-    assert elapsed < 1.0, elapsed
+
+    def clauses_work(count, *, sample=True):
+        text = clause * count
+
+        def check(matches):
+            assert len(matches) == count
+            # One index for the whole text, however many clauses read it.
+            assert _hebrew_paragraph_and_heading_index.cache_info().misses == 1
+
+        if not sample:
+            _clear_numeric_extraction_caches()
+            check(_iter_hebrew_percent_range_lower_matches(text))
+            return None
+        return lowest_work(
+            lambda: _iter_hebrew_percent_range_lower_matches(text),
+            check,
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    assert_linear_growth(clauses_work(50), clauses_work(800), input_ratio=16)
+    # Retain the original 200-clause count and cache-miss checks, untimed.
+    clauses_work(200, sample=False)
 
 
 def test_a_shared_unit_crosses_indentation_and_a_long_relative_clause():
@@ -23748,34 +24145,97 @@ def test_an_excerpt_quotes_a_paragraph_gap_as_a_paragraph_gap():
 
 
 def test_evidence_whitespace_collapses_in_linear_time():
-    # Gate round 5 on #1615: the paragraph-gap pattern scanned and backtracked
-    # from every position of a whitespace run that no paragraph gap followed
-    # (16,000 internal spaces took 1.6 s; 32,000 took 6.2 s). Each run is
-    # read once: a long run, a run that one line wrap opens, and a maqaf
-    # before a long run all collapse in a linear pass.
-    import time
+    from axiom_encode.harness import proof_validator as proof
 
-    from axiom_encode.harness.proof_validator import (
-        bind_maqaf_space,
-        collapse_evidence_whitespace,
-    )
-
-    for width in (16_000, 64_000):
-        for text, expected in (
+    def work(width, variant, *, sample=True):
+        text, expected = (
             ("A" + " " * width + "B", "A B"),
             ("A\n" + " " * width + "B", "A B"),
             ("A" + " \n" * width + "B", "A\n\nB"),
             ("A" + (" " * 100 + "\n") * (width // 100) + "B", "A\n\nB"),
-        ):
-            started = time.perf_counter()
-            assert collapse_evidence_whitespace(text) == expected
-            assert time.perf_counter() - started < 0.5, (width, len(text))
-        started = time.perf_counter()
-        assert bind_maqaf_space("ו־" + " " * width + "\n\nשלושה") == (
-            "ו־" + " " * width + "\n\nשלושה"
+        )[variant]
+        # Batch every form so its small sample clears the CPU floor.
+        repeats = 64 if variant < 2 else 16
+
+        def call():
+            return [proof.collapse_evidence_whitespace(text) for _ in range(repeats)]
+
+        def check(values):
+            assert values == [expected] * repeats
+
+        if not sample:
+            assert proof.collapse_evidence_whitespace(text) == expected
+            return None
+        return lowest_work(call, check)
+
+    for variant in range(4):
+        # The real old no-gap regex is quadratic on the first two forms:
+        # repeating 64000-space failures could hang the suite. Catch it on
+        # the finite pair first. The other forms retain their existing
+        # larger measured fixtures. A quadratic regex spends minutes on a
+        # large batch, so a short first step fails it within seconds.
+        steps = (
+            ((40, 640), (640, 10_240))
+            if variant < 2
+            else ((250, 4_000), (4_000, 64_000))
         )
-        assert bind_maqaf_space("ו־" + " " * width + "\nשלושה") == "ו־שלושה"
-        assert time.perf_counter() - started < 0.5, width
+        for small, large in steps:
+            assert_linear_growth(
+                work(small, variant), work(large, variant), input_ratio=16
+            )
+        # Preserve every original output fixture once, outside measurements.
+        work(16000, variant, sample=False)
+        work(64000, variant, sample=False)
+
+    def maqaf_work(width, *, sample=True):
+        gap = "ו־" + " " * width + "\n\nשלושה"
+        wrap = "ו־" + " " * width + "\nשלושה"
+
+        def call():
+            # Two pairs already retire millions of instructions at the small
+            # size, so repeated binding does not dominate the focused suite.
+            return [
+                (proof.bind_maqaf_space(gap), proof.bind_maqaf_space(wrap))
+                for _ in range(2)
+            ]
+
+        def check(values):
+            assert values == [(gap, "ו־שלושה")] * 2
+
+        if not sample:
+            assert proof.bind_maqaf_space(gap) == gap
+            assert proof.bind_maqaf_space(wrap) == "ו־שלושה"
+            return None
+        return lowest_work(call, check)
+
+    # A short first step fails a quadratic lookahead within seconds.
+    assert_linear_growth(maqaf_work(250), maqaf_work(4_000), input_ratio=16)
+    assert_linear_growth(maqaf_work(4000), maqaf_work(64000), input_ratio=16)
+    maqaf_work(16000, sample=False)
+    maqaf_work(64000, sample=False)
+
+
+def test_proof_excerpt_accepts_one_money_cell_before_the_next_currency_prefix():
+    from axiom_encode.harness.proof_validator import _source_contains_proof_evidence
+
+    # USDA's FY2026 COLA PDF flattens these adjacent table cells into one
+    # line. The next dollar sign is a prefix on a different amount, not a
+    # trailing currency suffix on the quoted amount.
+    source = (
+        "Maximum Excess Shelter Deductions $744 $1,189 $873 $1,003 "
+        "Maximum Asset Limits $4,500 $3,000"
+    )
+    for excerpt in ("$744", "$1,189", "$873", "$1,003", "$4,500"):
+        assert _source_contains_proof_evidence(
+            source_text=source, evidence_text=excerpt
+        )
+
+    # A true trailing marker remains part of the numeric token, as does a
+    # percentage suffix. Neither may be dropped by an excerpt.
+    for source, excerpt in (("744 $", "744"), ("744 %", "744")):
+        assert not _source_contains_proof_evidence(
+            source_text=source, evidence_text=excerpt
+        )
 
 
 def test_raw_percent_readers_read_wrap_space_after_a_maqaf_as_the_bound_readers_do():
@@ -24296,24 +24756,78 @@ def test_a_chain_of_spaced_maqafs_binds_as_one():
 
 
 def test_the_percentage_pass_scans_thousands_of_phrases_in_linear_time():
-    import time
+    # Rebuilding the document's token index before every percentage made this
+    # quadratic. Measure the whole pass, however the tokens are built.
+    unit = "בשיעור של חמישה אחוזים מההכנסה; "
 
-    from axiom_encode.harness.validator_pipeline import (
-        _iter_hebrew_percent_phrase_matches,
-    )
+    def check(matches, phrases):
+        assert len(matches) == phrases
+        assert all(abs(rate - 0.05) < 1e-12 for _span, rate in matches)
 
-    # Each spelled count used to retokenize everything before it: 1,000,
-    # 2,000 and 4,000 phrases took 0.23, 0.92 and 3.77 seconds. The text is
-    # tokenized once and only the run before each noun is walked.
-    text = "בשיעור של חמישה אחוזים מההכנסה; " * 4000
-    started = time.perf_counter()
-    matches = _iter_hebrew_percent_phrase_matches(text)
-    elapsed = time.perf_counter() - started
-    assert len(matches) == 4000
-    assert all(abs(rate - 0.05) < 1e-12 for _span, rate in matches)
-    # Keep enough headroom for shared hosted-runner variance while still
-    # rejecting the former quadratic implementation (about 3.77 seconds).
-    assert elapsed < 3.0, elapsed
+    def work(phrases):
+        text = unit * phrases
+        return lowest_work(
+            lambda: validator_pipeline._iter_hebrew_percent_phrase_matches(text),
+            lambda matches: check(matches, phrases),
+            setup=_clear_numeric_extraction_caches,
+        )
+
+    # A linear count in place of one bisect stays near the bound at 2,000
+    # phrases, so the large sample is the original 4,000-phrase fixture.
+    # Coverage still hides a native count here; the next test catches it.
+    assert_linear_growth(work(250), work(4_000), input_ratio=16)
+
+
+def test_the_hebrew_word_run_lookup_stays_linear_across_thousands_of_phrases(
+    monkeypatch,
+):
+    # Under coverage the pass above traces its Python work but not a native
+    # count, so a native linear count in place of the bisect stays under the
+    # bound there. Measured alone, with the arguments the percentage pass
+    # passes it, the run lookup has little Python work left to dilute the
+    # count, which then fails at 2,000 phrases in both modes. On a 4-vCPU
+    # Linux machine correct code grew 8-19 times plain and 14-17 times under
+    # coverage, and the native count 193-227 times. A refactor that stops
+    # calling the lookup fails the capture rather than passing.
+    unit = "בשיעור של חמישה אחוזים מההכנסה; "
+    original = validator_pipeline._hebrew_word_run_before
+
+    def arguments(phrases):
+        seen = []
+
+        def spy(text, end, *args, **kwargs):
+            run = original(text, end, *args, **kwargs)
+            seen.append(((text, end, *args), kwargs, [m.span() for m in run]))
+            return run
+
+        _clear_numeric_extraction_caches()
+        monkeypatch.setattr(validator_pipeline, "_hebrew_word_run_before", spy)
+        validator_pipeline._iter_hebrew_percent_phrase_matches(unit * phrases)
+        monkeypatch.undo()
+        # One lookup per phrase, each against the one token index.
+        assert len(seen) == phrases, (phrases, len(seen))
+        assert len({id(kwargs.get("tokens")) for _a, kwargs, _r in seen}) == 1
+        assert all(kwargs.get("tokens") is not None for _a, kwargs, _r in seen)
+        return seen
+
+    def work(phrases):
+        calls = arguments(phrases)
+
+        def check(runs):
+            assert [[m.span() for m in run] for run in runs] == [
+                spans for _a, _k, spans in calls
+            ]
+
+        return lowest_work(
+            lambda: [original(*args, **kwargs) for args, kwargs, _s in calls],
+            check,
+            setup=gc.collect,
+            # Under a millisecond per small sample: five runs make it likelier
+            # that one of them misses a slow spell on a shared host.
+            runs=5,
+        )
+
+    assert_linear_growth(work(125), work(2_000), input_ratio=16)
 
 
 def test_hebrew_number_words_join_the_recall_inventory():
@@ -26088,6 +26602,23 @@ def test_rulespec_proof_validator_checks_direct_source_evidence_text():
     assert result.issues == []
 
 
+def test_rulespec_proof_validator_accepts_adjacent_money_table_cells():
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", "$744")
+        .replace("$298", "$744")
+        .replace("formula: '298'", "formula: '744'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": "Shelter limits $744 $1,189"},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
 def test_rulespec_proof_validator_ignores_source_line_wrapping():
     content = _corpus_checked_proof_content()
 
@@ -26856,41 +27387,236 @@ def test_rulespec_proof_validator_keeps_parent_across_abbreviation_period():
     assert any("outside" in issue for issue in stale_result.issues)
 
 
-def test_rulespec_proof_parent_resolution_is_bounded_for_repeated_lists():
-    def resolve_repeated_lists(count: int) -> tuple[tuple[str, str] | None, float]:
-        source_text = " ".join("a. (1) Items: (a) Item." for _ in range(count))
+def test_rulespec_proof_parent_resolution_is_bounded_for_repeated_lists(monkeypatch):
+    from axiom_encode.harness import proof_validator
+
+    streams = 0
+    scanned_characters = 0
+    scan_limit = 0
+    newline_characters = 0
+    newline_limit = 0
+    copied_characters = 0
+
+    class CountedText(str):
+        def __getitem__(self, index):
+            nonlocal copied_characters
+            if isinstance(index, slice):
+                if index.indices(len(self)) == (0, len(self), 1):
+                    # A full slice of an exact str is that str: no copy.
+                    return self
+                copied_characters += len(range(*index.indices(len(self))))
+                assert copied_characters <= scan_limit, (
+                    "copied prefix characters",
+                    copied_characters,
+                    scan_limit,
+                )
+                return type(self)(super().__getitem__(index))
+            return super().__getitem__(index)
+
+        def rfind(self, needle, start=0, end=None):
+            nonlocal newline_characters
+            if needle == "\n":
+                # This fixture has no newline, so rfind scans the entire
+                # requested span inside C. Its existing quadratic work gets
+                # an explicit budget; this guard does not claim linearity.
+                stop = len(self) if end is None else end
+                begin, stop, _ = slice(start, stop).indices(len(self))
+                newline_characters += max(0, stop - begin)
+                assert newline_characters <= newline_limit, (
+                    "newline prefix characters",
+                    newline_characters,
+                    newline_limit,
+                )
+            return super().rfind(needle, start, len(self) if end is None else end)
+
+    def counted_finditer(pattern, text, pos=0, endpos=None):
+        nonlocal streams, scanned_characters
+        endpos = len(text) if endpos is None else min(endpos, len(text))
+        streams += 1
+        scanned_characters += max(0, endpos - pos)
+        # The resolver builds three ordered structural streams once. Count
+        # their actual scan spans: rebuilding prefix streams does its costly
+        # work inside C, beyond a Python predicate-call counter.
+        assert streams <= 3, streams
+        assert scanned_characters <= scan_limit, (scanned_characters, scan_limit)
+        return pattern.finditer(text, pos, endpos)
+
+    class CountedPattern:
+        def __init__(self, pattern):
+            self.pattern = pattern
+
+        def finditer(self, string, pos=0, endpos=None):
+            return counted_finditer(self.pattern, string, pos, endpos)
+
+        def __getattr__(self, name):
+            return getattr(self.pattern, name)
+
+    class CountedRegex:
+        def compile(self, pattern, *args, **kwargs):
+            return CountedPattern(re.compile(pattern, *args, **kwargs))
+
+        def finditer(self, pattern, text, flags=0):
+            return self.compile(pattern, flags).finditer(text)
+
+        def __getattr__(self, name):
+            return getattr(re, name)
+
+    monkeypatch.setattr(proof_validator, "re", CountedRegex())
+
+    def resolve_repeated_lists(count):
+        nonlocal streams, scanned_characters, scan_limit
+        nonlocal newline_characters, newline_limit
+        source_text = CountedText(
+            " ".join("a. (1) Items: (a) Item." for _ in range(count))
+        )
+        assert "\n" not in source_text
+        newline_limit = 2 * count * len(source_text)
         numeric_start = source_text.rfind("(1)")
-        started = monotonic()
-        result = _source_top_level_marker_for_numeric_parent(source_text, numeric_start)
-        return result, monotonic() - started
+        scan_limit = 3 * (source_text.find(")", numeric_start) + 1)
 
-    small_result, small_elapsed = resolve_repeated_lists(192)
-    large_result, large_elapsed = resolve_repeated_lists(768)
+        def setup():
+            nonlocal streams, scanned_characters, newline_characters
+            nonlocal copied_characters
+            gc.collect()
+            streams = scanned_characters = newline_characters = 0
+            copied_characters = 0
 
-    assert small_result == large_result == ("a", "dotted")
-    assert large_elapsed < 1.0
-    assert large_elapsed < max(small_elapsed * 16, 0.05)
+        def check(result):
+            assert result == ("a", "dotted")
+            # Upper bounds only: a pattern compiled at import, or a native
+            # str method, is equivalent code these meters do not see.
+            assert streams <= 3
+            assert scanned_characters <= scan_limit
+            assert newline_characters <= newline_limit
+
+        lowest_work(
+            lambda: _source_top_level_marker_for_numeric_parent(
+                source_text, numeric_start
+            ),
+            check,
+            setup=setup,
+        )
+
+    resolve_repeated_lists(192)
+    resolve_repeated_lists(768)
+
+
+def test_rulespec_proof_parent_resolution_grows_linearly_across_lines():
+    # On separate lines each newline lookup stops at the nearest line, so the
+    # whole resolution is linear here. A prefix scan by any route shows up,
+    # which the budgets on the single-line fixture above can't promise.
+    def work(count):
+        source_text = "\n".join("a. (1) Items: (a) Item." for _ in range(count))
+        numeric_start = source_text.rfind("(1)")
+
+        def check(result):
+            assert result == ("a", "dotted")
+
+        return lowest_work(
+            lambda: _source_top_level_marker_for_numeric_parent(
+                source_text, numeric_start
+            ),
+            check,
+            setup=gc.collect,
+        )
+
+    assert_linear_growth(work(192), work(3_072), input_ratio=16)
+
+
+def test_rulespec_proof_parent_resolution_stays_far_below_a_python_line_scan():
+    # On one long line, correct code's newline lookups scan each prefix in C,
+    # so the resolution is quadratic but cheap, and no growth bound tells
+    # that scan from a Python loop back to the line start. Compare instead
+    # with that loop itself at one marker in 64, measured in the same process:
+    # a resolver that runs it at every marker of one kind takes about 21 times
+    # the loop's steps here, whatever the machine. A native lookup's own cost
+    # moves with the platform, so it makes a poor yardstick: the same regression
+    # took 1,100-2,800 times the native lookups' work on Linux and 28-88 times
+    # on macOS.
+    source_text = " ".join("a. (1) Items: (a) Item." for _ in range(768))
+    assert "\n" not in source_text
+    numeric_start = source_text.rfind("(1)")
+    sampled_starts = [
+        match.start()
+        for match in re.compile(
+            r"(?<![A-Za-z])[a-z]\.(?=\s)|\([a-z]\)(?=\s)|\(\d+\)"
+        ).finditer(source_text, 0, numeric_start + 1)
+    ][::64]
+
+    def python_line_starts():
+        line_starts = []
+        for start in sampled_starts:
+            line_start = start - 1
+            while line_start >= 0 and source_text[line_start] != "\n":
+                line_start -= 1
+            line_starts.append(line_start)
+        return line_starts
+
+    def check_scan(line_starts):
+        assert line_starts == [-1] * len(sampled_starts)
+
+    def check(result):
+        assert result == ("a", "dotted")
+
+    python_scan = lowest_work(python_line_starts, check_scan, setup=gc.collect)
+    resolution = lowest_work(
+        lambda: _source_top_level_marker_for_numeric_parent(source_text, numeric_start),
+        check,
+        setup=gc.collect,
+    )
+    # The sampled scan stands in for the small sample: this allows the
+    # resolution 6 times its work, after the clock's floor, with one fresh pair.
+    assert_linear_growth(python_scan, resolution, input_ratio=2)
+
+
+def _reference_chain_source(count):
+    # A reference chain ends in "(c)(k)": after a letter marker, (k) would be
+    # a numeric paragraph and claim the following "(a)" as its child, unless
+    # the walk back over the whole chain finds "paragraph". The target's
+    # parent, ("a", "parenthesized"), depends on that walk: treating every
+    # marker as a reference returns None, and none as one returns ("b", ...).
+    source_text = (
+        "b. Rules: see paragraph "
+        + "".join(f"({index})" for index in range(1, count + 1))
+        + f"(c)({count + 1}): (a) First. ({count + 2}) Target."
+    )
+    return source_text, source_text.rfind(f"({count + 2})")
 
 
 def test_rulespec_proof_reference_chain_resolution_is_bounded():
-    def resolve_reference_chain(count: int) -> float:
-        source_text = "paragraph " + "".join(
-            f"({index})" for index in range(1, count + 1)
+    def check(result):
+        assert result == ("a", "parenthesized")
+
+    def work(count):
+        source_text, numeric_start = _reference_chain_source(count)
+
+        def check_batch(results):
+            for result in results:
+                check(result)
+
+        # Each resolver call builds a fresh local reference cache.
+        return lowest_work(
+            lambda: [
+                _source_top_level_marker_for_numeric_parent(source_text, numeric_start)
+                for _ in range(64)
+            ],
+            check_batch,
+            setup=gc.collect,
         )
-        numeric_start = source_text.rfind(f"({count})")
-        # Exclude heap debt left by preceding tests from the resolver measurement.
-        gc.collect()
-        started = monotonic()
-        result = _source_top_level_marker_for_numeric_parent(source_text, numeric_start)
-        elapsed = monotonic() - started
-        assert result is None
-        return elapsed
 
-    small_elapsed = resolve_reference_chain(800)
-    large_elapsed = resolve_reference_chain(3200)
+    assert_linear_growth(work(20), work(320), input_ratio=16)
+    for count in (800, 3_200):
+        check(
+            _source_top_level_marker_for_numeric_parent(*_reference_chain_source(count))
+        )
 
-    assert large_elapsed < 1.0
-    assert large_elapsed < max(small_elapsed * 10, 0.05)
+
+@settings(max_examples=20, deadline=None)
+@given(count=st.integers(min_value=1, max_value=64))
+def test_reference_chain_resolution_for_generated_lengths(count):
+    assert _source_top_level_marker_for_numeric_parent(
+        *_reference_chain_source(count)
+    ) == ("a", "parenthesized")
 
 
 def test_rulespec_proof_parent_resolution_supports_multi_digit_paragraphs():
@@ -31781,6 +32507,49 @@ rules:
 
     assert len(issues) == 1
     assert "disqualifying_condition" in issues[0]
+
+
+def test_test_input_assignment_lists_every_missing_fact_when_none_assigned():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: fact_one and fact_two and fact_three and fact_four and fact_five and fact_six and fact_seven and fact_eight and fact_nine
+"""
+    cases = [
+        {
+            "name": "no_facts",
+            "input": {"us:regulations/7-cfr/273/4#relation.person": [True]},
+            "output": {"us:regulations/7-cfr/273/4#eligible": "holds"},
+        }
+    ]
+
+    issues = find_test_input_assignment_issues(content, cases)
+
+    assert len(issues) == 1
+    assert "`no_facts` does not assign" in issues[0]
+    assert all(
+        f"#input.fact_{name}" in issues[0]
+        for name in (
+            "one",
+            "two",
+            "three",
+            "four",
+            "five",
+            "six",
+            "seven",
+            "eight",
+            "nine",
+        )
+    )
 
 
 def test_test_input_assignment_selects_formula_dependencies_by_case_period():
@@ -37115,10 +37884,7 @@ def test_extract_json_object_repairs_missing_terminal_object_brace():
     ]
 
 
-def test_rulespec_ci_executes_companion_test_outputs(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_executes_companion_test_outputs(real_engine, tmp_path):
     citation_path = "us/guidance/example/sua"
     release = _write_local_corpus_provision(
         tmp_path,
@@ -37163,7 +37929,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         local_corpus_release=release,
         enforce_repository_layout=False,
@@ -37504,6 +38270,104 @@ rules:
     assert dataset["inputs"][0]["name"] == input_key
 
 
+@pytest.mark.parametrize(
+    (
+        "slot_entities",
+        "query_entity",
+        "query_id",
+        "related_id",
+        "expected_tuple",
+        "related_entity",
+    ),
+    [
+        (
+            ("Payment", "Asset"),
+            "Payment",
+            "payment-1",
+            "asset-1",
+            ["payment-1", "asset-1"],
+            "Asset",
+        ),
+        (
+            ("Person", "TaxUnit"),
+            "TaxUnit",
+            "tax-1",
+            "person-1",
+            ["person-1", "tax-1"],
+            "Person",
+        ),
+        (
+            ("Person", "Person"),
+            "Person",
+            "person-2",
+            "person-1",
+            ["person-1", "person-2"],
+            "Person",
+        ),
+    ],
+)
+def test_rulespec_dataset_uses_compiled_relation_slot_order(
+    tmp_path,
+    slot_entities,
+    query_entity,
+    query_id,
+    related_id,
+    expected_tuple,
+    related_entity,
+):
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        enable_oracles=False,
+    )
+    relation_name = "related_item"
+    dataset = pipeline._build_rulespec_dataset(
+        {
+            relation_name: [
+                {
+                    "id": related_id,
+                    "qualifies": True,
+                }
+            ]
+        },
+        period={
+            "period_kind": "tax_year",
+            "start": "2026-01-01",
+            "end": "2026-12-31",
+        },
+        query_entity=query_entity,
+        query_entity_id=query_id,
+        require_legal_input_keys=False,
+        declared_relation_names={relation_name},
+        declared_relation_slots={relation_name: slot_entities},
+    )
+
+    assert dataset["relations"][0]["tuple"] == expected_tuple
+    assert dataset["inputs"][0]["entity"] == related_entity
+
+
+def test_rulespec_dataset_rejects_relation_without_query_entity(tmp_path):
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        enable_oracles=False,
+    )
+    with pytest.raises(ValueError, match="neither of which matches query entity"):
+        pipeline._build_rulespec_dataset(
+            {"related_item": [{"id": "asset-1"}]},
+            period={
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            query_entity="Household",
+            query_entity_id="household-1",
+            declared_relation_slots={"related_item": ("Payment", "Asset")},
+        )
+
+
 def test_rulespec_ci_rejects_computed_imported_outputs_as_inputs(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=_canonical_rulespec_content_root(tmp_path / "repos", "us"),
@@ -37551,10 +38415,7 @@ def test_rulespec_ci_rejects_computed_imported_outputs_as_inputs(tmp_path):
     ]
 
 
-def test_rulespec_ci_executes_relation_list_inputs(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_executes_relation_list_inputs(real_engine, tmp_path):
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
@@ -37565,6 +38426,7 @@ rules:
     kind: data_relation
     data_relation:
       arity: 2
+      arguments: [Person, Household]
   - name: household_size
     kind: derived
     entity: Household
@@ -37589,7 +38451,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -37597,10 +38459,7 @@ rules:
     assert pipeline._run_ci(rules_file).passed is True
 
 
-def test_rulespec_ci_executes_table_entity_list_outputs(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_executes_table_entity_list_outputs(real_engine, tmp_path):
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
@@ -37638,7 +38497,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -37646,10 +38505,9 @@ rules:
     assert pipeline._run_ci(rules_file).passed is True
 
 
-def test_rulespec_ci_compares_parameter_only_outputs(tmp_path, monkeypatch):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_compares_parameter_only_outputs(
+    real_engine, tmp_path, monkeypatch
+):
     _mock_corpus_source_text(
         monkeypatch, "The official source states the policy rate is 0.2."
     )
@@ -37684,7 +38542,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -37692,10 +38550,9 @@ rules:
     assert pipeline._run_ci(rules_file).passed is True
 
 
-def test_rulespec_ci_executes_indexed_parameter_table_lookup(tmp_path, monkeypatch):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_executes_indexed_parameter_table_lookup(
+    real_engine, tmp_path, monkeypatch
+):
     _mock_corpus_source_text(
         monkeypatch,
         "The official source lists $298 and $546 for sizes 1 and 2, plus $218.",
@@ -37754,7 +38611,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -37762,10 +38619,9 @@ rules:
     assert pipeline._run_ci(rules_file).passed is True
 
 
-def test_rulespec_ci_compares_indexed_parameter_outputs(tmp_path, monkeypatch):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_compares_indexed_parameter_outputs(
+    real_engine, tmp_path, monkeypatch
+):
     _mock_corpus_source_text(
         monkeypatch,
         "The official source lists $298 and $546 for household sizes 1 and 2.",
@@ -37803,7 +38659,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -37964,10 +38820,9 @@ rules:
     assert load_count == 2
 
 
-def test_rulespec_ci_rejects_scale_tables_encoded_as_match_literals(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_rejects_scale_tables_encoded_as_match_literals(
+    real_engine, tmp_path
+):
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
@@ -38001,7 +38856,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
     )
     result = pipeline._run_ci(rules_file)
@@ -38013,10 +38868,7 @@ rules:
     )
 
 
-def test_rulespec_ci_rejects_parameter_values_without_indexed_by(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_rejects_parameter_values_without_indexed_by(real_engine, tmp_path):
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
@@ -38042,7 +38894,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
     )
     result = pipeline._run_ci(rules_file)
@@ -40024,6 +40876,199 @@ def test_validator_pipeline_resolves_direct_proof_sources_from_authoritative_cor
 
     assert source_texts == {citation_path: "The official amount is $298."}
     assert find_rulespec_proof_issues(content, source_texts=source_texts) == []
+
+
+def _interpretation_pipeline_content(*, excerpt="The official amount is $298."):
+    payload = yaml.safe_load(_corpus_checked_proof_content())
+    payload["module"].pop("proof_validation", None)
+    payload["module"]["interpretations"] = [
+        {
+            "id": "official-amount-reading",
+            "question": "Which amount applies?",
+            "texts": [
+                {
+                    "corpus_citation_path": "us/guidance/example/page-1",
+                    "excerpt": excerpt,
+                }
+            ],
+            "reading": "The stated official amount applies.",
+            "alternatives": [
+                {"id": "different-amount", "reading": "A different amount applies."}
+            ],
+            "basis": "The source states the official amount.",
+            "status": "open",
+            "affects": [payload["rules"][0]["name"]],
+        }
+    ]
+    return yaml.safe_dump(payload)
+
+
+def test_validator_pipeline_resolves_interpretations_without_numeric_coverage(
+    tmp_path,
+):
+    citation_path = "us/guidance/example/page-1"
+    body = "The official amount is $298."
+    corpus_root = tmp_path / "axiom-corpus"
+    provisions = corpus_root / "data/corpus/provisions/us/guidance"
+    provisions.mkdir(parents=True)
+    (provisions / "example.jsonl").write_text(
+        json.dumps(_active_corpus_record(citation_path, body, version="example")) + "\n"
+    )
+    release = _test_corpus_release(corpus_root, ("us", "guidance", "example"))
+    payload = yaml.safe_load(_interpretation_pipeline_content())
+    payload["rules"][0].pop("metadata", None)
+    content = yaml.safe_dump(payload)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        local_corpus_release=release,
+    )
+
+    with validator_pipeline._authoritative_corpus_scope(release):
+        proof_sources = pipeline._proof_source_texts_for_rulespec_content(
+            content, source_texts=None
+        )
+        numeric_sources = pipeline._numeric_source_texts_for_rulespec_content(
+            content, source_texts=None
+        )
+
+    assert proof_sources == {citation_path: body}
+    assert numeric_sources == {}
+    optional = validate_rulespec_proofs(content, source_texts=proof_sources)
+    strict = validate_rulespec_proofs(
+        content, source_texts=proof_sources, require_policy_proofs=True
+    )
+    assert optional.passed
+    assert optional.atoms_checked == strict.atoms_checked == 0
+    assert not strict.passed
+    assert any("Proof missing" in issue for issue in strict.issues)
+
+
+@pytest.mark.parametrize("require_policy_proofs", [False, True])
+def test_rulespec_ci_blocks_invalid_interpretation_excerpt_without_engine_support(
+    tmp_path, monkeypatch, require_policy_proofs
+):
+    rulespec_file = tmp_path / "rulespec-us/statutes/example.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(
+        _interpretation_pipeline_content(excerpt="A fabricated official amount.")
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        require_policy_proofs=require_policy_proofs,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_compile_rulespec_to_artifact",
+        lambda *_args: (
+            subprocess.CompletedProcess(["axiom-rules-engine"], 0, "", ""),
+            {"program": {"parameters": [], "derived": [], "relations": []}},
+        ),
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_corpus_proof_evidence_text",
+        lambda _citation: "The official amount is $298.",
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_corpus_source_text",
+        lambda _citation: "The official amount is $298.",
+    )
+
+    result = pipeline._run_rulespec_ci(rulespec_file)
+
+    assert not result.passed
+    assert any(
+        "official-amount-reading" in issue
+        and ".texts[0]" in issue
+        and "does not appear" in issue
+        for issue in result.issues
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "original"),
+    [
+        ("question", "1e5", "Which amount applies?"),
+        ("basis", "-0o17", "The source states the official amount."),
+        ("effect", "+.5", "A different amount applies."),
+        ("reading", "2e10", "The stated official amount applies."),
+    ],
+)
+@pytest.mark.parametrize("style", ["plain", "quoted", "explicit-string-tag"])
+def test_rulespec_ci_checks_raw_numeric_interpretation_strings_without_engine_support(
+    tmp_path, monkeypatch, field, value, original, style
+):
+    scalar = {
+        "plain": value,
+        "quoted": f"'{value}'",
+        "explicit-string-tag": f"!!str {value}",
+    }[style]
+    content = _interpretation_pipeline_content()
+    if field == "effect":
+        line = next(
+            line
+            for line in content.splitlines()
+            if line.strip() == f"reading: {original}"
+        )
+        indent = line[: len(line) - len(line.lstrip())]
+        content = content.replace(line, f"{line}\n{indent}effect: {scalar}")
+    else:
+        old = f"{field}: {original}"
+        assert old in content
+        content = content.replace(old, f"{field}: {scalar}", 1)
+    # Keep the replacement raw: safe_dump would remove some protective quoting.
+    rulespec_file = tmp_path / "rulespec-us/statutes/example.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(content)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        require_policy_proofs=False,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_compile_rulespec_to_artifact",
+        lambda *_args: (
+            subprocess.CompletedProcess(["axiom-rules-engine"], 0, "", ""),
+            {"program": {"parameters": [], "derived": [], "relations": []}},
+        ),
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_corpus_proof_evidence_text",
+        lambda _citation: "The official amount is $298.",
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_corpus_source_text",
+        lambda _citation: "The official amount is $298.",
+    )
+
+    result = pipeline._run_rulespec_ci(rulespec_file)
+
+    interpretation_issues = [
+        issue for issue in result.issues if "module.interpretations" in issue
+    ]
+    if style == "plain":
+        assert not result.passed
+        assert len(interpretation_issues) == 1
+        location = (
+            "module.interpretations[0].alternatives[0].effect"
+            if field == "effect"
+            else f"module.interpretations[0].{field}"
+        )
+        assert (
+            f"{location} must be a quoted string when YAML reads this scalar as a number."
+            in interpretation_issues[0]
+        )
+    else:
+        assert interpretation_issues == []
 
 
 def test_validator_pipeline_fails_closed_for_invalid_generated_proof_citation(
@@ -42520,6 +43565,34 @@ rules:
     assert find_source_scope_consistency_issues(content) == []
 
 
+def test_source_scope_consistency_does_not_treat_person_living_with_the_household_as_unit():
+    content = """format: rulespec/v1
+module:
+  summary: The household may designate a responsible person as its head.
+rules:
+  - name: person_is_head_of_household
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              excerpt: |-
+                If the only responsible person living with the household is
+                an ineligible member or a disqualified member, this individual
+                shall be designated as head of the household.
+    versions:
+      - effective_from: '2026-01-01'
+        formula: person_is_only_responsible_member_in_household
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
 def test_source_scope_consistency_recognizes_state_manual_person_wording():
     content = """format: rulespec/v1
 module:
@@ -44619,7 +45692,9 @@ rules: []
     )
 
 
-def test_source_subparagraph_coverage_allows_repealed_empty_slice(tmp_path):
+def test_source_subparagraph_coverage_requires_reviewed_evidence_for_repealed_empty_slice(
+    tmp_path,
+):
     source_text = """Wages
 (a) Wages means all remuneration for employment.
 """
@@ -44634,14 +45709,24 @@ rules: []
 """
     rules_file = tmp_path / "rulespec-us" / "statutes" / "26" / "3121" / "a" / "3.yaml"
 
-    assert (
-        find_source_subparagraph_coverage_issues(
-            content,
-            rules_file=rules_file,
-            source_texts={"us/statute/26/3121": source_text},
-        )
-        == []
+    issues = find_source_subparagraph_coverage_issues(
+        content,
+        rules_file=rules_file,
+        source_texts={"us/statute/26/3121": source_text},
     )
+    assert len(issues) == 1
+    assert "26 USC 3121(a)" in issues[0]
+
+    # Matching source text is still insufficient without a reviewed tombstone
+    # entry or the exact requested corpus row's authoritative repealed status.
+    source_text += "(3) Repealed.\n(b) Employment details.\n"
+    issues = find_source_subparagraph_coverage_issues(
+        content,
+        rules_file=rules_file,
+        source_texts={"us/statute/26/3121": source_text},
+    )
+    assert len(issues) == 1
+    assert "26 USC 3121(a)" in issues[0]
 
 
 def test_source_subparagraph_coverage_allows_rule_citing_child():
@@ -46982,7 +48067,7 @@ rules:
     assert "sum(member_of_tax_unit, ...)" in issues[0]
 
 
-def test_relation_aggregate_syntax_rejects_sum_of_local_derived_relation_field():
+def test_relation_aggregate_syntax_accepts_sum_of_local_derived_relation_field():
     content = """format: rulespec/v1
 rules:
   - name: capital_asset_of_tax_unit
@@ -47013,9 +48098,7 @@ rules:
 
     issues = find_relation_aggregate_syntax_issues(content)
 
-    assert any("local executable output" in issue for issue in issues)
-    assert "sum(capital_asset_of_tax_unit.short_term_capital_gain)" in issues[0]
-    assert "sum_where(capital_asset_of_tax_unit, short_term_capital_gain" in issues[0]
+    assert issues == []
 
 
 def test_relation_aggregate_syntax_accepts_sum_of_relation_row_fact():
@@ -48974,10 +50057,7 @@ rules:
     assert any("snap_maximum_allotment_table[2]" in issue for issue in issues)
 
 
-def test_rulespec_ci_accepts_source_relation_without_tests(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_accepts_source_relation_without_tests(real_engine, tmp_path):
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
@@ -48994,7 +50074,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -49002,10 +50082,9 @@ rules:
     assert pipeline._run_ci(rules_file).passed is True
 
 
-def test_rulespec_ci_verifies_source_relation_values_against_target(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_verifies_source_relation_values_against_target(
+    real_engine, tmp_path
+):
     us_root = _canonical_rulespec_content_root(tmp_path, "us")
     target_file = us_root / "policies/usda/snap/fy-2026-cola.yaml"
     target_file.parent.mkdir(parents=True)
@@ -49064,7 +50143,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=co_root,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         rulespec_dependency_roots=(us_root.parent,),
     )
@@ -49072,10 +50151,9 @@ rules:
     assert pipeline._run_ci(rules_file).passed is True
 
 
-def test_rulespec_ci_verifies_source_relation_values_from_target_imports(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_verifies_source_relation_values_from_target_imports(
+    real_engine, tmp_path
+):
     us_root = _canonical_rulespec_content_root(tmp_path, "us")
     child_file = us_root / "statutes/7/2014/e/2/B.yaml"
     child_file.parent.mkdir(parents=True)
@@ -49128,7 +50206,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=co_root,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         rulespec_dependency_roots=(us_root.parent,),
     )
@@ -49136,10 +50214,7 @@ rules:
     assert pipeline._run_ci(rules_file).passed is True
 
 
-def test_rulespec_ci_rejects_source_relation_value_mismatch(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_rejects_source_relation_value_mismatch(real_engine, tmp_path):
     us_root = _canonical_rulespec_content_root(tmp_path, "us")
     target_file = us_root / "policies/usda/snap/fy-2026-cola.yaml"
     target_file.parent.mkdir(parents=True)
@@ -49190,7 +50265,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=co_root,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         rulespec_dependency_roots=(us_root.parent,),
     )
@@ -49204,10 +50279,7 @@ rules:
     )
 
 
-def test_rulespec_ci_rejects_source_relation_without_target(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_rejects_source_relation_without_target(real_engine, tmp_path):
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
@@ -49223,7 +50295,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
     )
     result = pipeline._run_ci(rules_file)
@@ -49347,10 +50419,9 @@ rules:
     )
 
 
-def test_rulespec_ci_rejects_delegated_policy_setting_without_sets_relation(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_rejects_delegated_policy_setting_without_sets_relation(
+    real_engine, tmp_path
+):
     repo_root = tmp_path / "rulespec-us"
     rules_file = repo_root / "us-co" / "regulations" / "10-ccr-2506-1" / "4.407.31.yaml"
     rules_file.parent.mkdir(parents=True)
@@ -49381,7 +50452,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=repo_root / "us-co",
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
     )
     result = pipeline._run_ci(rules_file)
@@ -49451,10 +50522,7 @@ rules:
     assert find_delegated_policy_setting_issues(content, rules_file=rules_file) == []
 
 
-def test_rulespec_ci_rejects_scalar_kind_mismatches(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_rejects_scalar_kind_mismatches(real_engine, tmp_path):
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
@@ -49491,7 +50559,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -49522,10 +50590,7 @@ rules:
     )
 
 
-def test_rulespec_ci_accepts_holds_for_boolean_scalar_outputs(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_accepts_holds_for_boolean_scalar_outputs(real_engine, tmp_path):
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
@@ -49555,7 +50620,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -49564,10 +50629,7 @@ rules:
     assert result.passed is True
 
 
-def test_rulespec_ci_rejects_malformed_period_mapping(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_rejects_malformed_period_mapping(real_engine, tmp_path):
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
@@ -49596,7 +50658,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -49608,10 +50670,7 @@ rules:
     )
 
 
-def test_rulespec_ci_rejects_bare_year_periods(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_rejects_bare_year_periods(real_engine, tmp_path):
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
     rules_file.write_text(
         """format: rulespec/v1
@@ -49639,7 +50698,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -49704,11 +50763,8 @@ def test_coerce_rulespec_period_rejects_engine_invalid_year_kind(tmp_path):
 
 
 def test_rulespec_ci_rejects_ungrounded_generated_numeric_literal(
-    tmp_path, monkeypatch
+    real_engine, tmp_path, monkeypatch
 ):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
     _mock_corpus_source_text(
         monkeypatch,
         "The official source states the standard utility allowance is $451.",
@@ -49744,7 +50800,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
     )
 
@@ -49757,10 +50813,9 @@ rules:
     )
 
 
-def test_rulespec_ci_accepts_unicode_fraction_percentage_rate(tmp_path, monkeypatch):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
-        pytest.skip("local axiom-rules-engine binary is not built")
-
+def test_rulespec_ci_accepts_unicode_fraction_percentage_rate(
+    real_engine, tmp_path, monkeypatch
+):
     _mock_corpus_source_text(
         monkeypatch,
         "The applicable income limitation is equivalent to 133⅓ percent of "
@@ -49795,7 +50850,7 @@ rules:
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=AXIOM_RULES_PATH,
+        axiom_rules_path=real_engine.root,
         enable_oracles=False,
         enforce_repository_layout=False,
     )
@@ -52493,6 +53548,32 @@ def test_numeric_inventory_does_not_sum_flattened_child_count_columns():
     # turn adjacent labels into an invented substantive amount.
     assert 6 not in values
     assert 6 not in extract_numbers_from_text(source)
+
+
+def test_flattened_numeric_table_heading_keeps_values_not_row_keys():
+    source = "Table 1: Income limits, size 1 100 size 2 200"
+    occurrences = extract_typed_numeric_inventory_occurrences_from_text(
+        source, profile="en-US"
+    )
+    assert [occurrence.value for occurrence in occurrences] == [100, 200]
+    assert [source[item.start : item.end] for item in occurrences] == ["100", "200"]
+
+
+def test_standalone_table_heading_remains_structural():
+    source = "Table 3: Income limits for 2026"
+    assert not extract_typed_numeric_inventory_occurrences_from_text(
+        source, profile="en-US"
+    )
+
+
+def test_flattened_size_rewrite_does_not_apply_to_prose_or_unlabeled_grid():
+    for source in (
+        "Household size 1 100 people qualify",
+        "Table 1: Income limits 1 100 2 200",
+    ):
+        assert not extract_typed_numeric_inventory_occurrences_from_text(
+            source, profile="en-US"
+        )
 
 
 @pytest.mark.parametrize("row_ordered", [False, True])

@@ -1,0 +1,1445 @@
+format: rulespec/v1
+module:
+  summary: "\u201CUse this form to calculate the foreign non-business income tax credit\n\
+    for 2025 that you can deduct from the income tax payable to the province\nor territory\
+    \ you resided in at the end of the tax year.\u201D The calculation\nuses T2036\
+    \ lines 1 through 5 and the minimum-tax, net-income, and\ntax-otherwise-payable\
+    \ instructions."
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+    source_sha256: 7637ab494fc385b938e9e3ce4d5f3b1af8bc331ad644fe3cedefaee8434028ee
+rules:
+- name: net_income_for_part_year_resident
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: CRA Form T2036 2025 note (3), part-year residence
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'If you were a resident of Canada for part of the year, include
+            the income for the part of the year you were a resident of
+
+            Canada plus any income and losses referred to in paragraphs 115(1)(a)
+            to (c) of the Income Tax Act as reported on your
+
+            Canadian tax return, for the part of the year you were not a resident
+            of Canada.'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'if resident_of_canada_for_part_of_year: income_for_part_of_year_resident_in_canada
+      + income_and_losses_under_paragraphs_115_1_a_to_c_for_nonresident_part else:
+      0'
+    effective_to: '2025-12-31'
+- name: net_income_for_multiple_jurisdictions
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: CRA Form T2036 2025 note (3), multiple-jurisdiction substitution
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'If you paid tax to more than one jurisdiction in 2025, calculate
+            this amount according to note (3) of Form T2209. However,
+
+            instead of using "line 23600 of your return plus the amount on line 68360
+            of Form T1206" as stated in that note, use the
+
+            amount allocated to your province or territory of residence in column
+            4 of Part 1 of Form T2203 to do the calculation.'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/federal-foreign-tax-credits
+          excerpt: '(3) Net income
+
+            Amount from line 23600 of your return (or the amount you would have entered
+            if the instructions said "if negative, show in
+
+            brackets") plus the amount on line 68360 of Form T1206, Total split income,
+            minus any:
+
+            (cid:129) amount deductible as a Canadian Forces personnel and police
+            deduction (line 24400 of your return)
+
+            (cid:129) amount deductible as security options deductions (line 24900
+            of your return)
+
+            (cid:129) amount deductible as an other payments deduction (line 25000
+            of your return)
+
+            (cid:129) net capital losses of other years you claimed (line 25300 of
+            your return)
+
+            (cid:129) capital gains deduction for qualifying business transfer or
+            qualifying cooperative conversion you claimed (line 25395 of
+
+            your return)
+
+            (cid:129) capital gains deduction you claimed (line 25400 of your return)
+
+            (cid:129) amounts deductible as net employment income from a prescribed
+            international organization, as foreign income exempt
+
+            under a tax treaty, or as adult basic education tuition assistance (included
+            on line 25600 of your return)'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'if jurisdictions_tax_paid_count > multiple_foreign_country_count_threshold:
+      amount_allocated_to_province_or_territory_of_residence_t2203_part_1_column_4
+      - deductible_canadian_forces_police_24400 - deductible_security_options_24900
+      - deductible_other_payments_25000 - claimed_net_capital_losses_25300 - claimed_qualifying_transfer_capital_gains_25395
+      - claimed_capital_gains_25400 - deductible_prescribed_organization_employment_25600
+      - deductible_treaty_exempt_foreign_income_25600 - deductible_adult_basic_education_tuition_25600
+      else: 0'
+    effective_to: '2025-12-31'
+- name: t2036_net_income_for_credit
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: CRA Form T2036 2025 note (3), net income
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Enter the amount reported as net income from line 2 of Form T2209.
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'If you were a resident of Canada for part of the year, include
+            the income for the part of the year you were a resident of
+
+            Canada plus any income and losses referred to in paragraphs 115(1)(a)
+            to (c) of the Income Tax Act as reported on your
+
+            Canadian tax return, for the part of the year you were not a resident
+            of Canada.'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'If you paid tax to more than one jurisdiction in 2025, calculate
+            this amount according to note (3) of Form T2209. However,
+
+            instead of using "line 23600 of your return plus the amount on line 68360
+            of Form T1206" as stated in that note, use the
+
+            amount allocated to your province or territory of residence in column
+            4 of Part 1 of Form T2203 to do the calculation.'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: "if (jurisdictions_tax_paid_count > multiple_foreign_country_count_threshold):\n\
+      \  net_income_for_multiple_jurisdictions\nelse:\n  if resident_of_canada_for_part_of_year:\n\
+      \    net_income_for_part_year_resident\n  else:\n    t2209_net_income_line_2"
+    effective_to: '2025-12-31'
+- name: ontario_minimum_tax_single_country_line_1_amount
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: CRA Form T2036 2025 note (1), Ontario, $200 or less, step 1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Take the amount from line 1 of this form.
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: provincial_territorial_2025_t2036_foreign_non_business_tax_line_1
+    effective_to: '2025-12-31'
+- name: ontario_minimum_tax_single_country_denominator
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: CRA Form T2036 2025 note (1), Ontario, $200 or less, step 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: '2. Divide it by the sum of line 1 of this form and the amount
+            on line 8 of Part 4 of Form T691, Alternative
+
+            Minimum Tax.'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'ontario_minimum_tax_single_country_line_1_amount
+
+      + t691_foreign_taxes_line_8_part_4'
+    effective_to: '2025-12-31'
+- name: ontario_minimum_tax_single_country_ratio
+  kind: derived
+  entity: Person
+  dtype: Decimal
+  period: Year
+  source: CRA Form T2036 2025 note (1), Ontario, $200 or less, step 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: '2. Divide it by the sum of line 1 of this form and the amount
+            on line 8 of Part 4 of Form T691, Alternative
+
+            Minimum Tax.'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'ontario_minimum_tax_single_country_line_1_amount
+
+      / ontario_minimum_tax_single_country_denominator'
+    effective_to: '2025-12-31'
+- name: ontario_minimum_tax_single_country_special_credit
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: CRA Form T2036 2025 note (1), Ontario, $200 or less, steps 3 and 4
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: '3. Multiply that result by the special foreign tax credit on line
+            11 of Part 4 of Form T691.
+
+            4. Enter the result on line 2.'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 3. Multiply that result by the special foreign tax credit on line
+            11 of Part 4 of Form T691.
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'ontario_minimum_tax_single_country_ratio
+
+      * t691_special_foreign_tax_credit_line_11_part_4'
+    effective_to: '2025-12-31'
+- name: ontario_minimum_tax_country_line_1_amount
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: CRA Form T2036 2025 note (1), Ontario, more than $200, step 1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Take the amount from line 1 of this form for that country.
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: provincial_territorial_2025_t2036_foreign_non_business_tax_line_1
+    effective_to: '2025-12-31'
+- name: ontario_minimum_tax_total_foreign_taxes
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: CRA Form T2036 2025 note (1), Ontario, more than $200, step 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: '2. Divide it by the total foreign taxes paid for 2025 (to get
+            this total, add the amount on line 7 of Part 4 of
+
+            Form T691, Alternative Minimum Tax, divided by 66.6666% and the amount
+            on line 8 of Part 4 of Form T691).'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 't691_foreign_taxes_line_7_part_4
+
+      / t691_non_business_foreign_tax_rate
+
+      + t691_foreign_taxes_line_8_part_4'
+    effective_to: '2025-12-31'
+- name: ontario_minimum_tax_country_ratio
+  kind: derived
+  entity: Person
+  dtype: Decimal
+  period: Year
+  source: CRA Form T2036 2025 note (1), Ontario, more than $200, step 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: '2. Divide it by the total foreign taxes paid for 2025 (to get
+            this total, add the amount on line 7 of Part 4 of
+
+            Form T691, Alternative Minimum Tax, divided by 66.6666% and the amount
+            on line 8 of Part 4 of Form T691).'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'ontario_minimum_tax_country_line_1_amount
+
+      / ontario_minimum_tax_total_foreign_taxes'
+    effective_to: '2025-12-31'
+- name: ontario_minimum_tax_country_special_credit
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: CRA Form T2036 2025 note (1), Ontario, more than $200, steps 3 and 4
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: '3. Multiply that result by the special foreign tax credit on line
+            11 of Part 4 of Form T691.
+
+            4. Enter the result on line 2 of the sheet for that country.'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 3. Multiply that result by the special foreign tax credit on line
+            11 of Part 4 of Form T691.
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'ontario_minimum_tax_country_ratio
+
+      * t691_special_foreign_tax_credit_line_11_part_4'
+    effective_to: '2025-12-31'
+- name: provincial_territorial_2025_t2036_federal_credit_line_2
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: CRA Form T2036 2025 line 2 and note (1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: '(1) If you must pay minimum tax, follow the instructions below:
+
+            (cid:129) If you were a resident of British Columbia at the end of the
+            year, enter the amount from line 3 of Form T2209 on line 2.'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: "(cid:129) If you were a resident of Ontario at the end of the\
+            \ year, follow the instructions that apply to your situation:\n\u2013\
+            \ If the total non-business income taxes you paid to all foreign countries\
+            \ is $200 or less:"
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: "\u2013 If the total non-business income taxes you paid to all\
+            \ foreign countries is more than $200, you must calculate for\neach country:"
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: '(cid:129) If you were a resident of another province or territory
+            at the end of the year, enter the part of special foreign tax credit
+
+            (line 11 of Part 4 of Form T691) that relates to non-business income taxes
+            you paid to a foreign country for 2025 on
+
+            line 2.'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - kind: formula
+        path: versions[0].formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Enter the amount from line 3 of Form T2209, unless you have to
+            pay minimum tax.(1)
+  versions:
+  - effective_from: '2025-01-01'
+    formula: "if not minimum_tax_is_payable:\n  t2209_federal_non_business_foreign_tax_credit_line_3\n\
+      else:\n  if resident_of_british_columbia_at_year_end:\n    t2209_federal_non_business_foreign_tax_credit_line_3\n\
+      \  else:\n    if resident_of_ontario_at_year_end:\n      if total_non_business_income_taxes_paid_to_all_foreign_countries\
+      \ <= t2036_foreign_tax_threshold:\n        ontario_minimum_tax_single_country_special_credit\n\
+      \      else:\n        ontario_minimum_tax_country_special_credit\n    else:\n\
+      \      special_foreign_tax_credit_related_to_non_business_income"
+    effective_to: '2025-12-31'
+- name: provincial_territorial_2025_t2036_tax_otherwise_payable_line_4
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: CRA Form T2036 2025 line 4 and notes (2) to (4)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: "Net foreign\nnon-business income (2) Provincial or territorial\n\
+            \xD7 = 4\nNet income (3) tax otherwise payable (4)"
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Enter the amount reported as net foreign non-business income from
+            line 2 of Form T2209.
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: "(\n  t2209_net_foreign_non_business_income_line_2\n  / t2036_net_income_for_credit\n\
+      )\n* provincial_or_territorial_tax_otherwise_payable"
+    effective_to: '2025-12-31'
+- name: provincial_territorial_foreign_tax_credit_line_5
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: CRA Form T2036 2025 line 5 and applicability instructions
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: "Enter the amount from line 1 of Form T2209. 1\nEnter the amount\
+            \ from line 3 of Form T2209, unless you have to pay minimum tax.(1) \u2013\
+            \ 2\nLine 1 minus line 2 = 3\nNet foreign\nnon-business income (2) Provincial\
+            \ or territorial\n\xD7 = 4\nNet income (3) tax otherwise payable (4)\n\
+            Enter whichever amount is less: line 3 or line 4.\nThe amount on line\
+            \ 5 should not be more than the amount entered Provincial or territorial\n\
+            on the line for provincial or territorial tax otherwise payable. foreign\
+            \ tax credit 5"
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'Before you complete this form, calculate your federal foreign
+            tax credit by using Form T2209, Federal Foreign Tax Credits. If
+
+            the amount of the federal foreign non-business income tax credit you are
+            entitled to deduct is equal to the foreign non-business
+
+            tax you paid, your provincial or territorial foreign tax credit would
+            be zero. As a result, you do not have to complete this form.'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: This form does not apply to residents of Quebec.
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: If you must pay minimum tax and you were a resident of Manitoba,
+            you cannot claim a provincial foreign tax credit.
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: "if resident_of_quebec_at_year_end:\n  0\nelse:\n  if minimum_tax_is_payable\
+      \ and resident_of_manitoba_at_year_end:\n    0\n  else:\n    if t2209_federal_non_business_foreign_tax_credit_line_3\
+      \ == t2209_non_business_income_tax_paid_to_foreign_country_line_1:\n      0\n\
+      \    else:\n      min(\n        provincial_territorial_2025_t2036_excess_foreign_tax_line_3,\n\
+      \        provincial_territorial_2025_t2036_tax_otherwise_payable_line_4,\n \
+      \       provincial_or_territorial_tax_otherwise_payable\n      )"
+    effective_to: '2025-12-31'
+- name: multiple_foreign_country_count_threshold
+  kind: parameter
+  dtype: Count
+  source: CRA Form T2036 2025, instructions for claims involving more than one foreign
+    country
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: If you paid tax to more than one foreign country
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 1
+    effective_to: '2025-12-31'
+- name: t2036_foreign_tax_threshold
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA Form T2036 2025, instructions for country-by-country calculations
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: the total of the non-business income taxes that you paid to all
+            foreign countries was more than $200
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 200
+    effective_to: '2025-12-31'
+- name: t691_non_business_foreign_tax_rate
+  kind: parameter
+  dtype: Rate
+  source: CRA Form T2036 2025, note (1), Ontario multiple-country minimum-tax denominator
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: divided by 66.6666%
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 0.666666
+    effective_to: '2025-12-31'
+- name: provincial_territorial_2025_t2036_foreign_non_business_tax_line_1
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: CRA Form T2036 2025 line 1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Enter the amount from line 1 of Form T2209.
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: t2209_non_business_income_tax_paid_to_foreign_country_line_1
+    effective_to: '2025-12-31'
+- name: provincial_territorial_2025_t2036_excess_foreign_tax_line_3
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: CRA Form T2036 2025 line 3
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Line 1 minus line 2 = 3
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'provincial_territorial_2025_t2036_foreign_non_business_tax_line_1
+
+      - provincial_territorial_2025_t2036_federal_credit_line_2'
+    effective_to: '2025-12-31'
+- name: provincial_or_territorial_tax_otherwise_payable
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  source: CRA Form T2036 2025, note (4)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'If you were a resident of a province or territory other than Ontario,
+            Alberta, or British Columbia, enter the amount of tax
+
+            calculated before determining the provincial or territorial foreign tax
+            credit by using the appropriate Form 428. However, if
+
+            you have to pay tax to more than one jurisdiction, complete the applicable
+            part of Section 428MJ of Form T2203 for the
+
+            province or territory in which you resided at the end of the year.'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'If you were a resident of Ontario, calculate this amount by entering
+            "0" on lines 70 and 72 of Form ON428 and continue the
+
+            calculation. The result from line 81 is your provincial or territorial
+            tax otherwise payable. If you paid tax to more than one
+
+            jurisdiction in 2025, calculate this amount by entering "0" on lines 43
+            and 45 in Part 4 of Section ON428MJ of Form T2203
+
+            and continue the calculation. The amount from line 58 is your provincial
+            or territorial tax otherwise payable.'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'If you were a resident of Alberta, calculate your provincial or
+            territorial tax otherwise payable by adding the amount from
+
+            line 63 to the amount on line 68 of Form AB428 or by adding the amount
+            from line 20 to the amount from line 36 in Part 4 of
+
+            Section AB428MJ of Form T2203.'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'If you were a resident of British Columbia at the end of the tax
+            year, your provincial or territorial tax otherwise payable is
+
+            the amount of tax excluding the provincial and territorial foreign tax
+            credit and any British Columbia additional tax for
+
+            minimum tax purposes from Form BC428 or Section BC428MJ of Form T2203.'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    formula: "if resident_of_ontario_at_year_end:\n  if (jurisdictions_tax_paid_count\
+      \ > multiple_foreign_country_count_threshold):\n    on428mj_line_58_after_entering_zero_on_lines_43_and_45\n\
+      \  else:\n    on428_line_81_after_entering_zero_on_lines_70_and_72\nelse:\n\
+      \  if resident_of_alberta_at_year_end:\n    if alberta_applicable_form_is_428mj:\n\
+      \      ab428mj_line_20 + ab428mj_line_36\n    else:\n      ab428_line_63 + ab428_line_68\n\
+      \  else:\n    if resident_of_british_columbia_at_year_end:\n      british_columbia_tax_excluding_foreign_tax_credit_and_additional_minimum_tax\n\
+      \    else:\n      if (jurisdictions_tax_payable_count > multiple_foreign_country_count_threshold):\n\
+      \        section_428mj_tax_before_foreign_tax_credit_for_residence_jurisdiction\n\
+      \      else:\n        form_428_tax_before_provincial_or_territorial_foreign_tax_credit"
+    effective_to: '2025-12-31'
+- name: separate_country_form_required
+  kind: derived
+  entity: Person
+  dtype: Boolean
+  period: Year
+  source: 'T2036 instructions: country-specific calculation'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'If you paid tax to more than one foreign country, and the total
+            of the non-business income taxes that you paid to all foreign
+
+            countries was more than $200, do the calculation on a separate form for
+            each country in Canadian dollars.'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 'if foreign_countries_tax_paid_count > multiple_foreign_country_count_threshold
+      and total_non_business_income_taxes_paid_to_all_foreign_countries > t2036_foreign_tax_threshold:
+      true else: false'
+- name: resident_of_quebec_at_year_end
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: This form does not apply to residents of Quebec.
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: province_or_territory_of_residence_at_year_end == "Quebec"
+- name: resident_of_manitoba_at_year_end
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: If you must pay minimum tax and you were a resident of Manitoba,
+            you cannot claim a provincial foreign tax credit.
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: province_or_territory_of_residence_at_year_end == "Manitoba"
+- name: resident_of_ontario_at_year_end
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'If you were a resident of Ontario at the end of the year, follow
+            the instructions that apply to your situation:'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: province_or_territory_of_residence_at_year_end == "Ontario"
+- name: resident_of_alberta_at_year_end
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'If you were a resident of Alberta, calculate your provincial or
+            territorial tax otherwise payable by adding the amount from
+
+            line 63 to the amount on line 68 of Form AB428 or by adding the amount
+            from line 20 to the amount from line 36 in Part 4 of
+
+            Section AB428MJ of Form T2203.'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: province_or_territory_of_residence_at_year_end == "Alberta"
+- name: resident_of_british_columbia_at_year_end
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: If you were a resident of British Columbia at the end of the year,
+            enter the amount from line 3 of Form T2209 on line 2.
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: province_or_territory_of_residence_at_year_end == "British Columbia"
+- name: has_t2036_calculation_unit
+  kind: data_relation
+  data_relation:
+    arity: 2
+    arguments:
+    - Person
+    - T2036CalculationUnit
+  description: Actual T2036 form-calculation units for this person, tax year and residence
+    jurisdiction; caller supplies complete source-correct units, with separate foreign-country
+    units only when required by the form instructions.
+  metadata:
+    proof:
+      atoms:
+      - path: data_relation
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'If you paid tax to more than one foreign country, and the total
+            of the non-business income taxes that you paid to all foreign
+
+            countries was more than $200, do the calculation on a separate form for
+            each country in Canadian dollars.
+
+            Country or countries for which you are making this claim:'
+- name: t2036_calculation_unit_credit
+  kind: derived
+  entity: T2036CalculationUnit
+  period: Year
+  dtype: Money
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: provincial_territorial_foreign_tax_credit_line_5
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'Enter the total from line 5 (for each country if applicable) on
+            the line for the provincial or territorial foreign tax credit of
+
+            Form 428.'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+- name: t2036_calculation_units_credit_total
+  kind: derived
+  entity: Person
+  period: Year
+  dtype: Money
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: sum(has_t2036_calculation_unit.t2036_calculation_unit_credit)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'Enter the total from line 5 (for each country if applicable) on
+            the line for the provincial or territorial foreign tax credit of
+
+            Form 428.'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+- name: t2036_amount_to_form_428
+  kind: derived
+  entity: Person
+  period: Year
+  dtype: Money
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 'if jurisdictions_tax_payable_count > 1: 0 else: t2036_calculation_units_credit_total'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'Enter the total from line 5 (for each country if applicable) on
+            the line for the provincial or territorial foreign tax credit of
+
+            Form 428.'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'If you have to pay tax to more than one jurisdiction, enter the
+            amount from line 5 on the applicable line in Part 4,
+
+            Section 428MJ of Form T2203, Provincial and Territorial Taxes for Multiple
+            Jurisdictions, only for the province or territory
+
+            you resided in on the last day of the tax year.'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+- name: t2036_amount_to_form_428mj
+  kind: derived
+  entity: Person
+  period: Year
+  dtype: Money
+  unit: CAD
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 'if jurisdictions_tax_payable_count > 1: t2036_calculation_units_credit_total
+      else: 0'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'Enter the total from line 5 (for each country if applicable) on
+            the line for the provincial or territorial foreign tax credit of
+
+            Form 428.'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: 'If you have to pay tax to more than one jurisdiction, enter the
+            amount from line 5 on the applicable line in Part 4,
+
+            Section 428MJ of Form T2203, Provincial and Territorial Taxes for Multiple
+            Jurisdictions, only for the province or territory
+
+            you resided in on the last day of the tax year.'
+      - path: versions[0].effective_from
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+      - path: versions[0].effective_to
+        kind: definition
+        source:
+          corpus_citation_path: ca/policy/cra/t1-2025/provincial-territorial-foreign-tax-credit
+          excerpt: Use this form to calculate the foreign non-business income tax
+            credit for 2025 that you can deduct from the income tax
+inputs:
+- name: t2209_non_business_income_tax_paid_to_foreign_country_line_1
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: t2209_federal_non_business_foreign_tax_credit_line_3
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: t2209_net_foreign_non_business_income_line_2
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: t2209_net_income_line_2
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: resident_of_canada_for_part_of_year
+  entity: Person
+  dtype: Boolean
+  period: Year
+- name: income_for_part_of_year_resident_in_canada
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: income_and_losses_under_paragraphs_115_1_a_to_c_for_nonresident_part
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: amount_allocated_to_province_or_territory_of_residence_t2203_part_1_column_4
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: minimum_tax_is_payable
+  entity: Person
+  dtype: Boolean
+  period: Year
+- name: total_non_business_income_taxes_paid_to_all_foreign_countries
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: t691_special_foreign_tax_credit_line_11_part_4
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: t691_foreign_taxes_line_7_part_4
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: t691_foreign_taxes_line_8_part_4
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: special_foreign_tax_credit_related_to_non_business_income
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: form_428_tax_before_provincial_or_territorial_foreign_tax_credit
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: section_428mj_tax_before_foreign_tax_credit_for_residence_jurisdiction
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: on428_line_81_after_entering_zero_on_lines_70_and_72
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: on428mj_line_58_after_entering_zero_on_lines_43_and_45
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: ab428_line_63
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: ab428_line_68
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: ab428mj_line_20
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: ab428mj_line_36
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: british_columbia_tax_excluding_foreign_tax_credit_and_additional_minimum_tax
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+- name: jurisdictions_tax_paid_count
+  entity: Person
+  dtype: Integer
+  period: Year
+- name: jurisdictions_tax_payable_count
+  entity: Person
+  dtype: Integer
+  period: Year
+- name: foreign_countries_tax_paid_count
+  entity: Person
+  dtype: Integer
+  period: Year
+- name: alberta_applicable_form_is_428mj
+  entity: Person
+  dtype: Boolean
+  period: Year
+- name: deductible_canadian_forces_police_24400
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+- name: deductible_security_options_24900
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+- name: deductible_other_payments_25000
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+- name: claimed_net_capital_losses_25300
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+- name: claimed_qualifying_transfer_capital_gains_25395
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+- name: claimed_capital_gains_25400
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+- name: deductible_prescribed_organization_employment_25600
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+- name: deductible_treaty_exempt_foreign_income_25600
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+- name: deductible_adult_basic_education_tuition_25600
+  entity: Person
+  dtype: Money
+  unit: CAD
+  period: Year
+- name: province_or_territory_of_residence_at_year_end
+  entity: Person
+  dtype: Text
+  period: Year
+units:
+- name: CAD
+  kind: currency
+  minor_units: 2

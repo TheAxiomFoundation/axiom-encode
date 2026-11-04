@@ -131,8 +131,9 @@ reconstruction, typed signing and publication plans. This diagnostic intentional
 does not invoke those admission operations or decide whether eligible records
 cover the candidate's changed files. Production deployment and CI integration
 are still required.
-All v33 §9 preconditions remain required before anything admission-capable
-merges; US activation also remains a separate rollout after the NZ pilot.
+All v33 §9 preconditions remain required before deployment or activation of
+admission-capable code; US activation also remains a separate rollout after
+the NZ pilot. Implementation PRs may merge before activation.
 
 | Max's enrollment package | Supplied here | Remaining integration |
 | --- | --- | --- |

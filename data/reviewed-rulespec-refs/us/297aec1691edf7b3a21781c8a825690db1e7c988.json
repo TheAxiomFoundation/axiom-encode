@@ -1,0 +1,11 @@
+{
+  "base_sha": null,
+  "binding": null,
+  "country": "us",
+  "declared": null,
+  "pr_base_branch": "axiom/signed-backfill-us-35001504609-1",
+  "purpose": "Reviewed SNAP immigration repair head. Migrated from the pre-record allowlist; admitted by axiom-encode#1649.",
+  "rulespec_pr": null,
+  "rulespec_ref": "297aec1691edf7b3a21781c8a825690db1e7c988",
+  "schema": "axiom-encode/reviewed-rulespec-admission/v1"
+}

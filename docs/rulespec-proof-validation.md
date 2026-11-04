@@ -31,6 +31,30 @@ The layers have separate authority:
 No mutable side artifact can justify an executable atom. Evidence must resolve
 through the configured named release or a content-addressed RuleSpec import.
 
+`module.interpretations` documents readings adopted because the source conflicts
+with itself, is read other than literally, or has a question put to its publisher.
+The encoder validates the block in the same proof-validation path used by
+`validate`, apply, and reviewed-candidate promotion. Each `texts[].excerpt` must
+match its canonical corpus citation with the source proof-atom matcher, and
+`affects` must name local rules that are not deferred outputs. These excerpts
+never satisfy a proof obligation or count as complete-source coverage; the
+affected executable rules still need their own proof atoms and tests.
+Each alternative requires a non-blank string `id` matching
+`^[a-z0-9]+(-[a-z0-9]+)*$`, unique within that interpretation; its only allowed
+keys are `id`, `reading`, and optional `effect`.
+
+The encoder is instructed to create new entries with `status: open`. A repair may carry recorded human rulings and
+publisher replies supplied through mandatory review findings into `ruling` and
+`confirmation`, attributed only to organisations. A supplied ruling permits
+`status: ruled`; `confirmed` and `contradicted` require both blocks. The model
+is instructed never to invent either block; validation checks each block's shape,
+not where it came from. `status: contradicted` blocks validation until
+the module is repaired, the old reading is moved into
+`alternatives`, and the new reading's status is set. The block never changes
+lowering, compilation, or execution. See the
+[module metadata contract](../README.md#source-pinning-and-staleness) for its
+shape and status-dependent evidence requirements.
+
 ## Policy-Bearing Atoms
 
 The proof validator treats the following as policy-bearing:
