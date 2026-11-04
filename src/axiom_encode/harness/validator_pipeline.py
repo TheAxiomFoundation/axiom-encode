@@ -713,13 +713,20 @@ def run_claude_code(
         idle_timeout = timeout
         if idle_timeout_env is not None:
             idle_timeout = min(timeout, max(0, int(idle_timeout_env)))
+        environment = (
+            scrub_attestation_signing_keys()
+            if local_environment is None
+            else local_environment
+        )
+        # Claude CLI uses subscription authentication, never the API credit key.
+        environment.pop("ANTHROPIC_API_KEY", None)
         if local_environment is None:
             result = _run_subprocess_with_idle_timeout(
                 cmd,
                 timeout=timeout,
                 idle_timeout=idle_timeout,
                 cwd=cwd,
-                env=scrub_attestation_signing_keys(),
+                env=environment,
             )
         else:
             result = _run_subprocess_with_idle_timeout(
@@ -727,7 +734,7 @@ def run_claude_code(
                 timeout=timeout,
                 idle_timeout=idle_timeout,
                 cwd=cwd,
-                env=local_environment,
+                env=environment,
                 env_is_final=True,
             )
         return result.output, result.returncode
