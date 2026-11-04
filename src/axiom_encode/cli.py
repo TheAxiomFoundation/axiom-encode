@@ -62748,12 +62748,36 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
 
     generated_content = output_file.read_text()
     if retired_source_admission is not None:
-        from .legacy_external_parameters import external_parameter_preservation_issues
+        from .legacy_external_parameters import (
+            carry_forward_external_proved_rules,
+            external_parameter_preservation_issues,
+        )
 
         try:
             generated_payload = _safe_load_unique_keys(generated_content)
         except (yaml.YAMLError, ValueError) as exc:
             return False, [f"Invalid replacement YAML: {exc}"], {}
+        if vars(result).get(_IMMUTABLE_RULESPEC_SHA256_ATTR) is None:
+            try:
+                carried = carry_forward_external_proved_rules(
+                    generated_payload, retired_source_admission
+                )
+                if carried:
+                    generated_content = safe_dump_yaml(
+                        generated_payload, sort_keys=False, allow_unicode=True
+                    )
+                    output_file.write_text(generated_content)
+            except (yaml.YAMLError, ValueError) as exc:
+                return False, [f"Invalid external-rule carry-forward: {exc}"], {}
+            if carried:
+                artifact_issue = _generated_artifact_guard_issue(
+                    output_file, output_test, relative_output, generated_root
+                )
+                if artifact_issue is not None:
+                    return False, [artifact_issue], {}
+                print(
+                    "apply=carried_forward_external_proved_rules:" + ",".join(carried)
+                )
         preservation_issues = external_parameter_preservation_issues(
             generated_payload, retired_source_admission
         )
