@@ -14,7 +14,11 @@ DIRECT_VARIABLES = {
     "pa_pit_pilot_income_tax_liability": "pa_income_tax_before_forgiveness",
 }
 ORACLE_MERGE = "9434ce833bacbc60bc1572ea0245913ff4e48501"
-ENCODER_VERSION = "0.2.2302"
+# The version that pyproject.toml, uv.lock and __init__.py must agree on, read
+# from pyproject.toml so a version bump does not edit this test (axiom-encode#2048).
+ENCODER_VERSION = tomllib.loads(
+    (Path(__file__).parents[1] / "pyproject.toml").read_text()
+)["project"]["version"]
 FALLBACK_TEXT = """  - legal_id_prefix: "us-pa:"
     country: us
     mapping_type: not_comparable
