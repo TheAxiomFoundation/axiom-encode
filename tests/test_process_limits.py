@@ -193,7 +193,6 @@ def test_timeout_does_not_drain_pipes_inherited_by_a_descendant(monkeypatch):
             )[0], "descendant not ready"
             assert os.read(read_fd, 1) == b"R"
 
-        @hides_environment
         def communicate(self, *args, **kwargs):
             nonlocal drains
             drains += 1

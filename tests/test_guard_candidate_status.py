@@ -656,7 +656,6 @@ def test_blob_reader_waits_for_git_to_exit(repo, monkeypatch):
     class SlowExit:
         """Git that has written every response but has not exited yet."""
 
-        @hides_environment
         def __init__(self, *args, **kwargs):
             self._process = real_popen(*args, **kwargs)
             self.stdout = self._process.stdout
@@ -668,7 +667,6 @@ def test_blob_reader_waits_for_git_to_exit(repo, monkeypatch):
             killed.append(True)
             self._process.kill()
 
-        @hides_environment
         def wait(self, *args, **kwargs):
             return self._process.wait(*args, **kwargs)
 
