@@ -46005,7 +46005,9 @@ class TestGuardGenerated:
             )
         target_manifest = repo / ".axiom/encoding-manifests/us/regulations/example.json"
         target_manifest.parent.mkdir(parents=True, exist_ok=True)
-        target_manifest.write_text(json.dumps({"tool": APPLIED_ENCODING_MODEL_TOOL}) + "\n")
+        target_manifest.write_text(
+            json.dumps({"tool": APPLIED_ENCODING_MODEL_TOOL}) + "\n"
+        )
         receipt_path = repo / ".axiom/legacy-replacements/example.json"
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         receipt_path.write_text(json.dumps(receipt) + "\n")
